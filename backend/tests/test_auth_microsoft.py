@@ -35,7 +35,7 @@ from app.api import auth_microsoft as auth_ms_module
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.rate_limit import limiter as _limiter
-from app.core.security import hash_password
+from app.core.security import create_access_token, create_refresh_token, hash_password
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
@@ -128,9 +128,7 @@ async def test_authorize_returns_url_with_login_redirect(
     # redirect_uri now follows the app domain (PUBLIC_BASE_URL), not the legacy
     # MICROSOFT_LOGIN_REDIRECT_URI value — the OAuth hop must land on the app
     # host (api.nexus.* was Safe-Browsing-flagged); the frontend proxies it.
-    assert qs["redirect_uri"] == [
-        "https://app.test.example/auth/microsoft/callback"
-    ]
+    assert qs["redirect_uri"] == ["https://app.test.example/auth/microsoft/callback"]
     assert "openid" in qs["scope"][0]
     assert "User.Read" in qs["scope"][0]
     # State JWT decodes to purpose=sso_login.
@@ -322,12 +320,21 @@ async def _make_exchange_row(
 ) -> str:
     code = uuid.uuid4().hex + uuid.uuid4().hex[:8]  # 40 chars
     async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
         db.add(
             AuthExchangeCode(
                 code=code,
                 user_id=user_id,
-                access_token="fake-access-token",
-                refresh_token="fake-refresh-token",
+                access_token=create_access_token(
+                    user.id,
+                    user.role.value,
+                    token_version=user.token_version,
+                ),
+                refresh_token=create_refresh_token(
+                    user.id,
+                    token_version=user.token_version,
+                ),
                 expires_at=datetime.now(timezone.utc)
                 + timedelta(seconds=expires_in_seconds),
                 consumed_at=(datetime.now(timezone.utc) if consumed else None),
@@ -373,8 +380,8 @@ async def test_exchange_consumes_code_once(
     )
     assert resp1.status_code == 200, resp1.text
     body = resp1.json()
-    assert body["access_token"] == "fake-access-token"
-    assert body["refresh_token"] == "fake-refresh-token"
+    assert body["access_token"]
+    assert body["refresh_token"]
     assert body["user"]["email"] == email
     assert body["user"]["role"] == "recruiter"
     assert body["user"]["profile_completed"] is False
@@ -384,6 +391,68 @@ async def test_exchange_consumes_code_once(
         "/api/auth/microsoft/exchange", json={"code": code}
     )
     assert resp2.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_exchange_session_sets_http_only_cookies_without_token_body(
+    app_client_no_redirect: AsyncClient,
+    cleanup_sso_users,
+    monkeypatch,
+):
+    unique = uuid.uuid4().hex[:8]
+    email = f"exchange-session-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    user_id = await _make_test_user(email)
+    code = await _make_exchange_row(user_id)
+    monkeypatch.setattr(settings, "SESSION_COOKIE_DOMAIN", "")
+    monkeypatch.setattr(settings, "SESSION_COOKIE_SECURE", False)
+
+    response = await app_client_no_redirect.post(
+        "/api/auth/microsoft/exchange-session",
+        json={"code": code},
+        headers={"Origin": "https://app.test.example"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == email
+    assert "access_token" not in response.json()
+    assert "refresh_token" not in response.json()
+    set_cookie = response.headers.get_list("set-cookie")
+    assert any(value.startswith("nexus_access=") for value in set_cookie)
+    assert any("HttpOnly" in value for value in set_cookie)
+
+    replay = await app_client_no_redirect.post(
+        "/api/auth/microsoft/exchange-session",
+        json={"code": code},
+        headers={"Origin": "https://app.test.example"},
+    )
+    assert replay.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_exchange_session_rejects_code_after_token_version_revocation(
+    app_client_no_redirect: AsyncClient,
+    cleanup_sso_users,
+):
+    unique = uuid.uuid4().hex[:8]
+    email = f"exchange-revoked-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    user_id = await _make_test_user(email)
+    code = await _make_exchange_row(user_id)
+
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
+        user.token_version += 1
+        await db.commit()
+
+    response = await app_client_no_redirect.post(
+        "/api/auth/microsoft/exchange-session",
+        json={"code": code},
+        headers={"Origin": "https://app.test.example"},
+    )
+    assert response.status_code == 410
+    assert response.json()["detail"] == "Exchange code invalid or revoked"
 
 
 @pytest.mark.asyncio

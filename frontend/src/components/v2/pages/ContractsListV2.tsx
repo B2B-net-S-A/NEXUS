@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
  Calendar,
+ Download,
  FileText,
  Plus,
  Search,
@@ -20,6 +21,11 @@ import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
 import { Checkbox } from"@/components/ui/checkbox";
 import { Input } from"@/components/ui/input";
+import {
+ Popover,
+ PopoverContent,
+ PopoverTrigger,
+} from"@/components/ui/popover";
 import { ContractsBulkActionsBarV2 } from"@/components/v2/modals/ContractsBulkActionsBar";
 import {
  Select,
@@ -101,6 +107,7 @@ export function ContractsListV2() {
  const [page, setPage] = useState(1);
  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
  const [toast, setToast] = useState<string | null>(null);
+ const [exporting, setExporting] = useState(false);
  const queryClient = useQueryClient();
 
  const toggleId = (id: number) => {
@@ -110,6 +117,53 @@ export function ContractsListV2() {
  else next.add(id);
  return next;
  });
+ };
+
+ const flashToast = (msg: string) => {
+ setToast(msg);
+ setTimeout(() => setToast(null), 3500);
+ };
+
+ // Export the currently-filtered contracts to Excel/CSV. Mirrors the list
+ // query params so "eksportuj to, co widzę" holds; pagination is intentionally
+ // dropped (the endpoint returns every matching row up to its cap).
+ const doExport = async (format: "xlsx" | "csv") => {
+ if (exporting) return;
+ setExporting(true);
+ try {
+ const params = new URLSearchParams();
+ if (search) params.set("q", search);
+ statusFilter.forEach((s) => params.append("status", s));
+ typeFilter.forEach((t) => params.append("contract_type", t));
+ if (endingSoon) params.set("expiring_in_days", "30");
+ params.set("format", format);
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+ const token =
+ typeof window !== "undefined"
+ ? localStorage.getItem("access_token")
+ : null;
+ const res = await fetch(`${apiBase}/api/contracts/export?${params}`, {
+ credentials: "include",
+ headers: token ? { Authorization: `Bearer ${token}` } : {},
+ });
+ if (!res.ok) {
+ flashToast("Eksport nie powiódł się.");
+ return;
+ }
+ const blob = await res.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = `kontrakty-${new Date().toISOString().slice(0, 10)}.${format}`;
+ // Anchor must be in the DOM for a.click() to fire in all browsers; the
+ // object URL is revoked lazily so large blobs finish downloading.
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ } finally {
+ setExporting(false);
+ }
  };
 
  const { data, isLoading } = useQuery({
@@ -166,6 +220,27 @@ export function ContractsListV2() {
  <TrendingUp className="h-4 w-4" /> Analityka
  </Button>
  </Link>
+ <Popover>
+ <PopoverTrigger asChild>
+ <Button size="sm" variant="outline" disabled={exporting}>
+ <Download className="h-4 w-4" /> {exporting ? "Eksportuję…" : "Eksport"}
+ </Button>
+ </PopoverTrigger>
+ <PopoverContent align="end" className="w-44 p-1">
+ <button
+ onClick={() => doExport("xlsx")}
+ className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
+ >
+ Excel (.xlsx)
+ </button>
+ <button
+ onClick={() => doExport("csv")}
+ className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
+ >
+ CSV
+ </button>
+ </PopoverContent>
+ </Popover>
  <RequireRole roles={["admin", "delivery_lead", "tac"]}>
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">

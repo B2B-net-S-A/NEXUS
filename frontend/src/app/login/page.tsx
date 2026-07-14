@@ -58,15 +58,13 @@ function LoginForm() {
   const nextPath = safeNextPath(searchParams.get("next"));
   const ssoErrorRaw = searchParams.get("error");
   const sessionReason = sessionReasonMessage(searchParams.get("reason"));
-  const { setAuth, token } = useAuthStore();
+  const { setAuth, user, hydrated } = useAuthStore();
 
   useEffect(() => {
-    const storedToken =
-      typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    if (storedToken || token) {
+    if (hydrated && user) {
       router.replace(nextPath);
     }
-  }, [token, router, nextPath]);
+  }, [hydrated, user, router, nextPath]);
 
   useEffect(() => {
     const msg = ssoErrorMessage(ssoErrorRaw);
@@ -96,12 +94,9 @@ function LoginForm() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.post("/api/auth/login", { email, password });
-      const me = await api.get("/api/auth/me", {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      });
-      setAuth(me.data, data.access_token);
-      if (requiresOnboarding(me.data)) {
+      const { data } = await api.post("/api/auth/session/login", { email, password });
+      setAuth(data);
+      if (requiresOnboarding(data)) {
         router.push("/onboarding");
       } else {
         router.push(nextPath);

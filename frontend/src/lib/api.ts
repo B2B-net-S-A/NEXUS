@@ -10,12 +10,27 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // i /teams-channels — diagnostykę poprawia 30s timeout zamiast wiecznego
 // hangu.
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+export const SESSION_COOKIE_PREFIX =
+  process.env.NEXT_PUBLIC_SESSION_COOKIE_PREFIX || "nexus";
 
 export const api = axios.create({
   baseURL: API_BASE,
   timeout: DEFAULT_REQUEST_TIMEOUT_MS,
+  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
+
+export function readBrowserCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${encodeURIComponent(name)}=`;
+  for (const part of document.cookie.split(";")) {
+    const value = part.trim();
+    if (value.startsWith(prefix)) {
+      return decodeURIComponent(value.slice(prefix.length));
+    }
+  }
+  return null;
+}
 
 /**
  * Extract user-facing error message from any thrown value.
@@ -57,11 +72,18 @@ export function extractErrorMsg(error: unknown): string {
   return String(error);
 }
 
-// Attach token from localStorage
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+// Cookie sessions are the web default. A pre-rollout localStorage Bearer is
+// read-only compatibility: this code never writes a new token there.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("access_token");
     if (token) config.headers.Authorization = `Bearer ${token}`;
+    if (UNSAFE_METHODS.has((config.method || "GET").toUpperCase())) {
+      const csrf = readBrowserCookie(`${SESSION_COOKIE_PREFIX}_csrf`);
+      if (csrf) config.headers["X-CSRF-Token"] = csrf;
+    }
     // Admin „podgląd jako użytkownik": gdy aktywny, dokleja nagłówek z id
     // podglądanego usera. Backend (admin-only, read-only) podmienia wtedy
     // efektywnego current_user — patrz backend/app/api/deps.py.
@@ -119,6 +141,28 @@ api.interceptors.response.use(
 // out members + pinned + messages + read on mount, all 403 for a non-member.
 // 403s are now surfaced to the caller and handled in place by the component.
 let sessionRedirectInFlight = false;
+let browserRefreshInFlight: Promise<boolean> | null = null;
+
+async function refreshBrowserSession(): Promise<boolean> {
+  if (browserRefreshInFlight) return browserRefreshInFlight;
+  browserRefreshInFlight = (async () => {
+    const csrf = readBrowserCookie(`${SESSION_COOKIE_PREFIX}_csrf`);
+    if (!csrf) return false;
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/session/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRF-Token": csrf },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    browserRefreshInFlight = null;
+  });
+  return browserRefreshInFlight;
+}
 
 function triggerSessionExpiredRedirect(): void {
   if (typeof window === "undefined") return;
@@ -129,7 +173,7 @@ function triggerSessionExpiredRedirect(): void {
   try {
     localStorage.removeItem("access_token");
     localStorage.removeItem("nexus_user");
-    document.cookie = "nexus_access=; path=/; max-age=0; samesite=lax";
+    document.cookie = `${SESSION_COOKIE_PREFIX}_access=; path=/; max-age=0; samesite=lax`;
   } catch {
     /* non-browser env */
   }
@@ -141,11 +185,29 @@ function triggerSessionExpiredRedirect(): void {
 
 api.interceptors.response.use(
   (res) => res,
-  (err: AxiosError) => {
+  async (err: AxiosError) => {
     if (typeof window === "undefined") return Promise.reject(err);
-    if (err.response?.status === 401) {
-      triggerSessionExpiredRedirect();
+    if (err.response?.status !== 401) return Promise.reject(err);
+
+    type SessionRetryConfig = NonNullable<typeof err.config> & {
+      _sessionRefreshAttempted?: boolean;
+    };
+    const config = err.config as SessionRetryConfig | undefined;
+    const requestUrl = String(config?.url || "");
+    const isSessionEndpoint = requestUrl.includes("/api/auth/session/");
+    const hasLegacyBearer = Boolean(localStorage.getItem("access_token"));
+    if (
+      config &&
+      !config._sessionRefreshAttempted &&
+      !isSessionEndpoint &&
+      !hasLegacyBearer
+    ) {
+      config._sessionRefreshAttempted = true;
+      if (await refreshBrowserSession()) {
+        return api.request(config);
+      }
     }
+    triggerSessionExpiredRedirect();
     return Promise.reject(err);
   },
 );

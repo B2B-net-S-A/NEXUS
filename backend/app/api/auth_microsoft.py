@@ -28,7 +28,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
@@ -38,10 +47,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    token_version_matches,
+)
+from app.core.session import set_browser_session
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
+from app.schemas.user import UserResponse
 from app.services.m365 import oauth as m365_oauth
 
 logger = logging.getLogger(__name__)
@@ -261,6 +277,52 @@ def _frontend_login_error_url(reason: str) -> str:
     return f"{base}/login?{urlencode({'error': reason[:120]})}"
 
 
+async def _consume_exchange_code(
+    code: str,
+    db: AsyncSession,
+) -> tuple[AuthExchangeCode, User]:
+    """Lock and consume one live SSO code whose staged JWT is not revoked."""
+    row = await db.scalar(
+        select(AuthExchangeCode).where(AuthExchangeCode.code == code).with_for_update()
+    )
+    if row is None:
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code unknown or already consumed",
+        )
+    now = datetime.now(timezone.utc)
+    if row.consumed_at is not None or row.expires_at <= now:
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code expired or already consumed",
+        )
+
+    user = await db.scalar(select(User).where(User.id == row.user_id))
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="User no longer active")
+
+    try:
+        staged = decode_token(row.access_token)
+        staged_user_id = int(staged["sub"])
+    except (JWTError, KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code invalid or revoked",
+        )
+    if (
+        staged.get("type") != "access"
+        or staged_user_id != user.id
+        or not token_version_matches(staged, user.token_version)
+    ):
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code invalid or revoked",
+        )
+
+    row.consumed_at = now
+    return row, user
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
@@ -347,6 +409,16 @@ async def callback(
     email_lower = email.lower()
     result = await db.execute(select(User).where(User.email == email_lower))
     user = result.scalar_one_or_none()
+    security_snapshot = (
+        (
+            user.role,
+            tuple(user.roles or []),
+            user.is_active,
+            user.force_password_change,
+        )
+        if user is not None
+        else None
+    )
     if user is None:
         user = User(
             email=email_lower,
@@ -460,6 +532,7 @@ async def callback(
             # We also flip is_active=false so subsequent password-based
             # login attempts (if any password_hash still exists) also fail.
             user.is_active = False
+            user.token_version += 1
             await db.flush()
             db.add(
                 Activity(
@@ -537,6 +610,16 @@ async def callback(
         user.force_password_change = False
         user.force_password_change_at = None
 
+    if security_snapshot is not None and security_snapshot != (
+        user.role,
+        tuple(user.roles or []),
+        user.is_active,
+        user.force_password_change,
+    ):
+        # Revoke sessions carrying stale role/account/fpc claims before minting
+        # the new SSO session. Multi-role evaluation itself is unchanged.
+        user.token_version += 1
+
     await db.flush()
     user_id = user.id
 
@@ -544,9 +627,10 @@ async def callback(
     access = create_access_token(
         user.id,
         user.role.value,
+        token_version=user.token_version,
         force_password_change=user.force_password_change,
     )
-    refresh = create_refresh_token(user.id)
+    refresh = create_refresh_token(user.id, token_version=user.token_version)
 
     # Stash behind a short-lived UUID (frontend will POST it back).
     exchange_code = secrets.token_urlsafe(40)
@@ -575,23 +659,7 @@ async def exchange(
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeResponse:
     """Trade the one-time UUID code for the real Nexus JWTs."""
-    row = await db.scalar(
-        select(AuthExchangeCode).where(AuthExchangeCode.code == payload.code)
-    )
-    if row is None:
-        raise HTTPException(
-            status.HTTP_410_GONE, detail="Exchange code unknown or already consumed"
-        )
-    now = datetime.now(timezone.utc)
-    if row.consumed_at is not None or row.expires_at <= now:
-        raise HTTPException(
-            status.HTTP_410_GONE, detail="Exchange code expired or already consumed"
-        )
-
-    row.consumed_at = now
-    user = await db.scalar(select(User).where(User.id == row.user_id))
-    if user is None or not user.is_active:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="User no longer active")
+    row, user = await _consume_exchange_code(payload.code, db)
 
     access = row.access_token
     refresh = row.refresh_token
@@ -604,3 +672,22 @@ async def exchange(
     )
     await db.commit()
     return ExchangeResponse(access_token=access, refresh_token=refresh, user=summary)
+
+
+@router.post("/exchange-session", response_model=UserResponse)
+@limiter.limit("5/minute")
+async def exchange_session(
+    request: Request,
+    response: Response,
+    payload: ExchangeRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Consume a Microsoft exchange code into an HttpOnly browser session.
+
+    Unlike the legacy ``/exchange`` endpoint this response never exposes the
+    staged access/refresh JWTs to JavaScript.
+    """
+    _row, user = await _consume_exchange_code(payload.code, db)
+    set_browser_session(response, user)
+    await db.commit()
+    return user

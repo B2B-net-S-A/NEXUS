@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,12 @@ class User(Base, TimestampMixin):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "token_version >= 0",
+            name="ck_users_token_version_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(
@@ -67,6 +73,12 @@ class User(Base, TimestampMixin):
         JSONB, default=list, server_default="[]", nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Monotonic per-user revocation counter embedded in access + refresh JWTs.
+    # Incrementing it invalidates every previously issued token without a
+    # global SECRET_KEY rotation.
+    token_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     # Email-verification gate for self-service registration (POST /api/auth/register).
     # ``True`` = address confirmed (legacy email/password users, Microsoft SSO

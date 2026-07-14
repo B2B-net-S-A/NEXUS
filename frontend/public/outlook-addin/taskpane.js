@@ -7,7 +7,8 @@
  *      call GET /api/candidates/check-exists.
  *   3. Render the candidate card (found) or empty state with "Dodaj" CTA.
  *
- * Auth strategy: MVP uses NEXUS email/password → JWT stored in localStorage.
+ * Auth strategy: NEXUS email/password → JWT held only in sessionStorage.
+ * A one-time read migrates an old localStorage value, then deletes it.
  * Office SSO (Office.context.auth.getAccessToken) is a follow-up — requires
  * matching WebApplicationInfo block in the manifest and an AAD app exposing
  * a scope, which is out of scope here.
@@ -30,17 +31,32 @@
   function $(id) { return document.getElementById(id); }
 
   function getToken() {
-    try { return window.localStorage.getItem(TOKEN_KEY); }
+    try {
+      var current = window.sessionStorage.getItem(TOKEN_KEY);
+      if (current) return current;
+      var legacy = window.localStorage.getItem(TOKEN_KEY);
+      if (legacy) {
+        window.sessionStorage.setItem(TOKEN_KEY, legacy);
+        window.localStorage.removeItem(TOKEN_KEY);
+      }
+      return legacy;
+    }
     catch (_) { return null; }
   }
 
   function setToken(token) {
-    try { window.localStorage.setItem(TOKEN_KEY, token); }
+    try {
+      window.localStorage.removeItem(TOKEN_KEY);
+      window.sessionStorage.setItem(TOKEN_KEY, token);
+    }
     catch (_) { /* private mode or storage disabled — fall through */ }
   }
 
   function clearToken() {
-    try { window.localStorage.removeItem(TOKEN_KEY); }
+    try {
+      window.sessionStorage.removeItem(TOKEN_KEY);
+      window.localStorage.removeItem(TOKEN_KEY);
+    }
     catch (_) { /* ignore */ }
   }
 

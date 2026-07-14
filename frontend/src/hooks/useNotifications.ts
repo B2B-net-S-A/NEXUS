@@ -57,7 +57,7 @@ interface UseNotificationsOptions {
 }
 
 export function useNotifications({ onNotification }: UseNotificationsOptions = {}) {
-  const { token } = useAuthStore();
+  const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,7 +83,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
   }, []);
 
   const connect = useCallback(() => {
-    if (!token || !mountedRef.current) return;
+    if (!user || !mountedRef.current) return;
 
     // Clean up existing connection
     if (wsRef.current) {
@@ -92,7 +92,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       wsRef.current = null;
     }
 
-    const url = `${WS_BASE}/ws/notifications?token=${encodeURIComponent(token)}`;
+    const url = `${WS_BASE}/ws/notifications`;
     let ws: WebSocket;
 
     try {
@@ -271,7 +271,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
         }
       }, delay);
     };
-  }, [token, queryClient, onNotification, startPolling, stopPolling]);
+  }, [user, queryClient, onNotification, startPolling, stopPolling]);
 
   // Reset unread badge when user opens notification dropdown
   const clearUnread = useCallback(() => {

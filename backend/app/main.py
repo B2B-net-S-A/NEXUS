@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
+from app.core.csrf import CookieCSRFMiddleware
 from app.core.database import engine
 from app.core.logging_config import configure_json_logging
 from app.core.migration_gate import require_current_migration_head
@@ -446,6 +447,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(CookieCSRFMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -462,6 +464,7 @@ app.add_middleware(
         "X-Requested-With",
         # Admin „podgląd jako użytkownik" — patrz app/api/deps.py.
         "X-Impersonate-User-Id",
+        "X-CSRF-Token",
     ],
 )
 

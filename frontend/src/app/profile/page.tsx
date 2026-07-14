@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
@@ -126,8 +126,7 @@ function ActivityCard({ type, count }: { type: string; count: number }) {
 // ── Profile page ──────────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
-  const { user, setAuth, token } = useAuthStore();
-  const router = useRouter();
+  const { user } = useAuthStore();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
 
@@ -195,33 +194,13 @@ export default function ProfilePage() {
       setPwSuccess(true);
       setPwForm({ current: "", next: "", confirm: "" });
 
-      // Po zmianie hasła backend wyczyścił flag force_password_change.
-      // Re-fetch /me + nowy login do refreshu JWT (claim fpc zniknie)
-      // żeby middleware przestał redirectować z innych route'ów.
-      // Tutaj tylko refresh /me — full re-login wymagany jest dopiero przy
-      // następnej akcji którą middleware zatrzyma. Bezpieczniej: wymuś
-      // ponowny login by JWT się przeładował.
-      try {
-        const me = await api.get("/api/auth/me");
-        if (token) {
-          // setAuth z tym samym tokenem zapisuje świeży user object
-          // (bez force_password_change). JWT pozostaje stary aż do
-          // następnego loginu — ale fpc claim w JWT wymaga full re-login,
-          // więc dla mustChangePassword case wylogowujemy + redirect.
-          setAuth(me.data, token);
-        }
-        queryClient.invalidateQueries({ queryKey: ["user-profile"] });
-      } catch {
-        /* refresh best-effort */
-      }
-
-      if (mustChangePassword) {
-        // JWT ma claim fpc=true który nie zniknie bez nowego loginu.
-        // Wylogowanie + redirect na login zapewnia świeży token bez fpc.
-        setTimeout(() => {
-          useAuthStore.getState().logout();
-        }, 1500);
-      }
+      // Zmiana hasła podnosi token_version i unieważnia wszystkie aktywne
+      // sesje użytkownika. Backend wyczyścił cookies w tej odpowiedzi; lokalny
+      // store kończymy po krótkim potwierdzeniu sukcesu.
+      queryClient.invalidateQueries({ queryKey: ["user-profile"] });
+      setTimeout(() => {
+        void useAuthStore.getState().logout();
+      }, 1500);
     } catch (err: any) {
       setPwError(err?.response?.data?.detail || "Błąd zmiany hasła");
     } finally {
