@@ -5,8 +5,8 @@ Extends the Phase 1 `/api/jobs/{id}/ai-matches` with a richer `/recommendations`
 endpoint that returns an explainable ScoreBreakdown per candidate, and adds a
 reverse `/api/candidates/{id}/recommendations` for candidate→jobs direction.
 
-Also exposes `POST /api/jobs/{id}/refresh-criteria` (AI-generated must/nice
-skills via Ollama) and `POST /api/jobs/{id}/recompute-scores` (batch rescoring).
+Also exposes `POST /api/jobs/{id}/refresh-criteria` (taxonomy + routed AI)
+and `POST /api/jobs/{id}/recompute-scores` (batch rescoring).
 """
 
 from __future__ import annotations
@@ -16,9 +16,11 @@ import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai import AIError, AIRequest, ai_gateway
 from app.api.deps import (
     CurrentUser,
     get_current_user,
@@ -31,6 +33,7 @@ from app.services.candidate_stage_cv_service import (
 )
 from app.core.rate_limit import limiter
 from app.models.user import User, UserRole
+from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -848,19 +851,70 @@ async def recommend_jobs_for_candidate(
 # ── AI-generated criteria (must/nice skills from description) ───────────────
 
 
-async def _generate_criteria_with_ollama(job: Job) -> Optional[dict]:
-    """Call local Ollama (if configured) to extract must/nice from description."""
-    # Config only defines OLLAMA_BASE_URL; the legacy OLLAMA_HOST is never set,
-    # so checking OLLAMA_HOST alone left this path permanently dead (always
-    # falling through to the heuristic). Resolve both, mirroring cv_parser.
-    ollama_host = getattr(settings, "OLLAMA_HOST", None) or getattr(
-        settings, "OLLAMA_BASE_URL", None
-    )
-    if not ollama_host:
-        return None
-    model = getattr(settings, "OLLAMA_MODEL", "llama3.2")
+class _CriteriaSkill(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    import httpx
+    name: str
+    level: Optional[str] = None
+
+
+class _CriteriaOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    must_skills: list[_CriteriaSkill] = Field(default_factory=list)
+    nice_skills: list[_CriteriaSkill] = Field(default_factory=list)
+
+
+def _taxonomy_criteria(job: Job) -> tuple[dict, list[str]]:
+    """Resolve explicit MUST/NICE sections without a model; return ambiguities."""
+    from app.services.scoring_service import ALIAS_MAP, _alias_pattern
+
+    pattern = _alias_pattern()
+    if pattern is None:
+        return {"must_skills": [], "nice_skills": []}, []
+    must: list[str] = []
+    nice: list[str] = []
+    ambiguous: list[str] = []
+    section: Optional[str] = None
+    text = "\n".join(
+        value
+        for value in (job.title, job.requirements, job.description)
+        if isinstance(value, str) and value.strip()
+    )
+    for line in text.splitlines():
+        lowered = line.casefold()
+        if any(
+            marker in lowered for marker in ("mile widziane", "nice to have", "atutem")
+        ):
+            section = "nice"
+        elif any(
+            marker in lowered for marker in ("wymagania", "must have", "required")
+        ):
+            section = "must"
+        for match in pattern.finditer(line):
+            canonical = ALIAS_MAP.get(match.group(1).lower())
+            if not canonical:
+                continue
+            target = (
+                nice if section == "nice" else must if section == "must" else ambiguous
+            )
+            if canonical not in target:
+                target.append(canonical)
+    return {
+        "must_skills": [{"name": value, "level": None} for value in must],
+        "nice_skills": [{"name": value, "level": None} for value in nice],
+    }, ambiguous
+
+
+async def _generate_criteria(job: Job, *, user_id: int) -> dict:
+    deterministic, ambiguous = _taxonomy_criteria(job)
+    if not ambiguous and not (
+        deterministic["must_skills"] or deterministic["nice_skills"]
+    ):
+        return {**_fallback_criteria_from_text(job), "_source": "heuristic"}
+    if not ambiguous and (deterministic["must_skills"] or deterministic["nice_skills"]):
+        return {**deterministic, "_source": "taxonomy"}
+
     from app.services.llm_prompts import JOB_CRITERIA_FROM_DESCRIPTION
 
     prompt = JOB_CRITERIA_FROM_DESCRIPTION.render(
@@ -868,45 +922,55 @@ async def _generate_criteria_with_ollama(job: Job) -> Optional[dict]:
         description=(job.description or "")[:2000],
         requirements=(job.requirements or "")[:2000],
     )
+    prompt += (
+        "\n\nTaksonomia rozpoznała jednoznaczne kryteria i kandydatów "
+        "niejednoznacznych. Zachowaj jednoznaczne przypisania:\n"
+        f"deterministic={deterministic}\nambiguous={ambiguous}"
+    )
+    allowed = {
+        item["name"].casefold() for group in deterministic.values() for item in group
+    } | {item.casefold() for item in ambiguous}
+
+    def validate(value: object) -> dict:
+        result = _CriteriaOutput.model_validate(value)
+        names = {
+            item.name.casefold() for item in [*result.must_skills, *result.nice_skills]
+        }
+        if allowed and not names.issubset(allowed):
+            raise ValueError("AI returned a skill outside the taxonomy candidates")
+        for group, items in deterministic.items():
+            returned = {item.name.casefold() for item in getattr(result, group)}
+            expected = {item["name"].casefold() for item in items}
+            if not expected.issubset(returned):
+                raise ValueError("AI changed an unambiguous taxonomy match")
+        return result.model_dump()
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{ollama_host.rstrip('/')}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json",
-                },
+        result = await ai_gateway.call(
+            AIRequest(
+                feature=AIFeatureKey.criteria_suggestions,
+                user_id=user_id,
+                client_id=job.client_id,
+                subject_type="job",
+                subject_id=job.id,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Klasyfikuj tylko podane kryteria i zwróć wyłącznie JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                prompt_version="criteria_taxonomy_v2",
+                schema_version="criteria_v2",
+                structured_validator=validate,
+                pii=True,
             )
-            resp.raise_for_status()
-            payload = resp.json().get("response", "").strip()
-            import json
-
-            data = json.loads(payload)
-            if not isinstance(data, dict):
-                return None
-            # Stamp the source so refresh/preview can report "ollama" vs
-            # "heuristic" (the endpoints key on ``"_source" in criteria``).
-            # It is a top-level key, not part of must/nice, so it never leaks
-            # into the persisted skill lists.
-            return {
-                "must_skills": data.get("must_skills") or [],
-                "nice_skills": data.get("nice_skills") or [],
-                "_source": (
-                    f"ollama:{JOB_CRITERIA_FROM_DESCRIPTION.name}"
-                    f":v{JOB_CRITERIA_FROM_DESCRIPTION.version}"
-                ),
-            }
-    except Exception as e:
-        logger.warning(
-            "[Ollama] criteria generation failed (template=%s v%d): %s",
-            JOB_CRITERIA_FROM_DESCRIPTION.name,
-            JOB_CRITERIA_FROM_DESCRIPTION.version,
-            e,
         )
-        return None
+        return {**result.content, "_source": "ai"}
+    except AIError as exc:
+        logger.warning("criteria AI unavailable code=%s", exc.code)
+        fallback = _fallback_criteria_from_text(job)
+        return {**fallback, "_source": "heuristic"}
 
 
 def _fallback_criteria_from_text(job: Job) -> dict:
@@ -960,7 +1024,7 @@ async def refresh_job_criteria(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    criteria = await _generate_criteria_with_ollama(job)
+    criteria = await _generate_criteria(job, user_id=current_user.id)
     if not criteria:
         criteria = _fallback_criteria_from_text(job)
 
@@ -981,7 +1045,7 @@ async def refresh_job_criteria(
         "must_skills": job.must_skills,
         "nice_skills": job.nice_skills,
         "criteria_generated_at": job.criteria_generated_at.isoformat(),
-        "source": "ollama" if criteria and "_source" in criteria else "heuristic",
+        "source": criteria.get("_source", "heuristic"),
     }
 
 
@@ -1001,8 +1065,8 @@ async def generate_job_criteria_preview(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    criteria = await _generate_criteria_with_ollama(job)
-    source = "ollama" if criteria and "_source" in criteria else "heuristic"
+    criteria = await _generate_criteria(job, user_id=current_user.id)
+    source = criteria.get("_source", "heuristic") if criteria else "heuristic"
     if not criteria:
         criteria = _fallback_criteria_from_text(job)
 

@@ -227,33 +227,9 @@ async def cv_upload_preview(
                 ),
             )
 
-        # Settings → AI quota gate (Traffit gap #5).
-        # Charge cv_parser only when we'll actually invoke parse_cv() with
-        # extracted text. Counted before commit so a quota-blocked upload
-        # gets 503 without burning a Claude call.
-        from app.models.ai_feature import AIFeatureKey
-        from app.services.ai_quota import AIQuotaExceeded, check_and_increment
-
-        try:
-            await check_and_increment(
-                db,
-                AIFeatureKey.cv_parser,
-                user_id=current_user.id,
-            )
-            await db.commit()
-        except AIQuotaExceeded as exc:
-            await db.rollback()
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "feature": exc.feature.value,
-                    "reason": exc.reason,
-                    "used": exc.used,
-                    "limit": exc.limit,
-                },
-            ) from exc
-
-        parsed = await parse_cv(cv_text)
+        # The gateway owns the single business quota/budget reservation and
+        # records every provider attempt in the append-only ledger.
+        parsed = await parse_cv(cv_text, user_id=current_user.id)
         query_text = _build_query_text_from_parsed(parsed) or cv_text[:2000]
 
         emb_ok = await generate_embedding(query_text, input_type="query") is not None

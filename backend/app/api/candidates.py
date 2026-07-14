@@ -3624,7 +3624,7 @@ async def create_candidate_from_cv(
         )
 
     # 2 — parse structured facts
-    parsed = await parse_cv(raw_text)
+    parsed = await parse_cv(raw_text, user_id=current_user.id)
 
     # 3 — dedup scan
     dup_rows = await find_candidate_duplicates(

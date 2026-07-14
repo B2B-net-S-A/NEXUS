@@ -14,9 +14,9 @@ Takes raw CV text and uses an LLM to extract structured facts:
   - _confidence (dict[str, float])                  — v4, per-field certainty
 
 Hierarchy (highest precedence first):
-  1. Claude (Anthropic) — best quality, used for production uploads
-  2. Ollama (local) — free, used in dev / when ANTHROPIC_API_KEY is unset
-  3. regex heuristic — always-on last resort, never fails
+  1. deterministic text/contact extraction
+  2. versioned gateway route (Haiku, explicit Sonnet escalation in v2)
+  3. regex heuristic marked for human review after provider/schema failure
 
 Contact-field safety net: after the LLM returns, a deterministic regex pass
 (`_apply_contact_fallbacks`) fills in any email/phone/name it missed by
@@ -30,15 +30,17 @@ cache recomputes with the fresh skills.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
 from typing import Any, Optional
 
-import httpx
-from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.ai import AIError, AIRequest, ai_gateway
 from app.core.config import settings
+from app.models.ai_feature import AIFeatureKey
 from app.services.llm_prompts import CV_ENRICHMENT
 
 logger = logging.getLogger(__name__)
@@ -232,150 +234,334 @@ def _regex_fallback(cv_text: str) -> dict[str, Any]:
         "linkedin_url": _extract_linkedin_from_text(cv_text),
         "_confidence": {},
         "_source": "regex",
+        "_provenance": {},
+        "_needs_human_review": False,
     }
-    return _apply_contact_fallbacks(base, cv_text)
+    result = _apply_contact_fallbacks(base, cv_text)
+    result["_provenance"] = _build_provenance(result, cv_text, default_source="regex")
+    return result
 
 
-def _strip_json_fences(raw: str) -> str:
-    """Strip ```json ... ``` markdown fences that LLMs occasionally emit.
+class _CVSkill(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    Mirrors the behaviour in app/api/ai_writer.py:259-263 so both Claude call-
-    sites share the same unwrap logic.
-    """
-    raw = raw.strip()
-    if raw.startswith("```"):
-        # Drop the opening fence (with or without language tag).
-        raw = raw.split("```", 2)
-        # parts: ["", "json\n{...}", ""] or ["", "{...}", ""] — take middle.
-        raw = raw[1] if len(raw) > 1 else ""
-        if raw.lstrip().startswith("json"):
-            raw = raw.lstrip()[4:]
-    # Also strip trailing backticks if the split above left any behind.
-    return raw.strip().rstrip("`").strip()
+    name: str
+    level: Optional[str] = None
+    years: Optional[float] = Field(default=None, ge=0, le=60)
+
+    @field_validator("name")
+    @classmethod
+    def skill_name_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("blank skill")
+        return value.strip()
 
 
-async def _parse_with_claude(cv_text: str) -> Optional[dict[str, Any]]:
-    """Call Anthropic Claude with the versioned CV_ENRICHMENT prompt.
+class _CVParseSchema(BaseModel):
+    """Strict provider response; operational metadata is added server-side."""
 
-    Returns None on any failure so the caller can fall back to Ollama / regex.
-    Never raises upward.
-    """
-    api_key = settings.ANTHROPIC_API_KEY
-    if not api_key or not settings.CV_ENRICHMENT_ENABLED:
-        return None
+    model_config = ConfigDict(extra="forbid")
 
-    try:
-        import anthropic  # lazy import — keeps cold-start fast when unused
-    except ImportError:  # pragma: no cover — requirements.txt pins it
-        logger.warning("[cv_parser] anthropic SDK not installed; skipping Claude path")
-        return None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    years_it_experience: Optional[int] = Field(default=None, ge=0, le=60)
+    current_position: Optional[str] = None
+    skills: list[_CVSkill] = Field(default_factory=list)
+    education: list[Any] = Field(default_factory=list)
+    languages: list[Any] = Field(default_factory=list)
+    companies: list[str] = Field(default_factory=list)
+    career_summary: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    confidence: dict[str, float] = Field(default_factory=dict, alias="_confidence")
 
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        user_prompt = CV_ENRICHMENT.render(cv_text=cv_text[:8000])
-        # Sync Anthropic SDK call — offload the multi-second network round-trip
-        # so it does not block the single-worker event loop.
-        message = await run_in_threadpool(
-            client.messages.create,
-            model=settings.CLAUDE_MODEL_CV,
-            max_tokens=2000,
-            # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
-            # tokens count toward max_tokens and would truncate this JSON output.
-            thinking={"type": "disabled"},
-            system=CV_ENRICHMENT.system_prompt or "",
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        # Claude 5 models can lead with a non-text block (e.g. a thinking
-        # block), so content[0].text may be absent/empty — collect every text
-        # block instead of blindly reading content[0].
-        raw = "".join(
-            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
-        )
-        unwrapped = _strip_json_fences(raw)
-        data = json.loads(unwrapped)
-        if not isinstance(data, dict):
+    @field_validator("email")
+    @classmethod
+    def plausible_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
             return None
-        data["_source"] = f"claude:{CV_ENRICHMENT.name}:v{CV_ENRICHMENT.version}"
+        value = value.strip().lower()
+        if not _EMAIL_RE.fullmatch(value):
+            raise ValueError("invalid email")
+        return value
+
+    @field_validator("phone")
+    @classmethod
+    def plausible_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if len(re.sub(r"\D", "", value)) not in (9, 11):
+            raise ValueError("invalid phone")
+        return value.strip()
+
+
+def _schema_validator(value: object) -> dict[str, Any]:
+    parsed = _CVParseSchema.model_validate(value)
+    return parsed.model_dump(by_alias=True)
+
+
+class _CandidateSummarySchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=20, max_length=1200)
+
+
+def _summary_fallback(parsed: dict[str, Any]) -> Optional[str]:
+    """Build a small factual summary without a generative model."""
+    parts: list[str] = []
+    if parsed.get("current_position"):
+        parts.append(str(parsed["current_position"]).strip())
+    years = parsed.get("years_it_experience")
+    if isinstance(years, int):
+        parts.append(f"{years} lat doświadczenia IT")
+    skill_names = [
+        str(item.get("name", "")).strip()
+        for item in parsed.get("skills", [])
+        if isinstance(item, dict) and item.get("name")
+    ][:6]
+    if skill_names:
+        parts.append("technologie: " + ", ".join(skill_names))
+    return ". ".join(parts) + "." if parts else None
+
+
+async def _generate_candidate_summary(
+    parsed: dict[str, Any],
+    *,
+    user_id: Optional[int],
+    client_id: Optional[int],
+    subject_id: Optional[int],
+) -> tuple[Optional[str], str]:
+    """Generate a factual summary via its own Haiku-first feature route."""
+    facts = {
+        "years_it_experience": parsed.get("years_it_experience"),
+        "current_position": parsed.get("current_position"),
+        "skills": parsed.get("skills", []),
+        "education": parsed.get("education", []),
+        "languages": parsed.get("languages", []),
+        "companies": parsed.get("companies", []),
+    }
+
+    def validate(value: object) -> str:
+        return _CandidateSummarySchema.model_validate(value).summary.strip()
+
+    try:
+        result = await ai_gateway.call(
+            AIRequest(
+                feature=AIFeatureKey.candidate_summary,
+                user_id=user_id,
+                client_id=client_id,
+                subject_type="candidate" if subject_id is not None else "cv_upload",
+                subject_id=subject_id,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Napisz zwięzłe polskie podsumowanie profilu kandydata. "
+                            "Używaj wyłącznie przekazanych faktów, bez danych kontaktowych, "
+                            'ocen i domysłów. Zwróć JSON: {"summary": "..."}.'
+                        ),
+                    },
+                    {"role": "user", "content": json.dumps(facts, ensure_ascii=False)},
+                ],
+                prompt_version="candidate_summary_facts_v1",
+                schema_version="candidate_summary_v1",
+                structured_validator=validate,
+                pii=True,
+            )
+        )
+        summary = (
+            result.content
+            if isinstance(result.content, str)
+            else validate(result.content)
+        )
+        return summary, f"{result.provider}:{result.model}"
+    except Exception as exc:  # noqa: BLE001 - summary must not fail CV extraction
+        logger.warning("candidate_summary degraded error_type=%s", type(exc).__name__)
+        return _summary_fallback(parsed), "deterministic:summary_v1"
+
+
+def _evidence_for(value: Any, cv_text: str) -> str:
+    """Return a short verbatim evidence line when a value occurs in source text."""
+    candidates = value if isinstance(value, list) else [value]
+    lowered = cv_text.lower()
+    for item in candidates:
+        if isinstance(item, dict):
+            item = item.get("name")
+        text = str(item or "").strip()
+        if not text:
+            continue
+        position = lowered.find(text.lower())
+        if position >= 0:
+            line_start = cv_text.rfind("\n", 0, position) + 1
+            line_end = cv_text.find("\n", position)
+            if line_end < 0:
+                line_end = len(cv_text)
+            return cv_text[line_start:line_end].strip()[:240]
+    return ""
+
+
+def _build_provenance(
+    parsed: dict[str, Any], cv_text: str, *, default_source: str
+) -> dict[str, dict[str, str]]:
+    provenance: dict[str, dict[str, str]] = {}
+    for key, value in parsed.items():
+        if key.startswith("_") or value in (None, "", [], {}):
+            continue
+        evidence = _evidence_for(value, cv_text)
+        provenance[key] = {
+            "source": default_source if evidence else f"{default_source}_inferred",
+            "evidence": evidence,
+        }
+    return provenance
+
+
+def _merge_deterministic_contacts(
+    parsed: dict[str, Any], cv_text: str
+) -> dict[str, Any]:
+    """Exact source contacts override model output; names only fill blanks."""
+    out = dict(parsed)
+    deterministic = {
+        "email": _extract_email_from_text(cv_text),
+        "phone": _extract_phone_from_text(cv_text),
+    }
+    first, last = _split_name_from_header(cv_text)
+    deterministic.update({"first_name": first, "last_name": last})
+    confidence = dict(out.get("_confidence") or {})
+    for field in ("email", "phone"):
+        if deterministic[field]:
+            out[field] = deterministic[field]
+            confidence[field] = 1.0
+    for field in ("first_name", "last_name"):
+        if not out.get(field) and deterministic[field]:
+            out[field] = deterministic[field]
+            confidence[field] = 0.6
+    out["_confidence"] = confidence
+    return out
+
+
+def _requires_review(parsed: dict[str, Any]) -> bool:
+    has_identity = bool(
+        (parsed.get("first_name") and parsed.get("last_name")) or parsed.get("email")
+    )
+    has_experience = bool(parsed.get("skills") or parsed.get("current_position"))
+    return not (has_identity and has_experience)
+
+
+async def _parse_with_claude(
+    cv_text: str,
+    *,
+    user_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+    subject_id: Optional[int] = None,
+) -> Optional[dict[str, Any]]:
+    """Parse via the central gateway; route owns Haiku→Sonnet escalation."""
+    if not settings.CV_ENRICHMENT_ENABLED:
+        return None
+    prompt = CV_ENRICHMENT.render(cv_text=cv_text[:8000])
+    try:
+        result = await ai_gateway.call(
+            AIRequest(
+                feature=AIFeatureKey.cv_parser,
+                user_id=user_id,
+                client_id=client_id,
+                subject_type="candidate" if subject_id is not None else "cv_upload",
+                subject_id=subject_id,
+                messages=[
+                    {"role": "system", "content": CV_ENRICHMENT.system_prompt or ""},
+                    {"role": "user", "content": prompt},
+                ],
+                prompt_version=f"{CV_ENRICHMENT.name}_v{CV_ENRICHMENT.version}",
+                schema_version="cv_parse_v2",
+                structured_validator=_schema_validator,
+                pii=True,
+            )
+        )
+        data = dict(result.content)
+        data["_source"] = f"{result.provider}:{result.model}"
         return data
-    except Exception as e:
+    except AIError as exc:
         logger.warning(
-            "[cv_parser] Claude call failed template=%s version=%d error_type=%s",
-            CV_ENRICHMENT.name,
-            CV_ENRICHMENT.version,
-            type(e).__name__,
+            "cv_parser gateway failed code=%s error_type=%s",
+            exc.code,
+            type(exc).__name__,
         )
         return None
 
 
 async def _parse_with_ollama(cv_text: str) -> Optional[dict[str, Any]]:
-    """Call local Ollama; returns None on any failure so caller can fallback."""
-    ollama_host = getattr(settings, "OLLAMA_HOST", None) or getattr(
-        settings, "OLLAMA_BASE_URL", None
-    )
-    if not ollama_host:
-        return None
-    model = getattr(settings, "OLLAMA_MODEL", "llama3.2")
-
-    prompt = CV_ENRICHMENT.render(cv_text=cv_text[:8000])
-    try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(
-                f"{ollama_host.rstrip('/')}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json",
-                },
-            )
-            resp.raise_for_status()
-            payload = (resp.json().get("response") or "").strip()
-            data = json.loads(payload)
-            if not isinstance(data, dict):
-                return None
-            data["_source"] = f"ollama:{CV_ENRICHMENT.name}:v{CV_ENRICHMENT.version}"
-            return data
-    except Exception as e:
-        logger.warning(
-            "[cv_parser] Ollama call failed template=%s version=%d error_type=%s",
-            CV_ENRICHMENT.name,
-            CV_ENRICHMENT.version,
-            type(e).__name__,
-        )
-        return None
+    """Ollama is intentionally unavailable as an implicit production fallback."""
+    del cv_text
+    return None
 
 
-async def parse_cv(cv_text: str, *, prefer_llm: bool = True) -> dict[str, Any]:
+async def parse_cv(
+    cv_text: str,
+    *,
+    prefer_llm: bool = True,
+    user_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+    subject_id: Optional[int] = None,
+) -> dict[str, Any]:
     """
     Extract structured facts from CV text.
 
-    With `prefer_llm=True` (default) the parser walks the hierarchy
-    Claude → Ollama → regex; the first path that returns a non-None result
-    wins. With `prefer_llm=False` only the regex heuristic runs (useful for
-    deterministic tests and offline environments).
+    With `prefer_llm=True` the versioned gateway route runs after deterministic
+    extraction. Provider/schema failure yields regex output marked for review;
+    there is no silent cross-provider or Ollama production fallback.
 
     Returns dict with keys: first_name, last_name, email, phone, city,
     years_it_experience, current_position, skills, education, languages,
     companies, career_summary, linkedin_url, _confidence, _source.
 
-    Regex contact fallback fills any missing email/phone/first_name/last_name
-    the LLM left empty — LLM values always win.
+    Exact regex email/phone values win over model output. Existing Candidate
+    fields remain protected by ``cv_enrichment`` when this result is persisted.
     """
     if not cv_text or not cv_text.strip():
-        return _regex_fallback("")
+        empty = _regex_fallback("")
+        empty["_needs_human_review"] = True
+        return empty
 
     if prefer_llm:
-        claude = await _parse_with_claude(cv_text)
+        claude = await _parse_with_claude(
+            cv_text,
+            user_id=user_id,
+            client_id=client_id,
+            subject_id=subject_id,
+        )
         if claude is not None:
-            return _apply_contact_fallbacks(
+            parsed = _merge_deterministic_contacts(
                 _with_linkedin_fallback(claude, cv_text), cv_text
             )
-        ollama = await _parse_with_ollama(cv_text)
-        if ollama is not None:
-            return _apply_contact_fallbacks(
-                _with_linkedin_fallback(ollama, cv_text), cv_text
+            summary, summary_source = await _generate_candidate_summary(
+                parsed,
+                user_id=user_id,
+                client_id=client_id,
+                subject_id=subject_id,
             )
-    return _regex_fallback(cv_text)
+            parsed["career_summary"] = summary
+            parsed["_provenance"] = _build_provenance(
+                parsed, cv_text, default_source=parsed.get("_source", "model")
+            )
+            if summary:
+                parsed["_provenance"]["career_summary"] = {
+                    "source": summary_source,
+                    "evidence": "",
+                }
+            for field in ("email", "phone"):
+                if parsed.get(field):
+                    parsed["_provenance"][field] = {
+                        "source": "deterministic",
+                        "evidence": _evidence_for(parsed[field], cv_text),
+                    }
+            parsed["_needs_human_review"] = _requires_review(parsed)
+            parsed["_input_hash"] = hashlib.sha256(cv_text.encode("utf-8")).hexdigest()
+            return parsed
+    fallback = _regex_fallback(cv_text)
+    fallback["_needs_human_review"] = bool(prefer_llm)
+    fallback["_input_hash"] = hashlib.sha256(cv_text.encode("utf-8")).hexdigest()
+    return fallback
 
 
 def _with_linkedin_fallback(parsed: dict[str, Any], cv_text: str) -> dict[str, Any]:

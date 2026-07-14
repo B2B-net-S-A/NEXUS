@@ -408,6 +408,39 @@ export const prepKitApi = {
 };
 
 // ── AI Writer ─────────────────────────────────────────────────────────────────
+export interface GenerateJobInput {
+  title: string;
+  client?: string;
+  seniority?: string;
+  skills?: string[];
+  description_hint?: string;
+  benefits?: string[];
+  salary?: {
+    min?: number;
+    max?: number;
+    currency: string;
+    period: "hour" | "day" | "month" | "year";
+    employment_type: "b2b" | "uop" | "uz" | "other";
+  };
+}
+
+export interface GenerateJobOutput {
+  title: string;
+  description: string;
+  requirements: string;
+  nice_to_have: string;
+  benefits: string;
+  salary: {
+    min: number | null;
+    max: number | null;
+    currency: string | null;
+    period: "hour" | "day" | "month" | "year" | null;
+    employment_type: "b2b" | "uop" | "uz" | "other" | null;
+  } | null;
+  generation_source: "ai" | "template";
+  salary_range_suggestion: string;
+}
+
 export const aiWriterApi = {
   generateJobDescription: (data: {
     title: string;
@@ -416,13 +449,11 @@ export const aiWriterApi = {
     seniority?: string;
   }) => api.post("/api/ai/generate-job-description", data),
 
-  generateJob: (data: {
-    title: string;
-    client?: string;
-    seniority?: string;
-    skills?: string[];
-    description_hint?: string;
-  }) => api.post("/api/ai/generate-job", data),
+  generateJob: (data: GenerateJobInput) =>
+    api.post<GenerateJobOutput>("/api/ai/generate-job", data),
+
+  generateJobTemplate: (data: GenerateJobInput) =>
+    api.post<GenerateJobOutput>("/api/ai/generate-job/template", data),
 };
 
 // ── AI Matching ───────────────────────────────────────────────────────────────
@@ -1985,6 +2016,9 @@ export interface B2BUopCheckResult {
   issues: B2BUopIssue[];
   rewritten: string;
   summary: string;
+  input_hash: string;
+  analysis_mode: "rules_ai" | "rules_only";
+  requires_confirmation: boolean;
 }
 
 export const candidatePinsApi = {
@@ -2207,7 +2241,7 @@ export const recommendationsApi = {
       job_id: number;
       must_skills: Array<{ name: string; level?: string | null }>;
       nice_skills: Array<{ name: string; level?: string | null }>;
-      source: "ollama" | "heuristic";
+      source: "taxonomy" | "ai" | "heuristic";
       current_must_skills: Array<{ name: string; level?: string | null }>;
       current_nice_skills: Array<{ name: string; level?: string | null }>;
     }>(`/api/jobs/${jobId}/generate-criteria-preview`),

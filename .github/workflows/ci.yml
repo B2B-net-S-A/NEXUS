@@ -150,6 +150,12 @@ jobs:
                  tests/test_cv_generator_b2b_ai_client.py \
                  tests/test_cv_generator_b2b_async.py \
                  tests/test_job_criteria_generation.py \
+                 tests/test_ai_gateway.py \
+                 tests/test_ai_settings_schemas.py \
+                 tests/test_ai_feature_migrations.py \
+                 tests/test_ai_sdk_boundary.py \
+                 tests/test_cv_parser.py \
+                 tests/test_cv_parser_linkedin_extraction.py \
                  tests/test_sentry_filtering.py \
                  tests/test_saved_search_alerts.py \
                  tests/test_champion_verification.py \

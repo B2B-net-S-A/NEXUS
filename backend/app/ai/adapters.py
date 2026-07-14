@@ -69,6 +69,11 @@ class AnthropicAdapter:
                 system="\n\n".join(system_parts),
                 messages=messages,
             )
+            if getattr(response, "stop_reason", None) == "max_tokens":
+                raise AIError(
+                    "max_tokens",
+                    "Odpowiedź dostawcy osiągnęła limit tokenów",
+                )
             content = "".join(
                 block.text
                 for block in response.content
