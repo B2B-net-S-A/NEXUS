@@ -11,12 +11,12 @@ WORKDIR /build
 # PostgreSQL headers cover asyncpg/psycopg2 source builds; Rust is a fallback
 # for cryptography/pydantic wheels on musl/arm64.
 RUN apk add --no-cache \
-    build-base \
-    cargo \
-    libffi-dev \
-    linux-headers \
-    openssl-dev \
-    postgresql18-dev
+    build-base=0.5-r4 \
+    cargo=1.96.0-r0 \
+    libffi-dev=3.5.2-r1 \
+    linux-headers=7.0.0-r1 \
+    openssl-dev=3.5.7-r0 \
+    postgresql18-dev=18.4-r0
 
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -34,21 +34,21 @@ WORKDIR /app
 # Tesseract pol+eng and Poppler preserve the CV OCR/extraction pipeline.
 RUN apk upgrade --no-cache \
     && apk add --no-cache \
-        curl \
-        font-dejavu \
-        font-liberation \
-        gdk-pixbuf \
-        libffi \
-        libpq \
-        libstdc++ \
-        pango \
-        poppler-utils \
-        shared-mime-info \
-        su-exec \
-        tesseract-ocr \
-        tesseract-ocr-data-eng \
-        tesseract-ocr-data-pol \
-        tzdata \
+        curl=8.21.0-r0 \
+        font-dejavu=2.37-r6 \
+        font-liberation=2.1.5-r2 \
+        gdk-pixbuf=2.44.7-r1 \
+        libffi=3.5.2-r1 \
+        libpq=18.4-r0 \
+        libstdc++=15.2.0-r5 \
+        pango=1.57.1-r0 \
+        poppler-utils=25.12.0-r1 \
+        shared-mime-info=2.4-r7 \
+        su-exec=0.3-r0 \
+        tesseract-ocr=5.5.2-r0 \
+        tesseract-ocr-data-eng=5.5.2-r0 \
+        tesseract-ocr-data-pol=5.5.2-r0 \
+        tzdata=2026c-r0 \
     && python -m pip install --no-cache-dir --upgrade pip==26.1.2
 
 COPY --from=builder /opt/venv /opt/venv

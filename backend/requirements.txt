@@ -1,6 +1,8 @@
-fastapi==0.115.6
+fastapi==0.139.0
+starlette==1.3.1
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
+greenlet==3.5.3
 asyncpg==0.30.0
 alembic==1.14.0
 pydantic[email]==2.10.3
@@ -13,8 +15,8 @@ httpx==0.28.1
 voyageai==0.3.2
 qdrant-client==1.12.1
 anthropic>=0.40,<1.0
-pdfminer.six==20231228
-pdfplumber==0.11.4
+pdfminer.six==20260107
+pdfplumber==0.11.10
 pytesseract==0.3.13
 pdf2image==1.17.0
 python-docx==1.1.2
@@ -42,7 +44,7 @@ rapidfuzz==3.10.1
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
 # before upload. PyJWT is pinned above (used by JWT auth + webhook JWKS
 # verification).
-weasyprint==68.0
+weasyprint==69.0
 # In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
 # Pinned to 0.34.1 (requires cryptography>=43.0.3, compatible with our 48.0.1
 # pin — no upper bound). Newer pyHanko (0.35+) requires cryptography>=47 and is
