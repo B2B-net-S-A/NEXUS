@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint --max-warnings=300",
+    "lint:tokens": "node scripts/check-candidate-token-usage.mjs",
     "analytics:types:generate": "node scripts/generate-analytics-types.mjs",
     "analytics:types:check": "node scripts/generate-analytics-types.mjs --check",
     "type-check": "tsc --noEmit",

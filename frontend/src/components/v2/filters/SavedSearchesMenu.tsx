@@ -4,7 +4,11 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, BellRing, Bookmark, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
-import { decodeFilters, filtersToApiParams } from "@/lib/url-filters";
+import {
+ decodeFilters,
+ encodeFilterCriteria,
+ filtersToApiCriteria,
+} from "@/lib/url-filters";
 import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +37,12 @@ interface SavedSearchesMenuProps {
  * w tle — patrz backend app/tasks/saved_search_alerts.py). */
 function buildFiltersPayload(qs: string): Record<string, unknown> {
  const decoded = decodeFilters(new URLSearchParams(qs));
- return { qs, api: filtersToApiParams(decoded, 1) };
+ const canonicalQs = encodeFilterCriteria(decoded).toString();
+ return {
+ version: 2,
+ qs: canonicalQs,
+ api: filtersToApiCriteria(decoded),
+ };
 }
 
 export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps) {

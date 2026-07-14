@@ -1,68 +1,50 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Briefcase, Loader2, Sparkles } from "lucide-react";
-import {
+import { Briefcase, Loader2, RefreshCcw, Sparkles } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import api, {
+  extractErrorMsg,
   recommendationsApi,
   type JobMatch,
   type RecommendationMeta,
 } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
+import { useToast } from "@/components/Toast";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
 interface Props {
   candidateId: number;
   /** Cap the number of matches shown. Default 10. */
   maxItems?: number;
-  /**
-   * "full" — full-height card with title, refresh, and footer details.
-   * "compact" — trimmed for headers/sidebars; hides refresh button, shrinks rows.
-   */
+  /** Full card or the reduced drawer/rail presentation. */
   variant?: "full" | "compact";
-  /** Optional callback to jump to the full matches view (e.g. switch tabs). */
+  /** Jump to the matching section in the full profile. */
   onShowAll?: () => void;
-  /**
-   * Optional pre-computed matches. When provided the widget renders these
-   * directly instead of fetching `/api/candidates/{id}/recommendations`.
-   * Used by the CV-upload-preview flow on /sourcing/seeking-contractors —
-   * the candidate is ephemeral, so there is no candidateId-driven fetch path.
-   * The "Przypisz do rekrutacji" action is hidden when no candidateId exists
-   * (candidateId === 0 acts as a sentinel for the ephemeral case).
-   */
+  /** Pre-computed results used by the ephemeral CV-upload preview. */
   matches?: JobMatch[];
-  /** Retrieval status for externally supplied matches (for example CV preview). */
+  /** Retrieval status for externally supplied matches. */
   recommendationMeta?: RecommendationMeta | null;
-  /**
-   * When true, render nothing while loading or when there are no matches (and
-   * no error). Used by the candidate panel so an empty "Brak sugerowanych
-   * projektów" card doesn't dominate the drawer above the profile content.
-   */
+  /** Collapse the widget when the recommendation service returns no rows. */
   hideWhenEmpty?: boolean;
+  /** Optional integration hook after a successful assignment. */
+  onAssigned?: (jobId: number) => void;
 }
 
 function ScoreChip({ score }: { score: number | null }) {
   if (score === null) {
     return (
-      <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+      <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
         BM25 · tryb awaryjny
       </span>
     );
   }
-  const color =
-    score >= 80
-      ? "bg-green-100 text-green-700 border-green-300"
-      : score >= 60
-        ? "bg-primary/15 text-primary border-primary/30"
-        : score >= 40
-          ? "bg-amber-100 text-amber-700 border-amber-300"
-          : "bg-muted text-muted-foreground border-border";
-  return (
-    <span
-      className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${color}`}
-    >
-      {score.toFixed(0)}
-    </span>
-  );
+  return <MatchScoreBadge score={score} size="sm" className="shrink-0" />;
 }
 
 export function SuggestedJobsWidget({
@@ -73,199 +55,248 @@ export function SuggestedJobsWidget({
   matches: externalMatches,
   recommendationMeta,
   hideWhenEmpty = false,
+  onAssigned,
 }: Props) {
   const usingExternal = externalMatches !== undefined;
-  const [matches, setMatches] = useState<JobMatch[]>(
-    usingExternal ? externalMatches.slice(0, maxItems) : [],
-  );
-  const [meta, setMeta] = useState<RecommendationMeta | null>(
-    usingExternal ? (recommendationMeta ?? null) : null,
-  );
-  const [loading, setLoading] = useState(!usingExternal);
-  const [error, setError] = useState<string | null>(null);
-  const [assigning, setAssigning] = useState<number | null>(null);
-  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+  const topK = Math.max(maxItems, 10);
   const compact = variant === "compact";
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
 
-  const load = async () => {
-    if (usingExternal) {
-      setMatches(externalMatches.slice(0, maxItems));
-      setMeta(recommendationMeta ?? null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await recommendationsApi.forCandidate(candidateId, {
-        top_k: Math.max(maxItems, 10),
-        include_breakdown: true,
+  const recommendations = useQuery({
+    queryKey: candidateQueryKeys.recommendations(candidateId, topK),
+    queryFn: ({ signal }) =>
+      api
+        .get<{ matches: JobMatch[]; meta?: RecommendationMeta | null }>(
+          `/api/candidates/${candidateId}/recommendations`,
+          {
+            params: { top_k: topK, include_breakdown: true },
+            signal,
+          },
+        )
+        .then((response) => response.data),
+    enabled: !usingExternal && candidateId > 0,
+    staleTime: 30_000,
+  });
+
+  const matches = useMemo(
+    () =>
+      (usingExternal
+        ? externalMatches
+        : recommendations.data?.matches ?? []
+      ).slice(0, maxItems),
+    [externalMatches, maxItems, recommendations.data?.matches, usingExternal],
+  );
+  const meta = usingExternal
+    ? (recommendationMeta ?? null)
+    : (recommendations.data?.meta ?? null);
+
+  const assign = useMutation({
+    mutationFn: (jobId: number) =>
+      recommendationsApi.assignToJob(candidateId, jobId),
+    onSuccess: (_response, jobId) => {
+      setAssignedIds((previous) => new Set(previous).add(jobId));
+      queryClient.invalidateQueries({
+        queryKey: candidateQueryKeys.history(candidateId),
       });
-      setMatches(res.data.matches.slice(0, maxItems));
-      setMeta(res.data.meta ?? null);
-    } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+      queryClient.invalidateQueries({
+        queryKey: ["candidate-pipelines", candidateId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: candidateQueryKeys.recommendationsRoot(candidateId),
+      });
+      queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+      onAssigned?.(jobId);
+      showSuccess("Kandydat przypisany do rekrutacji");
+    },
+    onError: (error) =>
+      showError(
+        extractErrorMsg(error) || "Nie udało się przypisać do rekrutacji",
+      ),
+  });
 
-  useEffect(() => {
-    load();
-  }, [candidateId, usingExternal, externalMatches, recommendationMeta]); // eslint-disable-line react-hooks/exhaustive-deps
+  const loading = !usingExternal && recommendations.isPending;
+  const error = !usingExternal ? recommendations.error : null;
 
-  const handleAssign = async (jobId: number) => {
-    setAssigning(jobId);
-    try {
-      await recommendationsApi.assignToJob(candidateId, jobId);
-      setAssignedIds((prev) => new Set(prev).add(jobId));
-    } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
-      alert(`Nie udało się przypisać: ${msg}`);
-    } finally {
-      setAssigning(null);
-    }
-  };
-
-  // Declutter mode (candidate panel): suppress the whole card when there is
-  // nothing useful to show. Errors still render so failures stay visible.
-  if (hideWhenEmpty && matches.length === 0 && !error) return null;
+  if (hideWhenEmpty && !loading && matches.length === 0 && !error) return null;
 
   return (
-    <div
+    <section
       className={
         compact
-          ? "bg-card dark:bg-muted rounded-lg border border-purple-200 dark:border-purple-800/50 p-3"
-          : "bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4"
+          ? "rounded-xl border border-border bg-card"
+          : "rounded-xl border border-border bg-card p-4"
       }
+      aria-labelledby={`suggested-jobs-${candidateId}`}
+      data-testid="suggested-jobs-widget"
     >
-      <div className="flex items-center justify-between mb-2">
+      <div
+        className={
+          compact
+            ? "flex items-center justify-between gap-3 border-b border-border px-4 py-3"
+            : "mb-3 flex items-center justify-between gap-3"
+        }
+      >
         <h3
-          className={
-            compact
-              ? "font-semibold text-xs text-purple-700 dark:text-purple-200 flex items-center gap-1.5 uppercase tracking-wide"
-              : "font-medium text-foreground dark:text-foreground flex items-center gap-2"
-          }
+          id={`suggested-jobs-${candidateId}`}
+          className="flex items-center gap-2 text-sm font-semibold text-foreground"
         >
-          <Sparkles className={compact ? "w-3.5 h-3.5 text-purple-500" : "w-4 h-4 text-purple-500"} />
+          <Sparkles className="h-4 w-4 text-primary" />
           Sugerowane rekrutacje
         </h3>
-        {compact ? (
-          onShowAll && matches.length >= maxItems ? (
-            <button
-              onClick={onShowAll}
-              className="text-[11px] text-primary hover:text-primary/80 dark:text-primary"
+        <div className="flex items-center gap-2">
+          {onShowAll && matches.length > 0 ? (
+            <Button size="sm" variant="ghost" onClick={onShowAll}>
+              Zobacz wszystkie
+            </Button>
+          ) : null}
+          {!compact && !usingExternal ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => recommendations.refetch()}
+              disabled={recommendations.isFetching}
+              aria-label="Odśwież sugerowane rekrutacje"
             >
-              Pokaż wszystkie →
-            </button>
-          ) : null
-        ) : (
-          <button
-            onClick={load}
-            className="text-xs text-primary hover:text-primary/80 dark:text-primary"
-            disabled={loading}
-          >
-            {loading ? "Ładowanie…" : "Odśwież"}
-          </button>
-        )}
+              <RefreshCcw
+                className={
+                  recommendations.isFetching
+                    ? "h-4 w-4 animate-spin"
+                    : "h-4 w-4"
+                }
+              />
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      {error && (
-        <div className="rounded bg-destructive/10 border border-destructive/20 p-2 text-sm text-destructive mb-2">
-          {error}
-        </div>
-      )}
-
-      {meta?.degraded && (
-        <div
-          role="status"
-          className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
-        >
-          Ranking działa w trybie awaryjnym BM25. Standardowy wynik dopasowania
-          nie został wyliczony.
-        </div>
-      )}
-
-      {loading && matches.length === 0 && (
-        <div className="flex justify-center py-6">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </div>
-      )}
-
-      {!loading && matches.length === 0 && (
-        <p className="text-sm text-muted-foreground py-4 text-center">
-          Brak sugerowanych projektów. Upewnij się, że kandydat ma wgrane CV lub
-          uzupełnione umiejętności.
-        </p>
-      )}
-
-      <ul className="space-y-1.5">
-        {matches.map((m) => {
-          const j = m.job;
-          const assigned = assignedIds.has(j.id);
-          return (
-            <li
-              key={j.id}
-              className="flex items-center gap-3 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-2"
-              data-testid={`suggested-job-${j.id}`}
+      <div className={compact ? "p-3" : undefined}>
+        {error ? (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+          >
+            <span>
+              {extractErrorMsg(error) || "Nie udało się pobrać rekomendacji"}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => recommendations.refetch()}
             >
-              <Briefcase className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <Link
-                  href={`/jobs/${j.id}`}
-                  className="font-medium text-sm text-foreground dark:text-foreground hover:underline truncate block"
+              Ponów
+            </Button>
+          </div>
+        ) : null}
+
+        {meta?.degraded ? (
+          <div
+            role="status"
+            className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+          >
+            Ranking działa w trybie awaryjnym BM25. Standardowy wynik
+            dopasowania nie został wyliczony.
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Analizuję dopasowanie…
+          </div>
+        ) : null}
+
+        {!loading && !error && matches.length === 0 ? (
+          <p className="py-5 text-center text-sm text-muted-foreground">
+            Brak sugerowanych rekrutacji. Uzupełnij CV lub umiejętności
+            kandydata.
+          </p>
+        ) : null}
+
+        {matches.length > 0 ? (
+          <ul
+            className="divide-y divide-border"
+            aria-label="Rekomendowane rekrutacje"
+          >
+            {matches.map((match) => {
+              const job = match.job;
+              const assigned = assignedIds.has(job.id);
+              const assigning = assign.isPending && assign.variables === job.id;
+              const strength = match.breakdown?.matching_must?.slice(0, 2) ?? [];
+              const gap = match.breakdown?.gap_must?.[0] ?? null;
+
+              return (
+                <li
+                  key={job.id}
+                  className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center"
+                  data-testid={`suggested-job-${job.id}`}
                 >
-                  {j.title}
-                </Link>
-                <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                  {j.status === "draft" && (
-                    <span className="px-1.5 py-0.5 rounded border text-[10px] font-medium bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700/50">
-                      Szkic
-                    </span>
-                  )}
-                  {j.location && <span>📍 {j.location}</span>}
-                  {j.salary_min && j.salary_max && (
-                    <span>
-                      💰 {j.salary_min.toLocaleString()}–
-                      {j.salary_max.toLocaleString()} PLN
-                    </span>
-                  )}
-                  {j.seniority && <span>🎯 {j.seniority}</span>}
-                </div>
-              </div>
-              <ScoreChip score={m.total_score} />
-              {m.breakdown && (
-                <ScoreBreakdownTooltip breakdown={m.breakdown} compact />
-              )}
-              {candidateId === 0 ? null : (
-              <button
-                onClick={() => handleAssign(j.id)}
-                disabled={assigning === j.id || assigned}
-                className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
-                  assigned
-                    ? "bg-green-100 text-green-700 border-green-300"
-                    : "bg-primary text-white border-primary hover:bg-primary/90 disabled:opacity-50"
-                }`}
-                data-testid={`assign-to-job-${j.id}`}
-              >
-                {assigned
-                  ? "✓ Przypisany"
-                  : assigning === j.id
-                    ? "…"
-                    : "Przypisz do rekrutacji"}
-              </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+                  <div className="flex min-w-0 flex-1 gap-3">
+                    <div className="mt-0.5 rounded-lg bg-muted p-2 text-muted-foreground">
+                      <Briefcase className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          className="truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
+                        >
+                          {job.title}
+                        </Link>
+                        {job.status === "draft" ? (
+                          <Badge size="sm" variant="warning">
+                            Szkic
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {[job.location, job.seniority]
+                          .filter(Boolean)
+                          .join(" · ") || "Szczegóły w rekrutacji"}
+                      </p>
+                      {match.breakdown && (strength.length > 0 || gap) ? (
+                        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                          {strength.length > 0
+                            ? `Mocne strony: ${strength.join(", ")}`
+                            : ""}
+                          {strength.length > 0 && gap ? " · " : ""}
+                          {gap ? `Luka: ${gap}` : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center justify-end gap-2">
+                    <ScoreChip score={match.total_score} />
+                    {match.breakdown ? (
+                      <ScoreBreakdownTooltip
+                        breakdown={match.breakdown}
+                        compact
+                      />
+                    ) : null}
+                    {candidateId > 0 ? (
+                      <Button
+                        size="sm"
+                        variant={assigned ? "outline" : "secondary"}
+                        onClick={() => assign.mutate(job.id)}
+                        disabled={assigning || assigned}
+                        data-testid={`assign-to-job-${job.id}`}
+                      >
+                        {assigned
+                          ? "Przypisany"
+                          : assigning
+                            ? "Przypisuję…"
+                            : "Przypisz"}
+                      </Button>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </div>
+    </section>
   );
 }
