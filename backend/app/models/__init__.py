@@ -173,10 +173,22 @@ from app.models.dictionary import Dictionary, DictionaryItem
 from app.models.entity_field import EntityFieldDef, EntityType, FieldType
 from app.models.match_justification import CandidateMatchJustification
 from app.models.embedding_index_queue import EmbeddingIndexQueue
+from app.models.ai_platform import (
+    AIBudgetReservation,
+    AICallLedger,
+    AIProviderCompliance,
+    AIRoutingActivationLog,
+    AIRoutingState,
+)
 
 __all__ = [
     "CandidateMatchJustification",
     "EmbeddingIndexQueue",
+    "AIBudgetReservation",
+    "AICallLedger",
+    "AIProviderCompliance",
+    "AIRoutingActivationLog",
+    "AIRoutingState",
     "User",
     "Candidate",
     "Job",
