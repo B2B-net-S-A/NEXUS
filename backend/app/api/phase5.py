@@ -60,7 +60,7 @@ async def embed_diagnostics(
     # Voyage ping — tiny 3-token test query
     if settings.VOYAGE_API_KEY:
         try:
-            emb = await generate_embedding("diagnostic ping")
+            emb = await generate_embedding("diagnostic ping", input_type="query")
             report["voyage"]["ping_ok"] = emb is not None
             if emb is None:
                 report["voyage"]["reason"] = (

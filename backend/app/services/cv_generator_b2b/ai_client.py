@@ -188,9 +188,25 @@ class _ModelExhausted(Exception):
     """
 
     def __init__(self, cause: BaseException | None, retryable: bool) -> None:
-        super().__init__(str(cause))
+        super().__init__(_safe_error_summary(cause))
         self.cause = cause
         self.retryable = retryable
+
+
+def _safe_error_summary(err: BaseException | None) -> str:
+    """Provider error metadata safe for logs and user-visible wrappers.
+
+    SDK exception strings can contain response bodies. A provider may echo
+    invalid request content, which for this feature is a full candidate CV.
+    """
+    if err is None:
+        return "type=unknown status=unknown"
+    status = getattr(err, "status_code", None)
+    if status is None:
+        response = getattr(err, "response", None)
+        if response is not None:
+            status = getattr(response, "status_code", None)
+    return f"type={type(err).__name__} status={status or 'unknown'}"
 
 
 def _is_retryable(err: BaseException) -> bool:
@@ -311,11 +327,11 @@ def _call_model(
             last_err = err
             last_retryable = _is_retryable(err)
             logger.warning(
-                "[cv_b2b][%s] Claude attempt %d failed (model=%s): %s (retryable=%s)",
+                "[cv_b2b][%s] Claude attempt %d failed (model=%s, %s, retryable=%s)",
                 request_id,
                 attempt + 1,
                 model,
-                err,
+                _safe_error_summary(err),
                 last_retryable,
             )
             if attempt == max_retries or not last_retryable:
@@ -420,11 +436,11 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
 
     duration = int((time.time() - start) * 1000)
     logger.error(
-        "[cv_b2b][%s] Claude exhausted all %d model(s) after %dms: %s",
+        "[cv_b2b][%s] Claude exhausted all %d model(s) after %dms (%s)",
         request_id,
         len(models),
         duration,
-        last_err,
+        _safe_error_summary(last_err),
     )
     if any_retryable:
         # A model stayed overloaded/unavailable — transient, retry-able.
@@ -432,4 +448,6 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
             "Usługa AI (Claude) jest chwilowo przeciążona. "
             "Spróbuj wygenerować CV ponownie za chwilę."
         ) from last_err
-    raise CVGeneratorAIError(f"Claude call failed: {last_err}") from last_err
+    raise CVGeneratorAIError(
+        f"Claude call failed ({_safe_error_summary(last_err)})"
+    ) from last_err

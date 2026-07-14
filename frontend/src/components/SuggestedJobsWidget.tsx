@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Briefcase, Loader2, Sparkles } from "lucide-react";
-import { recommendationsApi, JobMatch } from "@/lib/api";
+import {
+  recommendationsApi,
+  type JobMatch,
+  type RecommendationMeta,
+} from "@/lib/api";
 import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
 interface Props {
@@ -26,6 +30,8 @@ interface Props {
    * (candidateId === 0 acts as a sentinel for the ephemeral case).
    */
   matches?: JobMatch[];
+  /** Retrieval status for externally supplied matches (for example CV preview). */
+  recommendationMeta?: RecommendationMeta | null;
   /**
    * When true, render nothing while loading or when there are no matches (and
    * no error). Used by the candidate panel so an empty "Brak sugerowanych
@@ -34,7 +40,14 @@ interface Props {
   hideWhenEmpty?: boolean;
 }
 
-function ScoreChip({ score }: { score: number }) {
+function ScoreChip({ score }: { score: number | null }) {
+  if (score === null) {
+    return (
+      <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+        BM25 · tryb awaryjny
+      </span>
+    );
+  }
   const color =
     score >= 80
       ? "bg-green-100 text-green-700 border-green-300"
@@ -58,11 +71,15 @@ export function SuggestedJobsWidget({
   variant = "full",
   onShowAll,
   matches: externalMatches,
+  recommendationMeta,
   hideWhenEmpty = false,
 }: Props) {
   const usingExternal = externalMatches !== undefined;
   const [matches, setMatches] = useState<JobMatch[]>(
     usingExternal ? externalMatches.slice(0, maxItems) : [],
+  );
+  const [meta, setMeta] = useState<RecommendationMeta | null>(
+    usingExternal ? (recommendationMeta ?? null) : null,
   );
   const [loading, setLoading] = useState(!usingExternal);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +90,7 @@ export function SuggestedJobsWidget({
   const load = async () => {
     if (usingExternal) {
       setMatches(externalMatches.slice(0, maxItems));
+      setMeta(recommendationMeta ?? null);
       setLoading(false);
       return;
     }
@@ -84,6 +102,7 @@ export function SuggestedJobsWidget({
         include_breakdown: true,
       });
       setMatches(res.data.matches.slice(0, maxItems));
+      setMeta(res.data.meta ?? null);
     } catch (e: unknown) {
       const msg =
         e && typeof e === "object" && "response" in e
@@ -97,7 +116,7 @@ export function SuggestedJobsWidget({
 
   useEffect(() => {
     load();
-  }, [candidateId, usingExternal, externalMatches]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candidateId, usingExternal, externalMatches, recommendationMeta]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAssign = async (jobId: number) => {
     setAssigning(jobId);
@@ -161,6 +180,16 @@ export function SuggestedJobsWidget({
       {error && (
         <div className="rounded bg-destructive/10 border border-destructive/20 p-2 text-sm text-destructive mb-2">
           {error}
+        </div>
+      )}
+
+      {meta?.degraded && (
+        <div
+          role="status"
+          className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+        >
+          Ranking działa w trybie awaryjnym BM25. Standardowy wynik dopasowania
+          nie został wyliczony.
         </div>
       )}
 

@@ -103,7 +103,7 @@ async def _call_claude_json(
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:  # noqa: BLE001 - surface as a clean domain error
-        raise MatchJustificationLLMError(f"LLM request failed: {exc}") from exc
+        raise MatchJustificationLLMError("LLM request failed") from exc
 
     latency_ms = int((time.time() - started) * 1000)
     # Claude 5 can lead with a non-text (thinking) block → collect every text
@@ -318,7 +318,10 @@ async def _compute_breakdown(
         sims = await similarity_for_candidate_ids(_build_job_text(job), [candidate.id])
         similarity = sims.get(candidate.id)
     except Exception as exc:  # pragma: no cover - semantic layer is best-effort
-        logger.warning("match_justification: similarity lookup failed: %s", exc)
+        logger.warning(
+            "match_justification: similarity lookup failed error_type=%s",
+            type(exc).__name__,
+        )
 
     return await get_cached_or_compute(
         candidate, job, db, semantic_similarity=similarity

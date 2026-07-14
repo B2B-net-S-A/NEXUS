@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,15 +70,27 @@ async def bm25_candidates(
     return [int(r[0]) for r in rows]
 
 
-async def bm25_jobs(db: AsyncSession, query: str, *, limit: int = 100) -> list[int]:
+async def bm25_jobs(
+    db: AsyncSession,
+    query: str,
+    *,
+    limit: int = 100,
+    status_filter: Literal["all", "open", "published"] = "all",
+) -> list[int]:
     """Top-N job ids by Postgres ts_rank over `jobs.fts_doc`."""
     if not query or not query.strip():
         return []
+    status_sql = ""
+    if status_filter == "open":
+        status_sql = "AND status IN ('draft', 'published')"
+    elif status_filter == "published":
+        status_sql = "AND status = 'published'"
     sql = text(
-        """
+        f"""
         SELECT id
         FROM jobs
         WHERE fts_doc @@ websearch_to_tsquery('simple', :q)
+          {status_sql}
         ORDER BY ts_rank(fts_doc, websearch_to_tsquery('simple', :q)) DESC,
                  updated_at DESC
         LIMIT :limit

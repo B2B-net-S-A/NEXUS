@@ -259,12 +259,13 @@ async def _summarize_transcript_for_champion(
                 _summarize_chunk_sync, chunk, model=summarize_model
             )
             summaries.append(f"[Część {i + 1}/{len(chunks)}]\n{s}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "champion_draft: chunk %d/%d summary failed: %s — including raw slice",
+                "champion_draft: chunk %d/%d summary failed error_type=%s; "
+                "including bounded source slice",
                 i + 1,
                 len(chunks),
-                e,
+                type(exc).__name__,
             )
             summaries.append(
                 f"[Część {i + 1}/{len(chunks)} — surowy fragment]\n{chunk[:5000]}"
@@ -358,15 +359,20 @@ async def generate_from_jd(
         payload = payload_from_profile(profile, confidence=confidence)
     except ValidationError as exc:
         logger.warning(
-            "champion_draft: ChampionProfile validation failed for job %s: %s",
+            "champion_draft: ChampionProfile validation failed for job=%s "
+            "error_type=%s",
             job_id,
-            exc,
+            type(exc).__name__,
         )
-        error_message = f"Walidacja schematu nie powiodła się: {exc}"
+        error_message = "Walidacja schematu nie powiodła się."
         status_val = SuggestionStatus.rejected
     except Exception as exc:  # noqa: BLE001 — broad catch is intentional here
-        logger.warning("champion_draft: generate_from_jd failed: %s", exc)
-        error_message = f"Błąd generowania: {exc}"
+        logger.warning(
+            "champion_draft: generate_from_jd failed job=%s error_type=%s",
+            job_id,
+            type(exc).__name__,
+        )
+        error_message = "Błąd generowania profilu."
         status_val = SuggestionStatus.rejected
 
     suggestion = ChampionProfileSuggestion(
@@ -435,12 +441,20 @@ async def _generate_enrichment_suggestion(
             status_val = SuggestionStatus.rejected
             error_message = "LLM nie zaproponował żadnych zmian."
     except ValidationError as exc:
-        logger.warning("champion_draft: enrichment validation failed: %s", exc)
-        error_message = f"Walidacja schematu: {exc}"
+        logger.warning(
+            "champion_draft: enrichment validation failed job=%s error_type=%s",
+            job_id,
+            type(exc).__name__,
+        )
+        error_message = "Walidacja schematu nie powiodła się."
         status_val = SuggestionStatus.rejected
     except Exception as exc:  # noqa: BLE001
-        logger.warning("champion_draft: enrichment call failed: %s", exc)
-        error_message = f"Błąd generowania: {exc}"
+        logger.warning(
+            "champion_draft: enrichment call failed job=%s error_type=%s",
+            job_id,
+            type(exc).__name__,
+        )
+        error_message = "Błąd generowania sugestii."
         status_val = SuggestionStatus.rejected
 
     suggestion = ChampionProfileSuggestion(
@@ -696,17 +710,20 @@ async def generate_from_historical_jobs(
                 )
         except ValidationError as exc:
             logger.warning(
-                "champion_draft: historical validation failed for job %s: %s",
+                "champion_draft: historical validation failed for job=%s error_type=%s",
                 job_id,
-                exc,
+                type(exc).__name__,
             )
-            error_message = f"Walidacja schematu: {exc}"
+            error_message = "Walidacja schematu nie powiodła się."
             status_val = SuggestionStatus.rejected
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "champion_draft: generate_from_historical_jobs failed: %s", exc
+                "champion_draft: generate_from_historical_jobs failed job=%s "
+                "error_type=%s",
+                job_id,
+                type(exc).__name__,
             )
-            error_message = f"Błąd generowania: {exc}"
+            error_message = "Błąd generowania profilu."
             status_val = SuggestionStatus.rejected
 
     suggestion = ChampionProfileSuggestion(

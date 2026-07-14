@@ -606,7 +606,14 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
 
 // ── AI Matching Section ───────────────────────────────────────────────────────
 
-function MatchScoreBar({ score }: { score: number }) {
+function MatchScoreBar({ score }: { score: number | null }) {
+  if (score === null) {
+    return (
+      <span className="inline-flex rounded-full border border-border bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
+        BM25 · tryb awaryjny
+      </span>
+    );
+  }
   const pct = Math.round(score * 100);
   const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-yellow-500" : "bg-destructive/100";
   const textColor = pct >= 80 ? "text-green-700" : pct >= 60 ? "text-yellow-700" : "text-destructive";
@@ -742,6 +749,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
   const matches = data?.matches ?? [];
   const searchType = data?.search_type;
+  const degraded = data?.meta?.degraded === true;
   const requiredSkills = data?.required_skills ?? [];
   // Server echoes the effective location filter it applied (param, or the
   // job's own location). Non-empty → results are location-restricted.
@@ -760,15 +768,19 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
               "Wyszukiwanie..."
             ) : (
               <>
-                Znaleziono <strong>{matches.length}</strong> pasujących kandydatów
+                Znaleziono <strong>{matches.length}</strong>{" "}
+                {degraded ? "wyników tekstowych" : "pasujących kandydatów"}
               </>
             )}
           </span>
-          {searchType === "semantic" && (
+          {searchType?.startsWith("semantic") && (
             <span className="text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-medium">Semantic AI</span>
           )}
-          {searchType === "tag_fallback" && (
-            <span className="text-[10px] px-2 py-0.5 bg-muted text-muted-foreground rounded-full font-medium">Tag-based</span>
+          {searchType === "bm25" && (
+            <span className="text-[10px] px-2 py-0.5 bg-muted text-muted-foreground rounded-full font-medium">BM25 · tryb awaryjny</span>
+          )}
+          {searchType === "unavailable" && (
+            <span className="text-[10px] px-2 py-0.5 bg-destructive/10 text-destructive rounded-full font-medium">Wyszukiwanie niedostępne</span>
           )}
           {locationActive && (
             <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium inline-flex items-center gap-1">
@@ -796,6 +808,16 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
           {requiredSkills.map((s: string) => (
             <span key={s} className="text-[11px] px-2 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded-full">{s}</span>
           ))}
+        </div>
+      )}
+
+      {degraded && (
+        <div
+          role="status"
+          className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+        >
+          Wyszukiwanie semantyczne jest chwilowo niedostępne. Wyniki pochodzą z
+          rankingu tekstowego BM25 i nie mają standardowego wyniku dopasowania.
         </div>
       )}
 

@@ -10,12 +10,12 @@ Coverage:
   * empty payload returns 400
   * empty extracted text returns 400
   * oversize payload returns 413
-  * Qdrant fallback (empty hits) still surfaces published jobs
+  * Qdrant fallback uses BM25 and stays explicitly unscored/degraded
 """
 
 from __future__ import annotations
 
-from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -64,7 +64,7 @@ def _patch_pipeline(
     async def _fake_parse(_text, **_kw):
         return parsed if parsed is not None else FAKE_PARSED
 
-    async def _fake_embed(_text):
+    async def _fake_embed(_text, **_kw):
         return embedding if embedding is not None else [0.1] * 1024
 
     async def _fake_search(_q, top_k: int = 20):
@@ -75,12 +75,8 @@ def _patch_pipeline(
     monkeypatch.setattr(embedding_service, "generate_embedding", _fake_embed)
     monkeypatch.setattr(embedding_service, "search_jobs_semantic", _fake_search)
     # The endpoint module imports these at load time — patch the rebound names.
-    monkeypatch.setattr(
-        "app.api.cv_match_preview.search_jobs_semantic", _fake_search
-    )
-    monkeypatch.setattr(
-        "app.api.cv_match_preview.generate_embedding", _fake_embed
-    )
+    monkeypatch.setattr("app.api.cv_match_preview.search_jobs_semantic", _fake_search)
+    monkeypatch.setattr("app.api.cv_match_preview.generate_embedding", _fake_embed)
     monkeypatch.setattr("app.api.cv_match_preview.parse_cv", _fake_parse)
     monkeypatch.setattr("app.api.cv_match_preview.extract_text", _fake_extract)
 
@@ -247,11 +243,16 @@ async def test_cv_upload_preview_rejects_corrupted_pdf(
 
 
 @pytest.mark.asyncio
-async def test_cv_upload_preview_qdrant_empty_falls_back_to_published_jobs(
+async def test_cv_upload_preview_qdrant_empty_uses_unscored_bm25(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch, seeded_jobs
 ):
-    """When Qdrant returns no hits, endpoint still surfaces published jobs."""
+    """A semantic outage must not score arbitrary first database rows."""
+    j1_id, j2_id = seeded_jobs
     _patch_pipeline(monkeypatch, hits=[])
+    bm25 = AsyncMock(return_value=[j2_id, j1_id])
+    scorer = AsyncMock()
+    monkeypatch.setattr("app.api.cv_match_preview.bm25_jobs", bm25)
+    monkeypatch.setattr("app.api.cv_match_preview.rank_jobs_for_candidate", scorer)
 
     files = {"file": ("jan.pdf", b"%PDF-1.4 fake", "application/pdf")}
     resp = await app_client.post(
@@ -261,6 +262,14 @@ async def test_cv_upload_preview_qdrant_empty_falls_back_to_published_jobs(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # The fallback path queries published jobs and ranks them.
-    assert isinstance(body["matches"], list)
-    assert len(body["matches"]) >= 1
+    assert [match["job"]["id"] for match in body["matches"]] == [j2_id, j1_id]
+    assert all(match["total_score"] is None for match in body["matches"])
+    assert all(match["breakdown"] is None for match in body["matches"])
+    assert body["search_type"] == "bm25"
+    assert body["meta"] == {
+        "mode": "bm25",
+        "degraded": True,
+        "reason": "semantic_unavailable",
+    }
+    bm25.assert_awaited_once()
+    scorer.assert_not_awaited()

@@ -51,6 +51,7 @@ from app.services.embedding_service import (
     generate_embedding,
     search_jobs_semantic,
 )
+from app.services.hybrid_search import bm25_jobs
 from app.services.recommendation_filters import (
     RecommendationFilters,
     apply_user_filters,
@@ -255,7 +256,7 @@ async def cv_upload_preview(
         parsed = await parse_cv(cv_text)
         query_text = _build_query_text_from_parsed(parsed) or cv_text[:2000]
 
-        emb_ok = await generate_embedding(query_text) is not None
+        emb_ok = await generate_embedding(query_text, input_type="query") is not None
         # Wider Qdrant pool when reranker is on so the cross-encoder has room
         # to reorder; otherwise keep the historical 4x multiplier behaviour.
         rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
@@ -265,29 +266,49 @@ async def cv_upload_preview(
         )
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
         job_ids: list[int] = list(similarity_map.keys())
+        retrieval_mode = "semantic"
+        retrieval_degraded = False
+        retrieval_reason: str | None = None
 
         if not job_ids:
-            fallback_rows = await db.execute(
-                select(Job.id).where(Job.status == JobStatus.published).limit(50)
-            )
-            job_ids = [j for (j,) in fallback_rows.all()]
+            retrieval_mode = "bm25"
+            retrieval_degraded = True
+            retrieval_reason = "semantic_unavailable"
+            try:
+                job_ids = await bm25_jobs(
+                    db, query_text, limit=50, status_filter="published"
+                )
+            except Exception as exc:  # pragma: no cover - infrastructure failure
+                logger.warning(
+                    "[cv-upload-preview] BM25 fallback failed error_type=%s",
+                    type(exc).__name__,
+                )
+                retrieval_mode = "unavailable"
+                retrieval_reason = "semantic_and_bm25_unavailable"
+                job_ids = []
 
         if not job_ids:
             return {
                 "parsed_summary": _shape_parsed_summary(parsed),
                 "matches": [],
-                "search_type": "semantic" if emb_ok else "fallback",
+                "search_type": retrieval_mode,
+                "meta": {
+                    "mode": retrieval_mode,
+                    "degraded": retrieval_degraded,
+                    "reason": retrieval_reason,
+                },
             }
 
         jobs_res = await db.execute(
             select(Job).where(Job.id.in_(job_ids), Job.status == JobStatus.published)
         )
-        jobs = jobs_res.scalars().all()
+        jobs_by_id = {job.id: job for job in jobs_res.scalars().all()}
+        jobs = [jobs_by_id[job_id] for job_id in job_ids if job_id in jobs_by_id]
 
         # Voyage Rerank 2.5 — re-order semantic candidates with a cross-encoder
         # when enabled. Replaces Qdrant cosine in similarity_map; downstream
         # scoring still applies (semantic 40 / skills 30 / salary 15 / loc 10 / avail 5).
-        if rerank_enabled and jobs:
+        if not retrieval_degraded and rerank_enabled and jobs:
             ordered_jobs = [
                 j for j in sorted(jobs, key=lambda j: -similarity_map.get(j.id, 0.0))
             ]
@@ -309,6 +330,30 @@ async def cv_upload_preview(
             industry_blocklist=False,  # no candidate row → nothing to block
         )
         filtered, _stats = await apply_user_filters(candidate, jobs, filters, db)
+
+        if retrieval_degraded:
+            # BM25 supplies only a lexical ordering.  Keep filters and rank
+            # continuity, but do not run the calibrated scoring pipeline or
+            # fabricate a normal total/breakdown from a missing semantic layer.
+            matches = [
+                {
+                    "job": _shape_job(filtered_job.job),
+                    "total_score": None,
+                    "breakdown": None,
+                    "warning": filtered_job.warning,
+                }
+                for filtered_job in filtered[:top_k]
+            ]
+            return {
+                "parsed_summary": _shape_parsed_summary(parsed),
+                "matches": matches,
+                "search_type": retrieval_mode,
+                "meta": {
+                    "mode": retrieval_mode,
+                    "degraded": True,
+                    "reason": retrieval_reason,
+                },
+            }
 
         breakdowns = await rank_jobs_for_candidate(
             candidate,
@@ -340,7 +385,12 @@ async def cv_upload_preview(
         return {
             "parsed_summary": _shape_parsed_summary(parsed),
             "matches": matches,
-            "search_type": "semantic" if emb_ok else "fallback",
+            "search_type": retrieval_mode,
+            "meta": {
+                "mode": retrieval_mode,
+                "degraded": False,
+                "reason": None,
+            },
         }
     finally:
         if tmp_path and os.path.exists(tmp_path):

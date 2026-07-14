@@ -19,6 +19,7 @@ from app.api.deps import get_db, CurrentUser
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.hybrid_search import bm25_candidates
 from app.services.location_utils import (
     location_matches as _location_matches,
     location_tokens as _location_tokens,
@@ -98,6 +99,8 @@ def _build_match_info(
     candidate: Candidate,
     required_skills: list[str],
     score: float | None = None,
+    *,
+    degraded: bool = False,
 ) -> dict:
     """Build the match result dict for a candidate."""
     c_skills = _extract_skills(candidate.skills)
@@ -113,8 +116,9 @@ def _build_match_info(
         s for s in req_set if not _candidate_has_skill(s, all_candidate_skills)
     )
 
-    # Compute score if not provided by Qdrant
-    if score is None:
+    # Compute a score only for the legacy deterministic path.  A BM25 rank is
+    # not calibrated to the public 0-1 match score and must remain unscored.
+    if score is None and not degraded:
         if req_set:
             score = len(matching) / len(req_set)
         else:
@@ -146,7 +150,7 @@ def _build_match_info(
             "ai_summary": candidate.ai_summary,
             "avatar_url": candidate.avatar_url,
         },
-        "match_score": round(min(score, 1.0), 3),
+        "match_score": None if degraded else round(min(score, 1.0), 3),
         "matching_skills": matching,
         "gaps": gaps,
     }
@@ -219,7 +223,8 @@ async def get_ai_matches(
 
     Returns **all** candidates that match the job (score >= ``min_score``),
     ranked best-first, using Qdrant semantic search + optional Voyage rerank.
-    Falls back to tag-based matching if Qdrant is unavailable.
+    Falls back to an explicitly degraded Postgres BM25 ranking if Qdrant is
+    unavailable.  Degraded rows do not expose a calibrated ``match_score``.
 
     Replaces the old hard top-10 behaviour: the result set is now bounded only
     by the match threshold and a safety cap (``MATCH_MAX_RESULTS``), so a job
@@ -338,42 +343,89 @@ async def get_ai_matches(
                 "min_score": round(threshold, 3),
                 "location_filter": requested_location if location_active else None,
                 "matches": matches,
+                "meta": {
+                    "mode": search_type,
+                    "degraded": False,
+                    "reason": None,
+                },
             }
     except Exception as e:
         logger.warning(
-            f"[AIMatch] Qdrant search failed for job {job_id}: {e} — falling back to tag-based"
+            "[AIMatch] semantic search failed job_id=%s error_type=%s",
+            job_id,
+            type(e).__name__,
         )
 
-    # ── Fallback: tag-based matching ─────────────────────────────────────────
-    logger.info(f"[AIMatch] Using tag-based fallback for job {job_id}")
+    # ── Degraded fallback: Postgres BM25/FTS ─────────────────────────────────
+    # Never replace a failed semantic retrieval with the first N database rows:
+    # row order is arbitrary and a tag/profile-completeness score looks like a
+    # valid semantic result.  BM25 gives a meaningful lexical rank while null
+    # score + response metadata keep the degraded contract explicit.
+    try:
+        candidate_ids = await bm25_candidates(db, query_text, limit=effective_pool)
+    except Exception as exc:  # pragma: no cover - infrastructure failure path
+        logger.warning(
+            "[AIMatch] BM25 fallback failed job_id=%s error_type=%s",
+            job_id,
+            type(exc).__name__,
+        )
+        return {
+            "job_id": job_id,
+            "job_title": job.title,
+            "required_skills": required_skills,
+            "search_type": "unavailable",
+            "min_score": None,
+            "location_filter": requested_location if location_active else None,
+            "matches": [],
+            "meta": {
+                "mode": "unavailable",
+                "degraded": True,
+                "reason": "semantic_and_bm25_unavailable",
+            },
+        }
 
-    # Grab all active candidates (bounded by the retrieval pool for performance)
-    all_result = await db.execute(
-        select(Candidate).where(Candidate.status != "blacklisted").limit(effective_pool)
-    )
-    all_candidates = all_result.scalars().all()
+    candidates_by_id: dict[int, Candidate] = {}
+    if candidate_ids:
+        candidates_result = await db.execute(
+            select(Candidate).where(Candidate.id.in_(candidate_ids))
+        )
+        candidates_by_id = {
+            candidate.id: candidate for candidate in candidates_result.scalars().all()
+        }
 
     matches = []
-    for c in all_candidates:
-        # Location filter (when active): skip non-matching candidates up front.
-        if location_active and not _location_matches(requested_tokens, c.location):
+    for candidate_id in candidate_ids:
+        candidate = candidates_by_id.get(candidate_id)
+        if not candidate:
             continue
-        match = _build_match_info(c, required_skills, score=None)
-        # No required_skills → score is a profile-completeness proxy; keep the
-        # threshold floor so junk profiles don't surface as "matches".
-        if match["match_score"] >= threshold:
-            matches.append(match)
-
-    # Sort by score desc, show all who clear the threshold (capped).
-    matches.sort(key=lambda x: x["match_score"], reverse=True)
-    matches = matches[:max_results]
+        status = candidate.status.value if candidate.status else None
+        if status == "blacklisted":
+            continue
+        if location_active and not _location_matches(
+            requested_tokens, candidate.location
+        ):
+            continue
+        matches.append(
+            _build_match_info(
+                candidate,
+                required_skills,
+                degraded=True,
+            )
+        )
+        if len(matches) >= max_results:
+            break
 
     return {
         "job_id": job_id,
         "job_title": job.title,
         "required_skills": required_skills,
-        "search_type": "tag_fallback",
-        "min_score": round(threshold, 3),
+        "search_type": "bm25",
+        "min_score": None,
         "location_filter": requested_location if location_active else None,
         "matches": matches,
+        "meta": {
+            "mode": "bm25",
+            "degraded": True,
+            "reason": "semantic_unavailable",
+        },
     }
