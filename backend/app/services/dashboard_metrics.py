@@ -6,21 +6,27 @@ cache). Ops/cron calls /api/admin/snapshot (token or admin, 30-sec cache).
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.client import Client
+from app.models.client import Client, ClientStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
 
+WARSAW = ZoneInfo("Europe/Warsaw")
+
+
 async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
     """Aggregate ATS KPI counts. Returns nested dict matching dashboard.get_stats shape."""
+    now_warsaw = datetime.now(WARSAW)
+    today = now_warsaw.date()
     candidates_total = (await db.execute(select(func.count(Candidate.id)))).scalar()
     candidates_active = (
         await db.execute(
@@ -34,16 +40,25 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             select(func.count(Job.id)).where(Job.status == JobStatus.published)
         )
     ).scalar()
+    jobs_total = (await db.execute(select(func.count(Job.id)))).scalar()
     clients_total = (await db.execute(select(func.count(Client.id)))).scalar()
+    clients_active = (
+        await db.execute(
+            select(func.count(Client.id)).where(Client.status == ClientStatus.active)
+        )
+    ).scalar()
     contracts_active = (
         await db.execute(
             select(func.count(Contract.id)).where(
-                Contract.status == ContractStatus.active
+                Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+                Contract.start_date.is_not(None),
+                Contract.start_date <= today,
+                (Contract.end_date.is_(None)) | (Contract.end_date >= today),
             )
         )
     ).scalar()
 
-    cutoff = date.today() + timedelta(days=30)
+    cutoff = today + timedelta(days=30)
     # active + ending: the cron promotes active→ending at the 30-day mark, so
     # an active-only count under-reports (often to 0). Keep this in sync with
     # the /api/contracts/expiring banner.
@@ -51,18 +66,38 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
         await db.execute(
             select(func.count(Contract.id)).where(
                 Contract.end_date <= cutoff,
-                Contract.end_date >= date.today(),
+                Contract.end_date >= today,
+                Contract.start_date.is_not(None),
+                Contract.start_date <= today,
                 Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
             )
         )
     ).scalar()
 
-    first_of_month = date.today().replace(day=1)
+    first_of_month = now_warsaw.replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    if first_of_month.month == 12:
+        next_month = first_of_month.replace(year=first_of_month.year + 1, month=1)
+    else:
+        next_month = first_of_month.replace(month=first_of_month.month + 1)
+    first_hired_pairs = (
+        select(
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            func.min(CandidateStage.moved_at).label("first_hired_at"),
+        )
+        .where(CandidateStage.stage == PipelineStage.hired)
+        .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
+        .subquery()
+    )
     hired_this_month = (
         await db.execute(
-            select(func.count(CandidateStage.id)).where(
-                CandidateStage.stage == PipelineStage.hired,
-                CandidateStage.moved_at >= first_of_month,
+            select(func.count())
+            .select_from(first_hired_pairs)
+            .where(
+                first_hired_pairs.c.first_hired_at >= first_of_month,
+                first_hired_pairs.c.first_hired_at < next_month,
             )
         )
     ).scalar()
@@ -72,8 +107,11 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             "total": candidates_total or 0,
             "active": candidates_active or 0,
         },
-        "jobs": {"open": jobs_open or 0},
-        "clients": {"total": clients_total or 0},
+        "jobs": {"open": jobs_open or 0, "total": jobs_total or 0},
+        "clients": {
+            "total": clients_total or 0,
+            "active": clients_active or 0,
+        },
         "contracts": {
             "active": contracts_active or 0,
             "expiring_soon": contracts_expiring or 0,

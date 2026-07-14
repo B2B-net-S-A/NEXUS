@@ -42,6 +42,7 @@ class ClientDashboardResponse(BaseModel):
 
     client_id: int
     client_name: str
+    currency: str = "PLN"
 
     # Revenue
     total_revenue_all_time: Decimal | int | None = None
@@ -50,7 +51,7 @@ class ClientDashboardResponse(BaseModel):
     currency_breakdown: dict[str, Decimal | int] = {}
 
     # Margin (auto z linkowanych Contract)
-    monthly_margin_total: Optional[int] = None
+    monthly_margin_total: Optional[Decimal] = None
     monthly_margin_pct: Optional[float] = None
 
     # Konsultanci

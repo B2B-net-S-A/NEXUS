@@ -8,11 +8,11 @@ Dashboard endpoint chroniony przez `DlAssignedOrAdmin` (per-client check).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +32,7 @@ from app.schemas.my_clients import (
     ExpiringAlert,
     MyClientRow,
 )
+from app.services.fx_service import convert_to_pln, fx_age_days
 
 router = APIRouter()
 
@@ -42,6 +43,20 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     return (target - date.today()).days
 
 
+async def _to_pln_strict(
+    db: AsyncSession, amount: Decimal | int | None, currency: str | None
+) -> Decimal:
+    """Convert a financial aggregate without ever assuming an unknown FX=1."""
+
+    cur = (currency or "PLN").upper()
+    if cur != "PLN" and await fx_age_days(db, cur) is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Missing FX rate for {cur}; client finance is unavailable",
+        )
+    return await convert_to_pln(db, Decimal(amount or 0), cur)
+
+
 # ── My clients list ─────────────────────────────────────────────────────────
 
 
@@ -50,8 +65,11 @@ async def list_my_clients(
     user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista klientów DL (lub wszystkich dla admin/HoR)."""
-    is_admin = user.role in (UserRole.admin, UserRole.head_of_recruitment)
+    """Lista finansowa klientów DL (lub wszystkich dla admina).
+
+    HoR używa operacyjnego analytics API bez stawek i wartości finansowych.
+    """
+    is_admin = user.has_role(UserRole.admin)
 
     if is_admin:
         # Admin: wszyscy klienci, is_head_dl ustawione na False (admin nie ma DL assignment)
@@ -60,10 +78,10 @@ async def list_my_clients(
         client_ids = [c.id for c in clients]
         head_lookup: dict[int, bool] = {}
     else:
-        if user.role != UserRole.delivery_lead:
+        if not user.has_role(UserRole.delivery_lead):
             raise HTTPException(
                 403,
-                detail="Only Delivery Leads or admin/head_of_recruitment can view My Clients",
+                detail="Only Delivery Leads or admin can view client finance",
             )
         # DL: pobierz przypisania + clients
         assignments = list(
@@ -103,40 +121,46 @@ async def list_my_clients(
         return []
 
     # Aktywne ordery — count + suma value (active = active status)
-    orders_agg = {
-        row.client_id: row
-        for row in (
-            await db.execute(
-                select(
-                    ClientOrder.client_id,
-                    func.count().label("active_count"),
-                    func.sum(ClientOrder.total_value).label("active_total"),
-                )
-                .where(
-                    ClientOrder.client_id.in_(client_ids),
-                    ClientOrder.status == ClientOrderStatus.active,
-                )
-                .group_by(ClientOrder.client_id)
-            )
+    orders_agg: dict[int, dict[str, Decimal | int]] = {}
+    active_order_rows = await db.execute(
+        select(
+            ClientOrder.client_id,
+            ClientOrder.currency,
+            func.count(ClientOrder.id).label("active_count"),
+            func.coalesce(func.sum(ClientOrder.total_value), 0).label("active_total"),
         )
-    }
+        .where(
+            ClientOrder.client_id.in_(client_ids),
+            ClientOrder.status == ClientOrderStatus.active,
+        )
+        .group_by(ClientOrder.client_id, ClientOrder.currency)
+    )
+    for row in active_order_rows:
+        bucket = orders_agg.setdefault(
+            row.client_id, {"active_count": 0, "active_total": Decimal(0)}
+        )
+        bucket["active_count"] = int(bucket["active_count"]) + int(row.active_count)
+        bucket["active_total"] = Decimal(bucket["active_total"]) + await _to_pln_strict(
+            db, row.active_total, row.currency
+        )
     # Total revenue lifetime — wszystkie ordery non-cancelled
-    lifetime_agg = {
-        row.client_id: row
-        for row in (
-            await db.execute(
-                select(
-                    ClientOrder.client_id,
-                    func.sum(ClientOrder.total_value).label("lifetime_total"),
-                )
-                .where(
-                    ClientOrder.client_id.in_(client_ids),
-                    ClientOrder.status != ClientOrderStatus.cancelled,
-                )
-                .group_by(ClientOrder.client_id)
-            )
+    lifetime_agg: dict[int, Decimal] = {}
+    lifetime_rows = await db.execute(
+        select(
+            ClientOrder.client_id,
+            ClientOrder.currency,
+            func.coalesce(func.sum(ClientOrder.total_value), 0).label("lifetime_total"),
         )
-    }
+        .where(
+            ClientOrder.client_id.in_(client_ids),
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+        .group_by(ClientOrder.client_id, ClientOrder.currency)
+    )
+    for row in lifetime_rows:
+        lifetime_agg[row.client_id] = lifetime_agg.get(
+            row.client_id, Decimal(0)
+        ) + await _to_pln_strict(db, row.lifetime_total, row.currency)
 
     # Active framework contract per klient (status=active, max effective_date)
     fc_rows = list(
@@ -182,14 +206,29 @@ async def list_my_clients(
                     ClientFrameworkContract.client_id.in_(client_ids),
                     ClientFrameworkContract.status == FrameworkContractStatus.active,
                     ClientFrameworkContract.expiry_date.is_not(None),
-                    ClientFrameworkContract.expiry_date <= today.replace(day=today.day),
+                    ClientFrameworkContract.expiry_date >= today,
+                    ClientFrameworkContract.expiry_date < today + timedelta(days=31),
                 )
                 .group_by(ClientFrameworkContract.client_id)
             )
         )
     }
-    # ^ uproszczone — daje 0 dla "expiring soon" bo `today + 30d` wymaga datetime
-    # delta. Liczba zostanie dokładnie wyciągnięta w dashboardzie. Tutaj pomocnik.
+    order_expiring = {
+        row.client_id: row.cnt
+        for row in (
+            await db.execute(
+                select(ClientOrder.client_id, func.count(ClientOrder.id).label("cnt"))
+                .where(
+                    ClientOrder.client_id.in_(client_ids),
+                    ClientOrder.status == ClientOrderStatus.active,
+                    ClientOrder.end_date.is_not(None),
+                    ClientOrder.end_date >= today,
+                    ClientOrder.end_date < today + timedelta(days=31),
+                )
+                .group_by(ClientOrder.client_id)
+            )
+        )
+    }
 
     items: list[MyClientRow] = []
     for c in clients:
@@ -202,10 +241,12 @@ async def list_my_clients(
                 name=c.name,
                 industry=getattr(c, "industry", None),
                 is_head_dl=head_lookup.get(c.id, False) if not is_admin else False,
-                active_orders_count=oa.active_count if oa else 0,
-                total_revenue_all_time=la.lifetime_total if la else None,
-                active_revenue=oa.active_total if oa else None,
-                expiring_soon_count=expiring.get(c.id, 0),
+                active_orders_count=int(oa["active_count"]) if oa else 0,
+                total_revenue_all_time=la,
+                active_revenue=Decimal(oa["active_total"]) if oa else None,
+                expiring_soon_count=(
+                    int(expiring.get(c.id, 0)) + int(order_expiring.get(c.id, 0))
+                ),
                 framework_contract_status=fc[0] if fc else None,
                 framework_expiry_date=fc[1] if fc else None,
             )
@@ -222,6 +263,10 @@ async def client_dashboard(
     _user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
+    if not _user.has_any_role(UserRole.admin, UserRole.delivery_lead):
+        raise HTTPException(
+            403, detail="Client finance requires admin or delivery_lead"
+        )
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
         raise HTTPException(404, detail="Client not found")
@@ -233,6 +278,7 @@ async def client_dashboard(
                 select(
                     ClientOrder.status,
                     ClientOrder.currency,
+                    func.count(ClientOrder.id).label("order_count"),
                     func.coalesce(func.sum(ClientOrder.total_value), 0).label(
                         "sum_val"
                     ),
@@ -247,9 +293,10 @@ async def client_dashboard(
     completed_rev = Decimal(0)
     currency_breakdown: dict[str, Decimal] = {}
     for r in rev_rows:
-        v = Decimal(r.sum_val) if r.sum_val is not None else Decimal(0)
+        original_value = Decimal(r.sum_val) if r.sum_val is not None else Decimal(0)
         if r.status == ClientOrderStatus.cancelled:
             continue
+        v = await _to_pln_strict(db, original_value, r.currency)
         total_rev += v
         if r.status == ClientOrderStatus.active:
             active_rev += v
@@ -257,40 +304,58 @@ async def client_dashboard(
             completed_rev += v
         if r.currency:
             currency_breakdown[r.currency] = (
-                currency_breakdown.get(r.currency, Decimal(0)) + v
+                currency_breakdown.get(r.currency, Decimal(0)) + original_value
             )
 
     # Margin z aktywnych Contractów klienta (po refactorze 2026-05-11:
     # Contract 1:N Order, więc Contract.client_id daje wszystkie kontraktory).
+    today = date.today()
     contract_rows = list(
         (
             await db.execute(select(Contract).where(Contract.client_id == client_id))
         ).scalars()
     )
-    monthly_margin_total = 0
+    active_contract_rows = [
+        contract
+        for contract in contract_rows
+        if contract.status in (ContractStatus.active, ContractStatus.ending)
+        and contract.start_date is not None
+        and contract.start_date <= today
+        and (contract.end_date is None or contract.end_date >= today)
+    ]
+    monthly_margin_total = Decimal(0)
+    monthly_revenue_total = Decimal(0)
     has_margin = False
-    for c in contract_rows:
-        if c.status != ContractStatus.active:
-            continue
-        m = c.monthly_margin
+    for contract in active_contract_rows:
+        m = contract.monthly_margin
         if m is not None:
-            monthly_margin_total += m
+            monthly_margin_total += await _to_pln_strict(db, m, contract.currency)
             has_margin = True
+        if contract.monthly_rate_client is not None:
+            monthly_revenue_total += await _to_pln_strict(
+                db, contract.monthly_rate_client, contract.currency
+            )
 
     margin_pct: Optional[float] = None
-    if has_margin and active_rev and active_rev > 0:
-        margin_pct = round(float(monthly_margin_total) / float(active_rev) * 100, 2)
+    if has_margin and monthly_revenue_total > 0:
+        margin_pct = round(
+            float(monthly_margin_total / monthly_revenue_total * Decimal(100)), 2
+        )
 
     # Konsultanci active vs completed (na podstawie kontraktów linkowanych do orderów)
-    active_consultants = sum(
-        1 for c in contract_rows if c.status == ContractStatus.active
-    )
-    completed_consultants = sum(
-        1 for c in contract_rows if c.status == ContractStatus.ended
+    active_candidate_ids = {c.candidate_id for c in active_contract_rows}
+    active_consultants = len(active_candidate_ids)
+    completed_consultants = len(
+        {
+            c.candidate_id
+            for c in contract_rows
+            if c.status == ContractStatus.ended
+            and c.candidate_id not in active_candidate_ids
+        }
     )
 
-    # Order velocity — średnio dni od `created_at` do gdy
-    # `linked_contracts == positions_count` dla zakończonych zamówień.
+    # Order velocity is based only on the audited first activation timestamp.
+    # We deliberately do not infer missing history from start_date.
     completed_orders = list(
         (
             await db.execute(
@@ -301,16 +366,17 @@ async def client_dashboard(
             )
         ).scalars()
     )
-    velocities: list[float] = []
-    for o in completed_orders:
-        if not o.start_date:
-            continue
-        # Approx — used `start_date - created_at` jako proxy dla "filled"
-        delta = (o.start_date - o.created_at.date()).days
-        if delta >= 0:
-            velocities.append(float(delta))
+    velocities = [
+        (o.filled_at - o.created_at).total_seconds() / 86400
+        for o in completed_orders
+        if o.filled_at is not None and o.filled_at >= o.created_at
+    ]
+    # Any untraceable historical row makes the aggregate partial, so keep the
+    # legacy field NULL rather than presenting a selective average as complete.
     avg_days_to_fill = (
-        round(sum(velocities) / len(velocities), 1) if velocities else None
+        round(sum(velocities) / len(velocities), 1)
+        if completed_orders and len(velocities) == len(completed_orders)
+        else None
     )
 
     # Counts
@@ -322,14 +388,13 @@ async def client_dashboard(
         )
     ) or 0
     active_orders_count = sum(
-        1 for r in rev_rows if r.status == ClientOrderStatus.active
+        int(r.order_count) for r in rev_rows if r.status == ClientOrderStatus.active
     )
     completed_orders_count = sum(
-        1 for r in rev_rows if r.status == ClientOrderStatus.completed
+        int(r.order_count) for r in rev_rows if r.status == ClientOrderStatus.completed
     )
 
     # Alerts: framework contracts expiring 30/14/7 dni + ordery ending 30/14/7 dni
-    today = date.today()
     alerts: list[ExpiringAlert] = []
 
     fc_expiring = list(

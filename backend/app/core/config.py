@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import List
+from typing import List, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -126,6 +126,31 @@ class Settings(BaseSettings):
     # Fireflies integration
     FIREFLIES_API_KEY: str = ""
 
+    # Legacy InfraReporter (read-only shadow source during analytics cutover).
+    # The API key must live in the runtime secret vault; never provide a source
+    # default. An empty key disables the integration fail-closed.
+    INFRAREPORTER_URL: str = "https://infrareporter.onrender.com/api/kpi/board/monthly"
+    INFRAREPORTER_API_KEY: str = ""
+
+    # Analytics consolidation rollout. ``shadow`` computes v1 responses while
+    # legacy consumers remain active; modules is a comma-separated allow-list
+    # so operators can canary individual surfaces without rebuilding images.
+    ANALYTICS_V1_MODE: Literal["off", "shadow", "live"] = "shadow"
+    ANALYTICS_V1_MODULES: str = (
+        "overview,pipeline,funnel,recruitment,sources,calls,kpis,clients,"
+        "finance,tenders,delivery,executive"
+    )
+
+    # Legacy DynaReporter lifecycle. Production exposes no write mode:
+    #   read_only — secured reads remain, every mutation returns 410,
+    #   off       — every DynaReporter API surface returns 410.
+    DYNAREPORTER_MODE: Literal["read_only", "off"] = "read_only"
+
+    # KPI Coach v2 notifications start disabled and are enabled only after the
+    # dry-run parity window. The v2 read APIs are controlled independently.
+    KPI_COACH_V2_NUDGES_ENABLED: bool = False
+    KPI_COACH_V2_NUDGE_MODE: Literal["off", "dry_run", "live"] = "off"
+
     # CEIDG API v3 (dane.biznes.gov.pl) — token JWT do auto-uzupełniania nazwy
     # firmy JDG w Generatorze Umów B2B. Pusty = używamy tylko Białej Listy MF
     # (zwraca imię+nazwisko właściciela zamiast pełnej nazwy firmy JDG).
@@ -156,6 +181,9 @@ class Settings(BaseSettings):
     BUSINESS_TZ: str = "Europe/Warsaw"
     # Ile Call (status=completed) / dzień roboczy rekrutera musi mieć do 11:45.
     POWERCALLING_DAILY_TARGET: int = 15
+    # Dzienne weryfikacje są osobnym KPI — nie wolno ich mieszać z liczbą
+    # zakończonych rozmów CloudTalk.
+    VERIFICATIONS_DAILY_TARGET: int = 4
     POWERCALLING_CHECK_HOUR: int = 11
     POWERCALLING_CHECK_MINUTE: int = 45
     # Alert do DL o braku feedbacku klienta — przed końcem dnia pracy.

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser, CurrentUser, DeliveryLeadPlus
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.contract_template import ContractTemplate
@@ -302,7 +302,7 @@ async def delete_template(
 @router.get("/{template_id}/render", response_class=HTMLResponse)
 async def render_template_for_contract(
     template_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     contract_id: int = Query(...),
 ):

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import List
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
@@ -36,6 +37,7 @@ from app.schemas.candidate_source_event import (
 )
 
 router = APIRouter()
+WARSAW = ZoneInfo("Europe/Warsaw")
 
 
 def _serialize(row: CandidateSourceEvent) -> CandidateSourceEventOut:
@@ -144,48 +146,77 @@ async def report_sources(
 ) -> SourceReportResponse:
     """Aggregated source funnel: how many candidates per channel/UTM, hire rate.
 
-    Joins ``candidate_source_events`` to ``candidate_stages`` to compute the
-    "hired" count: a candidate is counted as hired if ANY of their stages
-    reached PipelineStage.hired within the window.
+    Uses the first source touch and the first ``hired`` occurrence per
+    candidate. Both numerator and denominator are therefore distinct
+    candidates and the conversion rate cannot exceed 100%.
     """
-    period_end = datetime.now(timezone.utc)
-    period_start = period_end - timedelta(days=days)
+    now_warsaw = datetime.now(WARSAW)
+    period_end_local = now_warsaw.replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) + timedelta(days=1)
+    period_start_local = period_end_local - timedelta(days=days)
+    period_start = period_start_local.astimezone(timezone.utc)
+    period_end = period_end_local.astimezone(timezone.utc)
 
-    # Latest stage per candidate, computed via subquery — used to flag hires.
-    hired_subq = (
-        select(CandidateStage.candidate_id)
+    # A candidate can have many source touches. Reports use the canonical
+    # first-touch event only, so a single candidate cannot inflate a channel's
+    # hired numerator above its distinct-candidate denominator.
+    ranked_sources = select(
+        CandidateSourceEvent.candidate_id.label("candidate_id"),
+        CandidateSourceEvent.channel.label("channel"),
+        CandidateSourceEvent.utm_source.label("utm_source"),
+        CandidateSourceEvent.utm_campaign.label("utm_campaign"),
+        CandidateSourceEvent.captured_at.label("captured_at"),
+        func.row_number()
+        .over(
+            partition_by=CandidateSourceEvent.candidate_id,
+            order_by=(
+                CandidateSourceEvent.captured_at.asc(),
+                CandidateSourceEvent.id.asc(),
+            ),
+        )
+        .label("source_rank"),
+    ).subquery()
+
+    first_hire = (
+        select(
+            CandidateStage.candidate_id.label("candidate_id"),
+            func.min(CandidateStage.moved_at).label("first_hired_at"),
+        )
         .where(CandidateStage.stage == PipelineStage.hired)
-        .where(CandidateStage.created_at >= period_start)
-        .distinct()
+        .group_by(CandidateStage.candidate_id)
         .subquery()
+    )
+    hired_subq = select(first_hire.c.candidate_id).where(
+        first_hire.c.first_hired_at >= period_start,
+        first_hire.c.first_hired_at < period_end,
     )
 
     hired_flag = case(
-        (CandidateSourceEvent.candidate_id.in_(select(hired_subq)), 1),
+        (ranked_sources.c.candidate_id.in_(hired_subq), 1),
         else_=0,
     )
 
     if group_by_utm:
         group_cols = [
-            CandidateSourceEvent.channel,
-            CandidateSourceEvent.utm_source,
-            CandidateSourceEvent.utm_campaign,
+            ranked_sources.c.channel,
+            ranked_sources.c.utm_source,
+            ranked_sources.c.utm_campaign,
         ]
     else:
-        group_cols = [CandidateSourceEvent.channel]
+        group_cols = [ranked_sources.c.channel]
 
     stmt = (
         select(
             *group_cols,
-            func.count(func.distinct(CandidateSourceEvent.candidate_id)).label(
-                "candidates_total"
-            ),
+            func.count(ranked_sources.c.candidate_id).label("candidates_total"),
             func.sum(hired_flag).label("hired"),
         )
-        .where(CandidateSourceEvent.captured_at >= period_start)
-        .where(CandidateSourceEvent.captured_at <= period_end)
+        .where(ranked_sources.c.source_rank == 1)
+        .where(ranked_sources.c.captured_at >= period_start)
+        .where(ranked_sources.c.captured_at < period_end)
         .group_by(*group_cols)
-        .order_by(func.count(func.distinct(CandidateSourceEvent.candidate_id)).desc())
+        .order_by(func.count(ranked_sources.c.candidate_id).desc())
     )
 
     result = await db.execute(stmt)

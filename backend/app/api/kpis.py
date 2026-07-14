@@ -16,13 +16,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser, RecruiterPlus, require_roles
+from app.api.deps import AdminUser, CurrentUser, require_roles
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType
 from app.models.user import User, UserRole
+from app.models.team_structure import TacDeliveryLeadAssignment
 from app.services.kpi_catalog import KpiPeriod, get_kpi
-from app.services.kpi_coach_service import run_scheduled_sweep
+from app.services.kpi_coach_service import kpi_coach_nudge_mode, run_scheduled_sweep
 from app.services.kpi_coach_service import _try_emit as _try_emit_nudge
 from app.services.kpi_engine import KpiResult, evaluate_user_kpis, period_bucket_label
 from app.services.kpi_panel import PanelResult, compute_my_panel
@@ -285,12 +286,10 @@ async def get_team_panel(
 @router.get("/users/{user_id}/today", response_model=List[KpiResultSchema])
 async def get_user_kpis_today(
     user_id: int,
-    _: RecruiterPlus,  # tylko zalogowany user (późniejsze RBAC dla managera)
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[KpiResultSchema]:
-    """Progres dowolnego usera. Używane przez admina/delivery_leada do
-    monitorowania teamu. W MVP pozwala też rekruterowi sprawdzić kogoś
-    innego — zmieni się gdy Faza D doda admin UI z właściwym RBAC."""
+    """Legacy KPI lookup with strict self/manager scope during deprecation."""
     from sqlalchemy import select
 
     from app.models.user import User
@@ -301,6 +300,28 @@ async def get_user_kpis_today(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Użytkownik nie znaleziony",
         )
+
+    allowed = current_user.id == user_id or current_user.has_any_role(
+        UserRole.admin, UserRole.head_of_recruitment
+    )
+    if not allowed and current_user.has_any_role(UserRole.delivery_lead):
+        # The explicit team relation currently available in the data model is
+        # TAC -> Delivery Lead. Do not silently broaden a DL to all users.
+        allowed = (
+            await db.scalar(
+                select(TacDeliveryLeadAssignment.id).where(
+                    TacDeliveryLeadAssignment.delivery_lead_user_id == current_user.id,
+                    TacDeliveryLeadAssignment.tac_user_id == user_id,
+                )
+            )
+            is not None
+        )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="KPI details are limited to self or the assigned management scope",
+        )
+
     results = await evaluate_user_kpis(db, user=user)
     return [_to_schema(r) for r in results if r.target > 0]
 
@@ -315,6 +336,7 @@ class SweepCountersSchema(BaseModel):
     eod: int
     skipped_dedup: int
     skipped_optout: int
+    dry_run: int = 0
 
 
 @router.post("/admin/trigger-sweep", response_model=SweepCountersSchema)
@@ -334,8 +356,22 @@ async def admin_trigger_kpi_coach_sweep(
 
     Zwraca counters (users processed, praise/remind/eod emitted, skipped).
     """
-    counters = await run_scheduled_sweep(db, force=force, target_user_id=target_user_id)
-    await db.commit()
+    mode = kpi_coach_nudge_mode()
+    if mode == "off":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="KPI Coach v2 nudges are disabled",
+        )
+    counters = await run_scheduled_sweep(
+        db,
+        force=force,
+        target_user_id=target_user_id,
+        dry_run=mode == "dry_run",
+    )
+    if mode == "dry_run":
+        await db.rollback()
+    else:
+        await db.commit()
     return SweepCountersSchema(**counters)
 
 
@@ -371,6 +407,12 @@ async def admin_debug_fire_nudge(
       nudge_type: praise_hit | remind_behind | eod_summary | streak_bonus.
       current, target: wartości do renderowania szablonu (body będzie mieć "{current}/{target}").
     """
+    if kpi_coach_nudge_mode() != "live":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Debug emission requires KPI Coach v2 live mode",
+        )
+
     from datetime import datetime
     from sqlalchemy import and_, delete, select
 

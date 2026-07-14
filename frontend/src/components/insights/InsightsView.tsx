@@ -4,7 +4,11 @@ import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BarChart3, Building2, Briefcase } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { hasRole, useAuthStore, type UserRole } from "@/store/auth";
+import {
+  hasAnalyticsCapability,
+  useAuthStore,
+  type AnalyticsCapability,
+} from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { RekrutacjaPanel } from "@/components/insights/RekrutacjaPanel";
 import { KlienciPanel } from "@/components/insights/KlienciPanel";
@@ -16,29 +20,34 @@ type TabDef = {
   id: TabId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  roles: UserRole[] | null;
+  capabilities: AnalyticsCapability[];
 };
 
 const TABS: TabDef[] = [
-  { id: "rekrutacja", label: "Rekrutacja", icon: BarChart3, roles: null },
+  {
+    id: "rekrutacja",
+    label: "Rekrutacja",
+    icon: BarChart3,
+    capabilities: ["view_operational_aggregates"],
+  },
   {
     id: "klienci",
     label: "Klienci & Delivery",
     icon: Building2,
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+    capabilities: ["view_client_operations"],
   },
   {
     id: "zarzad",
     label: "Zarząd",
     icon: Briefcase,
-    roles: ["admin", "delivery_lead", "tac"],
+    capabilities: ["view_finance", "view_tenders"],
   },
 ];
 
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
 function getDefaultTabForUser(user: AuthUser): TabId {
-  if (hasRole(user, "admin", "head_of_recruitment")) return "klienci";
+  if (hasAnalyticsCapability(user, "view_client_operations")) return "klienci";
   return "rekrutacja";
 }
 
@@ -54,7 +63,12 @@ export function InsightsView() {
   const toast = useToast();
 
   const visibleTabs = useMemo(
-    () => TABS.filter((t) => !t.roles || hasRole(user, ...t.roles)),
+    () =>
+      TABS.filter((tab) =>
+        tab.capabilities.some((capability) =>
+          hasAnalyticsCapability(user, capability)
+        )
+      ),
     [user]
   );
 

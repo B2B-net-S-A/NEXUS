@@ -13,7 +13,6 @@ import {
  Phone,
  Star,
  Target,
- TrendingDown,
  TrendingUp,
  Trophy,
  UserCheck,
@@ -30,9 +29,21 @@ import { Button } from"@/components/ui/button";
 import { MyJobsWidget } from"@/components/v2/pages/dashboard/MyJobsWidget";
 import { MojeKpiPanel } from "@/components/v2/kpi/MojeKpiPanel";
 import { TeamKpiPanel } from "@/components/v2/kpi/TeamKpiPanel";
-import { WidgetState, WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState";
-import { hasRole, useAuthStore } from"@/store/auth";
+import { WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState";
+import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary";
+import {
+ hasAnalyticsCapability,
+ useAuthStore,
+} from"@/store/auth";
 import { UserCog } from"lucide-react";
+import {
+ recruitmentFunnelStages,
+} from"@/components/v2/pages/dashboard/dashboard-stats";
+import {
+ analyticsApi,
+ type RecentHireData,
+ type TeamKpiRow,
+} from"@/lib/analytics";
 
 /**
  * DashboardV2 — Dynaminds redesign. Uses the same TanStack queries as v1
@@ -56,51 +67,16 @@ const EVENT_LABEL: Record<string, string> = {
  deadline: "Deadline",
 };
 
-// ── Sparkline (inline SVG) ─────────────────────────────────────────────
-function Sparkline({ data, color ="hsl(var(--primary))" }: { data: number[]; color?: string }) {
- if (data.length < 2) return null;
- const w = 88;
- const h = 28;
- const max = Math.max(...data);
- const min = Math.min(...data);
- const range = max - min || 1;
- const step = w / (data.length - 1);
- const points = data
- .map((v, i) => `${i * step},${h - ((v - min) / range) * h}`)
- .join("");
- return (
- <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0">
- <polyline
- points={points}
- fill="none"
- stroke={color}
- strokeWidth="1.5"
- strokeLinecap="round"
- strokeLinejoin="round"
- />
- </svg>
- );
-}
-
-function seedSparkline(base: number, seed: number): number[] {
- return Array.from({ length: 7 }, (_, i) => {
- const factor = 1 + 0.18 * Math.sin((i + seed) * 1.7);
- return Math.max(0, Math.round(base * factor));
- });
-}
-
 // ── StatCard ───────────────────────────────────────────────────────────
 interface StatProps {
  title: string;
  value: React.ReactNode;
  subtitle?: string;
  icon: React.ComponentType<{ className?: string }>;
- trend?: { value: number; label: string };
- sparkline?: number[];
  href?: string;
 }
 
-function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href }: StatProps) {
+function StatCardV2({ title, value, subtitle, icon: Icon, href }: StatProps) {
  const inner = (
  <Card variant="default" size="md" className={href ?"hover:shadow-sm transition-all": undefined}>
  <div className="flex items-start justify-between gap-2 mb-3">
@@ -110,7 +86,6 @@ function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href
  </p>
  </div>
  <div className="flex items-center gap-2">
- {sparkline && <Sparkline data={sparkline} />}
  <span className="inline-flex items-center justify-center h-8 w-8 rounded-md bg-primary/10 text-primary">
  <Icon className="h-4 w-4" />
  </span>
@@ -119,24 +94,9 @@ function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href
  <div className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground leading-none">
  {value}
  </div>
- <div className="flex items-center justify-between gap-2 mt-2">
+ <div className="mt-2">
  {subtitle && (
  <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
- )}
- {trend && (
- <span
- className={cn("inline-flex items-center gap-0.5 text-[11px] font-semibold whitespace-nowrap",
- trend.value >= 0 ?"text-[#1d5e31]" :"text-primary"
- )}
- >
- {trend.value >= 0 ? (
- <TrendingUp className="h-3 w-3" />
- ) : (
- <TrendingDown className="h-3 w-3" />
- )}
- {trend.value >= 0 ?"+" :""}
- {trend.value}%
- </span>
  )}
  </div>
  </Card>
@@ -145,21 +105,8 @@ function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href
 }
 
 // ── Funnel ─────────────────────────────────────────────────────────────
-function FunnelV2({ data }: { data?: any }) {
- // QA bug #17 (2026-05-27): previous version used hardcoded fallbacks
- // 120/78/45/18/9 when the funnel API returned null/undefined. Those
- // round numbers (100%/65%/58%/40%/50% conversion) were mistaken for
- // real metrics by admins who compared them against Insights/Rekrutacja
- // which showed actual 14/17/2/18/9 — confusing data integrity story.
- // Now: 0 + "Brak danych" empty state when API has no response yet.
- const funnel = data?.funnel ?? data?.pipeline ?? null;
- const stages = [
- { key: "new", label: "Nowy", count: funnel?.new ?? funnel?.total_entered ?? 0 },
- { key: "screening", label: "Screening", count: funnel?.screening ?? funnel?.screening_done ?? 0 },
- { key: "interview", label: "Interview", count: funnel?.interview ?? funnel?.interviews ?? 0 },
- { key: "offer", label: "Oferta", count: funnel?.offer ?? funnel?.offers ?? 0 },
- { key: "hired", label: "Zatrudniony", count: funnel?.hired ?? funnel?.hired_count ?? 0 },
- ];
+function FunnelV2({ data }: { data?: unknown }) {
+ const stages = recruitmentFunnelStages(data);
  const allZero = stages.every((s) => s.count === 0);
  if (allZero) {
  return (
@@ -200,30 +147,37 @@ function FunnelV2({ data }: { data?: any }) {
 }
 
 // ── Performers leaderboard ─────────────────────────────────────────────
-function PerformersV2({ data }: { data?: any }) {
- const lb = data?.leaderboard ?? [];
+function PerformersV2({ rows }: { rows?: TeamKpiRow[] }) {
+ const lb = [...(rows ?? [])]
+ .sort(
+ (left, right) =>
+ right.placements - left.placements ||
+ right.verifications - left.verifications ||
+ left.user_id - right.user_id,
+ )
+ .slice(0, 5);
  if (!lb.length) {
  return (
  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
  <Trophy className="h-8 w-8 mb-2 opacity-40" />
- <p className="text-sm">Brak danych o aktywności</p>
+ <p className="text-sm">Brak placementów w bieżącym miesiącu</p>
  </div>
  );
  }
- const max = Math.max(...lb.map((r: any) => r.total_actions), 1);
+ const max = Math.max(...lb.map((row) => row.placements), 1);
  return (
  <div className="space-y-3">
- {lb.slice(0, 5).map((rec: any, i: number) => {
+ {lb.map((rec, i) => {
  const initials = (rec.user_name ??"?")
- .split("")
+ .split(/\s+/)
  .map((p: string) => p[0])
  .join("")
  .toUpperCase()
  .slice(0, 2);
- const barW = Math.round((rec.total_actions / max) * 100);
+ const barW = Math.round(((rec.placements ?? 0) / max) * 100);
  const rankColor =
  i === 0
- ?"text-amber-500"
+ ?"text-primary"
  : i === 1
  ?"text-muted-foreground"
  : i === 2
@@ -249,7 +203,7 @@ function PerformersV2({ data }: { data?: any }) {
  </div>
  </div>
  <span className="text-xs font-bold text-primary shrink-0">
- {rec.total_actions}
+ {rec.placements ?? 0}
  </span>
  </div>
  );
@@ -259,7 +213,7 @@ function PerformersV2({ data }: { data?: any }) {
 }
 
 // ── Recent hires ───────────────────────────────────────────────────────
-function RecentHiresV2({ data }: { data?: any[] }) {
+function RecentHiresV2({ data }: { data?: RecentHireData[] }) {
  const hires = (data ?? []).slice(0, 5);
  if (!hires.length) {
  return (
@@ -271,29 +225,29 @@ function RecentHiresV2({ data }: { data?: any[] }) {
  }
  return (
  <div className="divide-y divide-border">
- {hires.map((hire: any, idx: number) => (
+ {hires.map((hire) => (
  <Link
- key={hire.id ?? idx}
+ key={`${hire.candidate_id}:${hire.job_id}:${hire.hired_at}`}
  href={hire.candidate_id ? `/candidates/${hire.candidate_id}` :"#"}
  className="group flex items-center gap-3 py-2.5 hover:bg-primary/10 transition-colors rounded-md -mx-2 px-2"
  >
  <Avatar size="sm">
  <AvatarFallback>
- {(hire.candidate_name ?? hire.entity_name ??"?").charAt(0).toUpperCase()}
+ {(hire.candidate_name ??"?").charAt(0).toUpperCase()}
  </AvatarFallback>
  </Avatar>
  <div className="flex-1 min-w-0">
  <p className="text-sm font-medium text-foreground truncate group-hover:text-primary">
- {hire.candidate_name ?? hire.entity_name ??"Kandydat"}
+ {hire.candidate_name ??
+ (hire.candidate_id ? `Kandydat #${hire.candidate_id}` : "Kandydat")}
  </p>
  <p className="text-xs text-muted-foreground truncate">
- {hire.job_title ?? hire.description ??""}
+ {hire.job_title ??""}
  {hire.client_name ? ` · ${hire.client_name}` :""}
  </p>
  </div>
  <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
- {hire.hired_at ?? hire.timestamp ?? hire.created_at
- ? formatRelativeTime(hire.hired_at ?? hire.timestamp ?? hire.created_at) : ""}
+ {hire.hired_at ? formatRelativeTime(hire.hired_at) : ""}
  </span>
  </Link>
  ))}
@@ -338,9 +292,14 @@ function UpcomingEventsV2({ events }: { events?: any[] }) {
 }
 
 // ── Placements ─────────────────────────────────────────────────────────
-function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?: number }) {
- const placements = ir?.placements ?? ir?.total_placements ?? 0;
- const byClient = ir?.placements_by_client ?? {};
+function PlacementsV2({
+ placements,
+ expiringContracts,
+}: {
+ placements?: number;
+ expiringContracts?: number;
+}) {
+ const byClient: Record<string, number> = {};
  const hasData = Object.keys(byClient).length > 0;
  const max = hasData ? Math.max(...(Object.values(byClient) as number[])) : 1;
  return (
@@ -355,7 +314,7 @@ function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?:
  <CardDescription>zatrudnienia B2B.net</CardDescription>
  </div>
  <span className="font-semibold text-3xl font-extrabold text-foreground tracking-[-0.02em]">
- {placements}
+ {placements ?? "—"}
  </span>
  </div>
  </CardHeader>
@@ -394,15 +353,17 @@ function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?:
 // ── Contractor drafts widget ───────────────────────────────────────────
 function ContractorDraftsWidget() {
  const { user } = useAuthStore();
+ const canView = hasAnalyticsCapability(user, "view_client_operations");
  const { data } = useQuery({
  queryKey: ["contractor-stats-widget"],
  queryFn: () => contractorsApi.stats().then((r) => r.data),
+ enabled: canView,
  staleTime: 60 * 1000,
  });
 
  // Gate visibility to roles that actually fill in contracts; recruiters
  // and sourcers don't own the draft completion step.
- if (!hasRole(user, "admin","delivery_lead","tac","head_of_recruitment")) {
+ if (!canView) {
  return null;
  }
 
@@ -436,41 +397,49 @@ function ContractorDraftsWidget() {
 
 // ── Main ───────────────────────────────────────────────────────────────
 export function DashboardV2() {
+ const user = useAuthStore((state) => state.user);
+ const hydrated = useAuthStore((state) => state.hydrated);
+ const canViewOverview = hasAnalyticsCapability(user, "view_operational_aggregates");
+ const canViewRecruitmentTeam = hasAnalyticsCapability(user, "view_recruitment_team");
+ const canViewPersonalRecruitment = hasAnalyticsCapability(
+ user,
+ "view_personal_recruitment_kpis",
+ );
+ const canViewClientOperations = hasAnalyticsCapability(user, "view_client_operations");
+ const canNavigateRecruitment = canViewRecruitmentTeam || canViewPersonalRecruitment;
+ const canViewDetailedOperations =
+ canViewRecruitmentTeam || canViewPersonalRecruitment || canViewClientOperations;
+
  const {
- data: stats,
+ data: statsEnvelope,
  isLoading: statsLoading,
+ isFetching: statsFetching,
  isError: statsIsError,
  error: statsError,
  refetch: refetchStats,
  } = useQuery({
- queryKey: ["dashboard-stats"],
- queryFn: () => api.get("/api/dashboard/stats").then((r) => r.data),
+ queryKey: ["analytics-v1", "overview", "month"],
+ queryFn: () => analyticsApi.overview("month"),
+ enabled: hydrated && canViewOverview,
  });
 
- const { data: kpis } = useQuery({
- queryKey: ["dashboard-kpis"],
- queryFn: () => api.get("/api/dashboard/kpis").then((r) => r.data),
+ const {
+ data: recentHiresEnvelope,
+ isLoading: recentHiresLoading,
+ isFetching: recentHiresFetching,
+ isError: recentHiresIsError,
+ error: recentHiresError,
+ refetch: refetchRecentHires,
+ } = useQuery({
+ queryKey: ["analytics-v1", "recruitment", "recent-hires", "month"],
+ queryFn: () => analyticsApi.recentHires("month", 10),
+ enabled: hydrated && canViewRecruitmentTeam,
  staleTime: 60 * 1000,
  });
 
  const {
- data: activity,
- isError: activityIsError,
- error: activityError,
- refetch: refetchActivity,
- } = useQuery({
- queryKey: ["recent-activity"],
- queryFn: () =>
- api
- .get("/api/activities/feed?limit=15")
- .then((r) => r.data)
- .catch(() =>
- api.get("/api/dashboard/recent-activity?limit=10").then((r) => r.data)
- ),
- });
-
- const {
  data: upcomingEvents,
+ isLoading: upcomingLoading,
  isError: upcomingIsError,
  error: upcomingError,
  refetch: refetchUpcoming,
@@ -482,47 +451,60 @@ export function DashboardV2() {
  params: { upcoming: true, limit: 5, start_from: new Date().toISOString() },
  })
  .then((r) => (Array.isArray(r.data) ? r.data.slice(0, 5) : [])),
+ enabled: hydrated && canViewDetailedOperations,
  staleTime: 60 * 1000,
  });
 
  const {
- data: recruitmentReport,
+ data: funnelEnvelope,
+ isLoading: reportLoading,
+ isFetching: reportFetching,
  isError: reportIsError,
  error: reportError,
  refetch: refetchReport,
  } = useQuery({
- queryKey: ["recruitment-report"],
- queryFn: () => api.get("/api/reports/recruitment?period=month").then((r) => r.data),
+ queryKey: ["analytics-v1", "recruitment", "funnel", "month"],
+ queryFn: () => analyticsApi.recruitmentFunnel("month"),
+ enabled: hydrated && canViewRecruitmentTeam,
  staleTime: 5 * 60 * 1000,
  });
 
  const {
- data: leaderboard,
- isError: leaderboardIsError,
- error: leaderboardError,
- refetch: refetchLeaderboard,
+ data: teamKpisEnvelope,
+ isLoading: teamKpisLoading,
+ isFetching: teamKpisFetching,
+ isError: teamKpisIsError,
+ error: teamKpisError,
+ refetch: refetchTeamKpis,
  } = useQuery({
- queryKey: ["activities-leaderboard"],
- queryFn: () =>
- api.get("/api/activities/leaderboard?period=month&limit=5").then((r) => r.data),
+ queryKey: ["analytics-v1", "team", "kpis", "month", "dashboard-ranking"],
+ queryFn: () => analyticsApi.teamKpis("month"),
+ enabled: hydrated && canViewRecruitmentTeam,
  staleTime: 5 * 60 * 1000,
  });
 
- const { data: postingsStats } = useQuery({
+ const { data: postingsStats, isError: postingsIsError } = useQuery({
  queryKey: ["postings-stats"],
  queryFn: () => postingsApi.stats().then((r) => r.data),
+ enabled: hydrated && canViewOverview,
  staleTime: 60 * 1000,
  });
 
- const recentHires = (activity ?? []).filter(
- (a: any) => a.action === "hired" || a.action_type === "hired"
- );
+ const { data: health, isError: healthIsError } = useQuery<{
+ status?: string;
+ version?: string;
+ checks?: Record<string, unknown>;
+ }>({
+ queryKey: ["system-health"],
+ queryFn: () => api.get("/api/health").then((r) => r.data),
+ enabled: hydrated && canViewOverview,
+ staleTime: 60 * 1000,
+ });
 
- const ir = kpis?.infrareporter;
- const candidatesBase = stats?.candidates?.total ?? 50;
- const jobsBase = stats?.jobs?.open ?? 10;
- const clientsBase = stats?.clients?.total ?? 20;
- const contractsBase = stats?.contracts?.active ?? 15;
+ const recentHires = recentHiresEnvelope?.data.hires ?? [];
+ const stats = statsEnvelope?.data;
+ const recruitmentFunnel = funnelEnvelope?.data;
+ const placements = recruitmentFunnel?.placed;
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-6">
@@ -539,7 +521,7 @@ export function DashboardV2() {
  Twój pipeline rekrutacyjny w jednym widoku.
  </p>
  </div>
- <div className="flex items-center gap-2">
+ {canViewDetailedOperations && <div className="flex items-center gap-2">
  <Link href="/candidates">
  <Button variant="outline" size="sm">
  Kandydaci <ArrowRight className="h-3.5 w-3.5" />
@@ -550,21 +532,25 @@ export function DashboardV2() {
  Oferty <ArrowRight className="h-3.5 w-3.5" />
  </Button>
  </Link>
- </div>
+ </div>}
  </div>
 
  {/* Moje KPI — osobisty panel */}
- <MojeKpiPanel />
+ {canViewPersonalRecruitment && <MojeKpiPanel />}
 
  {/* KPI zespołu — managerski widok per osoba (admin/HoR/DL) */}
- <TeamKpiPanel className="mt-4" />
+ {canViewRecruitmentTeam && <TeamKpiPanel className="mt-4" />}
 
  {/* KPI hero row */}
  <section>
- <WidgetState
+ <StatsBoundary
  isLoading={statsLoading}
+ isFetching={statsFetching && !statsLoading}
  isError={statsIsError}
  error={statsError}
+ isEmpty={!statsEnvelope}
+ quality={statsEnvelope?.quality}
+ generatedAt={statsEnvelope?.generated_at}
  onRetry={() => refetchStats()}
  loadingFallback={
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -576,64 +562,64 @@ export function DashboardV2() {
  ))}
  </div>
  }
- errorFallback={
- <Card>
- <WidgetErrorBlock
- title="Nie udało się załadować statystyk pulpitu."
- error={statsError}
- onRetry={() => refetchStats()}
- />
- </Card>
- }
  >
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
  <StatCardV2
  title="Kandydaci"
  value={stats?.candidates?.total ??"—"}
- subtitle={`${stats?.candidates?.active ?? 0} aktywnych`}
+ subtitle={
+ typeof stats?.candidates?.active === "number"
+ ? `${stats.candidates.active} aktywnych`
+ : undefined
+ }
  icon={Users}
- trend={{ value: 8, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(candidatesBase, 1)}
- href="/candidates"
+ href={canNavigateRecruitment ? "/candidates" : undefined}
  />
  <StatCardV2
  title="Otwarte oferty"
  value={stats?.jobs?.open ??"—"}
- subtitle={`${stats?.jobs?.total ?? 0} łącznie`}
+ subtitle={
+ typeof stats?.jobs?.total === "number"
+ ? `${stats.jobs.total} łącznie`
+ : undefined
+ }
  icon={Briefcase}
- trend={{ value: 5, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(jobsBase, 3)}
- href="/jobs"
+ href={canNavigateRecruitment ? "/jobs" : undefined}
  />
  <StatCardV2
  title="Klienci"
  value={stats?.clients?.total ??"—"}
- subtitle="aktywne konta"
+ subtitle={
+ typeof stats?.clients?.active === "number"
+ ? `${stats.clients.active} aktywnych`
+ : undefined
+ }
  icon={Building2}
- trend={{ value: -2, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(clientsBase, 5)}
- href="/clients"
+ href={canViewClientOperations ? "/clients" : undefined}
  />
  <StatCardV2
  title="Aktywne kontrakty"
  value={stats?.contracts?.active ??"—"}
- subtitle={`${stats?.contracts?.expiring_soon ?? 0} kończących się`}
+ subtitle={
+ typeof stats?.contracts?.expiring_30_days === "number"
+ ? `${stats.contracts.expiring_30_days} kończących się`
+ : undefined
+ }
  icon={FileText}
- trend={{ value: 12, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(contractsBase, 7)}
- href="/contracts"
+ href={canViewClientOperations ? "/contracts" : undefined}
  />
  </div>
- </WidgetState>
+ </StatsBoundary>
  </section>
 
  {/* Contractor drafts — only visible when count > 0 and role qualifies */}
  <ContractorDraftsWidget />
 
  {/* My projects (Recruiter Ownership) */}
- <MyJobsWidget />
+ {canNavigateRecruitment && <MyJobsWidget />}
 
  {/* Pipeline + Hires */}
+ {canViewRecruitmentTeam && (
  <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
  <Card className="lg:col-span-3">
  <CardHeader>
@@ -641,27 +627,30 @@ export function DashboardV2() {
  <TrendingUp className="h-4 w-4 text-primary" />
  <CardTitle>Lejek rekrutacji</CardTitle>
  <Badge variant="soft" size="sm" className="ml-auto">
- 30 dni
+ Bieżący miesiąc
  </Badge>
  </div>
  </CardHeader>
  <CardContent>
- {reportIsError ? (
- <WidgetErrorBlock
- title="Nie udało się załadować raportu rekrutacji."
+ <StatsBoundary
+ isLoading={reportLoading}
+ isFetching={reportFetching && !reportLoading}
+ isError={reportIsError}
  error={reportError}
+ isEmpty={!funnelEnvelope}
+ quality={funnelEnvelope?.quality}
+ generatedAt={funnelEnvelope?.generated_at}
  onRetry={() => refetchReport()}
- />
- ) : (
- <FunnelV2 data={recruitmentReport} />
- )}
+ >
+ <FunnelV2 data={recruitmentFunnel} />
+ </StatsBoundary>
  </CardContent>
  </Card>
 
  <Card className="lg:col-span-2">
  <CardHeader>
  <div className="flex items-center gap-2">
- <UserCheck className="h-4 w-4 text-[#1d5e31]" />
+ <UserCheck className="h-4 w-4 text-primary" />
  <CardTitle>Ostatnie zatrudnienia</CardTitle>
  <Link
  href="/insights?tab=rekrutacja"
@@ -672,26 +661,32 @@ export function DashboardV2() {
  </div>
  </CardHeader>
  <CardContent>
- {activityIsError ? (
- <WidgetErrorBlock
- title="Nie udało się załadować aktywności."
- error={activityError}
- onRetry={() => refetchActivity()}
- />
- ) : (
+ <StatsBoundary
+ isLoading={recentHiresLoading}
+ isFetching={recentHiresFetching && !recentHiresLoading}
+ isError={recentHiresIsError}
+ error={recentHiresError}
+ isEmpty={!recentHiresEnvelope || recentHires.length === 0}
+ emptyTitle="Brak zatrudnień w bieżącym miesiącu"
+ quality={recentHiresEnvelope?.quality}
+ generatedAt={recentHiresEnvelope?.generated_at}
+ onRetry={() => refetchRecentHires()}
+ >
  <RecentHiresV2 data={recentHires} />
- )}
+ </StatsBoundary>
  </CardContent>
  </Card>
  </div>
+ )}
 
  {/* Performers + Upcoming */}
+ {canViewRecruitmentTeam && (
  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
  <Card className="lg:col-span-2">
  <CardHeader>
  <div className="flex items-center gap-2">
  <Star className="h-4 w-4 text-amber-500" />
- <CardTitle>Najlepsi rekruterzy (30 dni)</CardTitle>
+ <CardTitle>Najlepsi rekruterzy — placementy</CardTitle>
  <Link
  href="/insights?tab=rekrutacja"
  className="ml-auto text-xs text-primary hover:underline"
@@ -701,15 +696,19 @@ export function DashboardV2() {
  </div>
  </CardHeader>
  <CardContent>
- {leaderboardIsError ? (
- <WidgetErrorBlock
- title="Nie udało się załadować rankingu."
- error={leaderboardError}
- onRetry={() => refetchLeaderboard()}
- />
- ) : (
- <PerformersV2 data={leaderboard} />
- )}
+ <StatsBoundary
+ isLoading={teamKpisLoading}
+ isFetching={teamKpisFetching && !teamKpisLoading}
+ isError={teamKpisIsError}
+ error={teamKpisError}
+ isEmpty={!teamKpisEnvelope || teamKpisEnvelope.data.users.length === 0}
+ emptyTitle="Brak KPI zespołu w bieżącym miesiącu"
+ quality={teamKpisEnvelope?.quality}
+ generatedAt={teamKpisEnvelope?.generated_at}
+ onRetry={() => refetchTeamKpis()}
+ >
+ <PerformersV2 rows={teamKpisEnvelope?.data.users} />
+ </StatsBoundary>
  </CardContent>
  </Card>
 
@@ -727,7 +726,9 @@ export function DashboardV2() {
  </div>
  </CardHeader>
  <CardContent>
- {upcomingIsError ? (
+ {upcomingLoading ? (
+ <p className="text-sm text-muted-foreground py-4">Ładowanie wydarzeń…</p>
+ ) : upcomingIsError ? (
  <WidgetErrorBlock
  title="Nie udało się załadować wydarzeń."
  error={upcomingError}
@@ -739,15 +740,23 @@ export function DashboardV2() {
  </CardContent>
  </Card>
  </div>
+ )}
 
  {/* Placements + system */}
- <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+ <div
+ className={cn(
+ "grid grid-cols-1 gap-4",
+ canViewRecruitmentTeam && "lg:grid-cols-3",
+ )}
+ >
+ {canViewRecruitmentTeam && (
  <div className="lg:col-span-2">
  <PlacementsV2
- ir={ir}
- expiringContracts={stats?.contracts?.expiring_soon}
+ placements={placements}
+ expiringContracts={stats?.contracts?.expiring_30_days}
  />
  </div>
+ )}
 
  <Card>
  <CardHeader>
@@ -756,14 +765,38 @@ export function DashboardV2() {
  </CardHeader>
  <CardContent className="space-y-2 text-sm">
  <HealthRow
- label="Publikacje ofert"
- detail={`${postingsStats?.total ?? 0} aktywnych`}
- ok
+ label="Backend API"
+ detail={
+ healthIsError
+ ? "Niedostępny"
+ : health?.version
+ ? `wersja ${health.version}`
+ : health?.status ?? "Brak danych"
+ }
+ status={healthIsError ? "unknown" : normalizeHealthStatus(health?.status)}
  />
  <Separator />
- <HealthRow label="Fireflies sync" detail="Aktywny" ok />
+ <HealthRow
+ label="Baza danych"
+ detail={healthCheckDetail(health?.checks?.database, healthIsError)}
+ status={
+ healthIsError
+ ? "unknown"
+ : normalizeHealthStatus(health?.checks?.database)
+ }
+ />
  <Separator />
- <HealthRow label="Voyage AI" detail="embedding v3" ok />
+ <HealthRow
+ label="Publikacje ofert"
+ detail={
+ postingsIsError
+ ? "Niedostępne"
+ : typeof postingsStats?.total === "number"
+ ? `${postingsStats.total} aktywnych`
+ : "Brak danych"
+ }
+ status={postingsIsError ? "unknown" : "info"}
+ />
  </CardContent>
  </Card>
  </div>
@@ -774,11 +807,11 @@ export function DashboardV2() {
 function HealthRow({
  label,
  detail,
- ok,
+ status,
 }: {
  label: string;
  detail: string;
- ok: boolean;
+ status: "healthy" | "unhealthy" | "unknown" | "info";
 }) {
  return (
  <div className="flex items-center justify-between py-1">
@@ -786,11 +819,37 @@ function HealthRow({
  <span className="inline-flex items-center gap-1.5 text-xs">
  <span
  className={cn("h-2 w-2 rounded-full",
- ok ?"bg-[#1d5e31]" :"bg-primary"
+ status === "healthy"
+ ? "bg-primary"
+ : status === "unhealthy"
+ ? "bg-destructive"
+ : status === "info"
+ ? "bg-primary/60"
+ : "bg-muted-foreground"
  )}
  />
  <span className="text-muted-foreground">{detail}</span>
  </span>
  </div>
  );
+}
+
+function normalizeHealthStatus(value: unknown): "healthy" | "unhealthy" | "unknown" {
+ if (value === true) return "healthy";
+ if (value === false) return "unhealthy";
+ if (typeof value !== "string") return "unknown";
+ const normalized = value.toLowerCase();
+ if (["healthy", "ok", "active", "configured"].includes(normalized)) return "healthy";
+ if (["unhealthy", "failed", "error", "misconfigured"].includes(normalized)) {
+ return "unhealthy";
+ }
+ return "unknown";
+}
+
+function healthCheckDetail(value: unknown, requestFailed: boolean): string {
+ if (requestFailed) return "Niedostępna";
+ if (typeof value === "string") return value;
+ if (value === true) return "healthy";
+ if (value === false) return "unhealthy";
+ return "Brak danych";
 }

@@ -257,7 +257,7 @@ async def check_client_feedback_eobd(db: AsyncSession, now: datetime) -> int:
             CalendarEvent.status == EventStatus.completed,
             CalendarEvent.end_time.isnot(None),
             CalendarEvent.end_time >= day.start_utc,
-            CalendarEvent.end_time <= day.end_utc,
+            CalendarEvent.end_time < day.end_utc,
             CalendarEvent.candidate_id.isnot(None),
             CalendarEvent.job_id.isnot(None),
         )
@@ -334,14 +334,17 @@ async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
     if not recruiters:
         return 0
 
-    # Liczba completed Call per user od startu dnia lokalnego.
+    # Liczba completed Call per user od startu dnia lokalnego. CloudTalk może
+    # dostarczyć webhook później, dlatego datą biznesową jest started_at z
+    # bezpiecznym fallbackiem do czasu utworzenia rekordu.
+    call_at = func.coalesce(Call.started_at, Call.created_at)
     counts_rows = await db.execute(
         select(Call.user_id, func.count(Call.id))
         .where(
             Call.status == CallStatus.completed,
             Call.user_id.isnot(None),
-            Call.created_at >= day.start_utc,
-            Call.created_at <= day.end_utc,
+            call_at >= day.start_utc,
+            call_at < day.end_utc,
         )
         .group_by(Call.user_id)
     )

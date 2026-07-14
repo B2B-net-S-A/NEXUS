@@ -16,25 +16,24 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    DynaReporterSection,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_upload import DrUploadHistory
 from app.models.user import User, UserRole
 
-router = APIRouter()
-
-ALLOWED_FILE_TYPES = {
-    "body_leasing",
-    "sales",
-    "finances",
-    "mrr_monthly",
-    "sales_weekly",
-}
+router = APIRouter(
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.admin))]
+)
 
 
 class UploadHistoryResponse(BaseModel):
@@ -63,7 +62,7 @@ async def list_history(
     file_type: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[UploadHistoryResponse]:
-    is_priv = current_user.role in (
+    is_priv = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -85,56 +84,18 @@ async def list_history(
 
 @router.post(
     "/excel",
-    response_model=UploadResultResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_410_GONE,
 )
 async def upload_excel(
-    current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-    file: UploadFile = File(...),
-    file_type: str = Query(
-        ..., description="body_leasing | sales | finances | mrr_monthly | sales_weekly"
-    ),
-) -> UploadResultResponse:
-    """Audit upload — XLSX parsing TODO.
+    current_user: AdminUser,
+) -> None:
+    """The non-functional legacy importer is permanently disabled.
 
-    Obecnie zapisuje wpis w dr_upload_history ze statusem 'failed' i
-    error_message wyjaśniającym że XLSX parsing nie jest zaimplementowany.
-    Po dodaniu openpyxl parserów per file_type — będą wstrzykiwać dane
-    do odpowiednich tabel dr_kpi_*.
+    Returning 410 prevents clients from mistaking an audit-only record for a
+    successful import. Existing upload history remains available to admins.
     """
-    if file_type not in ALLOWED_FILE_TYPES:
-        return UploadResultResponse(
-            upload_id=0,
-            status="failed",
-            records_inserted=0,
-            error_message=f"Niedozwolony file_type. Oczekiwane: {ALLOWED_FILE_TYPES}",
-        )
-
-    file_name = file.filename or "unnamed.xlsx"
-    # Read content to verify upload (but don't parse yet)
-    content = await file.read()
-    size_kb = len(content) // 1024
-
-    entry = DrUploadHistory(
-        uploaded_by=current_user.id,
-        file_type=file_type,
-        file_name=file_name,
-        records_count=0,
-        status="failed",
-        error_message=(
-            f"XLSX parsing dla file_type={file_type} jeszcze nie zaimplementowane "
-            f"(B.2.11 follow-up). Plik {file_name} ({size_kb} KB) zarejestrowany "
-            "tylko jako audit log."
-        ),
-    )
-    db.add(entry)
-    await db.commit()
-    await db.refresh(entry)
-
-    return UploadResultResponse(
-        upload_id=entry.id,
-        status=entry.status,
-        records_inserted=0,
-        error_message=entry.error_message,
+    del current_user
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Legacy DynaReporter XLSX import has been retired",
     )

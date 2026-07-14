@@ -10,7 +10,13 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    DynaReporterSection,
+    RecruiterPlus,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_kpi_sales import DrKpiSales
 from app.models.user import User, UserRole
@@ -20,11 +26,13 @@ from app.schemas.dr_kpi_sales import (
     DrKpiSalesSummary,
 )
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.sales))]
+)
 
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:
-    is_admin = current_user.role in (
+    is_admin = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -68,7 +76,7 @@ async def list_all_entries(
     from_date: Optional[date] = Query(default=None),
     to_date: Optional[date] = Query(default=None),
 ) -> list[DrKpiSalesResponse]:
-    is_priv = current_user.role in (
+    is_priv = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -143,7 +151,7 @@ async def get_summary(
 @router.post("", response_model=DrKpiSalesResponse, status_code=status.HTTP_201_CREATED)
 async def upsert_entry(
     payload: DrKpiSalesCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     user_id: Optional[int] = Query(default=None),
 ) -> DrKpiSalesResponse:
@@ -171,7 +179,7 @@ async def upsert_entry(
     "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
 async def delete_entry(
-    entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    entry_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> None:
     row = (
         await db.execute(select(DrKpiSales).where(DrKpiSales.id == entry_id))
