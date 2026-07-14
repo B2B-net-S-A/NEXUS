@@ -1,0 +1,2 @@
+# Intentionally empty. HIGH/CRITICAL exceptions require a reviewed,
+# time-bounded security exception; do not add broad package suppressions here.
