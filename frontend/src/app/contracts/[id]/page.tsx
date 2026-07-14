@@ -194,6 +194,7 @@ function GenerateDocumentButton({
     const url = `${base}/api/contract-templates/${templateId}/render?contract_id=${contractId}`;
     try {
       const resp = await fetch(url, {
+        credentials: "include",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!resp.ok) {

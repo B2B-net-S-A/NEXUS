@@ -7,10 +7,11 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.jwt import JWTError
-from app.core.security import decode_token
+from app.core.security import decode_token, token_version_matches
+from app.core.session import ACCESS_COOKIE_NAME
 from app.models.user import User, UserRole
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # ── Admin "podgląd jako użytkownik" (impersonation) ──────────────────────────
 #
@@ -86,7 +87,7 @@ async def _resolve_impersonation(
 
 async def get_current_user(
     request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Validate JWT token and return current user.
@@ -101,16 +102,28 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = decode_token(credentials.credentials)
+        raw_token = (
+            credentials.credentials
+            if credentials is not None
+            else request.cookies.get(ACCESS_COOKIE_NAME)
+        )
+        if not raw_token:
+            raise credentials_exception
+        payload = decode_token(raw_token)
         user_id: str = payload.get("sub")
         if user_id is None or payload.get("type") != "access":
             raise credentials_exception
-    except JWTError:
+        user_id_int = int(user_id)
+    except (JWTError, TypeError, ValueError):
         raise credentials_exception
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
+    result = await db.execute(select(User).where(User.id == user_id_int))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
+    if (
+        user is None
+        or not user.is_active
+        or not token_version_matches(payload, user.token_version)
+    ):
         raise credentials_exception
 
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)

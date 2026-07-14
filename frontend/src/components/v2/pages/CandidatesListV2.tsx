@@ -602,7 +602,7 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
         : {};
       const docsRes = await fetch(
         `${apiBase}/api/candidates/${candidate.id}/documents`,
-        { headers: authHeaders },
+        { credentials: "include", headers: authHeaders },
       );
       if (!docsRes.ok) throw new Error(`documents HTTP ${docsRes.status}`);
       const docs: CandidateDocument[] = await docsRes.json();
@@ -1730,6 +1730,7 @@ export function CandidatesListV2() {
  const apiBase = process.env.NEXT_PUBLIC_API_URL ||"";
  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
  const res = await fetch(`${apiBase}/api/candidates/export?${params}`, {
+ credentials: "include",
  headers: token ? { Authorization: `Bearer ${token}` } : {},
  });
  if (!res.ok) {

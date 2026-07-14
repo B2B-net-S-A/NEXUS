@@ -75,7 +75,6 @@ export function OnboardingRecruiterV2() {
  return payload
  },
  onSuccess: (payload) => {
- if (!token) return
  setAuth(
  {
  id: payload.user.id,
@@ -88,7 +87,7 @@ export function OnboardingRecruiterV2() {
  force_password_change: false,
  force_password_change_at: null,
  },
- token,
+ token ?? undefined,
  )
  try {
  localStorage.setItem("onboarding_completed","true")

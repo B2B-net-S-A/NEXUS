@@ -143,6 +143,7 @@ export function ContractsListV2() {
  ? localStorage.getItem("access_token")
  : null;
  const res = await fetch(`${apiBase}/api/contracts/export?${params}`, {
+ credentials: "include",
  headers: token ? { Authorization: `Bearer ${token}` } : {},
  });
  if (!res.ok) {

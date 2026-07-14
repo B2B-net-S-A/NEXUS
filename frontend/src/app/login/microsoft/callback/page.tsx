@@ -43,19 +43,12 @@ function CallbackBody() {
     consumed.current = true;
     (async () => {
       try {
-        const { data: tokens } = await api.post(
-          "/api/auth/microsoft/exchange",
+        const { data: user } = await api.post(
+          "/api/auth/microsoft/exchange-session",
           { code },
         );
-        const accessToken: string | undefined = tokens?.access_token;
-        if (!accessToken) {
-          throw new Error("Brak access_token w odpowiedzi");
-        }
-        const me = await api.get("/api/auth/me", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        setAuth(me.data, accessToken);
-        if (requiresOnboarding(me.data)) {
+        setAuth(user);
+        if (requiresOnboarding(user)) {
           router.replace("/onboarding");
         } else {
           router.replace("/");

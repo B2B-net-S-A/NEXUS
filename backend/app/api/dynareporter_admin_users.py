@@ -268,7 +268,10 @@ async def toggle_active(
 ) -> dict:
     _require_admin(current_user)
     await db.execute(
-        text("UPDATE users SET is_active = :a WHERE id = :uid"),
+        text(
+            "UPDATE users SET is_active = :a, "
+            "token_version = token_version + 1 WHERE id = :uid"
+        ),
         {"a": payload.is_active, "uid": user_id},
     )
     await db.commit()

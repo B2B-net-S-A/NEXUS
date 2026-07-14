@@ -2,9 +2,9 @@
  * Authenticated fetch → same-origin blob URL for backend file endpoints.
  *
  * Backend file endpoints (email attachments, CV snapshots, contract/candidate
- * documents…) are guarded by a Bearer JWT held in `localStorage` — NOT a cookie.
- * A raw `<a href>` / `<iframe src>` pointing straight at the backend therefore
- * sends NO `Authorization` header, so the backend answers
+ * documents…) are guarded by the HttpOnly browser session (with a temporary
+ * read-only fallback for sessions created before the rollout). A raw `<a href>`
+ * / `<iframe src>` cannot reliably carry that cross-origin context, so the backend answers
  * `401 {"detail":"Not authenticated"}` and the user sees a white page or an empty
  * preview. We instead fetch the bytes with the token attached and hand the
  * browser a same-origin blob URL.
@@ -26,9 +26,18 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
   const token =
     typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
+  const isAbsolute = /^https?:\/\//i.test(path);
+  const url = isAbsolute ? path : `${API_BASE}${path}`;
+  // Absolute URLs may be third-party signed links. Never forward the legacy
+  // Bearer token or ambient credentials outside the configured API origin.
+  const pageOrigin =
+    typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  const isBackendOrigin =
+    new URL(url, pageOrigin).origin === new URL(API_BASE, pageOrigin).origin;
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    ...(isBackendOrigin ? { credentials: "include" as const } : {}),
+    headers:
+      isBackendOrigin && token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();

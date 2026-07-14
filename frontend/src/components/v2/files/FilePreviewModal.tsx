@@ -83,6 +83,7 @@ export async function fetchDocumentBlob(
   const url = `${apiBase}/api/candidates/${candidateId}/documents/${docId}/content?disposition=${disposition}`;
   const res = await fetch(url, {
     method: "GET",
+    credentials: "include",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

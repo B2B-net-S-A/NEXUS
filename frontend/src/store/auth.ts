@@ -1,5 +1,8 @@
 import { create } from "zustand"
 
+const SESSION_COOKIE_PREFIX =
+  process.env.NEXT_PUBLIC_SESSION_COOKIE_PREFIX || "nexus"
+
 // ── Role model ──────────────────────────────────────────────────────────────
 //
 // Jedna, skonsolidowana hierarchia. Odpowiada `UserRole` po stronie backendu
@@ -169,35 +172,57 @@ interface AuthState {
    *  a ``realUser`` to zalogowany admin (do przywrócenia i do baneru).
    *  Null gdy nie impersonujemy. Token przez cały czas należy do admina. */
   realUser: User | null
-  /** False przed wyciągnięciem user/token z localStorage (SSR + pierwszy render klienta). */
+  /** False przed autorytatywnym odtworzeniem sesji (SSR + pierwszy render). */
   hydrated: boolean
-  /** Ładuje user + token z localStorage. Wołać raz w root provider. */
+  /** Ładuje legacy Bearer albo odtwarza HttpOnly cookie session przez /me. */
   hydrate: () => void
-  setAuth: (user: User, token: string) => void
+  /** Optional token utrzymuje wyłącznie istniejącą sesję sprzed migracji;
+   *  metoda nigdy nie zapisuje nowego JWT w localStorage. */
+  setAuth: (user: User, legacyToken?: string) => void
   /** Wejdź w „podgląd jako" wskazanego usera (tylko admin). ``target`` to
    *  autorytatywny profil zwrócony z POST /api/admin/impersonate/{id}. */
   impersonate: (target: User) => void
   /** Wyjdź z trybu podglądu i wróć do konta admina. */
   stopImpersonating: () => void
-  logout: () => void
+  logout: () => Promise<void>
 }
 
-// Nazwa cookie musi pasować do odczytu w Next.js middleware.
-const COOKIE_NAME = "nexus_access"
-const COOKIE_MAX_AGE = 60 * 60 * 8 // 8h, spójne z ACCESS_TOKEN_EXPIRE_MINUTES
-
-function writeAuthCookie(token: string): void {
+function clearLegacyAuthCookie(): void {
   if (typeof document === "undefined") return
-  // SameSite=Lax wystarcza — logowanie nie jest cross-site, CSRF surface nikła.
-  // Bez httpOnly (świadoma decyzja — patrz plan/docs/SUPABASE_ANALYSIS.md).
-  document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
-    token
-  )}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`
+  // Removes only the old JavaScript-created host cookie. It cannot remove the
+  // new HttpOnly domain cookie issued by the backend.
+  document.cookie = `${SESSION_COOKIE_PREFIX}_access=; path=/; max-age=0; samesite=lax`
 }
 
-function clearAuthCookie(): void {
-  if (typeof document === "undefined") return
-  document.cookie = `${COOKIE_NAME}=; path=/; max-age=0; samesite=lax`
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null
+  const prefix = `${encodeURIComponent(name)}=`
+  const match = document.cookie
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(prefix))
+  return match ? decodeURIComponent(match.slice(prefix.length)) : null
+}
+
+async function restoreBrowserUser(apiBase: string): Promise<User> {
+  let response = await fetch(`${apiBase}/api/auth/me`, {
+    credentials: "include",
+  })
+  if (response.status === 401) {
+    const csrf = readCookie(`${SESSION_COOKIE_PREFIX}_csrf`)
+    if (csrf) {
+      const refreshed = await fetch(`${apiBase}/api/auth/session/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRF-Token": csrf },
+      })
+      if (refreshed.ok) {
+        response = refreshed
+      }
+    }
+  }
+  if (!response.ok) throw new Error("No browser session")
+  return (await response.json()) as User
 }
 
 // Bezpieczne odczyty z localStorage — w środowisku testowym (jsdom/Vitest)
@@ -348,19 +373,46 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   realUser: null,
   hydrated: false,
   hydrate: () => {
-    set({
-      user: readInitialUser(),
-      token: readInitialToken(),
-      realUser: readRealUser(),
-      hydrated: true,
-    })
-  },
-  setAuth: (user, token) => {
-    try {
-      localStorage.setItem("access_token", token)
-    } catch {
-      /* non-browser env */
+    const legacyToken = readInitialToken()
+    if (legacyToken) {
+      set({
+        user: readInitialUser(),
+        token: legacyToken,
+        realUser: readRealUser(),
+        hydrated: true,
+      })
+      return
     }
+    set({
+      user: null,
+      token: null,
+      realUser: null,
+      hydrated: false,
+    })
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+    void restoreBrowserUser(apiBase)
+      .then((user) => {
+        const safe: User = {
+          ...user,
+          roles:
+            Array.isArray(user.roles) && user.roles.length > 0
+              ? user.roles
+              : [user.role],
+        }
+        persistUser(safe)
+        set({ user: safe, token: null, realUser: null, hydrated: true })
+      })
+      .catch(() => {
+        persistUser(null)
+        clearImpersonation()
+        set({ user: null, token: null, realUser: null, hydrated: true })
+      })
+  },
+  setAuth: (user, legacyToken) => {
+    const retainedLegacyToken =
+      legacyToken && readInitialToken() === legacyToken
+        ? legacyToken
+        : undefined
     // Świeży login zawsze kończy ewentualny stan podglądu (defensywnie).
     clearImpersonation()
     // Backfill roles for fresh logins where the API response predates
@@ -372,8 +424,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         : [user.role],
     }
     persistUser(safe)
-    writeAuthCookie(token)
-    set({ user: safe, token, realUser: null, hydrated: true })
+    if (!retainedLegacyToken) {
+      try {
+        localStorage.removeItem("access_token")
+      } catch {
+        /* non-browser env */
+      }
+      clearLegacyAuthCookie()
+    }
+    set({
+      user: safe,
+      token: retainedLegacyToken ?? null,
+      realUser: null,
+      hydrated: true,
+    })
   },
   impersonate: (target) => {
     // Admin = obecny efektywny user (nie jesteśmy jeszcze w trybie podglądu).
@@ -405,7 +469,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       window.location.href = "/"
     }
   },
-  logout: () => {
+  logout: async () => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+    const legacyToken = readInitialToken()
+    const csrf = readCookie(`${SESSION_COOKIE_PREFIX}_csrf`)
+    try {
+      await fetch(`${apiBase}/api/auth/session/logout`, {
+        method: "POST",
+        credentials: "include",
+        keepalive: true,
+        headers: {
+          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+          ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
+        },
+      })
+    } catch {
+      // Local cleanup still happens; the server token expires naturally.
+    }
     try {
       localStorage.removeItem("access_token")
     } catch {
@@ -413,7 +493,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     persistUser(null)
     clearImpersonation()
-    clearAuthCookie()
+    clearLegacyAuthCookie()
     set({ user: null, token: null, realUser: null, hydrated: true })
     if (typeof window !== "undefined") {
       window.location.href = "/login"

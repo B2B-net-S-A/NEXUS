@@ -102,6 +102,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SESSION_COOKIE_PREFIX: ${NEXT_PUBLIC_SESSION_COOKIE_PREFIX:-nexus}
         # Sentry build-time args. DSN is public (browser bundle); auth token is
         # public and safe to inline. The private auth token is supplied below
         # as a BuildKit secret and never becomes a Docker ARG/ENV.
@@ -114,6 +115,7 @@ services:
       - .env
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_SESSION_COOKIE_PREFIX: ${NEXT_PUBLIC_SESSION_COOKIE_PREFIX:-nexus}
       # Server-side (RSC) fetches need the compose-internal URL. Browser
       # requests continue to use NEXT_PUBLIC_API_URL (inlined at build time).
       INTERNAL_API_URL: http://backend:8000

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 /**
  * Next.js middleware — gate routing based on role-based access control (RBAC).
  *
- * Token jest czytany z cookie `nexus_access` (ustawianego przez auth store po loginie).
+ * Token jest czytany z HttpOnly cookie `<prefix>_access` ustawianego przez backend.
  * Middleware dekoduje claim `role` z JWT i porównuje z wymaganiami route'u.
  *
  * Niepowodzenie walidacji (brak tokena/zły format/wygasły) → redirect /login?next=<pathname>.
@@ -22,7 +22,7 @@ type UserRole =
   | "sourcer"
   | "user"
 
-const COOKIE_NAME = "nexus_access"
+const COOKIE_NAME = `${process.env.NEXT_PUBLIC_SESSION_COOKIE_PREFIX || "nexus"}_access`
 
 // Route → dozwolone role. `null` = każda zalogowana rola (także `user`).
 // Kolejność prefixów nie ma znaczenia — dopasowywany jest pierwszy prefix

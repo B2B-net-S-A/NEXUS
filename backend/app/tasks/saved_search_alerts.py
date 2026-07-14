@@ -181,7 +181,9 @@ async def _baseline_one(client, db, ss, owner) -> None:
     from app.core.security import create_access_token
 
     token = create_access_token(
-        subject=owner.id, role=getattr(owner.role, "value", str(owner.role))
+        subject=owner.id,
+        role=getattr(owner.role, "value", str(owner.role)),
+        token_version=owner.token_version,
     )
     scan_start = datetime.now(timezone.utc)
     items = await _replay_match_items(client, token, build_base_params(api_params))
@@ -213,7 +215,9 @@ async def _incremental_one(client, db, ss, owner) -> bool:
         return False
 
     token = create_access_token(
-        subject=owner.id, role=getattr(owner.role, "value", str(owner.role))
+        subject=owner.id,
+        role=getattr(owner.role, "value", str(owner.role)),
+        token_version=owner.token_version,
     )
     scan_start = datetime.now(timezone.utc)
     params = build_base_params(api_params)

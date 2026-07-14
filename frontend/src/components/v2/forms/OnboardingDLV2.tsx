@@ -82,7 +82,6 @@ export function OnboardingDLV2() {
  return payload
  },
  onSuccess: (payload) => {
- if (!token) return
  // Cached User shape omits server-only fields; spread with the fresh one.
  setAuth(
  {
@@ -97,7 +96,7 @@ export function OnboardingDLV2() {
  force_password_change: false,
  force_password_change_at: null,
  },
- token,
+ token ?? undefined,
  )
  // Auto-dismiss the old tutorial walkthrough so it does not pile on top.
  try {

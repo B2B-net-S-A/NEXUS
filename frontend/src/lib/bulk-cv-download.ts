@@ -1,3 +1,5 @@
+import { readBrowserCookie, SESSION_COOKIE_PREFIX } from "@/lib/api";
+
 export interface BulkCvDownloadResult {
   includedCount: number;
   skippedCount: number;
@@ -36,11 +38,14 @@ export async function downloadBulkCvs(
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
   const token =
     typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  const csrf = readBrowserCookie(`${SESSION_COOKIE_PREFIX}_csrf`);
 
   const res = await fetch(`${apiBase}/api/candidates/bulk-cv-download`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({ candidate_ids: candidateIds }),

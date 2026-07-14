@@ -203,6 +203,15 @@ async def update_user(
     if data.is_active is not None:
         user.is_active = data.is_active
 
+    if (
+        user.role != original_role
+        or list(user.roles or []) != original_roles
+        or user.is_active != original_active
+    ):
+        # Role/account-state changes take effect for every already-issued JWT
+        # immediately. This changes no RBAC semantics; it removes stale claims.
+        user.token_version += 1
+
     # Audit: write one Activity per attribute that actually changed
     if data.role is not None and data.role != original_role:
         db.add(
@@ -293,6 +302,7 @@ async def deactivate_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     user.is_active = False
+    user.token_version += 1
     db.add(
         Activity(
             entity_type="user",
@@ -373,6 +383,7 @@ async def reset_password(
     user.password_hash = hash_password(data.new_password)
     user.force_password_change = True
     user.force_password_change_at = func.now()
+    user.token_version += 1
 
     db.add(
         Activity(
@@ -621,11 +632,13 @@ async def resync_aad_groups(
 
     previous_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     previous_roles = list(user.roles or [])
+    previous_active = user.is_active
 
     if not role_strs:
         # No group matches → deny. Same fail-closed behaviour as the SSO
         # callback so the resync endpoint cannot accidentally grant access.
         user.is_active = False
+        user.token_version += 1
         db.add(
             Activity(
                 entity_type="user",
@@ -689,6 +702,8 @@ async def resync_aad_groups(
             )
         user.roles = role_strs
     user.is_active = True
+    if role_changed or roles_changed or user.is_active != previous_active:
+        user.token_version += 1
     await db.flush()
 
     return ResyncAadGroupsResponse(

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.jwt import JWTError
 from app.core.rate_limit import limiter
 from app.core.security import (
     create_access_token,
@@ -12,6 +13,12 @@ from app.core.security import (
     hash_password,
     verify_password,
     decode_token,
+    token_version_matches,
+)
+from app.core.session import (
+    REFRESH_COOKIE_NAME,
+    clear_browser_session,
+    set_browser_session,
 )
 from app.models.activity import Activity
 from app.models.user import User, UserRole
@@ -104,12 +111,8 @@ class MessageResponse(BaseModel):
     detail: str
 
 
-@router.post("/login", response_model=TokenResponse)
-@limiter.limit("5/minute")
-async def login(
-    request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)
-):
-    """Authenticate user and return JWT tokens. Rate-limited: 5 req/min per IP."""
+async def _authenticate_password(data: LoginRequest, db: AsyncSession) -> User:
+    """Validate a password login once for both browser and Bearer clients."""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
     # Guard SSO-only userów: ``password_hash IS NULL`` po migracji 0081 oznacza
@@ -137,14 +140,46 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=_EMAIL_NOT_VERIFIED_DETAIL,
         )
+    return user
+
+
+@router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
+async def login(
+    request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)
+):
+    """Legacy Bearer login for non-browser integrations.
+
+    The web application uses ``/session/login`` and therefore never receives
+    either JWT in JavaScript.
+    """
+    user = await _authenticate_password(data, db)
     return TokenResponse(
         access_token=create_access_token(
             user.id,
             user.role.value,
+            token_version=user.token_version,
             force_password_change=user.force_password_change,
         ),
-        refresh_token=create_refresh_token(user.id),
+        refresh_token=create_refresh_token(
+            user.id,
+            token_version=user.token_version,
+        ),
     )
+
+
+@router.post("/session/login", response_model=UserResponse)
+@limiter.limit("5/minute")
+async def session_login(
+    request: Request,
+    response: Response,
+    data: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Authenticate the web app with HttpOnly cookies and no token body."""
+    user = await _authenticate_password(data, db)
+    set_browser_session(response, user)
+    return user
 
 
 @router.post(
@@ -363,13 +398,17 @@ async def refresh_token(
         if payload.get("type") != "refresh":
             raise ValueError
         user_id = int(payload["sub"])
-    except Exception:
+    except (JWTError, KeyError, TypeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
         )
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user or not user.is_active:
+    if (
+        not user
+        or not user.is_active
+        or not token_version_matches(payload, user.token_version)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
@@ -377,10 +416,64 @@ async def refresh_token(
         access_token=create_access_token(
             user.id,
             user.role.value,
+            token_version=user.token_version,
             force_password_change=user.force_password_change,
         ),
-        refresh_token=create_refresh_token(user.id),
+        refresh_token=create_refresh_token(
+            user.id,
+            token_version=user.token_version,
+        ),
     )
+
+
+@router.post("/session/refresh", response_model=UserResponse)
+@limiter.limit("10/minute")
+async def refresh_browser_session(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rotate a valid HttpOnly refresh cookie and return only the user DTO."""
+    raw_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    try:
+        if not raw_token:
+            raise ValueError
+        payload = decode_token(raw_token)
+        if payload.get("type") != "refresh":
+            raise ValueError
+        user_id = int(payload["sub"])
+    except (JWTError, KeyError, TypeError, ValueError):
+        clear_browser_session(response)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if (
+        user is None
+        or not user.is_active
+        or not token_version_matches(payload, user.token_version)
+    ):
+        clear_browser_session(response)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+    set_browser_session(response, user)
+    return user
+
+
+@router.post("/session/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_browser_session(
+    response: Response,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke all current JWTs for this user and expire browser cookies."""
+    current_user.token_version += 1
+    await db.flush()
+    clear_browser_session(response)
+    return None
 
 
 @router.get("/me", response_model=UserResponse)
@@ -392,6 +485,7 @@ async def me(current_user: CurrentUser):
 @limiter.limit("3/minute")
 async def change_password(
     request: Request,
+    response: Response,
     data: ChangePasswordRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -418,6 +512,8 @@ async def change_password(
     current_user.password_hash = hash_password(data.new_password)
     current_user.force_password_change = False
     current_user.force_password_change_at = None
+    current_user.token_version += 1
+    clear_browser_session(response)
 
     db.add(
         Activity(
@@ -526,6 +622,7 @@ async def reset_password_with_token(
     user.password_hash = hash_password(data.new_password)
     user.force_password_change = False
     user.force_password_change_at = None
+    user.token_version += 1
 
     db.add(
         Activity(

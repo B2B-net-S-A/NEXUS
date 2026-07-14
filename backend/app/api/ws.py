@@ -16,8 +16,11 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.core.config import settings
+from app.core.csrf import is_allowed_browser_origin
 from app.core.jwt import JWTError
-from app.core.security import decode_token
+from app.core.security import decode_token, token_version_matches
+from app.core.session import ACCESS_COOKIE_NAME
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -335,7 +338,11 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        if user and user.is_active:
+        if (
+            user
+            and user.is_active
+            and token_version_matches(payload, user.token_version)
+        ):
             return user
     return None
 
@@ -367,11 +374,16 @@ async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) 
 @router.websocket("/ws/notifications")
 async def ws_notifications(
     websocket: WebSocket,
-    token: str = Query(..., description="JWT access token"),
+    token: Optional[str] = Query(
+        None,
+        description="Legacy JWT access token; web sessions use HttpOnly cookie",
+    ),
 ):
     """
     WebSocket endpoint for real-time notifications + presence.
-    Connect with: ws://host/ws/notifications?token=<access_token>
+    Browser clients authenticate with the configured HttpOnly access cookie.
+    Query-string JWT remains temporarily available for non-cookie clients and
+    can be disabled with ``JWT_ALLOW_LEGACY_WS_QUERY_TOKEN=false``.
 
     Events sent to client:
       {type: "notification", data: {id, title, message, link, created_at}}
@@ -384,7 +396,21 @@ async def ws_notifications(
       {type: "presence:unsubscribe", resource_type, resource_id}
       {type: "presence:editing", resource_type, resource_id, field, active}
     """
-    user = await _authenticate_ws_token(token)
+    cookie_token = websocket.cookies.get(ACCESS_COOKIE_NAME)
+    if cookie_token:
+        # Cookies are ambient on a WebSocket handshake, so an exact Origin
+        # allowlist is mandatory to prevent cross-site WebSocket hijacking.
+        if not is_allowed_browser_origin(websocket.headers.get("origin")):
+            await websocket.close(code=4003, reason="Origin denied")
+            return
+        raw_token = cookie_token
+    elif token and settings.JWT_ALLOW_LEGACY_WS_QUERY_TOKEN:
+        raw_token = token
+    else:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
+    user = await _authenticate_ws_token(raw_token)
     if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return

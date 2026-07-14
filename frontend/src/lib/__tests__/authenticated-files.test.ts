@@ -48,7 +48,10 @@ describe("authenticated-files", () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/emails/1/attachments/2/download",
-        { headers: { Authorization: "Bearer jwt-123" } },
+        {
+          credentials: "include",
+          headers: { Authorization: "Bearer jwt-123" },
+        },
       );
     });
 
@@ -58,11 +61,24 @@ describe("authenticated-files", () => {
       await fetchAuthenticatedBlob("/api/x");
 
       expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/x", {
+        credentials: "include",
         headers: {},
       });
     });
 
     it("passes an absolute URL through unchanged", async () => {
+      fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
+
+      await fetchAuthenticatedBlob("https://cdn.example.com/file.pdf");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://cdn.example.com/file.pdf",
+        { headers: {} },
+      );
+    });
+
+    it("never forwards a legacy Bearer token to an external absolute URL", async () => {
+      localStorage.setItem("access_token", "must-not-leak");
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
 
       await fetchAuthenticatedBlob("https://cdn.example.com/file.pdf");
@@ -143,7 +159,10 @@ describe("authenticated-files", () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/emails/1/attachments/2/download",
-        { headers: { Authorization: "Bearer jwt" } },
+        {
+          credentials: "include",
+          headers: { Authorization: "Bearer jwt" },
+        },
       );
       const anchor = appendSpy.mock.calls[0][0] as HTMLAnchorElement;
       expect(anchor.download).toBe("cv.pdf");

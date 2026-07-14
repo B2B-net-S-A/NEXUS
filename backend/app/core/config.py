@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import warnings
 from typing import List
 
@@ -16,6 +17,22 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    # Browser auth rollout. Production/staging use `.nexus.dynaminds.pl` so the
+    # HttpOnly cookie is visible to both the Next.js middleware and API host.
+    # Localhost deliberately leaves this empty (cookies are shared by hostname,
+    # independent of port). Secure defaults to true and must only be disabled
+    # for local HTTP development.
+    SESSION_COOKIE_PREFIX: str = "nexus"
+    SESSION_COOKIE_DOMAIN: str = ""
+    SESSION_COOKIE_SECURE: bool = True
+    # Temporary compatibility gate for JWTs minted before token_version was
+    # deployed. Missing-version tokens are accepted only while the DB version
+    # is still zero; any logout/password reset revokes them immediately. Flip
+    # false after the maximum legacy refresh-token lifetime (30 days).
+    JWT_ALLOW_LEGACY_VERSIONLESS: bool = True
+    # Query-string WS JWTs are retained only for the transition. The web client
+    # no longer creates them; flip false after existing browser sessions expire.
+    JWT_ALLOW_LEGACY_WS_QUERY_TOKEN: bool = True
 
     # Database (PostgreSQL)
     DATABASE_URL: str = "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
@@ -647,6 +664,16 @@ class Settings(BaseSettings):
                 stacklevel=2,
             )
         return v
+
+    @field_validator("SESSION_COOKIE_PREFIX")
+    @classmethod
+    def validate_session_cookie_prefix(cls, v: str) -> str:
+        value = v.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", value):
+            raise ValueError(
+                "SESSION_COOKIE_PREFIX must be 1-32 letters, digits, '_' or '-'"
+            )
+        return value
 
     @field_validator("M365_STATE_SIGNING_KEY")
     @classmethod

@@ -2,9 +2,8 @@
  * Authenticated open/download for contract documents.
  *
  * The backend endpoint `/api/contracts/{id}/documents/{docId}/download` is guarded
- * by a Bearer JWT. Opening that URL directly in a new tab (`<a target="_blank">`)
- * sends NO Authorization header — the token lives in localStorage, not a cookie —
- * so the backend answers 401 {"detail":"Not authenticated"} and the user just sees
+ * by the browser session. Opening that URL directly in a new tab (`<a target="_blank">`)
+ * is unreliable across the frontend/API origins, so the backend can answer 401 and the user sees
  * a white page with that JSON. We instead fetch the bytes with the token attached
  * and hand the browser a same-origin blob URL.
  *
@@ -28,7 +27,10 @@ export async function fetchContractDocumentBlob(
     typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
   const res = await fetch(
     `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    {
+      credentials: "include",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();

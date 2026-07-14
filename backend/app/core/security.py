@@ -26,6 +26,7 @@ def create_access_token(
     role: str,
     expires_delta: Optional[timedelta] = None,
     force_password_change: bool = False,
+    token_version: int = 0,
 ) -> str:
     """Create a JWT access token.
 
@@ -43,13 +44,14 @@ def create_access_token(
         "type": "access",
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "ver": token_version,
     }
     if force_password_change:
         payload["fpc"] = True
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(subject: Union[str, int]) -> str:
+def create_refresh_token(subject: Union[str, int], token_version: int = 0) -> str:
     """Create a JWT refresh token (longer-lived, no role)."""
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
@@ -59,6 +61,7 @@ def create_refresh_token(subject: Union[str, int]) -> str:
         "type": "refresh",
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "ver": token_version,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
@@ -66,3 +69,12 @@ def create_refresh_token(subject: Union[str, int]) -> str:
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT token. Raises JWTError on failure."""
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+
+
+def token_version_matches(payload: dict, current_version: int) -> bool:
+    """Fail closed on malformed/stale versions with one bounded legacy escape."""
+    claim = payload.get("ver")
+    if claim is None:
+        return settings.JWT_ALLOW_LEGACY_VERSIONLESS and current_version == 0
+    # bool is an int subclass; accepting True as version 1 would be ambiguous.
+    return type(claim) is int and claim >= 0 and claim == current_version
