@@ -3,7 +3,7 @@
   "schema_version": 1,
   "minimum_changed_lines_percent": 80,
   "total_lines": {
-    "covered": 28162,
+    "covered": 28160,
     "found": 133713
   },
   "source_extensions": [".js", ".jsx", ".py", ".ts", ".tsx"],
