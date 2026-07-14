@@ -255,6 +255,8 @@ jobs:
         run: npm ci --legacy-peer-deps
       - name: Verify generated Analytics v1 OpenAPI types
         working-directory: frontend
+        env:
+          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
         run: npm run analytics:types:check
       - name: Verify frontend analytics types
         working-directory: frontend
