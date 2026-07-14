@@ -165,6 +165,7 @@ export function CandidatesTiles({
  return (
  <div
  key={candidate.id}
+ data-testid={`candidate-tile-${candidate.id}`}
  onClick={() => onOpenDetail(candidate.id)}
  className={cn("group relative flex cursor-pointer flex-col gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
  isSelected

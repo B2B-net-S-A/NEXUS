@@ -168,6 +168,7 @@ import {
  encodeNavContext,
 } from"@/lib/url-filters";
 import { candidateQueryKeys } from"@/components/v2/pages/candidate-query-keys";
+import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
 import {
  ACTIVITY_VIEWS,
  DOCUMENT_VIEWS,
@@ -1377,9 +1378,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateId={Number(id)}
  candidateName={fullName}
  onAssigned={() => {
- queryClient.invalidateQueries({ queryKey: candidateQueryKeys.history(id) });
- queryClient.invalidateQueries({ queryKey: candidateQueryKeys.recommendationsRoot(id) });
- queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ invalidateCandidateMutation(queryClient, id, "assignment");
  }}
  />
  {editOpen && candidate && (
@@ -1387,10 +1386,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidate={candidate}
  onClose={() => setEditOpen(false)}
  onSuccess={() => {
- queryClient.invalidateQueries({ queryKey: candidateQueryKeys.detail(id) });
- queryClient.invalidateQueries({ queryKey: candidateQueryKeys.aiProfile(id) });
- queryClient.invalidateQueries({ queryKey: candidateQueryKeys.recommendationsRoot(id) });
- queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ invalidateCandidateMutation(queryClient, id, "edit");
  setEditOpen(false);
  }}
  />
@@ -1726,7 +1722,7 @@ function UmowaTab({
  return (
  <div className="space-y-5">
  {!jdgComplete && (
- <Card variant="default" size="md" className="border-l-4 border-l-amber-500">
+ <Card variant="default" size="md" className="border-l-4 border-l-warning">
  <CardContent className="py-3 flex items-center justify-between gap-3 flex-wrap">
  <div className="text-sm flex items-center gap-2 text-foreground">
  <AlertTriangle className="h-4 w-4 text-warning" />
@@ -3260,13 +3256,7 @@ function EditableRateCell({
  mutationFn,
  onSuccess: () => {
  showSuccess(successMessage);
- queryClient.invalidateQueries({
- queryKey: candidateQueryKeys.history(candidateId),
- });
- queryClient.invalidateQueries({
- queryKey: candidateQueryKeys.detail(candidateId),
- });
- queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ invalidateCandidateMutation(queryClient, candidateId, "rate");
  setEditing(false);
  },
  onError: (e) =>

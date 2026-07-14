@@ -45,6 +45,7 @@ import {
 } from "@/components/v2/pages/candidate-list-helpers";
 import { getCandidateSummaryLine } from "@/components/v2/pages/candidate-profile-helpers";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { withCandidateProfileView } from "@/components/v2/pages/candidate-profile-navigation";
 import { CandidateProfileHeader } from "@/components/v2/pages/CandidateProfileHeader";
 import { KeyFacts } from "@/components/ds/KeyFacts";
@@ -179,12 +180,7 @@ function QuickActivitySection({ candidateId }: { candidateId: number }) {
     onSuccess: () => {
       setNote("");
       setComposerOpen(false);
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.timelineRoot(candidateId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.notes(candidateId),
-      });
+      invalidateCandidateMutation(queryClient, candidateId, "note");
       showSuccess("Notatka dodana");
     },
     onError: (error) =>
@@ -749,13 +745,7 @@ export function CandidateQuickView({
           candidateId={candidateId}
           candidateName={fullName}
           onAssigned={() => {
-            queryClient.invalidateQueries({
-              queryKey: candidateQueryKeys.history(candidateId),
-            });
-            queryClient.invalidateQueries({
-              queryKey: candidateQueryKeys.recommendationsRoot(candidateId),
-            });
-            queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+            invalidateCandidateMutation(queryClient, candidateId, "assignment");
           }}
         />
       ) : null}

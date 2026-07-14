@@ -92,15 +92,33 @@ _PIPELINE_SQL = text(
 
 _FUNNEL_SQL = text(
     """
+    WITH first_in_period AS (
+      SELECT cs.candidate_id, cs.job_id, cs.stage::text AS stage
+      FROM candidate_stages cs
+      WHERE cs.stage IN (
+        'verified', 'cv_sent', 'interview', 'client_interview', 'hired'
+      )
+        AND cs.moved_at >= :period_start
+        AND cs.moved_at < :period_end
+        AND NOT EXISTS (
+          SELECT 1
+          FROM candidate_stages earlier
+          WHERE earlier.candidate_id = cs.candidate_id
+            AND earlier.job_id = cs.job_id
+            AND earlier.stage = cs.stage
+            AND (
+              earlier.moved_at < cs.moved_at
+              OR (earlier.moved_at = cs.moved_at AND earlier.id < cs.id)
+            )
+        )
+    )
     SELECT
       count(*) FILTER (WHERE stage = 'verified') AS verified,
       count(*) FILTER (WHERE stage = 'cv_sent') AS recommended,
       count(*) FILTER (WHERE stage = 'interview') AS internal_interview,
       count(*) FILTER (WHERE stage = 'client_interview') AS client_interview,
       count(*) FILTER (WHERE stage = 'hired') AS placed
-    FROM analytics_first_candidate_milestones
-    WHERE reached_at >= :period_start
-      AND reached_at < :period_end
+    FROM first_in_period
     """
 )
 
@@ -128,28 +146,59 @@ _RECENT_HIRES_SQL = text(
 
 _SOURCES_SQL = text(
     """
-    WITH first_hire AS (
-      SELECT candidate_id, min(reached_at) AS first_hired_at
-      FROM analytics_first_candidate_milestones
-      WHERE stage = 'hired'
-      GROUP BY candidate_id
+    WITH candidate_touch AS (
+      SELECT
+        c.id AS candidate_id,
+        CASE
+          WHEN first_event.captured_at < c.created_at
+            THEN first_event.channel::text
+          WHEN c.source_enum IS NOT NULL THEN c.source_enum::text
+          WHEN lower(trim(c.source)) IN (
+            'linkedin', 'pracuj', 'jjit', 'referral', 'database', 'manual'
+          ) THEN lower(trim(c.source))
+          WHEN nullif(trim(c.source), '') IS NULL THEN 'unknown'
+          ELSE 'other'
+        END AS source,
+        least(
+          c.created_at,
+          coalesce(first_event.captured_at, c.created_at)
+        ) AS first_touch_at
+      FROM candidates c
+      LEFT JOIN LATERAL (
+        SELECT e.channel, e.captured_at
+        FROM candidate_source_events e
+        WHERE e.candidate_id = c.id
+        ORDER BY e.captured_at ASC, e.id ASC
+        LIMIT 1
+      ) first_event ON TRUE
+      -- Candidate creation is itself a source observation, so a candidate
+      -- created before the requested period can never enter its first-touch
+      -- cohort. This bound avoids sorting the full imported candidate base.
+      WHERE c.created_at >= :period_start
     ), cohort AS (
-      SELECT s.candidate_id, s.source, s.first_touch_at, h.first_hired_at
-      FROM analytics_candidate_first_sources s
-      LEFT JOIN first_hire h USING (candidate_id)
-      WHERE s.first_touch_at >= :period_start
-        AND s.first_touch_at < :period_end
+      SELECT candidate_id, source, first_touch_at
+      FROM candidate_touch
+      WHERE first_touch_at >= :period_start
+        AND first_touch_at < :period_end
     )
     SELECT
-      source,
-      count(DISTINCT candidate_id) AS cohort_candidates,
-      count(DISTINCT candidate_id) FILTER (
-        WHERE first_hired_at >= first_touch_at
-          AND first_hired_at < :period_end
+      cohort.source,
+      count(DISTINCT cohort.candidate_id) AS cohort_candidates,
+      count(DISTINCT cohort.candidate_id) FILTER (
+        WHERE first_hire.first_hired_at >= cohort.first_touch_at
+          AND first_hire.first_hired_at < :period_end
       ) AS placed_by_period_end
     FROM cohort
-    GROUP BY source
-    ORDER BY cohort_candidates DESC, source ASC
+    LEFT JOIN LATERAL (
+      SELECT cs.moved_at AS first_hired_at
+      FROM candidate_stages cs
+      WHERE cs.candidate_id = cohort.candidate_id
+        AND cs.stage = 'hired'
+      ORDER BY cs.moved_at ASC, cs.id ASC
+      LIMIT 1
+    ) first_hire ON TRUE
+    GROUP BY cohort.source
+    ORDER BY cohort_candidates DESC, cohort.source ASC
     """
 )
 

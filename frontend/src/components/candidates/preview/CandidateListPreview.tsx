@@ -69,7 +69,7 @@ export function CandidateListPreview() {
         onClearAll={() => undefined}
       />
 
-      <div className="hidden overflow-hidden rounded-lg border border-border bg-card md:block">
+      <div className="hidden overflow-hidden rounded-lg border border-border bg-card lg:block">
         <div className="overflow-x-auto">
           <table className="min-w-[1100px] w-full border-collapse">
             <thead className="bg-muted/60">
@@ -132,7 +132,7 @@ export function CandidateListPreview() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:hidden">
+      <div className="grid gap-3 lg:hidden">
         {candidates.map((candidate) => (
           <article key={candidate.id} className="rounded-lg border border-border bg-card p-4">
             <EntityHeader
