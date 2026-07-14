@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 
 export default function CandidatesPreviewPage() {
   return (
-    <main className="min-h-screen bg-background app-shell-root">
+    <main className="min-h-screen overflow-x-hidden bg-background app-shell-root">
       <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-6 sm:px-6">
         <PageHeader
           density="compact"

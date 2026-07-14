@@ -26,9 +26,9 @@ const TARGETS = [
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"])
 const PALETTE =
-  /\b(?:bg|text|border|ring|outline|divide|from|via|to|fill|stroke)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d{1,3})?\b/g
+  /\b(?:bg|text|border(?:-[trblxy])?|ring(?:-offset)?|outline|divide(?:-[xy])?|from|via|to|fill|stroke)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d{1,3})?\b/g
 const RAW_HEX = /#[0-9a-f]{3,8}\b/gi
-const RAW_WHITE_BLACK = /\b(?:bg|text|border|fill|stroke)-(?:white|black)(?:\/\d{1,3})?\b/g
+const RAW_WHITE_BLACK = /\b(?:bg|text|border(?:-[trblxy])?|fill|stroke)-(?:white|black)(?:\/\d{1,3})?\b/g
 
 function collect(path) {
   if (!existsSync(path)) return []
