@@ -44,19 +44,24 @@ def _belongs_to_active_vector_space(name: str, entity: str) -> bool:
 
 def _collection() -> str:
     """Return the populated candidate index; reject mismatched versioned names."""
+    from app.services.qdrant_factory import CANDIDATES_ALIAS
+
     name = getattr(settings, "QDRANT_COLLECTION", None) or LEGACY_CANDIDATE_COLLECTION
-    if name != LEGACY_CANDIDATE_COLLECTION and not _belongs_to_active_vector_space(
-        name, "candidates"
-    ):
+    if name not in (
+        LEGACY_CANDIDATE_COLLECTION,
+        CANDIDATES_ALIAS,
+    ) and not _belongs_to_active_vector_space(name, "candidates"):
         raise RuntimeError("candidate Qdrant collection does not match active model")
     return name
 
 
 def _jobs_collection() -> str:
     """Return the populated job index; reject mismatched versioned names."""
+    from app.services.qdrant_factory import JOBS_ALIAS
+
     name = getattr(settings, "QDRANT_JOBS_COLLECTION", None) or LEGACY_JOBS_COLLECTION
-    if name != LEGACY_JOBS_COLLECTION and not _belongs_to_active_vector_space(
-        name, "jobs"
+    if name not in (LEGACY_JOBS_COLLECTION, JOBS_ALIAS) and not (
+        _belongs_to_active_vector_space(name, "jobs")
     ):
         raise RuntimeError("job Qdrant collection does not match active model")
     return name
@@ -100,8 +105,19 @@ def init_qdrant_collection() -> None:
 
         client = get_qdrant_client()
         existing = {c.name for c in client.get_collections().collections}
+        aliases = {
+            item.alias_name: item.collection_name
+            for item in client.get_aliases().aliases
+        }
 
         for coll in (_collection(), _jobs_collection()):
+            if coll in aliases:
+                info = client.get_collection(aliases[coll])
+                vectors = info.config.params.vectors
+                if getattr(vectors, "size", None) != VECTOR_SIZE:
+                    raise RuntimeError(f"Qdrant alias {coll} has wrong dimension")
+                logger.info("[Qdrant] alias '%s' -> '%s' ready.", coll, aliases[coll])
+                continue
             if coll not in existing:
                 client.create_collection(
                     collection_name=coll,
@@ -130,29 +146,35 @@ def init_qdrant_collection() -> None:
 OLLAMA_EMBED_MODEL = "mxbai-embed-large"
 
 
-def _embedding_cache_model() -> str:
-    """Provider-qualified cache namespace for Voyage embeddings.
+ACTIVE_TEXT_SCHEMA = "clean_v1"
 
-    Older rows were keyed only by the configured model name.  Because the old
-    fallback path could store an Ollama vector under that Voyage key, those
-    rows cannot be trusted.  The provider-qualified namespace deliberately
-    makes them cold without requiring a destructive cache migration.
-    """
-    return f"voyage:{_voyage_model()}"
+
+def _active_text_schema() -> str:
+    return getattr(settings, "EMBEDDING_TEXT_SCHEMA", None) or ACTIVE_TEXT_SCHEMA
 
 
 async def _voyage_embed(
-    text: str, *, input_type: str = "document"
+    text: str,
+    *,
+    input_type: str = "document",
+    model: Optional[str] = None,
+    dimension: int = VECTOR_SIZE,
 ) -> Optional[list[float]]:
     """Generate embedding via Voyage AI (model from EMBEDDING_MODEL env, default voyage-3-large)."""
-    out = await _voyage_embed_batch([text], input_type=input_type)
+    out = await _voyage_embed_batch(
+        [text], input_type=input_type, model=model, dimension=dimension
+    )
     if not out:
         return None
     return out[0]
 
 
 async def _voyage_embed_batch(
-    texts: list[str], *, input_type: str = "document"
+    texts: list[str],
+    *,
+    input_type: str = "document",
+    model: Optional[str] = None,
+    dimension: int = VECTOR_SIZE,
 ) -> Optional[list[Optional[list[float]]]]:
     """Batch-embed up to 128 texts in one Voyage call.
 
@@ -174,10 +196,10 @@ async def _voyage_embed_batch(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": _voyage_model(),
+                    "model": model or _voyage_model(),
                     "input": payload_texts,
                     "input_type": input_type,
-                    "output_dimension": VECTOR_SIZE,
+                    "output_dimension": dimension,
                     "truncation": True,
                 },
             )
@@ -243,6 +265,7 @@ async def generate_embedding(
     input_type: str = "document",
     use_cache: bool = True,
     allow_local_fallback: bool = False,
+    text_schema: Optional[str] = None,
 ) -> Optional[list[float]]:
     """
     Generate a 1024-dim Voyage embedding for *text*.
@@ -262,6 +285,7 @@ async def generate_embedding(
     """
     if not text or not text.strip():
         return None
+    resolved_text_schema = text_schema or _active_text_schema()
 
     # Document cache lookup (queries are usually unique — skip).
     cache_eligible = use_cache and input_type == "document"
@@ -271,9 +295,11 @@ async def generate_embedding(
 
             cached = await _cache_get(
                 text,
-                model=_embedding_cache_model(),
+                provider="voyage",
+                model=_voyage_model(),
                 input_type=input_type,
-                dim=VECTOR_SIZE,
+                dimension=VECTOR_SIZE,
+                text_schema=resolved_text_schema,
             )
             if cached is not None:
                 return cached
@@ -305,8 +331,10 @@ async def generate_embedding(
             await _cache_store(
                 text,
                 emb,
-                model=_embedding_cache_model(),
+                provider="voyage",
+                model=_voyage_model(),
                 input_type=input_type,
+                text_schema=resolved_text_schema,
             )
         except Exception as e:  # noqa: BLE001
             logger.debug(
@@ -321,7 +349,7 @@ async def generate_embedding(
 # ---------------------------------------------------------------------------
 
 
-def _build_candidate_text(candidate) -> str:
+def _build_candidate_text_v1(candidate) -> str:
     """Build a rich text blob from candidate fields for embedding."""
     parts: list[str] = []
 
@@ -400,6 +428,130 @@ def _build_candidate_text(candidate) -> str:
         parts.append(candidate.raw_cv_text[:3000])
 
     return " ".join(p for p in parts if p and p.strip())
+
+
+_EMBED_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_EMBED_PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\s().-]*){8,14}(?!\d)")
+_EMBED_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
+
+
+def _clean_embedding_fragment(value: object, *, forbidden: tuple[str, ...] = ()) -> str:
+    """Remove direct identifiers from a structured embedding fragment."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = _EMBED_EMAIL_RE.sub(" ", text)
+    text = _EMBED_PHONE_RE.sub(" ", text)
+    text = _EMBED_URL_RE.sub(" ", text)
+    for token in forbidden:
+        if token and len(token.strip()) >= 2:
+            text = re.sub(re.escape(token.strip()), " ", text, flags=re.I)
+    return " ".join(text.split())[:1200]
+
+
+def _skill_fragments(items: object) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    values: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = _clean_embedding_fragment(item.get("name"))
+            level = _clean_embedding_fragment(item.get("level"))
+            if name:
+                values.append(f"{name} {level}".strip())
+        elif isinstance(item, str):
+            clean = _clean_embedding_fragment(item)
+            if clean:
+                values.append(clean)
+    return values
+
+
+def _build_candidate_text_v2(candidate) -> str:
+    """Privacy-minimised candidate text for Voyage 4 ``text_v2``.
+
+    Names, contacts, locations, rates, availability and raw CV content are
+    intentionally excluded. Location/rate/availability remain structured
+    filters in the scoring pipeline.
+    """
+    parts: list[str] = []
+    forbidden = tuple(
+        value
+        for value in (
+            getattr(candidate, "name", None),
+            getattr(candidate, "lastname", None),
+            getattr(candidate, "location", None),
+            getattr(candidate, "city", None),
+        )
+        if isinstance(value, str)
+    )
+    cc = _clean_embedding_fragment(getattr(candidate, "competence_category", None))
+    if cc:
+        parts.append(f"kategoria kompetencji: {cc}")
+
+    years = getattr(candidate, "years_it_experience", None)
+    if isinstance(years, (int, float)):
+        seniority = "senior" if years >= 7 else "mid" if years >= 3 else "junior"
+        parts.append(f"seniority: {seniority}; doświadczenie IT: {years:g} lat")
+
+    skills = [
+        *_skill_fragments(getattr(candidate, "skills", None)),
+        *_skill_fragments(getattr(candidate, "verified_tech", None)),
+    ]
+    if skills:
+        parts.append("umiejętności i technologie: " + ", ".join(dict.fromkeys(skills)))
+
+    current_role = _clean_embedding_fragment(
+        getattr(candidate, "linkedin_current_title", None), forbidden=forbidden
+    )
+    if current_role:
+        parts.append(f"aktualna rola: {current_role}")
+
+    experience = getattr(candidate, "experience", None)
+    if isinstance(experience, list):
+        for item in experience[:20]:
+            if not isinstance(item, dict):
+                continue
+            role = _clean_embedding_fragment(item.get("role"), forbidden=forbidden)
+            responsibility = _clean_embedding_fragment(
+                item.get("desc") or item.get("description"), forbidden=forbidden
+            )
+            if role:
+                parts.append(f"rola: {role}")
+            if responsibility:
+                parts.append(f"obowiązki: {responsibility}")
+
+    preferences = getattr(candidate, "preferences", None)
+    if isinstance(preferences, dict):
+        industries = preferences.get("industries")
+        if isinstance(industries, list):
+            clean = [_clean_embedding_fragment(item) for item in industries]
+            clean = [item for item in clean if item]
+            if clean:
+                parts.append("branże: " + ", ".join(clean))
+
+    languages = getattr(candidate, "languages", None)
+    if isinstance(languages, list):
+        clean_languages: list[str] = []
+        for item in languages:
+            if isinstance(item, dict):
+                lang = _clean_embedding_fragment(item.get("lang") or item.get("name"))
+                level = _clean_embedding_fragment(item.get("level"))
+                if lang:
+                    clean_languages.append(f"{lang} {level}".strip())
+            elif isinstance(item, str):
+                clean_languages.append(_clean_embedding_fragment(item))
+        clean_languages = [item for item in clean_languages if item]
+        if clean_languages:
+            parts.append("języki: " + ", ".join(clean_languages))
+
+    return "\n".join(parts)
+
+
+def _build_candidate_text(candidate) -> str:
+    """Build candidate text using the runtime-selected, versioned schema."""
+    if _active_text_schema() == "text_v2":
+        return _build_candidate_text_v2(candidate)
+    return _build_candidate_text_v1(candidate)
 
 
 async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
@@ -624,7 +776,7 @@ async def similarity_for_candidate_ids(
 # ---------------------------------------------------------------------------
 
 
-def _build_job_text(job) -> str:
+def _build_job_text_v1(job) -> str:
     """Build a rich text blob from job fields for embedding.
 
     When `job.champion_profile` exists, its narrative content (project context,
@@ -721,6 +873,87 @@ def _build_job_text(job) -> str:
                     parts.append(item)
 
     return " ".join(p for p in parts if p and p.strip())
+
+
+def _build_job_text_v2(job) -> str:
+    """Job text for Voyage 4; salary and location remain structured filters."""
+    parts: list[str] = []
+    forbidden = tuple(
+        str(value)
+        for value in (
+            getattr(job, "location", None),
+            getattr(job, "salary_min", None),
+            getattr(job, "salary_max", None),
+        )
+        if value not in (None, "")
+    )
+    for label, value in (
+        ("tytuł", getattr(job, "title", None)),
+        ("kategoria", getattr(job, "subcategory", None)),
+        ("domena", getattr(job, "industry", None)),
+    ):
+        clean = _clean_embedding_fragment(value, forbidden=forbidden)
+        if clean:
+            parts.append(f"{label}: {clean}")
+
+    seniority = getattr(job, "seniority", None)
+    if seniority:
+        parts.append(
+            f"seniority: {_clean_embedding_fragment(getattr(seniority, 'value', seniority))}"
+        )
+    work_mode = getattr(job, "work_mode", None)
+    if work_mode:
+        parts.append(
+            f"tryb pracy: {_clean_embedding_fragment(getattr(work_mode, 'value', work_mode))}"
+        )
+
+    for label, bucket in (
+        ("must have", getattr(job, "must_skills", None)),
+        ("nice to have", getattr(job, "nice_skills", None)),
+    ):
+        values = _skill_fragments(bucket)
+        if values:
+            parts.append(f"{label}: " + ", ".join(values))
+
+    for label, value in (
+        ("obowiązki i kontekst", getattr(job, "description", None)),
+        ("wymagania", getattr(job, "requirements", None)),
+    ):
+        clean = _clean_embedding_fragment(value, forbidden=forbidden)
+        if clean:
+            parts.append(f"{label}: {clean}")
+
+    champion = getattr(job, "champion_profile", None)
+    if isinstance(champion, dict):
+        context = champion.get("project_context")
+        if isinstance(context, dict):
+            for key in ("about", "responsibilities", "selling_points"):
+                clean = _clean_embedding_fragment(context.get(key), forbidden=forbidden)
+                if clean:
+                    parts.append(f"champion {key}: {clean}")
+        basics = champion.get("basics")
+        if isinstance(basics, dict):
+            language = _clean_embedding_fragment(
+                basics.get("language"), forbidden=forbidden
+            )
+            if language:
+                parts.append(f"język: {language}")
+        sourcing = champion.get("sourcing")
+        if isinstance(sourcing, dict):
+            keywords = _clean_embedding_fragment(
+                sourcing.get("keywords"), forbidden=forbidden
+            )
+            if keywords:
+                parts.append(f"zatwierdzone słowa kluczowe: {keywords}")
+
+    return "\n".join(parts)
+
+
+def _build_job_text(job) -> str:
+    """Build job text using the runtime-selected, versioned schema."""
+    if _active_text_schema() == "text_v2":
+        return _build_job_text_v2(job)
+    return _build_job_text_v1(job)
 
 
 async def embed_job(job_id: int, db: AsyncSession) -> bool:

@@ -434,6 +434,8 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
+    "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'voyage'",
+    "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS text_schema VARCHAR(32) NOT NULL DEFAULT 'legacy_v1'",
     "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS monthly_budget_usd NUMERIC(12,4) NOT NULL DEFAULT 0",
     """CREATE TABLE IF NOT EXISTS ai_routing_state (
         id INTEGER PRIMARY KEY,

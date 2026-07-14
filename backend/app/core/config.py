@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # output is 1024-dim; model and dimension remain part of collection identity.
     VOYAGE_MODEL: str = "voyage-3-large"
     EMBEDDING_DIMENSION: int = 1024
+    EMBEDDING_TEXT_SCHEMA: Literal["clean_v1", "text_v2"] = "clean_v1"
     # Historical Talent Radar embeddings have no trustworthy model provenance.
     # Keep the copier disabled unless exact source model/dimension are declared.
     TALENT_RADAR_EMBEDDING_COPY_ENABLED: bool = False
