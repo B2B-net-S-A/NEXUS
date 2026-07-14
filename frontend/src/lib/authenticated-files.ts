@@ -18,7 +18,8 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /**
- * Fetch a backend file as a Blob with the Bearer JWT attached.
+ * Fetch a backend file as a Blob with the HttpOnly session attached. During the
+ * rollout, a legacy Bearer token is also sent only to the configured API origin.
  *
  * `path` is relative to the API base (e.g. `/api/emails/1/attachments/2/download`)
  * or an absolute `http(s)://` URL.

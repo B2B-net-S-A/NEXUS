@@ -904,8 +904,6 @@ export const contractsApi = {
     }),
   deleteDocument: (contractId: number, documentId: number) =>
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
-  documentDownloadUrl: (contractId: number, documentId: number) =>
-    `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
   activate: (id: number) => api.post(`/api/contracts/${id}/activate`, {}),
@@ -2234,6 +2232,11 @@ export const recommendationsApi = {
       current_must_skills: Array<{ name: string; level?: string | null }>;
       current_nice_skills: Array<{ name: string; level?: string | null }>;
     }>(`/api/jobs/${jobId}/generate-criteria-preview`),
+  classifyTechnologies: (names: string[]) =>
+    api.post<{ technologies: Record<string, boolean> }>(
+      "/api/cv-generator/classify-technologies",
+      { names },
+    ),
   recomputeScores: (jobId: number, topK = 200) =>
     api.post(`/api/jobs/${jobId}/recompute-scores`, null, { params: { top_k: topK } }),
   assignToJob: (candidateId: number, jobId: number) =>
@@ -3110,8 +3113,6 @@ export const microsoft365Api = {
       `/api/candidates/${candidateId}/emails/reply`,
       payload,
     ),
-  downloadAttachmentUrl: (emailId: number, attachmentId: number) =>
-    `${API_BASE}/api/emails/${emailId}/attachments/${attachmentId}/download`,
   createInvite: (payload: {
     candidate_id: number;
     title: string;
@@ -3629,8 +3630,6 @@ export const candidateStageCvApi = {
       api.get<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original`,
       ),
-    downloadUrl: (stageId: number) =>
-      `${API_BASE}/api/candidates/stages/${stageId}/cv/original/download`,
     refresh: (stageId: number) =>
       api.post<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original/refresh`,

@@ -3,6 +3,10 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { contractsApi } from "@/lib/api";
+import {
+  openContractDocument,
+  downloadContractDocument,
+} from "@/lib/contract-documents";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDate } from "@/lib/utils";
 import {
@@ -110,6 +114,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
   const [docType, setDocType] = useState<string>("contract");
   const [expiryDate, setExpiryDate] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery<ContractDocument[]>({
     queryKey: ["contract-documents", contractId],
@@ -153,6 +158,30 @@ export function ContractDocumentsTab({ contractId }: Props) {
   const handleDelete = (doc: ContractDocument) => {
     if (window.confirm(`Usunąć plik "${doc.filename}"?`)) {
       deleteMutation.mutate(doc.id);
+    }
+  };
+
+  const handleOpen = async (doc: ContractDocument) => {
+    setBusyId(doc.id);
+    setError("");
+    try {
+      await openContractDocument(contractId, doc);
+    } catch {
+      setError(`Nie udało się otworzyć pliku "${doc.filename}".`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDownload = async (doc: ContractDocument) => {
+    setBusyId(doc.id);
+    setError("");
+    try {
+      await downloadContractDocument(contractId, doc);
+    } catch {
+      setError(`Nie udało się pobrać pliku "${doc.filename}".`);
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -260,14 +289,15 @@ export function ContractDocumentsTab({ contractId }: Props) {
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2">
                         <Icon className="w-4 h-4 text-muted-foreground" />
-                        <a
-                          href={contractsApi.documentDownloadUrl(contractId, d.id)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary hover:underline dark:text-primary"
+                        <button
+                          type="button"
+                          onClick={() => handleOpen(d)}
+                          disabled={busyId === d.id}
+                          className="text-primary hover:underline dark:text-primary text-left disabled:opacity-60"
+                          title="Otwórz"
                         >
                           {d.filename}
-                        </a>
+                        </button>
                       </div>
                     </td>
                     <td className="px-4 py-2">
@@ -301,15 +331,19 @@ export function ContractDocumentsTab({ contractId }: Props) {
                     </td>
                     <td className="px-4 py-2 text-right">
                       <div className="inline-flex gap-1">
-                        <a
-                          href={contractsApi.documentDownloadUrl(contractId, d.id)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground dark:text-muted-foreground"
+                        <button
+                          type="button"
+                          onClick={() => handleDownload(d)}
+                          disabled={busyId === d.id}
+                          className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground dark:text-muted-foreground disabled:opacity-50"
                           title="Pobierz"
                         >
-                          <Download className="w-4 h-4" />
-                        </a>
+                          {busyId === d.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                        </button>
                         <RequireRole roles={["admin", "delivery_lead", "tac"]}>
                           <button
                             onClick={() => handleDelete(d)}

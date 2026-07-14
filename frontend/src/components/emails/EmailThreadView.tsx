@@ -6,12 +6,17 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Loader2,
   Paperclip,
   Reply,
   X,
 } from "lucide-react";
 
-import { microsoft365Api, type EmailMessage } from "@/lib/api";
+import {
+  microsoft365Api,
+  type EmailAttachmentPreview,
+  type EmailMessage,
+} from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +24,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert } from "@/components/ui/alert";
+import { useToast } from "@/components/Toast";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { sanitizeRichHtml } from "@/lib/sanitize-html";
 import {
@@ -75,6 +82,8 @@ function ThreadMessageCard({
   onReply,
 }: ThreadMessageCardProps) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
+  const { showError } = useToast();
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   // Only fetch the full body once the card is expanded — keeps the initial
   // open of a long thread cheap.
@@ -96,6 +105,24 @@ function ThreadMessageCard({
     : email.from_address;
   const initials = initialsOf(email.from_name, email.from_address);
   const tone = avatarToneFor(email.from_address);
+
+  // Download via authenticated fetch → same-origin blob. A raw <a href> to the
+  // backend 401s: the JWT lives in localStorage (not a cookie), so a plain
+  // navigation/download sends no Authorization header.
+  const handleDownloadAttachment = async (att: EmailAttachmentPreview) => {
+    if (!fullMessage) return;
+    setDownloadingId(att.id);
+    try {
+      await downloadAuthenticatedFile(
+        `/api/emails/${fullMessage.id}/attachments/${att.id}/download`,
+        att.filename,
+      );
+    } catch {
+      showError("Nie udało się pobrać załącznika.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   return (
     <div
@@ -193,21 +220,28 @@ function ThreadMessageCard({
                   Załączniki
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {fullMessage.attachments.map((a) => (
-                    <a
-                      key={a.id}
-                      href={microsoft365Api.downloadAttachmentUrl(
-                        fullMessage.id,
-                        a.id,
-                      )}
-                      className="inline-flex items-center gap-2 text-sm px-3 py-1.5 bg-muted border border-border rounded-lg hover:bg-muted/80"
-                      download
-                    >
-                      <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="truncate max-w-[20rem]">{a.filename}</span>
-                      <Download className="h-3.5 w-3.5 text-muted-foreground" />
-                    </a>
-                  ))}
+                  {fullMessage.attachments.map((a) => {
+                    const isDownloading = downloadingId === a.id;
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => handleDownloadAttachment(a)}
+                        disabled={isDownloading}
+                        className="inline-flex items-center gap-2 text-sm px-3 py-1.5 bg-muted border border-border rounded-lg hover:bg-muted/80 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="truncate max-w-[20rem]">
+                          {a.filename}
+                        </span>
+                        {isDownloading ? (
+                          <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
