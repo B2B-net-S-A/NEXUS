@@ -1,6 +1,8 @@
 import logging
 import os
+import hashlib
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.core.logging_config import configure_json_logging
+from app.core.logging_config import configure_json_logging, redact_sensitive_value
 from app.core.rate_limit import limiter
 
 # Eager-import the models package so every ORM class is registered in the
@@ -196,6 +198,90 @@ class LegacyAnalyticsDeprecationMiddleware(BaseHTTPMiddleware):
 # 529 overloaded. Both are retried with backoff by the Claude callers.
 _TRANSIENT_ANTHROPIC_STATUS = {429, 529}
 _TRANSIENT_ANTHROPIC_TYPES = {"overloaded_error", "rate_limit_error"}
+_SENTRY_PAYLOAD_KEYS = {
+    "authorization",
+    "body",
+    "candidate",
+    "candidate_data",
+    "content",
+    "cookie",
+    "cookies",
+    "cv_text",
+    "email",
+    "file_content",
+    "headers",
+    "job_description",
+    "messages",
+    "password",
+    "phone",
+    "prompt",
+    "profile",
+    "raw_cv_text",
+    "request_body",
+    "response",
+    "transcript",
+    "vars",
+}
+
+
+def _scrub_sentry_value(value: Any, *, key: str = "") -> Any:
+    """Drop payload-bearing fields and redact residual direct identifiers."""
+    normalized_key = key.lower().replace("-", "_")
+    if normalized_key in _SENTRY_PAYLOAD_KEYS:
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {
+            item_key: _scrub_sentry_value(item, key=str(item_key))
+            for item_key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_scrub_sentry_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_sentry_value(item) for item in value)
+    if isinstance(value, str):
+        redacted = redact_sensitive_value(value)
+        if len(redacted) > 2048:
+            digest = hashlib.sha256(redacted.encode("utf-8")).hexdigest()[:12]
+            return f"[REDACTED_LONG_TEXT len={len(redacted)} sha256={digest}]"
+        return redacted
+    return value
+
+
+def _scrub_sentry_event(event: dict) -> dict:
+    """Scrub a Sentry event in place while preserving callback identity."""
+    event_copy = dict(event)
+    request = event_copy.get("request")
+    if isinstance(request, dict):
+        request_copy = dict(request)
+        # Sentry integrations can attach an arbitrary JSON/form request body
+        # under ``request.data``.  Drop it wholesale: field names are not a
+        # dependable privacy boundary for an ATS payload.
+        if "data" in request_copy:
+            request_copy["data"] = "[REDACTED]"
+        event_copy["request"] = request_copy
+    exception = event_copy.get("exception")
+    if isinstance(exception, dict) and isinstance(exception.get("values"), list):
+        exception_copy = dict(exception)
+        exception_copy["values"] = [
+            {
+                **value,
+                # SDK exceptions may echo a provider response or invalid input.
+                # Type + stacktrace retain grouping/debug value without payload.
+                **(
+                    {"value": "[REDACTED_EXCEPTION_MESSAGE]"}
+                    if "value" in value
+                    else {}
+                ),
+            }
+            if isinstance(value, dict)
+            else value
+            for value in exception["values"]
+        ]
+        event_copy["exception"] = exception_copy
+    scrubbed = _scrub_sentry_value(event_copy)
+    event.clear()
+    event.update(scrubbed)
+    return event
 
 
 def _is_transient_anthropic_exc(exc: BaseException) -> bool:
@@ -240,14 +326,11 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     the anthropic mechanism; never swallow errors raised by our own code.
     """
     exc_info = hint.get("exc_info") if hint else None
-    if not (exc_info and len(exc_info) >= 2):
-        return event
-    if not _is_transient_anthropic_exc(exc_info[1]):
-        return event
-    for value in (event.get("exception") or {}).get("values", []):
-        if (value.get("mechanism") or {}).get("type") == "anthropic":
-            return None
-    return event
+    if exc_info and len(exc_info) >= 2 and _is_transient_anthropic_exc(exc_info[1]):
+        for value in (event.get("exception") or {}).get("values", []):
+            if (value.get("mechanism") or {}).get("type") == "anthropic":
+                return None
+    return _scrub_sentry_event(event)
 
 
 if settings.SENTRY_DSN:

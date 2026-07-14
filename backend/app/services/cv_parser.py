@@ -299,10 +299,10 @@ async def _parse_with_claude(cv_text: str) -> Optional[dict[str, Any]]:
         return data
     except Exception as e:
         logger.warning(
-            "[cv_parser] Claude call failed (template=%s v%d): %s",
+            "[cv_parser] Claude call failed template=%s version=%d error_type=%s",
             CV_ENRICHMENT.name,
             CV_ENRICHMENT.version,
-            e,
+            type(e).__name__,
         )
         return None
 
@@ -337,10 +337,10 @@ async def _parse_with_ollama(cv_text: str) -> Optional[dict[str, Any]]:
             return data
     except Exception as e:
         logger.warning(
-            "[cv_parser] Ollama call failed (template=%s v%d): %s",
+            "[cv_parser] Ollama call failed template=%s version=%d error_type=%s",
             CV_ENRICHMENT.name,
             CV_ENRICHMENT.version,
-            e,
+            type(e).__name__,
         )
         return None
 

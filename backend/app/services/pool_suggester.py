@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.services.cc_centroid_service import POOL_CENTROIDS_COLLECTION
+from app.services.embedding_service import candidate_collection_name
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def _fetch_candidate_vector_sync(candidate_id: int) -> Optional[list[float]]:
 
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         points = client.retrieve(
-            collection_name="nexus_candidates",
+            collection_name=candidate_collection_name(),
             ids=[candidate_id],
             with_vectors=True,
         )

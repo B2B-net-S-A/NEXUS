@@ -11,6 +11,8 @@ import {
   matchHistoryApi,
   type CandidateMatch,
   type ProposalSnapshot,
+  type RecommendationMeta,
+  type ScoreBreakdown,
 } from "@/lib/api";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
@@ -27,6 +29,30 @@ const PENDING_POLL_MS = 2000;
 
 type Mode = "snapshot" | "fallback-live";
 
+type ScoredCandidateMatch = CandidateMatch & {
+  total_score: number;
+  breakdown: ScoreBreakdown;
+};
+
+/**
+ * History accepts only calibrated results.  The meta gate prevents a future
+ * degraded response from being persisted even if it accidentally contains a
+ * numeric field; the value/schema gate keeps older responses fail-safe.
+ */
+export function selectMatchesForHistory(
+  matches: CandidateMatch[],
+  meta?: RecommendationMeta | null,
+  limit = 3,
+): ScoredCandidateMatch[] {
+  if (meta?.degraded) return [];
+  return matches
+    .filter(
+      (match): match is ScoredCandidateMatch =>
+        match.total_score !== null && match.breakdown != null,
+    )
+    .slice(0, limit);
+}
+
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const sec = Math.round(diff / 1000);
@@ -38,7 +64,7 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleString("pl-PL");
 }
 
-function snapshotToMatches(snap: ProposalSnapshot): CandidateMatch[] {
+function snapshotToMatches(snap: ProposalSnapshot): ScoredCandidateMatch[] {
   return snap.candidates.map((item) => ({
     candidate: {
       id: item.candidate.id,
@@ -130,6 +156,7 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveLoaded, setLiveLoaded] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [liveMeta, setLiveMeta] = useState<RecommendationMeta | null>(null);
   const [regenerating, setRegenerating] = useState(false);
 
   const [assigning, setAssigning] = useState<number | null>(null);
@@ -138,6 +165,7 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   const loadLive = async () => {
     setLiveLoading(true);
     setLiveError(null);
+    setLiveMeta(null);
     try {
       const r = await recommendationsApi.forJob(jobId, {
         top_k: topK,
@@ -145,9 +173,11 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
       });
       const got = r.data.matches ?? [];
       setLiveMatches(got);
+      setLiveMeta(r.data.meta ?? null);
       setLiveLoaded(true);
+      const historyMatches = selectMatchesForHistory(got, r.data.meta);
       await Promise.allSettled(
-        got.slice(0, 3).map((m) =>
+        historyMatches.map((m) =>
           matchHistoryApi.log({
             job_id: jobId,
             candidate_id: m.candidate.id,
@@ -208,8 +238,9 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   // Log top-3 to match history once a snapshot becomes ready (same UX as live).
   useEffect(() => {
     if (!isSnapReady || !snapshot) return;
+    const historyMatches = selectMatchesForHistory(snapshotMatches);
     void Promise.allSettled(
-      snapshotMatches.slice(0, 3).map((m) =>
+      historyMatches.map((m) =>
         matchHistoryApi.log({
           job_id: jobId,
           candidate_id: m.candidate.id,
@@ -233,6 +264,12 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
     : mode === "snapshot"
       ? snapshotMatches
       : liveMatches;
+  const activeRecommendationMeta = locationActive
+    ? (locationQuery.data?.meta ?? null)
+    : mode === "fallback-live"
+      ? liveMeta
+      : null;
+  const isDegraded = activeRecommendationMeta?.degraded === true;
   const showLiveEmptyState =
     !locationActive && mode === "fallback-live" && !liveLoaded && !liveLoading;
   const showLiveNoResults =
@@ -357,6 +394,27 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         </div>
       )}
 
+      {isDegraded && (
+        <div
+          role="status"
+          data-testid="degraded-recommendations-notice"
+          className="mb-3 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+        >
+          {activeRecommendationMeta?.mode === "bm25" ? (
+            <>
+              Wyszukiwanie działa w trybie awaryjnym BM25. Pokazujemy ranking
+              tekstowy bez standardowego wyniku dopasowania; tych wyników nie
+              zapisujemy w historii.
+            </>
+          ) : (
+            <>
+              Wyszukiwanie semantyczne jest chwilowo niedostępne. Standardowy
+              wynik dopasowania nie został wyliczony ani zapisany w historii.
+            </>
+          )}
+        </div>
+      )}
+
       {showLocationLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
           <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
@@ -475,13 +533,23 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <div className="flex items-center gap-1">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full border font-medium ${scoreColor(
-                        m.total_score,
-                      )}`}
-                    >
-                      {m.total_score.toFixed(0)}/100
-                    </span>
+                    {m.total_score === null ? (
+                      <span
+                        data-testid={`degraded-score-${cand.id}`}
+                        className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        title="Ranking tekstowy BM25 — standardowy wynik dopasowania jest niedostępny"
+                      >
+                        BM25 · tryb awaryjny
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full border font-medium ${scoreColor(
+                          m.total_score,
+                        )}`}
+                      >
+                        {m.total_score.toFixed(0)}/100
+                      </span>
+                    )}
                     {m.breakdown && <ScoreBreakdownTooltip breakdown={m.breakdown} compact />}
                   </div>
                   {isAssigned ? (

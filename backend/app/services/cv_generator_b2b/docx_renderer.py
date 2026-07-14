@@ -1237,8 +1237,7 @@ def render_cv_to_bytes(
                 job["company"] = f"Firma z branży {industry}"
 
     logger.info(
-        "[cv_generator_b2b] Rendering CV name=%s lang=%s blind=%s",
-        candidate_data.get("name"),
+        "[cv_generator_b2b] Rendering CV lang=%s blind=%s",
         language,
         blind_cv,
     )

@@ -342,7 +342,7 @@ async def _voyage_candidates(
     if not query_text:
         return {}
 
-    embedding = await generate_embedding(query_text)
+    embedding = await generate_embedding(query_text, input_type="query")
     if embedding is None or len(embedding) != VECTOR_SIZE:
         logger.warning(
             "[request_history] embedding unavailable (text_len=%d)", len(query_text)

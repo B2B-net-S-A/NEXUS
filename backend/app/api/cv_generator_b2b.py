@@ -301,7 +301,11 @@ async def _run_generate_new_job(
             await db.commit()
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
-            logger.exception("[cv_b2b] New-mode job %s crashed: %s", generated_id, err)
+            logger.error(
+                "[cv_b2b] New-mode job %s crashed error_type=%s",
+                generated_id,
+                type(err).__name__,
+            )
             await _finalize_failure(
                 db, generated_id, "Nieoczekiwany błąd generacji CV."
             )
@@ -344,7 +348,11 @@ async def _run_generate_upload_job(
             await db.commit()
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
-            logger.exception("[cv_b2b] Upload job %s crashed: %s", generated_id, err)
+            logger.error(
+                "[cv_b2b] Upload job %s crashed error_type=%s",
+                generated_id,
+                type(err).__name__,
+            )
             await _finalize_failure(
                 db, generated_id, "Nieoczekiwany błąd generacji CV."
             )
@@ -724,9 +732,13 @@ async def download_generated_cv(
             rerender_docx_from_payload, row.render_payload
         )
     except Exception as err:  # noqa: BLE001 — python-docx raises various types
-        logger.exception("[cv_b2b] Re-render of saved CV %s failed: %s", row.id, err)
+        logger.error(
+            "[cv_b2b] Re-render of saved CV %s failed error_type=%s",
+            row.id,
+            type(err).__name__,
+        )
         raise HTTPException(
-            status_code=500, detail=f"Nie udało się odtworzyć DOCX: {err}"
+            status_code=500, detail="Nie udało się odtworzyć DOCX."
         ) from err
     return _build_docx_response(
         docx_bytes=docx_bytes,

@@ -171,8 +171,7 @@ async def commentary(
     )
 
     user_prompt = (
-        f"Dla użytkownika {current_user.name} ({current_user.email}):\n\n"
-        f"{context}\n\n"
+        f"Dla użytkownika {current_user.name}:\n\n{context}\n\n"
         "Daj zwięzły (3-5 zdań) komentarz o jego performance i 1 konkretną sugestię."
     )
 
@@ -192,9 +191,12 @@ async def commentary(
         return MindyResponse(
             content=content, model=settings.CLAUDE_MODEL_CV, context_summary=context
         )
-    except Exception as e:
-        logger.exception("MINDY commentary failed")
-        raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
+    except Exception as exc:
+        logger.error(
+            "MINDY commentary failed provider=anthropic error_type=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=502, detail="AI call failed") from exc
 
 
 @router.post("/chat", response_model=MindyResponse)
@@ -237,6 +239,9 @@ async def chat(
             block.text for block in message.content if hasattr(block, "text")
         )
         return MindyResponse(content=content, model=settings.CLAUDE_MODEL_CV)
-    except Exception as e:
-        logger.exception("MINDY chat failed")
-        raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
+    except Exception as exc:
+        logger.error(
+            "MINDY chat failed provider=anthropic error_type=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=502, detail="AI call failed") from exc

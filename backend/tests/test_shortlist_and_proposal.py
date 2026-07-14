@@ -13,21 +13,25 @@ Covers:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import delete
 
+from app.api.phase3_actions import _build_client_proposal_email
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 
 
-async def _seed_candidate(*, email: str | None = "shortlist@example.com") -> int:
+async def _seed_candidate(
+    *, email: str | None = "shortlist@example.com", name: str = "Anna"
+) -> int:
     async with AsyncSessionLocal() as db:
         cand = Candidate(
-            name="Anna",
+            name=name,
             lastname="Tester",
             email=email,
             status=CandidateStatus.active,
@@ -77,7 +81,9 @@ async def _seed_client() -> int:
         return client.id
 
 
-async def _cleanup(*, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]):
+async def _cleanup(
+    *, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]
+):
     async with AsyncSessionLocal() as db:
         if job_ids:
             await db.execute(delete(Job).where(Job.id.in_(job_ids)))
@@ -114,6 +120,32 @@ async def test_shortlist_email_happy_path(
         assert "Python Eng B" in body["html_body"]
     finally:
         await _cleanup(candidate_ids=[cid], job_ids=[j1, j2], client_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_shortlist_email_escapes_persisted_html(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    cid = await _seed_candidate(name='<img src=x onerror="alert(1)">')
+    j1 = await _seed_published_job(
+        "<script>alert(2)</script>", location='<svg onload="alert(3)">'
+    )
+    try:
+        resp = await app_client.post(
+            "/api/recommendations/send-candidate-shortlist-email",
+            headers=app_auth_headers,
+            json={"candidate_id": cid, "job_ids": [j1]},
+        )
+        assert resp.status_code == 200, resp.text
+        html = resp.json()["html_body"]
+        assert "<img" not in html
+        assert "<script" not in html
+        assert "<svg" not in html
+        assert "&lt;img" in html
+        assert "&lt;script&gt;" in html
+        assert "&lt;svg" in html
+    finally:
+        await _cleanup(candidate_ids=[cid], job_ids=[j1], client_ids=[])
 
 
 @pytest.mark.asyncio
@@ -201,9 +233,28 @@ async def test_client_proposal_happy_path(
         assert "Senior Python Engineer" in draft["subject"]
         assert "anonimowy" in draft["text_body"].lower()
     finally:
-        await _cleanup(
-            candidate_ids=[cid], job_ids=[job_id], client_ids=[client_id]
-        )
+        await _cleanup(candidate_ids=[cid], job_ids=[job_id], client_ids=[client_id])
+
+
+def test_client_proposal_escapes_all_profile_fields() -> None:
+    candidate = SimpleNamespace(competence_category="fallback")
+    job = SimpleNamespace(title='<img src=x onerror="alert(1)">')
+    draft = _build_client_proposal_email(
+        candidate,
+        job,
+        {
+            "experience_years": '<svg onload="alert(2)">',
+            "education_level": "<script>alert(3)</script>",
+            "skills_summary": ["Python", "<iframe src=evil>"],
+            "languages": ["PL", "<object>evil</object>"],
+            "competence_category": "<style>body{display:none}</style>",
+        },
+    )
+
+    html = draft["html_body"]
+    for tag in ("img", "svg", "script", "iframe", "object", "style"):
+        assert f"<{tag}" not in html
+    assert "&lt;script&gt;alert(3)&lt;/script&gt;" in html
 
 
 @pytest.mark.asyncio

@@ -24,14 +24,24 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: str = ""
+    # Keep the currently populated indexes active until the blue/green Voyage 4
+    # rebuild is complete. A versioned name is accepted only when it matches the
+    # configured model+dimension; changing the model then fails closed instead
+    # of silently creating/switching to an empty vector space.
     QDRANT_COLLECTION: str = "nexus_candidates"
+    QDRANT_JOBS_COLLECTION: str = "nexus_jobs"
 
     # Voyage AI (embeddings)
     VOYAGE_API_KEY: str = ""
     # voyage-3-large: MTEB 65.1 (#1, +9.74% over OpenAI v3-large). Matryoshka
-    # learning keeps 1024-dim outputs compatible with existing Qdrant collection.
+    # output is 1024-dim; model and dimension remain part of collection identity.
     VOYAGE_MODEL: str = "voyage-3-large"
     EMBEDDING_DIMENSION: int = 1024
+    # Historical Talent Radar embeddings have no trustworthy model provenance.
+    # Keep the copier disabled unless exact source model/dimension are declared.
+    TALENT_RADAR_EMBEDDING_COPY_ENABLED: bool = False
+    TALENT_RADAR_EMBEDDING_MODEL: str = ""
+    TALENT_RADAR_EMBEDDING_DIMENSION: int = 0
     # Voyage Rerank 2.5 — best balance accuracy/latency (~595ms p95).
     # Enabled by default — has graceful passthrough on API failure (rerank
     # service returns identity ordering, never breaks retrieval).
@@ -103,7 +113,7 @@ class Settings(BaseSettings):
     SEMANTIC_CALIBRATION_GAMMA: float = 0.6
     SCORE_UNKNOWN_NEUTRAL_FRACTION: float = 0.65
 
-    # Ollama (local LLM + embeddings fallback)
+    # Ollama (local LLM; embeddings require an explicit DEBUG-only opt-in)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
     OLLAMA_EMBED_MODEL: str = "mxbai-embed-large"

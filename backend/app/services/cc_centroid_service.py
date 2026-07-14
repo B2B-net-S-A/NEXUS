@@ -28,6 +28,7 @@ from app.models.competence_category import (
 )
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.services.cc_classifier import CC_CENTROIDS_COLLECTION
+from app.services.embedding_service import candidate_collection_name
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ async def _bootstrap_cc_from_keywords(cc: CompetenceCategory) -> Optional[list[f
     text_parts = [cc.name_pl, cc.name_en, cc.description or ""]
     text_parts.extend(cc.keywords or [])
     text = " ".join(p for p in text_parts if p)
-    return await generate_embedding(text)
+    return await generate_embedding(text, input_type="document")
 
 
 async def compute_cc_centroid(db: AsyncSession, cc_id: int) -> bool:
@@ -129,7 +130,7 @@ async def compute_cc_centroid(db: AsyncSession, cc_id: int) -> bool:
     vector: Optional[list[float]] = None
     if candidate_ids:
         vectors = await asyncio.to_thread(
-            _retrieve_vectors_sync, "nexus_candidates", candidate_ids
+            _retrieve_vectors_sync, candidate_collection_name(), candidate_ids
         )
         vector = _mean_vector(vectors)
 
@@ -174,7 +175,7 @@ async def compute_pool_centroid(db: AsyncSession, pool_id: int) -> bool:
         return False
 
     vectors = await asyncio.to_thread(
-        _retrieve_vectors_sync, "nexus_candidates", candidate_ids
+        _retrieve_vectors_sync, candidate_collection_name(), candidate_ids
     )
     vector = _mean_vector(vectors)
     if vector is None:
