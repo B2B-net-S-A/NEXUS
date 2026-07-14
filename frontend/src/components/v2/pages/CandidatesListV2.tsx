@@ -54,6 +54,7 @@ import {
  downloadCandidateExport,
  type CandidateExportScope,
 } from "@/lib/candidate-export";
+import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
 import { AddCandidateModal } from"@/components/AppShell";
 import { ImportCandidatesV2 } from"@/components/v2/modals/ImportCandidatesV2";
@@ -66,7 +67,12 @@ import {
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
 import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
-import { getCandidateListIncludeFlags } from "@/components/v2/pages/candidate-list-query";
+import {
+  fetchCandidateListPage,
+  getCandidateListIncludeFlags,
+  getCandidateListViewState,
+} from "@/components/v2/pages/candidate-list-query";
+import { useCandidateSearchDebounce } from "@/hooks/useCandidateSearchDebounce";
 import { MatchSnippet } from"@/components/v2/MatchSnippet";
 import {
  Sheet,
@@ -122,14 +128,12 @@ import {
  type OpenToValue,
 } from"@/lib/filter-options";
 import {
- decodeFilters,
  decodeSkillsExpr,
  encodeFilterCriteria,
  encodeFilters,
  filtersToApiParams,
  parseRateBound,
  parseYearBound,
- DEFAULT_FILTERS,
  type AvailabilityFilter,
  type CandidateFilters,
  type CandidateStatusFilter,
@@ -457,6 +461,13 @@ interface Candidate {
  last_note_preview?: string | null;
  last_rejection_reason?: string | null;
  last_rate?: string | null;
+}
+
+interface CandidateListResponse {
+ items: Candidate[];
+ total: number;
+ page: number;
+ page_size: number;
 }
 
 /** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
@@ -1521,14 +1532,15 @@ export function CandidatesListV2() {
 
  // Draft wyszukiwarki reaguje natychmiast, ale nie wysyła requestu na każdy
  // znak. Enter w polu wywołuje ten sam commit bez oczekiwania na debounce.
- useEffect(() => {
- if (searchDraft === search) return;
- const timer = window.setTimeout(() => {
- setSearch(searchDraft);
+ const commitSearchValue = useCallback((value: string) => {
+ setSearch(value);
  setPage(1);
- }, 300);
- return () => window.clearTimeout(timer);
- }, [searchDraft, search]);
+ }, []);
+ useCandidateSearchDebounce({
+ draft: searchDraft,
+ committed: search,
+ onCommit: commitSearchValue,
+ });
 
  const commitSearch = () => {
  if (searchDraft === search) return;
@@ -1696,18 +1708,17 @@ export function CandidatesListV2() {
  } = useQuery({
  queryKey: ["candidates-v2", candidatesApiParams],
  queryFn: ({ signal }) =>
- api
- .get("/api/candidates", {
- params: candidatesApiParams,
- paramsSerializer: { indexes: null },
- signal,
- })
- .then((response) => response.data),
+ fetchCandidateListPage<CandidateListResponse>(candidatesApiParams, signal),
  placeholderData: keepPreviousData,
  staleTime: 30_000,
  });
 
  const items: Candidate[] = data?.items ?? [];
+ const listViewState = getCandidateListViewState({
+ isLoading,
+ isError,
+ itemCount: items.length,
+ });
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -2226,9 +2237,11 @@ export function CandidatesListV2() {
             currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
             onApply={(qs, ssId, previousViewedAt) => {
               setNewSince(previousViewedAt);
-              const decoded = decodeFilters(new URLSearchParams(qs));
+              const decoded = filtersFromCandidateSavedSearch(
+                { qs },
+                effectiveCandidatesView,
+              );
               applyFiltersPatch({
-                ...DEFAULT_FILTERS,
                 ...decoded,
                 page: 1,
                 view: effectiveCandidatesView,
@@ -2972,7 +2985,7 @@ export function CandidatesListV2() {
  }}
  />
 
- {isError && items.length > 0 && (
+ {listViewState === "refresh-error" && (
  <div
  role="alert"
  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm"
@@ -3034,11 +3047,11 @@ export function CandidatesListV2() {
 
  {/* Virtualized body — list or tiles */}
  {effectiveCandidatesView === "tiles" ? (
- isLoading ? (
+ listViewState === "initial-loading" ? (
  loadingRows
- ) : isError && items.length === 0 ? (
+ ) : listViewState === "error" ? (
  queryErrorPanel
- ) : items.length === 0 ? (
+ ) : listViewState === "empty" ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
@@ -3069,6 +3082,7 @@ export function CandidatesListV2() {
  ) : (
  <div
  ref={parentRef}
+ data-testid="candidate-list-scroll"
  style={{
  height: "calc(100vh - 340px)",
  minHeight: 360,
@@ -3076,11 +3090,11 @@ export function CandidatesListV2() {
  }}
  className="overflow-y-auto overflow-x-hidden"
  >
- {isLoading ? (
+ {listViewState === "initial-loading" ? (
  loadingRows
- ) : isError && items.length === 0 ? (
+ ) : listViewState === "error" ? (
  queryErrorPanel
- ) : items.length === 0 ? (
+ ) : listViewState === "empty" ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
@@ -3127,6 +3141,7 @@ export function CandidatesListV2() {
  return (
  <div
  key={candidate.id}
+ data-testid={`candidate-row-${candidate.id}`}
  data-index={virtualRow.index}
  onClick={openDetail}
  style={{

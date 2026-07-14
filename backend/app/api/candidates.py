@@ -179,8 +179,16 @@ class CandidateExportRequest(BaseModel):
     format: Literal["csv", "xlsx"] = "csv"
     scope: Literal["filtered", "selected"]
     filters: CandidateFilterSpec = Field(default_factory=CandidateFilterSpec)
-    candidate_ids: list[int] = Field(default_factory=list, max_length=10_000)
+    candidate_ids: list[int] = Field(default_factory=list)
     limit: int = Field(100_000, ge=1, le=100_000)
+
+    @field_validator("candidate_ids")
+    @classmethod
+    def deduplicate_and_limit_candidate_ids(cls, value: list[int]) -> list[int]:
+        unique_ids = list(dict.fromkeys(value))
+        if len(unique_ids) > 10_000:
+            raise ValueError("candidate_ids may contain at most 10000 unique ids")
+        return unique_ids
 
 
 def _build_response(data: dict) -> dict:
@@ -1979,6 +1987,17 @@ async def export_candidates_v2(
             raise HTTPException(
                 status_code=422,
                 detail="scope='selected' requires at least one candidate_id",
+            )
+        found_count = int(
+            await db.scalar(
+                select(func.count(Candidate.id)).where(Candidate.id.in_(unique_ids))
+            )
+            or 0
+        )
+        if found_count != len(unique_ids):
+            raise HTTPException(
+                status_code=422,
+                detail="One or more selected candidate_ids do not exist",
             )
         query = (
             select(Candidate)

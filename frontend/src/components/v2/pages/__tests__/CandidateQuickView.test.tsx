@@ -174,4 +174,59 @@ describe("CandidateQuickView", () => {
       screen.queryByRole("button", { name: "Spróbuj ponownie" }),
     ).not.toBeInTheDocument();
   });
+
+  it("finishes loading with a dedicated 403 state and no retry action", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/candidates/7") {
+        return Promise.reject({ response: { status: 403 } });
+      }
+      return Promise.resolve({ data: {} } as never);
+    });
+
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    expect(
+      await screen.findByText("Nie masz dostępu do tego profilu"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Spróbuj ponownie" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["network", new Error("offline")],
+    ["5xx", { response: { status: 500 } }],
+  ])("recovers from a %s error after retry", async (_label, initialError) => {
+    let detailAttempts = 0;
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/candidates/7") {
+        detailAttempts += 1;
+        if (detailAttempts === 1) return Promise.reject(initialError);
+        return Promise.resolve({
+          data: {
+            id: 7,
+            name: "Jan",
+            lastname: "Kowalski",
+            status: "active",
+          },
+        } as never);
+      }
+      return Promise.resolve({ data: {} } as never);
+    });
+
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    const retry = await screen.findByRole("button", {
+      name: "Spróbuj ponownie",
+    });
+    retry.click();
+
+    expect(
+      await screen.findAllByRole("heading", { name: "Jan Kowalski" }),
+    ).toHaveLength(2);
+  });
 });

@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   WalletCards,
+  X,
 } from "lucide-react"
 
 import {
@@ -123,7 +124,7 @@ function Activities() {
   )
 }
 
-function QuickViewPreview() {
+function QuickViewPreview({ onClose }: { onClose: () => void }) {
   return (
     <section aria-label="Szybki podgląd kandydata" className="ml-auto max-w-3xl overflow-hidden rounded-xl border border-border bg-background shadow-lg">
       <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
@@ -132,7 +133,12 @@ function QuickViewPreview() {
           <span className="px-2 text-xs tabular-nums text-muted-foreground">1 z 53 783</span>
           <Button variant="ghost" size="icon-sm" aria-label="Następny kandydat"><ArrowRight aria-hidden className="size-4" /></Button>
         </div>
-        <Button variant="outline" size="sm">Pełny profil <ExternalLink aria-hidden className="size-3.5" /></Button>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm">Pełny profil <ExternalLink aria-hidden className="size-3.5" /></Button>
+          <Button variant="ghost" size="icon-sm" aria-label="Zamknij szybki podgląd" onClick={onClose}>
+            <X aria-hidden className="size-4" />
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-6 p-4 sm:p-6">
@@ -167,7 +173,18 @@ function FullProfilePreview() {
   return (
     <section aria-label="Pełny profil kandydata" className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="border-b border-border p-4 sm:p-6"><CandidateIdentity /></div>
-      <TabbedNav tabs={PROFILE_TABS} value={tab} onValueChange={setTab} ariaLabel="Sekcje profilu kandydata" overflow="scroll" listClassName="px-3 sm:px-5">
+      <div className="border-b border-border p-3 md:hidden">
+        <label htmlFor="preview-profile-section" className="mb-1 block text-xs font-medium text-muted-foreground">Sekcja profilu</label>
+        <select
+          id="preview-profile-section"
+          value={tab}
+          onChange={(event) => setTab(event.target.value)}
+          className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground"
+        >
+          {PROFILE_TABS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+      </div>
+      <TabbedNav tabs={PROFILE_TABS} value={tab} onValueChange={setTab} ariaLabel="Sekcje profilu kandydata" overflow="scroll" listClassName="hidden px-3 sm:px-5 md:flex">
         <TabsContent value="summary" className="mt-0 p-4 sm:p-6">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <div className="space-y-6">
@@ -199,7 +216,7 @@ export function CandidateProfilePreview() {
         <Button variant={mode === "full" ? "primary" : "outline"} size="sm" aria-pressed={mode === "full"} onClick={() => setMode("full")}>Pełny profil</Button>
         <Button variant={mode === "quick" ? "primary" : "outline"} size="sm" aria-pressed={mode === "quick"} onClick={() => setMode("quick")}>Quick view</Button>
       </div>
-      {mode === "full" ? <FullProfilePreview /> : <QuickViewPreview />}
+      {mode === "full" ? <FullProfilePreview /> : <QuickViewPreview onClose={() => setMode("full")} />}
     </div>
   )
 }
