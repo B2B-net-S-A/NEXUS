@@ -9,9 +9,10 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useAuthStore, hasSection } from "@/store/auth";
 import api from "@/lib/api";
+import { normalizeMindyHistory } from "@/lib/ai-feature-safety";
 import { cn } from "@/lib/utils";
 
 interface MindyResponse {
@@ -24,69 +25,99 @@ interface ChatMessage {
   content: string;
 }
 
-const STORAGE_KEY = "dr_mindy_history_v1";
+const HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
+const historyKey = (userId: number | string) => `dr_mindy_history_v2:${userId}`;
 
 export default function MindyPage() {
   const { user, hydrated } = useAuthStore();
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [period, setPeriod] = useState<"week" | "month" | "quarter">("month");
+  const [mode, setMode] = useState<"quick" | "deep">("quick");
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const activeHistoryKeyRef = useRef<string | null>(null);
 
   // Load history from localStorage
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (typeof window === "undefined" || !hydrated) return;
+    if (!user) {
+      if (activeHistoryKeyRef.current) {
+        window.localStorage.removeItem(activeHistoryKeyRef.current);
+        activeHistoryKeyRef.current = null;
+      }
+      setChatHistory([]);
+      return;
+    }
+    const key = historyKey(user.id);
+    activeHistoryKeyRef.current = key;
+    const raw = window.localStorage.getItem(key);
     if (raw) {
       try {
-        setChatHistory(JSON.parse(raw));
+        const stored = JSON.parse(raw) as unknown;
+        const messages = normalizeMindyHistory(stored);
+        if (messages.length > 0) {
+          setChatHistory(messages);
+        } else {
+          window.localStorage.removeItem(key);
+          setChatHistory([]);
+        }
       } catch {
-        /* ignore */
+        window.localStorage.removeItem(key);
+        setChatHistory([]);
       }
     }
-  }, []);
+  }, [hydrated, user]);
   // Persist history
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(chatHistory));
-  }, [chatHistory]);
+    if (typeof window === "undefined" || !user) return;
+    window.localStorage.setItem(
+      historyKey(user.id),
+      JSON.stringify({
+        expiresAt: Date.now() + HISTORY_TTL_MS,
+        messages: chatHistory.slice(-20),
+      }),
+    );
+  }, [chatHistory, user]);
   // Auto-scroll
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [chatHistory]);
 
-  const commentaryQ = useQuery({
-    queryKey: ["dr", "mindy", "commentary", period],
-    queryFn: () =>
+  const commentaryMut = useMutation({
+    mutationFn: () =>
       api
-        .post<MindyResponse>("/api/dynareporter/mindy/commentary", { period })
+        .post<MindyResponse>("/api/dynareporter/mindy/commentary", { period, mode })
         .then((r) => r.data),
-    enabled: hydrated && !!user && hasSection(user, "mindy"),
+    retry: false,
   });
 
   const chatMut = useMutation({
     mutationFn: (msgs: ChatMessage[]) =>
       api
-        .post<MindyResponse>("/api/dynareporter/mindy/chat", { messages: msgs })
+        .post<MindyResponse>("/api/dynareporter/mindy/chat", { messages: msgs, mode })
         .then((r) => r.data),
+    retry: false,
   });
 
   const sendMessage = async () => {
     if (!inputValue.trim() || chatMut.isPending) return;
-    const newMsgs: ChatMessage[] = [
-      ...chatHistory,
-      { role: "user", content: inputValue.trim() },
-    ];
+    const userMessage: ChatMessage = { role: "user", content: inputValue.trim() };
+    const newMsgs = [...chatHistory, userMessage].slice(-20);
     setChatHistory(newMsgs);
     setInputValue("");
     try {
       const resp = await chatMut.mutateAsync(newMsgs);
-      setChatHistory([...newMsgs, { role: "assistant", content: resp.content }]);
+      const assistantMessage: ChatMessage = { role: "assistant", content: resp.content };
+      setChatHistory([...newMsgs, assistantMessage].slice(-20));
     } catch (e) {
       // Show error in chat
+      const errorMessage: ChatMessage = {
+        role: "assistant",
+        content: `❌ Błąd: ${e instanceof Error ? e.message : "unknown"}`,
+      };
       setChatHistory([
         ...newMsgs,
-        { role: "assistant", content: `❌ Błąd: ${e instanceof Error ? e.message : "unknown"}` },
+        errorMessage,
       ]);
     }
   };
@@ -113,6 +144,22 @@ export default function MindyPage() {
         </p>
       </header>
 
+      <div className="inline-flex rounded-md border border-border bg-card p-1" aria-label="Tryb MINDY">
+        {(["quick", "deep"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setMode(value)}
+            className={cn(
+              "rounded px-3 py-1.5 text-xs font-medium transition-colors",
+              mode === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {value === "quick" ? "Quick" : "Deep"}
+          </button>
+        ))}
+      </div>
+
       {/* Commentary */}
       <section className="rounded-lg border border-border bg-card p-5">
         <div className="flex items-center justify-between mb-3">
@@ -135,21 +182,29 @@ export default function MindyPage() {
             ))}
           </div>
         </div>
-        {commentaryQ.isLoading ? (
+        <button
+          type="button"
+          onClick={() => commentaryMut.mutate()}
+          disabled={commentaryMut.isPending}
+          className="mb-3 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50"
+        >
+          {commentaryMut.isPending ? "Analizuję…" : "Generuj komentarz"}
+        </button>
+        {commentaryMut.isPending ? (
           <p className="text-sm text-muted-foreground">MINDY analizuje Twoje KPI…</p>
-        ) : commentaryQ.isError ? (
+        ) : commentaryMut.isError ? (
           <p className="text-sm text-destructive">
-            Błąd: {(commentaryQ.error as Error).message}. Sprawdź czy ANTHROPIC_API_KEY jest skonfigurowany.
+            Błąd: {(commentaryMut.error as Error).message}.
           </p>
-        ) : commentaryQ.data ? (
+        ) : commentaryMut.data ? (
           <>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{commentaryQ.data.content}</p>
+            <p className="text-sm leading-relaxed whitespace-pre-wrap">{commentaryMut.data.content}</p>
             <details className="mt-3">
               <summary className="cursor-pointer text-xs text-muted-foreground">
                 Kontekst (KPI)
               </summary>
               <pre className="mt-2 p-2 bg-muted rounded text-[10px] overflow-x-auto">
-                {commentaryQ.data.context_summary}
+                {commentaryMut.data.context_summary}
               </pre>
             </details>
           </>

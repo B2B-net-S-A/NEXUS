@@ -254,7 +254,16 @@ class AIGateway:
     def _validate(request: AIRequest, content: Any) -> Any:
         if request.structured_validator is None:
             return content
-        parsed = json.loads(content) if isinstance(content, str) else content
+        if isinstance(content, str):
+            raw = content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```", 2)[1] if "```" in raw[3:] else raw[3:]
+                if raw.lstrip().startswith("json"):
+                    raw = raw.lstrip()[4:]
+                raw = raw.rstrip("`").strip()
+            parsed = json.loads(raw)
+        else:
+            parsed = content
         return request.structured_validator(parsed)
 
     async def call(self, request: AIRequest) -> AIResult:

@@ -22,7 +22,8 @@ import api, {
   pipelineTemplatesApi,
   requestHistoryApi,
 } from "@/lib/api";
-import type { RequestHistoryResponse } from "@/lib/api";
+import type { GenerateJobOutput, RequestHistoryResponse } from "@/lib/api";
+import { hourlyPlnSalaryFields } from "@/lib/ai-feature-safety";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
 import { AutoAssignedCollaborators } from "@/components/jobs/AutoAssignedCollaborators";
 
@@ -1346,30 +1347,65 @@ export function AddJobModal({
 
   const onChange = (k: keyof JobFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  const generatorInput = () => {
+    const clientName = clients.find((c: any) => String(c.id) === form.client_id)?.name;
+    const skills = form.requirements
+      ? form.requirements.split(/[\n,]/).map(s => s.trim().replace(/^[-•*]/, "").trim()).filter(Boolean)
+      : [];
+    const salaryMin = form.salary_min ? Number(form.salary_min) : undefined;
+    const salaryMax = form.salary_max ? Number(form.salary_max) : undefined;
+    return {
+      title: form.title,
+      client: clientName,
+      seniority: form.priority === "urgent" ? "lead" : ["low"].includes(form.priority) ? "junior" : "senior",
+      skills,
+      description_hint: form.description || undefined,
+      salary: salaryMin !== undefined || salaryMax !== undefined
+        ? {
+            min: salaryMin,
+            max: salaryMax,
+            currency: "PLN",
+            period: "hour" as const,
+            employment_type: "b2b" as const,
+          }
+        : undefined,
+    };
+  };
+
+  const applyGeneratedJob = (data: GenerateJobOutput) => {
+    const hourlySalary = hourlyPlnSalaryFields(data.salary);
+    setForm(f => ({
+      ...f,
+      description: data.description + (data.nice_to_have ? `\n\n**Mile widziane:**\n${data.nice_to_have}` : ""),
+      requirements: data.requirements,
+      salary_min: f.salary_min || hourlySalary?.min || "",
+      salary_max: f.salary_max || hourlySalary?.max || "",
+    }));
+  };
+
   const handleGenerateAI = async () => {
     if (!form.title.trim()) { setAiError("Wpisz najpierw tytuł stanowiska"); return; }
     setAiGenerating(true);
     setAiError("");
     try {
-      const clientName = clients.find((c: any) => String(c.id) === form.client_id)?.name;
-      const skills = form.requirements
-        ? form.requirements.split(/[\n,]/).map(s => s.trim().replace(/^[-•*]/, "").trim()).filter(Boolean)
-        : [];
-      const { data } = await aiWriterApi.generateJob({
-        title: form.title,
-        client: clientName,
-        seniority: form.priority === "urgent" ? "lead" : ["low"].includes(form.priority) ? "junior" : "senior",
-        skills,
-        description_hint: form.description || undefined,
-      });
-      setForm(f => ({
-        ...f,
-        description: data.description + (data.nice_to_have ? `\n\n**Mile widziane:**\n${data.nice_to_have}` : ""),
-        requirements: data.requirements,
-        salary_min: f.salary_min || (data.salary_range_suggestion?.match(/(\d[\d\s]+)/)?.[1]?.replace(/\s/g, "") || ""),
-      }));
+      const { data } = await aiWriterApi.generateJob(generatorInput());
+      applyGeneratedJob(data);
     } catch (e: any) {
-      setAiError(e?.response?.data?.detail || "Błąd generowania AI");
+      setAiError(e?.response?.data?.detail?.reason || "Błąd generowania AI");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleGenerateTemplate = async () => {
+    if (!form.title.trim()) { setAiError("Wpisz najpierw tytuł stanowiska"); return; }
+    setAiGenerating(true);
+    setAiError("");
+    try {
+      const { data } = await aiWriterApi.generateJobTemplate(generatorInput());
+      applyGeneratedJob(data);
+    } catch (e: any) {
+      setAiError(e?.response?.data?.detail?.reason || "Błąd generowania szablonu");
     } finally {
       setAiGenerating(false);
     }
@@ -1472,6 +1508,14 @@ export function AddJobModal({
             ) : (
               <><Sparkles className="w-4 h-4" /> ✨ Generuj AI</>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateTemplate}
+            disabled={aiGenerating || !form.title.trim()}
+            className="flex items-center gap-2 px-3 py-2 text-sm border border-border bg-background text-foreground rounded-lg hover:bg-accent disabled:opacity-50 transition-colors font-medium"
+          >
+            Użyj szablonu
           </button>
           <span className="text-xs text-muted-foreground">Wypełni opis i wymagania automatycznie</span>
         </div>

@@ -43,7 +43,10 @@ V1_CURRENT: dict[AIFeatureKey, FeatureRoute | dict[str, FeatureRoute]] = {
     ),
     AIFeatureKey.cv_parser: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
     AIFeatureKey.job_writer: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
-    AIFeatureKey.champion_profile: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
+    AIFeatureKey.champion_profile: {
+        "chunk": _r("anthropic", "claude-sonnet-5", max_tokens=2048),
+        "synthesis": _r("anthropic", "claude-sonnet-5", max_tokens=4096),
+    },
     AIFeatureKey.candidate_summary: _r("anthropic", "claude-sonnet-5"),
     AIFeatureKey.match_explanation: _r(
         "internal", "score_breakdown_v1", operation="deterministic", reserve="0"
@@ -74,7 +77,10 @@ V2_TIERED: dict[AIFeatureKey, FeatureRoute | dict[str, FeatureRoute]] = {
         escalation=("claude-sonnet-5",),
     ),
     AIFeatureKey.job_writer: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
-    AIFeatureKey.champion_profile: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
+    AIFeatureKey.champion_profile: {
+        "chunk": _r("anthropic", "claude-haiku-4-5", max_tokens=2048),
+        "synthesis": _r("anthropic", "claude-sonnet-5", max_tokens=4096),
+    },
     AIFeatureKey.candidate_summary: _r(
         "anthropic", "claude-haiku-4-5", escalation=("claude-sonnet-5",)
     ),
