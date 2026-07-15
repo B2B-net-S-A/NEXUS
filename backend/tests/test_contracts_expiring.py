@@ -153,3 +153,49 @@ async def test_list_expiring_in_days_filter(
         assert beyond[0] not in ids
     finally:
         await _cleanup([within_active, within_ending, beyond])
+
+
+# ── Unit: shared "ending soon" predicate (no DB) ─────────────────────────────
+#
+# is_ending_soon is the single source of truth the contractor stats/list now
+# share with the register's date window. These pure tests lock the definition so
+# the two surfaces can't drift again.
+
+from types import SimpleNamespace  # noqa: E402
+
+from app.models.contract import ContractStatus  # noqa: E402
+from app.services.contract_service import (  # noqa: E402
+    ENDING_SOON_WINDOW_DAYS,
+    ending_soon_window,
+    is_ending_soon,
+)
+
+
+def _c(status, days_to_end):
+    end = None if days_to_end is None else date.today() + timedelta(days=days_to_end)
+    return SimpleNamespace(status=status, end_date=end)
+
+
+def test_is_ending_soon_live_within_window():
+    assert is_ending_soon(_c(ContractStatus.active, 20)) is True
+    assert is_ending_soon(_c(ContractStatus.ending, 5)) is True
+
+
+def test_is_ending_soon_boundaries_inclusive():
+    assert is_ending_soon(_c(ContractStatus.active, 0)) is True
+    assert is_ending_soon(_c(ContractStatus.active, ENDING_SOON_WINDOW_DAYS)) is True
+    assert is_ending_soon(_c(ContractStatus.active, ENDING_SOON_WINDOW_DAYS + 1)) is False
+
+
+def test_is_ending_soon_excludes_non_live_and_edge_dates():
+    # Non-live statuses never count, even inside the window.
+    assert is_ending_soon(_c(ContractStatus.draft, 5)) is False
+    assert is_ending_soon(_c(ContractStatus.ended, 5)) is False
+    # No end date, or already past → not "ending soon".
+    assert is_ending_soon(_c(ContractStatus.active, None)) is False
+    assert is_ending_soon(_c(ContractStatus.ending, -1)) is False
+
+
+def test_ending_soon_window_span():
+    start, cutoff = ending_soon_window()
+    assert (cutoff - start).days == ENDING_SOON_WINDOW_DAYS

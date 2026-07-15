@@ -6,7 +6,8 @@ the join and exposes it as a dedicated listing so backoffice can:
 
 - See drafts that still need rates / dates ("Do uzupełnienia")
 - See active engagements (the real contractor roster)
-- See contracts ending soon (30-day window, same semantics as ContractStatus.ending)
+- See contracts ending soon (live contract with end_date within the next 30 days —
+  a date window shared with the register, not the raw stored ContractStatus.ending)
 
 Role scoping:
 - admin / delivery_lead / tac / head_of_recruitment → sees everyone
@@ -35,7 +36,12 @@ from app.schemas.contract import (
     ContractorListItem,
     ContractorStats,
 )
-from app.services.contract_service import validate_ready_for_activation
+from app.services.contract_service import (
+    ending_soon_clause,
+    is_ending_soon,
+    live_not_ending_clause,
+    validate_ready_for_activation,
+)
 
 router = APIRouter()
 
@@ -84,6 +90,7 @@ def _to_item(contract: Contract) -> ContractorListItem:
         rate_candidate=contract.rate_candidate,
         rate_client=contract.rate_client,
         rate_unit=contract.rate_unit,
+        currency=contract.currency,
         margin=contract.margin,
         contract_type=contract.contract_type,
         work_mode=contract.work_mode,
@@ -110,8 +117,15 @@ async def list_contractors(
         selectinload(Contract.job),
     )
 
-    if status_filter is not None:
-        query = query.where(Contract.status == status_filter)
+    # "ending"/"active" are date-window buckets (see contract_service), NOT the
+    # raw stored status, so the tab counts agree with the register's date-based
+    # filter and don't lag the promotion cron. "draft" stays a plain status match.
+    if status_filter == ContractStatus.draft:
+        query = query.where(Contract.status == ContractStatus.draft)
+    elif status_filter == ContractStatus.ending:
+        query = query.where(ending_soon_clause())
+    elif status_filter == ContractStatus.active:
+        query = query.where(live_not_ending_clause())
     else:
         query = query.where(Contract.status.in_(_LIST_STATUSES))
 
@@ -173,8 +187,10 @@ async def contractor_stats(
             stats.draft += 1
             if validate_ready_for_activation(c):
                 stats.drafts_incomplete += 1
-        elif c.status == ContractStatus.active:
-            stats.active += 1
-        elif c.status == ContractStatus.ending:
+        elif is_ending_soon(c):
             stats.ending += 1
+        else:
+            # Live but not in the ending window (active, or expired-but-not-yet-
+            # demoted). Mirrors live_not_ending_clause so tab counts == list rows.
+            stats.active += 1
     return stats

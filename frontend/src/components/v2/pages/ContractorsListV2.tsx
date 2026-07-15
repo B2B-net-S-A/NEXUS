@@ -32,6 +32,8 @@ import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal
 
 type Tab = ContractorStatus;
 
+const PAGE_SIZE = 50;
+
 const TAB_LABELS: Record<Tab, string> = {
  draft: "Do uzupełnienia",
  active: "Aktywni",
@@ -59,13 +61,21 @@ export function ContractorsListV2() {
  const [tab, setTab] = useState<Tab>(
  ["draft","active","ending"].includes(initialTab) ? initialTab : "active"
  );
+ const [page, setPage] = useState(1);
+ const selectTab = (next: Tab) => {
+ setTab(next);
+ setPage(1);
+ };
  const [draftToComplete, setDraftToComplete] =
  useState<ContractorListItem | null>(null);
  const queryClient = useQueryClient();
 
  const { data, isLoading } = useQuery({
- queryKey: ["contractors-v2", tab],
- queryFn: () => contractorsApi.list({ status: tab }).then((r) => r.data),
+ queryKey: ["contractors-v2", tab, page],
+ queryFn: () =>
+ contractorsApi
+ .list({ status: tab, page, page_size: PAGE_SIZE })
+ .then((r) => r.data),
  });
 
  const { data: stats } = useQuery({
@@ -76,6 +86,8 @@ export function ContractorsListV2() {
 
  const items = useMemo(() => data?.items ?? [], [data]);
  const total = data?.total ?? 0;
+ const pageSize = data?.page_size ?? PAGE_SIZE;
+ const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
  const onActivated = () => {
  setDraftToComplete(null);
@@ -120,7 +132,7 @@ export function ContractorsListV2() {
  <Button
  size="sm"
  variant="outline"
- onClick={() => setTab("draft")}
+ onClick={() => selectTab("draft")}
  >
  Pokaż drafty
  </Button>
@@ -141,7 +153,7 @@ export function ContractorsListV2() {
  key={t}
  role="tab"
  aria-selected={isActive}
- onClick={() => setTab(t)}
+ onClick={() => selectTab(t)}
  className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors",
  isActive
  ?"border-primary text-foreground"
@@ -234,12 +246,12 @@ export function ContractorsListV2() {
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null
- ? `${formatCurrency(c.rate_client, "PLN")}${rateUnitLabel(c.rate_unit)}`
+ ? `${formatCurrency(c.rate_client, c.currency ?? "PLN")}${rateUnitLabel(c.rate_unit)}`
  :"—"}
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {c.margin != null
- ? formatCurrency(c.margin, "PLN") : "—"}
+ ? formatCurrency(c.margin, c.currency ?? "PLN") : "—"}
  </TableCell>
  <TableCell>
  {isDraft && c.missing_fields.length > 0 ? (
@@ -295,6 +307,32 @@ export function ContractorsListV2() {
  <>braki: {Object.keys(FIELD_LABELS).join(" /")}</>
  )}
  </div>
+
+ {!isLoading && total > pageSize && (
+ <div className="flex items-center justify-between text-sm">
+ <span className="text-muted-foreground">
+ Strona <strong className="text-foreground">{page}</strong> z {totalPages}
+ </span>
+ <div className="flex gap-2">
+ <Button
+ size="sm"
+ variant="outline"
+ disabled={page <= 1}
+ onClick={() => setPage((p) => p - 1)}
+ >
+ Poprzednia
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ disabled={page >= totalPages}
+ onClick={() => setPage((p) => p + 1)}
+ >
+ Następna
+ </Button>
+ </div>
+ </div>
+ )}
 
  {draftToComplete && (
  <DraftCompletionModal
