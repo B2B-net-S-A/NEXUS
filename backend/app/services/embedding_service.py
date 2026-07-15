@@ -252,7 +252,20 @@ async def generate_embedding(
 
 
 def _build_candidate_text(candidate) -> str:
-    """Build a rich text blob from candidate fields for embedding."""
+    """Dispatch candidate embedding text by schema version (plan PR7).
+
+    ``AI_TEXT_SCHEMA_V2`` on ⇒ the PII-free canonical builder; off ⇒ legacy.
+    Selected here so every call site (embed + outbox desired-hash) is consistent.
+    """
+    if getattr(settings, "AI_TEXT_SCHEMA_V2", False):
+        from app.services.canonical_text import build_candidate_text_v2
+
+        return build_candidate_text_v2(candidate)
+    return _build_candidate_text_v1(candidate)
+
+
+def _build_candidate_text_v1(candidate) -> str:
+    """Build a rich text blob from candidate fields for embedding (legacy)."""
     parts: list[str] = []
 
     if candidate.name:
@@ -519,7 +532,19 @@ async def similarity_for_candidate_ids(
 
 
 def _build_job_text(job) -> str:
-    """Build a rich text blob from job fields for embedding.
+    """Dispatch job embedding text by schema version (plan PR7).
+
+    ``AI_TEXT_SCHEMA_V2`` on ⇒ the PII-free canonical builder; off ⇒ legacy.
+    """
+    if getattr(settings, "AI_TEXT_SCHEMA_V2", False):
+        from app.services.canonical_text import build_job_text_v2
+
+        return build_job_text_v2(job)
+    return _build_job_text_v1(job)
+
+
+def _build_job_text_v1(job) -> str:
+    """Build a rich text blob from job fields for embedding (legacy).
 
     When `job.champion_profile` exists, its narrative content (project context,
     screening question ideal answers, sourcing keywords/target companies) is

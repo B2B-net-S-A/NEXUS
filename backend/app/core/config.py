@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     AI_INDEX_WORKER_BATCH: int = 50
     AI_INDEX_MAX_ATTEMPTS: int = 5
 
+    # ── AI canonical text schema v2 (plan PR7) ────────────────────────────────
+    # OFF by default → the legacy embedding text is used unchanged. When ON, the
+    # embedding document is built from labeled, PII-free canonical sections
+    # (no name/email/phone/address; quality-gated summary; normalised skills).
+    # Flipping this changes the embedding text → it only takes effect for
+    # vectors (re)built afterwards, so a switch needs a backfill into a v2
+    # collection (PR6). The active text-schema version string derives from it.
+    AI_TEXT_SCHEMA_V2: bool = False
+
     # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
     # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz
     # hybrydowe /recommendations + proposals) zwracają TERAZ wszystkich
