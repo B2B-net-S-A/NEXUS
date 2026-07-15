@@ -54,6 +54,20 @@ def test_date_as_int_packing():
     assert nt._date_as_int(moment) == 20260421
 
 
+@pytest.mark.asyncio
+async def test_powercalling_is_unavailable_when_cloudtalk_is_disabled(monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    class NoDatabaseAccess:
+        async def execute(self, *_args, **_kwargs):
+            raise AssertionError("disabled CloudTalk must not be treated as zero calls")
+
+    monkeypatch.setattr(nt.settings, "CLOUDTALK_ENABLED", False)
+    now = datetime(2026, 4, 21, 11, 45, tzinfo=ZoneInfo("Europe/Warsaw"))
+    assert await nt.check_powercalling_kpi(NoDatabaseAccess(), now) == 0
+
+
 @pytest_asyncio.fixture
 async def empty_db():
     """Connect to the test DB via AsyncSessionLocal (requires DATABASE_URL + migrations)."""

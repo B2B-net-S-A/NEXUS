@@ -27,6 +27,62 @@ const nextConfig: NextConfig = {
         destination: "/dashboard?view=delivery",
         permanent: false,
       },
+      {
+        source: "/dynareporter/admin/upload",
+        destination: "/settings/data-imports",
+        permanent: false,
+      },
+      {
+        source: "/dynareporter/admin-dashboard",
+        destination: "/settings?tab=administracja",
+        permanent: false,
+      },
+      {
+        source: "/dynareporter/admin",
+        destination: "/settings?tab=administracja",
+        permanent: false,
+      },
+      {
+        source: "/dynareporter/mindy",
+        destination: "/assistant",
+        permanent: false,
+      },
+      {
+        source: "/dynareporter/profile",
+        destination: "/profile",
+        permanent: false,
+      },
+      ...[
+        "rekrutacja",
+        "body-leasing",
+        "placements",
+        "competitions",
+      ].map((path) => ({
+        source: `/dynareporter/${path}`,
+        destination: "/insights?tab=rekrutacja",
+        permanent: false,
+      })),
+      ...[
+        "sales",
+        "delivery-lead",
+        "delivery-lead-dashboard",
+        "clients-mrr",
+        "sales-mgmt",
+      ].map((path) => ({
+        source: `/dynareporter/${path}`,
+        destination: "/insights?tab=klienci",
+        permanent: false,
+      })),
+      ...["board", "board-dashboard", "przetargi"].map((path) => ({
+        source: `/dynareporter/${path}`,
+        destination: "/insights?tab=zarzad",
+        permanent: false,
+      })),
+      {
+        source: "/dynareporter/:path*",
+        destination: "/insights?tab=rekrutacja",
+        permanent: false,
+      },
     ];
   },
   // Security headers — applied to every route. Mirrors what the FastAPI

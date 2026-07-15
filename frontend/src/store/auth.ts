@@ -158,6 +158,19 @@ export function hasRole(
   return roles.some((r) => userRoles.includes(r))
 }
 
+/** Legacy hiring-manager analytics is intentionally narrower than client ops. */
+export function canViewHiringManagerAnalytics(
+  user:
+    | Pick<User, "role" | "roles" | "analytics_capabilities">
+    | null
+    | undefined,
+): boolean {
+  return (
+    hasRole(user, "admin", "head_of_recruitment") &&
+    hasAnalyticsCapability(user, "view_client_operations")
+  )
+}
+
 /**
  * Checks a backend-issued analytics capability. We intentionally do not
  * reconstruct sensitive permissions from roles in the browser. During the

@@ -97,7 +97,11 @@ from app.services.note_mention_render import (
     render_traffit_mentions,
 )
 from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
-from app.api.financial_access import has_financial_access, redact_financial_fields
+from app.api.financial_access import (
+    has_financial_access,
+    redact_financial_fields,
+    require_financial_access,
+)
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -2948,7 +2952,7 @@ async def set_recruitment_client_rate(
     candidate_id: int,
     job_id: int,
     payload: ClientRateUpdate,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Ustaw/wyczyść „Stawkę do klienta" (cena wysłania kandydata do klienta)
@@ -2961,6 +2965,7 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
+    require_financial_access(current_user)
     latest = await db.scalar(
         select(CandidateStage)
         .where(
@@ -3008,7 +3013,7 @@ async def set_recruitment_expected_rate(
     candidate_id: int,
     job_id: int,
     payload: ClientRateUpdate,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Ustaw/wyczyść „Stawkę kandydata" (oczekiwania kandydata, expected_rate)
@@ -3028,6 +3033,7 @@ async def set_recruitment_expected_rate(
     verification) — ten pozostaje na poziomie ruchu na etap `verified`, gdzie
     jest jego pierwotny cel.
     """
+    require_financial_access(current_user)
     latest = await db.scalar(
         select(CandidateStage)
         .where(

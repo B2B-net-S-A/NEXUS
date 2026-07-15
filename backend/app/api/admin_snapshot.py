@@ -90,6 +90,72 @@ async def _query_alembic_head() -> dict[str, str | None]:
         return {"head": None, "applied_at": None}
 
 
+async def _query_analytics_shadow_status() -> dict[str, Any]:
+    """Return persisted parity evidence used by the seven-day rollout gate."""
+
+    if settings.ANALYTICS_V1_MODE != "shadow":
+        return {
+            "mode": settings.ANALYTICS_V1_MODE,
+            "quality": "disabled",
+            "observed_days": 0,
+            "identical": 0,
+            "mismatch": 0,
+            "unavailable": 0,
+            "latest_observed_on": None,
+        }
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await asyncio.wait_for(
+                session.execute(
+                    text(
+                        """
+                        SELECT
+                          count(DISTINCT observed_on) AS observed_days,
+                          count(*) FILTER (WHERE status = 'identical') AS identical,
+                          count(*) FILTER (WHERE status = 'mismatch') AS mismatch,
+                          count(*) FILTER (WHERE status = 'unavailable') AS unavailable,
+                          max(observed_on) AS latest_observed_on
+                        FROM analytics_shadow_comparisons
+                        WHERE observed_on >= (current_date - interval '7 days')
+                        """
+                    )
+                ),
+                timeout=2.0,
+            )
+            row = result.mappings().one()
+        mismatches = int(row["mismatch"] or 0)
+        unavailable = int(row["unavailable"] or 0)
+        observed_days = int(row["observed_days"] or 0)
+        return {
+            "mode": "shadow",
+            "quality": (
+                "complete"
+                if observed_days >= 7 and mismatches == 0 and unavailable == 0
+                else "partial"
+            ),
+            "observed_days": observed_days,
+            "identical": int(row["identical"] or 0),
+            "mismatch": mismatches,
+            "unavailable": unavailable,
+            "latest_observed_on": (
+                row["latest_observed_on"].isoformat()
+                if row["latest_observed_on"] is not None
+                else None
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "mode": "shadow",
+            "quality": "unavailable",
+            "observed_days": 0,
+            "identical": 0,
+            "mismatch": 0,
+            "unavailable": 0,
+            "latest_observed_on": None,
+            "warning": f"{type(exc).__name__}: {exc}"[:300],
+        }
+
+
 async def _ai_control_plane_snapshot() -> dict[str, Any]:
     from app.ai.circuit_breaker import circuit_breaker
 
@@ -156,7 +222,7 @@ async def _ai_control_plane_snapshot() -> dict[str, Any]:
             "rollouts": [dict(row) for row in rollouts],
             "circuit_breakers": circuit_breaker.snapshot(),
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return {"status": "unavailable", "error_type": type(exc).__name__}
 
 
@@ -199,6 +265,7 @@ def _background_tasks_status(request: Request) -> dict[str, Any]:
         "signing_sweeper": settings.SIGNING_ENABLED,
         "cloudtalk_sync": settings.CLOUDTALK_ENABLED,
         "traffit_sync": settings.TRAFFIT_SYNC_ENABLED,
+        "analytics_shadow": settings.ANALYTICS_V1_MODE == "shadow",
         "embedding_index_sync": settings.EMBEDDING_INDEX_SYNC_ENABLED,
     }
 
@@ -256,6 +323,7 @@ async def admin_snapshot(
     db_check = await _check_database()
     kpis = await compute_kpi_snapshot(db) if db_check == "healthy" else {}
     alembic = await _query_alembic_head()
+    analytics_shadow = await _query_analytics_shadow_status()
     ai_control_plane = (
         await _ai_control_plane_snapshot() if db_check == "healthy" else {}
     )
@@ -270,6 +338,7 @@ async def admin_snapshot(
         "kpis": kpis,
         "background_tasks": _background_tasks_status(request),
         "alembic": alembic,
+        "analytics_shadow": analytics_shadow,
         "ai": ai_control_plane,
         "sentry_release": os.environ.get("GIT_SHA", "unknown"),
         "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

@@ -499,6 +499,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
+    from app.tasks.analytics_shadow import analytics_shadow_loop
     from app.tasks.embedding_index_sync import embedding_index_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
@@ -532,6 +533,7 @@ async def lifespan(app: FastAPI):
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
+        "analytics_shadow": asyncio.create_task(analytics_shadow_loop()),
         "embedding_index_sync": asyncio.create_task(embedding_index_sync_loop()),
     }
 

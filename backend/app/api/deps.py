@@ -447,3 +447,25 @@ async def require_dl_assigned_or_admin(
 
 
 DlAssignedOrAdmin = Annotated[User, Depends(require_dl_assigned_or_admin)]
+
+
+async def require_financial_dl_assigned_or_admin(
+    client_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Admin globally or an assigned DL; HoR never receives write finance."""
+
+    user = await require_dl_assigned_or_admin(client_id, current_user, db)
+    if not user.has_any_role(UserRole.admin, UserRole.delivery_lead):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Financial client writes require admin or delivery_lead role",
+        )
+    return user
+
+
+FinancialDlAssignedOrAdmin = Annotated[
+    User,
+    Depends(require_financial_dl_assigned_or_admin),
+]

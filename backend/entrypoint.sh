@@ -64,11 +64,18 @@ done
 # Run from /app so that 'alembic' dir is found correctly
 echo "Running database migrations..."
 cd /app
-# Tolerate alembic failures in dev: multiple in-flight feature branches can
-# produce duplicate-revision or multi-head states. In DEBUG mode the app
-# falls back to Base.metadata.create_all() on startup, so tables still exist.
-# Production should never hit this path (clean single-head chain on main).
-alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade failed (likely multi-head in dev); continuing via Base.metadata.create_all"
+# A production process must never start against a partially migrated schema.
+# The legacy fallback below cannot create views, triggers, constraints or every
+# additive analytics object, so continuing after an Alembic failure would turn
+# a deploy problem into runtime 500s and potentially inconsistent writes.
+if ! alembic -c alembic/alembic.ini upgrade heads 2>&1; then
+    if [ "${DEBUG:-false}" = "true" ]; then
+        echo "alembic upgrade failed in DEBUG; continuing via create_all/backfill"
+    else
+        echo "FATAL: alembic upgrade failed; refusing to start production"
+        exit 1
+    fi
+fi
 
 # Safety net: alembic upgrade sometimes bails halfway through the Phase 8
 # multi-head graph (see project_alembic_state memory). The ORM expects
@@ -435,6 +442,33 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
+    # Analytics v1 shadow evidence (migration 0165). Keep this idempotent
+    # mirror because production historically carried multiple Alembic heads.
+    """CREATE TABLE IF NOT EXISTS analytics_shadow_comparisons (
+        id BIGSERIAL PRIMARY KEY,
+        observed_on DATE NOT NULL,
+        module_key VARCHAR(64) NOT NULL,
+        metric_key VARCHAR(128) NOT NULL,
+        metric_version VARCHAR(32) NOT NULL,
+        period_start TIMESTAMPTZ NOT NULL,
+        period_end TIMESTAMPTZ NOT NULL,
+        legacy_value NUMERIC(24, 6),
+        analytics_value NUMERIC(24, 6),
+        absolute_diff NUMERIC(24, 6),
+        status VARCHAR(24) NOT NULL,
+        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+        first_observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_analytics_shadow_period CHECK (period_start < period_end),
+        CONSTRAINT ck_analytics_shadow_status CHECK (
+            status IN ('identical', 'mismatch', 'unavailable')
+        ),
+        CONSTRAINT uq_analytics_shadow_daily_metric UNIQUE (
+            observed_on, module_key, metric_key, metric_version
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_status_day ON analytics_shadow_comparisons (status, observed_on DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_module_day ON analytics_shadow_comparisons (module_key, observed_on DESC)",
     "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'voyage'",
     "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS text_schema VARCHAR(32) NOT NULL DEFAULT 'legacy_v1'",
     "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS monthly_budget_usd NUMERIC(12,4) NOT NULL DEFAULT 0",

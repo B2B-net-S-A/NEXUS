@@ -248,8 +248,10 @@ jobs:
                  tests/test_analytics_security.py \
                  tests/test_analytics_contract_ci.py \
                  tests/test_analytics_cutover.py \
+                 tests/test_analytics_shadow.py \
                  tests/test_kpi_engine_v2.py \
                  tests/test_contract_finance_rbac.py \
+                 tests/test_notification_triggers.py::test_powercalling_is_unavailable_when_cloudtalk_is_disabled \
                  tests/test_admin_snapshot.py \
                  tests/test_dynareporter_admin.py \
                  -v --tb=short

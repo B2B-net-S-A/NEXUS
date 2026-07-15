@@ -150,6 +150,7 @@ class Settings(BaseSettings):
         "overview,pipeline,funnel,recruitment,sources,calls,kpis,clients,"
         "finance,tenders,delivery,executive"
     )
+    ANALYTICS_SHADOW_INTERVAL_SECONDS: int = 3600
 
     # Legacy DynaReporter lifecycle. Production exposes no write mode:
     #   read_only — secured reads remain, every mutation returns 410,

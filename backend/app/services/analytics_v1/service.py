@@ -146,12 +146,24 @@ _RECENT_HIRES_SQL = text(
 
 _SOURCES_SQL = text(
     """
-    WITH candidate_touch AS (
+    WITH first_events AS (
+      SELECT e.candidate_id, e.channel::text AS source, e.captured_at AS first_touch_at
+      FROM candidate_source_events e
+      WHERE e.captured_at >= :period_start
+        AND e.captured_at < :period_end
+        AND NOT EXISTS (
+          SELECT 1
+          FROM candidate_source_events earlier
+          WHERE earlier.candidate_id = e.candidate_id
+            AND (
+              earlier.captured_at < e.captured_at
+              OR (earlier.captured_at = e.captured_at AND earlier.id < e.id)
+            )
+        )
+    ), candidate_fallback AS (
       SELECT
         c.id AS candidate_id,
         CASE
-          WHEN first_event.captured_at < c.created_at
-            THEN first_event.channel::text
           WHEN c.source_enum IS NOT NULL THEN c.source_enum::text
           WHEN lower(trim(c.source)) IN (
             'linkedin', 'pracuj', 'jjit', 'referral', 'database', 'manual'
@@ -159,27 +171,19 @@ _SOURCES_SQL = text(
           WHEN nullif(trim(c.source), '') IS NULL THEN 'unknown'
           ELSE 'other'
         END AS source,
-        least(
-          c.created_at,
-          coalesce(first_event.captured_at, c.created_at)
-        ) AS first_touch_at
+        c.created_at AS first_touch_at
       FROM candidates c
-      LEFT JOIN LATERAL (
-        SELECT e.channel, e.captured_at
-        FROM candidate_source_events e
-        WHERE e.candidate_id = c.id
-        ORDER BY e.captured_at ASC, e.id ASC
-        LIMIT 1
-      ) first_event ON TRUE
-      -- Candidate creation is itself a source observation, so a candidate
-      -- created before the requested period can never enter its first-touch
-      -- cohort. This bound avoids sorting the full imported candidate base.
       WHERE c.created_at >= :period_start
+        AND c.created_at < :period_end
+        AND NOT EXISTS (
+          SELECT 1
+          FROM candidate_source_events e
+          WHERE e.candidate_id = c.id
+        )
     ), cohort AS (
-      SELECT candidate_id, source, first_touch_at
-      FROM candidate_touch
-      WHERE first_touch_at >= :period_start
-        AND first_touch_at < :period_end
+      SELECT candidate_id, source, first_touch_at FROM first_events
+      UNION ALL
+      SELECT candidate_id, source, first_touch_at FROM candidate_fallback
     )
     SELECT
       cohort.source,
@@ -263,6 +267,23 @@ _MY_CALLS_SQL = text(
 
 _PERSONAL_KPI_SQL = text(
     """
+    WITH precision_cohort AS (
+      SELECT verified.candidate_id, verified.job_id,
+        EXISTS (
+          SELECT 1
+          FROM analytics_first_candidate_milestones recommended
+          WHERE recommended.candidate_id = verified.candidate_id
+            AND recommended.job_id = verified.job_id
+            AND recommended.stage = 'cv_sent'
+            AND recommended.reached_at >= verified.reached_at
+            AND recommended.reached_at < :precision_end
+        ) AS recommended
+      FROM analytics_first_candidate_milestones verified
+      WHERE verified.stage = 'verified'
+        AND verified.credited_user_id = :user_id
+        AND verified.reached_at >= :precision_start
+        AND verified.reached_at < :precision_end
+    )
     SELECT
       (
         SELECT count(*) FROM calls
@@ -289,14 +310,9 @@ _PERSONAL_KPI_SQL = text(
         WHERE stage = 'hired'
           AND reached_at >= :period_start AND reached_at < :period_end
       ) AS placements,
-      count(*) FILTER (
-        WHERE stage = 'verified'
-          AND reached_at >= :precision_start AND reached_at < :precision_end
-      ) AS precision_verified,
-      count(*) FILTER (
-        WHERE stage = 'cv_sent'
-          AND reached_at >= :precision_start AND reached_at < :precision_end
-      ) AS precision_recommended
+      (SELECT count(*) FROM precision_cohort) AS precision_verified,
+      (SELECT count(*) FROM precision_cohort WHERE recommended)
+        AS precision_recommended
     FROM analytics_first_candidate_milestones
     WHERE credited_user_id = :user_id
     """
@@ -347,6 +363,26 @@ _TEAM_KPI_SQL = text(
       WHERE reached_at >= :period_start AND reached_at < :period_end
         AND credited_user_id IS NOT NULL
       GROUP BY credited_user_id
+    ), precision_counts AS (
+      SELECT verified.credited_user_id AS user_id,
+        count(*) AS precision_verified,
+        count(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1
+            FROM analytics_first_candidate_milestones recommended
+            WHERE recommended.candidate_id = verified.candidate_id
+              AND recommended.job_id = verified.job_id
+              AND recommended.stage = 'cv_sent'
+              AND recommended.reached_at >= verified.reached_at
+              AND recommended.reached_at < :precision_end
+          )
+        ) AS precision_recommended
+      FROM analytics_first_candidate_milestones verified
+      WHERE verified.stage = 'verified'
+        AND verified.credited_user_id IS NOT NULL
+        AND verified.reached_at >= :precision_start
+        AND verified.reached_at < :precision_end
+      GROUP BY verified.credited_user_id
     ), candidate_counts AS (
       SELECT created_by AS user_id, count(*) AS candidates_added
       FROM candidates
@@ -367,11 +403,14 @@ _TEAM_KPI_SQL = text(
       coalesce(m.verifications, 0) AS verifications,
       coalesce(c.candidates_added, 0) AS candidates_added,
       coalesce(m.recommendations, 0) AS recommendations,
-      coalesce(m.placements, 0) AS placements
+      coalesce(m.placements, 0) AS placements,
+      coalesce(p.precision_verified, 0) AS precision_verified,
+      coalesce(p.precision_recommended, 0) AS precision_recommended
     FROM users u
     LEFT JOIN milestone_counts m ON m.user_id = u.id
     LEFT JOIN candidate_counts c ON c.user_id = u.id
     LEFT JOIN call_counts cl ON cl.user_id = u.id
+    LEFT JOIN precision_counts p ON p.user_id = u.id
     WHERE u.is_active IS TRUE
       AND (
         u.role::text IN ('sourcer', 'recruiter', 'tac')
@@ -701,11 +740,22 @@ class AnalyticsV1Service:
         )
 
     async def team_kpis(
-        self, period: AnalyticsPeriod, *, calls_available: bool = True
+        self,
+        period: AnalyticsPeriod,
+        *,
+        generated_at: datetime | None = None,
+        calls_available: bool = True,
     ) -> TeamKpisData:
+        precision_end = min(generated_at or datetime.now(WARSAW), period.end)
+        precision_start = precision_end - timedelta(days=30)
         result = await self.db.execute(
             _TEAM_KPI_SQL,
-            {"period_start": period.start, "period_end": period.end},
+            {
+                "period_start": period.start,
+                "period_end": period.end,
+                "precision_start": precision_start,
+                "precision_end": precision_end,
+            },
         )
         rows = result.mappings().all()
         target_result = await self.db.execute(_TEAM_TARGETS_SQL)
@@ -740,6 +790,20 @@ class AnalyticsV1Service:
                     candidates_added=_integer(row, "candidates_added"),
                     recommendations=_integer(row, "recommendations"),
                     placements=_integer(row, "placements"),
+                    precision_30d=PrecisionMetric(
+                        value_pct=(
+                            round(
+                                _integer(row, "precision_recommended")
+                                * 100
+                                / _integer(row, "precision_verified"),
+                                2,
+                            )
+                            if _integer(row, "precision_verified") >= 5
+                            else None
+                        ),
+                        verified=_integer(row, "precision_verified"),
+                        recommended=_integer(row, "precision_recommended"),
+                    ),
                     targets=_kpi_targets(
                         str(row["primary_role"]),
                         targets_by_user.get(int(row["user_id"]), {}),

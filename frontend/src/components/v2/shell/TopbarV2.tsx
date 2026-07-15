@@ -9,7 +9,6 @@ import { BreadcrumbV2 } from "./BreadcrumbV2";
 import { QuickActionsV2, type QuickActionModal } from "./QuickActionsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
-import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
 import { PaletteSwitcher } from "./PaletteSwitcher";
 import { useThemeStore } from "@/store/theme";
 import { celebrate } from "@/lib/celebrate";
@@ -136,7 +135,6 @@ export function TopbarV2({
       </button>
 
       <div className="flex items-center gap-2 shrink-0">
-        <MyKpiWidget variant="compact" className="hidden md:block" />
         <PaletteSwitcher />
         <KidsModeToggleButton />
         <ThemeToggleButton />

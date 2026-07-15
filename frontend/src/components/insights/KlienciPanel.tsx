@@ -1,6 +1,10 @@
 "use client";
 
-import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
+import {
+  canViewHiringManagerAnalytics,
+  hasAnalyticsCapability,
+  useAuthStore,
+} from "@/store/auth";
 import { ClientsRanking } from "@/components/insights/sections/ClientsRanking";
 import { HiringManagersSection } from "@/components/insights/sections/HiringManagersSection";
 import { ClientsHitRatio } from "@/components/insights/sections/ClientsHitRatio";
@@ -15,6 +19,7 @@ export function KlienciPanel() {
 
   const canSeeClientOperations = hasAnalyticsCapability(user, "view_client_operations");
   const canSeeFinance = hasAnalyticsCapability(user, "view_finance");
+  const canSeeHiringManagers = canViewHiringManagerAnalytics(user);
 
   return (
     <div className="space-y-6">
@@ -31,7 +36,7 @@ export function KlienciPanel() {
       {canSeeFinance && <ClientsRanking />}
       {canSeeClientOperations && <DeliveryLeadPerformanceSection period={period} />}
       {canSeeFinance && <FinanceAnalyticsSection period={period} />}
-      {canSeeClientOperations && <HiringManagersSection />}
+      {canSeeHiringManagers && <HiringManagersSection />}
       {canSeeClientOperations && <ClientsHitRatio period={period} />}
     </div>
   );

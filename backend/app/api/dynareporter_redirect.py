@@ -32,9 +32,9 @@ LEGACY_PATH_MAP = {
     "/przetargi": "/insights?tab=zarzad",
     "/board": "/insights?tab=zarzad",
     "/sales-mgmt": "/insights?tab=klienci",
-    "/mindy": "/dynareporter/mindy",
-    "/chat": "/dynareporter/mindy",
-    "/upload": "/candidates/bulk-import",
+    "/mindy": "/assistant",
+    "/chat": "/assistant",
+    "/upload": "/settings/data-imports",
     "/admin": "/settings?tab=administracja",
 }
 

@@ -609,7 +609,11 @@ async def team_kpis(
     if cached is not None:
         return cached
     generated_at = datetime.now(WARSAW)
-    data = await AnalyticsV1Service(db).team_kpis(period, calls_available=available)
+    data = await AnalyticsV1Service(db).team_kpis(
+        period,
+        generated_at=generated_at,
+        calls_available=available,
+    )
     response = _envelope(
         data,
         period=period,

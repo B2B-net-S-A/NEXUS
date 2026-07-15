@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   CheckCircle2,
@@ -19,6 +18,9 @@ import {
 import { cn } from "@/lib/utils"
 import { hasAnalyticsCapability, useAuthStore } from "@/store/auth"
 import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary"
+import {
+  useRecruitmentKpiPeriod,
+} from "@/components/insights/useInsightsPeriod"
 
 type Period = "day" | "week" | "month"
 
@@ -114,7 +116,7 @@ function metricTiles(data: PersonalKpiData, callsUnavailable: boolean) {
 export function PersonalKpiCoach({ className }: { className?: string }) {
   const user = useAuthStore((state) => state.user)
   const canView = hasAnalyticsCapability(user, "view_personal_recruitment_kpis")
-  const [period, setPeriod] = useState<Period>("day")
+  const [period, setPeriod] = useRecruitmentKpiPeriod("day")
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["analytics-v1", "me", "kpis", period],
     queryFn: () => analyticsApi.personalKpis(period),

@@ -8,6 +8,8 @@ import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunn
 import { PeriodSelector } from "@/components/insights/sections/PeriodSelector";
 import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
+import { PersonalKpiCoach } from "@/components/v2/kpi/MojeKpiPanel";
+import { TeamKpiCoachSummary } from "@/components/v2/kpi/TeamKpiPanel";
 
 export function RekrutacjaPanel() {
   const user = useAuthStore((state) => state.user);
@@ -27,6 +29,9 @@ export function RekrutacjaPanel() {
           </div>
         )}
       </div>
+
+      <PersonalKpiCoach />
+      {canViewTeam && <TeamKpiCoachSummary />}
 
       {canViewTeam && <ActivityHeatmap period={period} />}
 

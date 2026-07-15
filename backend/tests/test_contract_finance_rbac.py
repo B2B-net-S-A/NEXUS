@@ -11,6 +11,10 @@ from fastapi import HTTPException
 from pydantic import TypeAdapter
 
 from app.api.candidates import _candidate_history_response_for_user
+from app.api.candidates import (
+    set_recruitment_client_rate,
+    set_recruitment_expected_rate,
+)
 from app.api.b2b_contract_generator import (
     generate as generate_b2b_contract,
     get_detail as get_b2b_contract_detail,
@@ -25,8 +29,42 @@ from app.api.contracts import (
     get_contract_draft,
     render_draft_for_print,
 )
-from app.api.deps import DeliveryLeadPlus
+from app.api.client_contract_amendments import (
+    create_amendment,
+    delete_amendment,
+    send_amendment_to_autenti,
+)
+from app.api.client_framework_contracts import (
+    create_framework_contract,
+    delete_framework_contract,
+    replace_framework_contract_file,
+    send_framework_contract_to_autenti,
+    update_framework_contract,
+)
+from app.api.client_orders import (
+    create_contract_with_order,
+    create_order_extension,
+    delete_order,
+    replace_order_po,
+    update_order,
+)
+from app.api.deps import DeliveryLeadPlus, FinancialDlAssignedOrAdmin
+from app.api.dynareporter_przetargi import (
+    AllocationOperationalRow,
+    ConsultantOperationalResponse,
+    ProjectOperationalSummary,
+)
 from app.api.financial_access import has_financial_access, require_financial_access
+from app.api.invoices import (
+    create_invoice,
+    dso_by_client,
+    export_invoices_csv,
+    get_invoice,
+    list_invoices,
+    update_invoice,
+)
+from app.api.phase5 import list_rate_history
+from app.api.rate_benchmarks import list_benchmarks
 from app.api.rate_cards import get_rate_card, list_rate_cards, suggest_rate
 from app.models.client_order import ClientOrderStatus
 from app.models.contract import ContractStatus, ContractType, RateUnit
@@ -266,6 +304,41 @@ def test_candidate_history_omits_recruitment_and_contract_rates_for_tac() -> Non
     assert hybrid["jobs"][0]["client_rate"]["value"] == 200
 
 
+def test_dynareporter_operational_schemas_omit_financial_fields() -> None:
+    consultant = ConsultantOperationalResponse(id=1, name="Jan", is_active=True)
+    allocation = AllocationOperationalRow(
+        id=1,
+        project_id=2,
+        project_name="Projekt",
+        consultant_id=1,
+        consultant_name="Jan",
+        month=date(2026, 1, 1),
+        hours=Decimal("120"),
+    )
+    summary = ProjectOperationalSummary(
+        project_id=2,
+        project_name="Projekt",
+        months_count=1,
+        total_hours=Decimal("120"),
+    )
+    forbidden = {
+        "default_cost_rate",
+        "default_revenue_rate",
+        "cost_rate",
+        "revenue_rate",
+        "revenue",
+        "cost",
+        "margin",
+        "total_revenue",
+        "total_cost",
+        "other_costs",
+        "net_value",
+        "margin_pct",
+    }
+    for row in (consultant, allocation, summary):
+        assert forbidden.isdisjoint(row.model_dump())
+
+
 @pytest.mark.asyncio
 async def test_financial_contract_reads_fail_before_database_access() -> None:
     tac = _User(UserRole.tac)
@@ -291,8 +364,63 @@ async def test_financial_contract_reads_fail_before_database_access() -> None:
         pytest.param(get_b2b_contract_detail, id="b2b-detail"),
         pytest.param(render_b2b_contract, id="b2b-render"),
         pytest.param(render_template_for_contract, id="template-render"),
+        pytest.param(set_recruitment_client_rate, id="candidate-client-rate"),
+        pytest.param(set_recruitment_expected_rate, id="candidate-expected-rate"),
     ],
 )
 def test_adjacent_rate_surfaces_use_delivery_lead_plus(endpoint) -> None:  # type: ignore[no-untyped-def]
     hints = get_type_hints(endpoint, include_extras=True)
     assert hints["current_user"] == DeliveryLeadPlus
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        list_benchmarks,
+        list_rate_history,
+        list_invoices,
+        create_invoice,
+        dso_by_client,
+        export_invoices_csv,
+        get_invoice,
+        update_invoice,
+    ],
+)
+def test_financial_ledger_reads_and_writes_use_delivery_lead_plus(endpoint) -> None:  # type: ignore[no-untyped-def]
+    hints = get_type_hints(endpoint, include_extras=True)
+    assert hints["current_user"] == DeliveryLeadPlus
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        create_order_extension,
+        update_order,
+        delete_order,
+        create_contract_with_order,
+        replace_order_po,
+        create_framework_contract,
+        update_framework_contract,
+        delete_framework_contract,
+        replace_framework_contract_file,
+        send_framework_contract_to_autenti,
+        create_amendment,
+        send_amendment_to_autenti,
+        delete_amendment,
+    ],
+)
+def test_client_financial_mutations_require_assigned_dl_or_admin(endpoint) -> None:  # type: ignore[no-untyped-def]
+    hints = get_type_hints(endpoint, include_extras=True)
+    assert hints["user"] == FinancialDlAssignedOrAdmin
+
+
+@pytest.mark.asyncio
+async def test_candidate_rate_mutations_reject_tac_before_database_access() -> None:
+    tac = _User(UserRole.tac)
+    for call in (
+        set_recruitment_client_rate(1, 2, object(), tac, None),
+        set_recruitment_expected_rate(1, 2, object(), tac, None),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await call
+        assert exc.value.status_code == 403

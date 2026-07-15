@@ -16,14 +16,9 @@ import {
   getAvailableDashboardViews,
   getPreferredDashboardView,
   getUserRoles,
-  hasRole,
   useAuthStore,
   type DashboardView,
 } from "@/store/auth"
-
-import DeliveryLeadDashboardView from "./delivery-lead/page"
-import HeadOfRecruitmentDashboardView from "./head-of-recruitment/page"
-import RecruiterDashboardView from "./recruiter/page"
 
 function isDashboardView(value: string | null): value is DashboardView {
   return (
@@ -47,13 +42,7 @@ function ExecutiveDashboardView() {
   )
 }
 
-function RecruitmentDashboardView({ user }: { user: NonNullable<ReturnType<typeof useAuthStore.getState>["user"]> }) {
-  if (hasRole(user, "head_of_recruitment", "admin")) {
-    return <HeadOfRecruitmentDashboardView />
-  }
-  if (hasRole(user, "tac", "recruiter", "sourcer")) {
-    return <RecruiterDashboardView />
-  }
+function RecruitmentDashboardView() {
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 p-4 md:p-6">
       <PageHeader
@@ -66,10 +55,7 @@ function RecruitmentDashboardView({ user }: { user: NonNullable<ReturnType<typeo
   )
 }
 
-function DeliveryDashboardView({ user }: { user: NonNullable<ReturnType<typeof useAuthStore.getState>["user"]> }) {
-  if (hasRole(user, "delivery_lead", "head_of_recruitment", "admin")) {
-    return <DeliveryLeadDashboardView />
-  }
+function DeliveryDashboardView() {
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 p-4 md:p-6">
       <PageHeader
@@ -166,8 +152,8 @@ export default function DashboardHubPage() {
       )}
 
       {activeView === "operations" && <DashboardV2 />}
-      {activeView === "recruitment" && <RecruitmentDashboardView user={user} />}
-      {activeView === "delivery" && <DeliveryDashboardView user={user} />}
+      {activeView === "recruitment" && <RecruitmentDashboardView />}
+      {activeView === "delivery" && <DeliveryDashboardView />}
       {activeView === "executive" && <ExecutiveDashboardView />}
     </>
   )

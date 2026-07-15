@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.deps import CurrentUser, FinancialDlAssignedOrAdmin
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -54,7 +54,7 @@ from app.schemas.new_contractor_order import (
 )
 from app.services import storage_service
 from app.analytics.scope import require_client_scope
-from app.api.financial_access import has_financial_access
+from app.api.financial_access import has_financial_access, require_financial_access
 
 router = APIRouter()
 
@@ -326,7 +326,7 @@ async def get_order(
 )
 async def create_order_extension(
     client_id: int,
-    user: DlAssignedOrAdmin,
+    user: FinancialDlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     contract_id: int = Form(...),
@@ -344,6 +344,8 @@ async def create_order_extension(
 ):
     """Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract."""
     from decimal import InvalidOperation
+
+    require_financial_access(user)
 
     await _assert_client(db, client_id)
 
@@ -441,9 +443,10 @@ async def update_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderUpdate,
-    user: DlAssignedOrAdmin,
+    user: FinancialDlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
+    require_financial_access(user)
     await _assert_client(db, client_id)
     order = await db.scalar(
         select(ClientOrder).where(
@@ -481,10 +484,11 @@ async def update_order(
 async def delete_order(
     client_id: int,
     order_id: int,
-    user: DlAssignedOrAdmin,
+    user: FinancialDlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft cancel: status=cancelled. Hard delete tylko gdy status=draft."""
+    require_financial_access(user)
     await _assert_client(db, client_id)
     order = await db.scalar(
         select(ClientOrder).where(
@@ -520,9 +524,16 @@ async def delete_order(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    _user: CurrentUser,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
+    require_financial_access(user)
+    await require_client_scope(
+        db,
+        user=user,
+        client_id=client_id,
+        finance=True,
+    )
     await _assert_client(db, client_id)
     order = await db.scalar(
         select(ClientOrder).where(
@@ -550,10 +561,11 @@ async def download_order_po(
 async def create_contract_with_order(
     client_id: int,
     payload: NewContractorOrderRequest,
-    user: DlAssignedOrAdmin,
+    user: FinancialDlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
+    require_financial_access(user)
     await _assert_client(db, client_id)
 
     cand = await db.scalar(
@@ -661,10 +673,11 @@ async def create_contract_with_order(
 async def replace_order_po(
     client_id: int,
     order_id: int,
-    user: DlAssignedOrAdmin,
+    user: FinancialDlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
+    require_financial_access(user)
     await _assert_client(db, client_id)
     order = await db.scalar(
         select(ClientOrder).where(

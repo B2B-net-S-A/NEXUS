@@ -202,9 +202,18 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE OR REPLACE VIEW analytics_candidate_first_sources AS
-        WITH observations AS (
-            SELECT
-                c.id AS candidate_id,
+        WITH first_event AS (
+            SELECT DISTINCT ON (candidate_id)
+                candidate_id,
+                channel::text AS source,
+                captured_at AS touched_at
+            FROM candidate_source_events
+            ORDER BY candidate_id, captured_at ASC, id ASC
+        )
+        SELECT
+            c.id AS candidate_id,
+            coalesce(
+                first_event.source,
                 CASE
                     WHEN c.source_enum IS NOT NULL THEN c.source_enum::text
                     WHEN lower(trim(c.source)) IN (
@@ -213,30 +222,11 @@ def upgrade() -> None:
                     ) THEN lower(trim(c.source))
                     WHEN nullif(trim(c.source), '') IS NULL THEN 'unknown'
                     ELSE 'other'
-                END AS source,
-                c.created_at AS touched_at,
-                0 AS source_order,
-                c.id AS tie_breaker
-            FROM candidates c
-            UNION ALL
-            SELECT
-                e.candidate_id,
-                e.channel::text AS source,
-                e.captured_at AS touched_at,
-                1 AS source_order,
-                e.id AS tie_breaker
-            FROM candidate_source_events e
-        ), first_touch AS (
-            SELECT DISTINCT ON (candidate_id)
-                candidate_id, source, touched_at
-            FROM observations
-            ORDER BY candidate_id, touched_at ASC, source_order ASC, tie_breaker ASC
-        )
-        SELECT
-            candidate_id,
-            source,
-            touched_at AS first_touch_at
-        FROM first_touch
+                END
+            ) AS source,
+            coalesce(first_event.touched_at, c.created_at) AS first_touch_at
+        FROM candidates c
+        LEFT JOIN first_event ON first_event.candidate_id = c.id
         """
     )
 

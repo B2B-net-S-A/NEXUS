@@ -32,13 +32,17 @@ import { AuditLogTab } from "./AuditLogTab";
 import { ImportTab } from "./ImportTab";
 import { AdminToolsGrid } from "./AdminToolsGrid";
 
-type SubTab = "users" | "system" | "audit" | "import" | "tools";
+export type AdminSubTab = "users" | "system" | "audit" | "import" | "tools";
 
-export function AdminUsersTab() {
+export function AdminUsersTab({
+  initialSubTab = "users",
+}: {
+  initialSubTab?: AdminSubTab;
+}) {
   const { user } = useAuthStore();
   const impersonate = useAuthStore((s) => s.impersonate);
   const queryClient = useQueryClient();
-  const [subTab, setSubTab] = useState<SubTab>("users");
+  const [subTab, setSubTab] = useState<AdminSubTab>(initialSubTab);
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -189,11 +193,11 @@ export function AdminUsersTab() {
 
       <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-lg w-fit">
         {[
-          { id: "users" as SubTab, label: "Użytkownicy", icon: Users },
-          { id: "system" as SubTab, label: "System", icon: Server },
-          { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
-          { id: "import" as SubTab, label: "Import CV", icon: Database },
-          { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
+          { id: "users" as AdminSubTab, label: "Użytkownicy", icon: Users },
+          { id: "system" as AdminSubTab, label: "System", icon: Server },
+          { id: "audit" as AdminSubTab, label: "Log aktywności", icon: Activity },
+          { id: "import" as AdminSubTab, label: "Import CV", icon: Database },
+          { id: "tools" as AdminSubTab, label: "Narzędzia", icon: Wrench },
         ].map(({ id, label, icon: Icon }) => (
           <button
             key={id}
