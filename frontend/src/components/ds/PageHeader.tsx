@@ -10,17 +10,21 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
-interface BreadcrumbEntry {
+export interface BreadcrumbEntry {
   label: string
   href?: string
 }
 
-interface PageHeaderProps {
+export type PageHeaderDensity = "default" | "compact"
+
+export interface PageHeaderProps {
   eyebrow?: string
   title: string
   description?: string
   breadcrumb?: BreadcrumbEntry[]
   actions?: React.ReactNode
+  /** Compact is intended for dense application screens and drawers. */
+  density?: PageHeaderDensity
   className?: string
 }
 
@@ -30,14 +34,22 @@ export function PageHeader({
   description,
   breadcrumb,
   actions,
+  density = "default",
   className,
 }: PageHeaderProps) {
   const hasBreadcrumb = breadcrumb && breadcrumb.length > 0
+  const isCompact = density === "compact"
 
   return (
-    <header className={cn("border-b border-border pb-5", className)}>
+    <header
+      className={cn(
+        "border-b border-border",
+        isCompact ? "pb-4" : "pb-5",
+        className,
+      )}
+    >
       {hasBreadcrumb ? (
-        <Breadcrumb className="mb-3">
+        <Breadcrumb className={isCompact ? "mb-2" : "mb-3"}>
           <BreadcrumbList>
             {breadcrumb.map((entry, index) => {
               const isLast = index === breadcrumb.length - 1
@@ -61,14 +73,24 @@ export function PageHeader({
         </Breadcrumb>
       ) : null}
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1.5">
+      <div
+        className={cn(
+          "flex flex-col sm:flex-row sm:items-start sm:justify-between",
+          isCompact ? "gap-3" : "gap-4",
+        )}
+      >
+        <div className={cn("min-w-0", isCompact ? "space-y-1" : "space-y-1.5")}>
           {eyebrow ? (
             <p className="text-xs uppercase tracking-[0.18em] text-primary">
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <h1
+            className={cn(
+              "font-semibold tracking-tight",
+              isCompact ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl",
+            )}
+          >
             {title}
           </h1>
           {description ? (
@@ -79,7 +101,9 @@ export function PageHeader({
         </div>
 
         {actions ? (
-          <div className="flex shrink-0 items-center gap-2">{actions}</div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {actions}
+          </div>
         ) : null}
       </div>
     </header>

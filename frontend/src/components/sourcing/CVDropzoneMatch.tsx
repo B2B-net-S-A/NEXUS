@@ -155,7 +155,12 @@ export function CVDropzoneMatch() {
         <div className="space-y-4">
           <CvSummaryCard summary={result.parsed_summary} filename={filename} />
           {widgetMatches && widgetMatches.length > 0 ? (
-            <SuggestedJobsWidget candidateId={0} matches={widgetMatches} maxItems={10} />
+            <SuggestedJobsWidget
+              candidateId={0}
+              matches={widgetMatches}
+              recommendationMeta={result.meta ?? null}
+              maxItems={10}
+            />
           ) : (
             <div className="rounded bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
               Nie znalazłem ofert powyżej progu jakości dla tego CV. Spróbuj
