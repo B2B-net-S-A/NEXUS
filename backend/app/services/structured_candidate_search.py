@@ -186,9 +186,7 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
             bounds.append(Candidate.expected_rate_hourly >= req.rate_hourly_min)
         if req.rate_hourly_max is not None:
             bounds.append(Candidate.expected_rate_hourly <= req.rate_hourly_max)
-        clauses.append(
-            Candidate.expected_rate_hourly.is_(None) | and_(*bounds)
-        )
+        clauses.append(Candidate.expected_rate_hourly.is_(None) | and_(*bounds))
 
     if req.sources:
         clauses.append(Candidate.source.in_(req.sources))
