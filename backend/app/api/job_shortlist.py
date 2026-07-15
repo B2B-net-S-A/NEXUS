@@ -170,14 +170,13 @@ async def update_shortlist_entry(
 
 @router.delete(
     "/shortlist/{entry_id}",
-    status_code=204,
     summary="Remove a shortlist entry",
 )
 async def delete_shortlist_entry(
     entry_id: int,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     entry = await db.scalar(
         select(JobShortlistEntry).where(JobShortlistEntry.id == entry_id)
     )
@@ -185,3 +184,4 @@ async def delete_shortlist_entry(
         raise HTTPException(status_code=404, detail="Shortlist entry not found")
     await db.delete(entry)
     await db.commit()
+    return {"status": "deleted", "id": entry_id}
