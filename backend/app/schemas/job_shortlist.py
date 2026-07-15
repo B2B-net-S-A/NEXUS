@@ -61,3 +61,12 @@ class ShortlistAddResponse(BaseModel):
     skipped: list[int]
     total_added: int
     total_skipped: int
+
+
+class ShortlistPromoteResponse(BaseModel):
+    entry_id: int
+    candidate_id: int
+    job_id: int
+    stage_id: int
+    already_promoted: bool = False
+    already_in_pipeline: bool = False

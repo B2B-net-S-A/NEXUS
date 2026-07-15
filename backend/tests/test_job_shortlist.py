@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.schemas.job_shortlist import (
     ShortlistAddRequest,
     ShortlistAddResponse,
+    ShortlistPromoteResponse,
     ShortlistUpdateRequest,
 )
 
@@ -71,3 +72,23 @@ class TestAddResponse:
         )
         assert resp.total_added == 2
         assert resp.skipped == [3]
+
+
+class TestPromoteResponse:
+    def test_defaults(self):
+        resp = ShortlistPromoteResponse(
+            entry_id=1, candidate_id=2, job_id=3, stage_id=4
+        )
+        assert resp.already_promoted is False
+        assert resp.already_in_pipeline is False
+
+    def test_idempotent_flags(self):
+        resp = ShortlistPromoteResponse(
+            entry_id=1,
+            candidate_id=2,
+            job_id=3,
+            stage_id=4,
+            already_promoted=True,
+            already_in_pipeline=True,
+        )
+        assert resp.already_promoted and resp.already_in_pipeline
