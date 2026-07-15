@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Bookmark, Loader2, Plus, Search, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Bookmark,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +51,25 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
   page_size: 50,
   search_mode: "boolean",
 };
+
+/**
+ * Parse a comma/newline-separated tag input into a clean list: trimmed,
+ * case-insensitively de-duplicated, capped at the backend's 20-tag limit.
+ */
+export function parseTagInput(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[,\n]/)) {
+    const tag = part.trim();
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+    if (out.length >= 20) break;
+  }
+  return out;
+}
 
 interface CandidateSearchViewProps {
   /** Optional initial overrides — used by the job-context tab to prefill. */
@@ -86,6 +114,9 @@ export function CandidateSearchView({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
+  const [bulkOptionsOpen, setBulkOptionsOpen] = useState(false);
+  const [bulkNote, setBulkNote] = useState("");
+  const [bulkTagsInput, setBulkTagsInput] = useState("");
 
   // Saved searches — list refetched after every mutation.
   const [savedSearches, setSavedSearches] = useState<SavedSearchOut[]>([]);
@@ -174,11 +205,18 @@ export function CandidateSearchView({
     setBulkPending(true);
     setError(null);
     try {
+      const note = bulkNote.trim();
+      const tags = parseTagInput(bulkTagsInput);
       const resp = await proposalsBulkApi.add(addToJob.id, {
         candidate_ids: Array.from(selected),
+        ...(note ? { note } : {}),
+        ...(tags.length ? { tags } : {}),
       });
       setBulkResult(resp);
       clearSelection();
+      setBulkNote("");
+      setBulkTagsInput("");
+      setBulkOptionsOpen(false);
       // Re-run the search so newly added candidates drop out (excluded).
       setRequest((r) => ({ ...r }));
       onBulkAdded?.(resp);
@@ -485,34 +523,90 @@ export function CandidateSearchView({
 
       {/* Sticky bulk-add bar — only when in job context */}
       {addToJob && selected.size > 0 && (
-        <div className="sticky bottom-4 z-10 mx-auto flex w-fit items-center gap-3 rounded-full border bg-zinc-900 px-4 py-2 text-sm text-zinc-50 shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
-          <span className="tabular-nums">
-            Wybrano <strong>{selected.size}</strong>
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
-            onClick={clearSelection}
-            disabled={bulkPending}
-          >
-            Wyczyść
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={submitBulk}
-            disabled={bulkPending}
-          >
-            {bulkPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Plus className="h-3 w-3" />
-            )}
-            Dodaj do „{addToJob.title}"
-          </Button>
+        <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-col items-center gap-2">
+          {bulkOptionsOpen && (
+            <div className="w-80 max-w-full space-y-2 rounded-xl border bg-card p-3 text-left shadow-lg dark:border-zinc-800">
+              <div className="space-y-1">
+                <label
+                  htmlFor="bulk-note"
+                  className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                >
+                  Notatka (dołączona do każdego dodanego kandydata)
+                </label>
+                <textarea
+                  id="bulk-note"
+                  value={bulkNote}
+                  onChange={(e) => setBulkNote(e.target.value)}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder="Opcjonalna wspólna notatka…"
+                  className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring dark:border-zinc-700"
+                />
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="bulk-tags"
+                  className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                >
+                  Tagi (oddziel przecinkami)
+                </label>
+                <Input
+                  id="bulk-tags"
+                  value={bulkTagsInput}
+                  onChange={(e) => setBulkTagsInput(e.target.value)}
+                  placeholder="np. linkedin, pilne"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+          )}
+          <div className="flex w-fit items-center gap-3 rounded-full border bg-zinc-900 px-4 py-2 text-sm text-zinc-50 shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+            <span className="tabular-nums">
+              Wybrano <strong>{selected.size}</strong>
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+              onClick={() => setBulkOptionsOpen((o) => !o)}
+              disabled={bulkPending}
+            >
+              Notatka i tagi
+              {bulkOptionsOpen ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronUp className="h-3 w-3" />
+              )}
+              {(bulkNote.trim() || bulkTagsInput.trim()) && (
+                <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+              onClick={clearSelection}
+              disabled={bulkPending}
+            >
+              Wyczyść
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={submitBulk}
+              disabled={bulkPending}
+            >
+              {bulkPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Plus className="h-3 w-3" />
+              )}
+              Dodaj do „{addToJob.title}"
+            </Button>
+          </div>
         </div>
       )}
 
