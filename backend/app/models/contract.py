@@ -326,6 +326,19 @@ class Contract(Base, TimestampMixin):
         # newer step (higher id) loads last — mirror of candidate_rate_schedule.
         order_by="ContractClientRate.effective_from, ContractClientRate.id",
     )
+    # Effective-dated framework-rate schedule ("stawka z umowy ramowej"). Lets a
+    # planned MSA-rate change take effect only from its date. Informational only —
+    # the framework rate never feeds the margin; the current value is derived at
+    # read time via `effective_framework_rate` and cached into `framework_rate`.
+    framework_rate_schedule = relationship(
+        "ContractFrameworkRate",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        # (effective_from, id): id makes same-day ties deterministic so the
+        # newer step (higher id) loads last — mirror of candidate_rate_schedule.
+        order_by="ContractFrameworkRate.effective_from, ContractFrameworkRate.id",
+    )
     onboarding_items = relationship(
         "ContractOnboardingItem",
         back_populates="contract",
@@ -438,6 +451,18 @@ class Contract(Base, TimestampMixin):
         """
         return self._resolve_scheduled_rate(
             self.client_rate_schedule, on, self.rate_client
+        )
+
+    def effective_framework_rate(self, on: date) -> Optional[Decimal]:
+        """Framework rate in effect on ``on`` — see ``_resolve_scheduled_rate``.
+
+        Mirror of ``effective_client_rate`` for the framework-rate schedule.
+        Falls back to the legacy ``framework_rate`` column when no schedule exists
+        (the common case). Informational only — never feeds the margin. Requires
+        ``framework_rate_schedule`` to be eager-loaded.
+        """
+        return self._resolve_scheduled_rate(
+            self.framework_rate_schedule, on, self.framework_rate
         )
 
     def monthly_rate(self, rate: object) -> Optional[Decimal]:

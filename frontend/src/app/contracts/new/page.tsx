@@ -101,7 +101,12 @@ function NewContractForm() {
     { rate: "", effectiveFrom: "" },
   ]);
   const [rateClient, setRateClient] = useState("");
-  const [frameworkRate, setFrameworkRate] = useState("");
+  // Effective-dated framework-rate schedule ("stawka z umowy ramowej"). First
+  // row = stawka od startu (effective_from puste ⇒ data rozpoczęcia). Kolejne
+  // wiersze = zaplanowane zmiany stawki ramowej w czasie.
+  const [frameworkRateSchedule, setFrameworkRateSchedule] = useState<
+    RateScheduleRow[]
+  >([{ rate: "", effectiveFrom: "" }]);
   const [lineManager, setLineManager] = useState("");
   // Zużycie zamówienia (ilość + jednostka RBH/MD) — klienci per-zamówienie.
   const [orderConsumption, setOrderConsumption] = useState("");
@@ -169,6 +174,11 @@ function NewContractForm() {
       // auto-derived (od–do) when left blank. Backend derives the current rate
       // from effective_from.
       const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
+      // Framework-rate schedule shares the same generic builder (etapy od–do).
+      const frameworkSchedule = buildCandidateRateSchedule(
+        frameworkRateSchedule,
+        startDate,
+      );
       const orderConsumptionVal = parseDecimalInput(orderConsumption);
       const payload: Record<string, unknown> = {
         candidate_id: candidate!.id,
@@ -184,7 +194,11 @@ function NewContractForm() {
         rate_candidate: schedule.length === 0 ? null : undefined,
         candidate_rate_schedule: schedule.length > 0 ? schedule : undefined,
         rate_client: parseDecimalInput(rateClient),
-        framework_rate: parseDecimalInput(frameworkRate),
+        // Framework schedule drives framework_rate over time; when the user left a
+        // single step the backend still derives today's framework_rate from it.
+        framework_rate: frameworkSchedule.length === 0 ? null : undefined,
+        framework_rate_schedule:
+          frameworkSchedule.length > 0 ? frameworkSchedule : undefined,
         line_manager: lineManager.trim() || null,
         order_consumption: orderConsumptionVal,
         order_consumption_unit: orderConsumptionVal !== null ? orderConsumptionUnit : null,
@@ -228,6 +242,20 @@ function NewContractForm() {
       return;
     }
     if (scheduleHasBackwardsRange(rateSchedule, startDate)) {
+      setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
+      return;
+    }
+    // Same validation for the framework-rate schedule (stawka z umowy ramowej).
+    const frameworkSteps = frameworkRateSchedule
+      .filter((r) => r.rate.trim() !== "")
+      .map((r) => r.effectiveFrom || startDate);
+    if (new Set(frameworkSteps).size !== frameworkSteps.length) {
+      setError(
+        "Każdy etap stawki z umowy ramowej musi mieć inną datę „Obowiązuje od”.",
+      );
+      return;
+    }
+    if (scheduleHasBackwardsRange(frameworkRateSchedule, startDate)) {
       setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
       return;
     }
@@ -574,18 +602,6 @@ function NewContractForm() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label className="mb-1.5 block">Stawka z umowy ramowej</Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={frameworkRate}
-                  onChange={(e) =>
-                    setFrameworkRate(sanitizeDecimalInput(e.target.value))
-                  }
-                  placeholder="np. 215,60"
-                />
-              </div>
-              <div>
                 <Label className="mb-1.5 block">Stawka klienta</Label>
                 <Input
                   type="text"
@@ -598,6 +614,16 @@ function NewContractForm() {
                 />
               </div>
             </div>
+
+            {/* Stawka z umowy ramowej — progresja stawki ramowej w czasie (etapy od–do) */}
+            <CandidateRateScheduleFields
+              rows={frameworkRateSchedule}
+              onChange={setFrameworkRateSchedule}
+              startDate={startDate}
+              label="Stawka z umowy ramowej"
+              hint="Możesz zaplanować zmianę stawki ramowej — system zastosuje aktualną od wskazanej daty."
+              addLabel="+ Dodaj etap stawki ramowej"
+            />
 
             {/* Stawka kandydata — progresja stawki w czasie (etapy od–do) */}
             <CandidateRateScheduleFields

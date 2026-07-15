@@ -158,6 +158,7 @@ jobs:
                  tests/test_reports_recruitment_anchored.py \
                  tests/test_contract_candidate_rate_schedule.py \
                  tests/test_contract_client_rate_schedule.py \
+                 tests/test_contract_framework_rate_schedule.py \
                  tests/test_contract_amendments.py \
                  tests/test_contracts_expiring.py \
                  tests/test_contracts_export.py \
