@@ -32,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import CallButton from "@/components/calls/CallButton";
 import { AtOurClientBanner } from "@/components/v2/CandidateHighlights";
+import { MarkEmployedAction } from "@/components/v2/MarkEmployedAction";
 import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { RiskBadge } from "@/components/v2/RiskBadge";
@@ -596,6 +597,12 @@ export function CandidateQuickView({
                       <UserPlus className="h-4 w-4" />
                       Przypisz do rekrutacji
                     </Button>
+                    <MarkEmployedAction
+                      candidateId={candidateId}
+                      employment={candidate.employment}
+                      size="sm"
+                      variant="outline"
+                    />
                     {candidate.cv_filename ? (
                       <Button
                         size="sm"
