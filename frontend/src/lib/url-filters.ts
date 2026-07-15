@@ -16,7 +16,7 @@ import type { OpenToValue } from "@/lib/filter-options";
 export type SortMode = "newest" | "oldest" | "name" | "relevance";
 export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
-export type CandidatesView = "list" | "tiles";
+export type CandidatesView = "list" | "tiles" | "split";
 export type RecruitmentMatch = "assigned" | "not_assigned";
 export type RecentlyChangedJobs = 1 | 2 | 3 | null;
 
@@ -294,7 +294,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
       ? sortRaw
       : "newest";
   const viewRaw = sp.get("view");
-  const view: CandidatesView = viewRaw === "tiles" ? "tiles" : "list";
+  const view: CandidatesView =
+    viewRaw === "tiles" ? "tiles" : viewRaw === "split" ? "split" : "list";
   const remote = parseCsv(sp.get("remote")).filter(
     (v): v is RemoteMode => v === "remote" || v === "hybrid" || v === "onsite"
   );
