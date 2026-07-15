@@ -54,6 +54,8 @@ from app.services.marketplace_service import (
     run_marketplace_scan_safe,
 )
 from app.services.similar_job_notify import run_similar_job_notify_safe
+from app.services.traffit.control import integration_master_enabled
+from app.services.traffit.links import integration_sync_state, integration_sync_states
 from app.tasks.compute_proposals import (
     compute_proposal_for_job,
     create_pending_snapshot,
@@ -475,9 +477,22 @@ async def list_jobs(
         )
         client_names = {row[0]: row[1] for row in client_rows.all()}
 
+    traffit_jobs = [job for job in jobs if job.external_source == "traffit"]
+    integration_by_job: dict[int, dict] = {}
+    if integration_master_enabled() and traffit_jobs:
+        projected = await integration_sync_states(
+            db, [("job", job.id) for job in traffit_jobs]
+        )
+        integration_by_job = {
+            job.id: projected[("job", job.id)].as_api_dict()
+            for job in traffit_jobs
+        }
+
     items = []
     for j in jobs:
         d = JobResponse.model_validate(j).model_dump()
+        if j.id in integration_by_job:
+            d["integration"] = integration_by_job[j.id]
         d["candidate_count"] = counts.get(j.id, 0)
         d["primary_owner"] = (
             user_brief_map.get(j.recruiter_id) if j.recruiter_id is not None else None
@@ -872,6 +887,10 @@ async def get_job(
                 Client.id == job.client_id
             )
         )
+    if integration_master_enabled() and job.external_source == "traffit":
+        payload["integration"] = (
+            await integration_sync_state(db, "job", job.id)
+        ).as_api_dict()
     return payload
 
 
@@ -891,6 +910,48 @@ async def _populate_hiring_manager_name(
     return payload
 
 
+# During the Traffit/NEXUS coexistence period these fields describe the remote
+# recruitment itself.  NEXUS-only enrichment (scoring, Champion profile,
+# collaboration metadata, etc.) remains editable, but the process definition
+# must not fork from Traffit.
+_TRAFFIT_MANAGED_JOB_FIELDS = frozenset(
+    {
+        "title",
+        "status",
+        "client_id",
+        "pipeline_template_id",
+        "reference_number",
+        "deadline",
+    }
+)
+
+
+def _reject_traffit_managed_job_change(job: Job, fields: set[str]) -> None:
+    protected = sorted(_TRAFFIT_MANAGED_JOB_FIELDS & fields)
+    if job.external_source == "traffit" and protected:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "managed_by_traffit",
+                "message": "Pola procesowe tej rekrutacji są zarządzane w Traffit.",
+                "fields": protected,
+                "external_id": job.external_id,
+            },
+        )
+
+
+def _reject_traffit_managed_job_lifecycle(job: Job) -> None:
+    if job.external_source == "traffit":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "managed_by_traffit",
+                "message": "Cykl życia tej rekrutacji jest zarządzany w Traffit.",
+                "external_id": job.external_id,
+            },
+        )
+
+
 @router.patch("/{job_id}", response_model=JobResponse)
 async def update_job(
     job_id: int,
@@ -903,6 +964,8 @@ async def update_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    _reject_traffit_managed_job_change(job, set(data.model_fields_set))
 
     # Validate explicit owner overrides before applying any mutations.
     # `model_fields_set` only contains fields the caller actually sent, so
@@ -1022,6 +1085,7 @@ async def delete_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_traffit_managed_job_lifecycle(job)
     db.add(
         Activity(
             entity_type="job",
@@ -1051,6 +1115,8 @@ async def close_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    _reject_traffit_managed_job_lifecycle(job)
 
     job.status = JobStatus.closed
     job.closed_at = datetime.now(timezone.utc)
@@ -1085,6 +1151,7 @@ async def publish_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_traffit_managed_job_lifecycle(job)
     job.status = JobStatus.published
     db.add(
         Activity(
@@ -2293,6 +2360,10 @@ async def add_candidate_from_history(
     """
     from app.models.candidate import Candidate
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.traffit.domain_commands import (
+        capture_assignment_added,
+        capture_stage_moved,
+    )
     from app.schemas.request_history import (
         AddCandidateFromHistoryPayload,
         AddCandidateFromHistoryResponse,
@@ -2345,6 +2416,8 @@ async def add_candidate_from_history(
         )
     )
     await db.flush()
+    await capture_assignment_added(db, stage, job, actor_id=current_user.id)
+    await capture_stage_moved(db, stage, job, actor_id=current_user.id)
     # Update activity entity_id now that stage has an id.
     # Lazy approach: just commit — activity already references job_id+candidate_id
     # in details, that's sufficient for audit. Skip the second update query.

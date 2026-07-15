@@ -570,6 +570,40 @@ class Settings(BaseSettings):
     # the watermark drives the cutoff.
     TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
 
+    # ── Traffit bidirectional integration ──────────────────────────────────
+    # Hard kill-switches. Runtime control in `traffit_integration_control` may
+    # further pause a direction, but it can never enable a disabled env gate.
+    # Safe rollout defaults: accept/apply/poll/send are OFF; dry-run is ON.
+    TRAFFIT_INTEGRATION_ENABLED: bool = False
+    TRAFFIT_WEBHOOK_ACCEPT_ENABLED: bool = False
+    TRAFFIT_INBOUND_APPLY_ENABLED: bool = False
+    TRAFFIT_POLL_ENABLED: bool = False
+    TRAFFIT_OUTBOUND_ENABLED: bool = False
+    TRAFFIT_DRY_RUN: bool = True
+
+    # SHA-256 of the high-entropy secret embedded in the subscription URL.
+    # The plaintext URL secret is generated once and is never stored in the
+    # environment or database. Configure HMAC only if the tenant supports it.
+    TRAFFIT_INTEGRATION_WEBHOOK_SECRET_HASH: str = ""
+    TRAFFIT_INTEGRATION_WEBHOOK_HMAC_SECRET: str = ""
+
+    # Live streams must fit inside the 15-minute visibility SLO. Workers clamp
+    # unsafe values and use the same global limiter for inbound/outbound calls.
+    TRAFFIT_INTEGRATION_POLL_INTERVAL_SECONDS: int = 300
+    TRAFFIT_INTEGRATION_FILE_SWEEP_INTERVAL_SECONDS: int = 600
+    TRAFFIT_INTEGRATION_WORKER_INTERVAL_SECONDS: int = 5
+    TRAFFIT_INTEGRATION_SCHEMA_REFRESH_INTERVAL_SECONDS: int = 86400
+    TRAFFIT_INTEGRATION_FULL_RECONCILE_INTERVAL_SECONDS: int = 604800
+    TRAFFIT_INTEGRATION_DELTA_LOOKBACK_HOURS: int = 48
+    TRAFFIT_INTEGRATION_HISTORY_API_BUDGET_PERCENT: int = 20
+
+    # Retry/leader/tombstone safety controls.
+    TRAFFIT_INTEGRATION_MAX_ATTEMPTS: int = 8
+    TRAFFIT_INTEGRATION_LEASE_TTL_SECONDS: int = 90
+    TRAFFIT_INTEGRATION_LEASE_HEARTBEAT_SECONDS: int = 30
+    TRAFFIT_INTEGRATION_TOMBSTONE_MISSING_STRIKES: int = 2
+    TRAFFIT_INTEGRATION_TOMBSTONE_GRACE_DAYS: int = 7
+
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but
     # outbound posts are no-op'd (logged, return False) so admins can stage

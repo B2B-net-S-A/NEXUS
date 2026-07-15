@@ -34,6 +34,11 @@ from app.models.recruitment_pipeline import (
     CandidateStage,
     PipelineStage,
 )
+from app.services.traffit.domain_commands import (
+    capture_assignment_added,
+    capture_note_appended,
+    capture_stage_moved,
+)
 
 router = APIRouter()
 
@@ -192,17 +197,26 @@ async def bulk_add_proposals(
             moved_by=current_user.id,
         )
         db.add(stage)
+        await db.flush()
+        await capture_assignment_added(db, stage, job, actor_id=current_user.id)
+        await capture_stage_moved(db, stage, job, actor_id=current_user.id)
 
         # Optional shared note attached to every newly added candidate.
         if body.note:
-            db.add(
-                Note(
-                    content=body.note,
-                    note_type=NoteType.private,
-                    candidate_id=candidate_id,
-                    job_id=job_id,
-                    author_id=current_user.id,
-                )
+            note = Note(
+                content=body.note,
+                note_type=NoteType.private,
+                candidate_id=candidate_id,
+                job_id=job_id,
+                author_id=current_user.id,
+            )
+            db.add(note)
+            await db.flush()
+            await capture_note_appended(
+                db,
+                note,
+                actor_id=current_user.id,
+                author_name=current_user.name or current_user.email,
             )
 
         # Optional shared tags merged into the candidate's tags JSONB. We

@@ -31,7 +31,14 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
-import { hasRole, ROLE_LABELS, UserRole, useAuthStore } from "@/store/auth";
+import {
+  hasAnalyticsCapability,
+  hasRole,
+  ROLE_LABELS,
+  type AnalyticsCapability,
+  type UserRole,
+  useAuthStore,
+} from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
@@ -48,6 +55,7 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
   badgeKey?: keyof BadgeCounts;
   roles?: UserRole[];
+  capabilities?: AnalyticsCapability[];
   /**
    * Renderuje pozycję jako `<a href target="_blank" rel="noopener noreferrer">`
    * zamiast Next.js `<Link>`. Używane dla zewnętrznych dashboardów
@@ -67,19 +75,46 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Sourcing",
     icon: Users,
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/candidates", label: "Kandydaci", icon: Users, badgeKey: "candidates" },
-      { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
+      {
+        href: "/dashboard",
+        label: "Dashboard",
+        icon: LayoutDashboard,
+        capabilities: ["view_operational_aggregates"],
+      },
+      {
+        href: "/candidates",
+        label: "Kandydaci",
+        icon: Users,
+        badgeKey: "candidates",
+        capabilities: ["view_personal_recruitment_kpis", "view_recruitment_team"],
+      },
+      {
+        href: "/cv-generator",
+        label: "Generator CV",
+        icon: Sparkles,
+        capabilities: ["view_personal_recruitment_kpis", "view_recruitment_team"],
+      },
       // Generator Umów B2B — dostępny dla wszystkich ról (sourcing tooling).
       // Wcześniej w sekcji Delivery z gate'em tac+; przeniesiony tu 2026-06-08
       // na prośbę usera. Edycja katalogu 29 ról nadal admin-only (zakładka
       // "Zakresy ról (admin)" w komponencie, gate `isAdmin`).
-      { href: "/contracts/b2b-generator", label: "Generator Umów B2B", icon: FileSignature },
-      { href: "/talents", label: "Talenty", icon: Star },
+      {
+        href: "/contracts/b2b-generator",
+        label: "Generator Umów B2B",
+        icon: FileSignature,
+        capabilities: ["view_client_operations"],
+      },
+      {
+        href: "/talents",
+        label: "Talenty",
+        icon: Star,
+        capabilities: ["view_personal_recruitment_kpis", "view_recruitment_team"],
+      },
       {
         href: "/sourcing/marketplace",
         label: "Targ / Dostępni",
         icon: Store,
+        capabilities: ["view_personal_recruitment_kpis", "view_recruitment_team"],
       },
     ],
   },
@@ -87,33 +122,57 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Pipeline",
     icon: GitBranch,
     items: [
-      { href: "/jobs", label: "Oferty", icon: Briefcase, badgeKey: "jobs" },
-      { href: "/calendar", label: "Kalendarz", icon: Calendar },
+      {
+        href: "/jobs",
+        label: "Oferty",
+        icon: Briefcase,
+        badgeKey: "jobs",
+        capabilities: ["view_personal_recruitment_kpis", "view_recruitment_team"],
+      },
+      {
+        href: "/calendar",
+        label: "Kalendarz",
+        icon: Calendar,
+        capabilities: ["view_personal_recruitment_kpis", "view_recruitment_team"],
+      },
     ],
   },
   {
     title: "Delivery",
     icon: Handshake,
     items: [
-      { href: "/clients", label: "Klienci", icon: Building2 },
+      {
+        href: "/clients",
+        label: "Klienci",
+        icon: Building2,
+        capabilities: ["view_client_operations"],
+      },
       {
         href: "/my-clients",
         label: "Moi klienci",
         icon: Briefcase,
         roles: ["delivery_lead", "admin", "head_of_recruitment"],
+        capabilities: ["view_client_operations"],
       },
       {
         href: "/my-relationships",
         label: "Moje relacje",
         icon: Heart,
         roles: ["delivery_lead", "admin", "head_of_recruitment", "tac"],
+        capabilities: ["view_client_operations"],
       },
-      { href: "/contracts", label: "Kontrakty", icon: FileText },
+      {
+        href: "/contracts",
+        label: "Kontrakty",
+        icon: FileText,
+        capabilities: ["view_client_operations"],
+      },
       {
         href: "/contractors",
         label: "Kontraktorzy",
         icon: UserCog,
         roles: ["admin", "delivery_lead", "tac", "head_of_recruitment"],
+        capabilities: ["view_client_operations"],
       },
       // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
       //    na prośbę usera ("wylacz z UI na razie"). Route
@@ -138,12 +197,18 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Insights",
     icon: Lightbulb,
     items: [
-      { href: "/insights", label: "Insights", icon: Lightbulb },
+      {
+        href: "/insights",
+        label: "Insights",
+        icon: Lightbulb,
+        capabilities: ["view_operational_aggregates"],
+      },
       {
         href: "/cortex",
         label: "Cortex",
         icon: Brain,
         roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+        capabilities: ["view_client_operations"],
       },
     ],
   },
@@ -332,6 +397,9 @@ export function SidebarV2({
     userRoleForBadge === "admin" ||
     userRoleForBadge === "delivery_lead" ||
     userRoleForBadge === "head_of_recruitment";
+  const canViewRecruitment =
+    hasAnalyticsCapability(user, "view_personal_recruitment_kpis") ||
+    hasAnalyticsCapability(user, "view_recruitment_team");
 
   const { data: stats } = useQuery({
     queryKey: ["sidebar-badges-v2", isApproverForBadge],
@@ -340,7 +408,7 @@ export function SidebarV2({
     // once the auth store hydrates — without this gate the query key changes
     // mid-load and the badge counts (/candidates, /jobs) are fetched twice on
     // every page load.
-    enabled: !!user,
+    enabled: !!user && canViewRecruitment,
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -382,7 +450,7 @@ export function SidebarV2({
 
   const badgeCounts = stats ?? {};
   const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+    pathname === href || pathname.startsWith(href + "/");
   const initials = user?.name
     ? user.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
@@ -407,7 +475,7 @@ export function SidebarV2({
         )}
       >
         <Link
-          href="/"
+          href="/dashboard"
           aria-label="Nexus — strona główna"
           className="flex items-center gap-2 flex-1 min-w-0 rounded-md focus:outline-none"
         >
@@ -458,7 +526,12 @@ export function SidebarV2({
       >
         {NAV_SECTIONS.map((section) => {
           const visibleItems = section.items.filter(
-            (item) => !item.roles || hasRole(user, ...item.roles)
+            (item) =>
+              (!item.roles || hasRole(user, ...item.roles)) &&
+              (!item.capabilities ||
+                item.capabilities.some((capability) =>
+                  hasAnalyticsCapability(user, capability)
+                ))
           );
           if (visibleItems.length === 0) return null;
           return (

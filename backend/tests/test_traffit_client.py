@@ -237,3 +237,126 @@ async def test_total_count_reads_header() -> None:
             client._http = None
 
     assert count == 43573
+
+
+@pytest.mark.asyncio
+async def test_generic_post_patch_and_metadata_contract() -> None:
+    seen: list[tuple[str, str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        seen.append(
+            (
+                request.method,
+                request.url.path,
+                request.headers.get("X-Request-Metadata"),
+            )
+        )
+        if request.headers.get("X-Request-Metadata") == "true":
+            return httpx.Response(
+                200,
+                json={"fields": [{"name": "email", "type": "email"}]},
+            )
+        if request.method == "POST":
+            return httpx.Response(201, json={"id": 42})
+        return httpx.Response(204)
+
+    transport = httpx.MockTransport(handler)
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=transport)
+        assert await client.post_json("/employees/", {"name": "Ada"}) == {"id": 42}
+        assert await client.patch_json("/employees/42", {"name": "Alicja"}) is None
+        assert await client.fetch_metadata("PATCH", "/employees/42") == {
+            "fields": [{"name": "email", "type": "email"}]
+        }
+        await client._http.aclose()
+        client._http = None
+
+    assert seen == [
+        ("POST", "/api/integration/v2/employees/", None),
+        ("PATCH", "/api/integration/v2/employees/42", None),
+        ("PATCH", "/api/integration/v2/employees/42", "true"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_post_multipart_lets_httpx_set_boundary() -> None:
+    observed: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        observed["content_type"] = request.headers.get("Content-Type")
+        observed["body"] = request.content
+        return httpx.Response(204)
+
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await client.post_multipart(
+            "/employees/42/files/",
+            filename="cv.pdf",
+            content=b"pdf-bytes",
+            content_type="application/pdf",
+            field_name="file[file]",
+            data={"dictionary_file_type": "CV"},
+        )
+        await client._http.aclose()
+        client._http = None
+
+    assert observed["content_type"].startswith("multipart/form-data; boundary=")
+    assert b'name="file[file]"; filename="cv.pdf"' in observed["body"]
+    assert b"pdf-bytes" in observed["body"]
+
+
+@pytest.mark.asyncio
+async def test_retry_after_is_honored_for_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+    waits: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "0.25"})
+        return httpx.Response(204)
+
+    monkeypatch.setattr("app.services.traffit.client.asyncio.sleep", fake_sleep)
+    config = _config()
+    config.max_retries = 1
+    async with TraffitClient(config) as client:
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await client.post_json("/employees/42/notes", {"content": "hello"})
+        await client._http.aclose()
+        client._http = None
+
+    assert calls == 2
+    assert waits == [0.25]
+
+
+@pytest.mark.asyncio
+async def test_non_idempotent_transport_timeout_is_not_blindly_retried() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        calls += 1
+        raise httpx.ReadTimeout("ambiguous write", request=request)
+
+    config = _config()
+    config.max_retries = 3
+    async with TraffitClient(config) as client:
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with pytest.raises(httpx.ReadTimeout):
+            await client.post_json("/employees/", {"name": "Ada"})
+        await client._http.aclose()
+        client._http = None
+
+    assert calls == 1

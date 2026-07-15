@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from app.models.note import NoteType
+from app.schemas.integration import IntegrationSyncState
 
 
 class NoteCreate(BaseModel):
@@ -27,6 +28,13 @@ class NoteResponse(BaseModel):
     author_id: Optional[int]
     created_at: datetime
     updated_at: datetime
+    external_source: Optional[str] = None
+    external_id: Optional[str] = None
+    source_created_at: Optional[datetime] = None
+    source_updated_at: Optional[datetime] = None
+    source_deleted_at: Optional[datetime] = None
+    supersedes_note_id: Optional[int] = None
+    integration: Optional[IntegrationSyncState] = None
 
     model_config = {"from_attributes": True}
 

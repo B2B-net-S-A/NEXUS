@@ -314,6 +314,18 @@ def normalize_candidate_status(raw: Optional[str]) -> str:
 # pod kluczem `traffit_<original_key>` żeby nie kolidowały z naszymi polami.
 _CUSTOM_FIELD_PREFIX = "_"
 
+# System employee fields that are tenant-configurable in Traffit but do not
+# have a dedicated NEXUS column.  Preserve them in Candidate.custom_fields so
+# enabling a field through X-Request-Metadata never makes inbound data vanish.
+_UNMAPPED_EMPLOYEE_SYSTEM_FIELDS = {
+    "availability",
+    "facebook",
+    "finance",
+    "goldenline",
+    "owner",
+    "sex",
+}
+
 
 def traffit_employee_to_candidate(
     payload: dict[str, Any],
@@ -346,12 +358,16 @@ def traffit_employee_to_candidate(
     if not lastname:
         lastname = "?"
 
-    # Custom fields → cv_extracted_data
+    # Tenant fields → Candidate.custom_fields.  Keep the historical
+    # cv_extracted_data copy for compatibility with scoring/backfill code that
+    # already reads keys such as traffit_technologie.
     custom: dict[str, Any] = {}
     for key, value in payload.items():
         if key.startswith(_CUSTOM_FIELD_PREFIX) and value is not None:
             clean_key = f"traffit{key}"  # _Position → traffit_Position
             custom[clean_key] = value
+        elif key in _UNMAPPED_EMPLOYEE_SYSTEM_FIELDS and value is not None:
+            custom[f"traffit_{key}"] = value
 
     files = payload.get("files") or []
     first_file = files[0] if isinstance(files, list) and files else None
@@ -387,10 +403,11 @@ def traffit_employee_to_candidate(
         "linkedin": _trunc(_pick_nonempty(payload.get("linkedin")), 500),
         "location": _trunc(_pick_nonempty(payload.get("candidate_location")), 255),
         "status": normalize_candidate_status(payload.get("status")),
-        "ai_summary": _pick_nonempty(payload.get("candidate_about")),
+        "profile_about": _pick_nonempty(payload.get("candidate_about")),
         "languages": languages,
         "cv_filename": _trunc(cv_filename, 500),
         "cv_extracted_data": custom,
+        "custom_fields": custom,
         "source": "traffit",
         "created_by": created_by_nexus,
     }

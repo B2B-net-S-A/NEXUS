@@ -14,16 +14,51 @@ Backoff: exponential on 429/5xx (max 3 retries).
 from __future__ import annotations
 
 import asyncio
+import email.utils
 import json
 import logging
 import os
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+class TraffitAPIError(RuntimeError):
+    """Structured error raised by high-level Traffit API calls.
+
+    Workers use ``retryable`` and ``retry_after_s`` to distinguish transient
+    transport/rate-limit failures from validation errors which require an
+    administrator decision.  The response body is deliberately truncated so
+    candidate data cannot accidentally flood logs or error tracking.
+    """
+
+    def __init__(
+        self,
+        method: str,
+        path: str,
+        status_code: int,
+        body: str = "",
+        *,
+        retry_after_s: Optional[float] = None,
+    ) -> None:
+        self.method = method.upper()
+        self.path = path
+        self.status_code = status_code
+        self.body = body[:500]
+        self.retry_after_s = retry_after_s
+        self.retryable = status_code == 429 or status_code >= 500
+        super().__init__(
+            f"{self.method} {path} failed: HTTP {status_code} {self.body[:200]}"
+        )
+
+
+class TraffitIncompletePageError(RuntimeError):
+    """A page could not be proven complete, so a cursor must not advance."""
 
 
 @dataclass
@@ -72,6 +107,16 @@ ALL_SCOPES = (
     "message provision source talent user webhook client recruitment employee "
     "workflow"
 )
+
+INTEGRATION_DEFAULT_SCOPES = (
+    "employee recruitment workflow webhook file dictionary source user crm_activity"
+)
+
+
+def integration_scopes_from_env() -> str:
+    """Scopes for the new worker; deliberately narrower than legacy import."""
+    configured = os.environ.get("TRAFFIT_INTEGRATION_SCOPES", "").strip()
+    return configured or INTEGRATION_DEFAULT_SCOPES
 
 
 class TraffitClient:
@@ -161,6 +206,221 @@ class TraffitClient:
     # silently cap and report actual via X-Result-Page-Size).
     MAX_PAGE_SIZE = 100
 
+    @staticmethod
+    def _retry_after_seconds(response: httpx.Response) -> Optional[float]:
+        """Parse Retry-After (seconds or HTTP date), clamped to a sane range."""
+        raw = response.headers.get("Retry-After")
+        if not raw:
+            return None
+        try:
+            value = float(raw)
+        except ValueError:
+            try:
+                retry_at = email.utils.parsedate_to_datetime(raw)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                value = (retry_at - datetime.now(timezone.utc)).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                return None
+        # A bad upstream value must not stall a worker for hours.
+        return max(0.0, min(value, 300.0))
+
+    async def _request_raw(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Optional[Mapping[str, Any]] = None,
+        json_body: Any = None,
+        data: Any = None,
+        files: Any = None,
+        extra_headers: Optional[Mapping[str, str]] = None,
+        page: Optional[int] = None,
+        page_size: Optional[int] = None,
+        retry_non_idempotent: bool = False,
+    ) -> httpx.Response:
+        """Issue an authenticated request with shared throttle and retries.
+
+        This is intentionally response-oriented: several Traffit write
+        endpoints return ``204 No Content`` while others return an entity or a
+        list.  Higher layers decide which status/body shape is expected.
+        """
+        method = method.upper()
+        token = await self._ensure_token()
+        assert self._http is not None
+
+        url = f"{self.config.api_base}{path}"
+        headers: dict[str, str] = {"Authorization": f"Bearer {token}"}
+        if files is None:
+            headers["Content-Type"] = "application/json"
+        if page is not None:
+            headers["X-Request-Current-Page"] = str(page)
+        if page_size is not None:
+            headers["X-Request-Page-Size"] = str(
+                min(page_size, self.MAX_PAGE_SIZE)
+            )
+        if extra_headers:
+            headers.update(extra_headers)
+
+        response: Optional[httpx.Response] = None
+        retry_safe = method in {"GET", "HEAD", "OPTIONS"} or retry_non_idempotent
+        for attempt in range(self.config.max_retries + 1):
+            await self._throttle()
+            try:
+                response = await self._http.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json_body,
+                    data=data,
+                    files=files,
+                    headers=headers,
+                )
+            except (httpx.TimeoutException, httpx.TransportError):
+                # A timed-out POST/PATCH may have succeeded remotely. Blindly
+                # replaying it can duplicate candidates, notes or files; the
+                # durable worker reconciles by GUID/marker/hash before retry.
+                if not retry_safe or attempt >= self.config.max_retries:
+                    raise
+                wait = min(2**attempt, 30) + random.uniform(0, 0.25)
+                await asyncio.sleep(wait)
+                continue
+
+            if response.status_code == 401 and attempt == 0:
+                # Token may have been invalidated mid-flight — refresh once.
+                self._token = None
+                token = await self._ensure_token()
+                headers["Authorization"] = f"Bearer {token}"
+                continue
+
+            retryable_status = response.status_code == 429 or (
+                response.status_code >= 500 and retry_safe
+            )
+            if retryable_status:
+                if attempt < self.config.max_retries:
+                    retry_after = self._retry_after_seconds(response)
+                    wait = (
+                        retry_after
+                        if retry_after is not None
+                        else min(2**attempt, 30) + random.uniform(0, 0.25)
+                    )
+                    logger.warning(
+                        "Traffit %s %s HTTP %d, backoff %.2fs (attempt %d/%d)",
+                        method,
+                        path,
+                        response.status_code,
+                        wait,
+                        attempt + 1,
+                        self.config.max_retries,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+            return response
+
+        assert response is not None  # loop always executes at least once
+        return response
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Optional[Mapping[str, Any]] = None,
+        json_body: Any = None,
+        data: Any = None,
+        files: Any = None,
+        headers: Optional[Mapping[str, str]] = None,
+        expected_statuses: Sequence[int] = (200,),
+        retry_non_idempotent: bool = False,
+    ) -> httpx.Response:
+        """Public generic request which raises a structured API error."""
+        response = await self._request_raw(
+            method,
+            path,
+            params=params,
+            json_body=json_body,
+            data=data,
+            files=files,
+            extra_headers=headers,
+            retry_non_idempotent=retry_non_idempotent,
+        )
+        if response.status_code not in expected_statuses:
+            raise TraffitAPIError(
+                method,
+                path,
+                response.status_code,
+                response.text,
+                retry_after_s=self._retry_after_seconds(response),
+            )
+        return response
+
+    async def get_json(self, path: str) -> Any:
+        response = await self.request("GET", path, expected_statuses=(200,))
+        return response.json()
+
+    async def post_json(
+        self,
+        path: str,
+        payload: Mapping[str, Any],
+        *,
+        expected_statuses: Sequence[int] = (200, 201, 204),
+    ) -> Any:
+        response = await self.request(
+            "POST",
+            path,
+            json_body=dict(payload),
+            expected_statuses=expected_statuses,
+        )
+        return response.json() if response.content else None
+
+    async def patch_json(
+        self,
+        path: str,
+        payload: Mapping[str, Any],
+        *,
+        expected_statuses: Sequence[int] = (200, 204),
+    ) -> Any:
+        response = await self.request(
+            "PATCH",
+            path,
+            json_body=dict(payload),
+            expected_statuses=expected_statuses,
+        )
+        return response.json() if response.content else None
+
+    async def post_multipart(
+        self,
+        path: str,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+        field_name: str = "file",
+        data: Optional[Mapping[str, Any]] = None,
+        expected_statuses: Sequence[int] = (200, 201, 204),
+    ) -> Any:
+        response = await self.request(
+            "POST",
+            path,
+            data=dict(data or {}),
+            files={field_name: (filename, content, content_type)},
+            expected_statuses=expected_statuses,
+        )
+        return response.json() if response.content else None
+
+    async def fetch_metadata(self, method: str, path: str) -> Any:
+        """Fetch tenant-specific request contract without performing a write."""
+        method = method.upper()
+        if method not in {"POST", "PATCH"}:
+            raise ValueError("Traffit metadata is supported only for POST/PATCH")
+        response = await self.request(
+            method,
+            path,
+            headers={"X-Request-Metadata": "true"},
+            expected_statuses=(200,),
+        )
+        return response.json()
+
     async def _get_raw(
         self,
         path: str,
@@ -169,45 +429,13 @@ class TraffitClient:
         page_size: int = 100,
         extra_headers: Optional[dict[str, str]] = None,
     ) -> httpx.Response:
-        token = await self._ensure_token()
-        assert self._http is not None
-
-        effective_size = min(page_size, self.MAX_PAGE_SIZE)
-        url = f"{self.config.api_base}{path}"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "X-Request-Page-Size": str(effective_size),
-            "X-Request-Current-Page": str(page),
-        }
-        if extra_headers:
-            headers.update(extra_headers)
-
-        for attempt in range(self.config.max_retries + 1):
-            await self._throttle()
-            resp = await self._http.get(url, headers=headers)
-            if resp.status_code == 401 and attempt == 0:
-                # Token may have been invalidated mid-flight — force refresh.
-                self._token = None
-                token = await self._ensure_token()
-                headers["Authorization"] = f"Bearer {token}"
-                continue
-            if resp.status_code == 429 or resp.status_code >= 500:
-                if attempt < self.config.max_retries:
-                    wait = 2**attempt
-                    logger.warning(
-                        "Traffit %s HTTP %d, backoff %ds (attempt %d/%d)",
-                        path,
-                        resp.status_code,
-                        wait,
-                        attempt + 1,
-                        self.config.max_retries,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-            return resp
-        # Loop exhausted — return last response (caller checks status)
-        return resp
+        return await self._request_raw(
+            "GET",
+            path,
+            page=page,
+            page_size=page_size,
+            extra_headers=extra_headers,
+        )
 
     # ── High-level paginated iteration ──────────────────────────────────────
 
@@ -294,14 +522,15 @@ class TraffitClient:
                 )
             try:
                 items = resp.json()
-            except json.JSONDecodeError:
-                logger.error("Bad JSON from %s page=%d", path, page)
-                return
+            except json.JSONDecodeError as exc:
+                raise TraffitIncompletePageError(
+                    f"Bad JSON from {path} page={page}"
+                ) from exc
             if not isinstance(items, list):
-                logger.error(
-                    "Expected list, got %s from %s page=%d", type(items), path, page
+                raise TraffitIncompletePageError(
+                    f"Expected list, got {type(items).__name__} from "
+                    f"{path} page={page}"
                 )
-                return
             if not items:
                 return
             for item in items:

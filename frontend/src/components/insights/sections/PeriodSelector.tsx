@@ -6,9 +6,9 @@ export type Period = "today" | "week" | "month" | "quarter";
 
 export const PERIOD_LABELS: Record<Period, string> = {
   today: "Dziś",
-  week: "Ostatnie 7 dni",
-  month: "Ostatnie 30 dni",
-  quarter: "Ostatni kwartał",
+  week: "Bieżący tydzień",
+  month: "Bieżący miesiąc",
+  quarter: "Bieżący kwartał",
 };
 
 const ORDER: Period[] = ["today", "week", "month", "quarter"];

@@ -8,6 +8,7 @@ import api from"@/lib/api";
 import { Badge } from"@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card";
 import { WidgetState } from"@/components/v2/dashboard/WidgetState";
+import { hasAnalyticsCapability, useAuthStore } from"@/store/auth";
 
 interface JobItem {
  id: number;
@@ -25,6 +26,10 @@ interface JobItem {
  * a collaborator. Links deeper to /jobs?mine=1 for the full list.
  */
 export function MyJobsWidget() {
+ const user = useAuthStore((state) => state.user);
+ const canView =
+ hasAnalyticsCapability(user, "view_personal_recruitment_kpis") ||
+ hasAnalyticsCapability(user, "view_recruitment_team");
  const { data, isLoading, isError, error, refetch } = useQuery<{
  items: JobItem[];
  total: number;
@@ -36,8 +41,11 @@ export function MyJobsWidget() {
  params: { mine: true, page_size: 5 },
  })
  .then((r) => r.data),
+ enabled: canView,
  staleTime: 60 * 1000,
  });
+
+ if (!canView) return null;
 
  const items = data?.items ?? [];
  const total = data?.total ?? 0;

@@ -2008,7 +2008,13 @@ async def create_contract_amendment(
     elif data.amendment_type == ContractAmendmentType.early_termination:
         end = data.new_end_date or data.effective_date
         contract.end_date = end
-        contract.status = ContractStatus.ended
+        # An early-termination amendment can be recorded ahead of its effective
+        # date. Until that date arrives, the contract is still running and must
+        # remain visible as active; the daily status job progresses it according
+        # to the end-date lifecycle.
+        contract.status = _status_after_end_date_change(
+            ContractStatus.ended, end, date.today()
+        )
         new_values["end_date"] = end.isoformat()
         new_values["status"] = contract.status.value
 

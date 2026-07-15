@@ -44,6 +44,7 @@ from app.api import (
 from app.api import activities
 from app.api import admin
 from app.api import analytics_v1
+from app.api import traffit_integration as traffit_integration_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import postings
@@ -413,6 +414,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
+    from app.tasks.traffit_integration import traffit_integration_worker_loop
     from app.services.fx_service import fx_refresh_loop
 
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
@@ -444,7 +446,14 @@ async def lifespan(app: FastAPI):
         "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
-        "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
+        # The legacy daily importer and the bidirectional applier must never
+        # run concurrently. The master integration flag selects exactly one
+        # implementation while retaining the stable registry key used by ops.
+        "traffit_sync": asyncio.create_task(
+            traffit_integration_worker_loop()
+            if settings.TRAFFIT_INTEGRATION_ENABLED
+            else traffit_daily_sync_loop()
+        ),
     }
 
     yield
@@ -892,6 +901,21 @@ app.include_router(dictionaries_api.router, prefix="/api", tags=["dictionaries"]
 # Custom-field schema editor (#7): Settings → Konfiguracja pól.
 app.include_router(entity_fields_api.router, prefix="/api", tags=["entity-fields"])
 
+# Bidirectional Traffit integration. The webhook receiver is public because
+# Traffit authenticates with the high-entropy URL secret (and HMAC when the
+# tenant supports it); every control-plane route has the existing AdminUser
+# dependency. All write/apply paths remain fail-closed behind env + DB gates.
+app.include_router(
+    traffit_integration_api.public_router,
+    prefix="/api/integrations/traffit",
+    tags=["traffit-integration"],
+)
+app.include_router(
+    traffit_integration_api.admin_router,
+    prefix="/api/admin/traffit",
+    tags=["admin-traffit-integration"],
+)
+
 
 @app.get("/health")
 async def health_check():
@@ -966,7 +990,7 @@ async def api_health_check():
     from app.core.config import settings
     from app.core.database import AsyncSessionLocal
 
-    checks: dict[str, str] = {}
+    checks: dict[str, object] = {}
 
     try:
         async with AsyncSessionLocal() as session:
@@ -1044,11 +1068,165 @@ async def api_health_check():
     else:
         checks["autenti"] = "healthy"
 
-    # Traffit daily sync — informational. Reads the persisted watermark so the
-    # check reflects whether the scheduled import is actually running, not just
-    # whether the flag is on. `unconfigured` (off) / `misconfigured` (no creds)
-    # / `degraded` (enabled but no fresh successful run) / `healthy`.
-    if not settings.TRAFFIT_SYNC_ENABLED:
+    # Traffit is informational for the global uptime gate. The bidirectional
+    # engine exposes enough detail here for an operator to distinguish a dead
+    # leader, queue lag, poison events, stale reconcile, and an unproven file
+    # sweep SLO. Before the new master switch is armed we retain the legacy
+    # daily-sync shape for backwards-compatible monitoring.
+    if settings.TRAFFIT_INTEGRATION_ENABLED:
+        if not (
+            os.environ.get("TRAFFIT_CLIENT_SECRET")
+            and os.environ.get("TRAFFIT_TENANT")
+        ):
+            checks["traffit"] = {
+                "status": "misconfigured",
+                "leader": None,
+                "inbound_lag_seconds": None,
+                "outbound_lag_seconds": None,
+                "oldest_event_age_seconds": None,
+                "dead_letters": {"inbox": 0, "outbox": 0},
+                "last_complete_reconcile_at": None,
+                "file_slo_ready": False,
+            }
+        else:
+            try:
+                from datetime import datetime as _dt
+                from datetime import timedelta as _td
+                from datetime import timezone as _tz
+
+                from app.models.traffit_integration import (
+                    IntegrationLease,
+                    TraffitOutboxEvent,
+                    TraffitSyncRun,
+                    TraffitWebhookEvent,
+                )
+                from app.models.traffit_sync_state import TraffitSyncState
+
+                now = _dt.now(_tz.utc)
+                async with AsyncSessionLocal() as session:
+                    async def _load_traffit_health():
+                        leader = await session.get(
+                            IntegrationLease, "traffit-integration-worker"
+                        )
+                        oldest_outbound = await session.scalar(
+                            select(func.min(TraffitOutboxEvent.created_at)).where(
+                                TraffitOutboxEvent.status.in_(
+                                    ("pending", "retry", "processing")
+                                )
+                            )
+                        )
+                        oldest_inbound = await session.scalar(
+                            select(func.min(TraffitWebhookEvent.created_at)).where(
+                                TraffitWebhookEvent.status.in_(
+                                    ("pending", "retry", "processing")
+                                )
+                            )
+                        )
+                        outbox_dead = await session.scalar(
+                            select(func.count())
+                            .select_from(TraffitOutboxEvent)
+                            .where(TraffitOutboxEvent.status == "dead_letter")
+                        )
+                        inbox_dead = await session.scalar(
+                            select(func.count())
+                            .select_from(TraffitWebhookEvent)
+                            .where(TraffitWebhookEvent.status == "dead_letter")
+                        )
+                        reconcile = await session.scalar(
+                            select(TraffitSyncRun)
+                            .where(
+                                TraffitSyncRun.mode == "full",
+                                TraffitSyncRun.status == "succeeded",
+                            )
+                            .order_by(TraffitSyncRun.finished_at.desc())
+                            .limit(1)
+                        )
+                        file_state = await session.get(
+                            TraffitSyncState, "integration:file_manifest_shard"
+                        )
+                        return (
+                            leader,
+                            oldest_outbound,
+                            oldest_inbound,
+                            int(outbox_dead or 0),
+                            int(inbox_dead or 0),
+                            reconcile,
+                            file_state,
+                        )
+
+                    (
+                        leader,
+                        oldest_outbound,
+                        oldest_inbound,
+                        outbox_dead,
+                        inbox_dead,
+                        reconcile,
+                        file_state,
+                    ) = await asyncio.wait_for(_load_traffit_health(), timeout=1.5)
+
+                def _age(value):
+                    return (
+                        max(0, int((now - value).total_seconds()))
+                        if value is not None
+                        else 0
+                    )
+
+                outbound_lag = _age(oldest_outbound)
+                inbound_lag = _age(oldest_inbound)
+                leader_active = bool(leader and leader.expires_at > now)
+                reconcile_at = reconcile.finished_at if reconcile else None
+                reconcile_fresh = bool(
+                    reconcile_at and reconcile_at >= now - _td(days=8)
+                )
+                file_payload = dict(file_state.cursor_payload or {}) if file_state else {}
+                file_slo_ready = bool(file_payload.get("file_slo_ready", False))
+                healthy = (
+                    leader_active
+                    and max(inbound_lag, outbound_lag) <= 900
+                    and inbox_dead + outbox_dead == 0
+                    and reconcile_fresh
+                    and file_slo_ready
+                )
+                checks["traffit"] = {
+                    "status": "healthy" if healthy else "degraded",
+                    "leader": (
+                        {
+                            "holder_id": leader.holder_id,
+                            "heartbeat_at": (
+                                leader.heartbeat_at.isoformat()
+                                if leader.heartbeat_at
+                                else None
+                            ),
+                            "expires_at": leader.expires_at.isoformat(),
+                            "active": leader_active,
+                        }
+                        if leader
+                        else None
+                    ),
+                    "inbound_lag_seconds": inbound_lag,
+                    "outbound_lag_seconds": outbound_lag,
+                    "oldest_event_age_seconds": max(inbound_lag, outbound_lag),
+                    "dead_letters": {"inbox": inbox_dead, "outbox": outbox_dead},
+                    "last_complete_reconcile_at": (
+                        reconcile_at.isoformat() if reconcile_at else None
+                    ),
+                    "file_slo_ready": file_slo_ready,
+                    "file_slo_blocked_reason": file_payload.get(
+                        "file_slo_blocked_reason"
+                    ),
+                }
+            except Exception:
+                checks["traffit"] = {
+                    "status": "degraded",
+                    "leader": None,
+                    "inbound_lag_seconds": None,
+                    "outbound_lag_seconds": None,
+                    "oldest_event_age_seconds": None,
+                    "dead_letters": None,
+                    "last_complete_reconcile_at": None,
+                    "file_slo_ready": False,
+                }
+    elif not settings.TRAFFIT_SYNC_ENABLED:
         checks["traffit"] = "unconfigured"
     elif not (
         os.environ.get("TRAFFIT_CLIENT_SECRET") and os.environ.get("TRAFFIT_TENANT")
@@ -1072,7 +1250,7 @@ async def api_health_check():
                 )
             r = row.fetchone()
             if r is None or r[0] is None:
-                checks["traffit"] = "degraded"  # enabled, no successful run yet
+                checks["traffit"] = "degraded"
             elif (_dt.now(_tz.utc) - r[0]) > _td(hours=36) or r[1] not in (
                 "ok",
                 None,

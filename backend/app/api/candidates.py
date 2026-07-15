@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
 import asyncio
+import hashlib
 import io
 import logging
 import re
@@ -20,7 +21,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import (
     Text,
@@ -34,6 +35,7 @@ from sqlalchemy import (
     or_,
     select,
     text,
+    update as sql_update,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,6 +81,7 @@ from app.schemas.candidate import (
     MatchStats,
     TalentPoolBrief,
 )
+from app.schemas.integration import DeletionRequestResponse, IntegrationSyncState
 from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate
@@ -96,6 +99,21 @@ from app.services.note_mention_render import (
     collect_traffit_user_ids,
     render_traffit_mentions,
 )
+from app.services.traffit.domain_commands import (
+    candidate_is_traffit_linked,
+    capture_assignment_added,
+    capture_candidate_created,
+    capture_candidate_updated,
+    capture_delete_requested,
+    capture_file_uploaded,
+    capture_stage_moved,
+    request_manual_action,
+)
+from app.services.traffit.links import (
+    EntitySyncState,
+    integration_sync_state,
+    integration_sync_states,
+)
 from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
 from app.api.financial_access import has_financial_access, redact_financial_fields
 from app.api import ws as ws_manager
@@ -104,6 +122,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
 def _candidate_history_response_for_user(response: dict, current_user) -> dict:  # type: ignore[no-untyped-def]
     """Return history with rate fields absent for non-finance roles."""
 
@@ -111,6 +130,80 @@ def _candidate_history_response_for_user(response: dict, current_user) -> dict: 
         return response
     return redact_financial_fields(response)
 
+
+async def record_candidate_document(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    content: bytes,
+    filename: str,
+    content_type: Optional[str],
+    make_primary: bool = True,
+) -> CandidateDocument:
+    """Persist one canonical document row for an uploaded candidate file.
+
+    Legacy CV endpoints used to write only a filesystem file and mutate
+    ``Candidate.cv_filename``.  Bidirectional file sync needs a durable row,
+    stable content hash and storage reference, so all new uploads pass through
+    this helper.  Replays are idempotent per candidate and SHA-256.
+    """
+
+    digest = hashlib.sha256(content).hexdigest()
+    existing = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.content_sha256 == digest,
+        )
+    )
+    if existing is not None:
+        if make_primary and not existing.is_primary:
+            await db.execute(
+                sql_update(CandidateDocument)
+                .where(CandidateDocument.candidate_id == candidate_id)
+                .values(is_primary=False)
+            )
+            existing.is_primary = True
+        return existing
+
+    if make_primary:
+        await db.execute(
+            sql_update(CandidateDocument)
+            .where(CandidateDocument.candidate_id == candidate_id)
+            .values(is_primary=False)
+        )
+
+    storage_key = None
+    file_content = None
+    try:
+        from app.services.object_storage import is_available, upload_cv as upload_s3
+
+        if is_available():
+            storage_key = await asyncio.to_thread(
+                upload_s3, content, filename, content_type
+            )
+        else:
+            file_content = content
+    except Exception as exc:  # pragma: no cover - storage outage fallback
+        logger.warning("Candidate document object-storage upload failed: %s", exc)
+        file_content = content
+
+    document = CandidateDocument(
+        candidate_id=candidate_id,
+        filename=filename,
+        file_content=file_content,
+        storage_key=storage_key,
+        content_type=content_type,
+        size_bytes=len(content),
+        is_primary=make_primary,
+        uploaded_at=datetime.now(timezone.utc),
+        content_sha256=digest,
+        source_manifest_fingerprint=digest,
+        external_source="nexus",
+        external_id=f"{candidate_id}-{digest}"[:100],
+    )
+    db.add(document)
+    await db.flush()
+    return document
 
 
 class DuplicateCheckPayload(BaseModel):
@@ -531,7 +624,11 @@ def _talent_pools_for(candidate: Candidate) -> list[TalentPoolBrief]:
     ]
 
 
-def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
+def _candidate_to_response(
+    candidate: Candidate,
+    *,
+    integration_override: Optional[IntegrationSyncState] = None,
+) -> CandidateResponse:
     """Build CandidateResponse with derived employment + talent pools.
 
     Single-candidate endpoints (POST, PATCH /engagement, PATCH /location, etc.)
@@ -540,12 +637,24 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
     on the ORM model.
     """
     payload = CandidateResponse.model_validate(candidate)
+    integration = integration_override
+    if integration is None and candidate.external_source == "traffit":
+        integration = IntegrationSyncState(
+            state="synced",
+            external_id=candidate.external_id,
+            last_synced_at=candidate.updated_at,
+        )
     return payload.model_copy(
         update={
             "employment": _derive_employment(candidate),
             "talent_pools": _talent_pools_for(candidate),
+            "integration": integration,
         }
     )
+
+
+def _integration_response(state: EntitySyncState) -> IntegrationSyncState:
+    return IntegrationSyncState.model_validate(state.as_api_dict())
 
 
 def _derive_employment(candidate: Candidate) -> EmploymentInfo:
@@ -1655,9 +1764,24 @@ async def list_candidates(
                 continue
             notes_by_candidate.setdefault(cid, []).append(content)
 
+    integration_by_candidate: dict[int, IntegrationSyncState] = {}
+    if settings.TRAFFIT_INTEGRATION_ENABLED and items:
+        projected = await integration_sync_states(
+            db, [("candidate", candidate.id) for candidate in items]
+        )
+        integration_by_candidate = {
+            candidate.id: _integration_response(
+                projected[("candidate", candidate.id)]
+            )
+            for candidate in items
+        }
+
     response_items: list[CandidateResponse] = []
     for cand in items:
-        payload = _candidate_to_response(cand)
+        payload = _candidate_to_response(
+            cand,
+            integration_override=integration_by_candidate.get(cand.id),
+        )
         # Strip eagerly-loaded snapshots from the list response — they are
         # only surfaced on the detail endpoint (trimmed to 5 there).
         payload = payload.model_copy(update={"linkedin_snapshots": None})
@@ -2055,6 +2179,9 @@ async def create_candidate(
     )
     db.add(user_activity)
     await db.flush()
+    traffit_event = await capture_candidate_created(
+        db, candidate, actor_id=current_user.id
+    )
 
     # Notify all managers/admins about new candidate (real-time).
     # "manager" was the legacy enum name; the live `userrole` enum has
@@ -2121,7 +2248,12 @@ async def create_candidate(
         .where(Candidate.id == candidate.id)
     )
     full = reloaded.scalar_one()
-    return _candidate_to_response(full)
+    integration = (
+        IntegrationSyncState(state="pending", pending_events=1)
+        if traffit_event is not None
+        else None
+    )
+    return _candidate_to_response(full, integration_override=integration)
 
 
 # ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
@@ -2228,6 +2360,9 @@ async def _assign_candidate_to_job(
             details={"job_id": job_id, "stage": stage.value},
         )
     )
+    await db.flush()
+    await capture_assignment_added(db, stage_row, job, actor_id=user_id)
+    await capture_stage_moved(db, stage_row, job, actor_id=user_id)
     return stage_row
 
 
@@ -2343,6 +2478,9 @@ async def create_candidate_from_linkedin(
     )
     db.add(candidate)
     await db.flush()
+    traffit_event = await capture_candidate_created(
+        db, candidate, actor_id=current_user.id
+    )
 
     db.add(
         Activity(
@@ -2397,6 +2535,11 @@ async def create_candidate_from_linkedin(
         assigned_to_job_id=assigned_job_id,
         profile_url_path=f"/candidates/{candidate.id}",
         resync_scheduled=False,
+        integration=(
+            IntegrationSyncState(state="pending", pending_events=1)
+            if traffit_event is not None
+            else None
+        ),
     )
 
 
@@ -2562,7 +2705,12 @@ async def get_candidate(
     candidate = result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    payload = _candidate_to_response(candidate)
+    integration = None
+    if settings.TRAFFIT_INTEGRATION_ENABLED:
+        integration = _integration_response(
+            await integration_sync_state(db, "candidate", candidate.id)
+        )
+    payload = _candidate_to_response(candidate, integration_override=integration)
     invite_source = await _resolve_invite_source(candidate_id, db)
     # Snapshots are eager-loaded by _candidate_list_options (ordered desc by
     # fetched_at); trim to the 5 most recent for the detail payload.
@@ -2920,9 +3068,9 @@ async def get_candidate_history(
         "contracts": contracts_history,
         "risk_summary": risk_summary,
     }
-
-
     return _candidate_history_response_for_user(response, current_user)
+
+
 @router.patch("/{candidate_id}/recruitments/{job_id}/client-rate")
 async def set_recruitment_client_rate(
     candidate_id: int,
@@ -3095,8 +3243,58 @@ async def remove_candidate_from_recruitment(
             detail="Brak rekrutacji dla tego kandydata i tej oferty.",
         )
 
-    job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    job_title = job.title if job else None
     removed_stages = [s.stage.value for s in stage_rows]
+
+    is_traffit_assignment = bool(
+        (job and job.external_source == "traffit")
+        or any(stage.external_source == "traffit" for stage in stage_rows)
+    )
+    if is_traffit_assignment:
+        request_stage = max(stage_rows, key=lambda row: (row.moved_at, row.id))
+        outbox_event = await capture_delete_requested(
+            db,
+            event_type="assignment.remove_requested",
+            aggregate_type="candidate_assignment",
+            aggregate_id=request_stage.id,
+            candidate_id=candidate_id,
+            actor_id=current_user.id,
+            details={
+                "job_id": job_id,
+                "recruitment_id": job.external_id if job else None,
+            },
+        )
+        conflict = await request_manual_action(
+            db,
+            entity_type="candidate_assignment",
+            nexus_entity_id=request_stage.id,
+            candidate_id=candidate_id,
+            traffit_entity_id=job.external_id if job else None,
+            conflict_type="assignment_remove_requested",
+            actor_id=current_user.id,
+            details={"action": "detach", "job_id": job_id},
+            outbox_event_id=outbox_event.id if outbox_event is not None else None,
+        )
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=candidate_id,
+                action="recruitment_removal_requested",
+                user_id=current_user.id,
+                details={"job_id": job_id, "conflict_id": conflict.id},
+            )
+        )
+        body = DeletionRequestResponse(
+            conflict_id=conflict.id,
+            entity_type="candidate_assignment",
+            entity_id=request_stage.id,
+            message=(
+                "Powiązanie z rekrutacją Traffit wymaga ręcznej decyzji "
+                "administratora; historia pipeline nie została usunięta."
+            ),
+        )
+        return JSONResponse(status_code=202, content=body.model_dump(mode="json"))
 
     await db.execute(
         delete(CandidateStage).where(
@@ -3160,7 +3358,22 @@ async def list_candidate_documents(
             CandidateDocument.created_at.desc(),
         )
     )
-    return list(result.scalars().all())
+    documents = list(result.scalars().all())
+    integration_by_document: dict[int, IntegrationSyncState] = {}
+    if settings.TRAFFIT_INTEGRATION_ENABLED and documents:
+        projected = await integration_sync_states(
+            db, [("file", document.id) for document in documents]
+        )
+        integration_by_document = {
+            document.id: _integration_response(projected[("file", document.id)])
+            for document in documents
+        }
+    return [
+        CandidateDocumentOut.model_validate(document).model_copy(
+            update={"integration": integration_by_document.get(document.id)}
+        )
+        for document in documents
+    ]
 
 
 @router.get("/{candidate_id}/documents/{doc_id}/content")
@@ -3366,6 +3579,7 @@ async def update_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     updates = data.model_dump(exclude_unset=True)
+    outbound_updates = data.model_dump(exclude_unset=True, mode="json")
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.
@@ -3376,6 +3590,12 @@ async def update_candidate(
 
     for field, value in updates.items():
         setattr(candidate, field, value)
+    traffit_event = await capture_candidate_updated(
+        db,
+        candidate,
+        outbound_updates,
+        actor_id=current_user.id,
+    )
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,
@@ -3403,7 +3623,16 @@ async def update_candidate(
         .where(Candidate.id == candidate.id)
     )
     full = reloaded.scalar_one()
-    return _candidate_to_response(full)
+    integration = (
+        IntegrationSyncState(
+            state="pending",
+            external_id=candidate.external_id,
+            pending_events=1,
+        )
+        if traffit_event is not None
+        else None
+    )
+    return _candidate_to_response(full, integration_override=integration)
 
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -3416,6 +3645,37 @@ async def delete_candidate(
     candidate = result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    if await candidate_is_traffit_linked(db, candidate_id):
+        outbox_event = await capture_delete_requested(
+            db,
+            event_type="candidate.delete_requested",
+            aggregate_type="candidate",
+            aggregate_id=candidate_id,
+            candidate_id=candidate_id,
+            actor_id=current_user.id,
+            details={"external_id": candidate.external_id},
+        )
+        conflict = await request_manual_action(
+            db,
+            entity_type="candidate",
+            nexus_entity_id=candidate_id,
+            candidate_id=candidate_id,
+            traffit_entity_id=candidate.external_id,
+            conflict_type="delete_requested",
+            actor_id=current_user.id,
+            details={"action": "delete"},
+            outbox_event_id=outbox_event.id if outbox_event is not None else None,
+        )
+        body = DeletionRequestResponse(
+            conflict_id=conflict.id,
+            entity_type="candidate",
+            entity_id=candidate_id,
+            message=(
+                "Kandydat jest powiązany z Traffit. Utworzono zgłoszenie "
+                "do ręcznej decyzji administratora; rekord nie został usunięty."
+            ),
+        )
+        return JSONResponse(status_code=202, content=body.model_dump(mode="json"))
     had_embedding = candidate.embedding_id is not None
     activity = Activity(
         entity_type="candidate",
@@ -3680,7 +3940,21 @@ async def create_candidate_from_cv(
         logger.warning("[from-cv] rename failed: %s", e)
     candidate.cv_filename = safe_name
 
+    document = await record_candidate_document(
+        db,
+        candidate_id=candidate.id,
+        content=content,
+        filename=safe_name,
+        content_type=file.content_type,
+    )
+
     _apply_cv_enrichment(candidate, parsed)
+    candidate_event = await capture_candidate_created(
+        db, candidate, actor_id=current_user.id
+    )
+    file_event = await capture_file_uploaded(
+        db, document, actor_id=current_user.id
+    )
 
     activity = Activity(
         entity_type="candidate",
@@ -3729,8 +4003,14 @@ async def create_candidate_from_cv(
     full = reloaded.scalar_one()
 
     confidence = dict(parsed.get("_confidence") or {})
+    pending_events = sum(event is not None for event in (candidate_event, file_event))
+    integration = (
+        IntegrationSyncState(state="pending", pending_events=pending_events)
+        if pending_events
+        else None
+    )
     return CandidateFromCVResponse(
-        candidate=_candidate_to_response(full),
+        candidate=_candidate_to_response(full, integration_override=integration),
         confidence=confidence,
         duplicates=duplicates,
         source=parsed.get("_source"),
@@ -3825,6 +4105,16 @@ async def upload_cv(
     # `UPLOAD_DIR/candidate_<id>_<cv_filename>`, so any directory components
     # left in cv_filename would re-introduce traversal on read.
     candidate.cv_filename = safe_filename
+    document = await record_candidate_document(
+        db,
+        candidate_id=candidate_id,
+        content=content,
+        filename=safe_filename,
+        content_type=file.content_type,
+    )
+    traffit_event = await capture_file_uploaded(
+        db, document, actor_id=current_user.id
+    )
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate_id,
@@ -3870,7 +4160,16 @@ async def upload_cv(
         .where(Candidate.id == candidate_id)
     )
     full = reloaded.scalar_one()
-    return _candidate_to_response(full)
+    integration = (
+        IntegrationSyncState(
+            state="pending",
+            external_id=candidate.external_id,
+            pending_events=1,
+        )
+        if traffit_event is not None
+        else None
+    )
+    return _candidate_to_response(full, integration_override=integration)
 
 
 @router.get("/{candidate_id}/cv-download")
@@ -4036,6 +4335,7 @@ async def bulk_import_candidates(
         candidate.created_by = current_user.id
         db.add(candidate)
         await db.flush()
+        await capture_candidate_created(db, candidate, actor_id=current_user.id)
         created.append(candidate.id)
         user_activity = UserActivity(
             user_id=current_user.id,
@@ -4128,9 +4428,17 @@ async def update_candidate_engagement(
             details=updates,
         )
     )
+    traffit_event = await capture_candidate_updated(
+        db, candidate, data.model_dump(exclude_unset=True, mode="json"), actor_id=current_user.id
+    )
     await db.flush()
     await db.refresh(candidate)
-    return _candidate_to_response(candidate)
+    integration = (
+        IntegrationSyncState(state="pending", pending_events=1)
+        if traffit_event is not None
+        else None
+    )
+    return _candidate_to_response(candidate, integration_override=integration)
 
 
 @router.post(
@@ -4218,9 +4526,20 @@ async def update_candidate_location(
             details=updates,
         )
     )
+    traffit_event = await capture_candidate_updated(
+        db,
+        candidate,
+        data.model_dump(exclude_unset=True, mode="json"),
+        actor_id=current_user.id,
+    )
     await db.flush()
     await db.refresh(candidate)
-    return _candidate_to_response(candidate)
+    integration = (
+        IntegrationSyncState(state="pending", pending_events=1)
+        if traffit_event is not None
+        else None
+    )
+    return _candidate_to_response(candidate, integration_override=integration)
 
 
 # ── AI CC matching + suggested pools (migracja 0041) ───────────────────────

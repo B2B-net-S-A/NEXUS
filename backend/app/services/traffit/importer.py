@@ -175,8 +175,8 @@ _UPSERT_CANDIDATE = text(
     """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
-        location, status, ai_summary, languages, cv_filename,
-        cv_extracted_data, source, created_by,
+        location, status, profile_about, languages, cv_filename,
+        cv_extracted_data, custom_fields, source, created_by,
         notes_count, champion, availability_status,
         linkedin_sync_status,
         created_at, updated_at
@@ -184,10 +184,11 @@ _UPSERT_CANDIDATE = text(
         :external_id, :external_source, :name, :lastname, :email, :phone,
         :linkedin, :location,
         CAST(:status AS candidatestatus),
-        :ai_summary,
+        :profile_about,
         CAST(:languages AS JSONB),
         :cv_filename,
         CAST(:cv_extracted_data AS JSONB),
+        CAST(:custom_fields AS JSONB),
         :source, :created_by,
         0, false,
         CAST('unknown' AS availabilitystatus),
@@ -203,10 +204,15 @@ _UPSERT_CANDIDATE = text(
         linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
         location          = COALESCE(EXCLUDED.location, candidates.location),
         status            = EXCLUDED.status,
-        ai_summary        = COALESCE(EXCLUDED.ai_summary, candidates.ai_summary),
+        profile_about     = COALESCE(
+            EXCLUDED.profile_about, candidates.profile_about
+        ),
         languages         = EXCLUDED.languages,
         cv_filename       = COALESCE(EXCLUDED.cv_filename, candidates.cv_filename),
-        cv_extracted_data = candidates.cv_extracted_data || EXCLUDED.cv_extracted_data,
+        cv_extracted_data = COALESCE(candidates.cv_extracted_data, '{}'::jsonb)
+                            || EXCLUDED.cv_extracted_data,
+        custom_fields     = COALESCE(candidates.custom_fields, '{}'::jsonb)
+                            || EXCLUDED.custom_fields,
         updated_at        = NOW()
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -229,13 +235,16 @@ _UPDATE_CANDIDATE_ADOPT = text(
         location        = COALESCE(CAST(:location AS varchar(255)), candidates.location),
         status          = CAST(:status AS candidatestatus),
         languages       = CAST(:languages AS JSONB),
+        profile_about   = COALESCE(CAST(:profile_about AS text), candidates.profile_about),
         cv_filename     = COALESCE(CAST(:cv_filename AS varchar(255)),
                                    candidates.cv_filename),
-        cv_extracted_data = candidates.cv_extracted_data
+        cv_extracted_data = COALESCE(candidates.cv_extracted_data, '{}'::jsonb)
                             || CAST(:cv_extracted_data AS JSONB)
                             || jsonb_build_object(
                                  'legacy_source', candidates.external_source
                                ),
+        custom_fields   = COALESCE(candidates.custom_fields, '{}'::jsonb)
+                          || CAST(:custom_fields AS JSONB),
         updated_at      = NOW()
     WHERE id = :nexus_id
     RETURNING id
@@ -402,6 +411,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
 _PROMOTE_NOTES_SQL = """
 INSERT INTO notes (
     candidate_id, content, note_type, author_id, source_ref,
+    external_source, external_id, source_created_at, source_updated_at,
     created_at, updated_at
 )
 SELECT
@@ -425,6 +435,10 @@ SELECT
     END,
     a.user_id,
     'traffit:activity:' || a.external_id,
+    'traffit',
+    a.external_id,
+    a.created_at,
+    a.updated_at,
     a.created_at,
     a.updated_at
 FROM activities a
@@ -446,8 +460,8 @@ WHERE a.external_source = 'traffit'
   /*SINCE*/
   AND NOT EXISTS (
       SELECT 1 FROM notes n
-      WHERE n.candidate_id = a.entity_id
-        AND n.created_at = a.created_at
+      WHERE (n.external_source = 'traffit' AND n.external_id = a.external_id)
+         OR n.source_ref = 'traffit:activity:' || a.external_id
   )
 """
 
@@ -504,8 +518,56 @@ class TraffitImporter:
         if since is not None:
             since_clause = "AND a.created_at >= :since"
             params["since"] = since
+        # Upgrade notes promoted by the legacy 0077 logic before inserting new
+        # activities. This preserves compatibility while making the stable
+        # Traffit activity id (not a lossy timestamp) the dedupe key.
+        await self.db.execute(
+            text(
+                """
+                UPDATE notes n
+                SET external_source = 'traffit',
+                    external_id = a.external_id,
+                    source_created_at = a.created_at,
+                    source_updated_at = a.updated_at
+                FROM activities a
+                WHERE a.external_source = 'traffit'
+                  AND n.source_ref = 'traffit:activity:' || a.external_id
+                  AND (n.external_source IS NULL OR n.external_id IS NULL)
+                """
+            )
+        )
         sql = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", since_clause)
         result = await self.db.execute(text(sql), params)
+        await self.db.execute(
+            text(
+                """
+                INSERT INTO traffit_entity_links (
+                    entity_type, nexus_entity_id, traffit_entity_id,
+                    candidate_id, status, base_snapshot,
+                    last_seen_at, last_synced_at, last_direction,
+                    created_at, updated_at
+                )
+                SELECT
+                    'note', n.id, n.external_id, n.candidate_id, 'synced',
+                    jsonb_build_object(
+                        'external_id', n.external_id,
+                        'source_created_at', n.source_created_at
+                    ),
+                    NOW(), NOW(), 'inbound', NOW(), NOW()
+                FROM notes n
+                WHERE n.external_source = 'traffit'
+                  AND n.external_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM traffit_entity_links l
+                      WHERE l.entity_type = 'note'
+                        AND (
+                            l.nexus_entity_id = n.id
+                            OR l.traffit_entity_id = n.external_id
+                        )
+                  )
+                """
+            )
+        )
         await self.db.commit()
         return result.rowcount or 0
 
@@ -1026,8 +1088,10 @@ class TraffitImporter:
                         "location": payload.get("location"),
                         "status": payload["status"],
                         "languages": json.dumps(payload["languages"]),
+                        "profile_about": payload.get("profile_about"),
                         "cv_filename": payload.get("cv_filename"),
                         "cv_extracted_data": json.dumps(payload["cv_extracted_data"]),
+                        "custom_fields": json.dumps(payload["custom_fields"]),
                     }
                     await self.db.execute(_UPDATE_CANDIDATE_ADOPT, params)
                     progress.updated += 1
@@ -1038,6 +1102,7 @@ class TraffitImporter:
                     params["cv_extracted_data"] = json.dumps(
                         payload["cv_extracted_data"]
                     )
+                    params["custom_fields"] = json.dumps(payload["custom_fields"])
                     result = await self.db.execute(_UPSERT_CANDIDATE, params)
                     row = result.fetchone()
                     if row is None:

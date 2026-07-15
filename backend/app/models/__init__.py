@@ -51,6 +51,17 @@ from app.models.teams_channel import TeamsNotificationChannel
 from app.models.job_posting import JobPosting
 from app.models.call import Call
 from app.models.traffit_sync_state import TraffitSyncState
+from app.models.traffit_integration import (
+    IntegrationLease,
+    TraffitEntityLink,
+    TraffitFieldContract,
+    TraffitIntegrationControl,
+    TraffitOutboxEvent,
+    TraffitSyncConflict,
+    TraffitSyncRun,
+    TraffitSyncRunPhase,
+    TraffitWebhookEvent,
+)
 from app.models.client_knowledge import ClientKnowledge
 from app.models.client_one_pager import ClientOnePager
 from app.models.client_contract_terms import ClientContractTerms
@@ -225,6 +236,15 @@ __all__ = [
     "JobPosting",
     "Call",
     "TraffitSyncState",
+    "TraffitEntityLink",
+    "TraffitFieldContract",
+    "TraffitOutboxEvent",
+    "TraffitWebhookEvent",
+    "TraffitSyncConflict",
+    "TraffitSyncRun",
+    "TraffitSyncRunPhase",
+    "IntegrationLease",
+    "TraffitIntegrationControl",
     "ClientKnowledge",
     "ClientOnePager",
     "ClientContractTerms",

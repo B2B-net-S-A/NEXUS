@@ -42,6 +42,10 @@ from app.schemas.pipeline import (
     STAGE_LABELS,
 )
 from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
+from app.services.traffit.domain_commands import (
+    capture_assignment_added,
+    capture_stage_moved,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -313,6 +317,14 @@ async def move_candidate(
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    had_assignment = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == data.candidate_id,
+            CandidateStage.job_id == data.job_id,
+        )
+        .limit(1)
+    )
 
     stage_def = await _resolve_stage_def(
         db, job, stage_def_id=data.stage_def_id, legacy_stage=data.stage
@@ -409,6 +421,10 @@ async def move_candidate(
     db.add(stage)
     await db.flush()
     await create_original_cv_snapshot(db, stage)
+    if had_assignment is None:
+        await capture_assignment_added(db, stage, job, actor_id=current_user.id)
+    if not needs_approval:
+        await capture_stage_moved(db, stage, job, actor_id=current_user.id)
 
     if needs_approval:
         candidate = await db.scalar(
@@ -1265,6 +1281,11 @@ async def accept_verification(
             )
         )
 
+    stage_job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    if stage_job is not None:
+        await capture_stage_moved(
+            db, stage, stage_job, actor_id=current_user.id
+        )
     await db.commit()
     await db.refresh(stage)
 
@@ -1457,8 +1478,20 @@ async def bulk_move_candidates(
             ),
         )
 
+    job = await db.scalar(select(Job).where(Job.id == data.job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
     moved = 0
     for cid in data.candidate_ids:
+        had_assignment = await db.scalar(
+            select(CandidateStage.id)
+            .where(
+                CandidateStage.candidate_id == cid,
+                CandidateStage.job_id == data.job_id,
+            )
+            .limit(1)
+        )
         entry = CandidateStage(
             candidate_id=cid,
             job_id=data.job_id,
@@ -1470,6 +1503,11 @@ async def bulk_move_candidates(
         db.add(entry)
         await db.flush()
         await create_original_cv_snapshot(db, entry)
+        if had_assignment is None:
+            await capture_assignment_added(
+                db, entry, job, actor_id=current_user.id
+            )
+        await capture_stage_moved(db, entry, job, actor_id=current_user.id)
         moved += 1
 
     await db.commit()

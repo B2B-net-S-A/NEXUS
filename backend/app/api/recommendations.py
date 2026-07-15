@@ -976,6 +976,13 @@ async def assign_candidate_to_job(
     db.add(stage)
     await db.flush()
     await create_original_cv_snapshot(db, stage)
+    from app.services.traffit.domain_commands import (
+        capture_assignment_added,
+        capture_stage_moved,
+    )
+
+    await capture_assignment_added(db, stage, job, actor_id=current_user.id)
+    await capture_stage_moved(db, stage, job, actor_id=current_user.id)
     await db.commit()
     await db.refresh(stage)
 

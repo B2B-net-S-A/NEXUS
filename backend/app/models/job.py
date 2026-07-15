@@ -217,6 +217,23 @@ class Job(Base, TimestampMixin):
         String(50), default="manual", index=True
     )
 
+    @property
+    def managed_by(self) -> Optional[str]:
+        """Process owner exposed to API clients during Traffit coexistence."""
+
+        return "traffit" if self.external_source == "traffit" else None
+
+    @property
+    def integration(self) -> Optional[dict]:
+        if self.external_source != "traffit":
+            return None
+        return {
+            "system": "traffit",
+            "state": "synced",
+            "external_id": self.external_id,
+            "last_synced_at": self.updated_at,
+        }
+
     # Relationships
     client = relationship("Client", back_populates="jobs")
     competence_category = relationship(

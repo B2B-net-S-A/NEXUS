@@ -87,7 +87,7 @@ export function BreadcrumbV2({ className }: { className?: string }) {
     );
   }
 
-  const crumbs: { label: React.ReactNode; href: string }[] = [{ label: "Dashboard", href: "/" }];
+  const crumbs: { label: React.ReactNode; href: string }[] = [{ label: "Dashboard", href: "/dashboard" }];
 
   let path = "";
   for (let i = 0; i < segments.length; i++) {

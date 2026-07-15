@@ -20,6 +20,7 @@ from app.core.database import get_db
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.activity import Activity
 from app.api.deps import CurrentUser
+from app.services.traffit.domain_commands import capture_candidate_created
 
 router = APIRouter()
 
@@ -151,8 +152,10 @@ async def import_candidates(
                 salary_expectation=_safe_int(salary_raw),
                 status=CandidateStatus.active,
             )
+            candidate.created_by = current_user.id
             db.add(candidate)
             await db.flush()
+            await capture_candidate_created(db, candidate, actor_id=current_user.id)
 
             activity = Activity(
                 entity_type="candidate",

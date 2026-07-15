@@ -182,6 +182,55 @@ async def test_rate_change_requires_at_least_one_field(
     assert resp.status_code == 422
 
 
+async def test_future_early_termination_keeps_contract_active(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """An early-termination amendment must not end a contract before its date."""
+    parties = await _pick_parties(app_client, app_auth_headers)
+    if parties is None:
+        return
+    candidate_id, client_id = parties
+    today = date.today()
+    early_end = today + timedelta(days=30)
+
+    resp = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": candidate_id,
+            "client_id": client_id,
+            "start_date": (today - timedelta(days=30)).isoformat(),
+            "end_date": (today + timedelta(days=90)).isoformat(),
+            "status": "active",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    cid = resp.json()["id"]
+    try:
+        amend = await app_client.post(
+            f"/api/contracts/{cid}/amendments",
+            json={
+                "amendment_type": "early_termination",
+                "effective_date": today.isoformat(),
+                "new_end_date": early_end.isoformat(),
+            },
+            headers=app_auth_headers,
+        )
+        assert amend.status_code == 201, amend.text
+        assert amend.json()["new_values"] == {
+            "end_date": early_end.isoformat(),
+            "status": "active",
+        }
+
+        after = (
+            await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
+        ).json()
+        assert after["end_date"] == early_end.isoformat()
+        assert after["status"] == "active"
+    finally:
+        await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
+
+
 # ── Extension ⇒ client-order-end sync (in-process; no-op without seed data) ───
 
 

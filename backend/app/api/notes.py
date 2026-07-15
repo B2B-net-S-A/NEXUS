@@ -1,6 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,7 @@ from app.schemas.note import (
     NoteResponse,
     NoteUpdate,
 )
+from app.schemas.integration import DeletionRequestResponse, IntegrationSyncState
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
     collect_traffit_user_ids,
@@ -32,6 +34,14 @@ from app.services.mention_dispatch import (
     trim_snippet,
 )
 from app.services.mention_parser import parse_mentions, parse_mentions_global
+from app.services.traffit.domain_commands import (
+    candidate_is_traffit_linked,
+    capture_delete_requested,
+    capture_note_appended,
+    request_manual_action,
+)
+from app.services.traffit.control import integration_master_enabled
+from app.services.traffit.links import integration_sync_state, integration_sync_states
 
 router = APIRouter()
 
@@ -94,6 +104,17 @@ async def list_notes(
     mention_label_map = await build_traffit_user_label_map(
         db, collect_traffit_user_ids(note.content for note, *_ in rows)
     )
+    integration_by_note: dict[int, IntegrationSyncState] = {}
+    if integration_master_enabled() and rows:
+        projected = await integration_sync_states(
+            db, [("note", note.id) for note, *_ in rows]
+        )
+        integration_by_note = {
+            note.id: IntegrationSyncState.model_validate(
+                projected[("note", note.id)].as_api_dict()
+            )
+            for note, *_ in rows
+        }
     items = [
         EnrichedNoteResponse(
             id=note.id,
@@ -104,6 +125,25 @@ async def list_notes(
             author_id=note.author_id,
             created_at=note.created_at,
             updated_at=note.updated_at,
+            external_source=note.external_source,
+            external_id=note.external_id,
+            source_created_at=note.source_created_at,
+            source_updated_at=note.source_updated_at,
+            source_deleted_at=note.source_deleted_at,
+            supersedes_note_id=note.supersedes_note_id,
+            integration=integration_by_note.get(note.id) or (
+                IntegrationSyncState(
+                    state=(
+                        "manual_action_required"
+                        if note.source_deleted_at is not None
+                        else "synced"
+                    ),
+                    external_id=note.external_id,
+                    last_synced_at=note.source_updated_at or note.updated_at,
+                )
+                if note.external_source == "traffit"
+                else None
+            ),
             author_name=author_name,
             author_email=author_email,
             content_rendered=render_traffit_mentions(note.content, mention_label_map),
@@ -173,6 +213,12 @@ async def create_note(
             },
         )
     )
+    traffit_event = await capture_note_appended(
+        db,
+        note,
+        actor_id=current_user.id,
+        author_name=current_user.name or current_user.email,
+    )
 
     # Explicit commit — Notification rows muszą być trwałe ZANIM odpalimy email/WS.
     await db.commit()
@@ -189,7 +235,16 @@ async def create_note(
         )
 
     await db.refresh(note)
-    return note
+    response = NoteResponse.model_validate(note)
+    if traffit_event is not None:
+        response = response.model_copy(
+            update={
+                "integration": IntegrationSyncState(
+                    state="pending", pending_events=1
+                )
+            }
+        )
+    return response
 
 
 @router.get("/{note_id}", response_model=NoteResponse)
@@ -200,7 +255,17 @@ async def get_note(
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    return note
+    response = NoteResponse.model_validate(note)
+    if integration_master_enabled():
+        projected = await integration_sync_state(db, "note", note.id)
+        response = response.model_copy(
+            update={
+                "integration": IntegrationSyncState.model_validate(
+                    projected.as_api_dict()
+                )
+            }
+        )
+    return response
 
 
 @router.patch("/{note_id}", response_model=NoteResponse)
@@ -218,6 +283,100 @@ async def update_note(
         raise HTTPException(
             status_code=403, detail="Brak uprawnień do edycji tej notatki"
         )
+
+    # Synchronized notes are append-only.  Editing a note on a candidate that
+    # participates in Traffit creates a visible correction and preserves the
+    # original audit record on both sides.
+    if note.candidate_id is not None and (
+        integration_master_enabled()
+        or await candidate_is_traffit_linked(db, note.candidate_id)
+    ):
+        updates = data.model_dump(exclude_unset=True)
+        corrected_content = updates.get("content", note.content) or note.content
+        corrected_type = updates.get("note_type", note.note_type) or note.note_type
+        correction = Note(
+            content=(
+                f"[KOREKTA NEXUS do notatki #{note.id}]\n{corrected_content}"
+            ),
+            note_type=corrected_type,
+            candidate_id=note.candidate_id,
+            job_id=note.job_id,
+            contract_id=note.contract_id,
+            author_id=current_user.id,
+            source_ref=f"nexus:correction:{note.id}",
+            external_source="nexus",
+            supersedes_note_id=note.id,
+        )
+        db.add(correction)
+        await db.flush()
+
+        mentioned_ids = await _resolve_mentions(db, correction.content, correction)
+        mentioned_ids = [uid for uid in mentioned_ids if uid != current_user.id]
+        for uid in mentioned_ids:
+            db.add(NoteMention(note_id=correction.id, user_id=uid))
+
+        snippet = trim_snippet(correction.content)
+        deep_link = build_note_deep_link(correction)
+        context_label = await build_note_context_label(db, correction)
+        notification_title = (
+            f"{current_user.name or current_user.email} oznaczył(a) Cię w korekcie"
+        )
+        pairs = await enqueue_mention_notifications(
+            db,
+            mentioned_user_ids=mentioned_ids,
+            author=current_user,
+            deep_link_path=deep_link,
+            snippet=snippet,
+            notification_title=notification_title,
+            related_entity_type="note",
+            related_entity_id=correction.id,
+        )
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == correction.candidate_id)
+        )
+        if candidate is not None:
+            candidate.notes_count = (candidate.notes_count or 0) + 1
+        db.add(
+            UserActivity(
+                user_id=current_user.id,
+                action_type=UserActionType.note_added,
+                entity_type="candidate",
+                entity_id=correction.candidate_id or correction.id,
+                details={
+                    "note_id": correction.id,
+                    "supersedes_note_id": note.id,
+                    "correction": True,
+                },
+            )
+        )
+        traffit_event = await capture_note_appended(
+            db,
+            correction,
+            actor_id=current_user.id,
+            author_name=current_user.name or current_user.email,
+            correction=True,
+        )
+        await db.commit()
+        if pairs:
+            await send_mention_side_effects(
+                pairs,
+                author_name=current_user.name or current_user.email,
+                snippet=snippet,
+                deep_link_path=deep_link,
+                context_label=context_label,
+                notification_title=notification_title,
+            )
+        await db.refresh(correction)
+        response = NoteResponse.model_validate(correction)
+        if traffit_event is not None:
+            response = response.model_copy(
+                update={
+                    "integration": IntegrationSyncState(
+                        state="pending", pending_events=1
+                    )
+                }
+            )
+        return response
 
     # Załaduj stare mentions (do diffu).
     old_rows = await db.execute(
@@ -292,6 +451,40 @@ async def delete_note(
         raise HTTPException(
             status_code=403, detail="Brak uprawnień do usunięcia tej notatki"
         )
+    if note.candidate_id is not None and (
+        integration_master_enabled()
+        or await candidate_is_traffit_linked(db, note.candidate_id)
+    ):
+        outbox_event = await capture_delete_requested(
+            db,
+            event_type="note.delete_requested",
+            aggregate_type="note",
+            aggregate_id=note.id,
+            candidate_id=note.candidate_id,
+            actor_id=current_user.id,
+            details={"external_id": note.external_id},
+        )
+        conflict = await request_manual_action(
+            db,
+            entity_type="note",
+            nexus_entity_id=note.id,
+            candidate_id=note.candidate_id,
+            traffit_entity_id=note.external_id,
+            conflict_type="delete_requested",
+            actor_id=current_user.id,
+            details={"action": "delete"},
+            outbox_event_id=outbox_event.id if outbox_event is not None else None,
+        )
+        body = DeletionRequestResponse(
+            conflict_id=conflict.id,
+            entity_type="note",
+            entity_id=note.id,
+            message=(
+                "Notatki zsynchronizowane z Traffit są append-only. "
+                "Utworzono zgłoszenie do ręcznej decyzji administratora."
+            ),
+        )
+        return JSONResponse(status_code=202, content=body.model_dump(mode="json"))
     await db.delete(note)
 
 

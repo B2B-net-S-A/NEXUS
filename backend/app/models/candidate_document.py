@@ -21,9 +21,11 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
+    text,
 )
 from sqlalchemy.orm import Mapped, deferred, mapped_column, relationship
 
@@ -68,9 +70,34 @@ class CandidateDocument(Base, TimestampMixin):
     external_source: Mapped[Optional[str]] = mapped_column(
         String(50), default="manual", nullable=True
     )
+    # Content identity and source-manifest state for idempotent versioned sync.
+    content_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    source_manifest_fingerprint: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    source_deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     candidate = relationship("Candidate", back_populates="documents")
+
+    __table_args__ = (
+        Index(
+            "ux_candidate_documents_candidate_sha",
+            "candidate_id",
+            "content_sha256",
+            unique=True,
+            postgresql_where=text(
+                "content_sha256 IS NOT NULL AND source_deleted_at IS NULL"
+            ),
+        ),
+        Index(
+            "ix_candidate_documents_manifest",
+            "candidate_id",
+            "source_manifest_fingerprint",
+        ),
+    )
 
     def __repr__(self) -> str:
         return (

@@ -35,6 +35,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
+import { TraffitIntegrationCard } from "@/components/settings/TraffitIntegrationCard";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
@@ -420,6 +421,7 @@ export default function SettingsPage() {
 
       {activeTab === "integracje" && (
         <div className="space-y-4">
+          <TraffitIntegrationCard />
           <Microsoft365Card />
           <FirefliesCard />
           <CloudTalkSettingsCard />

@@ -22,11 +22,13 @@ from sqlalchemy import (
     Boolean,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     false,
+    text,
     true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -170,6 +172,13 @@ class RejectionReason(Base, TimestampMixin):
     __tablename__ = "rejection_reasons"
     __table_args__ = (
         UniqueConstraint("template_id", "name", "category", name="uq_rejection_reason"),
+        Index(
+            "ux_rejection_reasons_external_source_id",
+            "external_source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -188,6 +197,13 @@ class RejectionReason(Base, TimestampMixin):
     )
     active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=true(), nullable=False
+    )
+    # Stable Traffit rejection reason identity used by outbound `_move_to_reject_state`.
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", nullable=True, index=True
+    )
+    external_id: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, index=True
     )
 
     template = relationship("PipelineTemplate", back_populates="rejection_reasons")

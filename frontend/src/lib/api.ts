@@ -5101,4 +5101,299 @@ export const dynareporterPlacementsApi = {
       .then((r) => r.data),
 };
 
+// ── Traffit bidirectional integration ──────────────────────────────────────
+
+export interface TraffitIntegrationLeader {
+  owner_id: string;
+  expires_at: string | null;
+}
+
+export interface TraffitIntegrationQueues {
+  inbox_pending: number;
+  outbox_pending: number;
+  dead_letter: number;
+  oldest_inbox_at: string | null;
+  oldest_outbox_at: string | null;
+}
+
+export interface TraffitIntegrationStream {
+  phase: string;
+  last_success_at: string | null;
+  last_status: string | null;
+  lag_seconds: number | null;
+  consecutive_failures: number;
+}
+
+export interface TraffitIntegrationStatus {
+  enabled: boolean;
+  dry_run: boolean;
+  inbound_apply_enabled: boolean;
+  outbound_enabled: boolean;
+  webhook_accept_enabled: boolean;
+  poll_enabled: boolean;
+  paused: {
+    inbound: boolean;
+    outbound: boolean;
+    poll: boolean;
+  };
+  leader: TraffitIntegrationLeader | null;
+  queues: TraffitIntegrationQueues;
+  conflicts_open: number;
+  last_reconcile_at: string | null;
+  streams: TraffitIntegrationStream[];
+}
+
+export interface TraffitIntegrationEvent {
+  id: string;
+  direction: string;
+  event_type: string;
+  aggregate_type: string;
+  aggregate_id: string;
+  status: string;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  processed_at: string | null;
+}
+
+export interface TraffitIntegrationConflict {
+  id: string;
+  entity_type: string;
+  nexus_entity_id: string | null;
+  external_id: string | null;
+  field_path: string | null;
+  conflict_type: string;
+  base_value: unknown;
+  local_value: unknown;
+  remote_value: unknown;
+  status: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface TraffitIntegrationPage<T> {
+  items: T[];
+  total: number;
+}
+
+export interface TraffitReconcileRequest {
+  scope: "active" | "full";
+  entities?: string[];
+}
+
+export interface TraffitReconcileResponse {
+  status: "started";
+  run_id: string;
+}
+
+export interface TraffitControlRequest {
+  inbound_paused?: boolean;
+  outbound_paused?: boolean;
+  poll_paused?: boolean;
+  reason?: string;
+}
+
+export interface TraffitConflictResolutionRequest {
+  resolution: "nexus" | "traffit" | "merged" | "manual" | "unlink";
+  merged_value?: unknown;
+  note?: string;
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
+ * Backward-compatible adapter for staged backend rollout. The integration
+ * status endpoint may temporarily omit a freshly added counter/stream while
+ * old and new containers overlap during a Coolify deployment; the UI should
+ * render safe zero/null defaults instead of crashing.
+ */
+export function normalizeTraffitIntegrationStatus(
+  payload: unknown,
+): TraffitIntegrationStatus {
+  const data = recordOrEmpty(payload);
+  const paused = recordOrEmpty(data.paused);
+  const queues = recordOrEmpty(data.queues);
+  const leader = recordOrEmpty(data.leader);
+  const rawStreams = Array.isArray(data.streams) ? data.streams : [];
+
+  return {
+    enabled: data.enabled === true,
+    dry_run: data.dry_run === true,
+    inbound_apply_enabled: data.inbound_apply_enabled === true,
+    outbound_enabled: data.outbound_enabled === true,
+    webhook_accept_enabled: data.webhook_accept_enabled === true,
+    poll_enabled: data.poll_enabled === true,
+    paused: {
+      inbound: paused.inbound === true,
+      outbound: paused.outbound === true,
+      poll: paused.poll === true,
+    },
+    leader:
+      Object.keys(leader).length > 0
+        ? {
+            owner_id: String(leader.owner_id ?? "—"),
+            expires_at: nullableString(leader.expires_at),
+          }
+        : null,
+    queues: {
+      inbox_pending: finiteNumber(queues.inbox_pending),
+      outbox_pending: finiteNumber(queues.outbox_pending),
+      dead_letter: finiteNumber(queues.dead_letter),
+      oldest_inbox_at: nullableString(queues.oldest_inbox_at),
+      oldest_outbox_at: nullableString(queues.oldest_outbox_at),
+    },
+    conflicts_open: finiteNumber(data.conflicts_open),
+    last_reconcile_at: nullableString(data.last_reconcile_at),
+    streams: rawStreams.map((raw) => {
+      const stream = recordOrEmpty(raw);
+      return {
+        phase: String(stream.phase ?? "unknown"),
+        last_success_at: nullableString(stream.last_success_at),
+        last_status: nullableString(stream.last_status),
+        lag_seconds:
+          stream.lag_seconds == null
+            ? null
+            : finiteNumber(stream.lag_seconds),
+        consecutive_failures: finiteNumber(stream.consecutive_failures),
+      };
+    }),
+  };
+}
+
+function normalizeIntegrationPage<T>(
+  payload: unknown,
+  normalizeItem: (item: unknown, index: number) => T,
+): TraffitIntegrationPage<T> {
+  const data = recordOrEmpty(payload);
+  const items = Array.isArray(data.items)
+    ? data.items.map(normalizeItem)
+    : [];
+  return {
+    items,
+    total: finiteNumber(data.total, items.length),
+  };
+}
+
+export function normalizeTraffitIntegrationEvent(
+  payload: unknown,
+  index = 0,
+): TraffitIntegrationEvent {
+  const data = recordOrEmpty(payload);
+  return {
+    id: String(data.id ?? `event-${index}`),
+    direction: String(data.direction ?? "unknown"),
+    event_type: String(data.event_type ?? "unknown"),
+    aggregate_type: String(data.aggregate_type ?? "unknown"),
+    aggregate_id: String(data.aggregate_id ?? "—"),
+    status: String(data.status ?? "unknown"),
+    attempts: finiteNumber(data.attempts),
+    next_attempt_at: nullableString(data.next_attempt_at),
+    last_error: nullableString(data.last_error),
+    created_at: nullableString(data.created_at) ?? "",
+    processed_at: nullableString(data.processed_at),
+  };
+}
+
+export function normalizeTraffitIntegrationConflict(
+  payload: unknown,
+  index = 0,
+): TraffitIntegrationConflict {
+  const data = recordOrEmpty(payload);
+  return {
+    id: String(data.id ?? `conflict-${index}`),
+    entity_type: String(data.entity_type ?? "unknown"),
+    nexus_entity_id:
+      data.nexus_entity_id == null ? null : String(data.nexus_entity_id),
+    external_id: data.external_id == null ? null : String(data.external_id),
+    field_path: nullableString(data.field_path),
+    conflict_type: String(data.conflict_type ?? "unknown"),
+    base_value: data.base_value,
+    local_value: data.local_value,
+    remote_value: data.remote_value,
+    status: String(data.status ?? "open"),
+    created_at: nullableString(data.created_at) ?? "",
+    resolved_at: nullableString(data.resolved_at),
+  };
+}
+
+const TRAFFIT_INTEGRATION_BASE = "/api/admin/traffit/integration";
+
+export const traffitIntegrationApi = {
+  getStatus: () =>
+    api
+      .get<TraffitIntegrationStatus>(`${TRAFFIT_INTEGRATION_BASE}/status`)
+      .then((r) => normalizeTraffitIntegrationStatus(r.data)),
+  listEvents: (params?: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    direction?: string;
+  }) =>
+    api
+      .get<TraffitIntegrationPage<TraffitIntegrationEvent>>(
+        `${TRAFFIT_INTEGRATION_BASE}/events`,
+        { params },
+      )
+      .then((r) =>
+        normalizeIntegrationPage(r.data, normalizeTraffitIntegrationEvent),
+      ),
+  listConflicts: (params?: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+  }) =>
+    api
+      .get<TraffitIntegrationPage<TraffitIntegrationConflict>>(
+        `${TRAFFIT_INTEGRATION_BASE}/conflicts`,
+        { params },
+      )
+      .then((r) =>
+        normalizeIntegrationPage(r.data, normalizeTraffitIntegrationConflict),
+      ),
+  reconcile: (payload: TraffitReconcileRequest) =>
+    api
+      .post<TraffitReconcileResponse>(
+        `${TRAFFIT_INTEGRATION_BASE}/reconcile`,
+        payload,
+      )
+      .then((r) => r.data),
+  control: (payload: TraffitControlRequest) =>
+    api
+      .post<TraffitIntegrationStatus>(
+        `${TRAFFIT_INTEGRATION_BASE}/control`,
+        payload,
+      )
+      .then((r) => normalizeTraffitIntegrationStatus(r.data)),
+  resolveConflict: (
+    conflictId: string,
+    payload: TraffitConflictResolutionRequest,
+  ) =>
+    api
+      .post<TraffitIntegrationConflict>(
+        `${TRAFFIT_INTEGRATION_BASE}/conflicts/${conflictId}/resolve`,
+        payload,
+      )
+      .then((r) => r.data),
+  retryEvent: (eventId: string) =>
+    api
+      .post<TraffitIntegrationEvent>(
+        `${TRAFFIT_INTEGRATION_BASE}/events/${eventId}/retry`,
+      )
+      .then((r) => r.data),
+};
+
 export default api;

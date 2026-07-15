@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.models.candidate import AvailabilityStatus, CandidateStatus
 from app.models.linkedin_snapshot import LinkedinChangeKind, LinkedinSyncStatus
 from app.models.recruitment_pipeline import PipelineStage
+from app.schemas.integration import IntegrationSyncState
 
 
 class EmploymentState(str, Enum):
@@ -103,6 +104,8 @@ class CandidateCreate(BaseModel):
     competence_category: Optional[str] = None
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
+    profile_about: Optional[str] = None
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
     tags: Optional[List[Any]] = None
     skills: Optional[List[Any]] = None
     experience: Optional[List[Any]] = None
@@ -117,6 +120,11 @@ class CandidateCreate(BaseModel):
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+    @field_validator("custom_fields", mode="before")
+    @classmethod
+    def _normalize_custom_fields(cls, v: Any) -> Any:
+        return {} if v is None else v
 
 
 class CandidateUpdate(BaseModel):
@@ -140,6 +148,8 @@ class CandidateUpdate(BaseModel):
     competence_category: Optional[str] = None
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
+    profile_about: Optional[str] = None
+    custom_fields: Optional[dict[str, Any]] = None
     tags: Optional[List[Any]] = None
     skills: Optional[List[Any]] = None
     experience: Optional[List[Any]] = None
@@ -174,6 +184,11 @@ class CandidateUpdate(BaseModel):
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+    @field_validator("custom_fields", mode="before")
+    @classmethod
+    def _normalize_custom_fields(cls, v: Any) -> Any:
+        return {} if v is None else v
 
     @field_validator("country", mode="before")
     @classmethod
@@ -317,6 +332,10 @@ class CandidateResponse(BaseModel):
     competence_category: Optional[str] = None
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
+    # Human-authored profile description shared with Traffit.  This is
+    # intentionally separate from the NEXUS-only AI summary.
+    profile_about: Optional[str] = None
+    custom_fields: Optional[Any] = None
     status: CandidateStatus
     availability_status: AvailabilityStatus = AvailabilityStatus.unknown
     employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
@@ -378,6 +397,7 @@ class CandidateResponse(BaseModel):
     # tego do badge "z Traffita" w nagłówku profilu kandydata.
     external_source: Optional[str] = None
     external_id: Optional[str] = None
+    integration: Optional[IntegrationSyncState] = None
     created_by: Optional[int] = None
     # Reads from ORM attribute `creator` (Candidate.creator relationship).
     # Populated when the endpoint eager-loads `selectinload(Candidate.creator)`.
@@ -471,6 +491,9 @@ class CandidateDocumentOut(BaseModel):
     is_primary: bool
     uploaded_at: Optional[datetime] = None
     external_source: Optional[str] = None
+    content_sha256: Optional[str] = None
+    source_deleted_at: Optional[datetime] = None
+    integration: Optional[IntegrationSyncState] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -525,3 +548,4 @@ class CandidateFromLinkedInResponse(BaseModel):
     assigned_to_job_id: Optional[int] = None
     profile_url_path: str
     resync_scheduled: bool = False
+    integration: Optional[IntegrationSyncState] = None

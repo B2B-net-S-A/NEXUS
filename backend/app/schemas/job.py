@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -13,6 +13,7 @@ from app.models.job import (
     WorkMode,
 )
 from app.schemas.candidate import _normalize_skill_list
+from app.schemas.integration import IntegrationSyncState
 
 
 class JobCreate(BaseModel):
@@ -212,6 +213,10 @@ class JobResponse(BaseModel):
     close_notes: Optional[str] = None
     # Phase 15 / Phase D: programme tag surfaced to UI for autocomplete.
     train_name: Optional[str] = None
+    external_source: Optional[str] = None
+    external_id: Optional[str] = None
+    managed_by: Optional[Literal["traffit"]] = None
+    integration: Optional[IntegrationSyncState] = None
     # Hydrated ownership data added by api/jobs.get_job and assign/release
     # endpoints. ``primary_owner`` mirrors ``recruiter_id`` resolved to a
     # ``UserBrief`` so the UI does not need to do a second fetch to render the

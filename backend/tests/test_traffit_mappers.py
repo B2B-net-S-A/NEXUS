@@ -299,6 +299,7 @@ class TestTraffitEmployeeToCandidate:
         assert result["cv_filename"] == "file.pdf"
         # Custom fields all None in fixture → cv_extracted_data empty
         assert result["cv_extracted_data"] == {}
+        assert result["custom_fields"] == {}
         assert result["source"] == "traffit"
 
     def test_custom_fields_preserved(self):
@@ -314,6 +315,23 @@ class TestTraffitEmployeeToCandidate:
         assert result["cv_extracted_data"] == {
             "traffit_Position": "Senior Backend Engineer",
             "traffit_certificates": "AWS Solutions Architect",
+        }
+        assert result["custom_fields"] == result["cv_extracted_data"]
+
+    def test_candidate_about_is_not_ai_summary(self):
+        result = traffit_employee_to_candidate(
+            {"id": 1, "name": "X", "candidate_about": "Opis rekrutera"}
+        )
+        assert result["profile_about"] == "Opis rekrutera"
+        assert "ai_summary" not in result
+
+    def test_unmapped_enabled_system_fields_are_preserved(self):
+        result = traffit_employee_to_candidate(
+            {"id": 1, "name": "X", "availability": "od zaraz", "sex": "K"}
+        )
+        assert result["custom_fields"] == {
+            "traffit_availability": "od zaraz",
+            "traffit_sex": "K",
         }
 
     def test_user_id_map_lookup(self):

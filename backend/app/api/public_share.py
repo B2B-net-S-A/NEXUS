@@ -45,6 +45,13 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.models.user_activity import UserActionType, UserActivity
+from app.services.traffit.domain_commands import (
+    capture_assignment_added,
+    capture_candidate_created,
+    capture_candidate_updated,
+    capture_file_uploaded,
+    capture_stage_moved,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -364,6 +371,18 @@ async def submit_public_apply(
     candidate.cv_filename = stored_filename
     if raw_text:
         candidate.raw_cv_text = raw_text
+    # Keep the multi-file document ledger in sync with the legacy primary-CV
+    # fields.  The helper stores to Object Storage when configured and falls
+    # back to BYTEA locally.
+    from app.api.candidates import record_candidate_document
+
+    document = await record_candidate_document(
+        db,
+        candidate_id=candidate.id,
+        content=content,
+        filename=stored_filename,
+        content_type=cv.content_type,
+    )
 
     # Ensure CandidateStage for (candidate, link.job_id) exists at stage="new".
     stage_exists = await db.scalar(
@@ -372,6 +391,7 @@ async def submit_public_apply(
             CandidateStage.job_id == link.job_id,
         )
     )
+    new_stage: Optional[CandidateStage] = None
     if stage_exists is None:
         new_stage = CandidateStage(
             candidate_id=candidate.id,
@@ -385,6 +405,31 @@ async def submit_public_apply(
         # Snapshot CV — kandydat właśnie wgrał `stored_filename` powyżej, więc
         # `candidate.cv_file_content` już jest aktualny i pójdzie do snapshotu.
         await create_original_cv_snapshot(db, new_stage)
+
+    if branch == "created":
+        await capture_candidate_created(db, candidate, actor_id=link.created_by)
+    else:
+        await capture_candidate_updated(
+            db,
+            candidate,
+            {
+                "name": candidate.name,
+                "lastname": candidate.lastname,
+                "phone": candidate.phone,
+                "linkedin": candidate.linkedin,
+            },
+            actor_id=link.created_by,
+        )
+    await capture_file_uploaded(db, document, actor_id=link.created_by)
+    if new_stage is not None:
+        linked_job = await db.scalar(select(Job).where(Job.id == link.job_id))
+        if linked_job is not None:
+            await capture_assignment_added(
+                db, new_stage, linked_job, actor_id=link.created_by
+            )
+            await capture_stage_moved(
+                db, new_stage, linked_job, actor_id=link.created_by
+            )
 
     # Audit trail — link the Activity to the inviting recruiter.
     activity_details: dict = {
