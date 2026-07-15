@@ -17,6 +17,7 @@ Returned shape lets the UI render a "Added 7, skipped 3" toast with reasons.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,7 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
 from app.core.database import get_db
-from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate import Candidate
+from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.models.note import Note, NoteType
 from app.models.pipeline_template import PipelineStageDef
@@ -34,10 +36,39 @@ from app.models.recruitment_pipeline import (
     CandidateStage,
     PipelineStage,
 )
+from app.services.candidate_job_eligibility import (
+    ConflictInput,
+    EligibilityInput,
+    EligibilityReason,
+    evaluate_eligibility,
+    extract_excluded_client_ids,
+)
 
 router = APIRouter()
 
-SkipReason = Literal["already_in_job", "blacklisted", "candidate_not_found"]
+SkipReason = Literal[
+    "already_in_job",
+    "blacklisted",
+    "candidate_not_found",
+    "client_blacklist",
+    "client_nda",
+    "client_competitor",
+]
+WarningReason = Literal["current_employment", "excluded_by_candidate"]
+
+# Eligibility reason → bulk-add skip reason. Reasons that block assignment.
+_SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
+    EligibilityReason.blacklisted: "blacklisted",
+    EligibilityReason.client_blacklist: "client_blacklist",
+    EligibilityReason.client_nda: "client_nda",
+    EligibilityReason.client_competitor: "client_competitor",
+    EligibilityReason.already_in_job: "already_in_job",
+}
+# Eligibility reason → non-blocking warning surfaced on added candidates.
+_WARNING_REASON_BY_ELIGIBILITY: dict[EligibilityReason, WarningReason] = {
+    EligibilityReason.client_current_employment: "current_employment",
+    EligibilityReason.client_excluded_by_candidate: "excluded_by_candidate",
+}
 
 
 class BulkProposalsRequest(BaseModel):
@@ -56,11 +87,22 @@ class BulkProposalsRequest(BaseModel):
 class BulkSkippedRow(BaseModel):
     candidate_id: int
     reason: SkipReason
+    reason_label: Optional[str] = None
+
+
+class BulkWarningRow(BaseModel):
+    """A candidate that WAS added but carries a soft eligibility warning
+    (e.g. currently employed at the client, or the candidate excluded them)."""
+
+    candidate_id: int
+    reason: WarningReason
+    reason_label: Optional[str] = None
 
 
 class BulkProposalsResponse(BaseModel):
     added: list[int]
     skipped: list[BulkSkippedRow]
+    warnings: list[BulkWarningRow] = Field(default_factory=list)
     total_added: int
     total_skipped: int
 
@@ -163,8 +205,35 @@ async def bulk_add_proposals(
     )
     already_in_job_set: set[int] = set(already_in_job)
 
+    # Active client-scoped conflicts for THIS job's client, batched once.
+    conflict_rows = (
+        (
+            await db.execute(
+                select(CandidateConflict).where(
+                    CandidateConflict.candidate_id.in_(body.candidate_ids),
+                    CandidateConflict.client_id == job.client_id,
+                    CandidateConflict.active.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    conflicts_by_candidate: dict[int, list[ConflictInput]] = {}
+    for row in conflict_rows:
+        conflicts_by_candidate.setdefault(row.candidate_id, []).append(
+            ConflictInput(
+                type=row.type.value,
+                client_id=row.client_id,
+                active=row.active,
+                expires_at=row.expires_at,
+            )
+        )
+    now = datetime.now(timezone.utc)
+
     added: list[int] = []
     skipped: list[BulkSkippedRow] = []
+    warnings: list[BulkWarningRow] = []
 
     for candidate_id in body.candidate_ids:
         candidate = candidates_by_id.get(candidate_id)
@@ -173,16 +242,42 @@ async def bulk_add_proposals(
                 BulkSkippedRow(candidate_id=candidate_id, reason="candidate_not_found")
             )
             continue
-        if candidate.status == CandidateStatus.blacklisted:
+
+        # Single eligibility policy — replaces the ad-hoc blacklist + in-job
+        # checks and additionally honours client conflicts (blacklist/nda/
+        # competitor) and candidate-declared excluded clients (SEARCH-P0-04).
+        decision = evaluate_eligibility(
+            EligibilityInput(
+                candidate_status=candidate.status.value,
+                job_client_id=job.client_id,
+                conflicts=tuple(conflicts_by_candidate.get(candidate_id, ())),
+                excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
+                already_in_job=candidate_id in already_in_job_set,
+            ),
+            now,
+        )
+        if not decision.assignment_allowed:
             skipped.append(
-                BulkSkippedRow(candidate_id=candidate_id, reason="blacklisted")
+                BulkSkippedRow(
+                    candidate_id=candidate_id,
+                    reason=_SKIP_REASON_BY_ELIGIBILITY.get(
+                        decision.reason_code, "blacklisted"
+                    ),
+                    reason_label=decision.reason,
+                )
             )
             continue
-        if candidate_id in already_in_job_set:
-            skipped.append(
-                BulkSkippedRow(candidate_id=candidate_id, reason="already_in_job")
+
+        # Assignment allowed — surface a soft warning if one applies.
+        warn_reason = _WARNING_REASON_BY_ELIGIBILITY.get(decision.reason_code)
+        if warn_reason is not None:
+            warnings.append(
+                BulkWarningRow(
+                    candidate_id=candidate_id,
+                    reason=warn_reason,
+                    reason_label=decision.reason,
+                )
             )
-            continue
 
         stage = CandidateStage(
             candidate_id=candidate_id,
@@ -226,6 +321,7 @@ async def bulk_add_proposals(
     return BulkProposalsResponse(
         added=added,
         skipped=skipped,
+        warnings=warnings,
         total_added=len(added),
         total_skipped=len(skipped),
     )

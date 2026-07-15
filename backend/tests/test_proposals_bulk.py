@@ -13,6 +13,7 @@ from app.api.proposals_bulk import (
     BulkProposalsRequest,
     BulkProposalsResponse,
     BulkSkippedRow,
+    BulkWarningRow,
 )
 
 
@@ -71,6 +72,35 @@ class TestResponseShape:
         assert resp.total_skipped == 2
         assert resp.skipped[0].reason == "already_in_job"
         assert resp.skipped[1].reason == "blacklisted"
+        assert resp.warnings == []  # defaults to empty
+
+    def test_new_conflict_skip_reasons_are_valid(self):
+        for reason in ("client_blacklist", "client_nda", "client_competitor"):
+            row = BulkSkippedRow(candidate_id=1, reason=reason, reason_label="…")
+            assert row.reason == reason
+            assert row.reason_label == "…"
+
+    def test_warnings_on_added_candidates(self):
+        resp = BulkProposalsResponse(
+            added=[1, 2],
+            skipped=[],
+            warnings=[
+                BulkWarningRow(
+                    candidate_id=1,
+                    reason="current_employment",
+                    reason_label="Kandydat obecnie pracuje u tego klienta",
+                ),
+                BulkWarningRow(candidate_id=2, reason="excluded_by_candidate"),
+            ],
+            total_added=2,
+            total_skipped=0,
+        )
+        assert len(resp.warnings) == 2
+        assert resp.warnings[0].reason == "current_employment"
+
+    def test_invalid_warning_reason_rejected(self):
+        with pytest.raises(ValidationError):
+            BulkWarningRow(candidate_id=1, reason="not_a_reason")  # type: ignore[arg-type]
 
     def test_serialization_roundtrip(self):
         resp = BulkProposalsResponse(
