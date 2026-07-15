@@ -1090,11 +1090,12 @@ function JobFormFields({
           <Input value={form.location} onChange={e => onChange("location", e.target.value)} placeholder="Warszawa / Remote" />
         </FieldGroup>
         <FieldGroup label="Remote policy">
+          {/* Values MUST match backend RemotePolicy enum (onsite|hybrid|remote).
+              "on_site"/"flexible" were rejected server-side (422) — SEARCH-P0-02. */}
           <Select value={form.remote_policy} onChange={e => onChange("remote_policy", e.target.value)}>
-            <option value="on_site">On-site</option>
+            <option value="onsite">On-site</option>
             <option value="hybrid">Hybrid</option>
             <option value="remote">Remote</option>
-            <option value="flexible">Elastyczny</option>
           </Select>
         </FieldGroup>
       </div>

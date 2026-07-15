@@ -207,6 +207,44 @@ class TestSalaryRange:
         assert "pln" in sql
 
 
+class TestHourlyRate:
+    """SEARCH-P0-01: hourly rate filters on ``expected_rate_hourly`` (NOT the
+    monthly ``salary_expectation``) and treats a missing rate as included."""
+
+    def test_min_only_targets_hourly_column(self):
+        req = CandidateSearchRequest(rate_hourly_min=90)
+        sql = _compile(build_structured_filter(req)).lower()
+        assert "expected_rate_hourly" in sql
+        assert "90" in sql
+        # Must NOT touch the monthly expectation column.
+        assert "salary_expectation" not in sql
+
+    def test_max_only_targets_hourly_column(self):
+        req = CandidateSearchRequest(rate_hourly_max=150)
+        sql = _compile(build_structured_filter(req)).lower()
+        assert "expected_rate_hourly" in sql
+        assert "150" in sql
+        assert "salary_expectation" not in sql
+
+    def test_missing_rate_is_included(self):
+        req = CandidateSearchRequest(rate_hourly_min=90, rate_hourly_max=150)
+        # single clause: (rate IS NULL) OR (rate >= 90 AND rate <= 150)
+        clauses = build_structured_filter(req)
+        assert len(clauses) == 1
+        sql = _compile(clauses).lower()
+        assert "is null" in sql
+        assert "90" in sql and "150" in sql
+
+    def test_hourly_is_independent_of_monthly_salary(self):
+        req = CandidateSearchRequest(
+            salary_min=10000, salary_max=25000, rate_hourly_min=90
+        )
+        sql = _compile(build_structured_filter(req)).lower()
+        # both columns present, distinct filters
+        assert "salary_expectation" in sql
+        assert "expected_rate_hourly" in sql
+
+
 class TestSources:
     def test_sources_in_list(self):
         req = CandidateSearchRequest(sources=["linkedin", "referral"])
