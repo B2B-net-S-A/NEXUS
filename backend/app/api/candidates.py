@@ -183,8 +183,16 @@ class CandidateExportRequest(BaseModel):
     format: Literal["csv", "xlsx"] = "csv"
     scope: Literal["filtered", "selected"]
     filters: CandidateFilterSpec = Field(default_factory=CandidateFilterSpec)
-    candidate_ids: list[int] = Field(default_factory=list, max_length=10_000)
+    candidate_ids: list[int] = Field(default_factory=list)
     limit: int = Field(100_000, ge=1, le=100_000)
+
+    @field_validator("candidate_ids")
+    @classmethod
+    def deduplicate_and_limit_candidate_ids(cls, value: list[int]) -> list[int]:
+        unique_ids = list(dict.fromkeys(value))
+        if len(unique_ids) > 10_000:
+            raise ValueError("candidate_ids may contain at most 10000 unique ids")
+        return unique_ids
 
 
 def _build_response(data: dict) -> dict:
@@ -1984,6 +1992,17 @@ async def export_candidates_v2(
                 status_code=422,
                 detail="scope='selected' requires at least one candidate_id",
             )
+        found_count = int(
+            await db.scalar(
+                select(func.count(Candidate.id)).where(Candidate.id.in_(unique_ids))
+            )
+            or 0
+        )
+        if found_count != len(unique_ids):
+            raise HTTPException(
+                status_code=422,
+                detail="One or more selected candidate_ids do not exist",
+            )
         query = (
             select(Candidate)
             .where(Candidate.id.in_(unique_ids))
@@ -3478,20 +3497,21 @@ async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> Non
     """Run CC classifier and persist the top hit as the candidate's primary CC.
 
     Mirrors the pattern used in `public_share.py` — only writes when the
-    candidate has no CC yet (recruiter-curated value wins). Score ≥ 0.30 is
-    required so very weak signals don't pollute the profile. Failures are
+    candidate has no CC yet (recruiter-curated value wins). Score ≥ 0.80 and
+    a ≥ 0.10 lead over #2 are required. Failures are
     logged but never surface to the caller: CC is enrichment, not required
     for the candidate record.
     """
     try:
-        from app.services.cc_classifier import classify_candidate_to_cc
+        from app.services.cc_classifier import (
+            classify_candidate_to_cc,
+            should_auto_assign,
+        )
 
         scores = await classify_candidate_to_cc(candidate, db)
-        if not scores:
+        if not should_auto_assign(scores):
             return
         top = scores[0]
-        if top.score < 0.30:
-            return
         if candidate.competence_category and candidate.competence_category_id:
             # Already curated — leave it alone.
             return

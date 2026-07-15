@@ -116,10 +116,10 @@ class TalentRadarEmbeddingCopier:
         self,
         points: list[tuple[int, list[float], dict]],
     ) -> None:
-        from qdrant_client import QdrantClient
         from qdrant_client.models import PointStruct
+        from app.services.qdrant_factory import get_qdrant_client
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
         client.upsert(
             collection_name=_collection_name(),
             points=[

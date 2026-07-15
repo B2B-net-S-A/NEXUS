@@ -2464,6 +2464,7 @@ export interface ScoringWeights {
   salary: number;
   location: number;
   availability: number;
+  champion_fit: number;
 }
 
 export interface ScoringWeightProfile {
@@ -2473,6 +2474,7 @@ export interface ScoringWeightProfile {
   client_id: number | null;
   weights: ScoringWeights;
   active: boolean;
+  version: number;
   created_at: string;
   updated_at: string;
 }

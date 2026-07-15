@@ -459,6 +459,68 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_status_day ON analytics_shadow_comparisons (status, observed_on DESC)",
     "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_module_day ON analytics_shadow_comparisons (module_key, observed_on DESC)",
+    # AI retrieval foundation (migration 0165). The outbox prevents silent
+    # Qdrant drift when candidate/job records are edited outside API handlers.
+    """CREATE TABLE IF NOT EXISTS embedding_index_queue (
+        id BIGSERIAL PRIMARY KEY,
+        entity_type VARCHAR(20) NOT NULL,
+        entity_id INTEGER NOT NULL,
+        operation VARCHAR(10) NOT NULL DEFAULT 'upsert',
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        source_hash VARCHAR(64),
+        last_error TEXT,
+        available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        locked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_embedding_index_entity UNIQUE (entity_type, entity_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_embedding_index_queue_status ON embedding_index_queue (status)",
+    "CREATE INDEX IF NOT EXISTS ix_embedding_index_queue_available_at ON embedding_index_queue (available_at)",
+    "ALTER TABLE scoring_weight_profiles ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS profile_version INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS scoring_algorithm_version VARCHAR(40) NOT NULL DEFAULT 'legacy'",
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS index_version VARCHAR(255) NOT NULL DEFAULT 'legacy'",
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS candidate_source_hash VARCHAR(64) NOT NULL DEFAULT 'legacy'",
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS job_source_hash VARCHAR(64) NOT NULL DEFAULT 'legacy'",
+    """CREATE OR REPLACE FUNCTION nexus_enqueue_embedding_index()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE target_id integer; target_operation varchar(10);
+    BEGIN
+        target_id := COALESCE(NEW.id, OLD.id);
+        target_operation := CASE WHEN TG_OP = 'DELETE' THEN 'delete' ELSE 'upsert' END;
+        INSERT INTO embedding_index_queue (
+            entity_type, entity_id, operation, status, attempts,
+            available_at, locked_at, last_error, created_at, updated_at
+        ) VALUES (
+            TG_ARGV[0], target_id, target_operation, 'pending', 0,
+            now(), NULL, NULL, now(), now()
+        ) ON CONFLICT (entity_type, entity_id) DO UPDATE SET
+            operation=EXCLUDED.operation, status='pending', attempts=0,
+            available_at=now(), locked_at=NULL, last_error=NULL, updated_at=now();
+        RETURN COALESCE(NEW, OLD);
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_candidates_embedding_index') THEN
+            CREATE TRIGGER trg_candidates_embedding_index
+            AFTER INSERT OR DELETE OR UPDATE OF name, lastname, competence_category,
+                competence_category_id, years_it_experience, skills, verified_tech,
+                experience, tags, preferences, ai_summary, raw_cv_text, languages
+            ON candidates FOR EACH ROW
+            EXECUTE FUNCTION nexus_enqueue_embedding_index('candidate');
+        END IF;
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_jobs_embedding_index') THEN
+            CREATE TRIGGER trg_jobs_embedding_index
+            AFTER INSERT OR DELETE OR UPDATE OF title, description, requirements,
+                seniority, subcategory, industry, train_name, champion_profile,
+                must_skills, nice_skills, competence_category_id, work_mode
+            ON jobs FOR EACH ROW
+            EXECUTE FUNCTION nexus_enqueue_embedding_index('job');
+        END IF;
+    END $$""",
     # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
     # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
     # UndefinedColumnError gdyby app wystartował przed alembic upgrade.

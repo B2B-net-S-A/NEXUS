@@ -77,11 +77,9 @@ async def embed_diagnostics(
 
     # Qdrant ping — list collections + counts
     def _qdrant_probe():
-        from qdrant_client import QdrantClient
+        from app.services.qdrant_factory import get_qdrant_client
 
-        client = QdrantClient(
-            host=settings.QDRANT_HOST, port=settings.QDRANT_PORT, timeout=5
-        )
+        client = get_qdrant_client(timeout=5)
         existing = [c.name for c in client.get_collections().collections]
         counts = {}
         for name in (_collection(), _jobs_collection()):

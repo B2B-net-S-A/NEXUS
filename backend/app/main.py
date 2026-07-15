@@ -497,6 +497,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.analytics_shadow import analytics_shadow_loop
+    from app.tasks.embedding_index_sync import embedding_index_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
@@ -530,6 +531,7 @@ async def lifespan(app: FastAPI):
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "analytics_shadow": asyncio.create_task(analytics_shadow_loop()),
+        "embedding_index_sync": asyncio.create_task(embedding_index_sync_loop()),
     }
 
     yield

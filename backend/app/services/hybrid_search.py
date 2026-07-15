@@ -123,17 +123,21 @@ async def hybrid_candidates(
     pool: int = 100,
     final_top_k: int = 20,
     use_rerank: Optional[bool] = None,
-) -> list[tuple[int, float]]:
+) -> list[tuple[int, Optional[float]]]:
     """Hybrid (BM25 + dense + RRF) candidate retrieval.
 
     Returns [(candidate_id, score), ...]. When `use_rerank` is True (or None
     and settings.RERANKER_ENABLED is True), the top `pool` after RRF is
     re-ordered by Voyage rerank-2.5 — `score` then becomes the rerank score.
     """
-    bm25_ids, dense_ids = await asyncio.gather(
+    from app.services.embedding_service import search_candidates_semantic
+
+    bm25_ids, dense_hits = await asyncio.gather(
         bm25_candidates(db, query, limit=pool),
-        dense_candidates(query, limit=pool),
+        search_candidates_semantic(query, top_k=pool),
     )
+    dense_ids = [int(hit["candidate_id"]) for hit in dense_hits]
+    dense_scores = {int(hit["candidate_id"]): float(hit["score"]) for hit in dense_hits}
     fused = reciprocal_rank_fusion([bm25_ids, dense_ids])
     if not fused:
         return []
@@ -147,14 +151,14 @@ async def hybrid_candidates(
         use_rerank = bool(getattr(settings, "RERANKER_ENABLED", False))
 
     if not use_rerank:
-        return fused[:final_top_k]
+        return [(doc_id, dense_scores.get(doc_id)) for doc_id, _ in fused[:final_top_k]]
 
     # Rerank: load minimal candidate text, send to cross-encoder.
     from sqlalchemy import select  # noqa: PLC0415
 
     from app.models.candidate import Candidate  # noqa: PLC0415
     from app.services.embedding_service import _build_candidate_text  # noqa: PLC0415
-    from app.services.reranker_service import rerank_or_passthrough  # noqa: PLC0415
+    from app.services.reranker_service import rerank  # noqa: PLC0415
 
     rows = (
         (await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids))))
@@ -164,7 +168,12 @@ async def hybrid_candidates(
     by_id = {c.id: c for c in rows}
     ordered = [by_id[cid] for cid in cand_ids if cid in by_id]
     docs = [_build_candidate_text(c)[:4000] for c in ordered]
-    pairs = await rerank_or_passthrough(query, docs, top_k=final_top_k)
+    pairs = await rerank(query, docs, top_k=final_top_k)
+    if pairs is None:
+        return [
+            (candidate.id, dense_scores.get(candidate.id))
+            for candidate in ordered[:final_top_k]
+        ]
 
     # Map rerank pairs back to candidate ids.
     return [(ordered[idx].id, float(score)) for idx, score in pairs]
@@ -177,12 +186,16 @@ async def hybrid_jobs(
     pool: int = 100,
     final_top_k: int = 20,
     use_rerank: Optional[bool] = None,
-) -> list[tuple[int, float]]:
+) -> list[tuple[int, Optional[float]]]:
     """Hybrid retrieval for jobs (e.g. CV-upload-preview reverse matching)."""
-    bm25_ids, dense_ids = await asyncio.gather(
+    from app.services.embedding_service import search_jobs_semantic
+
+    bm25_ids, dense_hits = await asyncio.gather(
         bm25_jobs(db, query, limit=pool),
-        dense_jobs(query, limit=pool),
+        search_jobs_semantic(query, top_k=pool),
     )
+    dense_ids = [int(hit["job_id"]) for hit in dense_hits]
+    dense_scores = {int(hit["job_id"]): float(hit["score"]) for hit in dense_hits}
     fused = reciprocal_rank_fusion([bm25_ids, dense_ids])
     if not fused:
         return []
@@ -195,17 +208,19 @@ async def hybrid_jobs(
         use_rerank = bool(getattr(settings, "RERANKER_ENABLED", False))
 
     if not use_rerank:
-        return fused[:final_top_k]
+        return [(doc_id, dense_scores.get(doc_id)) for doc_id, _ in fused[:final_top_k]]
 
     from sqlalchemy import select  # noqa: PLC0415
 
     from app.models.job import Job  # noqa: PLC0415
     from app.services.embedding_service import _build_job_text  # noqa: PLC0415
-    from app.services.reranker_service import rerank_or_passthrough  # noqa: PLC0415
+    from app.services.reranker_service import rerank  # noqa: PLC0415
 
     rows = (await db.execute(select(Job).where(Job.id.in_(job_ids)))).scalars().all()
     by_id = {j.id: j for j in rows}
     ordered = [by_id[jid] for jid in job_ids if jid in by_id]
     docs = [_build_job_text(j)[:4000] for j in ordered]
-    pairs = await rerank_or_passthrough(query, docs, top_k=final_top_k)
+    pairs = await rerank(query, docs, top_k=final_top_k)
+    if pairs is None:
+        return [(job.id, dense_scores.get(job.id)) for job in ordered[:final_top_k]]
     return [(ordered[idx].id, float(score)) for idx, score in pairs]

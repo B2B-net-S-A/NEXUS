@@ -21,28 +21,31 @@ from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.competence_category import (
     CandidateCompetenceCategory,
     CompetenceCategory,
 )
 from app.models.talent_pool import TalentPool, TalentPoolMembership
-from app.services.cc_classifier import CC_CENTROIDS_COLLECTION
 from app.services.embedding_service import candidate_collection_name
+from app.services.qdrant_factory import (
+    cc_centroids_collection_name,
+    get_qdrant_client,
+    pool_centroids_collection_name,
+)
 
 logger = logging.getLogger(__name__)
 
-POOL_CENTROIDS_COLLECTION = "nexus_pool_centroids"
+CC_CENTROIDS_COLLECTION = cc_centroids_collection_name()
+POOL_CENTROIDS_COLLECTION = pool_centroids_collection_name()
 VECTOR_SIZE = 1024
 
 
 def _ensure_centroid_collections() -> None:
     """Create CC/pool centroid Qdrant collections if missing."""
     try:
-        from qdrant_client import QdrantClient
         from qdrant_client.models import Distance, VectorParams
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
         existing = {c.name for c in client.get_collections().collections}
         for coll in (CC_CENTROIDS_COLLECTION, POOL_CENTROIDS_COLLECTION):
             if coll not in existing:
@@ -60,9 +63,7 @@ def _ensure_centroid_collections() -> None:
 def _retrieve_vectors_sync(collection: str, ids: list[int]) -> list[list[float]]:
     """Retrieve embedding vectors from Qdrant in batch. Missing ids are skipped."""
     try:
-        from qdrant_client import QdrantClient
-
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
         points = client.retrieve(collection_name=collection, ids=ids, with_vectors=True)
     except Exception as e:
         logger.warning("[Centroid] retrieve failed (%s): %s", collection, e)
@@ -90,10 +91,9 @@ def _mean_vector(vectors: list[list[float]]) -> Optional[list[float]]:
 
 
 def _upsert_centroid_sync(collection: str, point_id: int, vector: list[float]) -> None:
-    from qdrant_client import QdrantClient
     from qdrant_client.models import PointStruct
 
-    client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+    client = get_qdrant_client()
     client.upsert(
         collection_name=collection,
         points=[PointStruct(id=point_id, vector=vector, payload={})],

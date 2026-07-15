@@ -196,6 +196,7 @@ def _background_tasks_status(request: Request) -> dict[str, Any]:
         "cloudtalk_sync": settings.CLOUDTALK_ENABLED,
         "traffit_sync": settings.TRAFFIT_SYNC_ENABLED,
         "analytics_shadow": settings.ANALYTICS_V1_MODE == "shadow",
+        "embedding_index_sync": settings.EMBEDDING_INDEX_SYNC_ENABLED,
     }
 
     rows: list[dict[str, str | None]] = []
