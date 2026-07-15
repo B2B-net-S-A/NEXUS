@@ -1,9 +1,12 @@
 """Unit tests for the CV Generator B2B AI client resilience layer.
 
-Covers the 2026-06-23 fix for the production "Claude call failed: Error code
-529 - overloaded_error" failure: model fallback chain, retry-then-fallback
-cascade, the clean user-facing overload message, and the no-fallback-on-4xx
-guard so a misconfigured model surfaces instead of being silently masked.
+Covers the 2026-06-23 fix (model fallback chain, retry-then-fallback cascade,
+the clean user-facing overload message, no-fallback-on-4xx guard) AND the
+2026-07-15 fix: Anthropic retired ``claude-sonnet-4-6`` (the old primary) so its
+id started returning 404 ``not_found_error``. A 404 is non-retryable, so the old
+cascade broke *before* trying any fallback and every generation died even though
+``claude-opus-4-8`` was healthy. The chain now starts on ``claude-sonnet-5`` and
+a 404 (retired model) cascades to the next model instead of hard-failing.
 """
 
 from __future__ import annotations
@@ -41,7 +44,7 @@ class _FakeMessage:
 
 
 class _FakeStatusError(Exception):
-    """Mimics an anthropic API error carrying a status_code (e.g. 529/400)."""
+    """Mimics an anthropic API error carrying a status_code (e.g. 529/404/400)."""
 
     def __init__(self, status_code: int, err_type: str) -> None:
         super().__init__(f"Error code: {status_code} - {err_type}")
@@ -81,9 +84,8 @@ def test_default_model_chain(monkeypatch):
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
     assert ai_client._models() == [
-        "claude-sonnet-4-6",
-        "claude-opus-4-8",
         "claude-sonnet-5",
+        "claude-opus-4-8",
         "claude-haiku-4-5-20251001",
     ]
 
@@ -96,9 +98,9 @@ def test_model_chain_respects_env_and_dedups(monkeypatch):
 
 
 def test_empty_fallback_env_yields_single_model(monkeypatch):
-    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-4-6")
+    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-5")
     monkeypatch.setenv("CV_B2B_FALLBACK_MODELS", "")
-    assert ai_client._models() == ["claude-sonnet-4-6"]
+    assert ai_client._models() == ["claude-sonnet-5"]
 
 
 # ── analyze_with_ai behaviour ────────────────────────────────────────────────
@@ -110,7 +112,7 @@ def test_success_on_primary_no_fallback(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": lambda: _FakeMessage('{"ok": true}'),
+            "claude-sonnet-5": lambda: _FakeMessage('{"ok": true}'),
             "claude-opus-4-8": lambda: _FakeMessage("should-not-be-called"),
         },
     )
@@ -118,7 +120,7 @@ def test_success_on_primary_no_fallback(monkeypatch):
     out = analyze_with_ai("payload", "req-1", system="sys")
 
     assert out == '{"ok": true}'
-    assert calls == ["claude-sonnet-4-6"]  # fallback never touched
+    assert calls == ["claude-sonnet-5"]  # fallback never touched
 
 
 def test_falls_back_to_second_model_on_overload(monkeypatch):
@@ -132,7 +134,7 @@ def test_falls_back_to_second_model_on_overload(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": overloaded,
+            "claude-sonnet-5": overloaded,
             "claude-opus-4-8": lambda: _FakeMessage('{"from": "opus"}'),
         },
     )
@@ -141,35 +143,35 @@ def test_falls_back_to_second_model_on_overload(monkeypatch):
 
     assert out == '{"from": "opus"}'
     # Primary retried (max_retries=1 → 2 attempts) then opus succeeded once.
-    assert calls == ["claude-sonnet-4-6", "claude-sonnet-4-6", "claude-opus-4-8"]
+    assert calls == ["claude-sonnet-5", "claude-sonnet-5", "claude-opus-4-8"]
 
 
-def test_falls_through_premium_pools_to_sonnet5(monkeypatch):
-    # The production incident this chain guards against: BOTH premium pools
-    # (sonnet-4-6 + opus-4-8) are overloaded while sonnet-5 — the model the rest
-    # of NEXUS runs on — is healthy. Generation must route to sonnet-5 instead of
-    # failing with the "przeciążona" message; the haiku last resort stays spared.
+def test_retired_primary_404_cascades_to_fallback(monkeypatch):
+    # The 2026-07-15 outage: Anthropic retired the primary model, so its id 404s
+    # with not_found_error. A 404 is non-retryable — the OLD code broke here and
+    # never tried the healthy fallback. Now it must cascade to the next model
+    # WITHOUT wasting retries on the dead id (called exactly once despite
+    # max_retries=2), and return the fallback's output.
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
-    monkeypatch.setenv("CV_B2B_MAX_RETRIES", "0")
+    monkeypatch.setenv("CV_B2B_MAX_RETRIES", "2")
 
-    def overloaded():
-        raise _FakeStatusError(529, "overloaded_error")
+    def retired():
+        raise _FakeStatusError(404, "not_found_error")
 
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": overloaded,
-            "claude-opus-4-8": overloaded,
-            "claude-sonnet-5": lambda: _FakeMessage('{"from": "sonnet-5"}'),
-            "claude-haiku-4-5-20251001": lambda: _FakeMessage("unreached"),
+            "claude-sonnet-5": retired,
+            "claude-opus-4-8": lambda: _FakeMessage('{"from": "opus"}'),
         },
     )
 
-    out = analyze_with_ai("payload", "req-incident")
+    out = analyze_with_ai("payload", "req-retired")
 
-    assert out == '{"from": "sonnet-5"}'
-    assert calls == ["claude-sonnet-4-6", "claude-opus-4-8", "claude-sonnet-5"]
+    assert out == '{"from": "opus"}'
+    # Dead primary called ONCE (no retry on a 404), then opus served.
+    assert calls == ["claude-sonnet-5", "claude-opus-4-8"]
 
 
 def test_all_models_overloaded_raises_clean_message(monkeypatch):
@@ -183,9 +185,8 @@ def test_all_models_overloaded_raises_clean_message(monkeypatch):
     _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": overloaded,
-            "claude-opus-4-8": overloaded,
             "claude-sonnet-5": overloaded,
+            "claude-opus-4-8": overloaded,
             "claude-haiku-4-5-20251001": overloaded,
         },
     )
@@ -198,6 +199,42 @@ def test_all_models_overloaded_raises_clean_message(monkeypatch):
     # The raw API dict must NOT leak into the user-facing message.
     assert "overloaded_error" not in msg
     assert "529" not in msg
+
+
+def test_all_models_404_raises_config_error(monkeypatch):
+    # Every configured model is gone (404 not_found — e.g. all retired). This is
+    # a config problem, not a transient overload: it must surface as a clear AI
+    # error naming the fix (CV_B2B_MODEL), NOT the misleading "przeciążona".
+    monkeypatch.delenv("CV_B2B_MODEL", raising=False)
+    monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
+    monkeypatch.setenv("CV_B2B_MAX_RETRIES", "2")
+
+    def retired():
+        raise _FakeStatusError(404, "not_found_error")
+
+    calls = _install_fake_client(
+        monkeypatch,
+        {
+            "claude-sonnet-5": retired,
+            "claude-opus-4-8": retired,
+            "claude-haiku-4-5-20251001": retired,
+        },
+    )
+
+    with pytest.raises(CVGeneratorAIError) as exc:
+        analyze_with_ai("payload", "req-all-404")
+
+    # Not surfaced as a transient overload…
+    assert not isinstance(exc.value, CVGeneratorOverloadedError)
+    # …and it names the actionable config fix.
+    msg = str(exc.value)
+    assert "CV_B2B_MODEL" in msg
+    # Every model tried exactly once (404 fast-fails, then cascades).
+    assert calls == [
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "claude-haiku-4-5-20251001",
+    ]
 
 
 def test_overload_then_non_retryable_fallback_still_overloaded(monkeypatch):
@@ -217,7 +254,7 @@ def test_overload_then_non_retryable_fallback_still_overloaded(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": overloaded,
+            "claude-sonnet-5": overloaded,
             "claude-opus-4-8": bad_request,
         },
     )
@@ -225,7 +262,7 @@ def test_overload_then_non_retryable_fallback_still_overloaded(monkeypatch):
     with pytest.raises(CVGeneratorOverloadedError):
         analyze_with_ai("payload", "req-overload-then-4xx")
 
-    assert calls == ["claude-sonnet-4-6", "claude-opus-4-8"]
+    assert calls == ["claude-sonnet-5", "claude-opus-4-8"]
 
 
 def test_empty_model_chain_raises_without_calling_claude(monkeypatch):
@@ -233,7 +270,7 @@ def test_empty_model_chain_raises_without_calling_claude(monkeypatch):
     monkeypatch.setenv("CV_B2B_FALLBACK_MODELS", "")
     calls = _install_fake_client(
         monkeypatch,
-        {"claude-sonnet-4-6": lambda: _FakeMessage("unreached")},
+        {"claude-sonnet-5": lambda: _FakeMessage("unreached")},
     )
 
     with pytest.raises(CVGeneratorAIError) as exc:
@@ -253,7 +290,7 @@ def test_garbage_max_retries_env_does_not_crash(monkeypatch):
     monkeypatch.setenv("CV_B2B_MAX_TOKENS", "not-a-number")
     _install_fake_client(
         monkeypatch,
-        {"claude-sonnet-4-6": lambda: _FakeMessage('{"ok": 1}')},
+        {"claude-sonnet-5": lambda: _FakeMessage('{"ok": 1}')},
     )
 
     assert analyze_with_ai("payload", "req-garbage-env") == '{"ok": 1}'
@@ -270,7 +307,7 @@ def test_non_retryable_4xx_does_not_fall_back(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": bad_request,
+            "claude-sonnet-5": bad_request,
             "claude-opus-4-8": lambda: _FakeMessage("unreached"),
         },
     )
@@ -278,10 +315,10 @@ def test_non_retryable_4xx_does_not_fall_back(monkeypatch):
     with pytest.raises(CVGeneratorAIError) as exc:
         analyze_with_ai("payload", "req-4")
 
-    # Not an overload — surfaced as a plain AI error, fallback never attempted,
-    # and no pointless retries on a deterministic 4xx.
+    # A 400 (unlike a 404) is not model-specific — surfaced as a plain AI error,
+    # fallback never attempted, and no pointless retries on a deterministic 4xx.
     assert not isinstance(exc.value, CVGeneratorOverloadedError)
-    assert calls == ["claude-sonnet-4-6"]
+    assert calls == ["claude-sonnet-5"]
 
 
 def test_truncation_raises_immediately_without_fallback(monkeypatch):
@@ -290,7 +327,7 @@ def test_truncation_raises_immediately_without_fallback(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": lambda: _FakeMessage("{...", stop_reason="max_tokens"),
+            "claude-sonnet-5": lambda: _FakeMessage("{...", stop_reason="max_tokens"),
             "claude-opus-4-8": lambda: _FakeMessage("unreached"),
         },
     )
@@ -300,7 +337,7 @@ def test_truncation_raises_immediately_without_fallback(monkeypatch):
 
     # Truncation is a content-length issue — identical on any model, so no
     # fallback is attempted.
-    assert calls == ["claude-sonnet-4-6"]
+    assert calls == ["claude-sonnet-5"]
 
 
 def test_missing_api_key_raises(monkeypatch):
@@ -338,7 +375,7 @@ def test_extracts_text_when_thinking_block_leads(monkeypatch):
     _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": lambda: _MultiBlockMessage(
+            "claude-sonnet-5": lambda: _MultiBlockMessage(
                 [_FakeThinkingBlock("reasoning..."), _FakeBlock('{"ok": true}')]
             ),
         },
@@ -402,7 +439,7 @@ def test_no_text_block_raises_clean_error(monkeypatch):
     _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-4-6": lambda: _MultiBlockMessage(
+            "claude-sonnet-5": lambda: _MultiBlockMessage(
                 [_FakeThinkingBlock("only thinking, no answer")]
             ),
         },

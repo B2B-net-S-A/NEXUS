@@ -2,16 +2,17 @@
 external CV-Generator port.
 
 Policy:
-  - Primary model: ``claude-sonnet-4-6`` (env-overridable via ``CV_B2B_MODEL``).
-  - Fallback chain: ``claude-opus-4-8`` → ``claude-sonnet-5`` →
-    ``claude-haiku-4-5`` (env-overridable via ``CV_B2B_FALLBACK_MODELS``,
-    comma-separated). A 529 ``overloaded_error`` is per-model-pool, so when a
-    pool is saturated we re-issue against a different model family rather than
-    failing the whole generation. ``claude-sonnet-5`` is the pool the rest of
-    NEXUS already runs on (match-scoring, champion drafts, AI writer), and
-    ``claude-haiku-4-5`` is the high-availability last resort — so a capacity
-    crunch on the two premium pools still yields a (recruiter-reviewed) CV
-    instead of a hard "przeciążona" failure.
+  - Primary model: ``claude-sonnet-5`` (env-overridable via ``CV_B2B_MODEL``).
+    Was ``claude-sonnet-4-6`` until 2026-07-15, when Anthropic retired that id
+    and the API began returning 404 ``not_found_error`` for it.
+  - Fallback chain: ``claude-opus-4-8`` → ``claude-haiku-4-5`` (env-overridable
+    via ``CV_B2B_FALLBACK_MODELS``, comma-separated). A model is skipped to the
+    next both when it stays overloaded / rate-limited / timing-out (529 / 429 /
+    5xx / timeout — per-model-pool) AND when its id is gone (404
+    ``not_found_error`` — a retired model), so neither a saturated pool nor a
+    decommissioned model can fail the whole generation. ``claude-opus-4-8`` is
+    the premium quality net; ``claude-haiku-4-5`` the high-availability last
+    resort.
   - Max tokens: 8192 (env-overridable via ``CV_B2B_MAX_TOKENS``).
   - Per-request timeout: 120 s (env-overridable via ``CV_B2B_REQUEST_TIMEOUT``)
     so a hung attempt can't pin its FastAPI threadpool slot for the SDK's 600 s
@@ -20,10 +21,11 @@ Policy:
     candidate data travels in the user message only.
   - Per model: manual retries on overloaded/rate-limit/5xx with exponential
     backoff + jitter (``CV_B2B_MAX_RETRIES``, default 3). SDK-internal retries
-    are disabled so the two policies don't stack. Only *retryable* failures
-    (overload / 429 / 5xx / connection) cascade to the next model — a 4xx
-    request/config error (e.g. unknown model, bad key) surfaces immediately
-    instead of being masked by a silent fallback.
+    are disabled so the two policies don't stack. A transient failure (overload
+    / 429 / 5xx / connection) OR a gone model (404 ``not_found_error``) cascades
+    to the next model; only a genuine request/config error every model rejects
+    identically (400 bad-request, 401 auth) surfaces immediately instead of
+    being masked by a silent fallback.
   - ``stop_reason == "max_tokens"`` raises a dedicated error instead of
     surfacing later as a confusing "invalid JSON" failure. Truncation is a
     content-length issue (identical on any model) so it never triggers fallback.
@@ -45,29 +47,26 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 
-# Rewert #628 (sonnet-5): fala feedbacku od rekruterów — jakość CV wyraźnie
-# spadła. Sonnet 5 z wymuszonym thinking=disabled (konieczne, bo jego adaptive
-# thinking zjadał budżet max_tokens — #630/#632) generuje słabsze CV niż
-# Sonnet 4.6 w swoim naturalnym trybie. Ewentualny powrót na Sonnet 5 wymaga
-# CV_B2B_THINKING=adaptive + CV_B2B_MAX_TOKENS>=24576 i porównania jakości.
-_DEFAULT_MODEL = "claude-sonnet-4-6"
-# Fallback chain, tried in order when the model before it stays overloaded /
-# rate-limited / timing-out across all its retries. A 529 overloaded_error is
-# per-model-POOL, so cascading to a different model family is what stops a
-# capacity crunch on one pool from failing the whole generation:
-#   • claude-opus-4-8          — premium, current-gen peer of the primary.
-#   • claude-sonnet-5          — the pool the REST of NEXUS already runs on
-#     (match-scoring, champion drafts, AI writer). When those features work but
-#     CV generation 529s, the sonnet-4-6/opus-4-8 pools are the saturated ones,
-#     so routing here clears the outage with good quality. Runs with thinking
-#     disabled like the rest of the chain — the #635 quality caveat is about
-#     sonnet-5 as the PRIMARY; as an outage fallback a complete CV beats none.
-#   • claude-haiku-4-5-20251001 — highest-availability last resort; only reached
-#     when every model above is also down.
+# 2026-07-15: claude-sonnet-4-6 (poprzedni primary, wybrany w #635 dla jakości)
+# został WYCOFANY przez Anthropica — API zwraca 404 not_found_error
+# ("model: claude-sonnet-4-6 not found"). Objaw u zespołu: "Błąd podczas
+# przetwarzania CV" / wcześniej mylące "przeciążona". Bez poprawki cascade na 404
+# (patrz _is_model_unavailable) generacja padała, zanim dotknęła fallbacku.
+# Primary wraca więc na claude-sonnet-5 — ten sam pool, na którym działa reszta
+# NEXUS-a (match-scoring, Champion, AI writer), sonnet-tier zgodny z
+# cost-routingiem; thinking wyłączony (patrz _thinking_param) chroni przed
+# ucięciem JSON z #630/#632. Zmiana modelu bez redeployu przez CV_B2B_MODEL
+# (np. claude-opus-4-8 dla maks. jakości).
+_DEFAULT_MODEL = "claude-sonnet-5"
+# Fallback chain, tried in order when the model before it is unusable — it stayed
+# overloaded / rate-limited / timed out across all retries, OR its id is gone
+# (404 not_found_error — a retired model). Cascading to a different model family
+# is what stops one dead/saturated pool from failing the whole generation:
+#   • claude-opus-4-8          — premium quality net (current-gen Opus).
+#   • claude-haiku-4-5-20251001 — highest-availability last resort.
 # Override the whole list without a redeploy via CV_B2B_FALLBACK_MODELS.
 _DEFAULT_FALLBACK_MODELS = (
     "claude-opus-4-8",
-    "claude-sonnet-5",
     "claude-haiku-4-5-20251001",
 )
 _DEFAULT_MAX_TOKENS = 8192
@@ -155,17 +154,16 @@ def _request_timeout() -> float:
 def _thinking_param() -> dict[str, str] | None:
     """Extended-thinking config for the extraction call.
 
-    Dla ``claude-sonnet-4-6`` (obecny primary) ``disabled`` jest no-opem —
-    thinking i tak jest tam domyślnie wyłączony. Pin ma znaczenie, gdy przez
-    ``CV_B2B_MODEL`` wybrany zostanie model Claude 5:
-    ``claude-sonnet-5`` runs adaptive thinking with ``effort=high`` BY DEFAULT,
-    and thinking tokens are billed as output — they count toward ``max_tokens``
-    and crowd out the CV JSON, tripping ``stop_reason=max_tokens`` (the
-    "Odpowiedź Claude została ucięta" truncation). CV extraction is a structured
-    transformation that gains little from extended reasoning, so thinking is
-    disabled by default. Set ``CV_B2B_THINKING`` to ``adaptive``/``on`` to
-    restore the model's default adaptive thinking (e.g. if extraction quality
-    regresses) — that omits the param so the model decides.
+    ``claude-sonnet-5`` (obecny primary od 2026-07-15) runs adaptive thinking
+    with ``effort=high`` BY DEFAULT, and thinking tokens are billed as output —
+    they count toward ``max_tokens`` and crowd out the CV JSON, tripping
+    ``stop_reason=max_tokens`` (the "Odpowiedź Claude została ucięta"
+    truncation). Pinning thinking off is therefore load-bearing now, not the
+    no-op it was under the retired ``claude-sonnet-4-6`` primary. CV extraction
+    is a structured transformation that gains little from extended reasoning, so
+    thinking is disabled by default. Set ``CV_B2B_THINKING`` to ``adaptive``/
+    ``on`` to restore the model's default adaptive thinking (e.g. if extraction
+    quality regresses) — that omits the param so the model decides.
     """
     mode = os.environ.get("CV_B2B_THINKING", "disabled").strip().lower()
     if mode in ("adaptive", "on", "true", "1", "enabled", "default"):
@@ -247,6 +245,38 @@ def _is_retryable(err: BaseException) -> bool:
     if isinstance(err, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
         return True
     return False
+
+
+def _is_model_unavailable(err: BaseException) -> bool:
+    """True for a 404 ``not_found_error`` — the MODEL id is unknown or retired.
+
+    Distinct from a 400 request/config error (which every model would reject the
+    same way → stop): a gone model means THIS id is unusable but a DIFFERENT
+    model may still serve, so the caller must cascade to the next model instead
+    of failing outright. Not *retryable* on the same model — re-issuing the
+    identical id just 404s again — so it never triggers backoff, only fallover.
+
+    This is the fix for the 2026-07-15 outage: Anthropic retired
+    ``claude-sonnet-4-6`` (then the primary); its 404 was non-retryable, so the
+    old cascade broke *before* trying any fallback and every CV generation died
+    even though ``claude-opus-4-8`` was healthy.
+    """
+    status = getattr(err, "status_code", None)
+    if status is None:
+        response = getattr(err, "response", None)
+        if response is not None:
+            status = getattr(response, "status_code", None)
+
+    err_type = ""
+    body = getattr(err, "body", None)
+    if isinstance(body, dict):
+        err_obj = body.get("error") or {}
+        if isinstance(err_obj, dict):
+            err_type = err_obj.get("type", "")
+    if not err_type:
+        err_type = getattr(err, "type", "") or ""
+
+    return status == 404 or err_type == "not_found_error"
 
 
 def _call_model(
@@ -403,12 +433,15 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
 
     start = time.time()
     last_err: BaseException | None = None
-    # Track whether *any* model in the chain hit a transient/overload error.
-    # If the primary was overloaded (retry-able) but a fallback then fails with
-    # a non-retryable 4xx, the recoverable condition still holds — a later retry
-    # could route back to the recovered primary — so the clean overload message
-    # must win over the fallback's hard error.
+    # Track *why* models failed so the final error is accurate:
+    #  - any_retryable: a model was transiently down (overload / 429 / 5xx /
+    #    timeout). A later retry could succeed, so the clean "przeciążona"
+    #    message wins even if a later fallback died on a hard error.
+    #  - any_unavailable: a model's id was gone (404 not_found — retired). If
+    #    that is the ONLY failure mode, it's a config problem (wrong/retired
+    #    CV_B2B_MODEL), not a transient one, and must surface as such.
     any_retryable = False
+    any_unavailable = False
 
     for idx, model in enumerate(models):
         try:
@@ -426,18 +459,22 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
             raise  # content-length issue — identical on any model
         except _ModelExhausted as exc:
             last_err = exc.cause
+            unavailable = _is_model_unavailable(exc.cause) if exc.cause else False
             any_retryable = any_retryable or exc.retryable
-            # A non-retryable failure (4xx request/config error) would be
-            # rejected the same way by every model — stop cascading rather than
-            # masking a misconfiguration behind a silent, slower fallback.
-            if not exc.retryable:
+            any_unavailable = any_unavailable or unavailable
+            # Cascade to the next model when THIS one is transiently down
+            # (retryable) OR its id is gone (404 not_found — retired). Only a
+            # genuine request/config error every model rejects identically (400
+            # bad-request, 401 auth) stops the cascade — falling back there would
+            # just mask a real misconfiguration behind a slower, identical fail.
+            if not (exc.retryable or unavailable):
                 break
             if idx + 1 < len(models):
                 logger.warning(
-                    "[cv_b2b][%s] model %s exhausted (overloaded/transient) — "
-                    "falling back to %s",
+                    "[cv_b2b][%s] model %s unusable (%s) — falling back to %s",
                     request_id,
                     model,
+                    "retired/404" if unavailable else "overloaded/transient",
                     models[idx + 1],
                 )
 
@@ -450,9 +487,19 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
         last_err,
     )
     if any_retryable:
-        # A model stayed overloaded/unavailable — transient, retry-able.
+        # A model stayed overloaded / rate-limited — transient, retry-able.
         raise CVGeneratorOverloadedError(
             "Usługa AI (Claude) jest chwilowo przeciążona. "
             "Spróbuj wygenerować CV ponownie za chwilę."
+        ) from last_err
+    if any_unavailable:
+        # Every model that wasn't transiently overloaded returned 404 — the
+        # configured id(s) are gone (e.g. a retired model). A config problem, not
+        # a transient one: name it so CV_B2B_MODEL / CV_B2B_FALLBACK_MODELS gets
+        # fixed instead of chasing a phantom "overload".
+        raise CVGeneratorAIError(
+            "Żaden ze skonfigurowanych modeli Claude nie jest dostępny "
+            "(404 not_found — prawdopodobnie wycofany). Zaktualizuj "
+            f"CV_B2B_MODEL / CV_B2B_FALLBACK_MODELS. Szczegóły: {last_err}"
         ) from last_err
     raise CVGeneratorAIError(f"Claude call failed: {last_err}") from last_err

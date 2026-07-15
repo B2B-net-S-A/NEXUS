@@ -30,4 +30,4 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: "Review this pull request for bugs, security issues, and missing test coverage. Be concise — only flag real problems and cite file:line. Skip style nitpicks."
-          claude_args: "--model claude-sonnet-4-6 --max-turns 5"
+          claude_args: "--model claude-sonnet-5 --max-turns 5"
