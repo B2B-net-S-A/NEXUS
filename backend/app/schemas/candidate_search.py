@@ -92,6 +92,11 @@ class CandidateSearchRequest(BaseModel):
         default=None,
         description="Exclude candidates already added (any stage) to this job.",
     )
+    # Hide globally-blacklisted candidates (eligibility visibility=hidden). The
+    # search endpoint forces this on whenever a job context is present; the
+    # global candidate list leaves it off so blacklisted profiles stay
+    # manageable there. See SEARCH-P0-04.
+    exclude_blacklisted: bool = False
 
     # === Sort + paging ========================================================
     sort: SortOrder = "relevance"

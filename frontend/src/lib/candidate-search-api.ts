@@ -70,6 +70,11 @@ export interface CandidateSearchRequest {
   open_to_expert_consult?: boolean | null;
   cv_parsed_after?: string | null; // ISO date
   exclude_in_job_id?: number | null;
+  /**
+   * Hide globally-blacklisted candidates. The backend forces this on for
+   * job-context search regardless of what's sent, so callers rarely set it.
+   */
+  exclude_blacklisted?: boolean;
   sort?: SortMode;
   page?: number;
   page_size?: number;
