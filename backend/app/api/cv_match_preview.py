@@ -48,7 +48,6 @@ from app.services.cv_parser import parse_cv
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.embedding_service import (
     _build_job_text,
-    generate_embedding,
     search_jobs_semantic,
 )
 from app.services.recommendation_filters import (
@@ -255,14 +254,16 @@ async def cv_upload_preview(
         parsed = await parse_cv(cv_text)
         query_text = _build_query_text_from_parsed(parsed) or cv_text[:2000]
 
-        emb_ok = await generate_embedding(query_text) is not None
         # Wider Qdrant pool when reranker is on so the cross-encoder has room
         # to reorder; otherwise keep the historical 4x multiplier behaviour.
         rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
         retrieval_k = 50 if rerank_enabled else top_k * 4
-        hits = (
-            await search_jobs_semantic(query_text, top_k=retrieval_k) if emb_ok else []
-        )
+        # `search_jobs_semantic` already embeds `query_text` as a query and
+        # returns [] on embedding failure, so it is the single source of truth
+        # here — the previous standalone `generate_embedding` probe wasted a
+        # Voyage call and (worse) embedded the query as a document.
+        hits = await search_jobs_semantic(query_text, top_k=retrieval_k)
+        emb_ok = bool(hits)
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
         job_ids: list[int] = list(similarity_map.keys())
 
