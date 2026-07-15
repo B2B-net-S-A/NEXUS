@@ -1,4 +1,9 @@
-"""Unit tests for central log PII/secret redaction (app.core.logging_config)."""
+"""Unit tests for central log PII/secret redaction (app.core.logging_config).
+
+The fixtures below are deliberately secret-SHAPED placeholders (never real
+credentials) so the redaction regexes are exercised; the ``# gitleaks:allow``
+markers keep the secret scanner from flagging these intentional decoys.
+"""
 
 from __future__ import annotations
 
@@ -14,23 +19,24 @@ def test_redacts_email():
 
 
 def test_redacts_provider_key():
-    out = redact_sensitive("using key sk-ant-api03-AbCdEf123456xyz789 now")
-    assert "sk-ant-api03-AbCdEf123456xyz789" not in out
+    out = redact_sensitive("using key sk-notARealKeyPlaceholder0000 now")  # gitleaks:allow
+    assert "sk-notARealKeyPlaceholder0000" not in out
     assert "[redacted-key]" in out
 
 
 def test_redacts_bearer_token():
-    out = redact_sensitive("Authorization header: Bearer eyJhbGciOiJIUzI1NiJ9.payload")
-    assert "eyJhbGciOiJIUzI1NiJ9.payload" not in out
+    out = redact_sensitive("header: Bearer notARealBearerToken0000")  # gitleaks:allow
+    assert "notARealBearerToken0000" not in out
     assert "[redacted]" in out
 
 
 def test_redacts_labelled_secrets():
-    assert "[redacted]" in redact_sensitive("password=hunter2secret")
-    assert "[redacted]" in redact_sensitive('api_key: "abc123def456"')
-    assert "[redacted]" in redact_sensitive("token = tok_live_998877")
+    assert "[redacted]" in redact_sensitive("password=NotARealPasswordValue")  # gitleaks:allow
+    assert "[redacted]" in redact_sensitive('api_key: "NotARealApiKeyValue"')  # gitleaks:allow
+    assert "[redacted]" in redact_sensitive("token = NotARealTokenValue00")  # gitleaks:allow
     # the label itself is preserved for debuggability
-    assert redact_sensitive("password=hunter2secret").startswith("password")
+    out = redact_sensitive("password=NotARealPasswordValue")  # gitleaks:allow
+    assert out.startswith("password")
 
 
 def test_leaves_benign_text_unchanged():
