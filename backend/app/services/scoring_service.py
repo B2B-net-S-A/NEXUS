@@ -128,18 +128,51 @@ class WeightProfile:
 
     @classmethod
     def from_record(cls, record) -> "WeightProfile":
-        """Build from a `ScoringWeightProfile` ORM row."""
+        """Build from a `ScoringWeightProfile` ORM row.
+
+        The persisted ``weights`` dict may carry only the five legacy layers
+        (semantic/skills/salary/location/availability = 100). The old code then
+        added a default ``champion_fit=10`` on top, giving a 110-point budget
+        (AI-P0-05). Under ``AI_SCORING_CONTRACT_V2`` the champion layer instead
+        absorbs whatever the other five leave unallocated, so the budget is
+        always exactly 100. With the flag OFF, behaviour is unchanged.
+        """
         w = record.weights or {}
+        semantic = float(w.get("semantic", SEMANTIC_MAX))
+        skills = float(w.get("skills", SKILLS_MAX))
+        salary = float(w.get("salary", SALARY_MAX))
+        location = float(w.get("location", LOCATION_MAX))
+        availability = float(w.get("availability", AVAILABILITY_MAX))
+
+        if "champion_fit" in w:
+            champion_fit = float(w["champion_fit"])
+        elif getattr(settings, "AI_SCORING_CONTRACT_V2", False):
+            # Champion takes the remaining budget so the six layers sum to 100.
+            other = semantic + skills + salary + location + availability
+            champion_fit = max(0.0, 100.0 - other)
+        else:
+            champion_fit = CHAMPION_FIT_MAX  # legacy: may overshoot 100
+
         return cls(
             id=record.id,
             name=record.name,
-            semantic=float(w.get("semantic", SEMANTIC_MAX)),
-            skills=float(w.get("skills", SKILLS_MAX)),
-            salary=float(w.get("salary", SALARY_MAX)),
-            location=float(w.get("location", LOCATION_MAX)),
-            availability=float(w.get("availability", AVAILABILITY_MAX)),
-            champion_fit=float(w.get("champion_fit", CHAMPION_FIT_MAX)),
+            semantic=semantic,
+            skills=skills,
+            salary=salary,
+            location=location,
+            availability=availability,
+            champion_fit=champion_fit,
         )
+
+
+# Version stamp for the match-score cache. Derives from the scoring-contract
+# flag so flipping AI_SCORING_CONTRACT_V2 changes the string, which the cache
+# treats as a full invalidation (old rows recompute under the new budget rule).
+SCORING_ALGORITHM_VERSION: str = (
+    "score-v2-budget100"
+    if getattr(settings, "AI_SCORING_CONTRACT_V2", False)
+    else "score-v1-legacy"
+)
 
 
 DEFAULT_PROFILE = WeightProfile()

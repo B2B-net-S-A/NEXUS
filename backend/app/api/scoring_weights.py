@@ -1,6 +1,7 @@
 """Scoring weight profiles API (Phase D1).
 
-Admin-only CRUD. Profiles are validated so the 5 layers sum to 100.
+Admin-only CRUD. Profiles are validated so the layers sum to 100 (six layers;
+``champion_fit`` optional and defaults to 0 for backward-compatible payloads).
 Scope resolution (user → client → global) is done by the scoring engine; this
 module just persists, lists, and returns profiles.
 """
@@ -32,8 +33,13 @@ class WeightsPayload(BaseModel):
     salary: int = Field(ge=0, le=100)
     location: int = Field(ge=0, le=100)
     availability: int = Field(ge=0, le=100)
+    # Sixth engine layer. Optional for backward compatibility: a legacy 5-weight
+    # payload (champion_fit defaults to 0) must still sum to 100 exactly as
+    # before. New clients send all six. Validated last so the sum sees every
+    # layer — this closes the champion-budget-110 gap at the API boundary.
+    champion_fit: int = Field(0, ge=0, le=100)
 
-    @field_validator("availability")
+    @field_validator("champion_fit")
     @classmethod
     def _sum_to_100(cls, v: int, info) -> int:  # type: ignore[no-untyped-def]
         s = (
@@ -41,6 +47,7 @@ class WeightsPayload(BaseModel):
             + info.data.get("skills", 0)
             + info.data.get("salary", 0)
             + info.data.get("location", 0)
+            + info.data.get("availability", 0)
             + v
         )
         if s != 100:
