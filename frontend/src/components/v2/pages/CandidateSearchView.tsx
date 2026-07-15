@@ -7,6 +7,7 @@ import {
   Bookmark,
   ChevronDown,
   ChevronUp,
+  GitCompare,
   ListPlus,
   Loader2,
   Plus,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/candidate-search-api";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { JobShortlistPanel } from "@/components/v2/pages/JobShortlistPanel";
+import { CandidateCompareModal } from "@/components/v2/pages/CandidateCompareModal";
 import { shortlistApi } from "@/lib/candidate-search-api";
 import {
   formatReasonCounts,
@@ -138,6 +140,7 @@ export function CandidateSearchView({
   const [assignableStages, setAssignableStages] = useState<AssignableStage[]>([]);
   const [shortlistPending, setShortlistPending] = useState(false);
   const [shortlistRefresh, setShortlistRefresh] = useState(0);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   // Saved searches — list refetched after every mutation.
   const [savedSearches, setSavedSearches] = useState<SavedSearchOut[]>([]);
@@ -758,6 +761,19 @@ export function CandidateSearchView({
               )}
               Do shortlisty
             </Button>
+            {selected.size >= 2 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+                onClick={() => setCompareOpen(true)}
+                disabled={bulkPending || shortlistPending}
+              >
+                <GitCompare className="h-3 w-3" />
+                Porównaj
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"
@@ -801,6 +817,17 @@ export function CandidateSearchView({
             Następna
           </Button>
         </div>
+      )}
+
+      {compareOpen && addToJob && (
+        <CandidateCompareModal
+          jobId={addToJob.id}
+          candidates={(data?.items ?? [])
+            .filter((c) => selected.has(c.id))
+            .slice(0, 5)
+            .map((c) => ({ id: c.id, name: `${c.name} ${c.lastname}` }))}
+          onClose={() => setCompareOpen(false)}
+        />
       )}
     </div>
   );
