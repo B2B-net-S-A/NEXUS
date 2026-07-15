@@ -17,6 +17,7 @@ import {
   type CandidateSearchRequest,
   type CandidateSearchResponse,
   type SavedSearchOut,
+  type SearchDiagnosticsResponse,
   type SortMode,
 } from "@/lib/candidate-search-api";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
@@ -79,6 +80,9 @@ export function CandidateSearchView({
   const [data, setData] = useState<CandidateSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] =
+    useState<SearchDiagnosticsResponse | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
@@ -215,6 +219,34 @@ export function CandidateSearchView({
       clearTimeout(handle);
     };
   }, [request]);
+
+  // Exclusion waterfall — only when a COMPLETED search returned nothing (it runs
+  // several cumulative COUNT queries, so never fire it on a non-empty result).
+  // Keyed on `data`: fires once per empty result, using the request that
+  // produced it.
+  useEffect(() => {
+    if (!data || data.total > 0) {
+      setDiagnostics(null);
+      return;
+    }
+    let cancelled = false;
+    setDiagLoading(true);
+    candidateSearchApi
+      .diagnostics(request)
+      .then((d) => {
+        if (!cancelled) setDiagnostics(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDiagnostics(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDiagLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const ccCounts = useMemo(() => {
     const map: Record<number, number> = {};
@@ -433,8 +465,11 @@ export function CandidateSearchView({
       {/* Result rows */}
       <ul className="divide-y rounded-lg border bg-card dark:border-zinc-800">
         {data?.items.length === 0 && !loading && (
-          <li className="p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            Brak wyników. Zmień filtry lub poszerz query.
+          <li className="p-4">
+            <ExclusionWaterfall
+              diagnostics={diagnostics}
+              loading={diagLoading}
+            />
           </li>
         )}
         {data?.items.map((c) => (
@@ -603,5 +638,92 @@ function CandidateSearchRow({
         )}
       </div>
     </li>
+  );
+}
+
+interface ExclusionWaterfallProps {
+  diagnostics: SearchDiagnosticsResponse | null;
+  loading: boolean;
+}
+
+/**
+ * Empty-state diagnostics: shows how each filter narrowed the candidate pool,
+ * highlighting the stage where the count first hit zero (SEARCH-P1-04).
+ */
+export function ExclusionWaterfall({
+  diagnostics,
+  loading,
+}: ExclusionWaterfallProps) {
+  if (loading && !diagnostics) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-2 text-sm text-zinc-500 dark:text-zinc-400">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Analizuję, który filtr zawęził wyniki…
+      </div>
+    );
+  }
+  if (!diagnostics || diagnostics.stages.length === 0) {
+    return (
+      <div className="py-2 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        Brak wyników. Zmień filtry lub poszerz zapytanie.
+      </div>
+    );
+  }
+
+  const rows = [
+    { key: "__base__", label: "Wszyscy kandydaci", count: diagnostics.base_count },
+    ...diagnostics.stages,
+  ];
+  const maxCount = Math.max(diagnostics.base_count, 1);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">
+        Brak wyników — na którym filtrze odpadli kandydaci?
+      </p>
+      <ul className="space-y-1">
+        {rows.map((s, i) => {
+          const isCulprit = s.key === diagnostics.first_zeroing_stage;
+          const isZero = s.count === 0;
+          const pct = Math.max(2, Math.round((s.count / maxCount) * 100));
+          return (
+            <li key={s.key} className="flex items-center gap-2 text-xs">
+              <span
+                className={`w-44 shrink-0 truncate text-right ${
+                  i === 0 ? "font-medium" : "text-zinc-600 dark:text-zinc-400"
+                }`}
+              >
+                {s.label}
+              </span>
+              <span className="relative h-4 flex-1 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+                <span
+                  className={`absolute inset-y-0 left-0 rounded ${
+                    isCulprit || isZero ? "bg-rose-500" : "bg-primary/60"
+                  }`}
+                  style={{ width: `${pct}%` }}
+                />
+              </span>
+              <span
+                className={`w-16 shrink-0 text-right tabular-nums ${
+                  isZero
+                    ? "font-semibold text-rose-600 dark:text-rose-400"
+                    : "text-zinc-600 dark:text-zinc-400"
+                }`}
+              >
+                {s.count.toLocaleString("pl-PL")}
+              </span>
+              <span className="w-14 shrink-0 text-rose-600 dark:text-rose-400">
+                {isCulprit ? "← tutaj" : ""}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {diagnostics.first_zeroing_stage && (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Poluzuj oznaczony filtr, aby zobaczyć kandydatów.
+        </p>
+      )}
+    </div>
   );
 }

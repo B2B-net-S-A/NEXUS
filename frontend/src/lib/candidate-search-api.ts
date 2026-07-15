@@ -138,10 +138,29 @@ export interface CandidateSearchResponse {
   meta: SearchMeta;
 }
 
+export interface WaterfallStage {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface SearchDiagnosticsResponse {
+  base_count: number;
+  stages: WaterfallStage[];
+  total: number;
+  first_zeroing_stage?: string | null;
+}
+
 export const candidateSearchApi = {
   search: (body: CandidateSearchRequest): Promise<CandidateSearchResponse> =>
     api
       .post<CandidateSearchResponse>("/api/search/candidates", body)
+      .then((r) => r.data),
+  diagnostics: (
+    body: CandidateSearchRequest,
+  ): Promise<SearchDiagnosticsResponse> =>
+    api
+      .post<SearchDiagnosticsResponse>("/api/search/candidates/diagnostics", body)
       .then((r) => r.data),
 };
 
