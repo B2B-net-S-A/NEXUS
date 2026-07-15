@@ -883,8 +883,6 @@ export const contractsApi = {
       api.post<ContractDraftFinalizeResponse>(
         `/api/contracts/${id}/draft/finalize`,
       ),
-    printableUrl: (id: number) =>
-      `${API_BASE}/api/contracts/${id}/draft/render-pdf`,
   },
   byCandidate: (candidateId: number) =>
     api.get(`/api/contracts`, {
@@ -3885,8 +3883,6 @@ export const candidateStageCvApi = {
       api.post<CVBrandedFinalizeResponseT>(
         `/api/candidates/stages/${stageId}/cv/branded/finalize`,
       ),
-    printableUrl: (stageId: number) =>
-      `${API_BASE}/api/candidates/stages/${stageId}/cv/branded/render-pdf`,
   },
   share: {
     create: (stageId: number, expiresInDays = 30) =>

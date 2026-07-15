@@ -447,6 +447,51 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_saved_search_id ON saved_search_alert_log (saved_search_id)",
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_candidate_id ON saved_search_alert_log (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidates_updated_at ON candidates (updated_at)",
+    # match telemetry (migration 0169_match_telemetry) — append-only impression
+    # + outcome logs. No FKs (analytics survive candidate hard-delete; purged by
+    # retention/DSAR). Writer is flag-gated (AI_MATCH_TELEMETRY_ENABLED) so these
+    # stay empty until switched on, but the tables must exist first or the
+    # writer's INSERT 500s under prod's chronic alembic multi-head drift.
+    """CREATE TABLE IF NOT EXISTS match_impressions (
+        id BIGSERIAL PRIMARY KEY,
+        run_id VARCHAR(64) NOT NULL,
+        surface VARCHAR(64) NOT NULL,
+        job_id INTEGER,
+        request_id INTEGER,
+        user_ref VARCHAR(64),
+        client_ref VARCHAR(64),
+        candidate_id INTEGER NOT NULL,
+        rank INTEGER NOT NULL,
+        eligible BOOLEAN NOT NULL DEFAULT true,
+        retrieval_sources JSONB,
+        retrieval_score DOUBLE PRECISION,
+        rerank_score DOUBLE PRECISION,
+        fit_score DOUBLE PRECISION,
+        fit_breakdown JSONB,
+        ranker_version VARCHAR(64) NOT NULL DEFAULT 'scoring-v1-legacy',
+        index_version VARCHAR(64) NOT NULL DEFAULT 'index-legacy-v1',
+        text_schema_version VARCHAR(64) NOT NULL DEFAULT 'text-v1-legacy',
+        taxonomy_version VARCHAR(64) NOT NULL DEFAULT 'taxonomy-legacy-v1',
+        degraded BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_match_impression_run_cand UNIQUE (run_id, candidate_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_match_impressions_run_id ON match_impressions (run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_match_impressions_job_id ON match_impressions (job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_match_impressions_candidate_id ON match_impressions (candidate_id)",
+    """CREATE TABLE IF NOT EXISTS match_outcomes (
+        id BIGSERIAL PRIMARY KEY,
+        event_id VARCHAR(128) NOT NULL,
+        run_id VARCHAR(64),
+        candidate_id INTEGER,
+        job_id INTEGER,
+        event_type VARCHAR(32) NOT NULL,
+        reason_code VARCHAR(64),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_match_outcome_event_id UNIQUE (event_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_match_outcomes_run_id ON match_outcomes (run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_match_outcomes_candidate_id ON match_outcomes (candidate_id)",
     # candidates.search_doc_unaccented (migration 0159) — diacritic-folded mirror
     # of search_doc so `?q=lukasz gradzki` matches „Łukasz Grądzki".
     # advanced_candidate_search references it in the search UNION; without the

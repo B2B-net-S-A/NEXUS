@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
     RERANKER_ENABLED: bool = True
 
+    # ── AI matching telemetry (plan PR2) ──────────────────────────────────────
+    # Append-only impression/outcome logging so weights can eventually be
+    # learned from what recruiters actually saw + did, not from biased
+    # placement history. OFF by default: with the flag off, every telemetry
+    # write is a no-op (no rows, no hot-path cost). Kill-switch without redeploy
+    # via Coolify env. Salt pseudonymises user/client ids in the analytics
+    # tables; falls back to SECRET_KEY when unset so ids are never stored raw.
+    AI_MATCH_TELEMETRY_ENABLED: bool = False
+    AI_MATCH_TELEMETRY_SALT: str = ""
+
     # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
     # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz
     # hybrydowe /recommendations + proposals) zwracają TERAZ wszystkich

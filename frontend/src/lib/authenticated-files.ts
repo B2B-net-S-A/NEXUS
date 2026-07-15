@@ -72,3 +72,36 @@ export async function fetchAuthenticatedObjectUrl(
   const blob = contentType ? new Blob([raw], { type: contentType }) : raw;
   return URL.createObjectURL(blob);
 }
+
+/**
+ * Open a backend file/HTML endpoint inline in a NEW TAB, with auth. Replaces
+ * `window.open(rawBackendUrl)` — which sends no `Authorization` header and lands
+ * on a white "Not authenticated" page. Used for printable HTML views
+ * (`render-pdf` endpoints with an embedded `window.print()`) and inline PDFs.
+ *
+ * The tab is opened SYNCHRONOUSLY inside the click gesture (before the first
+ * `await`) so the popup blocker doesn't kill it; once the bytes arrive we point
+ * it at a same-origin blob URL. Pass `contentType` to force the MIME (e.g.
+ * `"text/html"` so a print view renders + auto-prints instead of downloading).
+ * Falls back to a download if the popup was blocked. Throws on fetch error so
+ * the caller can surface a message.
+ */
+export async function openAuthenticatedFile(
+  path: string,
+  contentType?: string | null,
+  fallbackFilename = "document",
+): Promise<void> {
+  const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
+  try {
+    const raw = await fetchAuthenticatedBlob(path);
+    const blob = contentType ? new Blob([raw], { type: contentType }) : raw;
+    const url = URL.createObjectURL(blob);
+    if (win) win.location.href = url;
+    else downloadBlob(blob, fallbackFilename);
+    // The new tab still reads the blob — revoke after a grace period.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    if (win) win.close();
+    throw e;
+  }
+}
