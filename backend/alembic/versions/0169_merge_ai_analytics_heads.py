@@ -1,7 +1,7 @@
-"""Merge the independent AI control-plane and Analytics v1 branches.
+"""Merge the independent AI and Analytics v1 migration branches.
 
-Revision ID: 0167_merge_ai_analytics_heads
-Revises: 0165_analytics_shadow_comparisons, 0167_embedding_cache_identity
+Revision ID: 0169_merge_ai_analytics_heads
+Revises: 0165_analytics_shadow_comparisons, 0168_ai_evaluation
 Create Date: 2026-07-15
 
 Both parent migrations are additive. This revision intentionally performs no
@@ -10,10 +10,10 @@ production startup ordering.
 """
 
 
-revision = "0167_merge_ai_analytics_heads"
+revision = "0169_merge_ai_analytics_heads"
 down_revision = (
     "0165_analytics_shadow_comparisons",
-    "0167_embedding_cache_identity",
+    "0168_ai_evaluation",
 )
 branch_labels = None
 depends_on = None
