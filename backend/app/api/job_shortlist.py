@@ -8,6 +8,7 @@ the client echoes the ``version`` it read and a stale PATCH 409s.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,15 +16,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
+from app.api.proposals_bulk import _resolve_initial_stage
 from app.core.database import get_db
 from app.models.candidate import Candidate
+from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.models.job_shortlist import JobShortlistEntry
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.schemas.job_shortlist import (
     ShortlistAddRequest,
     ShortlistAddResponse,
     ShortlistEntryResponse,
+    ShortlistPromoteResponse,
     ShortlistUpdateRequest,
+)
+from app.services.candidate_job_eligibility import (
+    ConflictInput,
+    EligibilityInput,
+    evaluate_eligibility,
+    extract_excluded_client_ids,
 )
 
 router = APIRouter()
@@ -185,3 +196,120 @@ async def delete_shortlist_entry(
     await db.delete(entry)
     await db.commit()
     return {"status": "deleted", "id": entry_id}
+
+
+@router.post(
+    "/shortlist/{entry_id}/promote",
+    response_model=ShortlistPromoteResponse,
+    summary="Promote a shortlist entry into the job's pipeline",
+)
+async def promote_shortlist_entry(
+    entry_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> ShortlistPromoteResponse:
+    """Move an approved shortlist entry into the pipeline (creates a
+    ``CandidateStage`` at the first non-terminal stage). Idempotent: if the
+    candidate is already in the job's pipeline it just records the promotion.
+    Applies the same eligibility gate as bulk-add / single-assign — a global
+    blacklist or an active client conflict → 409.
+    """
+    entry = await db.scalar(
+        select(JobShortlistEntry).where(JobShortlistEntry.id == entry_id)
+    )
+    if not entry:
+        raise HTTPException(status_code=404, detail="Shortlist entry not found")
+    job = await db.scalar(select(Job).where(Job.id == entry.job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == entry.candidate_id)
+    )
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    now = datetime.now(timezone.utc)
+    existing_stage = await db.scalar(
+        select(CandidateStage).where(
+            CandidateStage.job_id == job.id,
+            CandidateStage.candidate_id == candidate.id,
+        )
+    )
+
+    # Already in the pipeline — record the promotion (idempotent) and return.
+    if existing_stage is not None:
+        already_promoted = entry.promoted_to_pipeline_at is not None
+        if not already_promoted:
+            entry.promoted_to_pipeline_at = now
+            entry.updated_by = current_user.id
+            await db.commit()
+        return ShortlistPromoteResponse(
+            entry_id=entry.id,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            stage_id=existing_stage.id,
+            already_promoted=already_promoted,
+            already_in_pipeline=True,
+        )
+
+    # Eligibility gate before creating a new pipeline row.
+    conflict_rows = (
+        (
+            await db.execute(
+                select(CandidateConflict).where(
+                    CandidateConflict.candidate_id == candidate.id,
+                    CandidateConflict.client_id == job.client_id,
+                    CandidateConflict.active.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    decision = evaluate_eligibility(
+        EligibilityInput(
+            candidate_status=candidate.status.value,
+            job_client_id=job.client_id,
+            conflicts=tuple(
+                ConflictInput(
+                    type=r.type.value,
+                    client_id=r.client_id,
+                    active=r.active,
+                    expires_at=r.expires_at,
+                )
+                for r in conflict_rows
+            ),
+            excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
+            already_in_job=False,
+        ),
+        now,
+    )
+    if not decision.assignment_allowed:
+        raise HTTPException(status_code=409, detail=decision.reason)
+
+    stage_def = await _resolve_initial_stage(db, job, None)
+    legacy_enum = PipelineStage.new
+    if stage_def and stage_def.legacy_enum_value:
+        try:
+            legacy_enum = PipelineStage(stage_def.legacy_enum_value)
+        except ValueError:
+            legacy_enum = PipelineStage.new
+
+    stage = CandidateStage(
+        candidate_id=candidate.id,
+        job_id=job.id,
+        stage=legacy_enum,
+        stage_def_id=stage_def.id if stage_def else None,
+        moved_by=current_user.id,
+    )
+    db.add(stage)
+    entry.promoted_to_pipeline_at = now
+    entry.updated_by = current_user.id
+    await db.commit()
+    await db.refresh(stage)
+    return ShortlistPromoteResponse(
+        entry_id=entry.id,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        stage_id=stage.id,
+    )
