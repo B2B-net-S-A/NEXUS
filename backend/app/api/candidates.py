@@ -21,7 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import (
     Text,
     and_,
@@ -97,11 +97,20 @@ from app.services.note_mention_render import (
     render_traffit_mentions,
 )
 from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
+from app.api.financial_access import has_financial_access, redact_financial_fields
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _candidate_history_response_for_user(response: dict, current_user) -> dict:  # type: ignore[no-untyped-def]
+    """Return history with rate fields absent for non-finance roles."""
+
+    if has_financial_access(current_user):
+        return response
+    return redact_financial_fields(response)
 
 
 class DuplicateCheckPayload(BaseModel):
@@ -111,6 +120,75 @@ class DuplicateCheckPayload(BaseModel):
     name: Optional[str] = None
     lastname: Optional[str] = None
     exclude_candidate_id: Optional[int] = None
+
+
+class CandidateFilterSpec(BaseModel):
+    """Canonical candidate filters shared by list and export endpoints."""
+
+    status: Optional[list[CandidateStatus]] = None
+    location: Optional[str] = None
+    q: Optional[str] = None
+    skills: Optional[list[str]] = None
+    skill_combine: str = "and"
+    skills_any: Optional[list[str]] = None
+    skills_none: Optional[list[str]] = None
+    remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = None
+    min_salary: Optional[int] = Field(None, ge=0)
+    max_salary: Optional[int] = Field(None, ge=0)
+    min_rate: Optional[int] = Field(None, ge=0)
+    max_rate: Optional[int] = Field(None, ge=0)
+    min_experience: Optional[int] = Field(None, ge=0, le=60)
+    max_experience: Optional[int] = Field(None, ge=0, le=60)
+    employment: Optional[list[str]] = None
+    availability: Optional[list[AvailabilityStatus]] = None
+    added_by_user_id: Optional[list[int]] = None
+    talent_pool_id: Optional[list[int]] = None
+    current_company: Optional[list[str]] = None
+    past_company: Optional[list[str]] = None
+    current_title: Optional[list[str]] = None
+    worked_at_client_id: Optional[list[int]] = None
+    recruitment_id: Optional[list[int]] = None
+    recruitment_match: Literal["assigned", "not_assigned"] = "assigned"
+    recently_changed_jobs: Optional[int] = Field(None, ge=1, le=3)
+    open_to: Optional[list[str]] = None
+    q_all: Optional[list[str]] = None
+    q_any: Optional[list[str]] = None
+    q_any_group: Optional[list[str]] = None
+    q_none: Optional[list[str]] = None
+    pipeline_stage: Optional[list[PipelineStage]] = None
+    stage_category: Optional[list[StageCategory]] = None
+    stage_current_only: Optional[bool] = None
+    stage_moved_by: Optional[list[int]] = None
+    stage_moved_after: Optional[date] = None
+    stage_moved_before: Optional[date] = None
+    stage_client_id: Optional[list[int]] = None
+    sort: Literal["newest", "oldest", "name", "relevance"] = "newest"
+    id_after: Optional[int] = Field(None, ge=1)
+    updated_after: Optional[datetime] = None
+
+    @field_validator("remote_policy", mode="before")
+    @classmethod
+    def coerce_legacy_remote_policy(cls, value):
+        """Accept the old scalar form while keeping v2 filters multi-select."""
+        if isinstance(value, str):
+            return [value]
+        return value
+
+
+class CandidateExportRequest(BaseModel):
+    format: Literal["csv", "xlsx"] = "csv"
+    scope: Literal["filtered", "selected"]
+    filters: CandidateFilterSpec = Field(default_factory=CandidateFilterSpec)
+    candidate_ids: list[int] = Field(default_factory=list)
+    limit: int = Field(100_000, ge=1, le=100_000)
+
+    @field_validator("candidate_ids")
+    @classmethod
+    def deduplicate_and_limit_candidate_ids(cls, value: list[int]) -> list[int]:
+        unique_ids = list(dict.fromkeys(value))
+        if len(unique_ids) > 10_000:
+            raise ValueError("candidate_ids may contain at most 10000 unique ids")
+        return unique_ids
 
 
 def _build_response(data: dict) -> dict:
@@ -559,6 +637,363 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     return EmploymentInfo(state=EmploymentState.external, source="none")
 
 
+async def _build_candidate_filtered_query(
+    db: AsyncSession,
+    filters: CandidateFilterSpec,
+    *,
+    load_list_relations: bool = False,
+):
+    """Build the canonical candidate query used by list and filtered export.
+
+    The returned OR-groups are also consumed by relevance ordering and list
+    snippets, keeping parsing identical across both callers.
+    """
+    f = filters
+    query = select(Candidate)
+    if load_list_relations:
+        query = query.options(*_candidate_list_options())
+
+    if f.id_after:
+        query = query.where(Candidate.id > f.id_after)
+    if f.updated_after:
+        query = query.where(Candidate.updated_at > f.updated_after)
+    if f.status:
+        query = query.where(Candidate.status.in_(f.status))
+    if f.employment:
+        invalid = [e for e in f.employment if e not in {"at_client", "available"}]
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid employment values: {invalid}. "
+                    "Allowed: 'at_client', 'available'."
+                ),
+            )
+        emp_set = set(f.employment)
+        if emp_set == {"at_client"}:
+            query = query.where(_at_client_predicate())
+        elif emp_set == {"available"}:
+            query = query.where(not_(_at_client_predicate()))
+    if f.availability:
+        query = query.where(Candidate.availability_status.in_(f.availability))
+    if f.open_to:
+        open_to_fields = {
+            "side_projects": Candidate.open_to_side_projects,
+            "sales_support": Candidate.open_to_sales_support,
+            "expert_consult": Candidate.open_to_expert_consult,
+        }
+        invalid = [value for value in f.open_to if value not in open_to_fields]
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid open_to values: {invalid}. "
+                    f"Allowed: {sorted(open_to_fields)}."
+                ),
+            )
+        query = query.where(
+            or_(*[open_to_fields[value].is_(True) for value in set(f.open_to)])
+        )
+    if f.location:
+        query = query.where(Candidate.location.ilike(f"%{f.location}%"))
+
+    from app.services.advanced_candidate_search import (
+        build_advanced_filter,
+        single_phrase_filter,
+    )
+
+    if f.q:
+        q_stripped = f.q.strip()
+        use_fuzzy = len(q_stripped) >= 3
+        if use_fuzzy:
+            trigram_threshold = 0.5 if " " in q_stripped else 0.2
+            await db.execute(
+                text(f"SET LOCAL pg_trgm.similarity_threshold = {trigram_threshold}")
+            )
+        phrase_clause = single_phrase_filter(q_stripped, fuzzy=use_fuzzy)
+        if phrase_clause is not None:
+            query = query.where(phrase_clause)
+
+    q_any_groups = (
+        [group.split("|") for group in f.q_any_group] if f.q_any_group else None
+    )
+    advanced = build_advanced_filter(f.q_all, f.q_any, f.q_none, q_any_groups)
+    if advanced is not None:
+        query = query.where(advanced)
+
+    if f.skills or f.skills_any or f.skills_none:
+        from app.services.scoring_service import canonical_skill_names
+
+        def skill_predicate(skill: str):
+            pattern = f"%{skill.lower()}%"
+            return or_(
+                func.lower(func.coalesce(Candidate.skills.cast(Text), "")).like(
+                    pattern
+                ),
+                func.lower(func.coalesce(Candidate.verified_tech.cast(Text), "")).like(
+                    pattern
+                ),
+                func.lower(func.coalesce(Candidate.tags.cast(Text), "")).like(pattern),
+            )
+
+        def skill_group(names: list[str]):
+            wanted = [s for s in (canonical_skill_names(names) or []) if s]
+            return or_(*[skill_predicate(s) for s in wanted]) if wanted else None
+
+        if f.skills:
+            wanted = [s for s in (canonical_skill_names(f.skills) or []) if s]
+            if wanted:
+                clauses = [skill_predicate(s) for s in wanted]
+                combiner = or_ if f.skill_combine.strip().lower() == "or" else and_
+                query = query.where(combiner(*clauses))
+        if f.skills_any:
+            for raw_group in f.skills_any:
+                clause = skill_group(raw_group.split("|"))
+                if clause is not None:
+                    query = query.where(clause)
+        if f.skills_none:
+            for raw_group in f.skills_none:
+                clause = skill_group(raw_group.split("|"))
+                if clause is not None:
+                    query = query.where(not_(clause))
+
+    if f.remote_policy:
+        query = query.where(
+            or_(
+                *[
+                    Candidate.preferences.op("@>")(
+                        func.jsonb_build_object(
+                            "remote_modes", func.jsonb_build_array(mode)
+                        )
+                    )
+                    for mode in set(f.remote_policy)
+                ]
+            )
+        )
+    if f.min_salary is not None:
+        query = query.where(Candidate.salary_expectation >= f.min_salary)
+    if f.max_salary is not None:
+        query = query.where(Candidate.salary_expectation <= f.max_salary)
+    if f.min_rate is not None:
+        query = query.where(Candidate.expected_rate_hourly >= f.min_rate)
+    if f.max_rate is not None:
+        query = query.where(Candidate.expected_rate_hourly <= f.max_rate)
+
+    if f.min_experience is not None or f.max_experience is not None:
+        traffit_exp = Candidate.cv_extracted_data.op("->>")("traffit_experience")
+        exp_lo = case(
+            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
+            (traffit_exp == "Poniżej 2", literal(0)),
+            (traffit_exp == "2-5", literal(2)),
+            (traffit_exp == "5+", literal(5)),
+            else_=None,
+        )
+        exp_hi = case(
+            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
+            (traffit_exp == "Poniżej 2", literal(1)),
+            (traffit_exp == "2-5", literal(5)),
+            (traffit_exp == "5+", literal(60)),
+            else_=None,
+        )
+        if f.min_experience is not None:
+            query = query.where(exp_hi >= f.min_experience)
+        if f.max_experience is not None:
+            query = query.where(exp_lo <= f.max_experience)
+
+    if f.added_by_user_id:
+        real_ids = [uid for uid in f.added_by_user_id if uid != 0]
+        include_null = 0 in f.added_by_user_id
+        if include_null and real_ids:
+            query = query.where(
+                or_(Candidate.created_by.is_(None), Candidate.created_by.in_(real_ids))
+            )
+        elif include_null:
+            query = query.where(Candidate.created_by.is_(None))
+        elif real_ids:
+            query = query.where(Candidate.created_by.in_(real_ids))
+
+    if f.talent_pool_id:
+        pool_exists = (
+            select(1)
+            .where(
+                and_(
+                    TalentPoolMembership.candidate_id == Candidate.id,
+                    TalentPoolMembership.talent_pool_id.in_(f.talent_pool_id),
+                )
+            )
+            .exists()
+        )
+        query = query.where(pool_exists)
+    if f.current_company:
+        query = query.where(_current_company_predicate(f.current_company))
+    if f.past_company:
+        query = query.where(_past_company_predicate(f.past_company))
+    if f.current_title:
+        query = query.where(_current_title_predicate(f.current_title))
+    if f.worked_at_client_id:
+        query = query.where(_worked_at_client_predicate(f.worked_at_client_id))
+    if f.recruitment_id:
+        in_recruitment = (
+            select(1)
+            .where(
+                and_(
+                    CandidateStage.candidate_id == Candidate.id,
+                    CandidateStage.job_id.in_(f.recruitment_id),
+                )
+            )
+            .exists()
+        )
+        query = query.where(
+            ~in_recruitment if f.recruitment_match == "not_assigned" else in_recruitment
+        )
+    if f.recently_changed_jobs in (1, 2, 3):
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            days=30 * f.recently_changed_jobs
+        )
+        query = query.where(Candidate.linkedin_employment_changed_at >= cutoff)
+
+    requested_stages: set[PipelineStage] = set(f.pipeline_stage or [])
+    if f.stage_category:
+        categories = set(f.stage_category)
+        requested_stages.update(
+            stage
+            for stage, category in STAGE_CATEGORY.items()
+            if category in categories
+        )
+
+    moved_after_dt = (
+        datetime.combine(f.stage_moved_after, datetime.min.time(), tzinfo=timezone.utc)
+        if f.stage_moved_after
+        else None
+    )
+    moved_before_dt = (
+        datetime.combine(
+            f.stage_moved_before + timedelta(days=1),
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        if f.stage_moved_before
+        else None
+    )
+
+    def move_predicates(moved_by_col, moved_at_col, job_id_col) -> list:
+        predicates: list = []
+        if f.stage_moved_by:
+            real_ids = [uid for uid in f.stage_moved_by if uid != 0]
+            include_null = 0 in f.stage_moved_by
+            if include_null and real_ids:
+                predicates.append(
+                    or_(moved_by_col.is_(None), moved_by_col.in_(real_ids))
+                )
+            elif include_null:
+                predicates.append(moved_by_col.is_(None))
+            elif real_ids:
+                predicates.append(moved_by_col.in_(real_ids))
+        if moved_after_dt is not None:
+            predicates.append(moved_at_col >= moved_after_dt)
+        if moved_before_dt is not None:
+            predicates.append(moved_at_col < moved_before_dt)
+        if f.stage_client_id:
+            predicates.append(
+                select(1)
+                .select_from(Job)
+                .where(Job.id == job_id_col, Job.client_id.in_(f.stage_client_id))
+                .exists()
+            )
+        return predicates
+
+    has_move_filter = bool(
+        f.stage_moved_by
+        or moved_after_dt is not None
+        or moved_before_dt is not None
+        or f.stage_client_id
+    )
+    effective_current_only = (
+        not has_move_filter if f.stage_current_only is None else f.stage_current_only
+    )
+    if requested_stages or has_move_filter:
+        stage_values = list(requested_stages)
+        if effective_current_only and stage_values:
+            latest_per_pair = (
+                select(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.stage,
+                    CandidateStage.moved_by,
+                    CandidateStage.moved_at,
+                )
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                    CandidateStage.id.desc(),
+                )
+                .subquery()
+            )
+            conditions = [
+                latest_per_pair.c.candidate_id == Candidate.id,
+                latest_per_pair.c.stage.in_(stage_values),
+            ]
+            conditions.extend(
+                move_predicates(
+                    latest_per_pair.c.moved_by,
+                    latest_per_pair.c.moved_at,
+                    latest_per_pair.c.job_id,
+                )
+            )
+            stage_exists = (
+                select(1).select_from(latest_per_pair).where(*conditions).exists()
+            )
+        else:
+            conditions = [CandidateStage.candidate_id == Candidate.id]
+            if stage_values:
+                conditions.append(CandidateStage.stage.in_(stage_values))
+            conditions.extend(
+                move_predicates(
+                    CandidateStage.moved_by,
+                    CandidateStage.moved_at,
+                    CandidateStage.job_id,
+                )
+            )
+            stage_exists = select(1).where(*conditions).exists()
+        query = query.where(stage_exists)
+
+    return query, q_any_groups
+
+
+def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
+    if filters.sort == "oldest":
+        return query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
+    if filters.sort == "name":
+        return query.order_by(
+            Candidate.name.asc(), Candidate.lastname.asc(), Candidate.id.asc()
+        )
+    if filters.sort == "relevance":
+        terms: list[str] = []
+        if filters.q:
+            terms.append(filters.q.strip())
+        for bucket in (filters.q_all, filters.q_any):
+            if bucket:
+                terms.extend(value.strip() for value in bucket if value.strip())
+        if q_any_groups:
+            for group in q_any_groups:
+                terms.extend(value.strip() for value in group if value.strip())
+        if terms:
+            haystack = (
+                func.coalesce(Candidate.name, "")
+                + " "
+                + func.coalesce(Candidate.lastname, "")
+                + " "
+                + func.coalesce(Candidate.email, "")
+            )
+            score = sum(func.similarity(haystack, term) for term in terms)
+            return query.order_by(
+                score.desc(), Candidate.created_at.desc(), Candidate.id.desc()
+            )
+    return query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
+
+
 @router.get("", response_model=CandidateList)
 async def list_candidates(
     current_user: CurrentUser,
@@ -605,7 +1040,7 @@ async def list_candidates(
             "ANY listed skill is present. Skill-scoped, same fields as `skills`."
         ),
     ),
-    remote_policy: Optional[str] = Query(
+    remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = Query(
         None,
         description="Filter by candidate remote preference (remote/hybrid/onsite).",
     ),
@@ -955,467 +1390,52 @@ async def list_candidates(
         ),
     ),
 ):
-    query = select(Candidate).options(*_candidate_list_options())
-    if id_after:
-        query = query.where(Candidate.id > id_after)
-    if updated_after:
-        query = query.where(Candidate.updated_at > updated_after)
-    if status:
-        query = query.where(Candidate.status.in_(status))
-    if employment:
-        invalid = [e for e in employment if e not in {"at_client", "available"}]
-        if invalid:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Invalid employment values: {invalid}. "
-                    "Allowed: 'at_client', 'available'."
-                ),
-            )
-        # Both selected = no-op (covers everyone). Otherwise apply the chosen side.
-        emp_set = set(employment)
-        if emp_set == {"at_client"}:
-            query = query.where(_at_client_predicate())
-        elif emp_set == {"available"}:
-            query = query.where(not_(_at_client_predicate()))
-        # emp_set == {"at_client", "available"} → no filter (all candidates)
-    if availability:
-        query = query.where(Candidate.availability_status.in_(availability))
-    if open_to:
-        _OPEN_TO_FIELDS = {
-            "side_projects": Candidate.open_to_side_projects,
-            "sales_support": Candidate.open_to_sales_support,
-            "expert_consult": Candidate.open_to_expert_consult,
-        }
-        invalid = [v for v in open_to if v not in _OPEN_TO_FIELDS]
-        if invalid:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Invalid open_to values: {invalid}. "
-                    f"Allowed: {sorted(_OPEN_TO_FIELDS)}."
-                ),
-            )
-        clauses = [_OPEN_TO_FIELDS[v].is_(True) for v in set(open_to)]
-        query = query.where(or_(*clauses))
-    if location:
-        query = query.where(Candidate.location.ilike(f"%{location}%"))
-    # Simple search delegates to the same per-phrase predicate as the advanced
-    # ALL/ANY/NONE buckets (see `app.services.advanced_candidate_search`). This
-    # ensures `?q=Python` and `?q_all=Python` return the same candidates —
-    # before this unification simple search was limited to name/lastname/email
-    # + raw_cv_text (+ trigram on identity), causing a confusing UX where the
-    # same phrase produced different result counts depending on which mode the
-    # user happened to use. For `?q=`, a trigram similarity branch on
-    # `name+lastname+email` is folded into the search UNION so typos/case
-    # mismatches still match identity via the GIN index (see below).
-    from app.services.advanced_candidate_search import (
-        build_advanced_filter,
-        single_phrase_filter,
+    filters = CandidateFilterSpec(
+        status=status,
+        location=location,
+        q=q,
+        skills=skills,
+        skill_combine=skill_combine,
+        skills_any=skills_any,
+        skills_none=skills_none,
+        remote_policy=remote_policy,
+        min_salary=min_salary,
+        max_salary=max_salary,
+        min_rate=min_rate,
+        max_rate=max_rate,
+        min_experience=min_experience,
+        max_experience=max_experience,
+        employment=employment,
+        availability=availability,
+        added_by_user_id=added_by_user_id,
+        talent_pool_id=talent_pool_id,
+        current_company=current_company,
+        past_company=past_company,
+        current_title=current_title,
+        worked_at_client_id=worked_at_client_id,
+        recruitment_id=recruitment_id,
+        recruitment_match=recruitment_match,
+        recently_changed_jobs=recently_changed_jobs,
+        open_to=open_to,
+        q_all=q_all,
+        q_any=q_any,
+        q_any_group=q_any_group,
+        q_none=q_none,
+        pipeline_stage=pipeline_stage,
+        stage_category=stage_category,
+        stage_current_only=stage_current_only,
+        stage_moved_by=stage_moved_by,
+        stage_moved_after=stage_moved_after,
+        stage_moved_before=stage_moved_before,
+        stage_client_id=stage_client_id,
+        sort=sort,
+        id_after=id_after,
+        updated_after=updated_after,
     )
-
-    if q:
-        q_stripped = q.strip()
-        # Fuzzy (typo-tolerant) identity matching kicks in at ≥3 chars, mirroring
-        # the previous trigram-similarity branch. Adaptive threshold: 0.2 (loose)
-        # fires for every "Piotr X" candidate when the query is "Piotr Banulski"
-        # because shared "Piotr" trigrams alone clear the bar — so multi-word
-        # queries (likely a full name) require 0.5 (keeps mild typo tolerance
-        # "Banulsky"→"Banulski" while filtering shared-first-name noise); single
-        # tokens stay at 0.2 for aggressive typo matching ("Banulsk"→"Banulski").
-        # The threshold goes through pg_trgm.similarity_threshold via SET LOCAL
-        # (transaction-scoped → auto-reset at request commit, no pooled-connection
-        # leak) so the fuzzy branch uses the `%` operator + ix_candidates_identity_trgm
-        # GIN index. Folding it INTO the search UNION (instead of OR-ing a
-        # non-indexable similarity() filter) is what keeps the whole query an
-        # index scan rather than the old ~12s full seq scan.
-        use_fuzzy = len(q_stripped) >= 3
-        if use_fuzzy:
-            trigram_threshold = 0.5 if " " in q_stripped else 0.2
-            await db.execute(
-                text(f"SET LOCAL pg_trgm.similarity_threshold = {trigram_threshold}")
-            )
-        phrase_clause = single_phrase_filter(q_stripped, fuzzy=use_fuzzy)
-        if phrase_clause is not None:
-            query = query.where(phrase_clause)
-
-    # Traffit-style advanced search — ALL / ANY / NONE buckets combine with `q`.
-    # Each `q_any_group` value is one pipe-joined OR-group; split into phrases
-    # (the service cleans/caps each group and drops the empties).
-    q_any_groups = [g.split("|") for g in q_any_group] if q_any_group else None
-    _advanced = build_advanced_filter(q_all, q_any, q_none, q_any_groups)
-    if _advanced is not None:
-        query = query.where(_advanced)
-    # Phase B3: structured skill filters over JSONB — Boolean buckets matching
-    # the candidate's skills / verified_tech / tags (NOT free CV text). The
-    # frontend "Umiejętności" box parses a boolean expression into three buckets:
-    #   skills        — every term required (AND, or OR when skill_combine='or'),
-    #   skills_any    — repeated pipe-joined OR-groups that AND together,
-    #   skills_none   — terms a candidate must NOT have (NOT).
-    # All buckets are skill-scoped via the same `_skill_predicate` and AND into
-    # the query.
-    if skills or skills_any or skills_none:
-        # Normalize names through the scoring engine so the UI can ship whatever
-        # the user typed (aliases resolve to canonical skill names).
-        from app.services.scoring_service import canonical_skill_names
-
-        # Case-insensitive text LIKE on the JSONB payload — handles both shapes
-        # the seed data ships with:
-        #   [{"name": "Python"}, ...]          → matches "name": "python"
-        #   {"technologies": ["Python", ...]}  → matches "python"
-        # Also checks tags + verified_tech for a generous match.
-        def _skill_predicate(s: str):
-            pat = f"%{s.lower()}%"
-            # COALESCE each JSONB-cast to '' so a NULL column yields FALSE, not
-            # NULL. Critical for the NONE bucket: `not_(or_(...))` over NULL
-            # columns would be NULL → SQL treats it as false → wrongly excludes
-            # candidates with no skills data from a "NOT PHP" filter. Harmless
-            # for MUST/ANY (NULL already failed the LIKE there).
-            return or_(
-                func.lower(func.coalesce(Candidate.skills.cast(Text), "")).like(pat),
-                func.lower(func.coalesce(Candidate.verified_tech.cast(Text), "")).like(
-                    pat
-                ),
-                func.lower(func.coalesce(Candidate.tags.cast(Text), "")).like(pat),
-            )
-
-        def _group_clause(names: list[str]):
-            """OR of skill predicates for canonicalized `names`; None if empty."""
-            wanted = [s for s in (canonical_skill_names(names) or []) if s]
-            if not wanted:
-                return None
-            return or_(*[_skill_predicate(s) for s in wanted])
-
-        # MUST bucket — `skill_combine` decides AND vs OR over the flat list.
-        if skills:
-            wanted = [s for s in (canonical_skill_names(skills) or []) if s]
-            if wanted:
-                skill_clauses = [_skill_predicate(s) for s in wanted]
-                combiner = (
-                    or_ if (skill_combine or "").strip().lower() == "or" else and_
-                )
-                query = query.where(combiner(*skill_clauses))
-
-        # ANY OR-groups — each (pipe-joined) group is OR'd internally; groups
-        # AND with each other and with the MUST/NONE buckets.
-        if skills_any:
-            for raw_group in skills_any:
-                clause = _group_clause(raw_group.split("|"))
-                if clause is not None:
-                    query = query.where(clause)
-
-        # NONE — exclude candidates carrying any listed skill.
-        if skills_none:
-            for raw in skills_none:
-                clause = _group_clause(raw.split("|"))
-                if clause is not None:
-                    query = query.where(not_(clause))
-
-    if remote_policy:
-        # Stored inside `preferences.remote_modes` JSON array
-        query = query.where(
-            Candidate.preferences.op("@>")(
-                func.jsonb_build_object(
-                    "remote_modes", func.jsonb_build_array(remote_policy)
-                )
-            )
-        )
-
-    if min_salary is not None:
-        query = query.where(Candidate.salary_expectation >= min_salary)
-    if max_salary is not None:
-        query = query.where(Candidate.salary_expectation <= max_salary)
-    # Expected hourly rate (B2B, PLN/h). NULL rates don't match either bound and
-    # are excluded — same "exclusive of nulls" rule as salary/experience.
-    if min_rate is not None:
-        query = query.where(Candidate.expected_rate_hourly >= min_rate)
-    if max_rate is not None:
-        query = query.where(Candidate.expected_rate_hourly <= max_rate)
-
-    # Lata doświadczenia — range filter over a derived experience interval.
-    # Exact `years_it_experience` covers ~430 rows; the bulk of the base only
-    # has the coarse Traffit bucket in `cv_extracted_data.traffit_experience`
-    # ("Poniżej 2" / "2-5" / "5+"). Filtering on the exact column alone would
-    # return a near-empty list, so we coalesce: prefer the exact value, fall
-    # back to the bucket mapped to a [lo, hi] interval. A candidate matches the
-    # requested [min, max] band when the two intervals OVERLAP (hi >= min AND
-    # lo <= max). Candidates with no experience signal at all (both null) yield
-    # NULL bounds and are excluded — same "exclusive of nulls" rule as salary.
-    if min_experience is not None or max_experience is not None:
-        _traffit_exp = Candidate.cv_extracted_data.op("->>")("traffit_experience")
-        exp_lo = case(
-            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
-            (_traffit_exp == "Poniżej 2", literal(0)),
-            (_traffit_exp == "2-5", literal(2)),
-            (_traffit_exp == "5+", literal(5)),
-            else_=None,
-        )
-        exp_hi = case(
-            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
-            (_traffit_exp == "Poniżej 2", literal(1)),
-            (_traffit_exp == "2-5", literal(5)),
-            (_traffit_exp == "5+", literal(60)),
-            else_=None,
-        )
-        if min_experience is not None:
-            query = query.where(exp_hi >= min_experience)
-        if max_experience is not None:
-            query = query.where(exp_lo <= max_experience)
-
-    if added_by_user_id:
-        # Sentinel 0 = "no created_by on record" (pre-backfill / system import).
-        real_ids = [uid for uid in added_by_user_id if uid != 0]
-        include_null = 0 in added_by_user_id
-        if include_null and real_ids:
-            query = query.where(
-                or_(Candidate.created_by.is_(None), Candidate.created_by.in_(real_ids))
-            )
-        elif include_null:
-            query = query.where(Candidate.created_by.is_(None))
-        elif real_ids:
-            query = query.where(Candidate.created_by.in_(real_ids))
-
-    if talent_pool_id:
-        pool_exists = (
-            select(1)
-            .where(
-                and_(
-                    TalentPoolMembership.candidate_id == Candidate.id,
-                    TalentPoolMembership.talent_pool_id.in_(talent_pool_id),
-                )
-            )
-            .exists()
-        )
-        query = query.where(pool_exists)
-
-    # LinkedIn-Recruiter-style position/company filters (reads Candidate.experience JSONB)
-    if current_company:
-        query = query.where(_current_company_predicate(current_company))
-    if past_company:
-        query = query.where(_past_company_predicate(past_company))
-    if current_title:
-        query = query.where(_current_title_predicate(current_title))
-    if worked_at_client_id:
-        query = query.where(_worked_at_client_predicate(worked_at_client_id))
-
-    # Przynależność do rekrutacji — kandydaci przypisani (lub NIE) do wybranych
-    # rekrutacji (jobs). „Przypisany" = ma jakikolwiek wiersz `candidate_stages`
-    # dla danego joba (dowolny etap, też terminalny — analogicznie do membershipu
-    # w talent poolu). `not_assigned` neguje to dla WSZYSTKICH wybranych naraz
-    # (kandydat nie jest w pipeline żadnej z zaznaczonych rekrutacji).
-    if recruitment_id:
-        in_recruitment = (
-            select(1)
-            .where(
-                and_(
-                    CandidateStage.candidate_id == Candidate.id,
-                    CandidateStage.job_id.in_(recruitment_id),
-                )
-            )
-            .exists()
-        )
-        query = query.where(
-            ~in_recruitment if recruitment_match == "not_assigned" else in_recruitment
-        )
-
-    # Phase: LinkedIn sync — filter by detected employer change window.
-    # Uses ix_candidates_linkedin_employment_changed_at for fast planner path.
-    if recently_changed_jobs in (1, 2, 3):
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30 * recently_changed_jobs)
-        query = query.where(Candidate.linkedin_employment_changed_at >= cutoff)
-
-    # Pipeline stage filter — match candidates by current stage (default) or by
-    # any historical move (`stage_current_only=false`). `stage_category` expands
-    # to PipelineStage values via STAGE_CATEGORY mapping, then OR-combined with
-    # `pipeline_stage` so the recruiter can mix coarse + specific selections.
-    requested_stages: set[PipelineStage] = set(pipeline_stage or [])
-    if stage_category:
-        cat_set = set(stage_category)
-        requested_stages.update(
-            stage for stage, cat in STAGE_CATEGORY.items() if cat in cat_set
-        )
-    # "Kto dodał na etap i kiedy" — who/when of the stage move, correlated with
-    # the stage filter so the recruiter can ask e.g. "candidates Jan moved onto
-    # `verified` between X and Y". Date bounds are half-open UTC days:
-    # [moved_after 00:00, moved_before + 1 day 00:00).
-    moved_after_dt: Optional[datetime] = None
-    if stage_moved_after is not None:
-        moved_after_dt = datetime(
-            stage_moved_after.year,
-            stage_moved_after.month,
-            stage_moved_after.day,
-            tzinfo=timezone.utc,
-        )
-    moved_before_dt: Optional[datetime] = None
-    if stage_moved_before is not None:
-        _excl = stage_moved_before + timedelta(days=1)
-        moved_before_dt = datetime(
-            _excl.year, _excl.month, _excl.day, tzinfo=timezone.utc
-        )
-
-    def _move_predicates(moved_by_col, moved_at_col, job_id_col) -> list:
-        """Correlated who/when/client predicates on the matched stage move."""
-        preds: list = []
-        if stage_moved_by:
-            # Sentinel 0 = "no mover on record" (system / Traffit import).
-            real_ids = [uid for uid in stage_moved_by if uid != 0]
-            include_null = 0 in stage_moved_by
-            if include_null and real_ids:
-                preds.append(or_(moved_by_col.is_(None), moved_by_col.in_(real_ids)))
-            elif include_null:
-                preds.append(moved_by_col.is_(None))
-            elif real_ids:
-                preds.append(moved_by_col.in_(real_ids))
-        if moved_after_dt is not None:
-            preds.append(moved_at_col >= moved_after_dt)
-        if moved_before_dt is not None:
-            preds.append(moved_at_col < moved_before_dt)
-        if stage_client_id:
-            # The matched move's job must belong to one of these clients.
-            # Correlated EXISTS on Job (id PK + client_id indexed) keeps the
-            # filter on the SAME move as the who/when predicates above.
-            preds.append(
-                select(1)
-                .select_from(Job)
-                .where(Job.id == job_id_col, Job.client_id.in_(stage_client_id))
-                .exists()
-            )
-        return preds
-
-    has_move_filter = (
-        bool(stage_moved_by)
-        or moved_after_dt is not None
-        or moved_before_dt is not None
-        or bool(stage_client_id)
+    query, q_any_groups = await _build_candidate_filtered_query(
+        db, filters, load_list_relations=True
     )
-
-    # Resolve current-vs-historical matching. An explicit `stage_current_only`
-    # always wins. When unspecified (None), a who/when move-filter implies a
-    # historical question — "everyone X moved onto Verified in May", most of
-    # whom have since progressed past Verified — so we match any qualifying
-    # move; a bare stage filter keeps the current-stage default. (Without this,
-    # the default current-only matching silently drops ~80-95% of the recruiter's
-    # answer: candidates who were verified but moved on.)
-    if stage_current_only is None:
-        effective_current_only = not has_move_filter
-    else:
-        effective_current_only = stage_current_only
-
-    if requested_stages or has_move_filter:
-        stage_values = list(requested_stages)
-        if effective_current_only and stage_values:
-            # CURRENT stage = latest move per (candidate_id, job_id). Use
-            # DISTINCT ON to pick the freshest row per pair, then EXISTS that
-            # the candidate has any pair whose current stage is in the set.
-            # moved_by/moved_at are carried into the projection so the who/when
-            # predicates apply to that SAME latest (current) move.
-            latest_per_pair = (
-                select(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.stage,
-                    CandidateStage.moved_by,
-                    CandidateStage.moved_at,
-                )
-                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
-                .order_by(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.moved_at.desc(),
-                    CandidateStage.id.desc(),
-                )
-                .subquery()
-            )
-            conds = [
-                latest_per_pair.c.candidate_id == Candidate.id,
-                latest_per_pair.c.stage.in_(stage_values),
-            ]
-            conds.extend(
-                _move_predicates(
-                    latest_per_pair.c.moved_by,
-                    latest_per_pair.c.moved_at,
-                    latest_per_pair.c.job_id,
-                )
-            )
-            stage_exists = select(1).select_from(latest_per_pair).where(*conds).exists()
-        else:
-            # Historical presence (`stage_current_only=false`) OR a who/when
-            # filter with no stage selected. Match ANY CandidateStage row that
-            # satisfies the (optional) stage set + who/when predicates.
-            conds = [CandidateStage.candidate_id == Candidate.id]
-            if stage_values:
-                conds.append(CandidateStage.stage.in_(stage_values))
-            conds.extend(
-                _move_predicates(
-                    CandidateStage.moved_by,
-                    CandidateStage.moved_at,
-                    CandidateStage.job_id,
-                )
-            )
-            stage_exists = select(1).where(*conds).exists()
-        query = query.where(stage_exists)
-
-    # `total` is computed in the SAME statement as the page below, via
-    # `count(*) OVER()` (see the windowed execute after pagination). Folding the
-    # COUNT into the page query makes the expensive free-text search filter run
-    # ONCE per request instead of twice. The filter matches each phrase as a
-    # trigram-index bitmap scan whose recheck must detoast every matching
-    # `raw_cv_text` (multi-KB CVs); for a broad multi-keyword `q_any` over the
-    # full base that pass dominates wall-clock, and running it for a standalone
-    # COUNT and again for the page roughly doubled latency. The window is
-    # evaluated pre-LIMIT so the total stays exact, and unfiltered list loads
-    # stay cheap (an index-only scan over the already-narrow result).
-
-    # Stable ORDER BY before pagination — required so next/prev candidate
-    # navigation walks the same sequence between requests. id tie-breaker
-    # disambiguates rows with identical sort key.
-    if sort == "oldest":
-        query = query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
-    elif sort == "name":
-        query = query.order_by(
-            Candidate.name.asc(), Candidate.lastname.asc(), Candidate.id.asc()
-        )
-    elif sort == "relevance":
-        # Relevance ranking: trigram similarity between the user's phrase
-        # and `name + lastname + email`. Higher score = better identity
-        # match. When no search phrase exists (recruiter sorted by
-        # relevance with empty query), fall back to newest-first so the
-        # list is still useful and not arbitrarily ordered.
-        relevance_terms: list[str] = []
-        if q:
-            relevance_terms.append(q.strip())
-        for bucket in (q_all, q_any):
-            if bucket:
-                relevance_terms.extend(s.strip() for s in bucket if s and s.strip())
-        if q_any_groups:
-            for group in q_any_groups:
-                relevance_terms.extend(s.strip() for s in group if s and s.strip())
-
-        if relevance_terms:
-            # Concatenate all candidate identity fields into a single haystack
-            # the trigram index can score against. Joining with " " keeps
-            # word boundaries intact so "Jan Kowalski" ranks above
-            # "Janowski Smith" for the query "Jan Kowalski".
-            haystack = (
-                func.coalesce(Candidate.name, "")
-                + " "
-                + func.coalesce(Candidate.lastname, "")
-                + " "
-                + func.coalesce(Candidate.email, "")
-            )
-            # SUM trigram similarity across all phrases — multi-phrase
-            # queries reward candidates matching more of the buckets.
-            score = sum(func.similarity(haystack, term) for term in relevance_terms)
-            query = query.order_by(
-                score.desc(), Candidate.created_at.desc(), Candidate.id.desc()
-            )
-        else:
-            # Defensive fallback — UI shouldn't request relevance without
-            # a phrase, but we still ship a stable order if it does.
-            query = query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
-    else:  # "newest" (default)
-        query = query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
-
+    query = _apply_candidate_sort(query, filters, q_any_groups)
     query = query.offset((page - 1) * page_size).limit(page_size)
     # Single pass: `count(*) OVER()` carries the full (pre-LIMIT) filtered total
     # on every returned row, so the search filter executes once for both the
@@ -1909,6 +1929,118 @@ async def export_candidates(
         iter([buf.getvalue()]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _stream_candidate_csv(db: AsyncSession, query):
+    """Yield bounded CSV chunks while candidates are streamed from Postgres."""
+    import csv
+    from io import StringIO
+
+    buffer = StringIO()
+    writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(_EXPORT_COLUMNS)
+    stream = await db.stream_scalars(query.execution_options(yield_per=500))
+    async for candidate in stream:
+        writer.writerow(_row_for_export(candidate))
+        if buffer.tell() >= 64 * 1024:
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+    if buffer.tell():
+        yield buffer.getvalue()
+
+
+async def _candidate_xlsx(db: AsyncSession, query) -> io.BytesIO:
+    """Build an XLSX with openpyxl's constant-memory write-only worksheets."""
+    from openpyxl import Workbook
+
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet(title="Candidates")
+    sheet.append(_EXPORT_COLUMNS)
+    stream = await db.stream_scalars(query.execution_options(yield_per=500))
+    async for candidate in stream:
+        sheet.append(_row_for_export(candidate))
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+@router.post("/export")
+async def export_candidates_v2(
+    payload: CandidateExportRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export an exact selection or the canonical filtered candidate set."""
+    unique_ids = list(dict.fromkeys(payload.candidate_ids))
+    if any(candidate_id <= 0 for candidate_id in unique_ids):
+        raise HTTPException(
+            status_code=422,
+            detail="candidate_ids must contain positive integers",
+        )
+
+    if payload.scope == "selected":
+        if not unique_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="scope='selected' requires at least one candidate_id",
+            )
+        found_count = int(
+            await db.scalar(
+                select(func.count(Candidate.id)).where(Candidate.id.in_(unique_ids))
+            )
+            or 0
+        )
+        if found_count != len(unique_ids):
+            raise HTTPException(
+                status_code=422,
+                detail="One or more selected candidate_ids do not exist",
+            )
+        query = (
+            select(Candidate)
+            .where(Candidate.id.in_(unique_ids))
+            .order_by(Candidate.id.asc())
+        )
+    else:
+        if unique_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="scope='filtered' does not accept candidate_ids",
+            )
+        query, q_any_groups = await _build_candidate_filtered_query(db, payload.filters)
+        total_query = select(func.count()).select_from(query.order_by(None).subquery())
+        total = int(await db.scalar(total_query) or 0)
+        if total > payload.limit:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Export contains {total} candidates, exceeding limit "
+                    f"{payload.limit}. Narrow the filters or raise the limit."
+                ),
+            )
+        query = _apply_candidate_sort(query, payload.filters, q_any_groups)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    extension = payload.format
+    filename = f"candidates_{timestamp}.{extension}"
+    headers = {"Content-Disposition": content_disposition(filename)}
+
+    if payload.format == "xlsx":
+        return StreamingResponse(
+            await _candidate_xlsx(db, query),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers=headers,
+        )
+
+    return StreamingResponse(
+        _stream_candidate_csv(db, query),
+        media_type="text/csv; charset=utf-8",
+        headers=headers,
     )
 
 
@@ -2800,13 +2932,15 @@ async def get_candidate_history(
         logger.warning("risk fetch failed for candidate=%s: %s", candidate_id, exc)
         risk_summary = None
 
-    return {
+    response = {
         "candidate_id": candidate_id,
         "candidate_name": f"{candidate.name} {candidate.lastname}",
         "jobs": list(jobs_map.values()),
         "contracts": contracts_history,
         "risk_summary": risk_summary,
     }
+
+    return _candidate_history_response_for_user(response, current_user)
 
 
 @router.patch("/{candidate_id}/recruitments/{job_id}/client-rate")

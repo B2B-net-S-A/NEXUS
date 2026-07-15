@@ -3,7 +3,11 @@
 import * as React from"react";
 import { useEffect, useState } from"react";
 import { AlertTriangle, Briefcase, CheckCircle2, Search, Sparkles } from"lucide-react";
-import api, { recommendationsApi, type JobMatch } from"@/lib/api";
+import api, {
+ recommendationsApi,
+ type JobMatch,
+ type RecommendationMeta,
+} from"@/lib/api";
 import {
  Sheet,
  SheetBody,
@@ -53,6 +57,8 @@ export function QuickAssignV2({
  onAssigned,
 }: Props) {
  const [matches, setMatches] = useState<JobMatch[]>([]);
+ const [recommendationMeta, setRecommendationMeta] =
+ useState<RecommendationMeta | null>(null);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
  const [assigning, setAssigning] = useState<number | null>(null);
@@ -84,6 +90,7 @@ export function QuickAssignV2({
  ]);
  if (cancelled) return;
  setMatches(matchRes.data.matches);
+ setRecommendationMeta(matchRes.data.meta ?? null);
  setRisk(riskRes?.data ?? null);
  } catch (e: unknown) {
  if (cancelled) return;
@@ -165,7 +172,7 @@ export function QuickAssignV2({
  title?: string | null;
  location?: string | null;
  seniority?: string | null;
- }, score?: number) => {
+ }, score?: number | null) => {
  const jobId = job.id;
  const assigned = assignedIds.has(jobId);
  const isAssigning = assigning === jobId;
@@ -182,6 +189,11 @@ export function QuickAssignV2({
  {typeof score === "number" && (
  <Badge variant={scoreVariant(score)} size="sm">
  {Math.round(score)}%
+ </Badge>
+ )}
+ {score === null && (
+ <Badge variant="neutral" size="sm">
+ BM25 · tryb awaryjny
  </Badge>
  )}
  </div>
@@ -254,6 +266,11 @@ export function QuickAssignV2({
  </TabsList>
 
  <TabsContent value="ai">
+ {recommendationMeta?.degraded && (
+ <div className="mb-3 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+ Ranking awaryjny BM25 — bez standardowego wyniku dopasowania.
+ </div>
+ )}
  {loading ? (
  <div className="text-sm text-muted-foreground py-8 text-center">
  Analizuję dopasowania…
