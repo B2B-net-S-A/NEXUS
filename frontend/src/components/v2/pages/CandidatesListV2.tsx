@@ -33,7 +33,6 @@ import {
  MessageSquare,
  Phone,
  Plus,
- PanelRight,
  Rows3,
  Search,
  SlidersHorizontal,
@@ -74,8 +73,6 @@ import {
   getCandidateListViewState,
 } from "@/components/v2/pages/candidate-list-query";
 import { useCandidateSearchDebounce } from "@/hooks/useCandidateSearchDebounce";
-import { CandidatesSplitView } from "@/components/v2/candidates/CandidatesSplitView";
-import { toCandidateDetail } from "@/components/v2/candidates/candidate-detail-vm";
 import { MatchSnippet } from"@/components/v2/MatchSnippet";
 import {
  Sheet,
@@ -1735,10 +1732,6 @@ export function CandidatesListV2() {
  isError,
  itemCount: items.length,
  });
- const splitRows = useMemo(
- () => (data?.items ?? []).map(toCandidateDetail),
- [data],
- );
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -2476,20 +2469,6 @@ export function CandidatesListV2() {
  >
  <LayoutGrid className="h-4 w-4" />
  </button>
- <button
- type="button"
- onClick={() => setCandidatesView("split")}
- title="Widok: lista + panel"
- aria-label="Widok: lista + panel"
- aria-pressed={effectiveCandidatesView === "split"}
- className={cn("h-9 w-9 flex items-center justify-center transition-colors",
- effectiveCandidatesView === "split"
- ?"bg-primary text-primary-foreground"
- :"text-muted-foreground hover:bg-accent"
- )}
- >
- <PanelRight className="h-4 w-4" />
- </button>
  </div>
  <button
  type="button"
@@ -3058,23 +3037,7 @@ export function CandidatesListV2() {
  </div>
  )}
 
- {/* Data grid — split (list + panel) OR the table/tiles card */}
- {effectiveCandidatesView === "split" ? (
- <CandidatesSplitView
- rows={splitRows}
- isLoading={isLoading}
- isError={isError}
- errorPanel={queryErrorPanel}
- selectedIds={selectedIds}
- onToggleSelect={toggleId}
- onOpenFullProfile={(id) => setDetailId(id)}
- onAddCandidate={() => setShowAdd(true)}
- page={page}
- totalPages={totalPages}
- onPrevPage={() => setPage((p) => Math.max(1, p - 1))}
- onNextPage={() => setPage((p) => p + 1)}
- />
- ) : (
+ {/* Data grid (virtualized) */}
  <div
  className={cn(
  "rounded-lg border border-border bg-card",
@@ -3350,7 +3313,6 @@ export function CandidatesListV2() {
  </div>
  )}
  </div>
- )}
 
  {/* Floating BulkActionsBar */}
  {selectedIds.size > 0 && (

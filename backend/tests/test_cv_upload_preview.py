@@ -64,7 +64,7 @@ def _patch_pipeline(
     async def _fake_parse(_text, **_kw):
         return parsed if parsed is not None else FAKE_PARSED
 
-    async def _fake_embed(_text):
+    async def _fake_embed(_text, **_kw):
         return embedding if embedding is not None else [0.1] * 1024
 
     async def _fake_search(_q, top_k: int = 20):
@@ -74,12 +74,9 @@ def _patch_pipeline(
     monkeypatch.setattr(cv_parser, "parse_cv", _fake_parse)
     monkeypatch.setattr(embedding_service, "generate_embedding", _fake_embed)
     monkeypatch.setattr(embedding_service, "search_jobs_semantic", _fake_search)
-    # The endpoint module imports these at load time — patch the rebound names.
+    # The endpoint module imports this at load time — patch the rebound name.
     monkeypatch.setattr(
         "app.api.cv_match_preview.search_jobs_semantic", _fake_search
-    )
-    monkeypatch.setattr(
-        "app.api.cv_match_preview.generate_embedding", _fake_embed
     )
     monkeypatch.setattr("app.api.cv_match_preview.parse_cv", _fake_parse)
     monkeypatch.setattr("app.api.cv_match_preview.extract_text", _fake_extract)
