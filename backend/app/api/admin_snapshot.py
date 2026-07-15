@@ -156,6 +156,61 @@ async def _query_analytics_shadow_status() -> dict[str, Any]:
         }
 
 
+async def _ai_control_plane_snapshot() -> dict[str, Any]:
+    from app.ai.circuit_breaker import circuit_breaker
+
+    try:
+        async with AsyncSessionLocal() as session:
+            routing = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT registry_version, lock_version, activated_at "
+                            "FROM ai_routing_state WHERE id = 1"
+                        )
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            usage = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT feature, count(*) AS attempts, "
+                            "coalesce(sum(cost_usd), 0) AS cost_usd, "
+                            "sum(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errors, "
+                            "max(created_at) AS last_call_at "
+                            "FROM ai_call_ledger "
+                            "WHERE created_at >= now() - interval '30 days' GROUP BY feature"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            queue = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT status, count(*) AS count FROM embedding_index_queue "
+                            "GROUP BY status"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return {
+            "routing": dict(routing) if routing else {"registry_version": "v1_current"},
+            "usage_30d": [dict(row) for row in usage],
+            "embedding_queue": {row["status"]: row["count"] for row in queue},
+            "circuit_breakers": circuit_breaker.snapshot(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "unavailable", "error_type": type(exc).__name__}
+
+
 def _background_tasks_status(request: Request) -> dict[str, Any]:
     """Inspect lifespan jobs without treating a clean exit as a missing task."""
     tasks = getattr(request.app.state, "background_tasks", None)
@@ -254,6 +309,9 @@ async def admin_snapshot(
     kpis = await compute_kpi_snapshot(db) if db_check == "healthy" else {}
     alembic = await _query_alembic_head()
     analytics_shadow = await _query_analytics_shadow_status()
+    ai_control_plane = (
+        await _ai_control_plane_snapshot() if db_check == "healthy" else {}
+    )
 
     snapshot = {
         "health": {
@@ -266,6 +324,7 @@ async def admin_snapshot(
         "background_tasks": _background_tasks_status(request),
         "alembic": alembic,
         "analytics_shadow": analytics_shadow,
+        "ai": ai_control_plane,
         "sentry_release": os.environ.get("GIT_SHA", "unknown"),
         "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }

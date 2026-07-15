@@ -7,7 +7,7 @@ import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -26,6 +26,7 @@ from app.services.embedding_service import (
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 5
 LOCK_TIMEOUT = timedelta(minutes=15)
+MAINTENANCE_INTERVAL = timedelta(hours=24)
 
 
 def source_hash(text: str) -> str:
@@ -149,13 +150,38 @@ async def _process(claim: tuple[int, str, int, str, str | None, int]) -> None:
         await _finish(queue_id, ok=False, attempts=attempts, error=type(exc).__name__)
 
 
+async def _purge_expired_ai_ledger() -> None:
+    """Apply the 13-month control-plane retention without another lifespan task."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "DELETE FROM ai_call_ledger WHERE created_at < now() - interval '13 months'"
+            )
+        )
+        await db.execute(
+            text(
+                "DELETE FROM ai_budget_reservations "
+                "WHERE created_at < now() - interval '13 months'"
+            )
+        )
+        await db.commit()
+
+
 async def embedding_index_sync_loop() -> None:
     if not settings.EMBEDDING_INDEX_SYNC_ENABLED:
         logger.info("[embedding_index_sync] disabled")
         return
     interval = max(1, int(settings.EMBEDDING_INDEX_SYNC_INTERVAL_SECONDS))
+    last_maintenance: datetime | None = None
     while True:
         try:
+            now = datetime.now(timezone.utc)
+            if (
+                last_maintenance is None
+                or now - last_maintenance >= MAINTENANCE_INTERVAL
+            ):
+                await _purge_expired_ai_ledger()
+                last_maintenance = now
             claim = await _claim_one()
         except asyncio.CancelledError:
             raise

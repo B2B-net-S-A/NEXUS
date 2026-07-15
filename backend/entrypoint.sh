@@ -90,6 +90,15 @@ import asyncpg
 # Every statement here is idempotent. Order matters for enum ADD VALUE
 # (must run outside transaction) vs column adds (can run in tx).
 _ENUM_STATEMENTS = [
+    # Central AI platform (migration 0166).
+    *[
+        f"ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS '{value}'"
+        for value in (
+            "embeddings", "reranking", "matching", "job_writer",
+            "champion_profile", "match_explanation", "mindy",
+            "uop_analysis", "criteria_suggestions", "cv_b2b",
+        )
+    ],
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
     # notificationtype: 5 trigger types + champion_profile_updated
@@ -459,6 +468,92 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_status_day ON analytics_shadow_comparisons (status, observed_on DESC)",
     "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_module_day ON analytics_shadow_comparisons (module_key, observed_on DESC)",
+    "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS monthly_budget_usd NUMERIC(12,4) NOT NULL DEFAULT 0",
+    """CREATE TABLE IF NOT EXISTS ai_routing_state (
+        id INTEGER PRIMARY KEY,
+        registry_version VARCHAR(64) NOT NULL,
+        lock_version INTEGER NOT NULL DEFAULT 1,
+        reason TEXT NOT NULL,
+        activated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        activated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_provider_compliance (
+        provider VARCHAR(32) PRIMARY KEY,
+        production_allowed BOOLEAN NOT NULL DEFAULT false,
+        dpa_approved BOOLEAN NOT NULL DEFAULT false,
+        zdr_approved BOOLEAN NOT NULL DEFAULT false,
+        subprocessors_reviewed BOOLEAN NOT NULL DEFAULT false,
+        transfer_basis VARCHAR(32),
+        approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        approved_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_routing_activation_log (
+        id BIGSERIAL PRIMARY KEY,
+        previous_version VARCHAR(64) NOT NULL,
+        registry_version VARCHAR(64) NOT NULL,
+        lock_version INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        activated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_budget_reservations (
+        id BIGSERIAL PRIMARY KEY,
+        request_id VARCHAR(64) NOT NULL UNIQUE,
+        feature VARCHAR(64) NOT NULL,
+        period_start DATE NOT NULL,
+        reserved_cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
+        actual_cost_usd NUMERIC(12,6),
+        status VARCHAR(20) NOT NULL DEFAULT 'reserved',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        reconciled_at TIMESTAMPTZ
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_call_ledger (
+        id BIGSERIAL PRIMARY KEY,
+        request_id VARCHAR(64) NOT NULL,
+        attempt INTEGER NOT NULL DEFAULT 1,
+        feature VARCHAR(64) NOT NULL,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+        subject_type VARCHAR(32), subject_id INTEGER,
+        provider VARCHAR(32) NOT NULL, model VARCHAR(128) NOT NULL,
+        route_version VARCHAR(64) NOT NULL,
+        prompt_version VARCHAR(64) NOT NULL,
+        schema_version VARCHAR(64) NOT NULL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
+        latency_ms INTEGER NOT NULL DEFAULT 0,
+        retried BOOLEAN NOT NULL DEFAULT false,
+        escalated BOOLEAN NOT NULL DEFAULT false,
+        pii BOOLEAN NOT NULL DEFAULT false,
+        status VARCHAR(24) NOT NULL,
+        error_code VARCHAR(64), input_hash VARCHAR(64) NOT NULL,
+        output_hash VARCHAR(64),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_ai_call_ledger_request_id ON ai_call_ledger (request_id)",
+    "CREATE INDEX IF NOT EXISTS ix_ai_call_ledger_feature ON ai_call_ledger (feature)",
+    "CREATE INDEX IF NOT EXISTS ix_ai_call_ledger_created_at ON ai_call_ledger (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_ai_budget_reservations_feature ON ai_budget_reservations (feature)",
+    "INSERT INTO ai_routing_state (id, registry_version, lock_version, reason) VALUES (1, 'v1_current', 1, 'Initial safe baseline') ON CONFLICT (id) DO NOTHING",
+    """INSERT INTO ai_provider_compliance
+        (provider, production_allowed, dpa_approved, zdr_approved, subprocessors_reviewed)
+        VALUES ('anthropic', true, false, false, false),
+               ('voyage', true, false, false, false),
+               ('openai', false, false, false, false)
+        ON CONFLICT (provider) DO NOTHING""",
+    *[
+        "INSERT INTO ai_features (feature, enabled, monthly_limit, monthly_budget_usd) "
+        f"VALUES ('{value}', true, 0, 0) ON CONFLICT (feature) DO NOTHING"
+        for value in (
+            "embeddings", "reranking", "matching", "job_writer",
+            "champion_profile", "match_explanation", "mindy",
+            "uop_analysis", "criteria_suggestions", "cv_b2b",
+        )
+    ],
     # AI retrieval foundation (migration 0165). The outbox prevents silent
     # Qdrant drift when candidate/job records are edited outside API handlers.
     """CREATE TABLE IF NOT EXISTS embedding_index_queue (

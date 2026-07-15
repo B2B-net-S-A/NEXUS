@@ -17,6 +17,7 @@ import {
   type AIFeatureKey,
   type AIFeatureConfigDto,
   type AIFeatureUsageDto,
+  type AIFeatureRouteDto,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -102,28 +103,39 @@ function MasterToggle({ enabled, onChange, disabled }: MasterToggleProps) {
 interface FeatureCardProps {
   config: AIFeatureConfigDto;
   usage: AIFeatureUsageDto;
+  route?: AIFeatureRouteDto;
   masterEnabled: boolean;
   onToggle: (feature: AIFeatureKey, enabled: boolean) => void;
   onLimitChange: (feature: AIFeatureKey, limit: number) => void;
+  onBudgetChange: (feature: AIFeatureKey, budget: number) => void;
   pendingFeature: AIFeatureKey | null;
 }
 
 function FeatureCard({
   config,
   usage,
+  route,
   masterEnabled,
   onToggle,
   onLimitChange,
+  onBudgetChange,
   pendingFeature,
 }: FeatureCardProps) {
   const [limitDraft, setLimitDraft] = useState<string>(
     String(config.monthly_limit),
   );
   const [editingLimit, setEditingLimit] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState<string>(
+    String(config.monthly_budget_usd),
+  );
+  const [editingBudget, setEditingBudget] = useState(false);
 
   useEffect(() => {
     setLimitDraft(String(config.monthly_limit));
   }, [config.monthly_limit]);
+  useEffect(() => {
+    setBudgetDraft(String(config.monthly_budget_usd));
+  }, [config.monthly_budget_usd]);
 
   const isPending = pendingFeature === config.feature;
   const effectivelyEnabled = masterEnabled && config.enabled;
@@ -145,6 +157,18 @@ function FeatureCard({
     onLimitChange(config.feature, parsed);
     setEditingLimit(false);
   };
+  const handleBudgetSave = () => {
+    const parsed = Number.parseFloat(budgetDraft);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setBudgetDraft(String(config.monthly_budget_usd));
+      setEditingBudget(false);
+      return;
+    }
+    onBudgetChange(config.feature, parsed);
+    setEditingBudget(false);
+  };
+
+  const routeModes = Object.entries(route?.modes ?? {});
 
   return (
     <div
@@ -201,6 +225,32 @@ function FeatureCard({
 
           <div className="mt-4">
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+              Routing (tylko do odczytu)
+            </h4>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              {routeModes.map(([mode, item]) => (
+                <div key={mode} className="flex flex-wrap gap-x-2">
+                  {mode !== "default" && <span>{mode}:</span>}
+                  <span className="font-medium text-foreground">
+                    {item.provider} / {item.model}
+                  </span>
+                  {item.escalation_models.length > 0 && (
+                    <span>→ {item.escalation_models.join(", ")}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+            <span>Koszt: ${Number(usage.cost_usd).toFixed(2)}</span>
+            <span>p95: {usage.p95_latency_ms} ms</span>
+            <span>Błędy: {(usage.error_rate * 100).toFixed(1)}%</span>
+            <span>Stan: {usage.health}</span>
+          </div>
+
+          <div className="mt-4">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
               Dane wysyłane do AI
             </h4>
             <ul className="space-y-1">
@@ -214,6 +264,41 @@ function FeatureCard({
                 </li>
               ))}
             </ul>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Budżet miesięczny USD:
+            </span>
+            {editingBudget ? (
+              <>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={budgetDraft}
+                  onChange={(e) => setBudgetDraft(e.target.value)}
+                  className="w-24 px-2 py-1 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={handleBudgetSave}
+                  className="text-xs px-2 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  Zapisz
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingBudget(true)}
+                className="text-sm text-foreground hover:text-primary transition-colors"
+              >
+                {config.monthly_budget_usd === 0
+                  ? "bez limitu"
+                  : `$${Number(config.monthly_budget_usd).toFixed(2)}`}
+              </button>
+            )}
           </div>
 
           <div className="mt-4 flex items-center gap-2">
@@ -334,7 +419,11 @@ export default function AISettingsPage() {
       payload,
     }: {
       feature: AIFeatureKey;
-      payload: { enabled?: boolean; monthly_limit?: number };
+      payload: {
+        enabled?: boolean;
+        monthly_limit?: number;
+        monthly_budget_usd?: number;
+      };
     }) => aiSettingsApi.updateFeature(feature, payload).then((r) => r.data),
     onMutate: ({ feature }) => {
       setPendingFeature(feature);
@@ -397,6 +486,10 @@ export default function AISettingsPage() {
           Zarządzaj globalnym wyłącznikiem oraz miesięcznymi limitami dla
           poszczególnych funkcji opartych o AI.
         </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          Aktywny routing: {data.active_registry_version} · wersja blokady{" "}
+          {data.routing_lock_version}. Provider i model są tylko do odczytu.
+        </p>
       </div>
 
       {errorMsg && (
@@ -425,6 +518,7 @@ export default function AISettingsPage() {
               key={cfg.feature}
               config={cfg}
               usage={usage}
+              route={data.routes[cfg.feature]}
               masterEnabled={data.master_enabled}
               onToggle={(feature, enabled) =>
                 featureMutation.mutate({ feature, payload: { enabled } })
@@ -433,6 +527,12 @@ export default function AISettingsPage() {
                 featureMutation.mutate({
                   feature,
                   payload: { monthly_limit },
+                })
+              }
+              onBudgetChange={(feature, monthly_budget_usd) =>
+                featureMutation.mutate({
+                  feature,
+                  payload: { monthly_budget_usd },
                 })
               }
               pendingFeature={pendingFeature}
