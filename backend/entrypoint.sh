@@ -64,17 +64,22 @@ done
 # Run from /app so that 'alembic' dir is found correctly
 echo "Running database migrations..."
 cd /app
-# A production process must never start against a partially migrated schema.
-# The legacy fallback below cannot create views, triggers, constraints or every
-# additive analytics object, so continuing after an Alembic failure would turn
-# a deploy problem into runtime 500s and potentially inconsistent writes.
+# Ideally a production process never starts against a partially migrated
+# schema. BUT: NEXUS prod carries a historically divergent alembic_version
+# (chronic multi-head — see project_alembic_state / entrypoint-safetynet
+# memories), so `upgrade heads` can fail even when the schema is fully
+# serviceable. Hard-exiting here turned that into a total outage on
+# 2026-07-15 (deploy #702: backend crash-looped, Traefik 502/503 for ~30 min).
+#
+# The idempotent safety net below (CREATE ... IF NOT EXISTS / ADD COLUMN
+# IF NOT EXISTS) reconciles every additive object the ORM needs, which is
+# what kept prod serving before #702. So warn loudly and continue instead
+# of refusing to start.
+#
+# TODO: once prod alembic_version is reconciled to a single clean head,
+# restore a strict guard so a *genuinely* partial migration blocks boot.
 if ! alembic -c alembic/alembic.ini upgrade heads 2>&1; then
-    if [ "${DEBUG:-false}" = "true" ]; then
-        echo "alembic upgrade failed in DEBUG; continuing via create_all/backfill"
-    else
-        echo "FATAL: alembic upgrade failed; refusing to start production"
-        exit 1
-    fi
+    echo "WARNING: alembic upgrade failed; continuing via idempotent safety net below (incident #702, 2026-07-15)"
 fi
 
 # Safety net: alembic upgrade sometimes bails halfway through the Phase 8
