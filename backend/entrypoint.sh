@@ -1167,6 +1167,30 @@ async def create_all():
 asyncio.run(create_all())
 PY
 
+# Cortex: dedup taksonomii (safety-net gdy alembic nie dobija do 0167).
+# Idempotentne + transakcyjne (rollback przy błędzie → worst case brak zmiany);
+# scala tylko faktyczne duplikaty case + 5 par semantycznych, repin-before-delete.
+# Bez tego prod (zaklinowany alembic na starej rewizji) miałby zdublowaną
+# taksonomię (python/Python) mimo działającego modułu Cortex.
+echo "Cortex: dedup taxonomy (idempotent safety-net)..."
+python - <<'PY' || echo "cortex dedup skipped; continuing"
+import asyncio
+from app.core.database import AsyncSessionLocal
+from app.services.cortex.taxonomy_dedup import dedup_taxonomy
+
+async def run():
+    async with AsyncSessionLocal() as db:
+        try:
+            res = await dedup_taxonomy(db)
+            await db.commit()
+            print(f"cortex dedup: {res}")
+        except Exception as e:
+            await db.rollback()
+            print(f"cortex dedup rolled back (no change): {e!r}")
+
+asyncio.run(run())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
