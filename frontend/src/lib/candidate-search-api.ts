@@ -280,3 +280,90 @@ export const savedSearchesApi = {
   remove: (id: number): Promise<void> =>
     api.delete(`/api/saved-searches/${id}`).then(() => undefined),
 };
+
+// ── Job shortlist (SEARCH-P1-05) ────────────────────────────────────────────
+
+export type EvaluationStatus =
+  | "do_oceny"
+  | "potencjalny"
+  | "zatwierdzony"
+  | "odrzucony";
+export type OutreachStatus =
+  | "nie_kontaktowano"
+  | "do_kontaktu"
+  | "kontakt_w_toku"
+  | "zainteresowany"
+  | "brak_zainteresowania";
+
+export interface ShortlistEntry {
+  id: number;
+  job_id: number;
+  candidate_id: number;
+  candidate_name?: string | null;
+  candidate_lastname?: string | null;
+  evaluation_status: EvaluationStatus;
+  outreach_status: OutreachStatus;
+  owner_id?: number | null;
+  decision_reason_code?: string | null;
+  note?: string | null;
+  next_action_at?: string | null;
+  score_snapshot?: number | null;
+  version: number;
+  promoted_to_pipeline_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ShortlistAddResponse {
+  added: number[];
+  skipped: number[];
+  total_added: number;
+  total_skipped: number;
+}
+
+export interface ShortlistUpdate {
+  version: number;
+  evaluation_status?: EvaluationStatus;
+  outreach_status?: OutreachStatus;
+  owner_id?: number | null;
+  decision_reason_code?: string | null;
+  note?: string | null;
+  next_action_at?: string | null;
+}
+
+export interface ShortlistPromoteResponse {
+  entry_id: number;
+  candidate_id: number;
+  job_id: number;
+  stage_id: number;
+  already_promoted: boolean;
+  already_in_pipeline: boolean;
+}
+
+export const shortlistApi = {
+  list: (jobId: number): Promise<ShortlistEntry[]> =>
+    api
+      .get<ShortlistEntry[]>(`/api/jobs/${jobId}/shortlist`)
+      .then((r) => r.data),
+  add: (
+    jobId: number,
+    candidateIds: number[],
+    note?: string,
+  ): Promise<ShortlistAddResponse> =>
+    api
+      .post<ShortlistAddResponse>(`/api/jobs/${jobId}/shortlist`, {
+        candidate_ids: candidateIds,
+        ...(note ? { note } : {}),
+      })
+      .then((r) => r.data),
+  update: (entryId: number, body: ShortlistUpdate): Promise<ShortlistEntry> =>
+    api
+      .patch<ShortlistEntry>(`/api/shortlist/${entryId}`, body)
+      .then((r) => r.data),
+  remove: (entryId: number): Promise<void> =>
+    api.delete(`/api/shortlist/${entryId}`).then(() => undefined),
+  promote: (entryId: number): Promise<ShortlistPromoteResponse> =>
+    api
+      .post<ShortlistPromoteResponse>(`/api/shortlist/${entryId}/promote`)
+      .then((r) => r.data),
+};

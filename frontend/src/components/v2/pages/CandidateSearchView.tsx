@@ -7,6 +7,7 @@ import {
   Bookmark,
   ChevronDown,
   ChevronUp,
+  ListPlus,
   Loader2,
   Plus,
   Search,
@@ -31,6 +32,8 @@ import {
   type SortMode,
 } from "@/lib/candidate-search-api";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { JobShortlistPanel } from "@/components/v2/pages/JobShortlistPanel";
+import { shortlistApi } from "@/lib/candidate-search-api";
 import {
   formatReasonCounts,
   summarizeBulkResult,
@@ -133,6 +136,8 @@ export function CandidateSearchView({
   const [bulkTagsInput, setBulkTagsInput] = useState("");
   const [bulkStageId, setBulkStageId] = useState<number | "">("");
   const [assignableStages, setAssignableStages] = useState<AssignableStage[]>([]);
+  const [shortlistPending, setShortlistPending] = useState(false);
+  const [shortlistRefresh, setShortlistRefresh] = useState(0);
 
   // Saved searches — list refetched after every mutation.
   const [savedSearches, setSavedSearches] = useState<SavedSearchOut[]>([]);
@@ -262,6 +267,23 @@ export function CandidateSearchView({
       setError(err instanceof Error ? err.message : "Bulk add nie powiódł się");
     } finally {
       setBulkPending(false);
+    }
+  };
+
+  const submitShortlist = async () => {
+    if (!addToJob || selected.size === 0) return;
+    setShortlistPending(true);
+    setError(null);
+    try {
+      await shortlistApi.add(addToJob.id, Array.from(selected));
+      clearSelection();
+      setShortlistRefresh((n) => n + 1);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Dodanie do shortlisty nie powiodło się",
+      );
+    } finally {
+      setShortlistPending(false);
     }
   };
 
@@ -417,6 +439,17 @@ export function CandidateSearchView({
       )}
 
       <FiltersPanel value={request} onChange={setRequestPatch} ccCounts={ccCounts} />
+
+      {addToJob && (
+        <JobShortlistPanel
+          jobId={addToJob.id}
+          refreshSignal={shortlistRefresh}
+          onPromoted={() => {
+            // Promoted candidate is now in the pipeline → refresh results + AI tab.
+            setRequest((r) => ({ ...r }));
+          }}
+        />
+      )}
 
       {/* Saved searches strip */}
       {(savedSearches.length > 0 || saveDraftOpen) && (
@@ -706,16 +739,31 @@ export function CandidateSearchView({
               variant="ghost"
               className="h-7 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
               onClick={clearSelection}
-              disabled={bulkPending}
+              disabled={bulkPending || shortlistPending}
             >
               Wyczyść
             </Button>
             <Button
               type="button"
               size="sm"
+              variant="ghost"
+              className="h-7 gap-1 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+              onClick={submitShortlist}
+              disabled={bulkPending || shortlistPending}
+            >
+              {shortlistPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <ListPlus className="h-3 w-3" />
+              )}
+              Do shortlisty
+            </Button>
+            <Button
+              type="button"
+              size="sm"
               className="h-7 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={submitBulk}
-              disabled={bulkPending}
+              disabled={bulkPending || shortlistPending}
             >
               {bulkPending ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
