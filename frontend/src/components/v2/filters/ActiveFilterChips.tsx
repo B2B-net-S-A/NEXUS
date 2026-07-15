@@ -3,7 +3,7 @@
 import { useMemo } from"react";
 import { useQuery } from"@tanstack/react-query";
 import { X } from"lucide-react";
-import api from"@/lib/api";
+import api, { competenceCategoriesApi, type CompetenceCategoryOut } from"@/lib/api";
 import type { CandidateFilters } from"@/lib/url-filters";
 import {
  parseSkillExpression,
@@ -85,7 +85,8 @@ function collectChips(
  onUpdate: (next: Partial<CandidateFilters>) => void,
  poolsById?: Map<number, string>,
  usersById?: Map<number, string>,
- clientsById?: Map<number, string>
+ clientsById?: Map<number, string>,
+ ccById?: Map<number, string>
 ): Chip[] {
  const chips: Chip[] = [];
 
@@ -103,6 +104,18 @@ function collectChips(
  clear: () =>
  onUpdate({
  status: filters.status.filter((x) => x !== s),
+ page: 1,
+ }),
+ });
+ });
+ filters.competenceCategoryIds.forEach((id) => {
+ const name = ccById?.get(id) ?? `Kategoria #${id}`;
+ chips.push({
+ key: `cc:${id}`,
+ label: `Kategoria: ${name}`,
+ clear: () =>
+ onUpdate({
+ competenceCategoryIds: filters.competenceCategoryIds.filter((x) => x !== id),
  page: 1,
  }),
  });
@@ -482,7 +495,21 @@ export function ActiveFilterChips({
  return new Map(clientsData.map((c) => [c.id, c.name] as const));
  }, [clientsById, clientsData]);
 
- const chips = collectChips(filters, onUpdate, resolvedPools, resolvedUsers, resolvedClients);
+ // Resolve competence-category names for the "Kategoria" chips. Shares the
+ // `competence-categories-active` key with the filter dropdown + badges, so
+ // this is a cache-hit once any of them rendered.
+ const { data: ccData } = useQuery<CompetenceCategoryOut[]>({
+ queryKey: ["competence-categories-active"],
+ queryFn: () => competenceCategoriesApi.list(true),
+ staleTime: 300_000,
+ enabled: filters.competenceCategoryIds.length > 0,
+ });
+ const resolvedCcs = useMemo(() => {
+ if (!ccData) return undefined;
+ return new Map(ccData.map((c) => [c.id, c.name_pl] as const));
+ }, [ccData]);
+
+ const chips = collectChips(filters, onUpdate, resolvedPools, resolvedUsers, resolvedClients, resolvedCcs);
  if (chips.length === 0) return null;
 
  const clearAll = () =>
@@ -492,6 +519,7 @@ export function ActiveFilterChips({
  employment: [],
  availability: [],
  pipelineStage: [],
+ competenceCategoryIds: [],
  openTo: [],
  recentlyChangedJobs: null,
  location: "",

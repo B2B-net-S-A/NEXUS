@@ -115,6 +115,8 @@ import {
 import { useAuthStore, hasRole } from"@/store/auth";
 import { LocationInput } from"@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
+import { CompetenceCategoryMultiSelect } from"@/components/v2/filters/CompetenceCategoryMultiSelect";
+import { CompetenceCategoryBadge } from"@/components/v2/CompetenceCategoryBadge";
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
 import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
@@ -432,6 +434,8 @@ interface Candidate {
  city?: string | null;
  country?: string | null;
  years_it_experience?: number | null;
+ competence_category?: string | null;
+ competence_category_id?: number | null;
  skills?: unknown;
  experience?: unknown;
  linkedin_current_company?: string | null;
@@ -873,6 +877,7 @@ function CandidateCell({
  {fullName}
  </span>
  {isNew && <Badge size="sm" variant="success">Nowy</Badge>}
+ <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="shrink-0" />
  </div>
  {(secondary || location) && (
  <p className="mt-0.5 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
@@ -1412,6 +1417,12 @@ export function CandidatesListV2() {
  .map((x) => Number.parseInt(x, 10))
  .filter((n) => Number.isFinite(n))
  );
+ const [competenceCategoryIds, setCompetenceCategoryIds] = useState<number[]>(
+ (searchParams.get("cc") ??"")
+ .split(",")
+ .map((x) => Number.parseInt(x, 10))
+ .filter((n) => Number.isFinite(n))
+ );
  const [addedByIds, setAddedByIds] = useState<number[]>(
  (searchParams.get("added_by") ??"")
  .split(",")
@@ -1607,6 +1618,7 @@ export function CandidatesListV2() {
  skillsExpr: skillExpr,
  location: locationFilter,
  poolIds,
+ competenceCategoryIds,
  addedByIds,
  currentCompany: currentCompanyFilter,
  pastCompany: pastCompanyFilter,
@@ -1643,6 +1655,7 @@ export function CandidatesListV2() {
  skillExpr,
  locationFilter,
  poolIds,
+ competenceCategoryIds,
  addedByIds,
  currentCompanyFilter,
  pastCompanyFilter,
@@ -1966,6 +1979,7 @@ export function CandidatesListV2() {
  countSkillConstraints(skillBuckets) +
  (locationFilter ? 1 : 0) +
  poolIds.length +
+ competenceCategoryIds.length +
  addedByIds.length +
  currentCompanyFilter.length +
  pastCompanyFilter.length +
@@ -2001,6 +2015,8 @@ export function CandidatesListV2() {
  }
  if (patch.location !== undefined) setLocationFilter(patch.location);
  if (patch.poolIds !== undefined) setPoolIds(patch.poolIds);
+ if (patch.competenceCategoryIds !== undefined)
+ setCompetenceCategoryIds(patch.competenceCategoryIds);
  if (patch.addedByIds !== undefined) setAddedByIds(patch.addedByIds);
  if (patch.currentCompany !== undefined) setCurrentCompanyFilter(patch.currentCompany);
  if (patch.pastCompany !== undefined) setPastCompanyFilter(patch.pastCompany);
@@ -2048,6 +2064,7 @@ export function CandidatesListV2() {
  setSkillInput("");
  setLocationFilter("");
  setPoolIds([]);
+ setCompetenceCategoryIds([]);
  setAddedByIds([]);
  setCurrentCompanyFilter([]);
  setPastCompanyFilter([]);
@@ -2892,6 +2909,27 @@ export function CandidatesListV2() {
                     );
                   })}
                 </div>
+              </FilterField>
+            </FilterSection>
+
+            {/* Kategoria kompetencji — 5 głównych obszarów (primary + poboczne). */}
+            <FilterSection
+              title="Kategoria kompetencji"
+              icon={<Layers />}
+              accent="violet"
+            >
+              <FilterField
+                label="Kategoria"
+                hint="Główny obszar kandydata (dopasowuje też kategorie poboczne)."
+              >
+                <CompetenceCategoryMultiSelect
+                  value={competenceCategoryIds}
+                  onChange={(ids) => {
+                    setCompetenceCategoryIds(ids);
+                    setPage(1);
+                  }}
+                  triggerWidthClass="w-full"
+                />
               </FilterField>
             </FilterSection>
 
