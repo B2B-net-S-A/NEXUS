@@ -83,6 +83,16 @@ class Settings(BaseSettings):
     # collection (PR6). The active text-schema version string derives from it.
     AI_TEXT_SCHEMA_V2: bool = False
 
+    # ── AI unified retrieval orchestrator (plan PR8) ──────────────────────────
+    # OFF by default. When ON (per surface, comma-separated list in
+    # AI_UNIFIED_RETRIEVAL_SURFACES), a surface routes through the single
+    # orchestrator (eligibility → sparse+dense generation → RRF fusion →
+    # adaptive overfetch → optional rerank → scoring v2) producing one canonical
+    # MatchingRun trace instead of a bespoke per-surface pipeline. Existing
+    # surfaces are unchanged until explicitly opted in.
+    AI_UNIFIED_RETRIEVAL_ENABLED: bool = False
+    AI_UNIFIED_RETRIEVAL_SURFACES: str = ""  # e.g. "recommendations,marketplace"
+
     # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
     # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz
     # hybrydowe /recommendations + proposals) zwracają TERAZ wszystkich
