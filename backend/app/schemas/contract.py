@@ -415,6 +415,7 @@ class ContractorListItem(BaseModel):
     rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
     rate_unit: RateUnit
+    currency: str = "PLN"
     margin: Optional[float] = None
     contract_type: ContractType
     work_mode: Optional[ContractWorkMode] = None

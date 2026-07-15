@@ -1007,6 +1007,7 @@ export interface ContractorListItem {
   rate_candidate?: number | null;
   rate_client?: number | null;
   rate_unit: "hourly" | "daily" | "monthly";
+  currency?: string;
   margin?: number | null;
   contract_type: "b2b" | "uop" | "uzlecenie";
   work_mode?: "remote" | "hybrid" | "onsite" | null;

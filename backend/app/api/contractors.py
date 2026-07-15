@@ -6,12 +6,13 @@ the join and exposes it as a dedicated listing so backoffice can:
 
 - See drafts that still need rates / dates ("Do uzupełnienia")
 - See active engagements (the real contractor roster)
-- See contracts ending soon (30-day window, same semantics as ContractStatus.ending)
+- See contracts ending soon (live contract with end_date within the next 30 days —
+  a date window shared with the register, not the raw stored ContractStatus.ending)
 
 Role scoping:
 - admin / delivery_lead / tac / head_of_recruitment → sees everyone
 - recruiter / sourcer → sees only candidates they added (Candidate.created_by)
-- user (read-only viewer) → sees everyone, but UI should gate the widget
+- user (read-only viewer) → 403 (the roster carries candidate PII + rates)
 
 The "incomplete drafts" subcount drives the dashboard widget
 ("Drafty do uzupełnienia (N)").
@@ -19,7 +20,7 @@ The "incomplete drafts" subcount drives the dashboard widget
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -35,7 +36,12 @@ from app.schemas.contract import (
     ContractorListItem,
     ContractorStats,
 )
-from app.services.contract_service import validate_ready_for_activation
+from app.services.contract_service import (
+    ending_soon_clause,
+    is_ending_soon,
+    live_not_ending_clause,
+    validate_ready_for_activation,
+)
 
 router = APIRouter()
 
@@ -48,7 +54,6 @@ _FULL_VISIBILITY_ROLES = {
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.tac,
-    UserRole.user,  # passive viewer (QC / client)
 }
 
 
@@ -57,6 +62,30 @@ _LIST_STATUSES = (
     ContractStatus.active,
     ContractStatus.ending,
 )
+
+
+# Roles allowed to reach the contractor roster at all. Everyone else — notably
+# UserRole.user (the read-only viewer / QC / client persona) — is refused: the
+# payload carries candidate PII + rates/margins, so the FE hiding the operations
+# mode must not be the only gate. recruiter/sourcer pass here but are further
+# scoped to their own candidates (Candidate.created_by) in the query below.
+_CONTRACTOR_ALLOWED_ROLES = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.recruiter,
+    UserRole.sourcer,
+)
+
+
+def _require_contractor_access(current_user) -> None:  # type: ignore[no-untyped-def]
+    """Fail closed for passive viewer accounts while preserving multi-role."""
+    if not current_user.has_any_role(*_CONTRACTOR_ALLOWED_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Contractor data requires an operational role",
+        )
 
 
 def _to_item(contract: Contract) -> ContractorListItem:
@@ -84,6 +113,7 @@ def _to_item(contract: Contract) -> ContractorListItem:
         rate_candidate=contract.rate_candidate,
         rate_client=contract.rate_client,
         rate_unit=contract.rate_unit,
+        currency=contract.currency,
         margin=contract.margin,
         contract_type=contract.contract_type,
         work_mode=contract.work_mode,
@@ -104,14 +134,23 @@ async def list_contractors(
     `status` query param narrows to a single status; default is all three.
     Role-scoped: non-privileged roles see only candidates they added.
     """
+    _require_contractor_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
         selectinload(Contract.job),
     )
 
-    if status_filter is not None:
-        query = query.where(Contract.status == status_filter)
+    # "ending"/"active" are date-window buckets (see contract_service), NOT the
+    # raw stored status, so the tab counts agree with the register's date-based
+    # filter and don't lag the promotion cron. "draft" stays a plain status match.
+    if status_filter == ContractStatus.draft:
+        query = query.where(Contract.status == ContractStatus.draft)
+    elif status_filter == ContractStatus.ending:
+        query = query.where(ending_soon_clause())
+    elif status_filter == ContractStatus.active:
+        query = query.where(live_not_ending_clause())
     else:
         query = query.where(Contract.status.in_(_LIST_STATUSES))
 
@@ -154,6 +193,8 @@ async def contractor_stats(
     fields. Computed in Python (not SQL) so it matches the validator
     exactly — one source of truth for "ready to activate".
     """
+    _require_contractor_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
     )
@@ -173,8 +214,10 @@ async def contractor_stats(
             stats.draft += 1
             if validate_ready_for_activation(c):
                 stats.drafts_incomplete += 1
-        elif c.status == ContractStatus.active:
-            stats.active += 1
-        elif c.status == ContractStatus.ending:
+        elif is_ending_soon(c):
             stats.ending += 1
+        else:
+            # Live but not in the ending window (active, or expired-but-not-yet-
+            # demoted). Mirrors live_not_ending_clause so tab counts == list rows.
+            stats.active += 1
     return stats
