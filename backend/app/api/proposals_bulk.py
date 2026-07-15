@@ -107,6 +107,51 @@ class BulkProposalsResponse(BaseModel):
     total_skipped: int
 
 
+class AssignableStage(BaseModel):
+    """A pipeline stage a candidate can be bulk-added into (non-terminal, and
+    excluding ``verified`` which needs a per-recruitment rate + DL gate)."""
+
+    id: int
+    name: str
+    order: int
+
+
+@router.get(
+    "/jobs/{job_id}/assignable-stages",
+    response_model=list[AssignableStage],
+    summary="Pipeline stages a candidate can be bulk-added into",
+)
+async def list_assignable_stages(
+    job_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> list[AssignableStage]:
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.pipeline_template_id:
+        return []
+    rows = (
+        (
+            await db.execute(
+                select(PipelineStageDef)
+                .where(
+                    PipelineStageDef.template_id == job.pipeline_template_id,
+                    PipelineStageDef.is_terminal.is_(False),
+                )
+                .order_by(PipelineStageDef.order.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        AssignableStage(id=s.id, name=s.name, order=s.order)
+        for s in rows
+        if s.legacy_enum_value != PipelineStage.verified.value
+    ]
+
+
 async def _resolve_initial_stage(
     db: AsyncSession, job: Job, override_id: Optional[int]
 ) -> Optional[PipelineStageDef]:
