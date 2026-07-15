@@ -49,8 +49,8 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
   const canView = hasAnalyticsCapability(user, "view_recruitment_team")
   const [period, setPeriod] = useRecruitmentKpiPeriod("week")
   const [nameQuery, setNameQuery] = useState("")
-  const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({
-    key: "placements",
+  const [sort, setSort] = useState<{ field: SortKey; direction: "asc" | "desc" }>({
+    field: "placements",
     direction: "desc",
   })
 
@@ -68,15 +68,15 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
     )
     const direction = sort.direction === "asc" ? 1 : -1
     return [...filtered].sort((left, right) => {
-      if (sort.key === "user_name") {
+      if (sort.field === "user_name") {
         return direction * left.user_name.localeCompare(right.user_name, "pl")
       }
-      const leftValue = sort.key === "precision_30d"
+      const leftValue = sort.field === "precision_30d"
         ? left.precision_30d.value_pct ?? -1
-        : left[sort.key] ?? -1
-      const rightValue = sort.key === "precision_30d"
+        : left[sort.field] ?? -1
+      const rightValue = sort.field === "precision_30d"
         ? right.precision_30d.value_pct ?? -1
-        : right[sort.key] ?? -1
+        : right[sort.field] ?? -1
       const delta = leftValue - rightValue
       return delta === 0
         ? left.user_name.localeCompare(right.user_name, "pl")
@@ -117,9 +117,9 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
 
   function toggleSort(key: SortKey) {
     setSort((current) => ({
-      key,
+      field: key,
       direction:
-        current.key === key && current.direction === "desc" ? "asc" : "desc",
+        current.field === key && current.direction === "desc" ? "asc" : "desc",
     }))
   }
 
