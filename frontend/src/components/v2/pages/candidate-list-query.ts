@@ -50,16 +50,18 @@ export function getCandidateListIncludeFlags(
   view: CandidatesView,
   visibleColumns: ReadonlySet<string>,
 ): CandidateListIncludeFlags {
-  const tiles = view === "tiles";
+  // Tiles and the split (list + panel) view both render the rich triage fields,
+  // so they always request the heavy enrichments regardless of table columns.
+  const rich = view === "tiles" || view === "split";
   return {
-    includeMatchStats: tiles || visibleColumns.has("match"),
+    includeMatchStats: rich || visibleColumns.has("match"),
     includeActiveRecruitments:
-      tiles ||
+      rich ||
       visibleColumns.has("process") ||
       visibleColumns.has("recruitments") ||
       visibleColumns.has("stage_moved"),
     includeLastActivity:
-      tiles ||
+      rich ||
       visibleColumns.has("activity") ||
       visibleColumns.has("last_note") ||
       visibleColumns.has("rejection_reason") ||

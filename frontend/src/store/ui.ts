@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type UiDensity = "cozy" | "compact";
-export type CandidatesView = "list" | "tiles";
+export type CandidatesView = "list" | "tiles" | "split";
 export type JobsView = "tiles" | "list";
 
 interface UiStoreState {
