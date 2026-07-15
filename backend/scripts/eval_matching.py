@@ -6,7 +6,15 @@ Takes N jobs that already have ground-truth signal in the pipeline
 `rank_candidates_for_job` using Precision@5, Recall@20, MRR, and nDCG@10.
 
 Also supports ablation runs with overridden layer weights so you can see
-whether the default 40/30/15/10/5 split is optimal.
+whether the live six-layer default (35/30/12/8/5/10 = semantic/skills/salary/
+location/availability/champion_fit) is optimal. Ablation profiles are passed
+explicitly into ``rank_candidates_for_job`` — they no longer rely on the old
+(silently no-op) monkeypatch of module constants.
+
+Labeling note: candidates who never reached a positive pipeline stage are
+treated as *unknown*, not as negatives — they are simply absent from a job's
+ground-truth set. Precision@k still penalises unranked-but-relevant misses, but
+the evaluator never fabricates a negative label from missing signal.
 
 Usage
 -----
@@ -91,7 +99,16 @@ POSITIVE_STAGES: frozenset[PipelineStage] = frozenset(STAGE_RELEVANCE.keys())
 
 @dataclass(frozen=True)
 class WeightProfile:
-    """Layer point budgets (semantic+skills+salary+location+availability = 100)."""
+    """Six-layer point budget matching the live scoring engine.
+
+    The engine (``scoring_service.WeightProfile``) scores with SIX layers
+    summing to 100: semantic + skills + salary + location + availability +
+    champion_fit. The old evaluator profile had only five and monkeypatched
+    module constants that the engine no longer reads at call time (it takes an
+    explicit ``profile=`` argument), so every "ablation" silently scored
+    identically. This profile now carries all six layers and is passed straight
+    into ``rank_candidates_for_job`` — see ``_to_scoring_profile``.
+    """
 
     name: str
     semantic: float
@@ -99,28 +116,61 @@ class WeightProfile:
     salary: float
     location: float
     availability: float
+    champion_fit: float
+
+    @property
+    def budget(self) -> float:
+        return (
+            self.semantic
+            + self.skills
+            + self.salary
+            + self.location
+            + self.availability
+            + self.champion_fit
+        )
 
     def as_dict(self) -> dict:
         return asdict(self)
 
 
+# Mirrors the live engine default (scoring_service: 35/30/12/8/5/10 = 100).
 DEFAULT_PROFILE = WeightProfile(
-    name="default_40_30_15_10_5",
-    semantic=40.0,
+    name="default_35_30_12_8_5_10",
+    semantic=35.0,
     skills=30.0,
-    salary=15.0,
-    location=10.0,
+    salary=12.0,
+    location=8.0,
     availability=5.0,
+    champion_fit=10.0,
 )
 
+# Each ablation profile is a valid six-layer budget summing to exactly 100 so
+# the comparison isolates *distribution*, not total point mass.
 ABLATION_PROFILES: tuple[WeightProfile, ...] = (
     DEFAULT_PROFILE,
-    WeightProfile("semantic_only", 100.0, 0.0, 0.0, 0.0, 0.0),
-    WeightProfile("skills_only", 0.0, 100.0, 0.0, 0.0, 0.0),
-    WeightProfile("skills_heavy", 20.0, 60.0, 10.0, 5.0, 5.0),
-    WeightProfile("semantic_heavy", 60.0, 20.0, 10.0, 5.0, 5.0),
-    WeightProfile("balanced", 30.0, 30.0, 20.0, 15.0, 5.0),
+    WeightProfile("semantic_only", 100.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    WeightProfile("skills_only", 0.0, 100.0, 0.0, 0.0, 0.0, 0.0),
+    WeightProfile("skills_heavy", 20.0, 55.0, 10.0, 5.0, 5.0, 5.0),
+    WeightProfile("semantic_heavy", 55.0, 20.0, 10.0, 5.0, 5.0, 5.0),
+    WeightProfile("balanced", 25.0, 25.0, 20.0, 15.0, 5.0, 10.0),
 )
+
+
+def _to_scoring_profile(profile: WeightProfile) -> "scoring_service.WeightProfile":
+    """Convert an eval profile into the engine's ``WeightProfile``.
+
+    This is the ONE place ablation weights reach the scoring engine, replacing
+    the old (no-op) monkeypatch of ``scoring_service.SEMANTIC_MAX`` &c.
+    """
+    return scoring_service.WeightProfile(
+        name=profile.name,
+        semantic=profile.semantic,
+        skills=profile.skills,
+        salary=profile.salary,
+        location=profile.location,
+        availability=profile.availability,
+        champion_fit=profile.champion_fit,
+    )
 
 
 @dataclass
@@ -174,17 +224,6 @@ class ProfileEval:
 def _mean(values: Iterable[float]) -> float:
     vs = [v for v in values]
     return sum(vs) / len(vs) if vs else 0.0
-
-
-def _apply_profile(profile: WeightProfile) -> None:
-    """Monkey-patch scoring_service module constants for ablation runs."""
-    scoring_service.SEMANTIC_MAX = profile.semantic
-    scoring_service.SKILLS_MAX = profile.skills
-    scoring_service.SKILLS_MUST_MAX = profile.skills * (20.0 / 30.0) if profile.skills else 0.0
-    scoring_service.SKILLS_NICE_MAX = profile.skills * (10.0 / 30.0) if profile.skills else 0.0
-    scoring_service.SALARY_MAX = profile.salary
-    scoring_service.LOCATION_MAX = profile.location
-    scoring_service.AVAILABILITY_MAX = profile.availability
 
 
 @dataclass(frozen=True)
@@ -299,6 +338,7 @@ async def _score_job_candidates(
     job: Job,
     db: AsyncSession,
     *,
+    profile: WeightProfile = DEFAULT_PROFILE,
     pool_cap: int = 200,
     with_historical_boost: bool = False,
 ) -> tuple[list[int], int, dict[int, int]]:
@@ -340,7 +380,11 @@ async def _score_job_candidates(
     candidates = cand_res.scalars().all()
 
     breakdowns = await rank_candidates_for_job(
-        job, candidates, db, similarity_map=similarity_map
+        job,
+        candidates,
+        db,
+        similarity_map=similarity_map,
+        profile=_to_scoring_profile(profile),
     )
 
     try:
@@ -402,11 +446,10 @@ async def evaluate_profile(
     *,
     with_historical_boost: bool = False,
 ) -> ProfileEval:
-    _apply_profile(profile)
     result = ProfileEval(profile=profile, with_boost=with_historical_boost)
     for job, gt_ids, relevance in job_records:
         ranked_ids, pool_size, boost_map = await _score_job_candidates(
-            job, db, with_historical_boost=with_historical_boost
+            job, db, profile=profile, with_historical_boost=with_historical_boost
         )
         p5, r20, mrr, ndcg = _metrics(ranked_ids, relevance)
         hhr = _historical_hit_rate(ranked_ids, boost_map, k=10)
@@ -585,12 +628,15 @@ def _render_markdown(
         lines.append(f"## Profile: `{p.profile.name}`")
         lines.append("")
         lines.append(
-            "Weights: semantic={0}, skills={1}, salary={2}, location={3}, availability={4}".format(
+            "Weights: semantic={0}, skills={1}, salary={2}, location={3}, "
+            "availability={4}, champion_fit={5} (budget={6:.0f})".format(
                 p.profile.semantic,
                 p.profile.skills,
                 p.profile.salary,
                 p.profile.location,
                 p.profile.availability,
+                p.profile.champion_fit,
+                p.profile.budget,
             )
         )
         lines.append("")
@@ -701,14 +747,12 @@ async def _run(args: argparse.Namespace) -> int:
                     salary=DEFAULT_PROFILE.salary,
                     location=DEFAULT_PROFILE.location,
                     availability=DEFAULT_PROFILE.availability,
+                    champion_fit=DEFAULT_PROFILE.champion_fit,
                 ),
                 per_job=delta_res.per_job,
                 with_boost=True,
             )
             profile_results.append(delta_res)
-
-    # Always restore defaults after ablation so an import in-process sees them
-    _apply_profile(DEFAULT_PROFILE)
 
     generated_at = datetime.now(timezone.utc)
     voyage_configured = bool(os.environ.get("VOYAGE_API_KEY"))
@@ -726,8 +770,27 @@ async def _run(args: argparse.Namespace) -> int:
 
     if args.json:
         json_path = out_path.with_suffix(".json")
+        from app.services.embedding_service import VECTOR_SIZE as _VEC
+
         payload = {
             "generated_at": generated_at.isoformat(),
+            "manifest": {
+                # Explicit legacy placeholders until later plan PRs introduce
+                # real runtime versioning (PR4 scoring, PR6 index, PR10 taxonomy).
+                "scoring_algorithm_version": getattr(
+                    scoring_service, "SCORING_ALGORITHM_VERSION", "scoring-v1-legacy"
+                ),
+                "embedding_model": os.environ.get(
+                    "EMBEDDING_MODEL", "voyage-3-large"
+                ),
+                "embedding_dimension": _VEC,
+                "index_version": "index-legacy-v1",
+                "taxonomy_version": "taxonomy-legacy-v1",
+                "eval_dataset": "historical_pipeline_stages",
+                "unknown_treated_as_negative": False,
+                "num_jobs": len(job_records),
+                "min_ground_truth": args.min_gt,
+            },
             "profiles": [
                 {
                     "profile": p.profile.as_dict(),
