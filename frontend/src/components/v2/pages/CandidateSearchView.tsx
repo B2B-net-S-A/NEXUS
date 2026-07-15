@@ -21,6 +21,7 @@ import {
   candidateSearchApi,
   proposalsBulkApi,
   savedSearchesApi,
+  type AssignableStage,
   type BulkProposalsResponse,
   type CandidateSearchItem,
   type CandidateSearchRequest,
@@ -117,6 +118,8 @@ export function CandidateSearchView({
   const [bulkOptionsOpen, setBulkOptionsOpen] = useState(false);
   const [bulkNote, setBulkNote] = useState("");
   const [bulkTagsInput, setBulkTagsInput] = useState("");
+  const [bulkStageId, setBulkStageId] = useState<number | "">("");
+  const [assignableStages, setAssignableStages] = useState<AssignableStage[]>([]);
 
   // Saved searches — list refetched after every mutation.
   const [savedSearches, setSavedSearches] = useState<SavedSearchOut[]>([]);
@@ -139,6 +142,24 @@ export function CandidateSearchView({
   useEffect(() => {
     refreshSavedSearches();
   }, [refreshSavedSearches]);
+
+  // Load the job's assignable (non-terminal) stages once, for the bulk-add
+  // target-stage picker. Best-effort: on failure the picker just isn't shown.
+  useEffect(() => {
+    if (!addToJob) return;
+    let cancelled = false;
+    proposalsBulkApi
+      .assignableStages(addToJob.id)
+      .then((s) => {
+        if (!cancelled) setAssignableStages(s);
+      })
+      .catch(() => {
+        if (!cancelled) setAssignableStages([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addToJob]);
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -209,6 +230,9 @@ export function CandidateSearchView({
       const tags = parseTagInput(bulkTagsInput);
       const resp = await proposalsBulkApi.add(addToJob.id, {
         candidate_ids: Array.from(selected),
+        ...(typeof bulkStageId === "number"
+          ? { initial_stage_def_id: bulkStageId }
+          : {}),
         ...(note ? { note } : {}),
         ...(tags.length ? { tags } : {}),
       });
@@ -216,6 +240,7 @@ export function CandidateSearchView({
       clearSelection();
       setBulkNote("");
       setBulkTagsInput("");
+      setBulkStageId("");
       setBulkOptionsOpen(false);
       // Re-run the search so newly added candidates drop out (excluded).
       setRequest((r) => ({ ...r }));
@@ -526,6 +551,33 @@ export function CandidateSearchView({
         <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-col items-center gap-2">
           {bulkOptionsOpen && (
             <div className="w-80 max-w-full space-y-2 rounded-xl border bg-card p-3 text-left shadow-lg dark:border-zinc-800">
+              {assignableStages.length > 0 && (
+                <div className="space-y-1">
+                  <label
+                    htmlFor="bulk-stage"
+                    className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                  >
+                    Etap docelowy
+                  </label>
+                  <select
+                    id="bulk-stage"
+                    value={bulkStageId === "" ? "" : String(bulkStageId)}
+                    onChange={(e) =>
+                      setBulkStageId(
+                        e.target.value === "" ? "" : Number(e.target.value),
+                      )
+                    }
+                    className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring dark:border-zinc-700"
+                  >
+                    <option value="">Domyślny (pierwszy etap)</option>
+                    {assignableStages.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="space-y-1">
                 <label
                   htmlFor="bulk-note"
@@ -578,7 +630,9 @@ export function CandidateSearchView({
               ) : (
                 <ChevronUp className="h-3 w-3" />
               )}
-              {(bulkNote.trim() || bulkTagsInput.trim()) && (
+              {(bulkNote.trim() ||
+                bulkTagsInput.trim() ||
+                bulkStageId !== "") && (
                 <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
               )}
             </Button>

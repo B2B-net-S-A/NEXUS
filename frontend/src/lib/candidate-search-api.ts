@@ -201,6 +201,12 @@ export interface BulkProposalsResponse {
   total_skipped: number;
 }
 
+export interface AssignableStage {
+  id: number;
+  name: string;
+  order: number;
+}
+
 export const proposalsBulkApi = {
   add: (
     jobId: number,
@@ -208,6 +214,10 @@ export const proposalsBulkApi = {
   ): Promise<BulkProposalsResponse> =>
     api
       .post<BulkProposalsResponse>(`/api/jobs/${jobId}/proposals/bulk`, body)
+      .then((r) => r.data),
+  assignableStages: (jobId: number): Promise<AssignableStage[]> =>
+    api
+      .get<AssignableStage[]>(`/api/jobs/${jobId}/assignable-stages`)
       .then((r) => r.data),
 };
 
