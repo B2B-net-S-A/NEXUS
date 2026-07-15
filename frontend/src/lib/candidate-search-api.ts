@@ -162,6 +162,20 @@ export const candidateSearchApi = {
     api
       .post<SearchDiagnosticsResponse>("/api/search/candidates/diagnostics", body)
       .then((r) => r.data),
+  /**
+   * Read-only cached hybrid match scores (0-100) for candidates against a job.
+   * Only returns candidates that already have a fresh cached score.
+   */
+  matchScores: (
+    jobId: number,
+    candidateIds: number[],
+  ): Promise<Record<string, number>> =>
+    api
+      .post<{ scores: Record<string, number> }>(
+        "/api/search/candidates/scores",
+        { job_id: jobId, candidate_ids: candidateIds },
+      )
+      .then((r) => r.data.scores),
 };
 
 export type BulkSkipReason =
