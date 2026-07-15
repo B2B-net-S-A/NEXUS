@@ -14,8 +14,8 @@ native enum type to create.
 
 from alembic import op
 
-revision = "0165_job_shortlist_entries"
-down_revision = "0164_analytics_v1_kpi_defaults"
+revision = "0172_job_shortlist_entries"
+down_revision = "0171_index_outbox"
 branch_labels = None
 depends_on = None
 
