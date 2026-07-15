@@ -3658,12 +3658,23 @@ export type AIFeatureKey =
   | "job_description_generator"
   | "cv_parser"
   | "candidate_summary"
-  | "champion_draft";
+  | "champion_draft"
+  | "embeddings"
+  | "reranking"
+  | "matching"
+  | "job_writer"
+  | "champion_profile"
+  | "match_explanation"
+  | "mindy"
+  | "uop_analysis"
+  | "criteria_suggestions"
+  | "cv_b2b";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;
   enabled: boolean;
   monthly_limit: number;
+  monthly_budget_usd: number;
   label: string;
   data_sent_to_ai: string[];
 }
@@ -3674,17 +3685,47 @@ export interface AIFeatureUsageDto {
   limit: number;
   period_start: string;
   period_end: string;
+  cost_usd: number;
+  p95_latency_ms: number;
+  error_rate: number;
+  health: "ok" | "degraded" | "down";
+}
+
+export interface AIFeatureRouteDto {
+  modes: Record<
+    string,
+    {
+      provider: string;
+      model: string;
+      operation: string;
+      escalation_models: string[];
+    }
+  >;
 }
 
 export interface AISettingsResponse {
   master_enabled: boolean;
   features: AIFeatureConfigDto[];
   usage: AIFeatureUsageDto[];
+  active_registry_version: string;
+  routing_lock_version: number;
+  routes: Partial<Record<AIFeatureKey, AIFeatureRouteDto>>;
+  compliance: Record<
+    string,
+    {
+      production_allowed: boolean;
+      dpa_approved: boolean;
+      zdr_approved: boolean;
+      subprocessors_reviewed: boolean;
+      transfer_basis: string | null;
+    }
+  >;
 }
 
 export interface AIFeatureUpdate {
   enabled?: boolean;
   monthly_limit?: number;
+  monthly_budget_usd?: number;
 }
 
 export const aiSettingsApi = {

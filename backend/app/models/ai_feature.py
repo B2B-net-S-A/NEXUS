@@ -16,6 +16,7 @@ Why a single global config (no per-tenant): NEXUS is single-tenant
 
 import enum
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
@@ -26,6 +27,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    Numeric,
     UniqueConstraint,
     func,
 )
@@ -48,6 +50,16 @@ class AIFeatureKey(str, enum.Enum):
     cv_parser = "cv_parser"
     candidate_summary = "candidate_summary"
     champion_draft = "champion_draft"
+    embeddings = "embeddings"
+    reranking = "reranking"
+    matching = "matching"
+    job_writer = "job_writer"
+    champion_profile = "champion_profile"
+    match_explanation = "match_explanation"
+    mindy = "mindy"
+    uop_analysis = "uop_analysis"
+    criteria_suggestions = "criteria_suggestions"
+    cv_b2b = "cv_b2b"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -58,6 +70,16 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_parser: "Tworzenie kandydata z CV",
     AIFeatureKey.candidate_summary: "Podsumowanie kandydata",
     AIFeatureKey.champion_draft: "Profil Championa AI",
+    AIFeatureKey.embeddings: "Embeddings kandydatów i ofert",
+    AIFeatureKey.reranking: "Reranking wyników",
+    AIFeatureKey.matching: "Matching kandydatów",
+    AIFeatureKey.job_writer: "Job Writer",
+    AIFeatureKey.champion_profile: "Profil Championa",
+    AIFeatureKey.match_explanation: "Wyjaśnienie dopasowania",
+    AIFeatureKey.mindy: "MINDY",
+    AIFeatureKey.uop_analysis: "Analiza UoP",
+    AIFeatureKey.criteria_suggestions: "Sugestie kryteriów",
+    AIFeatureKey.cv_b2b: "Generator CV B2B",
 }
 
 
@@ -86,6 +108,18 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Treść CV kandydata-Championa",
         "Historia rekrutacji (top-K podobnych zamkniętych ról)",
     ],
+    AIFeatureKey.embeddings: ["Zanonimizowany tekst indeksu kandydatów i ofert"],
+    AIFeatureKey.reranking: ["Zapytanie oraz zanonimizowane fragmenty wyników"],
+    AIFeatureKey.matching: ["Wektory i strukturalne kryteria dopasowania"],
+    AIFeatureKey.job_writer: [
+        "Brief oferty, wymagania i zatwierdzony kontekst klienta"
+    ],
+    AIFeatureKey.champion_profile: ["CV, notatki i transkrypty wskazane jako źródła"],
+    AIFeatureKey.match_explanation: ["Wyłącznie komponenty ScoreBreakdown"],
+    AIFeatureKey.mindy: ["Dozwolone KPI, okres i zagregowane wyniki"],
+    AIFeatureKey.uop_analysis: ["Dane umowy i wynik deterministycznego silnika reguł"],
+    AIFeatureKey.criteria_suggestions: ["Opis roli i dopasowania do taksonomii"],
+    AIFeatureKey.cv_b2b: ["Treść CV i zatwierdzone kryteria formatowania"],
 }
 
 
@@ -113,6 +147,13 @@ class AIFeatureConfig(Base, TimestampMixin):
         nullable=False,
         default=0,
         doc="Monthly call cap. 0 = unlimited.",
+    )
+
+    monthly_budget_usd: Mapped[Decimal] = mapped_column(
+        Numeric(12, 4),
+        nullable=False,
+        default=Decimal("0"),
+        doc="Monthly provider cost cap in USD. 0 = unlimited.",
     )
 
     updated_by: Mapped[Optional[int]] = mapped_column(

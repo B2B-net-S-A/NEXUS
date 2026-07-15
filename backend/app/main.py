@@ -147,6 +147,7 @@ from app.api import autenti as autenti_api
 from app.api import public_signing as public_signing_api
 from app.api import signing as signing_api
 from app.api import ai_settings as ai_settings_api
+from app.api import ai_routing as ai_routing_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import candidate_sources as candidate_sources_api
@@ -949,6 +950,7 @@ app.include_router(
 # AI features panel (Settings → AI). Admin-only. Routes mounted at
 # /api/settings/ai (prefix is declared on the router itself; we add /api here).
 app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
+app.include_router(ai_routing_api.router, prefix="/api", tags=["admin-ai-routing"])
 
 # OAuth2 client manager (Settings → API integration). Admin-only CRUD.
 app.include_router(oauth_clients_api.router, prefix="/api", tags=["oauth-clients"])
@@ -1173,6 +1175,32 @@ async def api_health_check():
     # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
     anthropic_key = settings.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
     checks["anthropic"] = "configured" if anthropic_key else "unconfigured"
+
+    # Config-only AI control-plane checks. Never ping providers from the public
+    # readiness endpoint; detailed breakers and costs live in admin snapshot.
+    try:
+        from app.ai.registry import REGISTRIES
+        from app.models.ai_platform import AIRoutingState
+
+        async with AsyncSessionLocal() as session:
+            route_version = await asyncio.wait_for(
+                session.scalar(
+                    select(AIRoutingState.registry_version).where(
+                        AIRoutingState.id == 1
+                    )
+                ),
+                timeout=1.0,
+            )
+        checks["ai_routing"] = (
+            "healthy" if (route_version or "v1_current") in REGISTRIES else "unhealthy"
+        )
+    except Exception:
+        checks["ai_routing"] = "degraded"
+    checks["ai_index"] = (
+        "configured"
+        if settings.QDRANT_COLLECTION and settings.QDRANT_JOBS_COLLECTION
+        else "unconfigured"
+    )
 
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
