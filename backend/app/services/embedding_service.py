@@ -80,9 +80,9 @@ def job_collection_name() -> str:
 def _get_qdrant_client():
     """Return a synchronous Qdrant client (used in background tasks)."""
     try:
-        from qdrant_client import QdrantClient
+        from app.services.qdrant_factory import get_qdrant_client
 
-        return QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        return get_qdrant_client()
     except Exception as e:
         logger.error("[Qdrant] client creation failed error_type=%s", type(e).__name__)
         return None
@@ -95,10 +95,10 @@ def init_qdrant_collection() -> None:
     Called at application startup (synchronous, runs in thread via asyncio.to_thread).
     """
     try:
-        from qdrant_client import QdrantClient
         from qdrant_client.models import Distance, VectorParams
+        from app.services.qdrant_factory import get_qdrant_client
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
         existing = {c.name for c in client.get_collections().collections}
 
         for coll in (_collection(), _jobs_collection()):
@@ -427,10 +427,10 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 
         # Upsert into Qdrant
         def _upsert():
-            from qdrant_client import QdrantClient
+            from app.services.qdrant_factory import get_qdrant_client
             from qdrant_client.models import PointStruct
 
-            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            client = get_qdrant_client()
             client.upsert(
                 collection_name=_collection(),
                 points=[
@@ -473,9 +473,9 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
     """
 
     def _delete():
-        from qdrant_client import QdrantClient
+        from app.services.qdrant_factory import get_qdrant_client
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
         client.delete(collection_name=_collection(), points_selector=[candidate_id])
 
     try:
@@ -486,6 +486,28 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
         logger.warning(
             "[Embed] Candidate %s vector delete failed error_type=%s",
             candidate_id,
+            type(e).__name__,
+        )
+        return False
+
+
+async def delete_job_embedding(job_id: int) -> bool:
+    """Best-effort removal of a job vector from the active job collection."""
+
+    def _delete():
+        from app.services.qdrant_factory import get_qdrant_client
+
+        client = get_qdrant_client()
+        client.delete(collection_name=_jobs_collection(), points_selector=[job_id])
+
+    try:
+        await asyncio.to_thread(_delete)
+        logger.info("[Embed] Deleted job %s vector from Qdrant.", job_id)
+        return True
+    except Exception as e:  # pragma: no cover - network/Qdrant failure path
+        logger.warning(
+            "[Embed] Job %s vector delete failed error_type=%s",
+            job_id,
             type(e).__name__,
         )
         return False
@@ -520,9 +542,9 @@ async def search_candidates_semantic(
             return []
 
         def _search():
-            from qdrant_client import QdrantClient
+            from app.services.qdrant_factory import get_qdrant_client
 
-            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            client = get_qdrant_client()
             hits = client.search(
                 collection_name=_collection(),
                 query_vector=embedding,
@@ -574,10 +596,10 @@ async def similarity_for_candidate_ids(
         return {}
 
     def _search():
-        from qdrant_client import QdrantClient
+        from app.services.qdrant_factory import get_qdrant_client
         from qdrant_client.models import Filter, HasIdCondition
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
         hits = client.search(
             collection_name=_collection(),
             query_vector=embedding,
@@ -726,10 +748,10 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
             return False
 
         def _upsert():
-            from qdrant_client import QdrantClient
+            from app.services.qdrant_factory import get_qdrant_client
             from qdrant_client.models import PointStruct
 
-            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            client = get_qdrant_client()
             client.upsert(
                 collection_name=_jobs_collection(),
                 points=[
@@ -766,9 +788,9 @@ async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
         return []
 
     def _search():
-        from qdrant_client import QdrantClient
+        from app.services.qdrant_factory import get_qdrant_client
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
         hits = client.search(
             collection_name=_jobs_collection(),
             query_vector=embedding,
@@ -809,9 +831,9 @@ async def search_similar_jobs_by_job_id(
     """
 
     def _run() -> list[dict]:
-        from qdrant_client import QdrantClient
+        from app.services.qdrant_factory import get_qdrant_client
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client = get_qdrant_client()
 
         try:
             points = client.retrieve(

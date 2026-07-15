@@ -3491,20 +3491,21 @@ async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> Non
     """Run CC classifier and persist the top hit as the candidate's primary CC.
 
     Mirrors the pattern used in `public_share.py` — only writes when the
-    candidate has no CC yet (recruiter-curated value wins). Score ≥ 0.30 is
-    required so very weak signals don't pollute the profile. Failures are
+    candidate has no CC yet (recruiter-curated value wins). Score ≥ 0.80 and
+    a ≥ 0.10 lead over #2 are required. Failures are
     logged but never surface to the caller: CC is enrichment, not required
     for the candidate record.
     """
     try:
-        from app.services.cc_classifier import classify_candidate_to_cc
+        from app.services.cc_classifier import (
+            classify_candidate_to_cc,
+            should_auto_assign,
+        )
 
         scores = await classify_candidate_to_cc(candidate, db)
-        if not scores:
+        if not should_auto_assign(scores):
             return
         top = scores[0]
-        if top.score < 0.30:
-            return
         if candidate.competence_category and candidate.competence_category_id:
             # Already curated — leave it alone.
             return

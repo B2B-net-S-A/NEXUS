@@ -23,6 +23,7 @@ worker (future) can sweep `stale=True` rows and refresh them in batch.
 from __future__ import annotations
 
 import logging
+import hashlib
 from typing import Iterable, Optional, Sequence
 
 from sqlalchemy import select, update
@@ -41,6 +42,30 @@ from app.services.scoring_service import (
 )
 
 logger = logging.getLogger(__name__)
+SCORING_ALGORITHM_VERSION = "hybrid_score_v2"
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _cache_identity(
+    candidate: Candidate, job: Job, profile: WeightProfile
+) -> dict[str, str | int]:
+    from app.services.embedding_service import (
+        _build_candidate_text,
+        _build_job_text,
+        candidate_collection_name,
+        job_collection_name,
+    )
+
+    return {
+        "profile_version": profile.version,
+        "scoring_algorithm_version": SCORING_ALGORITHM_VERSION,
+        "index_version": (f"{candidate_collection_name()}|{job_collection_name()}"),
+        "candidate_source_hash": _hash_text(_build_candidate_text(candidate)),
+        "job_source_hash": _hash_text(_build_job_text(job)),
+    }
 
 
 # ── Cache round-trip ──────────────────────────────────────────────────────────
@@ -77,13 +102,18 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
 
 
 async def _upsert_breakdown(
-    db: AsyncSession, breakdown: ScoreBreakdown, *, profile_id: int
+    db: AsyncSession,
+    breakdown: ScoreBreakdown,
+    *,
+    profile_id: int,
+    identity: dict[str, str | int],
 ) -> None:
     """Persist (insert-or-update) a computed breakdown; clears `stale`."""
     stmt = pg_insert(CandidateJobMatchScore).values(
         candidate_id=breakdown.candidate_id,
         job_id=breakdown.job_id,
         profile_id=profile_id,
+        **identity,
         total_score=breakdown.total,
         breakdown=breakdown.as_dict(),
         stale=False,
@@ -97,6 +127,11 @@ async def _upsert_breakdown(
         set_={
             "total_score": stmt.excluded.total_score,
             "breakdown": stmt.excluded.breakdown,
+            "profile_version": stmt.excluded.profile_version,
+            "scoring_algorithm_version": stmt.excluded.scoring_algorithm_version,
+            "index_version": stmt.excluded.index_version,
+            "candidate_source_hash": stmt.excluded.candidate_source_hash,
+            "job_source_hash": stmt.excluded.job_source_hash,
             "scored_at": __import__("sqlalchemy").func.now(),
             "stale": False,
         },
@@ -121,11 +156,19 @@ async def get_cached_or_compute(
     The cache is keyed by (candidate, job, profile) so different weight
     profiles don't trample each other's results.
     """
+    identity = _cache_identity(candidate, job, profile)
     row = await db.scalar(
         select(CandidateJobMatchScore).where(
             CandidateJobMatchScore.candidate_id == candidate.id,
             CandidateJobMatchScore.job_id == job.id,
             CandidateJobMatchScore.profile_id == profile.id,
+            CandidateJobMatchScore.profile_version == identity["profile_version"],
+            CandidateJobMatchScore.scoring_algorithm_version
+            == identity["scoring_algorithm_version"],
+            CandidateJobMatchScore.index_version == identity["index_version"],
+            CandidateJobMatchScore.candidate_source_hash
+            == identity["candidate_source_hash"],
+            CandidateJobMatchScore.job_source_hash == identity["job_source_hash"],
         )
     )
     if row is not None and not row.stale:
@@ -135,7 +178,7 @@ async def get_cached_or_compute(
         candidate, job, db, semantic_similarity=semantic_similarity, profile=profile
     )
     try:
-        await _upsert_breakdown(db, breakdown, profile_id=profile.id)
+        await _upsert_breakdown(db, breakdown, profile_id=profile.id, identity=identity)
         await db.commit()
     except Exception as e:  # pragma: no cover — write-through best-effort
         logger.warning("match score cache upsert failed: %s", e)
@@ -156,6 +199,8 @@ async def bulk_get_or_compute(
         return []
 
     sims = similarity_map or {}
+    identities = {c.id: _cache_identity(c, job, profile) for c in candidates}
+    common = identities[candidates[0].id]
     cached_rows = (
         (
             await db.execute(
@@ -163,6 +208,11 @@ async def bulk_get_or_compute(
                     CandidateJobMatchScore.job_id == job.id,
                     CandidateJobMatchScore.candidate_id.in_([c.id for c in candidates]),
                     CandidateJobMatchScore.profile_id == profile.id,
+                    CandidateJobMatchScore.profile_version == common["profile_version"],
+                    CandidateJobMatchScore.scoring_algorithm_version
+                    == common["scoring_algorithm_version"],
+                    CandidateJobMatchScore.index_version == common["index_version"],
+                    CandidateJobMatchScore.job_source_hash == common["job_source_hash"],
                     CandidateJobMatchScore.stale.is_(False),
                 )
             )
@@ -170,7 +220,12 @@ async def bulk_get_or_compute(
         .scalars()
         .all()
     )
-    cached_by_cid = {r.candidate_id: r for r in cached_rows}
+    cached_by_cid = {
+        r.candidate_id: r
+        for r in cached_rows
+        if r.candidate_source_hash
+        == identities[r.candidate_id]["candidate_source_hash"]
+    }
 
     results: list[ScoreBreakdown] = []
     pending_writes: list[ScoreBreakdown] = []
@@ -188,7 +243,12 @@ async def bulk_get_or_compute(
     if pending_writes:
         try:
             for b in pending_writes:
-                await _upsert_breakdown(db, b, profile_id=profile.id)
+                await _upsert_breakdown(
+                    db,
+                    b,
+                    profile_id=profile.id,
+                    identity=identities[b.candidate_id],
+                )
             await db.commit()
         except Exception as e:  # pragma: no cover
             logger.warning("match score bulk cache upsert failed: %s", e)

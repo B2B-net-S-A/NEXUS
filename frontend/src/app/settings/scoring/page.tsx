@@ -12,11 +12,12 @@ import {
 } from "@/lib/api";
 
 const DEFAULT_WEIGHTS: ScoringWeights = {
-  semantic: 40,
+  semantic: 35,
   skills: 30,
-  salary: 15,
-  location: 10,
+  salary: 12,
+  location: 8,
   availability: 5,
+  champion_fit: 10,
 };
 
 const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
@@ -25,6 +26,7 @@ const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
   salary: "Zarobki",
   location: "Lokalizacja / tryb pracy",
   availability: "Dostępność",
+  champion_fit: "Dopasowanie do Profilu Championa",
 };
 
 const LAYER_COLORS: Record<keyof ScoringWeights, string> = {
@@ -33,10 +35,18 @@ const LAYER_COLORS: Record<keyof ScoringWeights, string> = {
   salary: "bg-emerald-500",
   location: "bg-amber-500",
   availability: "bg-rose-500",
+  champion_fit: "bg-secondary",
 };
 
 function sum(w: ScoringWeights): number {
-  return w.semantic + w.skills + w.salary + w.location + w.availability;
+  return (
+    w.semantic +
+    w.skills +
+    w.salary +
+    w.location +
+    w.availability +
+    w.champion_fit
+  );
 }
 
 interface ProfileEditorProps {
@@ -54,7 +64,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
   const [error, setError] = useState<string | null>(null);
 
   const total = sum(weights);
-  const valid = total === 100 && name.trim().length >= 2;
+  const valid = Math.abs(total - 100) <= 0.01 && name.trim().length >= 2;
 
   const qc = useQueryClient();
   const createMut = useMutation({
@@ -320,9 +330,9 @@ export default function ScoringWeightsPage() {
             Profile wag scoringu
           </h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            Domyślnie: semantic 40 + skills 30 + salary 15 + location 10 +
-            availability 5. Własne profile ułatwią tunowanie pod konkretnego
-            klienta (np. &quot;klient woli seniorów&quot; → boost skills).
+            Domyślnie: semantic 35 + skills 30 + salary 12 + location 8 +
+            availability 5 + champion 10. Własne profile ułatwiają tunowanie
+            pod konkretnego użytkownika lub klienta.
           </p>
         </div>
         {editing === null && (
@@ -361,7 +371,7 @@ export default function ScoringWeightsPage() {
       )}
       {!isLoading && data && data.length === 0 && editing === null && (
         <div className="text-center py-10 text-muted-foreground dark:text-muted-foreground text-sm border border-dashed border-border dark:border-border rounded-xl">
-          Brak profili — scoring używa domyślnych wag (40/30/15/10/5).
+          Brak profili — scoring używa domyślnych wag (35/30/12/8/5/10).
         </div>
       )}
       {data && data.length > 0 && (

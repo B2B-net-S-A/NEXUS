@@ -8,8 +8,8 @@ Architektura:
 - Tie detection: |score[0] - score[1]| < 0.10 → `tie=True` (UI nie pre-selectuje).
 
 Progi confidence (dla UI badge):
-- high:   ≥ 0.65
-- medium: 0.40 – 0.65
+- high:   ≥ 0.80
+- medium: 0.60 – 0.80
 - low:    < 0.40
 """
 
@@ -28,16 +28,20 @@ from app.services.embedding_service import (
     candidate_collection_name,
     job_collection_name,
 )
+from app.services.qdrant_factory import (
+    cc_centroids_collection_name,
+    get_qdrant_client,
+)
 
 logger = logging.getLogger(__name__)
 
 KEYWORD_WEIGHT = 0.4
 EMBEDDING_WEIGHT = 0.6
 TIE_THRESHOLD = 0.10
-HIGH_THRESHOLD = 0.65
-MEDIUM_THRESHOLD = 0.40
+HIGH_THRESHOLD = 0.80
+MEDIUM_THRESHOLD = 0.60
 
-CC_CENTROIDS_COLLECTION = "nexus_cc_centroids"
+CC_CENTROIDS_COLLECTION = cc_centroids_collection_name()
 
 
 @dataclass(frozen=True)
@@ -133,12 +137,8 @@ async def _embedding_scores(
     try:
         import asyncio
 
-        from qdrant_client import QdrantClient
-
-        from app.core.config import settings
-
         def _search() -> dict[int, float]:
-            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            client = get_qdrant_client()
             try:
                 hits = client.search(
                     collection_name=CC_CENTROIDS_COLLECTION,
@@ -165,12 +165,8 @@ async def _fetch_job_embedding(job_id: int) -> Optional[list[float]]:
     try:
         import asyncio
 
-        from qdrant_client import QdrantClient
-
-        from app.core.config import settings
-
         def _retrieve() -> Optional[list[float]]:
-            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            client = get_qdrant_client()
             try:
                 points = client.retrieve(
                     collection_name=job_collection_name(),
@@ -197,12 +193,8 @@ async def _fetch_candidate_embedding(candidate_id: int) -> Optional[list[float]]
     try:
         import asyncio
 
-        from qdrant_client import QdrantClient
-
-        from app.core.config import settings
-
         def _retrieve() -> Optional[list[float]]:
-            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            client = get_qdrant_client()
             try:
                 points = client.retrieve(
                     collection_name=candidate_collection_name(),
@@ -299,4 +291,11 @@ async def classify_candidate_to_cc(candidate, db: AsyncSession) -> list[CcScore]
         else None
     )
     scored = await _score_all_ccs(db, corpus, embedding)
-    return [s for s in scored if s.score >= 0.30]  # cut very weak signals
+    return [s for s in scored if s.score >= MEDIUM_THRESHOLD]
+
+
+def should_auto_assign(scores: list[CcScore]) -> bool:
+    """Require both absolute confidence and a 0.10 lead over runner-up."""
+    if not scores or scores[0].score < HIGH_THRESHOLD:
+        return False
+    return len(scores) == 1 or (scores[0].score - scores[1].score) >= TIE_THRESHOLD
