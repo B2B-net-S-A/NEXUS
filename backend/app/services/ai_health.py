@@ -120,3 +120,41 @@ class AiCallTimer:
         if exc is not None:
             self.failed = True
         record_ai_call(self.elapsed_ms, self.failed)
+
+
+# ── Per-provider trackers ────────────────────────────────────────────────────
+# The global _TRACKER above is the legacy "matching pipeline" view (Voyage +
+# Qdrant, surfaced as meta.ai_status). These named trackers let individual
+# providers (e.g. "claude") report their own recent health independently — used
+# by /api/health to show a provider as degraded/down after a run of failures,
+# without any of them flipping the app's overall status.
+
+_PROVIDER_TRACKERS: dict[str, _AiHealthTracker] = {}
+_PROVIDER_REGISTRY_LOCK = threading.Lock()
+
+
+def _tracker_for(provider: str) -> _AiHealthTracker:
+    with _PROVIDER_REGISTRY_LOCK:
+        tracker = _PROVIDER_TRACKERS.get(provider)
+        if tracker is None:
+            tracker = _AiHealthTracker()
+            _PROVIDER_TRACKERS[provider] = tracker
+        return tracker
+
+
+def record_provider_call(provider: str, elapsed_ms: int, failed: bool) -> None:
+    """Append one observation to the named provider's rolling window."""
+    _tracker_for(provider).record(elapsed_ms, failed)
+
+
+def provider_status(provider: str) -> AiStatus:
+    """Recent health for one provider (``ok`` when it has no samples yet)."""
+    with _PROVIDER_REGISTRY_LOCK:
+        tracker = _PROVIDER_TRACKERS.get(provider)
+    return tracker.status() if tracker is not None else "ok"
+
+
+def reset_providers_for_tests() -> None:
+    """Test-only: drop all per-provider samples."""
+    with _PROVIDER_REGISTRY_LOCK:
+        _PROVIDER_TRACKERS.clear()

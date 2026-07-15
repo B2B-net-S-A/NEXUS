@@ -1057,7 +1057,20 @@ async def api_health_check():
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
     # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
     anthropic_key = settings.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
-    checks["anthropic"] = "configured" if anthropic_key else "unconfigured"
+    if not anthropic_key:
+        checks["anthropic"] = "unconfigured"
+    else:
+        # Runtime health from the in-process Claude circuit breaker: after a run
+        # of recent failures the key is present but the provider is down. This
+        # never flips `overall` (that tracks the DB only) — it just makes a Claude
+        # outage visible in the healthcheck instead of a silent stream of 502s.
+        from app.services.ai_health import provider_status
+
+        checks["anthropic"] = {
+            "ok": "configured",
+            "degraded": "degraded",
+            "down": "unhealthy",
+        }[provider_status("claude")]
 
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
