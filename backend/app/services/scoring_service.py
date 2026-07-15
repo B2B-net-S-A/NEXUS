@@ -263,6 +263,11 @@ class ScoreBreakdown:
     # changes too often to warrant explicit invalidation.
     historical_boost: float = 0.0
     historical_sources_count: int = 0
+    # Plan PR8/4.2: input-data completeness in [0,1], SEPARATE from `total`.
+    # NOT a probability and NOT part of ranking — it tells the recruiter how much
+    # evidence backed this score (a full score built on a near-empty profile is
+    # low-confidence). None when not computed (e.g. hydrated legacy cache row).
+    fit_confidence: Optional[float] = None
 
     def as_dict(self) -> dict:
         return {
@@ -306,10 +311,50 @@ class ScoreBreakdown:
             "penalties": self.penalties,
             "historical_boost": round(self.historical_boost, 1),
             "historical_sources_count": self.historical_sources_count,
+            "fit_confidence": self.fit_confidence,
         }
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _nonempty(v) -> bool:
+    """Truthy for a populated list/dict/str/number; False for None/empty."""
+    if v is None:
+        return False
+    if isinstance(v, (list, dict, str)):
+        return len(v) > 0
+    return True
+
+
+def compute_fit_confidence(candidate, job) -> float:
+    """Input-data completeness in [0,1] — how much evidence backs a score.
+
+    Deliberately independent of the score itself and of ranking: it counts the
+    presence of the signals the matcher relies on. A candidate with a full CV,
+    skills, verified tech, experience and known availability scores at high
+    confidence; a near-empty stub scores low even if its `total` is high.
+    """
+    signals = [
+        _nonempty(getattr(candidate, "skills", None)),
+        _nonempty(getattr(candidate, "verified_tech", None)),
+        _nonempty(getattr(candidate, "experience", None)),
+        getattr(candidate, "years_it_experience", None) is not None,
+        _nonempty(getattr(candidate, "ai_summary", None))
+        or _nonempty(getattr(candidate, "raw_cv_text", None)),
+        _availability_known(candidate),
+        # Job-side context reliability (defined criteria → a more trustworthy fit).
+        _nonempty(getattr(job, "must_skills", None)),
+    ]
+    return round(sum(1 for s in signals if s) / len(signals), 3)
+
+
+def _availability_known(candidate) -> bool:
+    status = getattr(candidate, "availability_status", None)
+    if status is None:
+        return False
+    val = getattr(status, "value", status)
+    return str(val).lower() not in ("unknown", "")
 
 
 _DICT_SKILL_LIST_KEYS = ("technologies", "skills", "stack", "tech")
@@ -1006,6 +1051,7 @@ async def score_candidate_job(
         matching_nice=nice_match,
         gap_nice=nice_gap,
         penalties=penalties,
+        fit_confidence=compute_fit_confidence(candidate, job),
     )
 
 

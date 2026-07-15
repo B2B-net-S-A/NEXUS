@@ -15,6 +15,70 @@ from app.core.config import settings
 from app.services import scoring_service as ss
 
 
+def _full_candidate() -> SimpleNamespace:
+    return SimpleNamespace(
+        skills=[{"name": "Python"}],
+        verified_tech=["PostgreSQL"],
+        experience=[{"role": "Dev"}],
+        years_it_experience=8,
+        ai_summary="Backend engineer.",
+        raw_cv_text="cv",
+        availability_status=SimpleNamespace(value="available"),
+    )
+
+
+def _empty_candidate() -> SimpleNamespace:
+    return SimpleNamespace(
+        skills=None,
+        verified_tech=None,
+        experience=None,
+        years_it_experience=None,
+        ai_summary=None,
+        raw_cv_text=None,
+        availability_status=SimpleNamespace(value="unknown"),
+    )
+
+
+def test_fit_confidence_full_vs_empty():
+    job_full = SimpleNamespace(must_skills=[{"name": "Python"}])
+    job_bare = SimpleNamespace(must_skills=None)
+    assert ss.compute_fit_confidence(_full_candidate(), job_full) == 1.0
+    assert ss.compute_fit_confidence(_empty_candidate(), job_bare) == 0.0
+
+
+def test_fit_confidence_partial_is_fraction():
+    cand = SimpleNamespace(
+        skills=[{"name": "Go"}],
+        verified_tech=None,
+        experience=[{"role": "Dev"}],
+        years_it_experience=5,
+        ai_summary=None,
+        raw_cv_text=None,
+        availability_status=SimpleNamespace(value="unknown"),
+    )
+    job = SimpleNamespace(must_skills=[{"name": "Go"}])
+    # present: skills, experience, years, must_skills = 4 of 7 signals.
+    assert ss.compute_fit_confidence(cand, job) == round(4 / 7, 3)
+
+
+def test_fit_confidence_is_separate_from_score():
+    # Confidence is not part of the point budget — it never touches `total`.
+    bd = ss.ScoreBreakdown(
+        candidate_id=1,
+        job_id=2,
+        total=87.0,
+        semantic=ss.LayerResult(30, 35),
+        skills=ss.LayerResult(25, 30),
+        salary=ss.LayerResult(10, 12),
+        location=ss.LayerResult(8, 8),
+        availability=ss.LayerResult(4, 5),
+        fit_confidence=0.43,
+    )
+    d = bd.as_dict()
+    assert d["fit_confidence"] == 0.43
+    assert d["total"] == 87.0
+
+
 def _record(weights: dict) -> SimpleNamespace:
     return SimpleNamespace(id=7, name="custom", weights=weights)
 

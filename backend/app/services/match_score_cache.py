@@ -74,6 +74,7 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
         matching_nice=list(b.get("matching_nice") or []),
         gap_nice=list(b.get("gap_nice") or []),
         penalties=list(b.get("penalties") or []),
+        fit_confidence=b.get("fit_confidence"),
     )
 
 
