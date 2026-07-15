@@ -42,6 +42,9 @@ V1_CURRENT: dict[AIFeatureKey, FeatureRoute | dict[str, FeatureRoute]] = {
         "internal", "hybrid_score_v2", operation="deterministic", reserve="0"
     ),
     AIFeatureKey.cv_parser: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
+    AIFeatureKey.cv_parser_challenger: _r(
+        "openai", "gpt-5.6-terra", operation="responses", max_tokens=4096
+    ),
     AIFeatureKey.job_writer: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
     AIFeatureKey.champion_profile: {
         "chunk": _r("anthropic", "claude-sonnet-5", max_tokens=2048),
@@ -75,6 +78,9 @@ V2_TIERED: dict[AIFeatureKey, FeatureRoute | dict[str, FeatureRoute]] = {
         "claude-haiku-4-5",
         max_tokens=4096,
         escalation=("claude-sonnet-5",),
+    ),
+    AIFeatureKey.cv_parser_challenger: _r(
+        "openai", "gpt-5.6-terra", operation="responses", max_tokens=4096
     ),
     AIFeatureKey.job_writer: _r("anthropic", "claude-sonnet-5", max_tokens=4096),
     AIFeatureKey.champion_profile: {

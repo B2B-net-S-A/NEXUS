@@ -148,6 +148,7 @@ from app.api import public_signing as public_signing_api
 from app.api import signing as signing_api
 from app.api import ai_settings as ai_settings_api
 from app.api import ai_routing as ai_routing_api
+from app.api import ai_evaluations as ai_evaluations_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import candidate_sources as candidate_sources_api
@@ -953,6 +954,7 @@ app.include_router(
 # /api/settings/ai (prefix is declared on the router itself; we add /api here).
 app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
 app.include_router(ai_routing_api.router, prefix="/api", tags=["admin-ai-routing"])
+app.include_router(ai_evaluations_api.router, prefix="/api", tags=["ai-evaluations"])
 
 # OAuth2 client manager (Settings → API integration). Admin-only CRUD.
 app.include_router(oauth_clients_api.router, prefix="/api", tags=["oauth-clients"])

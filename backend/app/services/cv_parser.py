@@ -302,6 +302,36 @@ def _schema_validator(value: object) -> dict[str, Any]:
     return parsed.model_dump(by_alias=True)
 
 
+def cv_parse_json_schema() -> dict[str, Any]:
+    """Provider-neutral strict schema for controlled parser evaluations."""
+    return _CVParseSchema.model_json_schema(by_alias=True)
+
+
+def openai_cv_parse_json_schema() -> dict[str, Any]:
+    """OpenAI strict JSON Schema (all object properties must be required)."""
+    schema = cv_parse_json_schema()
+
+    def normalize(node: Any) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                node["required"] = list(properties)
+                node["additionalProperties"] = False
+            for value in node.values():
+                normalize(value)
+        elif isinstance(node, list):
+            for value in node:
+                normalize(value)
+
+    normalize(schema)
+    return schema
+
+
+def validate_cv_parse(value: object) -> dict[str, Any]:
+    """Public evaluator hook; production parsing keeps the same validator."""
+    return _schema_validator(value)
+
+
 class _CandidateSummarySchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
