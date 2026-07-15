@@ -7,6 +7,7 @@
  */
 
 import { api } from "@/lib/api";
+import type { MatchBreakdown } from "@/lib/match-breakdown";
 
 export type SortMode = "relevance" | "recent" | "name";
 export type AiStatus = "ok" | "degraded" | "down";
@@ -163,20 +164,26 @@ export const candidateSearchApi = {
       .post<SearchDiagnosticsResponse>("/api/search/candidates/diagnostics", body)
       .then((r) => r.data),
   /**
-   * Read-only cached hybrid match scores (0-100) for candidates against a job.
-   * Only returns candidates that already have a fresh cached score.
+   * Read-only cached hybrid match scores (0-100) + breakdowns for candidates
+   * against a job. Only returns candidates that already have a fresh cached
+   * score.
    */
   matchScores: (
     jobId: number,
     candidateIds: number[],
-  ): Promise<Record<string, number>> =>
+  ): Promise<MatchScoresResponse> =>
     api
-      .post<{ scores: Record<string, number> }>(
-        "/api/search/candidates/scores",
-        { job_id: jobId, candidate_ids: candidateIds },
-      )
-      .then((r) => r.data.scores),
+      .post<MatchScoresResponse>("/api/search/candidates/scores", {
+        job_id: jobId,
+        candidate_ids: candidateIds,
+      })
+      .then((r) => r.data),
 };
+
+export interface MatchScoresResponse {
+  scores: Record<string, number>;
+  breakdowns: Record<string, MatchBreakdown>;
+}
 
 export type BulkSkipReason =
   | "already_in_job"

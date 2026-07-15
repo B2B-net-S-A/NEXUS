@@ -180,9 +180,12 @@ class MatchScoresResponse(BaseModel):
 
     Only candidates with a fresh cached score are present; the rest simply have
     no entry (the endpoint never computes, so coverage depends on prior
-    recommendation/kanban scoring)."""
+    recommendation/kanban scoring). ``breakdowns`` carries the stored
+    explainability payload (per-layer points + matched/gap skills) for the same
+    candidates, for the request-fit detail panel."""
 
     scores: dict[str, int] = Field(default_factory=dict)
+    breakdowns: dict[str, Any] = Field(default_factory=dict)
 
 
 class WaterfallStage(BaseModel):
