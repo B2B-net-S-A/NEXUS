@@ -3,10 +3,15 @@ external CV-Generator port.
 
 Policy:
   - Primary model: ``claude-sonnet-4-6`` (env-overridable via ``CV_B2B_MODEL``).
-  - Fallback models: ``claude-opus-4-8`` (env-overridable via
-    ``CV_B2B_FALLBACK_MODELS``, comma-separated). A 529 ``overloaded_error`` is
-    per-model-pool, so when the primary pool is saturated we re-issue the call
-    against a different model family rather than failing the whole generation.
+  - Fallback chain: ``claude-opus-4-8`` → ``claude-sonnet-5`` →
+    ``claude-haiku-4-5`` (env-overridable via ``CV_B2B_FALLBACK_MODELS``,
+    comma-separated). A 529 ``overloaded_error`` is per-model-pool, so when a
+    pool is saturated we re-issue against a different model family rather than
+    failing the whole generation. ``claude-sonnet-5`` is the pool the rest of
+    NEXUS already runs on (match-scoring, champion drafts, AI writer), and
+    ``claude-haiku-4-5`` is the high-availability last resort — so a capacity
+    crunch on the two premium pools still yields a (recruiter-reviewed) CV
+    instead of a hard "przeciążona" failure.
   - Max tokens: 8192 (env-overridable via ``CV_B2B_MAX_TOKENS``).
   - Per-request timeout: 120 s (env-overridable via ``CV_B2B_REQUEST_TIMEOUT``)
     so a hung attempt can't pin its FastAPI threadpool slot for the SDK's 600 s
@@ -46,7 +51,25 @@ logger = logging.getLogger(__name__)
 # Sonnet 4.6 w swoim naturalnym trybie. Ewentualny powrót na Sonnet 5 wymaga
 # CV_B2B_THINKING=adaptive + CV_B2B_MAX_TOKENS>=24576 i porównania jakości.
 _DEFAULT_MODEL = "claude-sonnet-4-6"
-_DEFAULT_FALLBACK_MODELS = ("claude-opus-4-8",)
+# Fallback chain, tried in order when the model before it stays overloaded /
+# rate-limited / timing-out across all its retries. A 529 overloaded_error is
+# per-model-POOL, so cascading to a different model family is what stops a
+# capacity crunch on one pool from failing the whole generation:
+#   • claude-opus-4-8          — premium, current-gen peer of the primary.
+#   • claude-sonnet-5          — the pool the REST of NEXUS already runs on
+#     (match-scoring, champion drafts, AI writer). When those features work but
+#     CV generation 529s, the sonnet-4-6/opus-4-8 pools are the saturated ones,
+#     so routing here clears the outage with good quality. Runs with thinking
+#     disabled like the rest of the chain — the #635 quality caveat is about
+#     sonnet-5 as the PRIMARY; as an outage fallback a complete CV beats none.
+#   • claude-haiku-4-5-20251001 — highest-availability last resort; only reached
+#     when every model above is also down.
+# Override the whole list without a redeploy via CV_B2B_FALLBACK_MODELS.
+_DEFAULT_FALLBACK_MODELS = (
+    "claude-opus-4-8",
+    "claude-sonnet-5",
+    "claude-haiku-4-5-20251001",
+)
 _DEFAULT_MAX_TOKENS = 8192
 _DEFAULT_MAX_RETRIES = 3
 # Per-request ceiling (seconds). The SDK default is 600 s — far too long for a

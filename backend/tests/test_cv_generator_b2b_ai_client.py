@@ -80,7 +80,12 @@ def _install_fake_client(monkeypatch, plan):
 def test_default_model_chain(monkeypatch):
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
-    assert ai_client._models() == ["claude-sonnet-4-6", "claude-opus-4-8"]
+    assert ai_client._models() == [
+        "claude-sonnet-4-6",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-haiku-4-5-20251001",
+    ]
 
 
 def test_model_chain_respects_env_and_dedups(monkeypatch):
@@ -139,6 +144,34 @@ def test_falls_back_to_second_model_on_overload(monkeypatch):
     assert calls == ["claude-sonnet-4-6", "claude-sonnet-4-6", "claude-opus-4-8"]
 
 
+def test_falls_through_premium_pools_to_sonnet5(monkeypatch):
+    # The production incident this chain guards against: BOTH premium pools
+    # (sonnet-4-6 + opus-4-8) are overloaded while sonnet-5 — the model the rest
+    # of NEXUS runs on — is healthy. Generation must route to sonnet-5 instead of
+    # failing with the "przeciążona" message; the haiku last resort stays spared.
+    monkeypatch.delenv("CV_B2B_MODEL", raising=False)
+    monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
+    monkeypatch.setenv("CV_B2B_MAX_RETRIES", "0")
+
+    def overloaded():
+        raise _FakeStatusError(529, "overloaded_error")
+
+    calls = _install_fake_client(
+        monkeypatch,
+        {
+            "claude-sonnet-4-6": overloaded,
+            "claude-opus-4-8": overloaded,
+            "claude-sonnet-5": lambda: _FakeMessage('{"from": "sonnet-5"}'),
+            "claude-haiku-4-5-20251001": lambda: _FakeMessage("unreached"),
+        },
+    )
+
+    out = analyze_with_ai("payload", "req-incident")
+
+    assert out == '{"from": "sonnet-5"}'
+    assert calls == ["claude-sonnet-4-6", "claude-opus-4-8", "claude-sonnet-5"]
+
+
 def test_all_models_overloaded_raises_clean_message(monkeypatch):
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
@@ -152,6 +185,8 @@ def test_all_models_overloaded_raises_clean_message(monkeypatch):
         {
             "claude-sonnet-4-6": overloaded,
             "claude-opus-4-8": overloaded,
+            "claude-sonnet-5": overloaded,
+            "claude-haiku-4-5-20251001": overloaded,
         },
     )
 
