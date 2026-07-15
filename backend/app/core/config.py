@@ -57,6 +57,23 @@ class Settings(BaseSettings):
     # flipping it auto-invalidates the match-score cache — no manual sweep.
     AI_SCORING_CONTRACT_V2: bool = False
 
+    # ── AI indexing outbox (plan PR5) ─────────────────────────────────────────
+    # Durable "source change → reindex" queue so an embedding update can never be
+    # silently dropped. Both OFF by default:
+    #   AI_INDEX_OUTBOX_ENABLED — when ON, candidate/job write paths ENQUEUE a
+    #     reindex event (same transaction) instead of embedding inline; when OFF
+    #     they embed inline exactly as today.
+    #   AI_INDEX_WORKER_ENABLED — when ON, the background worker drains the
+    #     outbox (build doc + hash in Python, upsert/delete in Qdrant, retry with
+    #     dead-letter). When OFF the worker loop exits immediately.
+    # Keep the worker OFF until the outbox has been observed healthy; it must
+    # only maintain freshness of the unchanged v1 schema (no mass re-embed).
+    AI_INDEX_OUTBOX_ENABLED: bool = False
+    AI_INDEX_WORKER_ENABLED: bool = False
+    AI_INDEX_WORKER_INTERVAL_SECONDS: int = 30
+    AI_INDEX_WORKER_BATCH: int = 50
+    AI_INDEX_MAX_ATTEMPTS: int = 5
+
     # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
     # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz
     # hybrydowe /recommendations + proposals) zwracają TERAZ wszystkich

@@ -115,11 +115,11 @@ async def _validate_owner_override(
 
 
 async def _maybe_embed_job(job_id: int, db: AsyncSession) -> None:
-    """Fire-and-log job embedding; never raises."""
+    """Fire-and-log job embedding (or enqueue a reindex); never raises."""
     try:
-        from app.services.embedding_service import embed_job
+        from app.services.index_outbox_service import schedule_or_embed_job
 
-        await embed_job(job_id, db)
+        await schedule_or_embed_job(job_id, db)
     except Exception as e:  # pragma: no cover
         logger.warning(f"[Job] embedding failed for job {job_id}: {e}")
 

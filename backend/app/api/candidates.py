@@ -3758,9 +3758,9 @@ async def create_candidate_from_cv(
     # Synchronous because the endpoint should return a fully-populated
     # candidate for the preview screen.
     try:
-        from app.services.embedding_service import embed_candidate
+        from app.services.index_outbox_service import schedule_or_embed_candidate
 
-        await embed_candidate(candidate.id, db)
+        await schedule_or_embed_candidate(candidate.id, db)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("[from-cv] embedding failed id=%s: %s", candidate.id, e)
 
@@ -3894,9 +3894,9 @@ async def upload_cv(
     # Phase 1: auto-embed candidate after CV upload.
     # Non-blocking — CV is already saved; embedding failures are logged but not raised.
     try:
-        from app.services.embedding_service import embed_candidate
+        from app.services.index_outbox_service import schedule_or_embed_candidate
 
-        await embed_candidate(candidate_id, db)
+        await schedule_or_embed_candidate(candidate_id, db)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning(
             f"[CV upload] embedding failed for candidate {candidate_id}: {e}"
