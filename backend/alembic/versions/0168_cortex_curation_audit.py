@@ -1,7 +1,7 @@
 """Cortex — audyt kuracji taksonomii (kto/kiedy zmapował/zignorował term).
 
-Revision ID: 0161_cortex_curation_audit
-Revises: 0160_cortex_trust_foundation
+Revision ID: 0168_cortex_curation_audit
+Revises: 0167_cortex_trust_foundation
 Create Date: 2026-07-13
 
 Etap 1 (Action Layer): domknięcie pętli kuracji — API zyskuje write-path
@@ -11,8 +11,8 @@ Idempotentne (ADD COLUMN IF NOT EXISTS) — mirror w entrypoint.sh.
 
 from alembic import op
 
-revision = "0161_cortex_curation_audit"
-down_revision = "0160_cortex_trust_foundation"
+revision = "0168_cortex_curation_audit"
+down_revision = "0167_cortex_trust_foundation"
 branch_labels = None
 depends_on = None
 

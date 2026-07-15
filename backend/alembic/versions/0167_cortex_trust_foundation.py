@@ -1,7 +1,7 @@
 """Cortex Trust Foundation — dedup taksonomii + guardy + trwałe runy + provenance.
 
-Revision ID: 0160_cortex_trust_foundation
-Revises: 0159_candidate_search_doc_unaccented
+Revision ID: 0167_cortex_trust_foundation
+Revises: 0166_contract_framework_rate_schedule
 Create Date: 2026-07-13
 
 Naprawia P0 audytu (docs/cortex/cortex-audit-2026-07-13.md):
@@ -37,8 +37,8 @@ from collections import defaultdict
 from alembic import op
 from sqlalchemy import text
 
-revision = "0160_cortex_trust_foundation"
-down_revision = "0159_candidate_search_doc_unaccented"
+revision = "0167_cortex_trust_foundation"
+down_revision = "0166_contract_framework_rate_schedule"
 branch_labels = None
 depends_on = None
 
