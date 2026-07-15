@@ -398,3 +398,5 @@ from app.models.cortex import (  # noqa: F401
     CortexUnmatchedObservation,
     CortexUnmatchedTerm,
 )
+
+from app.models.job_shortlist import JobShortlistEntry  # noqa: F401

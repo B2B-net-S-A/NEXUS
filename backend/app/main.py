@@ -119,6 +119,7 @@ from app.api import kpis as kpis_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import proposals as proposals_api
+from app.api import job_shortlist as job_shortlist_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import invite_links as invite_links_api
 from app.api import users as users_api
@@ -774,6 +775,7 @@ app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
+app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
     invite_links_api.router, prefix="/api/invite-links", tags=["invite-links"]
 )
