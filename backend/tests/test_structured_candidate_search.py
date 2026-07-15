@@ -18,7 +18,10 @@ from app.schemas.candidate_search import (
     CandidateSearchRequest,
     LanguageRequirement,
 )
-from app.services.structured_candidate_search import build_structured_filter
+from app.services.structured_candidate_search import (
+    build_filter_groups,
+    build_structured_filter,
+)
 
 
 def _compile(clauses):
@@ -290,6 +293,59 @@ class TestTagsAndCvDate:
         sql = _compile(build_structured_filter(req))
         assert "cv_parsed_at" in sql
         assert "2026-01-01" in sql
+
+
+class TestFilterGroups:
+    """SEARCH-P1-04: build_filter_groups labels/groups clauses for the
+    exclusion waterfall, and flattening it must equal build_structured_filter."""
+
+    def test_empty_request_has_no_groups(self):
+        assert build_filter_groups(CandidateSearchRequest()) == []
+
+    def test_groups_are_keyed_and_labelled(self):
+        req = CandidateSearchRequest(
+            competence_category_ids=[2],
+            skills_must=["Python"],
+            location_cities=["Warszawa"],
+            rate_hourly_max=150,
+        )
+        groups = build_filter_groups(req)
+        keys = [g.key for g in groups]
+        assert keys == ["competence_category", "skills", "location", "rate_hourly"]
+        for g in groups:
+            assert g.label  # every group carries a human label
+            assert g.clauses  # never emit an empty group
+
+    def test_flatten_equals_build_structured_filter(self):
+        req = CandidateSearchRequest(
+            competence_category_ids=[2],
+            skills_must=["Python", "AWS"],
+            skills_any=["React", "Vue"],
+            experience_years_min=5,
+            location_cities=["Warszawa"],
+            rate_hourly_min=90,
+            rate_hourly_max=150,
+            exclude_blacklisted=True,
+            tags=["urgent"],
+        )
+        flat = [c for g in build_filter_groups(req) for c in g.clauses]
+        direct = build_structured_filter(req)
+        assert len(flat) == len(direct)
+        assert _compile(flat) == _compile(direct)
+
+    def test_group_order_is_stable(self):
+        req = CandidateSearchRequest(
+            tags=["a"],
+            skills_must=["Python"],
+            competence_category_ids=[1],
+            rate_hourly_max=100,
+        )
+        keys = [g.key for g in build_filter_groups(req)]
+        # competence before skills before rate before tags, regardless of the
+        # order fields were set on the request.
+        assert keys.index("competence_category") < keys.index("skills")
+        assert keys.index("skills") < keys.index("rate_hourly")
+        assert keys.index("rate_hourly") < keys.index("tags")
 
 
 class TestCombined:

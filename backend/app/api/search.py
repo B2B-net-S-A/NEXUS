@@ -19,12 +19,17 @@ from app.schemas.candidate_search import (
     CandidateSearchRequest,
     CandidateSearchResponse,
     CompetenceCategoryFacet,
+    SearchDiagnosticsResponse,
     SearchFacets,
     SearchMeta,
+    WaterfallStage,
 )
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
-from app.services.structured_candidate_search import build_structured_filter
+from app.services.structured_candidate_search import (
+    build_filter_groups,
+    build_structured_filter,
+)
 
 router = APIRouter()
 
@@ -116,6 +121,82 @@ async def _competence_facets(
         CompetenceCategoryFacet(id=row.id, name=row.name_pl, count=row.cnt)
         for row in result.all()
     ]
+
+
+async def _diagnostics_count(db: AsyncSession, clauses: list[Any]) -> int:
+    where = and_(*clauses) if clauses else text("true")
+    stmt = select(func.count(Candidate.id)).select_from(Candidate).where(where)
+    return (await db.execute(stmt)).scalar() or 0
+
+
+@router.post("/candidates/diagnostics", response_model=SearchDiagnosticsResponse)
+async def candidate_search_diagnostics(
+    body: CandidateSearchRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> SearchDiagnosticsResponse:
+    """Zero-result exclusion waterfall (SEARCH-P1-04).
+
+    Applies the search's filters cumulatively and reports how many candidates
+    survive each step, so a recruiter can see exactly which filter emptied the
+    result set. Structural filters only — the semantic (hybrid) pool is not
+    diagnosed here.
+    """
+    # Mirror the main search: a job context hides blacklisted candidates.
+    if body.exclude_in_job_id is not None:
+        body.exclude_blacklisted = True
+
+    q_text = (body.q or "").strip() if body.q else ""
+
+    base_count = await _diagnostics_count(db, [])
+    applied: list[Any] = []
+    stages: list[WaterfallStage] = []
+    first_zeroing: Optional[str] = None
+
+    async def step(key: str, label: str, new_clauses: list[Any]) -> None:
+        nonlocal first_zeroing
+        applied.extend(new_clauses)
+        count = await _diagnostics_count(db, applied)
+        stages.append(WaterfallStage(key=key, label=label, count=count))
+        if count == 0 and first_zeroing is None:
+            first_zeroing = key
+
+    # Free-text / boolean buckets (semantic/hybrid retrieval is not diagnosed).
+    query_clauses: list[Any] = []
+    boolean = build_advanced_filter(
+        body.q_all, body.q_any, body.q_none, body.q_any_groups
+    )
+    if boolean is not None:
+        query_clauses.append(boolean)
+    if q_text:
+        query_clauses.append(_fts_clause(q_text))
+    if query_clauses:
+        await step("query", "Zapytanie tekstowe", query_clauses)
+
+    # Structured filters, cumulative, in group order.
+    for group in build_filter_groups(body):
+        await step(group.key, group.label, list(group.clauses))
+
+    # Already-in-job exclusion.
+    if body.exclude_in_job_id is not None:
+        already = (
+            select(CandidateStage.candidate_id)
+            .where(CandidateStage.job_id == body.exclude_in_job_id)
+            .distinct()
+        )
+        await step(
+            "already_in_job",
+            "Nie dodani do tej rekrutacji",
+            [Candidate.id.notin_(already)],
+        )
+
+    total = stages[-1].count if stages else base_count
+    return SearchDiagnosticsResponse(
+        base_count=base_count,
+        stages=stages,
+        total=total,
+        first_zeroing_stage=first_zeroing,
+    )
 
 
 @router.post("/candidates", response_model=CandidateSearchResponse)

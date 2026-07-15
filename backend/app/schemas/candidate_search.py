@@ -166,3 +166,23 @@ class CandidateSearchResponse(BaseModel):
     items: list[CandidateSearchItem]
     facets: SearchFacets = Field(default_factory=SearchFacets)
     meta: SearchMeta = Field(default_factory=SearchMeta)
+
+
+class WaterfallStage(BaseModel):
+    """One cumulative step of the zero-result exclusion waterfall: the count of
+    candidates surviving this filter *and all filters before it*."""
+
+    key: str
+    label: str
+    count: int
+
+
+class SearchDiagnosticsResponse(BaseModel):
+    """Explains where a search lost its candidates (SEARCH-P1-04). ``stages`` are
+    cumulative; ``first_zeroing_stage`` is the key of the first stage whose
+    running count hit 0 (the likely culprit), or ``None`` if results remain."""
+
+    base_count: int
+    stages: list[WaterfallStage]
+    total: int
+    first_zeroing_stage: Optional[str] = None
