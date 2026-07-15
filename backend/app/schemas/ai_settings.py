@@ -65,6 +65,7 @@ class AISettingsOut(BaseModel):
     routing_lock_version: int = 1
     routes: dict[str, Any] = Field(default_factory=dict)
     compliance: dict[str, Any] = Field(default_factory=dict)
+    rollouts: dict[str, Any] = Field(default_factory=dict)
 
 
 class FeatureConfigUpdate(BaseModel):

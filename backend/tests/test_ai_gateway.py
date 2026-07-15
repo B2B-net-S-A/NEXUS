@@ -85,14 +85,14 @@ async def test_gateway_retries_transient_error_once(monkeypatch) -> None:
     async def no_reconcile(*args, **kwargs):
         return None
 
-    async def active_version():
+    async def active_version(_request):
         return "v1_current"
 
     monkeypatch.setitem(ADAPTERS, "anthropic", FakeAdapter())
     monkeypatch.setattr(gateway, "_authorize_and_reserve", no_authorize)
     monkeypatch.setattr(gateway, "_ledger", capture_ledger)
     monkeypatch.setattr(gateway, "_reconcile", no_reconcile)
-    monkeypatch.setattr(gateway, "active_registry_version", active_version)
+    monkeypatch.setattr(gateway, "_registry_version_for_request", active_version)
     circuit_breaker.success("anthropic:claude-sonnet-5")
 
     result = await gateway.call(

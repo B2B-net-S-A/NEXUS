@@ -135,10 +135,25 @@ async def _ai_control_plane_snapshot() -> dict[str, Any]:
                 .mappings()
                 .all()
             )
+            rollouts = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT feature, baseline_registry, target_registry, stage, "
+                            "percentage, status, lock_version, stage_started_at, "
+                            "rollback_reason, rollback_available_until, monitoring_until, "
+                            "next_regression_at FROM ai_rollout_state ORDER BY feature"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
         return {
             "routing": dict(routing) if routing else {"registry_version": "v1_current"},
             "usage_30d": [dict(row) for row in usage],
             "embedding_queue": {row["status"]: row["count"] for row in queue},
+            "rollouts": [dict(row) for row in rollouts],
             "circuit_breakers": circuit_breaker.snapshot(),
         }
     except Exception as exc:

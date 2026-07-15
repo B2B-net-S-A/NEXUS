@@ -72,6 +72,12 @@ from app.models.ai_evaluation import (  # noqa: F401
     AIEvalRun,
     AIEvalSet,
 )
+from app.models.ai_rollout import (  # noqa: F401
+    AIRolloutEvent,
+    AIRolloutObservation,
+    AIRolloutReport,
+    AIRolloutState,
+)
 from app.models.pipeline_template import (
     PipelineTemplate,
     PipelineStageDef,
@@ -354,6 +360,10 @@ __all__ = [
     "AIEvalRun",
     "AIEvalLabel",
     "AIEvalOutput",
+    "AIRolloutState",
+    "AIRolloutObservation",
+    "AIRolloutEvent",
+    "AIRolloutReport",
     "OAuthClient",
     "OAuthScope",
     "CandidateSourceEvent",
