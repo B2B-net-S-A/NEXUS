@@ -29,7 +29,7 @@ import {
  Loader2,
  Mail,
  MapPin,
- MessageSquare,
+  MessageSquare,
  PencilLine,
  Plus,
  Printer,
@@ -42,8 +42,8 @@ import {
  Trash2,
  User,
  UserPlus,
- Wallet,
- X,
+  Wallet,
+  X,
 } from"lucide-react";
 import api, {
  candidatesApi,
@@ -53,8 +53,11 @@ import api, {
  type RateUnit,
  candidateStageCvApi,
  type CVOriginalSnapshot,
- type CVBrandedState,
+  type CVBrandedState,
+  callsApi,
+  type Call,
 } from"@/lib/api";
+import { downloadContractDocument } from"@/lib/contract-documents";
 import { celebrate } from"@/lib/celebrate";
 import CallButton from"@/components/calls/CallButton";
 import { useToast } from"@/components/Toast";
@@ -70,6 +73,7 @@ import {
 } from"@/components/v2/pages/candidate-profile-helpers";
 import {
  formatCandidateLocation,
+ getCandidateInitials,
  getCurrentTitle,
  getExperienceLabel,
  getTagName,
@@ -85,7 +89,8 @@ import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from"@/components/ui/card";
 import { Separator } from"@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
+import { TabsContent } from"@/components/ui/tabs";
+import { TabbedNav } from "@/components/ds/TabbedNav";
 import {
  DropdownMenu,
  DropdownMenuContent,
@@ -127,7 +132,7 @@ import {
 } from"@/components/ui/dialog";
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
 import { ConfirmV2 } from"@/components/v2/modals/ConfirmV2";
-import { RISK_QUERY_KEY, RiskBadge } from"@/components/v2/RiskBadge";
+import { RiskBadge } from"@/components/v2/RiskBadge";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
@@ -148,6 +153,7 @@ import { ActiveViewers } from"@/components/v2/presence/ActiveViewers";
 import { usePresence, type PresenceViewer } from"@/hooks/usePresence";
 import { useAuthStore, hasRole } from"@/store/auth";
 import CandidateChatTab from"@/components/v2/pages/CandidateChatTab";
+import CallsTimeline from"@/components/calls/CallsTimeline";
 import { DopasowanieTab } from"@/components/v2/pages/DopasowanieTab";
 import { CandidateNav } from"@/components/v2/CandidateNav";
 import {
@@ -161,6 +167,17 @@ import {
  decodeJobBackRef,
  encodeNavContext,
 } from"@/lib/url-filters";
+import { candidateQueryKeys } from"@/components/v2/pages/candidate-query-keys";
+import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
+import {
+ ACTIVITY_VIEWS,
+ DOCUMENT_VIEWS,
+ parseCandidateProfileView,
+ type CandidateActivityView,
+ type CandidateDocumentView,
+ type CandidateProfileSection,
+ withCandidateProfileView,
+} from"@/components/v2/pages/candidate-profile-navigation";
 
 const STATUS_VARIANT: Record<string, "success" |"warning" |"danger" |"neutral"> = {
  active: "success",
@@ -181,6 +198,32 @@ const SKILL_LEVEL_VARIANT: Record<
  mid: "warning",
  junior: "neutral",
 };
+
+const PROFILE_SECTION_LABELS: Record<CandidateProfileSection, string> = {
+ summary: "Podsumowanie",
+ recruitments: "Rekrutacje",
+ activity: "Aktywność",
+ matching: "Dopasowanie",
+ documents: "Pliki i umowy",
+};
+
+const ACTIVITY_LABELS: Record<CandidateActivityView, string> = {
+ timeline: "Historia",
+ notes: "Notatki",
+ calls: "Rozmowy",
+ chat: "Czat zespołu",
+};
+
+const DOCUMENT_LABELS: Record<CandidateDocumentView, string> = {
+ files: "Pliki",
+ contracts: "Umowy",
+};
+
+function requestStatus(error: unknown): number | null {
+ if (!error || typeof error !== "object" || !("response" in error)) return null;
+ const response = (error as { response?: { status?: number } }).response;
+ return response?.status ?? null;
+}
 
 /**
  * Navigation context for prev/next candidate browsing inside the profile.
@@ -203,7 +246,7 @@ export interface CandidateDetailNavigation {
  onNavigate: (next: { candidateId: number; position: number }) => void;
 }
 
-interface CandidateDetailV2Props {
+export interface CandidateDetailV2Props {
  /** When true, render without page frame (for side-sheet embedding). */
  embedded?: boolean;
  /** Optional override for route param. */
@@ -251,13 +294,99 @@ export function CandidateDetailV2({
  return decodeJobBackRef(new URLSearchParams(searchParamsForNav.toString()));
  }, [embedded, searchParamsForNav]);
  const openTabsList = useTabsStore((s) => s.tabs);
- const backJobTitle =
+const backJobTitle =
  backJobId != null
  ? (openTabsList.find((t) => t.type === "job" && t.entityId === backJobId)
  ?.title ?? null)
- : null;
+: null;
 
- const navContext: CandidateDetailNavigation | null = navigation ?? null;
+ const profileViewFromUrl = React.useMemo(
+ () =>
+ parseCandidateProfileView(
+ new URLSearchParams(searchParamsForNav?.toString() ?? ""),
+ { fromJob: backJobId != null },
+ ),
+ [backJobId, searchParamsForNav],
+ );
+ const [profileView, setProfileView] = React.useState(profileViewFromUrl);
+
+ React.useEffect(() => {
+ setProfileView((current) =>
+ current.section === profileViewFromUrl.section &&
+ current.activity === profileViewFromUrl.activity &&
+ current.documents === profileViewFromUrl.documents
+ ? current
+ : profileViewFromUrl,
+ );
+ }, [profileViewFromUrl]);
+
+ const replaceProfileView = React.useCallback(
+ (next: Pick<typeof profileView, "section" | "activity" | "documents">) => {
+ const merged = { ...profileView, ...next, isLegacy: false };
+ setProfileView(merged);
+ if (embedded) return;
+ const params = withCandidateProfileView(
+ new URLSearchParams(searchParamsForNav?.toString() ?? ""),
+ merged,
+ );
+ router.replace(`/candidates/${id}?${params.toString()}`, { scroll: false });
+ },
+ [embedded, id, profileView, router, searchParamsForNav],
+ );
+
+ const setActiveTab = React.useCallback(
+ (value: string) => {
+ const mapped = parseCandidateProfileView(
+ new URLSearchParams(`tab=${encodeURIComponent(value)}`),
+ );
+ replaceProfileView({
+ section: mapped.section,
+ activity: mapped.activity,
+ documents: mapped.documents,
+ });
+ },
+ [replaceProfileView],
+ );
+
+ const setActivityView = React.useCallback(
+ (activity: CandidateActivityView) =>
+ replaceProfileView({ ...profileView, section: "activity", activity }),
+ [profileView, replaceProfileView],
+ );
+ const setDocumentsView = React.useCallback(
+ (documents: CandidateDocumentView) =>
+ replaceProfileView({ ...profileView, section: "documents", documents }),
+ [profileView, replaceProfileView],
+ );
+
+ // Replace legacy deep links once, preserving context such as `msg`, nav
+ // filters and the job back-reference. A job entry without an explicit tab
+ // opens Activity/History with the split CV view.
+ React.useEffect(() => {
+ if (embedded) return;
+ const needsCanonicalUrl =
+ profileViewFromUrl.isLegacy ||
+ (backJobId != null && !profileViewFromUrl.hasExplicitTab);
+ if (!needsCanonicalUrl) return;
+ const params = withCandidateProfileView(
+ new URLSearchParams(searchParamsForNav?.toString() ?? ""),
+ profileViewFromUrl,
+ );
+ router.replace(`/candidates/${id}?${params.toString()}`, { scroll: false });
+ }, [
+ backJobId,
+ embedded,
+ id,
+ profileViewFromUrl,
+ router,
+ searchParamsForNav,
+ ]);
+
+ const activeTab = profileView.section;
+ const activityView = profileView.activity;
+ const documentsView = profileView.documents;
+
+const navContext: CandidateDetailNavigation | null = navigation ?? null;
  const navMode: "embedded" |"url" |"off" = navContext
  ?"embedded"
  : urlNav
@@ -288,7 +417,10 @@ export function CandidateDetailV2({
  // URL mode: navigate to the new candidate, preserving filters + new pos.
  if (urlNav) {
  setUrlPosition(next.position); // optimistic — counter updates instantly
- const sp = encodeNavContext(urlNav.filters, next.position);
+ let sp = encodeNavContext(urlNav.filters, next.position);
+ sp = withCandidateProfileView(sp, profileView);
+ const messageId = searchParamsForNav?.get("msg");
+ if (messageId) sp.set("msg", messageId);
  router.push(`/candidates/${next.candidateId}?${sp.toString()}`);
  // Next.js caches the dynamic `[id]` segment, so `useSearchParams`
  // can lag a render. Refresh server data so subsequent navigations
@@ -296,7 +428,7 @@ export function CandidateDetailV2({
  router.refresh();
  }
  },
- [navContext, urlNav, router],
+ [navContext, profileView, searchParamsForNav, urlNav, router],
  );
 
  const candidateNav = useCandidateNavigation(
@@ -332,20 +464,6 @@ export function CandidateDetailV2({
 
  const showNav = navMode !== "off";
 
- // Gdy profil otwarto z pipeline'u rekrutacji (`?from=job&jobId=N`), domyślnie
- // pokaż złożony widok „Podgląd" (CV + notatka + timeline, jak w Traffit)
- // zamiast zakładki Profil ze stawkami. Start zawsze od "profil" (spójny SSR/
- // hydration — `backJobId` z `useSearchParams` bywa pusty server-side), a efekt
- // przełącza na "podglad" raz, po montażu, gdy jobId jest już znany. Po
- // pierwszym przełączeniu user może swobodnie zmieniać zakładki.
- const [activeTab, setActiveTab] = useState<string>("profil");
- const pipelineTabApplied = useRef(false);
- useEffect(() => {
- if (pipelineTabApplied.current) return;
- if (backJobId == null) return;
- pipelineTabApplied.current = true;
- setActiveTab("podglad");
- }, [backJobId]);
  const [emailOpen, setEmailOpen] = useState(false);
  const [cvOpen, setCvOpen] = useState(false);
  const [assignOpen, setAssignOpen] = useState(false);
@@ -359,6 +477,10 @@ export function CandidateDetailV2({
  const [screeningStage, setScreeningStage] = useState<number | null>(null);
  const [noteText, setNoteText] = useState("");
  const [noteSaving, setNoteSaving] = useState(false);
+ const [showActivityCv, setShowActivityCv] = useState(backJobId != null);
+ useEffect(() => {
+ if (backJobId != null) setShowActivityCv(true);
+ }, [backJobId, id]);
 
  // Presence: one subscription per candidate page; viewers + setEditing are
  // passed into children so the NotatkiTab can emit edit signals without
@@ -367,11 +489,13 @@ export function CandidateDetailV2({
  const { viewers: presenceViewers, setEditing: setPresenceEditing } =
  usePresence("candidate", Number.isFinite(Number(id)) ? Number(id) : null);
 
- const { data: candidate, isLoading } = useQuery({
- queryKey: ["candidate", id],
- queryFn: () => api.get(`/api/candidates/${id}`).then((r) => r.data),
+ const candidateQuery = useQuery({
+ queryKey: candidateQueryKeys.detail(id),
+ queryFn: ({ signal }) =>
+ api.get(`/api/candidates/${id}`, { signal }).then((r) => r.data),
  enabled: !!id,
  });
+ const { data: candidate, isLoading } = candidateQuery;
 
  useEffect(() => {
  if (candidate && !embedded) {
@@ -387,16 +511,18 @@ export function CandidateDetailV2({
  }, [id]);
 
  // Timeline API returns `{ timeline: [...] }` — normalize to array.
- const { data: timelineRaw } = useQuery<{ timeline?: any[] } | any[]>({
- queryKey: ["candidate-timeline", id],
- queryFn: () =>
- api.get(`/api/candidates/${id}/timeline?limit=50`).then((r) => r.data),
+ const timelineQuery = useQuery<{ timeline?: any[] } | any[]>({
+ queryKey: candidateQueryKeys.timeline(id, 50),
+ queryFn: ({ signal }) =>
+ api
+ .get(`/api/candidates/${id}/timeline?limit=50`, { signal })
+ .then((r) => r.data),
  enabled:
  !!id &&
- (activeTab === "timeline" ||
- activeTab === "notatki" ||
- activeTab === "podglad"),
+ activeTab === "activity" &&
+ (activityView === "timeline" || activityView === "notes"),
  });
+ const { data: timelineRaw } = timelineQuery;
  const timeline: any[] = Array.isArray(timelineRaw)
  ? timelineRaw
  : (timelineRaw?.timeline ?? []);
@@ -405,12 +531,13 @@ export function CandidateDetailV2({
  // miesza notatki z etapami/aktywnościami i ucina do limitu (50), więc przy
  // bogatej historii (np. import Traffit) starsze notatki znikały z zakładki.
  // `/api/notes` zwraca komplet, wzbogacony o author_name + content_rendered.
- const { data: notesRaw } = useQuery<{ items?: any[] }>({
- queryKey: ["candidate-notes", id],
- queryFn: () =>
- api.get(`/api/notes?candidate_id=${id}`).then((r) => r.data),
- enabled: !!id && activeTab === "notatki",
+ const notesQuery = useQuery<{ items?: any[] }>({
+ queryKey: candidateQueryKeys.notes(id),
+ queryFn: ({ signal }) =>
+ api.get(`/api/notes?candidate_id=${id}`, { signal }).then((r) => r.data),
+ enabled: !!id && activeTab === "activity" && activityView === "notes",
  });
+ const { data: notesRaw } = notesQuery;
  const noteItems: any[] = (notesRaw?.items ?? []).map((n: any) => ({
  ...n,
  type: "note",
@@ -418,28 +545,32 @@ export function CandidateDetailV2({
  }));
 
  // History API returns `{ jobs: [...], contracts: [...] }` — flatten jobs.
- const { data: historyRaw } = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
- queryKey: ["candidate-history", id],
- queryFn: () => api.get(`/api/candidates/${id}/history`).then((r) => r.data),
+ const historyQuery = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
+ queryKey: candidateQueryKeys.history(id),
+ queryFn: ({ signal }) =>
+ api.get(`/api/candidates/${id}/history`, { signal }).then((r) => r.data),
  // Także na zakładce "notatki" — potrzebujemy listy rekrutacji do selektora
  // "przypisz notatkę do rekrutacji".
  enabled:
  !!id &&
- (activeTab === "rekrutacje" ||
- activeTab === "notatki" ||
- activeTab === "podglad" ||
- activeTab === "dopasowanie"),
+ (activeTab === "recruitments" ||
+ activeTab === "matching" ||
+ (activeTab === "activity" &&
+ (activityView === "timeline" || activityView === "notes"))),
  });
+ const { data: historyRaw } = historyQuery;
 
  // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
  // Recompute następuje event-driven po każdej tranzycji + TTL 24h, więc
  // staleTime 5 min jest tu bezpieczny.
- const { data: riskProfile } = useQuery<CandidateRiskProfile>({
- queryKey: RISK_QUERY_KEY(id),
- queryFn: () => api.get(`/api/candidates/${id}/risk`).then((r) => r.data),
+ const riskQuery = useQuery<CandidateRiskProfile>({
+ queryKey: candidateQueryKeys.risk(id),
+ queryFn: ({ signal }) =>
+ api.get(`/api/candidates/${id}/risk`, { signal }).then((r) => r.data),
  enabled: !!id,
  staleTime: 5 * 60 * 1000,
  });
+ const { data: riskProfile } = riskQuery;
  const history: any[] = Array.isArray(historyRaw)
  ? historyRaw
  : (historyRaw?.jobs ?? []);
@@ -447,23 +578,32 @@ export function CandidateDetailV2({
  ? []
  : (historyRaw?.contracts ?? []);
 
- const { data: aiProfile } = useQuery<any>({
- queryKey: ["candidate-ai-profile", id],
- queryFn: () => api.get(`/api/candidates/${id}/ai-profile`).then((r) => r.data),
- enabled: !!id,
+ const aiProfileQuery = useQuery<any>({
+ queryKey: candidateQueryKeys.aiProfile(id),
+ queryFn: ({ signal }) =>
+ api.get(`/api/candidates/${id}/ai-profile`, { signal }).then((r) => r.data),
+ enabled: !!id && activeTab === "summary",
  });
+ const { data: aiProfile } = aiProfileQuery;
 
  // Lista umów kandydata — dla zakładki"Umowa". Backend już akceptuje
  // ?candidate_id w GET /api/contracts; zwraca paginowaną kopertę.
- const { data: candidateContractsRaw } = useQuery<{ items?: any[] } | any[]>({
- queryKey: ["candidate-contracts", id],
+ const contractsQuery = useQuery<{ items?: any[] } | any[]>({
+ queryKey: candidateQueryKeys.contracts(id),
  queryFn: () =>
  contractsApi.byCandidate(Number(id)).then((r: any) => r.data),
- enabled: !!id && activeTab === "umowa",
+ enabled: !!id && activeTab === "documents" && documentsView === "contracts",
  });
+ const { data: candidateContractsRaw } = contractsQuery;
  const candidateContracts: any[] = Array.isArray(candidateContractsRaw)
  ? candidateContractsRaw
  : (candidateContractsRaw?.items ?? []);
+
+ const callsQuery = useQuery<Call[]>({
+ queryKey: candidateQueryKeys.calls(id),
+ queryFn: () => callsApi.getForCandidate(Number(id)),
+ enabled: !!id && activeTab === "activity" && activityView === "calls",
+ });
 
  const handleAddNote = async (jobId?: number | null) => {
  if (!noteText.trim()) return;
@@ -481,8 +621,8 @@ export function CandidateDetailV2({
  ...(jobId ? { job_id: jobId } : {}),
  });
  setNoteText("");
- queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
- queryClient.invalidateQueries({ queryKey: ["candidate-notes", id] });
+ queryClient.invalidateQueries({ queryKey: candidateQueryKeys.timelineRoot(id) });
+ queryClient.invalidateQueries({ queryKey: candidateQueryKeys.notes(id) });
  celebrate({ small: true, message: "Notatka dodana! 📝" });
  } catch (e) {
  showError(extractErrorMsg(e) || "Nie udało się dodać notatki");
@@ -500,8 +640,8 @@ export function CandidateDetailV2({
  ): Promise<boolean> => {
  try {
  await api.patch(`/api/notes/${noteId}`, { content });
- queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
- queryClient.invalidateQueries({ queryKey: ["candidate-notes", id] });
+ queryClient.invalidateQueries({ queryKey: candidateQueryKeys.timelineRoot(id) });
+ queryClient.invalidateQueries({ queryKey: candidateQueryKeys.notes(id) });
  return true;
  } catch (e) {
  showError(extractErrorMsg(e) || "Nie udało się zapisać notatki");
@@ -514,8 +654,8 @@ export function CandidateDetailV2({
  const handleDeleteNote = async (noteId: number): Promise<boolean> => {
  try {
  await api.delete(`/api/notes/${noteId}`);
- queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
- queryClient.invalidateQueries({ queryKey: ["candidate-notes", id] });
+ queryClient.invalidateQueries({ queryKey: candidateQueryKeys.timelineRoot(id) });
+ queryClient.invalidateQueries({ queryKey: candidateQueryKeys.notes(id) });
  return true;
  } catch (e) {
  showError(extractErrorMsg(e) || "Nie udało się usunąć notatki");
@@ -546,28 +686,66 @@ export function CandidateDetailV2({
  // Radix Dialogs (Email / interview / Generuj CV) only open reliably from a
  // menu item nested in the drawer Sheet because the dropdown is modal={false}
  // (see the DropdownMenu below) — without that, the menu's body pointer-events
- // lock swallows the dialog open, which is what regressed in #533.
+ // lock swallows the dialog open, which is what regressed in issue 533.
  const openFromMenu = (fn: () => void) => setTimeout(fn, 0);
 
- if (isLoading || !candidate) {
+ if (isLoading) {
  return (
- <div className="flex items-center justify-center py-16 text-muted-foreground">
- <div className="text-sm">Ładowanie kandydata…</div>
+ <div className="mx-auto max-w-[1440px] space-y-4 py-8" aria-busy="true">
+ <div className="h-32 animate-pulse rounded-xl border border-border bg-muted/50" />
+ <div className="h-80 animate-pulse rounded-xl border border-border bg-muted/40" />
+ </div>
+ );
+ }
+
+ if (candidateQuery.error || !candidate) {
+ const status = requestStatus(candidateQuery.error);
+ const title =
+ status === 403
+ ? "Nie masz dostępu do tego profilu"
+ : status === 404 || !Number.isFinite(Number(id))
+ ? "Nie znaleziono kandydata"
+ : "Nie udało się otworzyć profilu";
+ const description =
+ status === 403
+ ? "Poproś administratora o dostęp do danych kandydata."
+ : status === 404 || !Number.isFinite(Number(id))
+ ? "Kandydat mógł zostać usunięty albo link jest nieaktualny."
+ : "Sprawdź połączenie i spróbuj ponownie.";
+ return (
+ <div
+ role="alert"
+ className="mx-auto flex max-w-2xl flex-col items-center rounded-xl border border-border bg-card px-6 py-16 text-center"
+ >
+ <AlertTriangle className="mb-4 h-8 w-8 text-destructive" />
+ <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+ <p className="mt-2 max-w-md text-sm text-muted-foreground">{description}</p>
+ <div className="mt-5 flex gap-2">
+ {status !== 403 && status !== 404 ? (
+ <Button variant="primary" onClick={() => candidateQuery.refetch()}>
+ Spróbuj ponownie
+ </Button>
+ ) : null}
+ {embedded && onClose ? (
+ <Button variant="outline" onClick={onClose}>
+ Zamknij
+ </Button>
+ ) : (
+ <Button variant="outline" asChild>
+ <Link href="/candidates">Wróć do kandydatów</Link>
+ </Button>
+ )}
+ </div>
  </div>
  );
  }
 
  const fullName = `${candidate.name ??""} ${candidate.lastname ??""}`.trim();
- const initials = fullName
- .split(/\s+/)
- .map((w: string) => w[0])
- .slice(0, 2)
- .join("")
- .toUpperCase();
+ const initials = getCandidateInitials(candidate) || "?";
 
  const rootClass = embedded
  ?"space-y-4"
- :"max-w-6xl mx-auto space-y-5";
+ :"max-w-[1440px] mx-auto space-y-5";
 
  return (
  <div className={rootClass}>
@@ -582,14 +760,17 @@ export function CandidateDetailV2({
  onPrev={candidateNav.goPrev}
  onNext={candidateNav.goNext}
  isLoading={candidateNav.isLoading}
+ error={candidateNav.error}
+ onRetry={candidateNav.retry}
  onClose={onClose}
  onExpand={
  navContext
  ? () => {
- const sp = encodeNavContext(
+ let sp = encodeNavContext(
  navContext.filters,
  candidateNav.position,
  );
+ sp = withCandidateProfileView(sp, profileView);
  router.push(`/candidates/${id}?${sp.toString()}`);
  }
  : undefined
@@ -626,6 +807,8 @@ export function CandidateDetailV2({
  onPrev={candidateNav.goPrev}
  onNext={candidateNav.goNext}
  isLoading={candidateNav.isLoading}
+ error={candidateNav.error}
+ onRetry={candidateNav.retry}
  className="ml-auto"
  />
  )}
@@ -635,6 +818,18 @@ export function CandidateDetailV2({
  {candidate.employment && (
  <AtOurClientBanner employment={candidate.employment} />
  )}
+
+ {riskQuery.error ? (
+ <div
+ role="status"
+ className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+ >
+ <span>Ocena ryzyka jest chwilowo niedostępna.</span>
+ <button type="button" className="font-medium underline" onClick={() => riskQuery.refetch()}>
+ Ponów
+ </button>
+ </div>
+ ) : null}
 
  {/* ── HERO CARD ── */}
  <Card variant="default" size="md" className="!p-0 overflow-hidden">
@@ -691,11 +886,11 @@ export function CandidateDetailV2({
  <button
  type="button"
  onClick={() => setEditingIdentity(true)}
- className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+ className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
  title="Edytuj imię, nazwisko, e-mail i telefon"
  >
  <PencilLine className="h-3.5 w-3.5" />
- Edytuj dane
+ Edytuj kontakt
  </button>
  </div>
  {/* Scannable one-liner: title · experience · location · salary ·
@@ -740,7 +935,7 @@ export function CandidateDetailV2({
  rel="noreferrer"
  className="inline-flex items-center gap-1.5 hover:text-primary"
  >
- <Linkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
+ <Linkedin className="h-3.5 w-3.5 text-brand-linkedin" />
  LinkedIn
  </a>
  )}
@@ -784,7 +979,7 @@ export function CandidateDetailV2({
  <button
  onClick={onClose}
  aria-label="Zamknij"
- className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-primary/10"
+ className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
  >
  <X className="h-5 w-5" />
  </button>
@@ -812,7 +1007,7 @@ export function CandidateDetailV2({
  body pointer-events locked while it closes, so a Radix Dialog opened
  from a menu item (Email / interview / CV) is dismissed on the same
  tick when the panel is nested in the drawer Sheet — the exact failure
- #533 hit. Dropping the lock lets those dialogs open reliably from the
+ issue 533 hit. Dropping the lock lets those dialogs open reliably from the
  menu, so all three can live here instead of crowding the action row. */}
  <DropdownMenu modal={false}>
  <DropdownMenuTrigger asChild>
@@ -870,140 +1065,84 @@ export function CandidateDetailV2({
  </div>
  </Card>
 
- {/* 2-column layout on full-page (lg+): tabs left, sticky rail right.
- Drawer (embedded) never gets lg:grid-cols → stays single column at any
- viewport. */}
+ {/* Only the summary uses a secondary rail. At narrower widths it naturally
+ stacks below the main content instead of squeezing cards into a narrow strip. */}
  <div
  className={cn(
- "grid gap-5 items-start",
- // „Podgląd" korzysta z pełnej szerokości (bez prawego railu sugestii) —
- // CV + notatka + timeline jak w Traffit. Reszta zakładek: tabs + rail 340px.
- !embedded && activeTab !== "podglad" && "lg:grid-cols-[1fr_340px]",
+ "grid items-start gap-5",
+ !embedded && activeTab === "summary" && "xl:grid-cols-[minmax(0,1fr)_320px]",
  )}
  >
- {/* Side rail — AI screening + suggestions (prawy panel na full-page).
- Ukryty na „Podglądzie" — ta zakładka korzysta z pełnej szerokości. */}
- {activeTab !== "podglad" && (
- <aside
- className={cn(
- "space-y-4",
- !embedded && "lg:order-2 lg:sticky lg:top-4",
- )}
+ <div className="min-w-0 space-y-5">
+ <Card variant="default" size="md" className="!p-0 overflow-hidden">
+ <TabbedNav
+ value={activeTab}
+ onValueChange={setActiveTab}
+ ariaLabel="Sekcje profilu kandydata"
+ overflow="scroll"
+ listClassName="hidden max-w-full justify-start px-4 pt-2 md:flex [&>*]:shrink-0"
+ tabs={[
+ { value: "summary", label: "Podsumowanie", icon: User },
+ {
+ value: "recruitments",
+ label: "Rekrutacje",
+ icon: Calendar,
+ count: history.length || undefined,
+ },
+ { value: "activity", label: "Aktywność", icon: MessageSquare },
+ { value: "matching", label: "Dopasowanie", icon: Sparkles },
+ { value: "documents", label: "Pliki i umowy", icon: Files },
+ ]}
  >
- {/* AI screening summary (from /ai-profile — distinct from the CV-derived
- candidate.ai_summary shown in the Profil tab). Truncated for scanability. */}
- {aiProfile?.summary && (
- <Card variant="default" size="md" className="!py-4">
- <div className="flex items-start gap-2">
- <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
- <div className="flex-1">
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-primary mb-1">
- AI Screening
- </h3>
- <ExpandableText text={aiProfile.summary} maxLines={3} className="italic" />
+ <div className="border-b border-border px-4 py-3 md:hidden">
+ <label htmlFor="candidate-profile-section" className="sr-only">
+ Sekcja profilu
+ </label>
+ <select
+ id="candidate-profile-section"
+ value={activeTab}
+ onChange={(event) => setActiveTab(event.target.value)}
+ className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+ >
+ {Object.entries(PROFILE_SECTION_LABELS).map(([value, label]) => (
+ <option key={value} value={value}>
+ {label}
+ </option>
+ ))}
+ </select>
  </div>
- </div>
- </Card>
- )}
 
- {/* Sticky screening summary — always visible across tabs */}
- {aiProfile && aiProfile.screening_count > 0 && (
- <ScreeningSummary
- aiProfile={aiProfile}
- />
- )}
-
- {/* Suggested jobs (reuse v1 widget) */}
- <SuggestedJobsWidget candidateId={Number(id)} hideWhenEmpty />
-
- {/* AI-suggested talent pools (migracja 0041) */}
- <SuggestedPoolsWidget candidateId={Number(id)} />
- </aside>
- )}
-
- {/* Main column — tabs */}
- <div className={cn("space-y-5 min-w-0", !embedded && "lg:order-1")}>
- {/* Tabs */}
- <Card variant="default" size="md" className="!p-0">
- <Tabs value={activeTab} onValueChange={setActiveTab}>
- {/* max-w-full + overflow-x-auto so the 7-tab list scrolls instead of
- spilling over the right rail in the narrower 2-col main column. */}
- <TabsList className="px-4 pt-2 max-w-full overflow-x-auto justify-start [&>*]:shrink-0">
- <TabsTrigger value="profil">
- <User className="h-3.5 w-3.5" />
- Profil
- </TabsTrigger>
- <TabsTrigger value="podglad">
- <Eye className="h-3.5 w-3.5" />
- Podgląd
- </TabsTrigger>
- <TabsTrigger value="timeline">
- <MessageSquare className="h-3.5 w-3.5" />
- Timeline
- </TabsTrigger>
- <TabsTrigger value="rekrutacje">
- <Calendar className="h-3.5 w-3.5" />
- Rekrutacje
- {history.length > 0 && (
- <Badge size="sm" variant="soft">
- {history.length}
- </Badge>
- )}
- </TabsTrigger>
- <TabsTrigger value="dopasowanie">
- <Sparkles className="h-3.5 w-3.5" />
- Dopasowanie
- </TabsTrigger>
- <TabsTrigger value="notatki">
- <MessageSquare className="h-3.5 w-3.5" />
- Notatki
- </TabsTrigger>
- <TabsTrigger value="pliki">
- <Files className="h-3.5 w-3.5" />
- Pliki
- </TabsTrigger>
- <TabsTrigger value="umowa">
- <FileSignature className="h-3.5 w-3.5" />
- Umowa
- {candidateContracts.some(
- (c: any) => c.status === "draft",
- ) && (
- <Badge size="sm" variant="warning">
- draft
- </Badge>
- )}
- </TabsTrigger>
- <TabsTrigger value="chat">
- <MessageSquare className="h-3.5 w-3.5" />
- Chat
- </TabsTrigger>
- </TabsList>
-
- <div className="p-5">
- <TabsContent value="profil" className="mt-0">
+ <div className="p-4 sm:p-5">
+ <TabsContent value="summary" className="mt-0 space-y-5">
  <ProfilTab candidate={candidate} onOpenTab={setActiveTab} />
+ <section aria-labelledby="candidate-commercial-data">
+ <h2
+ id="candidate-commercial-data"
+ className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+ >
+ Dane handlowe
+ </h2>
+ <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+ <DeferUntilVisible minHeight={44}>
+ <RateHistoryWidget candidateId={Number(id)} hideWhenEmpty />
+ </DeferUntilVisible>
+ <DeferUntilVisible minHeight={44}>
+ <ConflictsWidget candidateId={Number(id)} hideWhenEmpty />
+ </DeferUntilVisible>
+ </div>
+ </section>
  </TabsContent>
- <TabsContent value="podglad" className="mt-0">
- <PipelinePane
- candidateId={Number(id)}
- cvFilename={candidate.cv_filename ?? null}
- timeline={timeline ?? []}
- recruitments={history}
- defaultJobId={backJobId}
- noteText={noteText}
- setNoteText={setNoteText}
- onAdd={handleAddNote}
- saving={noteSaving}
- viewers={presenceViewers}
- currentUserId={currentUser?.id}
- setEditing={setPresenceEditing}
+
+ <TabsContent value="recruitments" className="mt-0">
+ {historyQuery.isPending ? (
+ <SectionLoading label="Ładowanie rekrutacji…" />
+ ) : historyQuery.error ? (
+ <SectionError
+ title="Nie udało się pobrać rekrutacji"
+ onRetry={() => historyQuery.refetch()}
  />
- </TabsContent>
- <TabsContent value="timeline" className="mt-0">
- <TimelineTab items={timeline ?? []} />
- </TabsContent>
- <TabsContent value="rekrutacje" className="mt-0">
- <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+ ) : (
+ <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
  <div className="lg:col-span-2">
  <RekrutacjeTab
  history={history}
@@ -1018,15 +1157,74 @@ export function CandidateDetailV2({
  />
  </div>
  </div>
+ )}
  </TabsContent>
- <TabsContent value="dopasowanie" className="mt-0">
- <DopasowanieTab
+
+ <TabsContent value="activity" className="mt-0 space-y-4">
+ <SubsectionNav
+ label="Widok aktywności"
+ items={ACTIVITY_VIEWS.map((value) => ({
+ value,
+ label: ACTIVITY_LABELS[value],
+ }))}
+ value={activityView}
+ onChange={(value) => setActivityView(value as CandidateActivityView)}
+ />
+ {activityView === "timeline" && candidate.cv_filename ? (
+ <div className="flex justify-end">
+ <Button
+ size="sm"
+ variant="outline"
+ aria-pressed={showActivityCv}
+ onClick={() => setShowActivityCv((visible) => !visible)}
+ >
+ <FileText className="h-3.5 w-3.5" />
+ {showActivityCv ? "Ukryj CV" : "Pokaż CV obok"}
+ </Button>
+ </div>
+ ) : null}
+ {activityView === "timeline" ? (
+ timelineQuery.isPending || historyQuery.isPending ? (
+ <SectionLoading label="Ładowanie historii aktywności…" />
+ ) : timelineQuery.error || historyQuery.error ? (
+ <SectionError
+ title="Nie udało się pobrać historii aktywności"
+ onRetry={() => {
+ timelineQuery.refetch();
+ historyQuery.refetch();
+ }}
+ />
+ ) : showActivityCv ? (
+ <PipelinePane
  candidateId={Number(id)}
+ cvFilename={candidate.cv_filename ?? null}
+ timeline={timeline ?? []}
  recruitments={history}
  defaultJobId={backJobId}
+ noteText={noteText}
+ setNoteText={setNoteText}
+ onAdd={handleAddNote}
+ saving={noteSaving}
+ viewers={presenceViewers}
+ currentUserId={currentUser?.id}
+ setEditing={setPresenceEditing}
  />
- </TabsContent>
- <TabsContent value="notatki" className="mt-0">
+ ) : (
+ <TimelineTab items={timeline ?? []} />
+ )
+ ) : null}
+ {activityView === "notes" ? (
+ notesQuery.isPending || historyQuery.isPending ? (
+ <SectionLoading label="Ładowanie notatek…" />
+ ) : notesQuery.error || historyQuery.error ? (
+ <SectionError
+ title="Nie udało się pobrać notatek"
+ onRetry={() => {
+ notesQuery.refetch();
+ historyQuery.refetch();
+ }}
+ />
+ ) : (
  <NotatkiTab
  timeline={noteItems}
  recruitments={history}
@@ -1042,43 +1240,122 @@ export function CandidateDetailV2({
  canModerate={hasRole(currentUser, "admin")}
  setEditing={setPresenceEditing}
  />
+ )
+ ) : null}
+ {activityView === "calls" ? (
+ callsQuery.error ? (
+ <SectionError
+ title="Nie udało się pobrać rozmów"
+ onRetry={() => callsQuery.refetch()}
+ />
+ ) : callsQuery.isPending ? (
+ <SectionLoading label="Ładowanie rozmów…" />
+ ) : (
+ <CallsTimeline calls={callsQuery.data ?? []} />
+ )
+ ) : null}
+ {activityView === "chat" ? (
+ <CandidateChatTab candidateId={Number(id)} />
+ ) : null}
  </TabsContent>
- <TabsContent value="pliki" className="mt-0">
+
+ <TabsContent value="matching" className="mt-0">
+ <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+ <div className="min-w-0">
+ {historyQuery.isPending ? (
+ <SectionLoading label="Ładowanie danych dopasowania…" />
+ ) : historyQuery.error ? (
+ <SectionError
+ title="Nie udało się pobrać danych do dopasowania"
+ onRetry={() => historyQuery.refetch()}
+ />
+ ) : (
+ <DopasowanieTab
+ candidateId={Number(id)}
+ recruitments={history}
+ defaultJobId={backJobId}
+ />
+ )}
+ </div>
+ <aside className="space-y-4 xl:sticky xl:top-4">
+ <SuggestedJobsWidget candidateId={Number(id)} />
+ <SuggestedPoolsWidget candidateId={Number(id)} />
+ </aside>
+ </div>
+ </TabsContent>
+
+ <TabsContent value="documents" className="mt-0 space-y-4">
+ <SubsectionNav
+ label="Pliki i umowy"
+ items={DOCUMENT_VIEWS.map((value) => ({
+ value,
+ label: DOCUMENT_LABELS[value],
+ }))}
+ value={documentsView}
+ onChange={(value) => setDocumentsView(value as CandidateDocumentView)}
+ />
+ {documentsView === "files" ? (
  <PlikiTab candidateId={Number(id)} />
- </TabsContent>
- <TabsContent value="umowa" className="mt-0">
+ ) : contractsQuery.error ? (
+ <SectionError
+ title="Nie udało się pobrać umów"
+ onRetry={() => contractsQuery.refetch()}
+ />
+ ) : contractsQuery.isPending ? (
+ <SectionLoading label="Ładowanie umów…" />
+ ) : (
  <UmowaTab
  candidateId={Number(id)}
  candidateName={fullName}
  candidatePhone={candidate.phone ?? null}
  contracts={candidateContracts}
- jdgComplete={Boolean(
- candidate.legal_name && candidate.nip,
- )}
- onJumpToProfile={() => setActiveTab("profil")}
+ jdgComplete={Boolean(candidate.legal_name && candidate.nip)}
+ onJumpToProfile={() => setActiveTab("summary")}
  />
- </TabsContent>
- <TabsContent value="chat" className="mt-0">
- <CandidateChatTab candidateId={Number(id)} />
+ )}
  </TabsContent>
  </div>
- </Tabs>
+ </TabbedNav>
  </Card>
  </div>
- {/* /Main column */}
- </div>
- {/* /2-column grid */}
 
- {/* Side widgets (below tabs). hideWhenEmpty keeps the footer quiet: an empty
- rate/conflict widget collapses to a single "Dodaj" link instead of an empty
- card (items-start so a lone link doesn't stretch to a sibling card's height). */}
- <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
- <DeferUntilVisible minHeight={44}>
- <RateHistoryWidget candidateId={Number(id)} hideWhenEmpty />
- </DeferUntilVisible>
- <DeferUntilVisible minHeight={44}>
- <ConflictsWidget candidateId={Number(id)} hideWhenEmpty />
- </DeferUntilVisible>
+ {activeTab === "summary" ? (
+ <aside
+ className={cn(
+ "space-y-4",
+ !embedded && "xl:sticky xl:top-4",
+ )}
+ aria-label="Podsumowanie AI"
+ >
+ {aiProfileQuery.error ? (
+ <SectionError
+ title="Podsumowanie AI jest niedostępne"
+ onRetry={() => aiProfileQuery.refetch()}
+ />
+ ) : aiProfileQuery.isPending ? (
+ <SectionLoading label="Ładowanie podsumowania AI…" />
+ ) : (
+ <>
+ {aiProfile?.summary ? (
+ <Card variant="default" size="md" className="!py-4">
+ <div className="flex items-start gap-2">
+ <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+ <div className="min-w-0 flex-1">
+ <h3 className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary">
+ AI Screening
+ </h3>
+ <ExpandableText text={aiProfile.summary} maxLines={3} className="italic" />
+ </div>
+ </div>
+ </Card>
+ ) : null}
+ {aiProfile && aiProfile.screening_count > 0 ? (
+ <ScreeningSummary aiProfile={aiProfile} />
+ ) : null}
+ </>
+ )}
+ </aside>
+ ) : null}
  </div>
 
  {/* ── Modals ── */}
@@ -1101,8 +1378,7 @@ export function CandidateDetailV2({
  candidateId={Number(id)}
  candidateName={fullName}
  onAssigned={() => {
- queryClient.invalidateQueries({ queryKey: ["candidate-history", id] });
- queryClient.invalidateQueries({ queryKey: ["suggested-jobs", id] });
+ invalidateCandidateMutation(queryClient, id, "assignment");
  }}
  />
  {editOpen && candidate && (
@@ -1110,7 +1386,7 @@ export function CandidateDetailV2({
  candidate={candidate}
  onClose={() => setEditOpen(false)}
  onSuccess={() => {
- queryClient.invalidateQueries({ queryKey: ["candidate", id] });
+ invalidateCandidateMutation(queryClient, id, "edit");
  setEditOpen(false);
  }}
  />
@@ -1162,6 +1438,79 @@ export function CandidateDetailV2({
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
+
+function SectionLoading({ label }: { label: string }) {
+ return (
+ <div
+ className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-8 text-sm text-muted-foreground"
+ aria-busy="true"
+ >
+ <Loader2 className="h-4 w-4 animate-spin" />
+ {label}
+ </div>
+ );
+}
+
+function SectionError({
+ title,
+ onRetry,
+}: {
+ title: string;
+ onRetry: () => void;
+}) {
+ return (
+ <div
+ role="alert"
+ className="flex flex-col items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive sm:flex-row sm:items-center"
+ >
+ <span>{title}</span>
+ <Button size="sm" variant="outline" onClick={onRetry}>
+ Ponów
+ </Button>
+ </div>
+ );
+}
+
+function SubsectionNav({
+ label,
+ items,
+ value,
+ onChange,
+}: {
+ label: string;
+ items: Array<{ value: string; label: string }>;
+ value: string;
+ onChange: (value: string) => void;
+}) {
+ return (
+ <div
+ role="tablist"
+ aria-label={label}
+ className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1"
+ >
+ {items.map((item) => {
+ const active = item.value === value;
+ return (
+ <button
+ key={item.value}
+ type="button"
+ role="tab"
+ aria-selected={active}
+ onClick={() => onChange(item.value)}
+ className={cn(
+ "shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ active
+ ? "bg-card text-foreground shadow-sm"
+ : "text-muted-foreground hover:bg-accent hover:text-foreground",
+ )}
+ >
+ {item.label}
+ </button>
+ );
+ })}
+ </div>
+ );
+}
 
 function StatTile({ label, value }: { label: string; value: React.ReactNode }) {
  return (
@@ -1229,7 +1578,7 @@ function JDGPanel({
  }),
  onSuccess: () => {
  showSuccess("Zapisano dane do umowy");
- queryClient.invalidateQueries({ queryKey: ["candidate", candidateId] });
+ queryClient.invalidateQueries({ queryKey: candidateQueryKeys.detail(candidateId) });
  },
  onError: () => showError("Nie udało się zapisać danych JDG"),
  });
@@ -1373,10 +1722,10 @@ function UmowaTab({
  return (
  <div className="space-y-5">
  {!jdgComplete && (
- <Card variant="default" size="md" className="border-l-4 border-l-amber-500">
+ <Card variant="default" size="md" className="border-l-4 border-l-warning">
  <CardContent className="py-3 flex items-center justify-between gap-3 flex-wrap">
  <div className="text-sm flex items-center gap-2 text-foreground">
- <AlertTriangle className="h-4 w-4 text-amber-600" />
+ <AlertTriangle className="h-4 w-4 text-warning" />
  Brak danych do umowy (nazwa prawna / NIP). Bez nich szablon
  wyrenderuje puste pola.
  </div>
@@ -1491,11 +1840,20 @@ function CurrentContractCard({
  candidateName: string;
  candidatePhone: string | null;
 }) {
+ const { showError } = useToast();
  const { data: docs } = useQuery<any[]>({
  queryKey: ["contract-docs", contract.id],
  queryFn: () => contractsApi.documents(contract.id).then((r: any) => r.data),
  });
  const documents = docs ?? [];
+
+ const handleDownload = async (d: any) => {
+ try {
+ await downloadContractDocument(contract.id, d);
+ } catch {
+ showError(`Nie udało się pobrać pliku "${d.filename}".`);
+ }
+ };
 
  return (
  <Card variant="default" size="md">
@@ -1578,14 +1936,13 @@ function CurrentContractCard({
  {d.doc_type}
  </Badge>
  </span>
- <a
- href={contractsApi.documentDownloadUrl(contract.id, d.id)}
- target="_blank"
- rel="noopener noreferrer"
+ <button
+ type="button"
+ onClick={() => handleDownload(d)}
  className="text-xs text-primary inline-flex items-center gap-1"
  >
  <Download className="h-3 w-3" /> pobierz
- </a>
+ </button>
  </li>
  ))}
  </ul>
@@ -1786,7 +2143,7 @@ function DraftEditor({
  </div>
 
  {data.available_templates.length === 0 && (
- <div className="text-xs text-amber-600 flex items-center gap-1">
+ <div className="flex items-center gap-1 text-xs text-warning-muted-foreground">
  <AlertTriangle className="h-3.5 w-3.5" />
  Brak szablonu dla typu <code>{contractMeta.contract_type}</code>.
  Dodaj szablon w panelu administracyjnym.
@@ -1845,7 +2202,7 @@ function ConfirmModal({
 }) {
  return (
  <div
- className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+ className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40"
  onClick={onCancel}
  >
  <Card
@@ -1924,7 +2281,7 @@ function SellRatePanel({
  onOpenTab?: (tab: string) => void;
 }) {
  const { data: historyRaw } = useQuery<{ jobs?: any[] } | any[]>({
- queryKey: ["candidate-history", String(candidateId)],
+ queryKey: candidateQueryKeys.history(candidateId),
  queryFn: () =>
  api.get(`/api/candidates/${candidateId}/history`).then((r) => r.data),
  enabled: !!candidateId,
@@ -2043,7 +2400,7 @@ function ProfilTab({
  // Mini activity feed — last 5 events, so the recruiter sees recent history
  // without switching to the Timeline tab (Traffit's Podsumowanie centerpiece).
  const { data: feedRaw } = useQuery<{ timeline?: any[] } | any[]>({
- queryKey: ["candidate-timeline-mini", candidate.id],
+ queryKey: candidateQueryKeys.timeline(candidate.id, 5),
  queryFn: () =>
  api
  .get(`/api/candidates/${candidate.id}/timeline?limit=5`)
@@ -2061,7 +2418,7 @@ function ProfilTab({
  // FilePreviewModal dla głównego dokumentu kandydata.
  const { showError } = useToast();
  const { data: cvDocs } = useQuery<CandidateDocument[]>({
- queryKey: ["candidate-documents", candidate.id],
+ queryKey: candidateQueryKeys.documents(candidate.id),
  queryFn: async () => {
  const res = await api.get<CandidateDocument[]>(
  `/api/candidates/${candidate.id}/documents`,
@@ -2238,7 +2595,7 @@ function ProfilTab({
  </h3>
  {verifiedTech.length > 0 && (
  <div className="mb-2">
- <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 mb-1">
+ <div className="mb-1 text-[11px] font-medium text-success-muted-foreground">
  Zweryfikowane
  </div>
  <div className="flex flex-wrap gap-2">
@@ -2266,7 +2623,7 @@ function ProfilTab({
  </Badge>
  )}
  {s.name && verifiedSet.has(String(s.name).toLowerCase()) && (
- <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+ <CheckCircle2 className="h-3 w-3 text-success" />
  )}
  {s.years && (
  <span className="text-[10px] text-muted-foreground">{s.years}l</span>
@@ -2789,7 +3146,7 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
                 className={cn(
                   "h-3.5 w-3.5",
                   n <= item.rating
-                    ? "fill-amber-500 text-amber-500"
+                    ? "fill-warning text-warning"
                     : "fill-[hsl(var(--border))] text-[hsl(var(--border))]",
                 )}
               />
@@ -2871,12 +3228,14 @@ type RatePayload = {
 // Zarządza własnym stanem edycji + mutacją; po zapisie prefix-invalidate
 // odświeża historię (skąd parent czyta wartości i liczy marżę).
 function EditableRateCell({
+ candidateId,
  label,
  rate,
  mutationFn,
  successMessage,
  testIdPrefix,
 }: {
+ candidateId: number;
  label: string;
  rate: RecruitmentRate;
  mutationFn: (payload: RatePayload) => Promise<unknown>;
@@ -2897,9 +3256,7 @@ function EditableRateCell({
  mutationFn,
  onSuccess: () => {
  showSuccess(successMessage);
- // Prefix-invalidate — queryKey to ["candidate-history", id(string)], a tu
- // mamy id jako number; prefix match odświeży niezależnie od typu drugiego klucza.
- queryClient.invalidateQueries({ queryKey: ["candidate-history"] });
+ invalidateCandidateMutation(queryClient, candidateId, "rate");
  setEditing(false);
  },
  onError: (e) =>
@@ -3013,6 +3370,7 @@ function RecruitmentRateRow({
  <div className="mt-3 pt-3 border-t border-border">
  <div className="grid grid-cols-2 gap-3 text-xs">
  <EditableRateCell
+ candidateId={candidateId}
  label="Stawka kandydata"
  rate={expectedRate}
  testIdPrefix="expected-rate"
@@ -3022,6 +3380,7 @@ function RecruitmentRateRow({
  }
  />
  <EditableRateCell
+ candidateId={candidateId}
  label="Stawka do klienta"
  rate={clientRate}
  testIdPrefix="client-rate"
@@ -3037,7 +3396,7 @@ function RecruitmentRateRow({
  <span
  className={
  margin >= 0
- ?"font-medium text-emerald-600"
+ ?"font-medium text-success"
  :"font-medium text-destructive"
  }
  >
@@ -3137,7 +3496,13 @@ function RekrutacjaCard({
  );
  // Lista po lewej (zakładka Rekrutacje + badge) oraz panel po prawej
  // („W jakich pipeline'ach…") — oba muszą się odświeżyć.
- queryClient.invalidateQueries({ queryKey: ["candidate-history"] });
+ queryClient.invalidateQueries({
+ queryKey: candidateQueryKeys.history(candidateId),
+ });
+ queryClient.invalidateQueries({
+ queryKey: candidateQueryKeys.recommendationsRoot(candidateId),
+ });
+ queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
  queryClient.invalidateQueries({
  queryKey: candidatePipelinesQueryKey(candidateId),
  });
@@ -3549,8 +3914,8 @@ function NoteComposer({
  ariaLabel="Treść nowej notatki"
  />
  {othersEditingNotes.length > 0 ? (
- <div className="text-xs text-[#F59E0B] flex items-center gap-1.5">
- <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
+ <div className="flex items-center gap-1.5 text-xs text-warning-muted-foreground">
+ <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
  {othersEditingNotes.length === 1
  ? `${othersEditingNotes[0].name} edytuje notatki`
  : `${othersEditingNotes.map((v) => v.name).join(",")} edytują notatki`}
@@ -3609,7 +3974,7 @@ function PipelinePane({
 }) {
  const { showError } = useToast();
  const { data: documents } = useQuery<CandidateDocument[]>({
- queryKey: ["candidate-documents", candidateId],
+ queryKey: candidateQueryKeys.documents(candidateId),
  queryFn: async () => {
  const res = await api.get<CandidateDocument[]>(
  `/api/candidates/${candidateId}/documents`,
@@ -3939,7 +4304,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  const { showError, showToast } = useToast();
  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
- queryKey: ["candidate-documents", candidateId],
+ queryKey: candidateQueryKeys.documents(candidateId),
  queryFn: async () => {
  const res = await api.get<CandidateDocument[]>(
  `/api/candidates/${candidateId}/documents`,
@@ -4264,7 +4629,7 @@ function ScreeningSummary({
  <div className="mt-3.5 pt-3.5 border-t border-border space-y-3">
  {red_flags_unique.length > 0 && (
  <div>
- <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b1120] mb-1.5">
+ <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-primary">
  <AlertTriangle className="h-3 w-3" />
  Red flags
  </div>

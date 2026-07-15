@@ -83,17 +83,18 @@ async def _call_claude_json(
     *, prompt: str, system_prompt: str, model: str, max_tokens: int
 ) -> dict[str, Any]:
     """Call Claude and parse JSON. Raises MatchJustificationLLMError on failure."""
-    import anthropic  # local import: avoid import cost at module load
+    # Shared resilient helper: explicit timeout + transient-retry backoff.
+    from app.services.claude_client import call_claude  # local: avoid load-time cost
 
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
     if not api_key:
         raise MatchJustificationLLMError("ANTHROPIC_API_KEY not configured")
 
-    client = anthropic.Anthropic(api_key=api_key)
     started = time.time()
     try:
+        # Returns the same Message the SDK would — parsed identically below.
         message = await run_in_threadpool(
-            client.messages.create,
+            call_claude,
             model=model,
             max_tokens=max_tokens,
             # Sonnet 5 does adaptive thinking by default; those tokens count
@@ -101,6 +102,7 @@ async def _call_claude_json(
             thinking={"type": "disabled"},
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
+            api_key=api_key,
         )
     except Exception as exc:  # noqa: BLE001 - surface as a clean domain error
         raise MatchJustificationLLMError(f"LLM request failed: {exc}") from exc

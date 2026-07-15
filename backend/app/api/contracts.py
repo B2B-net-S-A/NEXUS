@@ -15,7 +15,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from jinja2 import TemplateError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +35,7 @@ from app.models.contract import (
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
+from app.models.contract_framework_rate import ContractFrameworkRate
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
@@ -51,6 +52,7 @@ from app.schemas.contract import (
     ContractBenchmarkComparison,
     ContractCandidateRateEntry,
     ContractClientRateEntry,
+    ContractFrameworkRateEntry,
     ContractCreate,
     ContractDetailResponse,
     ContractDraftFinalizeResponse,
@@ -103,11 +105,14 @@ def _effective_rate_fields(contract: Contract, on: date) -> dict:
     so we recompute `rate_candidate`/`rate_client`/`margin`/monthly-equivalents
     from the entries in effect on `on` rather than trusting any cached column. A
     future-dated step (e.g. a `rate_change` amendment for the next order) does not
-    change today's rate. Requires both `candidate_rate_schedule` and
-    `client_rate_schedule` to be eager-loaded.
+    change today's rate. The framework rate ("stawka z umowy ramowej") is derived
+    the same way so a planned framework-rate change shows up on its date without an
+    edit — it never feeds the margin. Requires `candidate_rate_schedule`,
+    `client_rate_schedule` and `framework_rate_schedule` to be eager-loaded.
     """
     eff_candidate = contract.effective_candidate_rate(on)
     eff_client = contract.effective_client_rate(on)
+    eff_framework = contract.effective_framework_rate(on)
     candidate_dec = Contract._as_decimal(eff_candidate)
     client_dec = Contract._as_decimal(eff_client)
     margin = (
@@ -125,6 +130,7 @@ def _effective_rate_fields(contract: Contract, on: date) -> dict:
     return {
         "rate_candidate": eff_candidate,
         "rate_client": eff_client,
+        "framework_rate": eff_framework,
         "margin": margin,
         "monthly_rate_candidate": monthly_candidate,
         "monthly_rate_client": monthly_client,
@@ -148,6 +154,18 @@ def _client_schedule_entries(contract: Contract) -> list[ContractClientRateEntry
         ContractClientRateEntry.model_validate(e)
         for e in sorted(
             contract.client_rate_schedule or [], key=lambda e: e.effective_from
+        )
+    ]
+
+
+def _framework_schedule_entries(
+    contract: Contract,
+) -> list[ContractFrameworkRateEntry]:
+    """Serialize a contract's framework-rate schedule (oldest → newest)."""
+    return [
+        ContractFrameworkRateEntry.model_validate(e)
+        for e in sorted(
+            contract.framework_rate_schedule or [], key=lambda e: e.effective_from
         )
     ]
 
@@ -200,6 +218,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "rate_client": contract.rate_client,
         "candidate_rate_schedule": _schedule_entries(contract),
         "client_rate_schedule": _client_schedule_entries(contract),
+        "framework_rate_schedule": _framework_schedule_entries(contract),
         "framework_rate": contract.framework_rate,
         "target_rate_min": contract.target_rate_min,
         "target_rate_max": contract.target_rate_max,
@@ -248,62 +267,34 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
     return ContractDetailResponse(**data)
 
 
-@router.get("", response_model=ContractList)
-async def list_contracts(
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    q: Optional[str] = Query(
-        None,
-        description=(
-            "Free-text search — case-insensitive substring match across "
-            "candidate name + lastname, client name and job title."
-        ),
-    ),
-    status: Optional[list[ContractStatus]] = Query(
-        None,
-        description=(
-            "Filter by `status` — one or more values. Repeat the param for "
-            "multi-select (e.g. `?status=active&status=ending`). OR-combined."
-        ),
-    ),
-    client_id: Optional[int] = None,
-    candidate_id: Optional[int] = None,
-    contract_type: Optional[list[str]] = Query(
-        None,
-        description=(
-            "Filter by `contract_type` (engagement model: body_leasing / "
-            "fixed_price / t_and_m). Repeat the param for multi-select. OR-combined."
-        ),
-    ),
-    start_from: Optional[date] = Query(None),
-    start_to: Optional[date] = Query(None),
-    end_from: Optional[date] = Query(None),
-    end_to: Optional[date] = Query(None),
-    rate_client_min: Optional[int] = Query(None, ge=0),
-    rate_client_max: Optional[int] = Query(None, ge=0),
-    margin_min: Optional[int] = Query(None),
-    expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
+def _apply_contract_list_filters(
+    query,
+    *,
+    q: Optional[str],
+    status: Optional[list[ContractStatus]],
+    client_id: Optional[int],
+    candidate_id: Optional[int],
+    contract_type: Optional[list[str]],
+    start_from: Optional[date],
+    start_to: Optional[date],
+    end_from: Optional[date],
+    end_to: Optional[date],
+    rate_client_min: Optional[int],
+    rate_client_max: Optional[int],
+    margin_min: Optional[int],
+    expiring_in_days: Optional[int],
 ):
-    """List contracts with advanced filters (Phase 9 C5)."""
-    query = select(Contract).options(
-        selectinload(Contract.candidate),
-        selectinload(Contract.client),
-        selectinload(Contract.job),
-        selectinload(Contract.candidate_rate_schedule),
-        selectinload(Contract.client_rate_schedule),
-    )
+    """Apply the shared contract list/export filters to ``query`` and return it.
+
+    Single source of truth for the WHERE clauses so ``list_contracts`` and
+    ``export_contracts`` never drift. ILIKE is case-insensitive and Unicode-aware,
+    so "grądzki" matches "Grądzki"; names are stored NFC, so the query is
+    normalised to NFC before matching (decomposed input would otherwise match
+    nothing). Job is outer-joined (job_id is nullable) so contracts without a job
+    still match on candidate/client — these relationships are many-to-one, so the
+    joins never multiply rows (no DISTINCT needed). Multi-selects are OR-combined.
+    """
     if q and q.strip():
-        # Free-text search across the joined candidate/client/job. ILIKE is
-        # case-insensitive and Unicode-aware, so "grądzki" matches "Grądzki".
-        # Names are stored NFC (precomposed "ą" = U+0105), but some keyboards
-        # and pasted text emit NFD ("a" + combining ogonek); without folding,
-        # those decomposed queries silently match nothing. Normalise the query
-        # to NFC so it lines up with the stored form.
-        # Job is outer-joined (job_id is nullable) so contracts without a job
-        # still match on candidate/client. These relationships are many-to-one,
-        # so the joins never multiply rows — no DISTINCT needed.
         pattern = f"%{unicodedata.normalize('NFC', q.strip())}%"
         query = (
             query.join(Contract.candidate)
@@ -349,27 +340,102 @@ async def list_contracts(
             Contract.end_date <= cutoff,
             Contract.end_date >= today,
         )
+    return query
+
+
+async def _latest_order_end_dates(
+    db: AsyncSession, contract_ids: list[int]
+) -> dict[int, date]:
+    """Latest ``ClientOrder.end_date`` per contract, in a single grouped query.
+
+    Powers the "Zamówienie do" column on the list + export (one Contract has N
+    orders over time — the current order is the one ending latest). Avoids N+1.
+    """
+    from app.models.client_order import ClientOrder
+
+    if not contract_ids:
+        return {}
+    rows = await db.execute(
+        select(ClientOrder.contract_id, func.max(ClientOrder.end_date))
+        .where(
+            ClientOrder.contract_id.in_(contract_ids),
+            ClientOrder.end_date.is_not(None),
+        )
+        .group_by(ClientOrder.contract_id)
+    )
+    return {row[0]: row[1] for row in rows.all()}
+
+
+@router.get("", response_model=ContractList)
+async def list_contracts(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    q: Optional[str] = Query(
+        None,
+        description=(
+            "Free-text search — case-insensitive substring match across "
+            "candidate name + lastname, client name and job title."
+        ),
+    ),
+    status: Optional[list[ContractStatus]] = Query(
+        None,
+        description=(
+            "Filter by `status` — one or more values. Repeat the param for "
+            "multi-select (e.g. `?status=active&status=ending`). OR-combined."
+        ),
+    ),
+    client_id: Optional[int] = None,
+    candidate_id: Optional[int] = None,
+    contract_type: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Filter by `contract_type` (engagement model: body_leasing / "
+            "fixed_price / t_and_m). Repeat the param for multi-select. OR-combined."
+        ),
+    ),
+    start_from: Optional[date] = Query(None),
+    start_to: Optional[date] = Query(None),
+    end_from: Optional[date] = Query(None),
+    end_to: Optional[date] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0),
+    rate_client_max: Optional[int] = Query(None, ge=0),
+    margin_min: Optional[int] = Query(None),
+    expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
+):
+    """List contracts with advanced filters (Phase 9 C5)."""
+    query = select(Contract).options(
+        selectinload(Contract.candidate),
+        selectinload(Contract.client),
+        selectinload(Contract.job),
+        selectinload(Contract.candidate_rate_schedule),
+        selectinload(Contract.client_rate_schedule),
+        selectinload(Contract.framework_rate_schedule),
+    )
+    query = _apply_contract_list_filters(
+        query,
+        q=q,
+        status=status,
+        client_id=client_id,
+        candidate_id=candidate_id,
+        contract_type=contract_type,
+        start_from=start_from,
+        start_to=start_to,
+        end_from=end_from,
+        end_to=end_to,
+        rate_client_min=rate_client_min,
+        rate_client_max=rate_client_max,
+        margin_min=margin_min,
+        expiring_in_days=expiring_in_days,
+    )
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
-    # Pre-compute latest order end_date per Contract dla kolumny "Zamówienie do".
-    # Single query zamiast N+1 — group by contract_id, max(end_date).
-    from app.models.client_order import ClientOrder
-
-    contract_ids = [c.id for c in contracts]
-    latest_order_dates: dict[int, date] = {}
-    if contract_ids:
-        latest_rows = await db.execute(
-            select(ClientOrder.contract_id, func.max(ClientOrder.end_date))
-            .where(
-                ClientOrder.contract_id.in_(contract_ids),
-                ClientOrder.end_date.is_not(None),
-            )
-            .group_by(ClientOrder.contract_id)
-        )
-        latest_order_dates = {row[0]: row[1] for row in latest_rows.all()}
+    # Latest order end_date per Contract for the "Zamówienie do" column.
+    latest_order_dates = await _latest_order_end_dates(db, [c.id for c in contracts])
 
     _today = date.today()
     items = [
@@ -396,6 +462,7 @@ async def list_contracts(
                 "latest_order_end_date": latest_order_dates.get(c.id),
                 "candidate_rate_schedule": _schedule_entries(c),
                 "client_rate_schedule": _client_schedule_entries(c),
+                "framework_rate_schedule": _framework_schedule_entries(c),
                 # Current candidate + client rates / margin derived from schedules.
                 **_effective_rate_fields(c, _today),
             }
@@ -405,12 +472,233 @@ async def list_contracts(
     return ContractList(items=items, total=total, page=page, page_size=page_size)
 
 
+# ── Export (CSV / XLSX) ───────────────────────────────────────────────────────
+# Business-facing labels for the enum columns — the export goes to delivery /
+# finance, so we render Polish labels instead of the raw enum values.
+_CONTRACT_TYPE_LABELS = {
+    "b2b": "B2B",
+    "uop": "Umowa o pracę",
+    "uzlecenie": "Umowa zlecenie",
+}
+_CONTRACT_STATUS_LABELS = {
+    "draft": "Szkic",
+    "active": "Aktywny",
+    "ending": "Kończący się",
+    "ended": "Zakończony",
+}
+_RATE_UNIT_LABELS = {
+    "hourly": "godzinowa",
+    "daily": "dzienna",
+    "monthly": "miesięczna",
+}
+_WORK_MODE_LABELS = {
+    "remote": "zdalnie",
+    "hybrid": "hybrydowo",
+    "onsite": "stacjonarnie",
+}
+_PROLONGATION_LABELS = {
+    "unknown": "nieznany",
+    "yes": "tak",
+    "no": "nie",
+    "negotiate": "negocjacje",
+}
+
+_CONTRACT_EXPORT_COLUMNS = [
+    "ID",
+    "Kandydat",
+    "Klient",
+    "Stanowisko / Oferta",
+    "Typ",
+    "Status",
+    "Data rozpoczęcia",
+    "Data zakończenia",
+    "Koniec zamówienia u klienta",
+    "Najnowsze zamówienie do",
+    "Stawka kandydata",
+    "Stawka klienta",
+    "Marża",
+    "Jednostka stawki",
+    "Waluta",
+    "Stawka mies. kandydata",
+    "Stawka mies. klienta",
+    "Marża mies.",
+    "Stawka ramowa (MSA)",
+    "Numer projektu/zamówienia",
+    "Nazwa projektu",
+    "PM klienta",
+    "Line manager",
+    "Tryb pracy",
+    "Status przedłużenia",
+    "Data utworzenia",
+]
+
+
+def _enum_label(value, labels: dict) -> str:
+    """Polish label for an enum value; falls back to the raw value, "" for None."""
+    if value is None:
+        return ""
+    raw = value.value if hasattr(value, "value") else str(value)
+    return labels.get(raw, raw)
+
+
+def _num_cell(value) -> object:
+    """Numeric cell: ``float`` so Excel treats it as a number (sortable/summable),
+    "" for None. ``float`` also renders cleanly in CSV. Rates are ``Decimal`` in
+    the DB (up to 3 dp) — float64 represents those exactly for display."""
+    if value is None:
+        return ""
+    return float(value)
+
+
+def _date_cell(value) -> str:
+    return value.isoformat() if value else ""
+
+
+def _contract_export_row(
+    c: Contract, latest_order_end: Optional[date], today: date
+) -> list:
+    """One export row. Rates/margin come from the effective-dated schedules
+    (today's step), matching the list + detail views — not the raw columns."""
+    eff = _effective_rate_fields(c, today)
+    return [
+        c.id,
+        f"{c.candidate.name} {c.candidate.lastname}".strip() if c.candidate else "",
+        c.client.name if c.client else "",
+        c.job.title if c.job else "",
+        _enum_label(c.contract_type, _CONTRACT_TYPE_LABELS),
+        _enum_label(c.status, _CONTRACT_STATUS_LABELS),
+        _date_cell(c.start_date),
+        _date_cell(c.end_date),
+        _date_cell(c.client_order_end_date),
+        _date_cell(latest_order_end),
+        _num_cell(eff["rate_candidate"]),
+        _num_cell(eff["rate_client"]),
+        _num_cell(eff["margin"]),
+        _enum_label(c.rate_unit, _RATE_UNIT_LABELS),
+        c.currency or "",
+        _num_cell(eff["monthly_rate_candidate"]),
+        _num_cell(eff["monthly_rate_client"]),
+        _num_cell(eff["monthly_margin"]),
+        _num_cell(eff["framework_rate"]),
+        c.project_code or "",
+        c.project_name or "",
+        c.client_pm_name or "",
+        c.line_manager or "",
+        _enum_label(c.work_mode, _WORK_MODE_LABELS),
+        _enum_label(c.prolongation_status, _PROLONGATION_LABELS),
+        _date_cell(c.created_at),
+    ]
+
+
+@router.get("/export")
+async def export_contracts(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    format: str = Query("xlsx", regex="^(csv|xlsx)$"),
+    q: Optional[str] = Query(None),
+    status: Optional[list[ContractStatus]] = Query(None),
+    client_id: Optional[int] = None,
+    candidate_id: Optional[int] = None,
+    contract_type: Optional[list[str]] = Query(None),
+    start_from: Optional[date] = Query(None),
+    start_to: Optional[date] = Query(None),
+    end_from: Optional[date] = Query(None),
+    end_to: Optional[date] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0),
+    rate_client_max: Optional[int] = Query(None, ge=0),
+    margin_min: Optional[int] = Query(None),
+    expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
+    limit: int = Query(10000, ge=1, le=50000),
+):
+    """Export contracts to CSV or Excel — client, rates, order dates and more.
+
+    Honours every filter the list endpoint accepts (so "export what I see" holds)
+    but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
+    """
+    query = select(Contract).options(
+        selectinload(Contract.candidate),
+        selectinload(Contract.client),
+        selectinload(Contract.job),
+        selectinload(Contract.candidate_rate_schedule),
+        selectinload(Contract.client_rate_schedule),
+        selectinload(Contract.framework_rate_schedule),
+    )
+    query = _apply_contract_list_filters(
+        query,
+        q=q,
+        status=status,
+        client_id=client_id,
+        candidate_id=candidate_id,
+        contract_type=contract_type,
+        start_from=start_from,
+        start_to=start_to,
+        end_from=end_from,
+        end_to=end_to,
+        rate_client_min=rate_client_min,
+        rate_client_max=rate_client_max,
+        margin_min=margin_min,
+        expiring_in_days=expiring_in_days,
+    )
+    query = query.order_by(Contract.id).limit(limit)
+    result = await db.execute(query)
+    contracts = list(result.scalars().all())
+    latest_order_dates = await _latest_order_end_dates(db, [c.id for c in contracts])
+
+    today = date.today()
+    rows = [
+        _contract_export_row(c, latest_order_dates.get(c.id), today) for c in contracts
+    ]
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    if format == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Kontrakty"
+        ws.append(_CONTRACT_EXPORT_COLUMNS)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        ws.freeze_panes = "A2"  # keep the header row visible while scrolling
+        for row in rows:
+            ws.append(row)
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f"kontrakty_{ts}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    # CSV (default charset UTF-8). Prepend a BOM so Excel on Windows renders the
+    # Polish diacritics correctly instead of mojibake.
+    import csv
+    from io import StringIO
+
+    buf = StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(_CONTRACT_EXPORT_COLUMNS)
+    for row in rows:
+        writer.writerow(row)
+    filename = f"kontrakty_{ts}.csv"
+    return StreamingResponse(
+        iter(["\ufeff" + buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
 async def create_contract(
     data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     payload = data.model_dump()
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
+    framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     contract = Contract(**payload)
     if schedule_input:
         # Schedule drives the candidate rate over time; persist each step.
@@ -424,6 +712,18 @@ async def create_contract(
             )
             for step in schedule_input
         ]
+    if framework_schedule_input:
+        # Schedule drives the framework rate over time; persist each step.
+        contract.framework_rate_schedule = [
+            ContractFrameworkRate(
+                rate=step["rate"],
+                effective_from=step["effective_from"],
+                effective_to=step.get("effective_to"),
+                note=step.get("note"),
+                created_by=current_user.id,
+            )
+            for step in framework_schedule_input
+        ]
     # "Zakończony"/"Kończący się" only hold once the end date has passed; a fresh
     # indefinite or future-dated contract stays active (see update_contract).
     contract.status = _status_after_end_date_change(
@@ -434,6 +734,9 @@ async def create_contract(
     if schedule_input:
         # Keep the cached column consistent with the schedule (current step).
         contract.rate_candidate = contract.effective_candidate_rate(date.today())
+    if framework_schedule_input:
+        # Keep the cached framework_rate consistent with the current step.
+        contract.framework_rate = contract.effective_framework_rate(date.today())
     db.add(
         Activity(
             entity_type="contract",
@@ -453,6 +756,7 @@ async def create_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     return _to_detail(result.scalar_one())
@@ -581,6 +885,7 @@ async def expiring_contracts(
         .options(
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     today = date.today()
@@ -592,6 +897,7 @@ async def expiring_contracts(
                 },
                 "candidate_rate_schedule": _schedule_entries(c),
                 "client_rate_schedule": _client_schedule_entries(c),
+                "framework_rate_schedule": _framework_schedule_entries(c),
                 **_effective_rate_fields(c, today),
             }
         )
@@ -613,6 +919,7 @@ async def get_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -716,6 +1023,7 @@ async def update_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -728,6 +1036,10 @@ async def update_contract(
     # the existing schedule untouched (partial PATCHes stay backward-compatible).
     schedule_sent = "candidate_rate_schedule" in updates
     schedule_input = updates.pop("candidate_rate_schedule", None)
+    # The framework-rate schedule ("stawka z umowy ramowej") follows the same
+    # replace-on-presence contract as the candidate schedule above.
+    framework_sent = "framework_rate_schedule" in updates
+    framework_input = updates.pop("framework_rate_schedule", None)
     for k, v in updates.items():
         setattr(contract, k, v)
     if schedule_sent:
@@ -746,6 +1058,22 @@ async def update_contract(
         # (set above by the setattr loop when present in this same PATCH).
         if contract.candidate_rate_schedule:
             contract.rate_candidate = contract.effective_candidate_rate(date.today())
+    if framework_sent:
+        contract.framework_rate_schedule = [
+            ContractFrameworkRate(
+                rate=step["rate"],
+                effective_from=step["effective_from"],
+                effective_to=step.get("effective_to"),
+                note=step.get("note"),
+                created_by=current_user.id,
+            )
+            for step in (framework_input or [])
+        ]
+        # A non-empty schedule drives the cached framework_rate; an empty schedule
+        # clears history and defers to the plain `framework_rate` field (set by the
+        # setattr loop when present in this same PATCH).
+        if contract.framework_rate_schedule:
+            contract.framework_rate = contract.effective_framework_rate(date.today())
     # Coherence guard: a PATCH that leaves the contract indefinite or with a
     # future end date makes a stored "Zakończony"/"Kończący się" stale. Reset to
     # active so editing only the end date to "bezterminowo" heals a contract
@@ -773,11 +1101,16 @@ async def update_contract(
                     if schedule_sent
                     else {}
                 ),
+                **(
+                    {"framework_rate_schedule_steps": len(framework_input or [])}
+                    if framework_sent
+                    else {}
+                ),
             },
         )
     )
     await db.flush()
-    if schedule_sent:
+    if schedule_sent or framework_sent:
         # Reload with relations so the response carries the replaced schedule
         # (+ ids/created_at) without risking an async lazy-load on the collection
         # we just reassigned. Mirrors create_contract's re-select.
@@ -790,6 +1123,7 @@ async def update_contract(
                 selectinload(Contract.job),
                 selectinload(Contract.candidate_rate_schedule),
                 selectinload(Contract.client_rate_schedule),
+                selectinload(Contract.framework_rate_schedule),
             )
         )
         return _to_detail(reloaded.scalar_one())
@@ -820,6 +1154,7 @@ async def activate_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -887,6 +1222,7 @@ async def _load_contract_with_relations(db: AsyncSession, contract_id: int) -> C
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
             selectinload(Contract.b2b_detail).selectinload(B2BContractDetail.role),
         )
     )
@@ -1913,6 +2249,7 @@ async def terminate_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()

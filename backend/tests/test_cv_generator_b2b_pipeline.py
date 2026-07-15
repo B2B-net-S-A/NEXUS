@@ -13,20 +13,29 @@ Covers the 2026-06-10 audit fixes:
 
 from __future__ import annotations
 
+import io
 import json
 
+import docx as _docx_lib
 import pytest
 
+from app.services.cv_generator_b2b.champion_builder import (
+    _split_skills,
+    from_nexus_job,
+    parse_champion_from_docx_bytes,
+)
 from app.services.cv_generator_b2b.docx_renderer import (
     add_text_with_highlights,
     compile_keyword_patterns,
     highlight_spans,
 )
+from app.services.skill_normalize import set_tech_taxonomy
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     _build_download_filename,
     _close_truncated_json,
     _drop_empty_commas,
+    _escape_stray_quotes,
     _fabrication_warnings,
     _format_candidate_answers,
     _has_candidate_answers,
@@ -116,6 +125,56 @@ def test_drop_empty_commas_keeps_comma_inside_string():
 def test_close_truncated_json_is_noop_when_balanced():
     balanced = '{"a": [1, 2], "b": {"c": "d"}}'
     assert _close_truncated_json(balanced) == balanced
+
+
+# ── Stray in-string quote repair (the "Expecting ',' delimiter" failure) ─────
+
+
+def test_loads_cv_json_unescaped_quote_in_prose():
+    # The reported production bug: Claude embeds a quoted term inside a string
+    # value without escaping it → json.loads "Expecting ',' delimiter". Now the
+    # stray quotes are escaped and the value is preserved verbatim.
+    raw = '{"why_points": ["Wdrożył system "Alpha" w firmie ACME"], "name": "Jan"}'
+    assert _loads_cv_json(raw) == {
+        "why_points": ['Wdrożył system "Alpha" w firmie ACME'],
+        "name": "Jan",
+    }
+
+
+def test_loads_cv_json_unescaped_inch_mark():
+    # An inch mark ("15\"") is the same defect with a single stray quote.
+    raw = '{"summary": "Laptop z ekranem 15" i klawiaturą", "name": "Ada"}'
+    assert _loads_cv_json(raw) == {
+        "summary": 'Laptop z ekranem 15" i klawiaturą',
+        "name": "Ada",
+    }
+
+
+def test_loads_cv_json_stray_quote_with_trailing_comma():
+    # Both defects at once: a stray in-string quote AND a trailing comma —
+    # the composed repair chain (escape + drop-comma) must handle it.
+    raw = '{"why_points": ["Ekran 15" laptopa",], "name": "Ola"}'
+    assert _loads_cv_json(raw) == {
+        "why_points": ['Ekran 15" laptopa'],
+        "name": "Ola",
+    }
+
+
+def test_escape_stray_quotes_is_noop_on_valid_json():
+    # Every in-string quote in valid JSON is already escaped, so the repair
+    # must not alter a single character (protects the strict-first fast path).
+    valid = '{"a": "b", "c": ["d", "e"], "f": {"g": "h\\"i"}, "empty": ""}'
+    assert _escape_stray_quotes(valid) == valid
+    assert json.loads(_escape_stray_quotes(valid)) == json.loads(valid)
+
+
+def test_escape_stray_quotes_keeps_array_elements_separate():
+    # A ``",`` between array elements is a real separator and must terminate
+    # each string — the repair must NOT merge adjacent bullets into one.
+    raw = '{"why_points": ["punkt jeden", "punkt dwa", "punkt trzy"]}'
+    assert _loads_cv_json(raw) == {
+        "why_points": ["punkt jeden", "punkt dwa", "punkt trzy"]
+    }
 
 
 # ── Keyword bolding ────────────────────────────────────────────────────────
@@ -633,7 +692,9 @@ def test_candidate_answers_skips_blank_responses():
     }
     text = _format_candidate_answers(answers, _QUESTIONS)
     assert "Kubernetes" not in text  # blank answer dropped along with its question
-    assert text == "P: Czy prowadziłeś migracje do chmury?\nO: Tak, dwie migracje do AWS"
+    assert (
+        text == "P: Czy prowadziłeś migracje do chmury?\nO: Tak, dwie migracje do AWS"
+    )
 
 
 def test_candidate_answers_answer_only_when_question_missing():
@@ -1149,7 +1210,9 @@ def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     # The box must RESERVE its band (top-and-bottom wrap), not float free
     # (wrapNone). wrapNone reserved no in-flow space, so a full-page body ran
     # under the pinned box and overlapped the clause — the reported bug.
-    assert "wrapTopAndBottom" in body, "RODO box must reserve its band (top-and-bottom wrap)"
+    assert "wrapTopAndBottom" in body, (
+        "RODO box must reserve its band (top-and-bottom wrap)"
+    )
     assert "wrapNone" not in body, "wrapNone lets a full-page body overlap the clause"
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
@@ -1185,7 +1248,9 @@ def test_rodo_clause_pinned_to_page_bottom_on_full_cv():
     # top-and-bottom (reserves its band), so a full-page body is pushed above it
     # rather than overlapping it (the reported "tekst nachodzi na siebie").
     assert body.count('name="RodoClause"') == 1, "RODO not in one floating box"
-    assert "wrapTopAndBottom" in body, "RODO box must reserve its band (top-and-bottom wrap)"
+    assert "wrapTopAndBottom" in body, (
+        "RODO box must reserve its band (top-and-bottom wrap)"
+    )
     assert "wrapNone" not in body, "wrapNone lets a full-page body overlap the clause"
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
@@ -1269,3 +1334,205 @@ def test_corrupt_pdf_still_tries_ocr(monkeypatch):
     monkeypatch.setattr(te, "_extract_pdf_ocr", lambda data: ocr_text)
 
     assert te.extract_text_from_file(b"%PDF-broken", "cv.pdf") == ocr_text
+
+
+# ── Faza 3/5/6: taxonomy-backed bolding + legacy JSONB + manual parser ──────
+#
+# End-to-end tests that render a REAL DOCX and inspect the actual <w:b> runs
+# (the contract the suite previously never asserted), gated on an injected
+# technology taxonomy that mirrors the production skills/skill_aliases table.
+
+
+@pytest.fixture
+def tech_taxonomy():
+    """Inject a small prod-like technology taxonomy for the duration of a test,
+    then reset it so the taxonomy-free tests (and other modules) are unaffected."""
+    tech = {
+        "react",
+        "kubernetes",
+        "postgresql",
+        "python",
+        "docker",
+        "jest",
+        "selenium",
+        "c",
+        "r",
+        "azure",
+        "java",
+        "spring boot",
+        "sql",
+        "git",
+    }
+    alias_to_canonical = {t: t for t in tech}
+    alias_to_canonical.update(
+        {
+            "reactjs": "react",
+            "react.js": "react",
+            "k8s": "kubernetes",
+            "postgres": "postgresql",
+            "microsoft azure": "azure",
+        }
+    )
+    canonical_to_aliases = {
+        "react": ["reactjs", "react.js"],
+        "kubernetes": ["k8s"],
+        "postgresql": ["postgres"],
+        "azure": ["microsoft azure"],
+    }
+    set_tech_taxonomy(
+        tech_canonicals=tech,
+        alias_to_canonical=alias_to_canonical,
+        canonical_to_aliases=canonical_to_aliases,
+    )
+    yield
+    set_tech_taxonomy(
+        tech_canonicals=set(), alias_to_canonical={}, canonical_to_aliases={}
+    )
+
+
+def _render_bold_texts(payload: dict) -> set[str]:
+    """Render the payload to a real DOCX and return the set of bold run texts."""
+    data = rerender_docx_from_payload(payload)
+    doc = _docx_lib.Document(io.BytesIO(data))
+    out: set[str] = set()
+
+    def walk(paras):
+        for p in paras:
+            for run in p.runs:
+                if run.font.bold and run.text.strip():
+                    out.add(run.text.strip())
+
+    walk(doc.paragraphs)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                walk(cell.paragraphs)
+    return out
+
+
+def _bold_payload(keywords, *, why=None, resp=None) -> dict:
+    p = _sample_payload()
+    p["highlight_keywords"] = keywords
+    p["skills"] = [{"label": "Technologie:", "content": ", ".join(keywords)}]
+    p["why_points"] = why or ["Doświadczenie w " + ", ".join(keywords) + "."]
+    p["experience"][0]["responsibilities"] = resp or [
+        "Praca z " + ", ".join(keywords) + "."
+    ]
+    p["experience"][0]["technologies"] = keywords
+    return p
+
+
+def test_e2e_false_positives_never_bold(tech_taxonomy):
+    bolds = _render_bold_texts(
+        _bold_payload(
+            ["Agile", "Scrum", "Leadership", "English", "UX"],
+            why=["Pracował w Agile i Scrum; Leadership; English C1; obszar UX."],
+        )
+    )
+    for token in ["Agile", "Scrum", "Leadership", "English", "UX"]:
+        assert token not in bolds, f"{token!r} must not bold (not a technology)"
+
+
+def test_e2e_taxonomy_alias_forms_bold(tech_taxonomy):
+    # Chips written as ReactJS/K8s/Postgres must bold the canonical forms in prose.
+    bolds = _render_bold_texts(
+        _bold_payload(
+            ["ReactJS", "K8s", "Postgres"],
+            why=["Frontend w React, klaster Kubernetes, baza PostgreSQL."],
+        )
+    )
+    for token in ["React", "Kubernetes", "PostgreSQL"]:
+        assert token in bolds, f"{token!r} should bold via alias resolution"
+
+
+def test_e2e_single_letter_and_stopword_tech_bold(tech_taxonomy):
+    bolds = _render_bold_texts(
+        _bold_payload(
+            ["C", "R", "Jest"],
+            why=["Testy w Jest; język C oraz R. Oto zdanie w którym jest czasownik."],
+        )
+    )
+    assert "Jest" in bolds and "C" in bolds and "R" in bolds
+    assert "jest" not in bolds  # the Polish verb (lowercase) must never bold
+
+
+def test_e2e_polish_inflection_bolds(tech_taxonomy):
+    bolds = _render_bold_texts(
+        _bold_payload(
+            ["Python", "Docker"],
+            why=["Programował w Pythonie i konteneryzował w Dockerze."],
+            resp=["Rozwój w Pythona, wdrożenia Dockera."],
+        )
+    )
+    assert "Pythonie" in bolds  # inflected form bolds (was a false negative)
+    assert "Dockera" in bolds
+
+
+def test_e2e_multiword_product_bolds_whole(tech_taxonomy):
+    bolds = _render_bold_texts(
+        _bold_payload(
+            ["Selenium WebDriver", "Microsoft Azure"],
+            why=["Automatyzacja Selenium WebDriver na Microsoft Azure."],
+        )
+    )
+    assert "Selenium WebDriver" in bolds  # not only "WebDriver"
+    assert "Microsoft Azure" in bolds  # not nothing / not only "AD"
+
+
+def test_from_nexus_job_handles_legacy_jsonb_shapes():
+    # dict {"technologies": [...]} → the techs, NOT the literal key "technologies"
+    assert from_nexus_job({"technologies": ["Java", "AWS"]}, None, None).must_have == [
+        "Java",
+        "AWS",
+    ]
+    # JSON-encoded string → decoded, NOT iterated character-by-character
+    assert from_nexus_job('["Python", "Go"]', None, None).must_have == ["Python", "Go"]
+    # list[dict] and list[str] mixed
+    assert from_nexus_job([{"name": "React"}, "Docker"], None, None).must_have == [
+        "React",
+        "Docker",
+    ]
+    # comma-string
+    assert from_nexus_job("Java, Spring", None, None).must_have == ["Java", "Spring"]
+
+
+def test_split_skills_respects_parentheses():
+    assert _split_skills("Java (Spring, Hibernate), Python") == [
+        "Java (Spring, Hibernate)",
+        "Python",
+    ]
+    assert _split_skills("WCAG 2.1/2.2 (AA, AAA)") == ["WCAG 2.1/2.2 (AA, AAA)"]
+    assert _split_skills("Figma (badania, feedback)") == ["Figma (badania, feedback)"]
+    # top-level comma / semicolon / newline still split
+    assert _split_skills("Java, Python; Go\nRust") == ["Java", "Python", "Go", "Rust"]
+
+
+def test_parse_champion_from_docx_keeps_parenthesized_skills():
+    d = _docx_lib.Document()
+    d.add_paragraph("2. PROFIL KANDYDATA")
+    d.add_paragraph("MUST-HAVE:")
+    d.add_paragraph("Java (Spring, Hibernate), Python")
+    d.add_paragraph("NICE-TO-HAVE:")
+    d.add_paragraph("Docker")
+    d.add_paragraph("3. KONTEKST")
+    buf = io.BytesIO()
+    d.save(buf)
+    cp = parse_champion_from_docx_bytes(buf.getvalue(), "champion.docx")
+    assert "Java (Spring, Hibernate)" in cp.must_have
+    assert "Python" in cp.must_have
+    assert "Docker" in cp.nice_to_have
+
+
+def test_classify_technologies_matches_render_bolding(tech_taxonomy):
+    # The /cv-generator/classify-technologies endpoint mirrors the renderer: a
+    # chip "will bold" iff compile_keyword_patterns yields a pattern. The UI
+    # preview must never diverge from the actual generated CV.
+    def will_bold(name: str) -> bool:
+        return bool(compile_keyword_patterns([name]))
+
+    assert will_bold("React") and will_bold("Kubernetes") and will_bold("K8s")
+    assert will_bold("C") and will_bold("Jest")
+    assert not will_bold("Agile")
+    assert not will_bold("Leadership")
+    assert not will_bold("English")
+    assert not will_bold("UX")

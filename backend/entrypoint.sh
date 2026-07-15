@@ -417,6 +417,11 @@ _ENUM_STATEMENTS = [
     # wartości w DB enum insert crashuje (InvalidTextRepresentationError),
     # ten sam failure mode co kpi_coach incident.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'saved_search_match'",
+    # Nowy typ dokumentu „Zamówienie" na kontrakcie (migracja
+    # 0160_contract_document_type_order). Bez tej wartości upload dokumentu
+    # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
+    # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
+    "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
 ]
 
 _COLUMN_STATEMENTS = [
@@ -904,6 +909,29 @@ _COLUMN_STATEMENTS = [
     "ON contract_client_rates (effective_from)",
     "CREATE INDEX IF NOT EXISTS ix_contract_client_rates_id "
     "ON contract_client_rates (id)",
+    # `contract_framework_rates` (0165) to NOWA tabela — harmonogram stawki z
+    # umowy ramowej, bliźniacza do contract_candidate_rates (ma `effective_to`).
+    # create_all zwykle ją utworzy, ale trzymamy DDL tu na wypadek multi-head
+    # driftu (patrz precedens contract_client_rates). Idempotentne.
+    """CREATE TABLE IF NOT EXISTS contract_framework_rates (
+        id              SERIAL PRIMARY KEY,
+        contract_id     INTEGER NOT NULL
+                            REFERENCES contracts(id) ON DELETE CASCADE,
+        rate            NUMERIC(12, 2) NOT NULL,
+        effective_from  DATE NOT NULL,
+        effective_to    DATE NULL,
+        note            TEXT NULL,
+        created_by      INTEGER NULL
+                            REFERENCES users(id) ON DELETE SET NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_contract_framework_rates_contract_id "
+    "ON contract_framework_rates (contract_id)",
+    "CREATE INDEX IF NOT EXISTS ix_contract_framework_rates_effective_from "
+    "ON contract_framework_rates (effective_from)",
+    "CREATE INDEX IF NOT EXISTS ix_contract_framework_rates_id "
+    "ON contract_framework_rates (id)",
     # Stawka ramowa + widełki docelowe z groszami (0157): INTEGER → NUMERIC(12,2)
     # na ISTNIEJĄCYCH kolumnach `contracts`. Gdy alembic padnie na multi-head,
     # model już mapuje Decimal — zapis 215,60 w INTEGER kończy się DataError
@@ -1037,6 +1065,56 @@ _DATA_STATEMENTS = [
           '["pm","product manager","project manager","delivery lead","delivery manager","scrum master","agile coach","product owner","po","business analyst","ba","engineering manager","tech lead","team lead","cto","director","head of"]'::jsonb,
           5, true)
        ON CONFLICT (slug) DO NOTHING""",
+    # ── Sprzątanie reliktu "[zatrudniony]" w nazwiskach (mirror migracji 0165) ──
+    # Traffit nie miał statusu zatrudnienia, więc zatrudnionych oznaczano
+    # wpisując "[zatrudniony]" w imię/nazwisko. Nexus wyprowadza zatrudnienie z
+    # sygnałów (aktywny kontrakt / konflikt current_employment / etap hired), więc
+    # marker jest zbędny (psuje wyszukiwanie po nazwisku + nagłówki CV). Prod ma
+    # chroniczny multi-head alembic (DB przed kodem), więc migracja 0165 może nie
+    # wejść — dublujemy ją tu, żeby czyszczenie NA PEWNO się wykonało. Idempotentne:
+    # po pierwszym przebiegu ILIKE nie łapie już żadnego wiersza. Kolejność ważna —
+    # PARK przed STRIP (park wykrywa grupę B po markerze, który strip usuwa).
+    #
+    # 1) Parkuj trwały tag dla oznaczonych BEZ realnego sygnału zatrudnienia
+    #    (grupa B). Mapper stripuje marker z nazwiska przy imporcie, więc bez tego
+    #    ich jedyny ślad zniknąłby po cichu; tags nie jest nadpisywany przez sync.
+    #    Guard: tylko array-owe tags + brak duplikatu.
+    r"""
+    UPDATE candidates cand
+    SET tags = COALESCE(cand.tags, '[]'::jsonb)
+               || '["Traffit: oznaczony jako zatrudniony (do weryfikacji)"]'::jsonb
+    WHERE (cand.name ILIKE '%zatrudnion%' OR cand.lastname ILIKE '%zatrudnion%')
+      AND jsonb_typeof(COALESCE(cand.tags, '[]'::jsonb)) = 'array'
+      AND NOT (COALESCE(cand.tags, '[]'::jsonb)
+               @> '["Traffit: oznaczony jako zatrudniony (do weryfikacji)"]'::jsonb)
+      AND NOT (
+          EXISTS (SELECT 1 FROM contracts c
+                  WHERE c.candidate_id = cand.id AND c.status::text = 'active')
+          OR EXISTS (SELECT 1 FROM candidate_conflicts cc
+                     WHERE cc.candidate_id = cand.id
+                       AND cc.type::text = 'current_employment' AND cc.active)
+          OR EXISTS (SELECT 1 FROM candidate_stages cs
+                     WHERE cs.candidate_id = cand.id AND cs.stage::text = 'hired'
+                       AND NOT EXISTS (
+                           SELECT 1 FROM candidate_stages later
+                           WHERE later.candidate_id = cs.candidate_id
+                             AND later.job_id = cs.job_id
+                             AND (later.moved_at, later.id) > (cs.moved_at, cs.id)))
+      )""",
+    # 2) Wyczyść marker z name/lastname wszystkich oznaczonych. Osoby z realnym
+    #    sygnałem dalej mają badge "U klienta" (przez _derive_employment). Fallback
+    #    '?' gdy pole było samym markerem (jak w mapperze). Capturing group (...) —
+    #    NIE (?:...) — spójne z migracją 0165. asyncpg nie parsuje bind-paramów,
+    #    więc dwukropek nie jest problemem, ale trzymamy jeden wzorzec.
+    r"""
+    UPDATE candidates cand
+    SET name = COALESCE(NULLIF(btrim(regexp_replace(
+                   regexp_replace(cand.name, '[[(]?\s*zatrudnion(ego|ej|ych|ymi|[yaieą])?\s*[])]?', ' ', 'gi'),
+                   '\s+', ' ', 'g'), ' -–,;'), ''), '?'),
+        lastname = COALESCE(NULLIF(btrim(regexp_replace(
+                   regexp_replace(cand.lastname, '[[(]?\s*zatrudnion(ego|ej|ych|ymi|[yaieą])?\s*[])]?', ' ', 'gi'),
+                   '\s+', ' ', 'g'), ' -–,;'), ''), '?')
+    WHERE cand.name ILIKE '%zatrudnion%' OR cand.lastname ILIKE '%zatrudnion%'""",
 ]
 
 

@@ -25,6 +25,8 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from lxml import etree
 
+from app.services.skill_normalize import is_taxonomy_technology, tech_alias_forms
+
 logger = logging.getLogger(__name__)
 
 
@@ -362,6 +364,38 @@ def _extract_keyword_terms(keyword: str) -> list[str]:
     return terms
 
 
+# Short tokens whose SHAPE trips the hard-tech heuristic (all-caps acronym or
+# an embedded digit) but which are never technologies: language-proficiency
+# levels ("English B2", "C1"), design/QA/business acronyms and role shorthands.
+# Only the heuristic is gated — the skill taxonomy stays authoritative, so if a
+# token is a real taxonomy technology it still bolds.
+_NEVER_TECH_TOKENS = frozenset(
+    {
+        "a1",
+        "a2",
+        "b1",
+        "b2",
+        "c1",
+        "c2",  # CEFR language levels
+        "b2b",
+        "b2c",
+        "ux",
+        "ui",
+        "qa",
+        "hr",
+        "pm",
+        "po",
+        "cv",
+        "kpi",
+        "roi",
+        "sla",
+        "nda",
+        "eu",
+        "usa",
+    }
+)
+
+
 def _is_strong_tech_token(token: str) -> bool:
     """True iff a single token is unmistakably a technology on its own.
 
@@ -380,6 +414,8 @@ def _is_strong_tech_token(token: str) -> bool:
     qualifies. That asymmetry is what keeps requirement prose from bolding.
     """
     if _is_filler_word(token):
+        return False
+    if token.lower() in _NEVER_TECH_TOKENS:
         return False
     if any(ch in token for ch in "+#/."):
         return True
@@ -700,74 +736,14 @@ def _norm_tech(text: str) -> str:
 
 
 def _is_tech_word(token: str) -> bool:
-    """True iff a single token is a recognised technology — a hard-tech signal
-    (:func:`_is_strong_tech_token`) or a curated allowlist hit."""
-    return _is_strong_tech_token(token) or _norm_tech(token) in _KNOWN_TECH
-
-
-_POLISH_DIACRITICS = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
-# Inflectional endings of Polish concept / soft-skill nouns a recruiter types
-# as a bare requirement ("Komunikatywność", "Projektowanie", "Negocjacje").
-_POLISH_SUFFIXES = (
-    "ość",
-    "ości",
-    "ością",
-    "ościach",
-    "anie",
-    "ania",
-    "aniu",
-    "aniem",
-    "enie",
-    "enia",
-    "eniu",
-    "eniem",
-    "owanie",
-    "owania",
-    "ywanie",
-    "ywania",
-    "cja",
-    "cji",
-    "cją",
-    "cje",
-    "cjach",
-    "sja",
-    "zja",
-    "alność",
-    "ywność",
-)
-
-
-def _looks_polish_word(token: str) -> bool:
-    """Heuristic: a Polish concept/soft-skill word, not a tech brand name.
-
-    Catches the frequent cases ("Komunikatywność", "Projektowanie",
-    "Negocjacje") via diacritics or inflectional suffixes so they are not
-    mistaken for an unlisted technology. Not exhaustive — it only needs to
-    suppress the common Polish nouns a recruiter types as a bare skill.
-    """
-    if any(ch in _POLISH_DIACRITICS for ch in token):
-        return True
-    low = token.lower()
-    return any(low.endswith(suf) for suf in _POLISH_SUFFIXES)
-
-
-def _is_tech_token_name(token: str) -> bool:
-    """Fallback for technologies absent from ``_KNOWN_TECH`` — niche tools
-    (Splunk, QRadar) the allowlist will never fully cover.
-
-    A single brand-like token qualifies when it carries an uppercase letter (a
-    proper-noun/brand signal — recruiters capitalise tool names) and is neither
-    a generic/stop word nor Polish-looking. That keeps lowercase concept
-    sub-terms ("komponenty", "tokeny") and Polish nouns ("Projektowanie",
-    "Komunikatywność") out, while letting "Splunk"/"QRadar"/"Figma" through.
-    """
-    if _is_filler_word(token) or token.lower() in _STOP_WORDS:
-        return False
-    if not any(ch.isupper() for ch in token):
-        return False
-    if _looks_polish_word(token):
-        return False
-    return sum(1 for ch in token if ch.isalpha()) >= 2
+    """True iff a single token is a recognised technology — the NEXUS skill
+    taxonomy (canonical or alias in a tech category), a hard-tech signal
+    (:func:`_is_strong_tech_token`), or the curated ``_KNOWN_TECH`` allowlist."""
+    return (
+        is_taxonomy_technology(token)
+        or _is_strong_tech_token(token)
+        or _norm_tech(token) in _KNOWN_TECH
+    )
 
 
 def _is_technology(term: str) -> bool:
@@ -779,24 +755,32 @@ def _is_technology(term: str) -> bool:
     requirement prose ("User-Centered Design", "Material Design", "Zasady
     Gestalt", "visual design", "tworzenie i rozwój design systemów").
 
-    Qualifies when the term is the curated allowlist verbatim ("Spring Boot",
-    "SQL Server", "Adobe XD"); a SINGLE brand-like token (hard-tech signal,
-    allowlist, or proper-noun fallback — "SQL", "Figma", "Splunk", "QRadar");
-    or a multi-word phrase whose EVERY word is itself a tech token ("GitLab
-    CI/CD", "C++ STL"). A phrase with any plain word ("visual design",
-    "User-Centered Design") fails here — only a hard-tech token buried inside
-    it (handled by the caller) may still bold.
+    Qualifies when the term is a NEXUS skill-taxonomy technology (canonical or
+    alias in a tech category — "Kubernetes", "K8s", "PostgreSQL"); the curated
+    ``_KNOWN_TECH`` allowlist verbatim ("Spring Boot", "SQL Server"); a SINGLE
+    token with a hard-tech signal ("SQL", "C++", "K8s"); or a multi-word phrase
+    whose EVERY word is itself a tech token ("Selenium WebDriver", "GitLab
+    CI/CD"). A phrase with any plain word ("visual design", "User-Centered
+    Design") fails here — only a hard-tech token buried inside it (handled by
+    the caller) may still bold.
+
+    The old "any capitalised non-Polish word is a product name" fallback
+    (``_is_tech_token_name``) was removed: it was the main source of false
+    positives (Agile, Leadership, English, "Analiza"). Niche brands the
+    allowlist misses are now covered by the taxonomy instead.
     """
     t = term.strip()
     if not t:
         return False
+    if is_taxonomy_technology(t):
+        return True
     if _norm_tech(t) in _KNOWN_TECH:
         return True
     tokens = [tok for tok in t.split() if tok]
     if not tokens:
         return False
     if len(tokens) == 1:
-        return _is_tech_word(t) or _is_tech_token_name(t)
+        return _is_tech_word(t)
     return all(_is_tech_word(tok) for tok in tokens)
 
 
@@ -823,62 +807,91 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
 
     def _add(term: str) -> None:
         key = term.lower()
-        if len(term) < 2 or key in _STOP_WORDS or key in seen:
+        if key in seen:
+            return
+        single_letter = len(term) == 1
+        stopword_hit = key in _STOP_WORDS
+        confirmed_tech = _is_tech_word(term)
+        # Single-letter and stopword-colliding terms bold ONLY when they are a
+        # confirmed technology, and then case-sensitively: the language "C"/"R"
+        # and the QA tool "Jest" bold, but a stray lowercase "c"/"r" and the
+        # Polish word "jest" never do. (Both were previously unbold-able — "C"
+        # via the min-length-2 guard, "Jest" via the stop-word guard.)
+        if single_letter and not (confirmed_tech and is_taxonomy_technology(term)):
+            return
+        if not single_letter and len(term) < 2:
+            return
+        if stopword_hit and not confirmed_tech:
             return
         seen.add(key)
+        display = term
+        case_sensitive = False
+        if single_letter:
+            display, case_sensitive = term.upper(), True
+        elif stopword_hit:
+            display, case_sensitive = term[:1].upper() + term[1:], True
         # Build from tokens so "auto-layout" also matches "auto layout"
         # (hyphen ↔ space spelling drift between champion list and CV).
-        parts = [p for p in re.split(r"[\s\-]+", term) if p]
+        parts = [p for p in re.split(r"[\s\-]+", display) if p]
         escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
         # "CI/CD" should also match "CI / CD" — slash with optional spaces.
         escaped = escaped.replace("/", r"\s*/\s*")
         if not escaped:
             return
+        # Tolerate Polish declension on a plain single-word tech stem so
+        # "Python"/"Docker" also bold "Pythona"/"Pythonie"/"Dockerem". Only for
+        # all-letter single words (never acronyms / versioned / multi-word,
+        # which don't inflect); the group is optional so the bare form matches.
+        if len(parts) == 1 and display.isalpha() and len(display) >= 4:
+            escaped = escaped + r"(?:a|u|em|ie|owi|ów|om|ach|ami|y)?"
         patterns.append(
             re.compile(
                 rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
-                re.IGNORECASE,
+                0 if case_sensitive else re.IGNORECASE,
             )
         )
 
+    def _add_technology(t: str) -> None:
+        # Bold the whole technology, plus its taxonomy canonical/aliases so a
+        # chip "ReactJS"/"K8s"/"Postgres"/"Microsoft Azure" also bolds
+        # "React"/"Kubernetes"/"PostgreSQL"/"Azure" (and vice-versa).
+        _add(t)
+        for form in tech_alias_forms(t):
+            _add(form)
+        # Recover a buried brand token ONLY when a multi-word compound is ONE
+        # real tech plus version junk ("Java 17+" → "Java"). A genuine
+        # multi-word product ("Apache Airflow", "Selenium WebDriver") whose
+        # words are EACH tech has ≥2 alpha-tech tokens → stays whole, so a
+        # shared vendor prefix never leaks onto OTHER products ("Apache NiFi").
+        tokens = t.split()
+        if len(tokens) > 1 and _norm_tech(t) not in _KNOWN_TECH:
+            alpha_tech = [
+                tok
+                for tok in tokens
+                if _is_tech_word(tok) and any(ch.isalpha() for ch in tok)
+            ]
+            if len(alpha_tech) == 1:
+                _add(alpha_tech[0])
+
     for kw in keywords or []:
         for term in _extract_keyword_terms(kw):
-            # Trim filler ("Znajomość Java" → "Java", "Zaawansowany visual
-            # design" → "visual design"); a fully generic entry drops out.
+            raw = term.strip()
+            # If the chip is itself a concrete technology, bold it directly.
+            # This carries single-letter languages ("C"/"R") and the tool
+            # "Jest" — which the length / stop-word / generic guards below (and
+            # _core_keyword, which strips "Jest" to "") would otherwise drop.
+            if raw and _is_technology(raw):
+                _add_technology(raw)
+                continue
+            # Otherwise trim filler ("Znajomość Java" → "Java", "Zaawansowany
+            # visual design" → "visual design"); a fully generic entry drops.
             v = _core_keyword(term).strip()
             if len(v) < 2 or v.lower() in _STOP_WORDS:
                 continue
             if _is_generic_phrase(v):
                 continue
             if _is_technology(v):
-                # A real technology bolds whole ("Figma", "Spring Boot",
-                # "GitLab CI/CD", "Apache Airflow", "C++").
-                _add(v)
-                # Recover a buried brand token ONLY when the compound is ONE
-                # real technology plus version/qualifier junk: "Java 17+" /
-                # "Java 17" → bare "Java" (the digit token carries no letter,
-                # so it drops and a single alpha tech remains). Without this a
-                # versioned champion skill matched only verbatim, so plain
-                # "Java" in the CV never bolded.
-                #
-                # A GENUINE multi-word product name whose words are EACH a
-                # technology ("Apache Airflow", "Apache Kafka", "REST API")
-                # bolds ONLY as the whole phrase — it must NOT be split into a
-                # shared vendor prefix ("Apache") that would then leak onto
-                # OTHER products the client never listed ("Apache NiFi",
-                # "Apache Spark"). Recruiter directive: bold the listed phrase,
-                # not single words torn from it. Curated multi-word techs
-                # ("Spring Boot", "SQL Server") already stay whole via the
-                # `_KNOWN_TECH` guard below.
-                tokens = v.split()
-                if len(tokens) > 1 and _norm_tech(v) not in _KNOWN_TECH:
-                    alpha_tech = [
-                        tok
-                        for tok in tokens
-                        if _is_tech_word(tok) and any(ch.isalpha() for ch in tok)
-                    ]
-                    if len(alpha_tech) == 1:
-                        _add(alpha_tech[0])
+                _add_technology(v)
             else:
                 # Not a technology in itself ("visual design", "User-Centered
                 # Design", "bazami danych SQL") — never bold the concept/prose;

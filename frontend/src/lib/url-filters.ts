@@ -11,12 +11,14 @@ import {
   parseSkillExpression,
   serializeSkillBuckets,
 } from "@/lib/skill-expression";
+import type { OpenToValue } from "@/lib/filter-options";
 
-export type SortMode = "newest" | "oldest" | "name";
+export type SortMode = "newest" | "oldest" | "name" | "relevance";
 export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
-export type CandidatesView = "list" | "tiles";
+export type CandidatesView = "list" | "tiles" | "split";
 export type RecruitmentMatch = "assigned" | "not_assigned";
+export type RecentlyChangedJobs = 1 | 2 | 3 | null;
 
 export type CandidateStatusFilter = "active" | "passive" | "blacklisted";
 export type EmploymentFilter = "at_client" | "available";
@@ -127,6 +129,12 @@ export interface CandidateFilters {
   // (default) → omit the param so the backend auto-resolves: current for a bare
   // stage chip, historical as soon as a move-filter is present.
   stageCurrentOnly: boolean;
+  // Deklarowana otwartość na dodatkowe formy współpracy. W URL
+  // canonical zapisujemy CSV, natomiast dekoder przyjmuje też powtarzane
+  // `open_to` (stare linki/API tooling).
+  openTo: OpenToValue[];
+  // Zmiana pracodawcy wykryta przez synchronizację LinkedIn: 1/2/3 miesiące.
+  recentlyChangedJobs: RecentlyChangedJobs;
   view: CandidatesView;
   savedSearchId: number | null;
   // Traffit-style advanced search buckets. Each phrase matches ILIKE
@@ -168,6 +176,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageMovedBefore: "",
   stageClientIds: [],
   stageCurrentOnly: false,
+  openTo: [],
+  recentlyChangedJobs: null,
   view: "list",
   savedSearchId: null,
   qAll: [],
@@ -261,6 +271,10 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.stageMovedBefore) p.set("stage_to", f.stageMovedBefore);
   if (f.stageClientIds.length) p.set("stage_client", CSV(f.stageClientIds));
   if (f.stageCurrentOnly) p.set("stage_current", "1");
+  if (f.openTo.length) p.set("open_to", CSV(f.openTo));
+  if (f.recentlyChangedJobs !== null) {
+    p.set("rcj", String(f.recentlyChangedJobs));
+  }
   if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
   // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
   // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
@@ -276,9 +290,12 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
 export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const sortRaw = sp.get("sort");
   const sort: SortMode =
-    sortRaw === "oldest" || sortRaw === "name" ? sortRaw : "newest";
+    sortRaw === "oldest" || sortRaw === "name" || sortRaw === "relevance"
+      ? sortRaw
+      : "newest";
   const viewRaw = sp.get("view");
-  const view: CandidatesView = viewRaw === "tiles" ? "tiles" : "list";
+  const view: CandidatesView =
+    viewRaw === "tiles" ? "tiles" : viewRaw === "split" ? "split" : "list";
   const remote = parseCsv(sp.get("remote")).filter(
     (v): v is RemoteMode => v === "remote" || v === "hybrid" || v === "onsite"
   );
@@ -301,6 +318,18 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const ssRaw = sp.get("ss");
   const ssNum = ssRaw !== null ? Number.parseInt(ssRaw, 10) : NaN;
   const savedSearchId = Number.isFinite(ssNum) && ssNum > 0 ? ssNum : null;
+  const openTo = sp
+    .getAll("open_to")
+    .flatMap((raw) => parseCsv(raw))
+    .filter(
+      (value): value is OpenToValue =>
+        value === "side_projects" ||
+        value === "sales_support" ||
+        value === "expert_consult",
+    );
+  const rcjRaw = Number.parseInt(sp.get("rcj") ?? "", 10);
+  const recentlyChangedJobs: RecentlyChangedJobs =
+    rcjRaw === 1 || rcjRaw === 2 || rcjRaw === 3 ? rcjRaw : null;
   return {
     q: sp.get("q") ?? "",
     status,
@@ -330,6 +359,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageMovedBefore: parseIsoDate(sp.get("stage_to")),
     stageClientIds: parseCsvInt(sp.get("stage_client")),
     stageCurrentOnly: sp.get("stage_current") === "1",
+    openTo,
+    recentlyChangedJobs,
     view,
     savedSearchId,
     qAll: parsePipe(sp.get("q_all")),
@@ -466,6 +497,8 @@ export function filtersToApiParams(
     // Only send when forcing current-stage matching; omitting lets the backend
     // auto-resolve (current for a bare stage, historical with a move-filter).
     stage_current_only: filters.stageCurrentOnly ? true : undefined,
+    open_to: filters.openTo.length ? filters.openTo : undefined,
+    recently_changed_jobs: filters.recentlyChangedJobs ?? undefined,
     q_all: filters.qAll.length ? filters.qAll : undefined,
     // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
     q_any_group: filters.qAny.some((g) => g.length)
@@ -474,4 +507,45 @@ export function filtersToApiParams(
     q_none: filters.qNone.length ? filters.qNone : undefined,
     ...extras,
   };
+}
+
+/**
+ * Canonical, pagination-free API filter spec used by saved searches and POST
+ * export. Presentation flags are deliberately excluded so both consumers
+ * describe the candidate set itself, not the current table workspace.
+ */
+export function filtersToApiCriteria(
+  filters: CandidateFilters,
+): Record<string, unknown> {
+  const params = filtersToApiParams(
+    { ...filters, page: 1, savedSearchId: null },
+    1,
+  );
+  const transient = new Set([
+    "page",
+    "page_size",
+    "include_match_stats",
+    "include_active_recruitments",
+    "include_last_activity",
+    "match_threshold",
+  ]);
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      ([key, value]) => !transient.has(key) && value !== undefined,
+    ),
+  );
+}
+
+/**
+ * Saved searches describe criteria, not the transient list workspace. This
+ * keeps alerts stable and prevents reopening a saved search on an old page or
+ * in a view the current user did not choose.
+ */
+export function encodeFilterCriteria(filters: CandidateFilters): URLSearchParams {
+  return encodeFilters({
+    ...filters,
+    page: 1,
+    view: "list",
+    savedSearchId: null,
+  });
 }

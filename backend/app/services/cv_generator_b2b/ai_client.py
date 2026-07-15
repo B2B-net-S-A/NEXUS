@@ -68,7 +68,11 @@ PROMPT_NAME = "cv_b2b_extraction"
 # v5 (2026-07-01): wierność obowiązków — zakaz rozdmuchiwania zakresu (klienci/
 # domeny/usługi/integracje), Profil Championa i notatki tylko jako pozycjonowanie,
 # nie źródło wymyślonych obowiązków (generator nie nagina prawdy).
-PROMPT_VERSION = 5
+# v6 (2026-07-13): Profil Championa (MUST/NICE) rozróżnia technologie od
+# metodyk/kompetencji/ról/języków — model nie nazywa już wszystkich wymagań
+# „technologiami" ani nie tworzy dla nich sztucznych kategorii technicznych
+# (boldowanie i tak filtruje przez taksonomię, ale prompt nie ma mylić modelu).
+PROMPT_VERSION = 6
 
 
 def _model() -> str:

@@ -55,6 +55,33 @@ class ContractClientRateEntry(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ContractFrameworkRateInput(BaseModel):
+    """One step in the framework-rate schedule sent from a create/edit form.
+
+    ``effective_to`` ("Obowiązuje do") is the optional planned end of the step;
+    it is advisory (see the model). Mirrors ``ContractCandidateRateInput``.
+    """
+
+    rate: float
+    effective_from: date
+    effective_to: Optional[date] = None
+    note: Optional[str] = None
+
+
+class ContractFrameworkRateEntry(BaseModel):
+    """One step in the framework-rate schedule returned to the client."""
+
+    id: int
+    rate: float
+    effective_from: date
+    effective_to: Optional[date] = None
+    note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ContractCreate(BaseModel):
     candidate_id: int
     client_id: int
@@ -75,6 +102,9 @@ class ContractCreate(BaseModel):
     # Effective-dated candidate-rate schedule (optional). When provided, drives
     # the candidate rate over time; `rate_candidate` is derived from it.
     candidate_rate_schedule: Optional[list[ContractCandidateRateInput]] = None
+    # Effective-dated framework-rate schedule (optional). When provided, drives
+    # the framework rate over time; `framework_rate` is derived from it.
+    framework_rate_schedule: Optional[list[ContractFrameworkRateInput]] = None
     contract_type: ContractType = ContractType.b2b
     status: ContractStatus = ContractStatus.draft
     documents: Optional[Any] = None
@@ -108,6 +138,11 @@ class ContractUpdate(BaseModel):
     # and re-derives `rate_candidate` from them; omit the key to leave the
     # existing schedule untouched (backward-compatible for partial PATCHes).
     candidate_rate_schedule: Optional[list[ContractCandidateRateInput]] = None
+    # Effective-dated framework-rate schedule ("stawka z umowy ramowej"). When the
+    # key is present the endpoint REPLACES the whole schedule with these steps and
+    # re-derives `framework_rate` from them; omit the key to leave the existing
+    # schedule untouched (backward-compatible for partial PATCHes).
+    framework_rate_schedule: Optional[list[ContractFrameworkRateInput]] = None
     # `float`, NIE `int` — grosze (215,60) w stawce ramowej/widełkach (jak wyżej).
     framework_rate: Optional[float] = None
     target_rate_min: Optional[float] = None
@@ -163,6 +198,9 @@ class ContractResponse(BaseModel):
     # Effective-dated client-rate schedule (oldest → newest). Empty until a
     # `rate_change` amendment first defers the client rate to a future date.
     client_rate_schedule: list[ContractClientRateEntry] = []
+    # Effective-dated framework-rate schedule (oldest → newest). Empty for
+    # contracts without a planned framework-rate change (the common case).
+    framework_rate_schedule: list[ContractFrameworkRateEntry] = []
     contract_type: ContractType
     status: ContractStatus
     documents: Optional[Any]

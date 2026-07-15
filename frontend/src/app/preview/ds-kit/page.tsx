@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { CheckCircle2, Filter, Inbox, Target, Users } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -7,14 +8,18 @@ import { Button } from "@/components/ui/button"
 import {
   DataTable,
   EmptyState,
+  EntityHeader,
   FunnelChart,
+  KeyFacts,
   Leaderboard,
   MatchCard,
   MatchList,
+  MatchScoreBadge,
   PageHeader,
   Podium,
   StatCard,
   StatCardGrid,
+  TabbedNav,
   type DataTableColumn,
 } from "@/components/ds"
 
@@ -49,6 +54,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function DsKitPreview() {
+  const [activeTab, setActiveTab] = useState("summary")
+
   return (
     <div className="min-h-screen bg-background app-shell-root">
       <div className="mx-auto max-w-[1120px] space-y-10 px-6 py-8">
@@ -59,6 +66,50 @@ export default function DsKitPreview() {
           breadcrumb={[{ label: "Preview", href: "#" }, { label: "DS Kit" }]}
           actions={<Button size="sm">Akcja</Button>}
         />
+
+        <Section title="EntityHeader + KeyFacts + MatchScoreBadge">
+          <div className="space-y-5 rounded-lg border border-border bg-card p-5">
+            <EntityHeader
+              headingLevel={2}
+              density="compact"
+              avatar={<span className="flex size-12 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">JP</span>}
+              title="Janusz Prażmowski"
+              subtitle="Senior DevOps / Cloud Engineer"
+              badges={<><Badge variant="success">Aktywny</Badge><MatchScoreBadge score={82} /></>}
+              metadata={<span>Warszawa · dostępny od sierpnia</span>}
+              actions={<Button size="sm">Przypisz</Button>}
+            />
+            <KeyFacts
+              facts={[
+                { id: "rate", label: "Stawka", value: "190–220 PLN/h" },
+                { id: "owner", label: "Opiekun", value: "Marta Nowak" },
+                { id: "contact", label: "Ostatni kontakt", value: "Dzisiaj, 09:42" },
+              ]}
+              columns={3}
+              density="compact"
+            />
+            <div className="flex flex-wrap gap-2">
+              <MatchScoreBadge score={84} showLabel />
+              <MatchScoreBadge score={68} showLabel />
+              <MatchScoreBadge score={42} showLabel />
+              <MatchScoreBadge score={null} />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="TabbedNav">
+          <TabbedNav
+            tabs={[
+              { value: "summary", label: "Podsumowanie" },
+              { value: "activity", label: "Aktywność", count: 12 },
+              { value: "documents", label: "Pliki i umowy", count: 3 },
+            ]}
+            value={activeTab}
+            onValueChange={setActiveTab}
+            ariaLabel="Przykładowe sekcje profilu"
+            overflow="scroll"
+          />
+        </Section>
 
         <Section title="StatCardGrid + StatCard">
           <StatCardGrid>

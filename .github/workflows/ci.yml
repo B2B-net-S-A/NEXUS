@@ -149,6 +149,7 @@ jobs:
                  tests/test_cv_generator_b2b_pipeline.py \
                  tests/test_cv_generator_b2b_ai_client.py \
                  tests/test_cv_generator_b2b_async.py \
+                 tests/test_job_criteria_generation.py \
                  tests/test_sentry_filtering.py \
                  tests/test_saved_search_alerts.py \
                  tests/test_champion_verification.py \
@@ -157,8 +158,10 @@ jobs:
                  tests/test_reports_recruitment_anchored.py \
                  tests/test_contract_candidate_rate_schedule.py \
                  tests/test_contract_client_rate_schedule.py \
+                 tests/test_contract_framework_rate_schedule.py \
                  tests/test_contract_amendments.py \
                  tests/test_contracts_expiring.py \
+                 tests/test_contracts_export.py \
                  tests/test_match_justification.py \
                  tests/test_cortex_fact_store.py \
                  tests/test_cortex_traffit_extract.py \

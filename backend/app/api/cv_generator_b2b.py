@@ -376,6 +376,34 @@ async def _run_generate_upload_job(
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
 
+class ClassifyTechRequest(BaseModel):
+    names: list[str] = Field(default_factory=list, max_length=200)
+
+
+class ClassifyTechResponse(BaseModel):
+    # name -> True iff the chip would produce a bold in the generated CV
+    technologies: dict[str, bool]
+
+
+@router.post("/classify-technologies", response_model=ClassifyTechResponse)
+async def classify_technologies(
+    payload: ClassifyTechRequest,
+    current_user: CurrentUser,
+) -> ClassifyTechResponse:
+    """Tell the UI which criteria chips will be bolded as technologies in the
+    generated CV — using the SAME classifier as the renderer (taxonomy + the
+    heuristic fallback), so the preview never diverges from the actual output."""
+    del current_user  # auth only
+    from app.services.cv_generator_b2b.docx_renderer import compile_keyword_patterns
+
+    result = {
+        name: bool(compile_keyword_patterns([name]))
+        for name in payload.names
+        if isinstance(name, str) and name.strip()
+    }
+    return ClassifyTechResponse(technologies=result)
+
+
 @router.get("/candidates", response_model=list[CandidateOption])
 async def search_candidates(
     current_user: CurrentUser,

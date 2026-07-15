@@ -435,7 +435,28 @@ export const matchingApi = {
     jobId: number,
     opts?: { minScore?: number; limit?: number; location?: string },
   ) =>
-    api.get(`/api/jobs/${jobId}/ai-matches`, {
+    api.get<{
+      job_id: number;
+      job_title: string;
+      required_skills: string[];
+      search_type: string;
+      min_score: number | null;
+      location_filter: string | null;
+      matches: Array<{
+        candidate: {
+          id: number;
+          name: string;
+          lastname: string;
+          email?: string | null;
+          location?: string | null;
+          competence_category?: string | null;
+        };
+        match_score: number | null;
+        matching_skills: string[];
+        gaps: string[];
+      }>;
+      meta?: RecommendationMeta;
+    }>(`/api/jobs/${jobId}/ai-matches`, {
       params: {
         min_score: opts?.minScore,
         limit: opts?.limit,
@@ -842,8 +863,6 @@ export const contractsApi = {
     }),
   deleteDocument: (contractId: number, documentId: number) =>
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
-  documentDownloadUrl: (contractId: number, documentId: number) =>
-    `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
   activate: (id: number) => api.post(`/api/contracts/${id}/activate`, {}),
@@ -1721,8 +1740,21 @@ export interface CandidateMatch {
     ai_summary?: string | null;
     avatar_url?: string | null;
   };
-  total_score: number;
-  breakdown?: ScoreBreakdown;
+  /**
+   * Null when semantic retrieval is unavailable and the backend returns an
+   * explicitly degraded lexical (BM25) ranking.  A lexical rank is not a
+   * calibrated 0-100 match score and must not be presented as one.
+   */
+  total_score: number | null;
+  breakdown?: ScoreBreakdown | null;
+}
+
+export interface RecommendationMeta {
+  mode: string;
+  degraded: boolean;
+  reason: string | null;
+  index_version?: string | null;
+  scoring_version?: string | null;
 }
 
 export interface JobMatch {
@@ -1740,8 +1772,8 @@ export interface JobMatch {
     industry: string | null;
     deadline: string | null;
   };
-  total_score: number;
-  breakdown?: ScoreBreakdown;
+  total_score: number | null;
+  breakdown?: ScoreBreakdown | null;
 }
 
 // ── Phase 3 ─────────────────────────────────────────────────────────────────
@@ -2405,9 +2437,16 @@ export const recommendationsApi = {
       search_type: string;
       location_filter?: string | null;
       matches: CandidateMatch[];
+      /** Optional for one-release compatibility with older backends. */
+      meta?: RecommendationMeta;
     }>(`/api/jobs/${jobId}/recommendations`, { params: opts }),
   forCandidate: (candidateId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
-    api.get<{ candidate_id: number; candidate_name: string; matches: JobMatch[] }>(
+    api.get<{
+      candidate_id: number;
+      candidate_name: string;
+      matches: JobMatch[];
+      meta?: RecommendationMeta;
+    }>(
       `/api/candidates/${candidateId}/recommendations`,
       { params: opts },
     ),
@@ -2424,6 +2463,11 @@ export const recommendationsApi = {
       current_must_skills: Array<{ name: string; level?: string | null }>;
       current_nice_skills: Array<{ name: string; level?: string | null }>;
     }>(`/api/jobs/${jobId}/generate-criteria-preview`),
+  classifyTechnologies: (names: string[]) =>
+    api.post<{ technologies: Record<string, boolean> }>(
+      "/api/cv-generator/classify-technologies",
+      { names },
+    ),
   recomputeScores: (jobId: number, topK = 200) =>
     api.post(`/api/jobs/${jobId}/recompute-scores`, null, { params: { top_k: topK } }),
   assignToJob: (candidateId: number, jobId: number) =>
@@ -2572,11 +2616,12 @@ export interface CvUploadPreviewResponse {
   };
   matches: Array<{
     job: JobMatch["job"];
-    total_score: number;
-    breakdown?: ScoreBreakdown;
+    total_score: number | null;
+    breakdown?: ScoreBreakdown | null;
     warning: string | null;
   }>;
-  search_type: "semantic" | "fallback";
+  search_type: "semantic" | "bm25" | "unavailable";
+  meta?: RecommendationMeta;
 }
 
 // ── Proposal snapshots (Phase 13) ───────────────────────────────────────────
@@ -3300,8 +3345,6 @@ export const microsoft365Api = {
       `/api/candidates/${candidateId}/emails/reply`,
       payload,
     ),
-  downloadAttachmentUrl: (emailId: number, attachmentId: number) =>
-    `${API_BASE}/api/emails/${emailId}/attachments/${attachmentId}/download`,
   createInvite: (payload: {
     candidate_id: number;
     title: string;
@@ -3819,8 +3862,6 @@ export const candidateStageCvApi = {
       api.get<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original`,
       ),
-    downloadUrl: (stageId: number) =>
-      `${API_BASE}/api/candidates/stages/${stageId}/cv/original/download`,
     refresh: (stageId: number) =>
       api.post<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original/refresh`,

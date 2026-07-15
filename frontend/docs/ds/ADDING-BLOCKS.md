@@ -22,6 +22,11 @@ Obie biblioteki dają zaszyte kolory; Tailwind Plus dodatkowo Tailwind v4 + wła
 | `divide-gray-200` | `divide-border` |
 | `ring-indigo-*` | `ring-ring` |
 | kolor wykresu (hex) | `hsl(var(--chart-1..5))` |
+| zielony status (`green-*`/`emerald-*`) | `bg-success-muted text-success-muted-foreground` |
+| bursztynowy status (`amber-*`) | `bg-warning-muted text-warning-muted-foreground` |
+| czerwony status (`red-*`/`rose-*`) | `bg-destructive-muted text-destructive-muted-foreground` |
+| niebieski status informacyjny (`blue-*`/`sky-*`) | `bg-info-muted text-info-muted-foreground` |
+| LinkedIn `#0A66C2` | `text-brand-linkedin` / `bg-brand-linkedin` |
 
 - `--accent` to **subtelny neutral** (hover), **NIE** brand → emfaza zawsze przez `--primary`.
 - Radius: używaj `rounded-lg/md/sm` (sterowane `--radius`) dla elementów reagujących na soft/kids.
@@ -48,6 +53,7 @@ Pobiera z publicznego rejestru shadcn (new-york) **bezpośrednio** — bez `npx 
 ```bash
 git diff --stat                                                  # tylko zamierzone NOWE pliki
 grep -nE "gray-[0-9]|indigo-[0-9]|bg-white|sidebar-background" <plik>   # ma być pusto
+npm run lint:tokens                                                # DS + nowe ekrany kandydatów
 npm run type-check && npm run build                              # zielone
 ```
 

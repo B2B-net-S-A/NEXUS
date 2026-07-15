@@ -138,14 +138,15 @@ projektu, marki ani branży docelowej, ani żadnego tekstu identyfikującego odb
 Wszystko opisuj neutralnie i samodzielnie; NIE cytuj treści z <champion_profile> dosłownie.
 Ta reguła ma pierwszeństwo przed każdym z punktów 1–7.
 
-1. MUST-HAVE TECHNOLOGIES:
-   - Upewnij się że te technologie są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii)
+1. MUST-HAVE (wymagania klienta — technologie ORAZ kompetencje/metodyki):
+   - ROZRÓŻNIJ: konkretne technologie (narzędzia, języki, frameworki, biblioteki, platformy, standardy techniczne) umieść w sekcji SKILLS; metodyki (np. Agile/Scrum), kompetencje miękkie, role i języki obce traktuj jako kontekst pozycjonujący — NIE wpisuj ich jako „technologii" ani nie twórz dla nich sztucznych kategorii technicznych
+   - Upewnij się że posiadane must-have TECHNOLOGIE są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii)
    - OBOWIĄZKOWE: Jeśli kandydat posiada technologie z listy MUST-HAVE, WSZYSTKIE posiadane must-have technologie MUSZĄ być jawnie wymienione w sekcji why_points. Dodaj dedykowany punkt np.: "Posiada kluczowe technologie wymagane na stanowisku: [lista posiadanych must-have technologii]"
    - Jeśli kandydat je ma - umieść je RÓWNIEŻ w pierwszych why_points w kontekście jego doświadczenia, ale NIGDY nie łącz ich z łączną liczbą lat stażu (patrz reguła „LICZBA LAT ZAWSZE PRZY ROLI") — staż z technologią musi odpowiadać realnemu okresowi jej używania, nie całej karierze
    - Jeśli kandydat NIE MA którejś technologii - dodaj ją do pola "warnings" w JSON
 
-2. NICE-TO-HAVE TECHNOLOGIES:
-   - Jeśli kandydat je ma - wyróżnij w SKILLS
+2. NICE-TO-HAVE (dodatkowe wymagania klienta):
+   - Jeśli kandydat ma daną TECHNOLOGIĘ - wyróżnij w SKILLS (metodyki/kompetencje traktuj jak w pkt 1)
    - Jeśli nie ma - dodaj do "warnings" jako "NICE-TO-HAVE: [nazwa]"
 
 3. OBOWIĄZKI NA STANOWISKU:
@@ -368,14 +369,15 @@ target-industry name, or any text that identifies the CV recipient. Describe eve
 neutrally and self-containedly; do NOT quote <champion_profile> text verbatim. This rule
 takes precedence over every one of points 1–7.
 
-1. MUST-HAVE TECHNOLOGIES:
-   - Ensure these technologies are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories)
+1. MUST-HAVE (client requirements — technologies AND competencies/methodologies):
+   - DISTINGUISH: concrete technologies (tools, languages, frameworks, libraries, platforms, technical standards) go into the SKILLS section; methodologies (e.g. Agile/Scrum), soft skills, roles and human languages are only positioning context — do NOT list them as "technologies" or invent artificial technical categories for them
+   - Ensure the possessed must-have TECHNOLOGIES are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories)
    - MANDATORY: If the candidate possesses technologies from the MUST-HAVE list, ALL possessed must-have technologies MUST be explicitly listed in the why_points section. Add a dedicated point e.g.: "Possesses key technologies required for the position: [list of possessed must-have technologies]"
    - If candidate has them - place them ALSO in the first why_points in the context of their experience, but NEVER attach the total tenure figure to them (see the "YEARS ALWAYS WITH THE ROLE" rule) — a year count next to a technology must reflect the real time it was used, not the whole career
    - If candidate DOES NOT HAVE a technology - add it to the "warnings" field in JSON
 
-2. NICE-TO-HAVE TECHNOLOGIES:
-   - If candidate has them - highlight in SKILLS
+2. NICE-TO-HAVE (additional client requirements):
+   - If the candidate has a given TECHNOLOGY - highlight it in SKILLS (treat methodologies/competencies as in point 1)
    - If not - add to "warnings" as "NICE-TO-HAVE: [name]"
 
 3. POSITION RESPONSIBILITIES:

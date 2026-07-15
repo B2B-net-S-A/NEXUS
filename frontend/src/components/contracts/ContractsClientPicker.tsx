@@ -15,11 +15,9 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { filterClients, type ClientRef } from "@/lib/contract-client-filter";
 
-export interface ClientRef {
-  id: number;
-  name: string;
-}
+export type { ClientRef };
 
 interface Props {
   value: ClientRef | null;
@@ -36,12 +34,10 @@ export function ContractsClientPicker({ value, onChange }: Props) {
     staleTime: 5 * 60 * 1000,
   });
 
-  const filtered = useMemo(() => {
-    const all = clientsQuery.data ?? [];
-    const q = query.trim().toLowerCase();
-    const matched = q ? all.filter((c) => c.name.toLowerCase().includes(q)) : all;
-    return matched.slice(0, 100);
-  }, [clientsQuery.data, query]);
+  const filtered = useMemo(
+    () => filterClients(clientsQuery.data ?? [], query),
+    [clientsQuery.data, query],
+  );
 
   return (
     <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">

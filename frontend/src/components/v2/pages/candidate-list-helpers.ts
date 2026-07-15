@@ -14,6 +14,8 @@ export interface CandidateExperienceLite {
 }
 
 export interface CandidateLite {
+  name?: string | null;
+  lastname?: string | null;
   position?: string | null;
   current_role?: string | null;
   linkedin_current_title?: string | null;
@@ -21,6 +23,15 @@ export interface CandidateLite {
   experience?: unknown;
   skills?: unknown;
   years_it_experience?: number | null;
+}
+
+/** Initials are the first letters of the first-name and last-name fields. */
+export function getCandidateInitials(
+  candidate: Pick<CandidateLite, "name" | "lastname">,
+): string {
+  const first = candidate.name?.trim().charAt(0) ?? "";
+  const last = candidate.lastname?.trim().charAt(0) ?? "";
+  return `${first}${last}`.toUpperCase();
 }
 
 /** Best-effort extractor for the candidate's CURRENT job title.
@@ -153,4 +164,96 @@ export function getExperienceLabel(
   if (years < 2) return { label: `${years} lat`, variant: "outline" };
   if (years < 5) return { label: `${years} lat`, variant: "soft" };
   return { label: `${years}+ lat`, variant: "success" };
+}
+
+/** Polskie etykiety etapów pipeline'u (kanoniczny słownik dla listy + panelu). */
+export const STAGE_LABELS: Record<string, string> = {
+  new: "Nowy",
+  prep_call: "Prep call",
+  screening: "Screening",
+  verified: "Zweryfikowany",
+  interview: "Interview",
+  cv_sent: "CV wysłane",
+  client_interview: "Rozmowa u klienta",
+  acceptance: "Akceptacja",
+  negotiation: "Negocjacje",
+  onboarding: "Onboarding",
+  hired: "Zatrudniony",
+  rejected: "Odrzucony",
+  withdrawn: "Wycofany",
+};
+
+/** Tłumaczy klucz etapu na polską etykietę (fallback: surowy klucz). */
+export function stageLabel(stage: string): string {
+  return STAGE_LABELS[stage] ?? stage;
+}
+
+/** Badge variants used for stage pills — a subset of the DS Badge tones.
+ *  Kept as a local union so this pure helper stays decoupled from the Badge
+ *  component's prop types. */
+export type StageBadgeVariant =
+  | "neutral"
+  | "soft"
+  | "info"
+  | "success"
+  | "warning"
+  | "danger";
+
+export interface StageTone {
+  /** DS Badge variant driving the pill's background/text/border. */
+  variant: StageBadgeVariant;
+  /** Solid Tailwind bg-* class for the leading status dot. */
+  dot: string;
+}
+
+/** Token-first colour map for the whole 13-stage pipeline.
+ *
+ *  Design intent (mockup → semantic token):
+ *    Nowy/Wycofany → neutral (grey)      · CV wysłane/Screening→ blue/amber
+ *    Rozmowa (interview) → primary (soft indigo)  · Oferta/Zatrudniony → success
+ *    Odrzucony → destructive.
+ *  Every value resolves to a semantic token, so dark-mode + theme swaps just work. */
+const STAGE_TONES: Record<string, StageTone> = {
+  new: { variant: "neutral", dot: "bg-muted-foreground/60" },
+  prep_call: { variant: "info", dot: "bg-info" },
+  screening: { variant: "warning", dot: "bg-warning" },
+  verified: { variant: "info", dot: "bg-info" },
+  interview: { variant: "soft", dot: "bg-primary" },
+  cv_sent: { variant: "info", dot: "bg-info" },
+  client_interview: { variant: "soft", dot: "bg-primary" },
+  acceptance: { variant: "success", dot: "bg-success" },
+  negotiation: { variant: "warning", dot: "bg-warning" },
+  onboarding: { variant: "success", dot: "bg-success" },
+  hired: { variant: "success", dot: "bg-success" },
+  rejected: { variant: "danger", dot: "bg-destructive" },
+  withdrawn: { variant: "neutral", dot: "bg-muted-foreground/50" },
+};
+
+const NEUTRAL_STAGE_TONE: StageTone = {
+  variant: "neutral",
+  dot: "bg-muted-foreground/60",
+};
+
+/** Resolve a stage key to its pill tone. Unknown stages fall back to neutral. */
+export function stageTone(stage: string): StageTone {
+  return STAGE_TONES[stage] ?? NEUTRAL_STAGE_TONE;
+}
+
+/** Token-based avatar tints — deterministic per seed so a candidate keeps the
+ *  same colour across the list row, the expanded detail, and the panel. */
+const AVATAR_TONES = [
+  "bg-primary/10 text-primary",
+  "bg-info-muted text-info-muted-foreground",
+  "bg-success-muted text-success-muted-foreground",
+  "bg-warning-muted text-warning-muted-foreground",
+  "bg-destructive-muted text-destructive-muted-foreground",
+];
+
+/** Pick a stable avatar tint from `seed` (candidate id or name). */
+export function avatarTone(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return AVATAR_TONES[h % AVATAR_TONES.length];
 }
