@@ -5,6 +5,11 @@
   immediately; the job runs in the background (parsing N CVs through the LLM
   takes minutes). Idempotent + resumable.
 - ``GET  /api/admin/candidates/backfill-names/status`` — live progress.
+- ``POST /api/admin/candidates/backfill-cc`` — classify candidates into the 5
+  competence categories (primary + up to 2 secondary) in bulk. Runs in the
+  background; idempotent + resumable. ``only_missing`` (default true) touches
+  only unclassified profiles.
+- ``GET  /api/admin/candidates/backfill-cc/status`` — live progress.
 
 RBAC: admin only (``AdminUser`` dependency).
 """
@@ -20,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AdminUser
 from app.core.database import AsyncSessionLocal
+from app.services.candidate_cc_assignment import backfill_candidate_ccs
 from app.services.cv_backfill import backfill_missing_names
 
 logger = logging.getLogger(__name__)
@@ -98,3 +104,84 @@ async def trigger_backfill_names(
 async def backfill_names_status(_admin: AdminUser) -> dict[str, Any]:
     """Current backfill progress (in-memory; resets on container restart)."""
     return dict(_JOB)
+
+
+# ── Competence-category backfill ────────────────────────────────────────────
+# Separate single-flight state from the name backfill so both can be inspected
+# independently. Resumable: with only_missing=True a restart just re-selects the
+# still-unclassified rows.
+_CC_JOB: dict[str, Any] = {
+    "running": False,
+    "total": 0,
+    "processed": 0,
+    "assigned": 0,
+    "skipped": 0,
+    "errors": 0,
+    "by_primary": {},
+    "only_missing": True,
+    "started_at": None,
+    "finished_at": None,
+    "limit": None,
+    "last_error": None,
+}
+
+
+async def _run_cc_backfill(limit: Optional[int], only_missing: bool) -> None:
+    _CC_JOB.update(
+        running=True,
+        total=0,
+        processed=0,
+        assigned=0,
+        skipped=0,
+        errors=0,
+        by_primary={},
+        only_missing=only_missing,
+        started_at=datetime.now(timezone.utc).isoformat(),
+        finished_at=None,
+        limit=limit,
+        last_error=None,
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            await backfill_candidate_ccs(
+                db, limit=limit, only_missing=only_missing, progress=_CC_JOB
+            )
+    except Exception as e:  # noqa: BLE001 — never crash the background task
+        _CC_JOB["last_error"] = repr(e)
+        logger.exception("[backfill-cc] job crashed")
+    finally:
+        _CC_JOB["running"] = False
+        _CC_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+
+@router.post("/backfill-cc")
+async def trigger_backfill_cc(
+    _admin: AdminUser,
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        description="Cap the number of candidates classified this run (e.g. for "
+        "a small verification batch). Omit to process all matching rows.",
+    ),
+    only_missing: bool = Query(
+        default=True,
+        description="When true (default), classify only candidates with no "
+        "primary competence category yet — the safe migration path that never "
+        "touches already-classified or manually-curated profiles. Set false to "
+        "re-classify every candidate (still skips manual assignments).",
+    ),
+) -> dict[str, Any]:
+    """Kick a competence-category backfill in the background. Admin only."""
+    if _CC_JOB["running"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A competence-category backfill is already in progress",
+        )
+    asyncio.create_task(_run_cc_backfill(limit, only_missing))
+    return {"status": "started", "limit": limit, "only_missing": only_missing}
+
+
+@router.get("/backfill-cc/status")
+async def backfill_cc_status(_admin: AdminUser) -> dict[str, Any]:
+    """Current competence-category backfill progress (in-memory)."""
+    return dict(_CC_JOB)

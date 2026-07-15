@@ -133,6 +133,7 @@ import {
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
 import { ConfirmV2 } from"@/components/v2/modals/ConfirmV2";
 import { RiskBadge } from"@/components/v2/RiskBadge";
+import { CompetenceCategoryBadge } from"@/components/v2/CompetenceCategoryBadge";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
@@ -860,6 +861,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  )}
  {riskProfile && <RiskBadge profile={riskProfile} />}
  <CandidateHighlights candidate={candidate} variant="full" />
+ <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="md" />
  {candidate.source === "linkedin" && (
  <Badge variant="plum" size="sm">
  <Linkedin className="h-3 w-3" />
@@ -2463,8 +2465,6 @@ function ProfilTab({
  if (salary) facts.push({ icon: <Wallet className="h-3 w-3" />, label: "Oczekiwania", value: salary });
  if (notice) facts.push({ icon: <Calendar className="h-3 w-3" />, label: "Wypowiedzenie", value: notice });
  if (availability) facts.push({ icon: <Calendar className="h-3 w-3" />, label: "Dostępność", value: availability });
- if (candidate.competence_category)
- facts.push({ icon: <Target className="h-3 w-3" />, label: "Kategoria", value: candidate.competence_category });
 
  return (
  <>

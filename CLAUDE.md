@@ -184,3 +184,29 @@ istniał wcześniej). PR 2026-06-23. Pełny opis: `docs/self-registration-comple
 - **Frontend:** `/register` (formularz) + `/register/verify` (auto-verify on mount) + link na `/login`; `/register` w `PUBLIC_PATHS` (`middleware.ts`).
 - **DB:** `users.email_verified` (BOOLEAN NOT NULL DEFAULT true) + tabela `email_verification_tokens` (bliźniacza do `password_reset_tokens`) — migracja `0139_email_verification` (na bazie `0138_candidate_expected_hourly_rate`; aplikowana przez `alembic upgrade heads`).
 - **Aktywacja na prod:** Coolify → `SSO_ALLOWED_DOMAINS` zawiera `b2bnetwork.pl` (już z SSO) + `SMTP_ENABLED=true` (+ SMTP creds, żeby mail aktywacyjny wyszedł) + `SELF_REGISTRATION_ENABLED=true`.
+
+## Competence Categories (5 CC — podział profili, filtr, badge wszędzie)
+
+Backbone CC istniał od `0033`/`0041` (5 kategorii zaseedowane w entrypoint `_DATA_STATEMENTS`:
+`infrastructure_operations`, `software_development`, `data_ai`, `security_quality`,
+`management_delivery`). Ten moduł go **odsłania**: filtr w głównej liście + backfill 49k +
+badge wszędzie. Decyzja: **5 głównych** (podkategorie = Faza 2), **primary + do 2 pobocznych**.
+Pełny opis: `docs/competence-categories-completion-report.md`.
+
+- **Jedno źródło zapisu:** `app/services/candidate_cc_assignment.py::apply_candidate_cc_scores`
+  pisze M2M `candidate_competence_categories` (1 primary + do 2 secondary, `confidence` +
+  `source` band: `ai_auto` ≥0.80 / `ai_suggested`) I synchronizuje legacy `competence_category`
+  (slug) + `competence_category_id` (FK). **Manual-safe:** kandydat z jakimkolwiek wpisem
+  `source='manual'` nie jest ruszany. `overwrite=False` = uzupełnij tylko gdy puste. Używają go
+  OBIE ścieżki auto (`_auto_assign_primary_cc` w `candidates.py` na wgraniu CV + `public_share.py`
+  invite-apply) oraz backfill.
+- **Filtr listy:** `GET /api/candidates?competence_category_id=<id>` (repeat = OR), match primary
+  LUB secondary (M2M) OR legacy FK. FE: `lib/url-filters.ts` (`competenceCategoryIds`, URL `cc`) +
+  sekcja „Kategoria kompetencji" w panelu `CandidatesListV2` (reuse `CompetenceCategoryMultiSelect`)
+  + chip w `ActiveFilterChips`.
+- **Badge:** `components/v2/CompetenceCategoryBadge.tsx` (token-owy, slug→`name_pl` z cache
+  `GET /api/competence-categories`) — w wierszu listy, kafelkach, quick-view, nagłówku profilu.
+- **Backfill 49k (aktywacja):** `POST /api/admin/candidates/backfill-cc` (+ `/status`), admin,
+  background, resumable, `only_missing=true` domyślnie (tylko `competence_category_id IS NULL` →
+  zero nadpisania). To ścieżka prodowa (brak SSH/DB). CLI: `python -m scripts.backfill_candidate_cc
+  --dry-run|--commit [--all]`. **Bez migracji** — schemat już jest.

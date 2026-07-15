@@ -493,8 +493,11 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
         logger.warning("[apply] CV enrichment failed candidate=%s: %s", candidate_id, e)
 
     # (2) CC classification + auto-assign. Needs its own session because the
-    # previous task committed and closed its session.
+    # previous task committed and closed its session. Routes through the shared
+    # writer (M2M primary + up to 2 secondary, synced legacy fields), same as
+    # the authenticated CV path; `overwrite=False` fills only when empty.
     try:
+        from app.services.candidate_cc_assignment import apply_candidate_cc_scores
         from app.services.cc_classifier import classify_candidate_to_cc
 
         async with AsyncSessionLocal() as db:
@@ -504,15 +507,16 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
             if candidate is None:
                 return
             scores = await classify_candidate_to_cc(candidate, db)
-            if scores and scores[0].score >= 0.30 and not candidate.competence_category:
-                candidate.competence_category = scores[0].slug
-                candidate.competence_category_id = scores[0].cc_id
+            summary = await apply_candidate_cc_scores(
+                candidate, scores, db, overwrite=False
+            )
+            if summary:
                 await db.commit()
                 logger.info(
-                    "[apply] auto-assigned CC candidate=%s slug=%s score=%.3f",
+                    "[apply] auto-assigned CC candidate=%s primary=%s score=%.3f",
                     candidate_id,
-                    scores[0].slug,
-                    scores[0].score,
+                    summary["primary"],
+                    summary["primary_score"],
                 )
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("[apply] CC classify failed candidate=%s: %s", candidate_id, e)
