@@ -150,6 +150,7 @@ async def candidate_match_scores(
             select(
                 CandidateJobMatchScore.candidate_id,
                 CandidateJobMatchScore.total_score,
+                CandidateJobMatchScore.breakdown,
             ).where(
                 CandidateJobMatchScore.job_id == body.job_id,
                 CandidateJobMatchScore.candidate_id.in_(body.candidate_ids),
@@ -158,7 +159,10 @@ async def candidate_match_scores(
             )
         )
     ).all()
-    return MatchScoresResponse(scores={str(cid): round(total) for cid, total in rows})
+    return MatchScoresResponse(
+        scores={str(cid): round(total) for cid, total, _ in rows},
+        breakdowns={str(cid): bd for cid, _, bd in rows if bd},
+    )
 
 
 async def _diagnostics_count(db: AsyncSession, clauses: list[Any]) -> int:

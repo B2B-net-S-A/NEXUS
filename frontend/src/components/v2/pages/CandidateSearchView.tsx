@@ -35,6 +35,11 @@ import {
   formatReasonCounts,
   summarizeBulkResult,
 } from "@/lib/bulk-result-summary";
+import {
+  hasBreakdownDetail,
+  summarizeBreakdown,
+  type MatchBreakdown,
+} from "@/lib/match-breakdown";
 
 const DEFAULT_REQUEST: CandidateSearchRequest = {
   q: null,
@@ -117,6 +122,9 @@ export function CandidateSearchView({
     useState<SearchDiagnosticsResponse | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [matchScores, setMatchScores] = useState<Record<string, number>>({});
+  const [matchBreakdowns, setMatchBreakdowns] = useState<
+    Record<string, MatchBreakdown>
+  >({});
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
@@ -323,6 +331,7 @@ export function CandidateSearchView({
   useEffect(() => {
     if (!addToJob || !data || data.items.length === 0) {
       setMatchScores({});
+      setMatchBreakdowns({});
       return;
     }
     let cancelled = false;
@@ -332,10 +341,16 @@ export function CandidateSearchView({
         data.items.map((c) => c.id),
       )
       .then((s) => {
-        if (!cancelled) setMatchScores(s);
+        if (!cancelled) {
+          setMatchScores(s.scores);
+          setMatchBreakdowns(s.breakdowns);
+        }
       })
       .catch(() => {
-        if (!cancelled) setMatchScores({});
+        if (!cancelled) {
+          setMatchScores({});
+          setMatchBreakdowns({});
+        }
       });
     return () => {
       cancelled = true;
@@ -590,6 +605,7 @@ export function CandidateSearchView({
             selected={selected.has(c.id)}
             onToggleSelect={() => toggleSelect(c.id)}
             score={matchScores[String(c.id)]}
+            breakdown={matchBreakdowns[String(c.id)]}
           />
         ))}
       </ul>
@@ -749,6 +765,8 @@ interface CandidateSearchRowProps {
   onToggleSelect?: () => void;
   /** Cached hybrid match score (0-100) vs. the job, if one exists. */
   score?: number;
+  /** Cached score breakdown (per-layer points + matched/gap skills). */
+  breakdown?: MatchBreakdown;
 }
 
 export function scoreBadgeClass(score: number): string {
@@ -765,7 +783,10 @@ function CandidateSearchRow({
   selected = false,
   onToggleSelect,
   score,
+  breakdown,
 }: CandidateSearchRowProps) {
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const canExpand = typeof score === "number" && hasBreakdownDetail(breakdown);
   const skillsList = Array.isArray(item.skills)
     ? (item.skills as Array<string | { name?: string }>)
     : [];
@@ -776,7 +797,8 @@ function CandidateSearchRow({
   const formattedLocation = formatCandidateLocation(item.location);
 
   return (
-    <li className="flex items-start gap-3 p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+    <li className="p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+      <div className="flex items-start gap-3">
       {selectable && (
         <input
           type="checkbox"
@@ -787,14 +809,25 @@ function CandidateSearchRow({
         />
       )}
       {typeof score === "number" && (
-        <span
-          title="Dopasowanie do requestu (hybrydowy wynik 0-100)"
+        <button
+          type="button"
+          onClick={() => canExpand && setShowBreakdown((v) => !v)}
+          aria-expanded={canExpand ? showBreakdown : undefined}
+          title={
+            canExpand
+              ? "Pokaż dopasowanie do requestu"
+              : "Dopasowanie do requestu (hybrydowy wynik 0-100)"
+          }
           className={`mt-0.5 inline-flex h-6 w-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold tabular-nums ${scoreBadgeClass(
             score,
-          )}`}
+          )} ${
+            canExpand
+              ? "cursor-pointer hover:ring-1 hover:ring-ring"
+              : "cursor-default"
+          }`}
         >
           {score}
-        </span>
+        </button>
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -854,7 +887,65 @@ function CandidateSearchRow({
           </div>
         )}
       </div>
+      </div>
+      {showBreakdown && canExpand && breakdown && (
+        <MatchScoreDetail breakdown={breakdown} />
+      )}
     </li>
+  );
+}
+
+function MatchScoreDetail({ breakdown }: { breakdown: MatchBreakdown }) {
+  const s = summarizeBreakdown(breakdown);
+  const Chips = ({ items, tone }: { items: string[]; tone: "ok" | "gap" }) => (
+    <>
+      {items.map((t) => (
+        <span
+          key={t}
+          className={`rounded px-1.5 py-0.5 text-xs ${
+            tone === "ok"
+              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+              : "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200"
+          }`}
+        >
+          {t}
+        </span>
+      ))}
+    </>
+  );
+  return (
+    <div className="ml-12 mt-2 space-y-2 rounded-lg border bg-muted/40 p-3 dark:border-zinc-800">
+      {s.layers.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+          {s.layers.map((l) => (
+            <span key={l.key} className="tabular-nums">
+              {l.label}{" "}
+              <strong>
+                {l.points}/{l.max}
+              </strong>
+            </span>
+          ))}
+        </div>
+      )}
+      {(s.matchedMust.length > 0 || s.gapMust.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            Wymagane:
+          </span>
+          <Chips items={s.matchedMust} tone="ok" />
+          <Chips items={s.gapMust} tone="gap" />
+        </div>
+      )}
+      {(s.matchedNice.length > 0 || s.gapNice.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            Mile widziane:
+          </span>
+          <Chips items={s.matchedNice} tone="ok" />
+          <Chips items={s.gapNice} tone="gap" />
+        </div>
+      )}
+    </div>
   );
 }
 
