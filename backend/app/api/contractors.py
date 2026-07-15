@@ -12,7 +12,7 @@ the join and exposes it as a dedicated listing so backoffice can:
 Role scoping:
 - admin / delivery_lead / tac / head_of_recruitment → sees everyone
 - recruiter / sourcer → sees only candidates they added (Candidate.created_by)
-- user (read-only viewer) → sees everyone, but UI should gate the widget
+- user (read-only viewer) → 403 (the roster carries candidate PII + rates)
 
 The "incomplete drafts" subcount drives the dashboard widget
 ("Drafty do uzupełnienia (N)").
@@ -20,7 +20,7 @@ The "incomplete drafts" subcount drives the dashboard widget
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -54,7 +54,6 @@ _FULL_VISIBILITY_ROLES = {
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.tac,
-    UserRole.user,  # passive viewer (QC / client)
 }
 
 
@@ -63,6 +62,30 @@ _LIST_STATUSES = (
     ContractStatus.active,
     ContractStatus.ending,
 )
+
+
+# Roles allowed to reach the contractor roster at all. Everyone else — notably
+# UserRole.user (the read-only viewer / QC / client persona) — is refused: the
+# payload carries candidate PII + rates/margins, so the FE hiding the operations
+# mode must not be the only gate. recruiter/sourcer pass here but are further
+# scoped to their own candidates (Candidate.created_by) in the query below.
+_CONTRACTOR_ALLOWED_ROLES = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.recruiter,
+    UserRole.sourcer,
+)
+
+
+def _require_contractor_access(current_user) -> None:  # type: ignore[no-untyped-def]
+    """Fail closed for passive viewer accounts while preserving multi-role."""
+    if not current_user.has_any_role(*_CONTRACTOR_ALLOWED_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Contractor data requires an operational role",
+        )
 
 
 def _to_item(contract: Contract) -> ContractorListItem:
@@ -111,6 +134,8 @@ async def list_contractors(
     `status` query param narrows to a single status; default is all three.
     Role-scoped: non-privileged roles see only candidates they added.
     """
+    _require_contractor_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -168,6 +193,8 @@ async def contractor_stats(
     fields. Computed in Python (not SQL) so it matches the validator
     exactly — one source of truth for "ready to activate".
     """
+    _require_contractor_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
     )

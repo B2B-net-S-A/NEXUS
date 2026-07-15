@@ -43,8 +43,9 @@ now use it, so tab counts match the register. Locked by pure unit tests in
   **Obsługa kontraktorów** (the roster) and **Rejestr kontraktów** (the register).
 - Operations mode is role-gated on the FE to the same roles the old "Kontraktorzy"
   nav item used (`admin, delivery_lead, tac, head_of_recruitment`), so viewers see
-  only the register. See the security note below — on current `main` the backend
-  `/api/contractors` no longer 403s viewers, so this FE gate is the only gate.
+  only the register. **Security is not the toggle** — the backend
+  `_require_contractor_access` independently 403s viewers (restored here; see the
+  security note). Locked by a unit test in `tests/test_contracts_expiring.py`.
 - `/contractors` is kept as a **redirect** to `/contracts?view=operations`,
   preserving the `?tab=` deep-link so old links/bookmarks keep working.
 - Contract detail stays at `/contracts/{id}` (completing a draft is a
@@ -89,16 +90,16 @@ it as intentional ("user (read-only viewer) → sees everyone, but UI should gat
 the widget", "QC / client").
 
 **Consequence:** on `main`, any authenticated account — including a read-only
-viewer — can `GET /api/contractors` and receive the full roster: candidate names
-+ emails (PII) and rates + margins. This contradicts the P0 hardening this work
-was scoped around (don't rely on UI hiding). This PR does **not** make it worse —
-the FE keeps operations hidden from viewers — but the API exposure exists on `main`
-regardless.
+viewer — could `GET /api/contractors` and receive the full roster: candidate names
++ emails (PII) and rates + margins. This contradicted the P0 hardening this work
+was scoped around (don't rely on UI hiding).
 
-Decision needed: keep `main`'s viewer-visible model (fine if `UserRole.user` is
-strictly trusted internal staff), or re-add a backend gate (and decide whether
-recruiter/sourcer keep their scoped view or viewers get zero access). Not changed
-here to avoid silently reverting a deliberate `main` decision.
+**Resolution (per decision):** the backend gate is restored — `UserRole.user` is
+removed from `_FULL_VISIBILITY_ROLES` and `_require_contractor_access` refuses any
+account without an operational role (`admin, head_of_recruitment, delivery_lead,
+tac, recruiter, sourcer`), returning 403. `recruiter`/`sourcer` keep their view
+scoped to their own candidates; the read-only viewer gets no access. Locked by
+`test_contract*_access_*` in `tests/test_contracts_expiring.py`.
 
 ## Known limitations / deferred
 

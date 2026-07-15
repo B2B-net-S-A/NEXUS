@@ -199,3 +199,43 @@ def test_is_ending_soon_excludes_non_live_and_edge_dates():
 def test_ending_soon_window_span():
     start, cutoff = ending_soon_window()
     assert (cutoff - start).days == ENDING_SOON_WINDOW_DAYS
+
+
+# ── Unit: contractor roster access gate (no DB) ──────────────────────────────
+#
+# The roster carries candidate PII + rates/margins. A read-only viewer
+# (UserRole.user) must be refused at the API — the unified /contracts workspace
+# hides the operations mode on the FE, but that is UX, not the security boundary.
+# Locks _require_contractor_access so a future refactor can't quietly re-open it.
+
+from fastapi import HTTPException  # noqa: E402
+
+from app.api.contractors import _require_contractor_access  # noqa: E402
+from app.models.user import UserRole  # noqa: E402
+
+
+class _FakeUser:
+    def __init__(self, *roles: UserRole):
+        self._roles = set(roles)
+
+    def has_any_role(self, *roles: UserRole) -> bool:
+        return bool(self._roles.intersection(roles))
+
+
+def test_contractor_access_denies_viewer():
+    with pytest.raises(HTTPException) as exc:
+        _require_contractor_access(_FakeUser(UserRole.user))
+    assert exc.value.status_code == 403
+
+
+def test_contractor_access_allows_operational_roles():
+    for role in (
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+    ):
+        # Must not raise — recruiter/sourcer are scoped inside the endpoint.
+        _require_contractor_access(_FakeUser(role))
