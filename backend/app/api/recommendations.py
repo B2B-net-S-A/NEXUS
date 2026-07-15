@@ -32,8 +32,15 @@ from app.services.candidate_stage_cv_service import (
 from app.core.rate_limit import limiter
 from app.models.user import User, UserRole
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
+from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
+from app.services.candidate_job_eligibility import (
+    ConflictInput,
+    EligibilityInput,
+    evaluate_eligibility,
+    extract_excluded_client_ids,
+)
 from app.models.match_score import CandidateJobMatchScore
 from app.services.embedding_service import (
     _build_job_text,
@@ -941,6 +948,44 @@ async def assign_candidate_to_job(
     )
     if existing:
         return {"status": "already_in_pipeline", "count": existing}
+
+    # Eligibility gate (SEARCH-P0-04) — same policy as bulk-add. Blocks the
+    # assignment on global blacklist or an active, non-expired client conflict
+    # (blacklist/nda/competitor) for this job's client. Soft signals
+    # (current-employment, candidate-excluded) do NOT block a single assign.
+    conflict_rows = (
+        (
+            await db.execute(
+                select(CandidateConflict).where(
+                    CandidateConflict.candidate_id == candidate_id,
+                    CandidateConflict.client_id == job.client_id,
+                    CandidateConflict.active.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    eligibility = evaluate_eligibility(
+        EligibilityInput(
+            candidate_status=candidate.status.value,
+            job_client_id=job.client_id,
+            conflicts=tuple(
+                ConflictInput(
+                    type=r.type.value,
+                    client_id=r.client_id,
+                    active=r.active,
+                    expires_at=r.expires_at,
+                )
+                for r in conflict_rows
+            ),
+            excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
+            already_in_job=False,  # already handled by the check above
+        ),
+        datetime.now(timezone.utc),
+    )
+    if not eligibility.assignment_allowed:
+        raise HTTPException(status_code=409, detail=eligibility.reason)
 
     # Resolve initial stage from the job's template
     template_id = job.pipeline_template_id
