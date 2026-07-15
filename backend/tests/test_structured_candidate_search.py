@@ -245,6 +245,31 @@ class TestHourlyRate:
         assert "expected_rate_hourly" in sql
 
 
+class TestExcludeBlacklisted:
+    """SEARCH-P0-04: job-context search hides globally-blacklisted candidates."""
+
+    def test_off_by_default_emits_no_clause(self):
+        req = CandidateSearchRequest()
+        assert build_structured_filter(req) == []
+
+    def test_on_emits_status_not_blacklisted(self):
+        req = CandidateSearchRequest(exclude_blacklisted=True)
+        clauses = build_structured_filter(req)
+        assert len(clauses) == 1
+        sql = _compile(clauses).lower()
+        assert "status" in sql
+        assert "blacklisted" in sql
+        assert "!=" in sql or "<>" in sql
+
+    def test_composes_with_status_filter(self):
+        # An explicit status filter and the blacklist exclusion coexist.
+        req = CandidateSearchRequest(
+            exclude_blacklisted=True, status=[CandidateStatus.active]
+        )
+        clauses = build_structured_filter(req)
+        assert len(clauses) == 2
+
+
 class TestSources:
     def test_sources_in_list(self):
         req = CandidateSearchRequest(sources=["linkedin", "referral"])

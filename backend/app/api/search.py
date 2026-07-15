@@ -146,6 +146,12 @@ async def advanced_candidate_search(
     if boolean_clause is not None:
         clauses.append(boolean_clause)
 
+    # Job-context search hides globally-blacklisted candidates server-side
+    # (eligibility visibility=hidden), regardless of what the client sent. The
+    # global candidate list (no job context) still shows them for management.
+    if body.exclude_in_job_id is not None:
+        body.exclude_blacklisted = True
+
     # === Layer 2: structured chips ===========================================
     clauses.extend(build_structured_filter(body))
 

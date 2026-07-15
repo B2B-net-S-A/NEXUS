@@ -25,6 +25,7 @@ from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import (
     Candidate,
+    CandidateStatus,
 )
 from app.schemas.candidate_search import (
     CandidateSearchRequest,
@@ -142,6 +143,11 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
         clauses.append(
             Candidate.country.in_([c.upper() for c in req.location_countries])
         )
+
+    if req.exclude_blacklisted:
+        # Global blacklist = eligibility visibility "hidden" (SEARCH-P0-04).
+        # Forced on for job-context search server-side; opt-in elsewhere.
+        clauses.append(Candidate.status != CandidateStatus.blacklisted)
 
     if req.status:
         clauses.append(Candidate.status.in_(req.status))
