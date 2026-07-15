@@ -1,25 +1,33 @@
 "use client";
 
-import { useEffect, useState } from"react";
-import { ContractorsListV2 } from"@/components/v2/pages/ContractorsListV2";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 /**
- * Client-only gate — same pattern as /contracts/page.tsx. Next.js 15 +
- * React 19 streaming SSR hangs hydrating useQuery-driven lists on the
- * initial skeleton; forcing the first render to wait until after
- * useEffect sidesteps the SSR boundary.
+ * The contractor roster is now the "Obsługa kontraktorów" mode inside the
+ * unified /contracts workspace. This route is kept as a redirect so old
+ * links, bookmarks and the historical `/contractors?tab=` deep-links keep
+ * working — the `tab` (draft/active/ending) is preserved and consumed by
+ * ContractorsListV2 on the target page.
+ *
+ * Reads window.location.search (not useSearchParams) to avoid the Next 15
+ * streaming-SSR Suspense boundary requirement.
  */
-export default function ContractorsPage() {
- const [mounted, setMounted] = useState(false);
- useEffect(() => {
- setMounted(true);
- }, []);
- if (!mounted) {
- return (
- <div className="p-8 text-sm text-muted-foreground">
- Ładowanie kontraktorów…
- </div>
- );
- }
- return <ContractorsListV2 />;
+export default function ContractorsRedirect() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const src = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams();
+    params.set("view", "operations");
+    const tab = src.get("tab");
+    if (tab) params.set("tab", tab);
+    router.replace(`/contracts?${params.toString()}`);
+  }, [router]);
+
+  return (
+    <div className="p-8 text-sm text-muted-foreground">
+      Przenoszenie do modułu Kontrakty…
+    </div>
+  );
 }

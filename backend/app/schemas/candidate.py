@@ -315,6 +315,9 @@ class CandidateResponse(BaseModel):
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
     source: Optional[str]
     competence_category: Optional[str] = None
+    # Primary competence-category FK (kept in sync with the M2M primary). The
+    # frontend maps this id → display name via GET /api/competence-categories.
+    competence_category_id: Optional[int] = None
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
     status: CandidateStatus

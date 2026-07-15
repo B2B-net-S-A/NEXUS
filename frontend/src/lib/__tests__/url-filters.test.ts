@@ -28,6 +28,7 @@ describe("url-filters", () => {
       employment: ["available"],
       availability: ["actively_looking", "open_to_offers"],
       pipelineStage: ["new", "screening", "verified"],
+      competenceCategoryIds: [4, 9],
       sort: "name",
       page: 3,
       remote: ["remote", "hybrid"],

@@ -36,6 +36,7 @@ import { MarkEmployedAction } from "@/components/v2/MarkEmployedAction";
 import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { RiskBadge } from "@/components/v2/RiskBadge";
+import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { useCandidateNavigation } from "@/hooks/useCandidateNavigation";
 import type { CandidateRiskProfile } from "@/types/candidate-risk";
@@ -573,6 +574,7 @@ export function CandidateQuickView({
                       </Badge>
                     ) : null}
                     {riskQuery.data ? <RiskBadge profile={riskQuery.data} /> : null}
+                    <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" />
                   </>
                 }
                 metadata={

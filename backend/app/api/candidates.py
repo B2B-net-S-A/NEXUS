@@ -162,6 +162,7 @@ class CandidateFilterSpec(BaseModel):
     stage_moved_after: Optional[date] = None
     stage_moved_before: Optional[date] = None
     stage_client_id: Optional[list[int]] = None
+    competence_category_id: Optional[list[int]] = None
     sort: Literal["newest", "oldest", "name", "relevance"] = "newest"
     id_after: Optional[int] = Field(None, ge=1)
     updated_after: Optional[datetime] = None
@@ -696,6 +697,24 @@ async def _build_candidate_filtered_query(
         )
     if f.location:
         query = query.where(Candidate.location.ilike(f"%{f.location}%"))
+    if f.competence_category_id:
+        # Match candidates carrying any of the selected competence categories —
+        # as PRIMARY or SECONDARY (the M2M), OR via the legacy single FK for
+        # profiles not yet backfilled into the M2M. The two stay in sync.
+        from app.models.competence_category import CandidateCompetenceCategory
+
+        query = query.where(
+            or_(
+                Candidate.competence_category_id.in_(f.competence_category_id),
+                Candidate.id.in_(
+                    select(CandidateCompetenceCategory.candidate_id).where(
+                        CandidateCompetenceCategory.competence_category_id.in_(
+                            f.competence_category_id
+                        )
+                    )
+                ),
+            )
+        )
 
     from app.services.advanced_candidate_search import (
         build_advanced_filter,
@@ -1358,6 +1377,15 @@ async def list_candidates(
             "the candidate's CURRENT move per job-pair instead."
         ),
     ),
+    competence_category_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by competence category — one or more CC ids, OR-combined "
+            "(repeat the param). A candidate matches when the category is their "
+            "PRIMARY or a SECONDARY assignment. Ids come from "
+            "`GET /api/competence-categories`."
+        ),
+    ),
     sort: str = Query(
         "newest",
         pattern="^(newest|oldest|name|relevance)$",
@@ -1428,6 +1456,7 @@ async def list_candidates(
         stage_moved_after=stage_moved_after,
         stage_moved_before=stage_moved_before,
         stage_client_id=stage_client_id,
+        competence_category_id=competence_category_id,
         sort=sort,
         id_after=id_after,
         updated_after=updated_after,
@@ -3488,34 +3517,32 @@ from app.services.cv_enrichment import (  # noqa: E402
 
 
 async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> None:
-    """Run CC classifier and persist the top hit as the candidate's primary CC.
+    """Run CC classifier and persist the result as the candidate's CC set.
 
-    Mirrors the pattern used in `public_share.py` — only writes when the
-    candidate has no CC yet (recruiter-curated value wins). Score ≥ 0.30 is
-    required so very weak signals don't pollute the profile. Failures are
-    logged but never surface to the caller: CC is enrichment, not required
-    for the candidate record.
+    Delegates to the shared writer (`apply_candidate_cc_scores`) which writes
+    the M2M (primary + up to 2 secondary) and syncs the legacy slug + FK.
+    `overwrite=False` preserves the historical "fill only when empty" behaviour
+    on CV re-upload — a candidate that already has a primary keeps it, and
+    manually-curated profiles are never touched. Failures are logged but never
+    surface to the caller: CC is enrichment, not required for the record.
     """
     try:
+        from app.services.candidate_cc_assignment import apply_candidate_cc_scores
         from app.services.cc_classifier import classify_candidate_to_cc
 
         scores = await classify_candidate_to_cc(candidate, db)
-        if not scores:
-            return
-        top = scores[0]
-        if top.score < 0.30:
-            return
-        if candidate.competence_category and candidate.competence_category_id:
-            # Already curated — leave it alone.
-            return
-        candidate.competence_category = top.slug
-        candidate.competence_category_id = top.cc_id
-        logger.info(
-            "[cv_cc] auto-assigned CC candidate=%s slug=%s score=%.3f",
-            candidate.id,
-            top.slug,
-            top.score,
+        summary = await apply_candidate_cc_scores(
+            candidate, scores, db, overwrite=False
         )
+        if summary:
+            logger.info(
+                "[cv_cc] auto-assigned CC candidate=%s primary=%s score=%.3f "
+                "secondary=%s",
+                candidate.id,
+                summary["primary"],
+                summary["primary_score"],
+                summary["secondary"],
+            )
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, e)
 

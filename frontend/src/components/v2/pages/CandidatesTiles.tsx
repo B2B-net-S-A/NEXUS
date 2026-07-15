@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Checkbox } from"@/components/ui/checkbox";
 import { Badge } from"@/components/ui/badge";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
+import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
 import {
  formatCandidateLocation,
  getCandidateInitials,
@@ -40,6 +41,8 @@ interface TileCandidate {
  top_score: number;
  } | null;
  talent_pools?: Array<{ id: number; name: string }>;
+ competence_category?: string | null;
+ competence_category_id?: number | null;
 }
 
 interface CandidatesTilesProps {
@@ -218,6 +221,7 @@ export function CandidatesTiles({
  </div>
  ) : null;
  })()}
+ <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="mt-1.5" />
  </div>
  {candidate.status && (
  <Badge

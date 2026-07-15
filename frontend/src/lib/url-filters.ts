@@ -76,6 +76,9 @@ export interface CandidateFilters {
   employment: EmploymentFilter[];
   availability: AvailabilityFilter[];
   pipelineStage: PipelineStageFilter[];
+  // Competence-category ids (the 5 NEXUS CCs). A candidate matches when the
+  // category is their PRIMARY or a SECONDARY assignment. Round-trips as `cc`.
+  competenceCategoryIds: number[];
   sort: SortMode;
   page: number;
   remote: RemoteMode[];
@@ -154,6 +157,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   employment: [],
   availability: [],
   pipelineStage: [],
+  competenceCategoryIds: [],
   sort: "newest",
   page: 1,
   remote: [],
@@ -247,6 +251,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.employment.length) p.set("employment", CSV(f.employment));
   if (f.availability.length) p.set("availability", CSV(f.availability));
   if (f.pipelineStage.length) p.set("stage", CSV(f.pipelineStage));
+  if (f.competenceCategoryIds.length) p.set("cc", CSV(f.competenceCategoryIds));
   if (f.sort !== "newest") p.set("sort", f.sort);
   if (f.page > 1) p.set("page", String(f.page));
   if (f.remote.length) p.set("remote", CSV(f.remote));
@@ -336,6 +341,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     employment,
     availability,
     pipelineStage,
+    competenceCategoryIds: parseCsvInt(sp.get("cc")),
     sort,
     page,
     remote,
@@ -464,6 +470,9 @@ export function filtersToApiParams(
     employment: filters.employment.length ? filters.employment : undefined,
     availability: filters.availability.length ? filters.availability : undefined,
     pipeline_stage: filters.pipelineStage.length ? filters.pipelineStage : undefined,
+    competence_category_id: filters.competenceCategoryIds.length
+      ? filters.competenceCategoryIds
+      : undefined,
     location: filters.location || undefined,
     talent_pool_id: filters.poolIds.length ? filters.poolIds : undefined,
     added_by_user_id: filters.addedByIds.length ? filters.addedByIds : undefined,
