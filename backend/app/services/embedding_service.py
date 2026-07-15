@@ -221,6 +221,7 @@ async def generate_embedding(
             logger.debug("[embedding] cache miss path error: %s", e)
 
     emb = await _voyage_embed(text, input_type=input_type)
+    from_voyage = emb is not None
     if emb is None:
         emb = await _ollama_embed(text)
         if emb is not None:
@@ -230,8 +231,11 @@ async def generate_embedding(
         logger.warning("[embedding] both Voyage and Ollama unavailable")
         return None
 
-    # Best-effort cache write (only for Voyage results — Ollama may differ).
-    if cache_eligible:
+    # Best-effort cache write — ONLY for genuine Voyage results. An Ollama
+    # fallback vector has the same 1024 dims but lives in a DIFFERENT semantic
+    # space; caching it under the Voyage model key would silently poison every
+    # later cosine comparison against Voyage-embedded documents (AI-P0-03).
+    if cache_eligible and from_voyage:
         try:
             from app.services.embedding_cache import store as _cache_store
 
@@ -672,8 +676,17 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
 
 
 async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
-    """Embed *query* and return top-k closest job ids from nexus_jobs."""
-    embedding = await generate_embedding(query)
+    """Embed *query* and return top-k closest job ids from nexus_jobs.
+
+    The *query* text (candidate profile, CV extract or free-text search) is the
+    search input against a corpus of job *documents*, so it MUST be embedded
+    with ``input_type="query"``. Voyage 3-large applies an asymmetric
+    instruction prompt for queries vs documents; embedding the query as a
+    document (the old default) degraded reverse-match retrieval quality on
+    every candidate/CV → jobs surface (recommendations, marketplace, CV
+    preview, hybrid search).
+    """
+    embedding = await generate_embedding(query, input_type="query")
     if embedding is None:
         return []
 
