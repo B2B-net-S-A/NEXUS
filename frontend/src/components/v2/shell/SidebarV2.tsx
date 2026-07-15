@@ -11,7 +11,6 @@ import {
   FileSignature,
   Star,
   Calendar,
-  UserCog,
   BarChart3,
   Brain,
   GitBranch,
@@ -108,13 +107,12 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Heart,
         roles: ["delivery_lead", "admin", "head_of_recruitment", "tac"],
       },
+      // "Kontrakty" is now a single workspace with two modes (Obsługa
+      // kontraktorów / Rejestr kontraktów). The former standalone
+      // "Kontraktorzy" item was folded in — /contractors redirects to
+      // /contracts?view=operations. Operations mode is role-gated inside
+      // the page (same roles the old nav item used).
       { href: "/contracts", label: "Kontrakty", icon: FileText },
-      {
-        href: "/contractors",
-        label: "Kontraktorzy",
-        icon: UserCog,
-        roles: ["admin", "delivery_lead", "tac", "head_of_recruitment"],
-      },
       // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
       //    na prośbę usera ("wylacz z UI na razie"). Route
       //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji

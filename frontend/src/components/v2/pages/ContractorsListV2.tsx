@@ -65,6 +65,17 @@ export function ContractorsListV2() {
  const selectTab = (next: Tab) => {
  setTab(next);
  setPage(1);
+ // Persist the active tab in the URL (preserving ?view=operations from the
+ // /contracts shell) so the operations mode is deep-linkable and survives a
+ // reload. Read once on mount via searchParams below; written via the History
+ // API to avoid a Next router navigation.
+ const params = new URLSearchParams(window.location.search);
+ params.set("tab", next);
+ window.history.replaceState(
+ null,
+ "",
+ `${window.location.pathname}?${params.toString()}`
+ );
  };
  const [draftToComplete, setDraftToComplete] =
  useState<ContractorListItem | null>(null);
