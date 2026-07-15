@@ -13,12 +13,15 @@ from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.contact import Contact
 from app.models.job import Job
+from app.models.match_score import CandidateJobMatchScore
 from app.models.recruitment_pipeline import CandidateStage
 from app.schemas.candidate_search import (
     CandidateSearchItem,
     CandidateSearchRequest,
     CandidateSearchResponse,
     CompetenceCategoryFacet,
+    MatchScoresRequest,
+    MatchScoresResponse,
     SearchDiagnosticsResponse,
     SearchFacets,
     SearchMeta,
@@ -121,6 +124,41 @@ async def _competence_facets(
         CompetenceCategoryFacet(id=row.id, name=row.name_pl, count=row.cnt)
         for row in result.all()
     ]
+
+
+@router.post("/candidates/scores", response_model=MatchScoresResponse)
+async def candidate_match_scores(
+    body: MatchScoresRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> MatchScoresResponse:
+    """Read-only cached hybrid match scores (0-100) for candidates against a
+    job (SEARCH-P1-03).
+
+    Returns only candidates that already have a fresh cached score (computed by
+    recommendations / kanban). This endpoint NEVER computes or writes a score,
+    so it cannot pollute the shared cache with semantic-less values — it just
+    surfaces the same numbers shown elsewhere on job-context search rows.
+    """
+    if not body.candidate_ids:
+        return MatchScoresResponse(scores={})
+
+    from app.services.scoring_service import DEFAULT_PROFILE  # noqa: PLC0415
+
+    rows = (
+        await db.execute(
+            select(
+                CandidateJobMatchScore.candidate_id,
+                CandidateJobMatchScore.total_score,
+            ).where(
+                CandidateJobMatchScore.job_id == body.job_id,
+                CandidateJobMatchScore.candidate_id.in_(body.candidate_ids),
+                CandidateJobMatchScore.profile_id == DEFAULT_PROFILE.id,
+                CandidateJobMatchScore.stale.is_(False),
+            )
+        )
+    ).all()
+    return MatchScoresResponse(scores={str(cid): round(total) for cid, total in rows})
 
 
 async def _diagnostics_count(db: AsyncSession, clauses: list[Any]) -> int:

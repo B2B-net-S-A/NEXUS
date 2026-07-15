@@ -116,6 +116,7 @@ export function CandidateSearchView({
   const [diagnostics, setDiagnostics] =
     useState<SearchDiagnosticsResponse | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [matchScores, setMatchScores] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
@@ -314,6 +315,33 @@ export function CandidateSearchView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  // Match scores (job context only): read-only cached hybrid scores for the
+  // visible page. Best-effort — only candidates already scored (by kanban /
+  // recommendations) get a badge; this never computes, so it can't be slow or
+  // pollute the shared cache.
+  useEffect(() => {
+    if (!addToJob || !data || data.items.length === 0) {
+      setMatchScores({});
+      return;
+    }
+    let cancelled = false;
+    candidateSearchApi
+      .matchScores(
+        addToJob.id,
+        data.items.map((c) => c.id),
+      )
+      .then((s) => {
+        if (!cancelled) setMatchScores(s);
+      })
+      .catch(() => {
+        if (!cancelled) setMatchScores({});
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, addToJob]);
 
   const ccCounts = useMemo(() => {
     const map: Record<number, number> = {};
@@ -561,6 +589,7 @@ export function CandidateSearchView({
             selectable={Boolean(addToJob)}
             selected={selected.has(c.id)}
             onToggleSelect={() => toggleSelect(c.id)}
+            score={matchScores[String(c.id)]}
           />
         ))}
       </ul>
@@ -718,6 +747,16 @@ interface CandidateSearchRowProps {
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
+  /** Cached hybrid match score (0-100) vs. the job, if one exists. */
+  score?: number;
+}
+
+export function scoreBadgeClass(score: number): string {
+  if (score >= 70)
+    return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+  if (score >= 40)
+    return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
+  return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400";
 }
 
 function CandidateSearchRow({
@@ -725,6 +764,7 @@ function CandidateSearchRow({
   selectable = false,
   selected = false,
   onToggleSelect,
+  score,
 }: CandidateSearchRowProps) {
   const skillsList = Array.isArray(item.skills)
     ? (item.skills as Array<string | { name?: string }>)
@@ -745,6 +785,16 @@ function CandidateSearchRow({
           aria-label={`Zaznacz ${item.name} ${item.lastname}`}
           className="mt-1 h-4 w-4 rounded border-input text-primary focus:ring-ring"
         />
+      )}
+      {typeof score === "number" && (
+        <span
+          title="Dopasowanie do requestu (hybrydowy wynik 0-100)"
+          className={`mt-0.5 inline-flex h-6 w-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold tabular-nums ${scoreBadgeClass(
+            score,
+          )}`}
+        >
+          {score}
+        </span>
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">

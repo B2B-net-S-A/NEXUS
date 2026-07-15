@@ -168,6 +168,23 @@ class CandidateSearchResponse(BaseModel):
     meta: SearchMeta = Field(default_factory=SearchMeta)
 
 
+class MatchScoresRequest(BaseModel):
+    """Ask for cached hybrid match scores of some candidates against a job."""
+
+    job_id: int
+    candidate_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+class MatchScoresResponse(BaseModel):
+    """``candidate_id`` (string key for JSON) → hybrid match score in [0, 100].
+
+    Only candidates with a fresh cached score are present; the rest simply have
+    no entry (the endpoint never computes, so coverage depends on prior
+    recommendation/kanban scoring)."""
+
+    scores: dict[str, int] = Field(default_factory=dict)
+
+
 class WaterfallStage(BaseModel):
     """One cumulative step of the zero-result exclusion waterfall: the count of
     candidates surviving this filter *and all filters before it*."""
