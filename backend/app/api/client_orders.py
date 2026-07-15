@@ -204,7 +204,11 @@ async def list_contractors_with_orders(
             ContractWithOrdersRead(
                 contract_id=c.id,
                 candidate_id=c.candidate_id,
-                candidate_name=c.candidate.name if c.candidate else "",
+                candidate_name=(
+                    f"{c.candidate.name} {c.candidate.lastname}".strip()
+                    if c.candidate
+                    else ""
+                ),
                 contract_status=c.status.value,
                 contract_start_date=c.start_date,
                 contract_end_date=c.end_date,
