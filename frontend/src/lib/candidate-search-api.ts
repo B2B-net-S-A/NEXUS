@@ -51,6 +51,14 @@ export interface CandidateSearchRequest {
   salary_min?: number | null;
   salary_max?: number | null;
   salary_currency?: string | null;
+  /**
+   * Hourly B2B rate (PLN/h) — filters on the candidate's `expected_rate_hourly`
+   * field, NOT the monthly `salary_*` above. Used by the job-context search
+   * (a job's rate lives in `salary_min/max` but is hourly). Missing candidate
+   * rate is treated as unknown and is NOT excluded. See SEARCH-P0-01.
+   */
+  rate_hourly_min?: number | null;
+  rate_hourly_max?: number | null;
   sources?: string[];
   tags?: string[];
   has_cv?: boolean | null;

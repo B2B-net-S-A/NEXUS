@@ -69,6 +69,13 @@ class CandidateSearchRequest(BaseModel):
     salary_min: Optional[int] = Field(default=None, ge=0)
     salary_max: Optional[int] = Field(default=None, ge=0)
     salary_currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    # Hourly B2B rate (PLN/h). Compared against ``Candidate.expected_rate_hourly``
+    # — a SEPARATE field from the monthly ``salary_*`` above. Used by the
+    # job-context manual search (a job's rate is stored in ``Job.salary_min/max``
+    # but is *hourly* per the job form). A candidate with no hourly rate is
+    # ``unknown`` and is NOT excluded. See SEARCH-P0-01.
+    rate_hourly_min: Optional[int] = Field(default=None, ge=0)
+    rate_hourly_max: Optional[int] = Field(default=None, ge=0)
     sources: list[str] = Field(default_factory=list, max_length=10)
     tags: list[str] = Field(default_factory=list, max_length=20)
     has_cv: Optional[bool] = None

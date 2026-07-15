@@ -121,6 +121,7 @@ export function CandidateSearchView({
     // never carry over paging or job-context exclusion (those are owned by
     // the current view).
     const filters = ss.filters as Partial<CandidateSearchRequest>;
+    clearSelection();
     setRequest({
       ...DEFAULT_REQUEST,
       ...(addToJob ? { exclude_in_job_id: addToJob.id } : {}),
@@ -186,9 +187,13 @@ export function CandidateSearchView({
 
   // Debounce search by 300ms — typing in the free-text input shouldn't fire
   // a roundtrip per keystroke. The page resets to 1 on any non-page edit.
+  //
+  // ``cancelled`` lives in the EFFECT scope (not inside setTimeout) so a
+  // superseded, still-in-flight request can never overwrite newer results —
+  // the previous effect's cleanup flips its own flag before the next runs.
   useEffect(() => {
+    let cancelled = false;
     const handle = setTimeout(() => {
-      let cancelled = false;
       setLoading(true);
       setError(null);
       candidateSearchApi
@@ -204,11 +209,11 @@ export function CandidateSearchView({
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
-      return () => {
-        cancelled = true;
-      };
     }, 300);
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [request]);
 
   const ccCounts = useMemo(() => {
@@ -220,11 +225,15 @@ export function CandidateSearchView({
   }, [data]);
 
   const setRequestPatch = (next: CandidateSearchRequest) => {
-    // Reset page to 1 unless caller is explicitly paging.
+    // Reset page to 1 unless caller is explicitly paging. Changing the filter
+    // set invalidates the current selection (checked rows may no longer be in
+    // the result set), so drop it — paging keeps selection (see ``setPage``).
+    clearSelection();
     setRequest({ ...next, page: 1 });
   };
 
   const setSort = (sort: SortMode) => {
+    clearSelection();
     setRequest({ ...request, sort, page: 1 });
   };
 
