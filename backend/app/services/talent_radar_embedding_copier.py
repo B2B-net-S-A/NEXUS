@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.candidate import Candidate
-from app.services.embedding_service import candidate_collection_name
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,9 @@ class CopyProgress:
 
 
 def _collection_name() -> str:
-    return candidate_collection_name()
+    return (
+        getattr(settings, "QDRANT_COLLECTION", "nexus_candidates") or "nexus_candidates"
+    )
 
 
 class TalentRadarEmbeddingCopier:
@@ -116,10 +117,10 @@ class TalentRadarEmbeddingCopier:
         self,
         points: list[tuple[int, list[float], dict]],
     ) -> None:
+        from qdrant_client import QdrantClient
         from qdrant_client.models import PointStruct
-        from app.services.qdrant_factory import get_qdrant_client
 
-        client = get_qdrant_client()
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         client.upsert(
             collection_name=_collection_name(),
             points=[
@@ -130,19 +131,6 @@ class TalentRadarEmbeddingCopier:
 
     async def run(self) -> AsyncIterator[CopyProgress]:
         progress = CopyProgress()
-        source_model = settings.TALENT_RADAR_EMBEDDING_MODEL.strip()
-        source_dimension = settings.TALENT_RADAR_EMBEDDING_DIMENSION
-        if (
-            not settings.TALENT_RADAR_EMBEDDING_COPY_ENABLED
-            or source_model != settings.VOYAGE_MODEL
-            or source_dimension != settings.EMBEDDING_DIMENSION
-        ):
-            logger.warning(
-                "Talent Radar embedding copy blocked: exact source model/dimension "
-                "provenance is not approved"
-            )
-            yield progress
-            return
         conn: Optional[asyncpg.Connection] = None
         try:
             conn = await asyncpg.connect(self.source_dsn, statement_cache_size=0)

@@ -7,43 +7,31 @@ Asystent AI dla DynaReportera. Dwa endpointy:
   odpowiedź. History trzymana po stronie frontu (localStorage), backend
   stateless.
 
-Tryb ``quick``/``deep`` wybiera użytkownik. Routing modeli jest wersjonowany
-w centralnym gatewayu i nie ma dostępu do arbitrary SQL.
+Używa modelu z CLAUDE_MODEL_CV (domyślnie Claude Sonnet 5) do generacji
+quick analytical insight'ów.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Literal, Optional
+from typing import Optional
 
+from anthropic import Anthropic
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai import AIError, AIRequest, ai_gateway
-from app.api.deps import (
-    CurrentUser,
-    DynaReporterSection,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.ai_feature import AIFeatureKey
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.dr_kpi_sales import DrKpiSales
 
 logger = logging.getLogger(__name__)
-router = APIRouter(
-    dependencies=[
-        Depends(
-            require_dynareporter_section(
-                DynaReporterSection.mindy,
-                enforce_write_mode=False,
-            )
-        )
-    ]
-)
+router = APIRouter()
 
 
 MINDY_SYSTEM_PROMPT = """Jesteś MINDY — AI asystentką w DynaReporter (system raportowania KPI
@@ -67,7 +55,6 @@ Kontekst firmy:
 
 class MindyCommentaryRequest(BaseModel):
     period: str = Field(default="month", pattern="^(week|month|quarter)$")
-    mode: Literal["quick", "deep"] = "quick"
 
 
 class MindyChatMessage(BaseModel):
@@ -77,7 +64,6 @@ class MindyChatMessage(BaseModel):
 
 class MindyChatRequest(BaseModel):
     messages: list[MindyChatMessage] = Field(min_length=1, max_length=20)
-    mode: Literal["quick", "deep"] = "quick"
 
 
 class MindyResponse(BaseModel):
@@ -156,6 +142,12 @@ async def commentary(
     db: AsyncSession = Depends(get_db),
 ) -> MindyResponse:
     """Jednorazowy insight MINDY o KPI usera."""
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ANTHROPIC_API_KEY not configured",
+        )
+
     days_map = {"week": 7, "month": 30, "quarter": 90}
     days = days_map[payload.period]
     plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
@@ -166,39 +158,30 @@ async def commentary(
     )
 
     user_prompt = (
-        f"Dla użytkownika {current_user.name}:\n\n{context}\n\n"
+        f"Dla użytkownika {current_user.name} ({current_user.email}):\n\n"
+        f"{context}\n\n"
         "Daj zwięzły (3-5 zdań) komentarz o jego performance i 1 konkretną sugestię."
     )
 
+    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
-        result = await ai_gateway.call(
-            AIRequest(
-                feature=AIFeatureKey.mindy,
-                mode=payload.mode,
-                user_id=current_user.id,
-                messages=[
-                    {"role": "system", "content": MINDY_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                prompt_version="mindy_commentary_v2",
-                schema_version="text_v1",
-                pii=True,
-            )
+        # Sync Anthropic SDK — offload off the single-worker event loop.
+        message = await run_in_threadpool(
+            client.messages.create,
+            model=settings.CLAUDE_MODEL_CV,
+            max_tokens=400,
+            system=MINDY_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        content = "".join(
+            block.text for block in message.content if hasattr(block, "text")
         )
         return MindyResponse(
-            content=str(result.content),
-            model=result.model,
-            context_summary=context,
+            content=content, model=settings.CLAUDE_MODEL_CV, context_summary=context
         )
-    except AIError as exc:
-        logger.error(
-            "MINDY commentary failed feature=mindy error_type=%s",
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=exc.status_code or status.HTTP_502_BAD_GATEWAY,
-            detail={"code": exc.code, "reason": str(exc)},
-        ) from exc
+    except Exception as e:
+        logger.exception("MINDY commentary failed")
+        raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
 
 
 @router.post("/chat", response_model=MindyResponse)
@@ -208,6 +191,12 @@ async def chat(
     db: AsyncSession = Depends(get_db),
 ) -> MindyResponse:
     """Interactive chat z MINDY. History trzymana po stronie frontendu."""
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ANTHROPIC_API_KEY not configured",
+        )
+
     # Dodaj kontekst KPI usera do system prompt
     plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
         db, current_user.id, 30
@@ -221,28 +210,20 @@ async def chat(
     # Convert messages format
     api_messages = [{"role": m.role, "content": m.content} for m in payload.messages]
 
+    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
-        result = await ai_gateway.call(
-            AIRequest(
-                feature=AIFeatureKey.mindy,
-                mode=payload.mode,
-                user_id=current_user.id,
-                messages=[
-                    {"role": "system", "content": full_system},
-                    *api_messages,
-                ],
-                prompt_version="mindy_chat_v2",
-                schema_version="text_v1",
-                pii=True,
-            )
+        # Sync Anthropic SDK — offload off the single-worker event loop.
+        message = await run_in_threadpool(
+            client.messages.create,
+            model=settings.CLAUDE_MODEL_CV,
+            max_tokens=800,
+            system=full_system,
+            messages=api_messages,
         )
-        return MindyResponse(content=str(result.content), model=result.model)
-    except AIError as exc:
-        logger.error(
-            "MINDY chat failed feature=mindy error_type=%s",
-            type(exc).__name__,
+        content = "".join(
+            block.text for block in message.content if hasattr(block, "text")
         )
-        raise HTTPException(
-            status_code=exc.status_code or status.HTTP_502_BAD_GATEWAY,
-            detail={"code": exc.code, "reason": str(exc)},
-        ) from exc
+        return MindyResponse(content=content, model=settings.CLAUDE_MODEL_CV)
+    except Exception as e:
+        logger.exception("MINDY chat failed")
+        raise HTTPException(status_code=502, detail=f"AI call failed: {e}")

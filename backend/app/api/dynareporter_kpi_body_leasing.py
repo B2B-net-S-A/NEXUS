@@ -28,13 +28,7 @@ from sqlalchemy import and_, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    AdminUser,
-    CurrentUser,
-    DynaReporterSection,
-    RecruiterPlus,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.user import User, UserRole
@@ -45,16 +39,12 @@ from app.schemas.dr_kpi_body_leasing import (
     DrKpiBodyLeasingSummary,
 )
 
-router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.body_leasing))
-    ]
-)
+router = APIRouter()
 
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:
     """403 jeśli user nie jest adminem ani properem nie operuje na swoich danych."""
-    is_admin = current_user.has_any_role(
+    is_admin = current_user.role in (
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -113,7 +103,7 @@ async def list_all_entries(
 ) -> list[DrKpiBodyLeasingResponse]:
     """Endpoint dla widoków Liga Mistrzów / Board — wszystkie wpisy."""
     # Tylko admin / DL / HoR mogą widzieć cudze
-    is_privileged = current_user.has_any_role(
+    is_privileged = current_user.role in (
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -271,7 +261,7 @@ async def get_ranking(
 )
 async def upsert_entry(
     payload: DrKpiBodyLeasingCreate,
-    current_user: AdminUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     user_id: Optional[int] = Query(
         default=None, description="Target user (admin only)"
@@ -279,8 +269,8 @@ async def upsert_entry(
 ) -> DrKpiBodyLeasingResponse:
     """UPSERT — jeśli wpis dla (user, week) istnieje, nadpisuje counters.
 
-    Legacy KPI writes are frozen for operational users. Admin may pass
-    ``?user_id=X`` while the migration remains in its compatibility window.
+    User może zapisywać tylko własne wpisy (default user_id = current_user.id).
+    Admin może przekazać `?user_id=X` żeby zapisać wpis za innego usera.
     """
     target_user_id = user_id if user_id is not None else current_user.id
     _check_admin_or_self(current_user, target_user_id)
@@ -337,10 +327,10 @@ async def upsert_entry(
 )
 async def delete_entry(
     entry_id: int,
-    current_user: AdminUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Usuwa legacy KPI entry (admin only)."""
+    """Usuwa wpis — autor wpisu lub admin (DL/HoR też mogą)."""
     row = (
         await db.execute(
             select(DrKpiBodyLeasing).where(DrKpiBodyLeasing.id == entry_id)

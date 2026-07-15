@@ -23,34 +23,6 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-from app.core.config import settings
-
-
-@pytest.fixture(autouse=True)
-def _legacy_write_regression_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exercise old write handlers without exposing a production write mode.
-
-    Production settings accept only ``read_only`` or ``off``. These historical
-    regression tests directly invoke the internal compatibility branch so the
-    frozen handlers remain safe to remove after the rollback window.
-    """
-
-    monkeypatch.setattr(settings, "DYNAREPORTER_MODE", "admin_write")
-
-
-@pytest.mark.asyncio
-async def test_retired_excel_upload_returns_410(
-    app_client: AsyncClient,
-    app_auth_headers: dict[str, str],
-) -> None:
-    """The former audit-only upload must never look like a successful import."""
-    response = await app_client.post(
-        "/api/dynareporter/upload/excel",
-        headers=app_auth_headers,
-    )
-
-    assert response.status_code == 410, response.text
-
 
 # ---------------------------------------------------------------------------
 # Scoring Config — covers PR #266, #271

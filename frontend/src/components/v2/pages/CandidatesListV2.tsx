@@ -3,12 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from"react";
 import Link from"next/link";
 import { useRouter, useSearchParams } from"next/navigation";
-import {
- keepPreviousData,
- useMutation,
- useQuery,
- useQueryClient,
-} from"@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import { useVirtualizer } from"@tanstack/react-virtual";
 import {
  Banknote,
@@ -39,6 +34,7 @@ import {
  Sparkles,
  Table2,
  Tags,
+ Target,
  Upload,
  Users,
  XCircle,
@@ -49,12 +45,6 @@ import {
  BulkCvDownloadError,
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
-import {
- buildCandidateExportRequest,
- downloadCandidateExport,
- type CandidateExportScope,
-} from "@/lib/candidate-export";
-import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
 import { AddCandidateModal } from"@/components/AppShell";
 import { ImportCandidatesV2 } from"@/components/v2/modals/ImportCandidatesV2";
@@ -66,13 +56,7 @@ import {
   downloadDocumentBlob,
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
-import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
-import {
-  fetchCandidateListPage,
-  getCandidateListIncludeFlags,
-  getCandidateListViewState,
-} from "@/components/v2/pages/candidate-list-query";
-import { useCandidateSearchDebounce } from "@/hooks/useCandidateSearchDebounce";
+import { CandidateDetailV2 } from"@/components/v2/pages/CandidateDetailV2";
 import { MatchSnippet } from"@/components/v2/MatchSnippet";
 import {
  Sheet,
@@ -86,11 +70,9 @@ import {
 import { useUiStore } from"@/store/ui";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Badge } from"@/components/ui/badge";
-import { Button } from"@/components/ui/button";
+import { Button, buttonVariants } from"@/components/ui/button";
 import { Checkbox } from"@/components/ui/checkbox";
 import { Input } from"@/components/ui/input";
-import { Skeleton } from"@/components/ui/skeleton";
-import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import {
  Popover,
  PopoverContent,
@@ -128,10 +110,9 @@ import {
  type OpenToValue,
 } from"@/lib/filter-options";
 import {
+ decodeFilters,
  decodeSkillsExpr,
- encodeFilterCriteria,
  encodeFilters,
- filtersToApiParams,
  parseRateBound,
  parseYearBound,
  type AvailabilityFilter,
@@ -140,7 +121,6 @@ import {
  type EmploymentFilter,
  type PipelineStageFilter,
  type RecruitmentMatch,
- type RecentlyChangedJobs,
 } from"@/lib/url-filters";
 import {
  countSkillConstraints,
@@ -150,7 +130,6 @@ import {
 import { CandidatesTiles } from"@/components/v2/pages/CandidatesTiles";
 import {
  formatCandidateLocation,
- getCandidateInitials,
  getCurrentCompany,
  getCurrentTitle,
  getExperienceLabel,
@@ -192,10 +171,13 @@ type SectionAccent = "primary" | "emerald" | "violet" | "sky" | "amber";
 
 const SECTION_ACCENT_CLASSES: Record<SectionAccent, string> = {
   primary: "bg-primary/10 text-primary",
-  emerald: "bg-success-muted text-success-muted-foreground",
-  violet: "bg-primary/10 text-primary",
-  sky: "bg-info-muted text-info-muted-foreground",
-  amber: "bg-warning-muted text-warning-muted-foreground",
+  emerald:
+    "bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
+  violet:
+    "bg-violet-500/12 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400",
+  sky: "bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400",
+  amber:
+    "bg-amber-500/15 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
 };
 
 // Każda sekcja to teraz osobna „karta" (border + cień) z kolorową ikoną w
@@ -258,24 +240,24 @@ type PillTone = "neutral" | "emerald" | "amber" | "rose" | "sky";
 
 const PILL_TONE_CLASSES: Record<PillTone, { on: string; off: string }> = {
   neutral: {
-    on: "bg-primary text-primary-foreground border-primary",
-    off: "bg-card text-foreground border-border hover:bg-accent",
+    on: "bg-primary text-white border-primary",
+    off: "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
   },
   emerald: {
-    on: "bg-success text-success-foreground border-success",
-    off: "bg-success-muted text-success-muted-foreground border-success/30 hover:bg-success-muted/70",
+    on: "bg-emerald-700 text-white border-emerald-700",
+    off: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/70 dark:hover:bg-emerald-900/50",
   },
   amber: {
-    on: "bg-warning text-warning-foreground border-warning",
-    off: "bg-warning-muted text-warning-muted-foreground border-warning/30 hover:bg-warning-muted/70",
+    on: "bg-amber-400 text-amber-950 border-amber-400",
+    off: "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/70 dark:hover:bg-amber-900/50",
   },
   rose: {
-    on: "bg-destructive text-destructive-foreground border-destructive",
-    off: "bg-destructive-muted text-destructive-muted-foreground border-destructive/30 hover:bg-destructive-muted/70",
+    on: "bg-rose-700 text-white border-rose-700",
+    off: "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/70 dark:hover:bg-rose-900/50",
   },
   sky: {
-    on: "bg-info text-info-foreground border-info",
-    off: "bg-info-muted text-info-muted-foreground border-info/30 hover:bg-info-muted/70",
+    on: "bg-sky-700 text-white border-sky-700",
+    off: "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-900/70 dark:hover:bg-sky-900/50",
   },
 };
 
@@ -352,8 +334,8 @@ function PresetChip({
       className={cn(
         "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors",
         active
-          ? "bg-primary text-primary-foreground border-primary shadow-sm"
-          : "bg-card text-foreground border-border hover:bg-accent",
+          ? "bg-primary text-white border-primary shadow-sm"
+          : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
       )}
     >
       {icon}
@@ -369,10 +351,10 @@ const REMOTE_FILTER_OPTIONS = [
 ] as const;
 
 const RECENTLY_CHANGED_OPTIONS = [
-  { value: null, label: "Wszyscy" },
-  { value: 1, label: "1 mies." },
-  { value: 2, label: "2 mies." },
-  { value: 3, label: "3 mies." },
+  { value: "", label: "Wszyscy" },
+  { value: "1", label: "1 mies." },
+  { value: "2", label: "2 mies." },
+  { value: "3", label: "3 mies." },
 ] as const;
 
 
@@ -380,14 +362,14 @@ const RECENTLY_CHANGED_OPTIONS = [
 // Daje "kolorową" listę bez randomizacji (ten sam kandydat = ten sam kolor
 // między reloadami). Każdy wariant: jasne tło + ciemny tekst + ciemny ring.
 const AVATAR_COLOR_CLASSES = [
- "bg-primary/10 text-primary ring-1 ring-primary/20",
- "bg-info-muted text-info-muted-foreground ring-1 ring-info/20",
- "bg-success-muted text-success-muted-foreground ring-1 ring-success/20",
- "bg-warning-muted text-warning-muted-foreground ring-1 ring-warning/20",
- "bg-destructive-muted text-destructive-muted-foreground ring-1 ring-destructive/20",
- "bg-accent text-accent-foreground ring-1 ring-border",
- "bg-secondary text-secondary-foreground ring-1 ring-border",
- "bg-muted text-muted-foreground ring-1 ring-border",
+ "bg-violet-100 text-violet-700 ring-1 ring-violet-200 dark:bg-violet-900/40 dark:text-violet-200 dark:ring-violet-800",
+ "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-900/40 dark:text-sky-200 dark:ring-sky-800",
+ "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:ring-emerald-800",
+ "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-800",
+ "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-900/40 dark:text-rose-200 dark:ring-rose-800",
+ "bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-900/40 dark:text-cyan-200 dark:ring-cyan-800",
+ "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-200 dark:ring-indigo-800",
+ "bg-pink-100 text-pink-700 ring-1 ring-pink-200 dark:bg-pink-900/40 dark:text-pink-200 dark:ring-pink-800",
 ];
 
 function avatarColorClass(id: number): string {
@@ -463,13 +445,6 @@ interface Candidate {
  last_rate?: string | null;
 }
 
-interface CandidateListResponse {
- items: Candidate[];
- total: number;
- page: number;
- page_size: number;
-}
-
 /** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
 const STAGE_LABELS: Record<string, string> = {
  new: "Nowy",
@@ -504,9 +479,9 @@ function isTerminalStage(stage: string): boolean {
 function stageBadgeClass(stage: string): string {
  switch (stage) {
  case "hired":
- return "border-transparent bg-success-muted text-success-muted-foreground";
+ return "border-transparent bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200";
  case "rejected":
- return "border-transparent bg-destructive-muted text-destructive-muted-foreground";
+ return "border-transparent bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200";
  case "withdrawn":
  return "border-transparent bg-muted text-muted-foreground";
  default:
@@ -542,32 +517,36 @@ const SAVE_ROLE_OPTIONS: Array<{ value: UserRole |"_global"; label: string }> = 
  { value: "user", label: `Dla: ${ROLE_LABELS.user}` },
 ];
 
+function matchBadgeVariant(
+ topScore: number
+): "success" |"soft" |"neutral" |"outline" {
+ if (topScore >= 75) return"success";
+ if (topScore >= 50) return"soft";
+ return"neutral";
+}
+
 // All columns that can be shown/hidden via the"Kolumny" popover.
 // Order in this array = visual order in the table.
 const ALL_COLUMNS = [
- { id: "candidate", label: "Kandydat", required: true, width: "minmax(260px, 1.35fr)", minWidth: 260 },
- { id: "contact", label: "Kontakt i CV", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "status_availability", label: "Status i dostępność", required: false, width: "minmax(180px, 0.9fr)", minWidth: 180 },
- { id: "process", label: "Proces", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "rate", label: "Stawka", required: false, width: "minmax(120px, 0.6fr)", minWidth: 120 },
- { id: "activity", label: "Ostatnia aktywność", required: false, width: "minmax(240px, 1.2fr)", minWidth: 240 },
- { id: "phone", label: "Telefon", required: false, width: "minmax(150px, 0.8fr)", minWidth: 150 },
- { id: "email", label: "Email", required: false, width: "minmax(210px, 1fr)", minWidth: 210 },
- { id: "cv", label: "CV", required: false, width: "minmax(90px, 0.4fr)", minWidth: 90 },
- { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(200px, 1fr)", minWidth: 200 },
- { id: "stage_moved", label: "Przeniósł na etap", required: false, width: "minmax(190px, 0.9fr)", minWidth: 190 },
- { id: "title", label: "Stanowisko", required: false, width: "minmax(180px, 0.9fr)", minWidth: 180 },
- { id: "company", label: "Firma", required: false, width: "minmax(170px, 0.8fr)", minWidth: 170 },
- { id: "location", label: "Lokalizacja", required: false, width: "minmax(140px, 0.7fr)", minWidth: 140 },
- { id: "experience", label: "Doświadczenie", required: false, width: "minmax(130px, 0.6fr)", minWidth: 130 },
- { id: "skills", label: "Skills", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "last_note", label: "Ostatnia notatka", required: false, width: "minmax(240px, 1.2fr)", minWidth: 240 },
- { id: "rejection_reason", label: "Powód odrzucenia", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "position", label: "Pozycja", required: false, width: "minmax(180px, 0.9fr)", minWidth: 180 },
- { id: "status", label: "Status", required: false, width: "minmax(150px, 0.7fr)", minWidth: 150 },
- { id: "match", label: "Dopasowanie", required: false, width: "minmax(150px, 0.7fr)", minWidth: 150 },
- { id: "created", label: "Dodano", required: false, width: "minmax(130px, 0.6fr)", minWidth: 130 },
- { id: "added_by", label: "Dodał", required: false, width: "minmax(140px, 0.7fr)", minWidth: 140 },
+ { id: "candidate", label: "Kandydat", required: true, width: "minmax(0, 1.6fr)" },
+ { id: "phone", label: "Telefon", required: false, width: "minmax(0, 0.9fr)" },
+ { id: "email", label: "Email", required: false, width: "minmax(0, 1.2fr)" },
+ { id: "cv", label: "CV", required: false, width: "minmax(0, 0.5fr)" },
+ { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(0, 0.8fr)" },
+ { id: "stage_moved", label: "Przeniósł na etap", required: false, width: "minmax(0, 1fr)" },
+ { id: "title", label: "Stanowisko", required: false, width: "minmax(0, 1.1fr)" },
+ { id: "company", label: "Firma", required: false, width: "minmax(0, 1fr)" },
+ { id: "location", label: "Lokalizacja", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "experience", label: "Doświadczenie", required: false, width: "minmax(0, 0.6fr)" },
+ { id: "skills", label: "Skills", required: false, width: "minmax(0, 1.3fr)" },
+ { id: "rate", label: "Stawka", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "last_note", label: "Ostatnia notatka", required: false, width: "minmax(0, 1.4fr)" },
+ { id: "rejection_reason", label: "Powód odrzucenia", required: false, width: "minmax(0, 1.2fr)" },
+ { id: "position", label: "Pozycja", required: false, width: "minmax(0, 1fr)" },
+ { id: "status", label: "Status", required: false, width: "minmax(0, 0.8fr)" },
+ { id: "match", label: "Match", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "created", label: "Dodano", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "added_by", label: "Dodał", required: false, width: "minmax(0, 0.6fr)" },
 ] as const;
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
@@ -580,34 +559,15 @@ type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 // firmę z CV wciska Kolumny → Stanowisko / Firma).
 const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "candidate",
- "contact",
- "status_availability",
- "process",
+ "phone",
+ "email",
+ "cv",
+ "recruitments",
+ "stage_moved",
  "rate",
- "activity",
-];
-
-const COLUMN_PRESETS: ReadonlyArray<{
- id: "recruiter" | "sourcing" | "process" | "administration";
- label: string;
- columns: readonly ColumnId[];
-}> = [
- { id: "recruiter", label: "Rekruter", columns: HARD_DEFAULT_COLUMNS },
- {
- id: "sourcing",
- label: "Sourcing",
- columns: ["candidate", "contact", "status_availability", "rate", "activity", "match"],
- },
- {
- id: "process",
- label: "Proces",
- columns: ["candidate", "status_availability", "process", "activity", "added_by"],
- },
- {
- id: "administration",
- label: "Administracja",
- columns: ["candidate", "contact", "created", "added_by", "rejection_reason"],
- },
+ "last_note",
+ "rejection_reason",
+ "created",
 ];
 
 /** Otwiera CV w podglądzie in-app (modal): PDF → natywny viewer w <iframe>,
@@ -663,7 +623,7 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
         disabled={loading}
         title="Otwórz CV w podglądzie"
         aria-label="Otwórz podgląd CV kandydata"
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 py-0 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-0 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/10 disabled:opacity-50"
       >
         {loading ? (
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -700,7 +660,7 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  const activeCount = recs.filter((r) => !isTerminalStage(r.stage)).length;
  const counterClass =
  activeCount > 0
- ? "bg-warning-muted text-warning-muted-foreground hover:bg-warning-muted/70"
+ ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200"
  : "bg-muted text-muted-foreground hover:bg-muted/80";
  return (
  <Popover>
@@ -736,7 +696,7 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  <Link
  href={`/jobs/${r.job_id}`}
  onClick={(e) => e.stopPropagation()}
- className="flex items-start gap-2 px-3 py-2 hover:bg-accent"
+ className="flex items-start gap-2 px-3 py-2 hover:bg-primary/5"
  >
  <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground mt-1" />
  <div className="min-w-0 flex-1">
@@ -849,112 +809,26 @@ function CandidateCell({
 }: CandidateCellProps) {
  switch (columnId) {
  case "candidate": {
- const title = getCurrentTitle(candidate);
- const company = getCurrentCompany(candidate);
- const location = formatCandidateLocation(
- candidate.city ?? candidate.location ?? null,
- );
- const secondary = [title, company].filter(Boolean).join(" · ");
  return (
  <button
  type="button"
  onClick={onOpenDetail}
- className="flex min-w-0 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+ className="flex items-center gap-3 min-w-0 text-left"
  >
  <Avatar size={density === "compact" ?"sm" :"md"}>
  <AvatarFallback className={avatarColorClass(candidate.id)}>{initials}</AvatarFallback>
  </Avatar>
- <div className="min-w-0">
- <div className="flex min-w-0 items-center gap-1.5">
- <span className="truncate font-medium text-foreground hover:text-primary" title={fullName}>
+ <div className="flex items-center gap-1.5 min-w-0">
+ <span className="font-medium text-foreground truncate hover:text-primary">
  {fullName}
  </span>
- {isNew && <Badge size="sm" variant="success">Nowy</Badge>}
- </div>
- {(secondary || location) && (
- <p className="mt-0.5 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
- {secondary || "Brak stanowiska"}
- {location ? ` · ${location}` : ""}
- </p>
+ {isNew && (
+ <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 text-[10px] font-semibold leading-none">
+ Nowy
+ </span>
  )}
  </div>
  </button>
- );
- }
- case "contact": {
- return (
- <div className="flex min-w-0 items-center gap-2">
- <div className="min-w-0 flex-1 space-y-1">
- {candidate.email ? (
- <a
- href={`mailto:${candidate.email}`}
- onClick={(event) => event.stopPropagation()}
- className="flex items-center gap-1.5 truncate text-xs text-foreground hover:text-primary"
- title={candidate.email}
- >
- <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
- <span className="truncate">{candidate.email}</span>
- </a>
- ) : null}
- {candidate.phone ? (
- <a
- href={`tel:${candidate.phone}`}
- onClick={(event) => event.stopPropagation()}
- className="flex items-center gap-1.5 truncate text-xs text-muted-foreground hover:text-primary"
- title={candidate.phone}
- >
- <Phone className="h-3 w-3 shrink-0" />
- <span className="truncate">{candidate.phone}</span>
- </a>
- ) : null}
- {!candidate.email && !candidate.phone && (
- <span className="text-xs text-muted-foreground">Brak kontaktu</span>
- )}
- </div>
- <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
- <CandidateCvCell candidate={candidate} />
- </div>
- </div>
- );
- }
- case "status_availability": {
- return (
- <div className="min-w-0 space-y-1.5">
- {candidate.status && STATUS_LABELS[candidate.status] ? (
- <Badge variant={STATUS_VARIANT[candidate.status]} size="sm">
- {STATUS_LABELS[candidate.status]}
- </Badge>
- ) : null}
- <div className="min-w-0">
- <CandidateHighlights candidate={candidate} variant="compact" />
- </div>
- </div>
- );
- }
- case "process": {
- return <CandidateRecruitmentsCell candidate={candidate} />;
- }
- case "activity": {
- const text = candidate.last_note_preview ?? candidate.last_rejection_reason;
- const Icon = candidate.last_note_preview ? MessageSquare : XCircle;
- return (
- <div className="min-w-0">
- {text ? (
- <div className="flex min-w-0 items-start gap-1.5">
- <Icon className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
- <span className="line-clamp-2 text-xs text-foreground" title={text}>
- {text}
- </span>
- </div>
- ) : (
- <span className="text-xs text-muted-foreground">Brak aktywności</span>
- )}
- {(candidate.updated_at ?? candidate.created_at) && (
- <p className="mt-1 text-[11px] text-muted-foreground">
- {formatRelativeTime(candidate.updated_at ?? candidate.created_at!)}
- </p>
- )}
- </div>
  );
  }
  case "phone": {
@@ -970,7 +844,7 @@ function CandidateCell({
  };
  return (
  <div className="flex items-center gap-1.5 min-w-0 group">
- <Phone className="h-3 w-3 shrink-0 text-success" />
+ <Phone className="h-3 w-3 shrink-0 text-emerald-500" />
  <a
  href={`tel:${phone}`}
  onClick={(e) => e.stopPropagation()}
@@ -983,7 +857,7 @@ function CandidateCell({
  type="button"
  onClick={onCopy}
  title="Kopiuj numer"
- className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+ className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
  >
  <Copy className="h-3 w-3" />
  </button>
@@ -1003,7 +877,7 @@ function CandidateCell({
  };
  return (
  <div className="flex items-center gap-1.5 min-w-0 group">
- <Mail className="h-3 w-3 shrink-0 text-info" />
+ <Mail className="h-3 w-3 shrink-0 text-sky-500" />
  <a
  href={`mailto:${email}`}
  onClick={(e) => e.stopPropagation()}
@@ -1016,7 +890,7 @@ function CandidateCell({
  type="button"
  onClick={onCopy}
  title="Kopiuj email"
- className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+ className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
  >
  <Copy className="h-3 w-3" />
  </button>
@@ -1067,7 +941,7 @@ function CandidateCell({
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
- <MapPin className="h-3 w-3 shrink-0 text-destructive" />
+ <MapPin className="h-3 w-3 shrink-0 text-rose-500" />
  <span className="text-sm text-foreground truncate" title={loc}>
  {loc}
  </span>
@@ -1117,9 +991,9 @@ function CandidateCell({
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
- <Banknote className="h-3 w-3 shrink-0 text-success" />
+ <Banknote className="h-3 w-3 shrink-0 text-emerald-600" />
  <span
- className="truncate text-sm font-semibold text-success-muted-foreground"
+ className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 truncate"
  title={rate}
  >
  {rate}
@@ -1134,7 +1008,7 @@ function CandidateCell({
  }
  return (
  <div className="flex items-start gap-1.5 min-w-0">
- <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-info" />
+ <MessageSquare className="h-3 w-3 shrink-0 text-sky-500 mt-0.5" />
  <span
  className={cn(
  "text-xs text-muted-foreground",
@@ -1166,7 +1040,7 @@ function CandidateCell({
  // `break-words` zabezpiecza długie ciągłe tokeny.
  return (
  <div className="flex items-start gap-1.5 min-w-0">
- <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+ <XCircle className="h-3 w-3 shrink-0 text-rose-500 mt-0.5" />
  <span
  className="text-xs text-foreground line-clamp-2 break-words"
  title={reason}
@@ -1195,12 +1069,15 @@ function CandidateCell({
  case "match": {
  if (stats && stats.open_count > 0) {
  return (
- <div className="flex min-w-0 items-center gap-2">
- <MatchScoreBadge score={stats.top_score} size="sm" />
- <span className="truncate text-xs text-muted-foreground">
- {stats.open_count}/{stats.total_open} ofert
- </span>
- </div>
+ <Badge
+ size="sm"
+ variant={matchBadgeVariant(stats.top_score)}
+ className="gap-1"
+ >
+ <Target className="h-3 w-3" />
+ {stats.open_count}/{stats.total_open} · top{""}
+ {Math.round(stats.top_score)}
+ </Badge>
  );
  }
  return <span className="text-xs text-muted-foreground">—</span>;
@@ -1242,15 +1119,6 @@ export function CandidatesListV2() {
  const setDensity = useUiStore((s) => s.setDensity);
  const candidatesView = useUiStore((s) => s.candidatesView);
  const setCandidatesView = useUiStore((s) => s.setCandidatesView);
- const [isMobileViewport, setIsMobileViewport] = useState(false);
- useEffect(() => {
- const media = window.matchMedia("(max-width: 767px)");
- const sync = () => setIsMobileViewport(media.matches);
- sync();
- media.addEventListener("change", sync);
- return () => media.removeEventListener("change", sync);
- }, []);
- const effectiveCandidatesView = isMobileViewport ? "tiles" : candidatesView;
  const columnPrefs = useUiStore((s) => s.columnPreferences);
  const setColumnPref = useUiStore((s) => s.setColumnPreference);
  const parentRef = useRef<HTMLDivElement>(null);
@@ -1277,26 +1145,12 @@ export function CandidatesListV2() {
  userOverride ?? globalDefaultHiddenCols
  );
  const visibleColumns = ALL_COLUMNS.filter((c) => !hiddenColumns.has(c.id));
- const visibleColumnIdsInOrder = visibleColumns.map((column) => column.id);
- const activeColumnPreset = COLUMN_PRESETS.find(
- (preset) =>
- preset.columns.length === visibleColumnIdsInOrder.length &&
- preset.columns.every((column) => visibleColumnIdsInOrder.includes(column)),
- );
- const customColumnsRef = useRef<ColumnId[] | null>(null);
- useEffect(() => {
- if (!activeColumnPreset) {
- customColumnsRef.current = visibleColumnIdsInOrder;
- }
- }, [activeColumnPreset, visibleColumnIdsInOrder]);
  // CSS grid template: 32px checkbox + each visible column's width + 60px action slot.
  const gridTemplateColumns = [
  "32px",
  ...visibleColumns.map((c) => c.width),
  "60px",
  ].join(" ");
- const gridMinWidth =
- 32 + 60 + visibleColumns.reduce((total, column) => total + column.minWidth, 0);
 
  // Admin scope for the"Zapisz jako domyślne" action. `"_global"` means save
  // the baseline that applies to every role without a specific override.
@@ -1324,33 +1178,16 @@ export function CandidatesListV2() {
  });
  const resetToGlobalDefault = () =>
  useUiStore.getState().clearColumnPreference("candidates-v2");
- const applyColumnPreset = (columns: readonly ColumnId[]) => {
- const visible = new Set(columns);
- visible.add("candidate");
- const hidden = ALL_COLUMNS.filter((column) => !visible.has(column.id)).map(
- (column) => column.id as ColumnId,
- );
- setColumnPref("candidates-v2", hidden);
- };
- const applyCustomColumns = () => {
- if (customColumnsRef.current) applyColumnPreset(customColumnsRef.current);
- };
 
  // URL state ---------------------------------------------------
  const [search, setSearch] = useState(searchParams.get("q") ??"");
- const [searchDraft, setSearchDraft] = useState(searchParams.get("q") ??"");
  const [statusFilter, setStatusFilter] = useState<CandidateStatusFilter[]>(
  parseEnumCsv(
  searchParams.get("status"),
  ["active","passive","blacklisted"] as const,
  ),
  );
- const [sortBy, setSortBy] = useState<CandidateFilters["sort"]>(() => {
- const raw = searchParams.get("sort");
- return raw === "oldest" || raw === "name" || raw === "relevance"
- ? raw
- : "newest";
- });
+ const [sortBy, setSortBy] = useState(searchParams.get("sort") ??"newest");
  const [page, setPage] = useState(Number(searchParams.get("page") ??"1"));
  const [remoteFilter, setRemoteFilter] = useState<string[]>(
  searchParams.get("remote")?.split(",").filter(Boolean) ?? []
@@ -1486,16 +1323,13 @@ export function CandidatesListV2() {
  searchParams.get("stage_current") === "1"
  );
  // LinkedIn-detected job change window —"1","2", or"3" months. Empty = off.
- const [recentlyChangedJobs, setRecentlyChangedJobs] =
- useState<RecentlyChangedJobs>(() => {
- const raw = Number.parseInt(searchParams.get("rcj") ?? "", 10);
- return raw === 1 || raw === 2 || raw === 3 ? raw : null;
- });
+ const [recentlyChangedJobs, setRecentlyChangedJobs] = useState<string>(
+ searchParams.get("rcj") ??""
+ );
  // Engagement openness — any of {side_projects, sales_support, expert_consult}, OR-combined.
  const [openToFilter, setOpenToFilter] = useState<OpenToValue[]>(
- searchParams
- .getAll("open_to")
- .flatMap((value) => value.split(","))
+ (searchParams.get("open_to") ??"")
+ .split(",")
  .filter((v): v is OpenToValue =>
  v === "side_projects" || v === "sales_support" || v === "expert_consult"
  )
@@ -1529,24 +1363,6 @@ export function CandidatesListV2() {
  // Filter drawer (boczny panel ze wszystkimi filtrami) — tylko open/close.
  const [filtersOpen, setFiltersOpen] = useState(false);
  const currentUser = useAuthStore((s) => s.user);
-
- // Draft wyszukiwarki reaguje natychmiast, ale nie wysyła requestu na każdy
- // znak. Enter w polu wywołuje ten sam commit bez oczekiwania na debounce.
- const commitSearchValue = useCallback((value: string) => {
- setSearch(value);
- setPage(1);
- }, []);
- useCandidateSearchDebounce({
- draft: searchDraft,
- committed: search,
- onCommit: commitSearchValue,
- });
-
- const commitSearch = () => {
- if (searchDraft === search) return;
- setSearch(searchDraft);
- setPage(1);
- };
 
  // Saved-search alerty — aktywny zapisany search (z menu „Zapisane” lub z
  // linku powiadomienia `?ss=`) + znacznik czasu sprzed bieżącego otwarcia
@@ -1589,55 +1405,60 @@ export function CandidatesListV2() {
  return Number.isFinite(ts) ? ts : null;
  }, [newSince]);
 
- // Jeden kanoniczny snapshot zasila URL, API, chipy, zapisane wyszukiwania i
- // nawigację poprzedni/następny. Lokalne kontrolki są tylko adapterami UI.
- const filtersSnapshot: CandidateFilters = useMemo(
- () => ({
- q: search,
- status: statusFilter,
- employment: employmentFilter,
- availability: availabilityFilter,
- pipelineStage: pipelineStageFilter,
- sort: sortBy,
- page,
- remote: remoteFilter as CandidateFilters["remote"],
- skillsExpr: skillExpr,
- location: locationFilter,
- poolIds,
- addedByIds,
- currentCompany: currentCompanyFilter,
- pastCompany: pastCompanyFilter,
- currentTitle: currentTitleFilter,
- workedAtClientIds,
- recruitmentIds,
- recruitmentMatch,
- experienceMin,
- experienceMax,
- rateMin,
- rateMax,
- stageMovedByIds,
- stageMovedAfter,
- stageMovedBefore,
- stageClientIds,
- stageCurrentOnly,
- openTo: openToFilter,
- recentlyChangedJobs,
- view: effectiveCandidatesView,
- savedSearchId: activeSavedSearchId,
- qAll,
- qAny: qAnyGroups,
- qNone,
- }),
- [
+ // Sync URL -----------------------------------------------------
+ useEffect(() => {
+ const params = new URLSearchParams();
+ if (search) params.set("q", search);
+ if (statusFilter.length) params.set("status", statusFilter.join(","));
+ if (sortBy && sortBy !== "newest") params.set("sort", sortBy);
+ if (page > 1) params.set("page", String(page));
+ if (remoteFilter.length) params.set("remote", remoteFilter.join(","));
+ if (skillExpr.trim()) params.set("skills_q", skillExpr.trim());
+ if (employmentFilter.length) params.set("employment", employmentFilter.join(","));
+ if (availabilityFilter.length) params.set("availability", availabilityFilter.join(","));
+ if (pipelineStageFilter.length) params.set("stage", pipelineStageFilter.join(","));
+ if (locationFilter) params.set("loc", locationFilter);
+ if (poolIds.length) params.set("pool", poolIds.join(","));
+ if (addedByIds.length) params.set("added_by", addedByIds.join(","));
+ if (currentCompanyFilter.length) params.set("cur_co", currentCompanyFilter.join("|"));
+ if (pastCompanyFilter.length) params.set("past_co", pastCompanyFilter.join("|"));
+ if (currentTitleFilter.length) params.set("title", currentTitleFilter.join("|"));
+ if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
+ if (recruitmentIds.length) {
+ params.set("recr", recruitmentIds.join(","));
+ if (recruitmentMatch !== "assigned") params.set("recr_mode", recruitmentMatch);
+ }
+ if (experienceMin !== null) params.set("exp_min", String(experienceMin));
+ if (experienceMax !== null) params.set("exp_max", String(experienceMax));
+ if (rateMin !== null) params.set("rate_min", String(rateMin));
+ if (rateMax !== null) params.set("rate_max", String(rateMax));
+ if (stageMovedByIds.length) params.set("stage_by", stageMovedByIds.join(","));
+ if (stageMovedAfter) params.set("stage_from", stageMovedAfter);
+ if (stageMovedBefore) params.set("stage_to", stageMovedBefore);
+ if (stageClientIds.length) params.set("stage_client", stageClientIds.join(","));
+ if (stageCurrentOnly) params.set("stage_current", "1");
+ if (recentlyChangedJobs) params.set("rcj", recentlyChangedJobs);
+ if (openToFilter.length) params.set("open_to", openToFilter.join(","));
+ if (qAll.length) params.set("q_all", qAll.join("|"));
+ // One repeated `q_any` param per OR-group (each pipe-joined). Legacy single
+ // `?q_any=a|b` URLs decode back into one group, so this stays compatible.
+ for (const group of qAnyGroups) {
+ params.append("q_any", group.join("|"));
+ }
+ if (qNone.length) params.set("q_none", qNone.join("|"));
+ if (activeSavedSearchId) params.set("ss", String(activeSavedSearchId));
+ const qs = params.toString();
+ window.history.replaceState(null, "", qs ? `/candidates?${qs}` :"/candidates");
+ }, [
  search,
  statusFilter,
- employmentFilter,
- availabilityFilter,
- pipelineStageFilter,
  sortBy,
  page,
  remoteFilter,
  skillExpr,
+ employmentFilter,
+ availabilityFilter,
+ pipelineStageFilter,
  locationFilter,
  poolIds,
  addedByIds,
@@ -1645,8 +1466,6 @@ export function CandidatesListV2() {
  pastCompanyFilter,
  currentTitleFilter,
  workedAtClientIds,
- recruitmentIds,
- recruitmentMatch,
  experienceMin,
  experienceMax,
  rateMin,
@@ -1656,69 +1475,114 @@ export function CandidatesListV2() {
  stageMovedBefore,
  stageClientIds,
  stageCurrentOnly,
- openToFilter,
  recentlyChangedJobs,
- effectiveCandidatesView,
- activeSavedSearchId,
+ openToFilter,
  qAll,
  qAnyGroups,
  qNone,
- ],
- );
-
- // Sync URL -----------------------------------------------------
- useEffect(() => {
- const qs = encodeFilters(filtersSnapshot).toString();
- window.history.replaceState(null, "", qs ? `/candidates?${qs}` :"/candidates");
- }, [filtersSnapshot]);
+ activeSavedSearchId,
+ recruitmentIds,
+ recruitmentMatch,
+ ]);
 
  // Data --------------------------------------------------------
- const visibleColumnIds = useMemo(
- () => new Set<ColumnId>(visibleColumns.map((column) => column.id)),
- [visibleColumns],
- );
- const {
- includeMatchStats,
- includeActiveRecruitments,
- includeLastActivity,
- } = getCandidateListIncludeFlags(effectiveCandidatesView, visibleColumnIds);
- const candidatesApiParams = useMemo(
- () =>
- filtersToApiParams(filtersSnapshot, page, {
- include_match_stats: includeMatchStats,
- include_active_recruitments: includeActiveRecruitments,
- include_last_activity: includeLastActivity,
- match_threshold: includeMatchStats ? 35 : undefined,
- }),
- [
- filtersSnapshot,
+ const { data, isLoading, isFetching } = useQuery({
+ queryKey: ["candidates-v2",
+ search,
+ statusFilter,
  page,
- includeMatchStats,
- includeActiveRecruitments,
- includeLastActivity,
+ sortBy,
+ remoteFilter,
+ skillExpr,
+ employmentFilter,
+ availabilityFilter,
+ pipelineStageFilter,
+ locationFilter,
+ poolIds,
+ addedByIds,
+ currentCompanyFilter,
+ pastCompanyFilter,
+ currentTitleFilter,
+ workedAtClientIds,
+ experienceMin,
+ experienceMax,
+ rateMin,
+ rateMax,
+ stageMovedByIds,
+ stageMovedAfter,
+ stageMovedBefore,
+ stageClientIds,
+ stageCurrentOnly,
+ recentlyChangedJobs,
+ openToFilter,
+ qAll,
+ qAnyGroups,
+ qNone,
+ recruitmentIds,
+ recruitmentMatch,
  ],
- );
- const {
- data,
- isLoading,
- isFetching,
- isError,
- error: candidatesError,
- refetch: refetchCandidates,
- } = useQuery({
- queryKey: ["candidates-v2", candidatesApiParams],
- queryFn: ({ signal }) =>
- fetchCandidateListPage<CandidateListResponse>(candidatesApiParams, signal),
- placeholderData: keepPreviousData,
- staleTime: 30_000,
+ queryFn: () =>
+ api
+ .get("/api/candidates", {
+ params: {
+ q: search || undefined,
+ status: statusFilter.length ? statusFilter : undefined,
+ page,
+ sort: sortBy || undefined,
+ include_match_stats: true,
+ include_active_recruitments: true,
+ include_last_activity: true,
+ match_threshold: 35,
+ // Skill-scoped boolean buckets parsed from the expression box. `must` →
+ // `skills` (AND), OR-groups → repeated pipe-joined `skills_any`, NOT →
+ // `skills_none`. `skill_combine` stays lowercase (uppercase 422'd before).
+ skills: skillBuckets.must.length ? skillBuckets.must : undefined,
+ skill_combine: skillBuckets.must.length > 1 ? "and" : undefined,
+ skills_any: skillBuckets.anyGroups.length
+ ? skillBuckets.anyGroups.map((g) => g.join("|"))
+ : undefined,
+ skills_none: skillBuckets.none.length ? skillBuckets.none : undefined,
+ remote_policy: remoteFilter.length ? remoteFilter : undefined,
+ employment: employmentFilter.length ? employmentFilter : undefined,
+ availability: availabilityFilter.length ? availabilityFilter : undefined,
+ pipeline_stage: pipelineStageFilter.length ? pipelineStageFilter : undefined,
+ location: locationFilter || undefined,
+ talent_pool_id: poolIds.length ? poolIds : undefined,
+ added_by_user_id: addedByIds.length ? addedByIds : undefined,
+ current_company: currentCompanyFilter.length ? currentCompanyFilter : undefined,
+ past_company: pastCompanyFilter.length ? pastCompanyFilter : undefined,
+ current_title: currentTitleFilter.length ? currentTitleFilter : undefined,
+ worked_at_client_id: workedAtClientIds.length ? workedAtClientIds : undefined,
+ recruitment_id: recruitmentIds.length ? recruitmentIds : undefined,
+ recruitment_match:
+ recruitmentIds.length && recruitmentMatch !== "assigned"
+ ? recruitmentMatch
+ : undefined,
+ min_experience: experienceMin ?? undefined,
+ max_experience: experienceMax ?? undefined,
+ min_rate: rateMin ?? undefined,
+ max_rate: rateMax ?? undefined,
+ stage_moved_by: stageMovedByIds.length ? stageMovedByIds : undefined,
+ stage_moved_after: stageMovedAfter || undefined,
+ stage_moved_before: stageMovedBefore || undefined,
+ stage_client_id: stageClientIds.length ? stageClientIds : undefined,
+ stage_current_only: stageCurrentOnly ? true : undefined,
+ recently_changed_jobs: recentlyChangedJobs
+ ? Number(recentlyChangedJobs)
+ : undefined,
+ open_to: openToFilter.length ? openToFilter : undefined,
+ q_all: qAll.length ? qAll : undefined,
+ q_any_group: qAnyGroups.length
+ ? qAnyGroups.map((g) => g.join("|"))
+ : undefined,
+ q_none: qNone.length ? qNone : undefined,
+ },
+ paramsSerializer: { indexes: null },
+ })
+ .then((r) => r.data),
  });
 
  const items: Candidate[] = data?.items ?? [];
- const listViewState = getCandidateListViewState({
- isLoading,
- isError,
- itemCount: items.length,
- });
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -1782,37 +1646,8 @@ export function CandidatesListV2() {
  });
  }, []);
  const clearSelection = () => setSelectedIds(new Set());
- const selectionCriteriaKey = useMemo(
- () =>
- encodeFilterCriteria({
- ...filtersSnapshot,
- sort: "newest",
- }).toString(),
- [filtersSnapshot],
- );
- const previousSelectionCriteria = useRef(selectionCriteriaKey);
- useEffect(() => {
- if (previousSelectionCriteria.current === selectionCriteriaKey) return;
- previousSelectionCriteria.current = selectionCriteriaKey;
- setSelectedIds(new Set());
- }, [selectionCriteriaKey]);
-
- const visibleSelectedCount = items.reduce(
- (count, item) => count + (selectedIds.has(item.id) ? 1 : 0),
- 0,
- );
- const allVisibleSelected =
- items.length > 0 && visibleSelectedCount === items.length;
  const selectAllVisible = () => {
- setSelectedIds((previous) => {
- const next = new Set(previous);
- if (allVisibleSelected) {
- items.forEach((item) => next.delete(item.id));
- } else {
- items.forEach((item) => next.add(item.id));
- }
- return next;
- });
+ setSelectedIds(new Set(items.map((i) => i.id)));
  };
 
  // Modals + assigns -------------------------------------------
@@ -1884,43 +1719,38 @@ export function CandidatesListV2() {
  };
 
  // Export
- const doExport = async (
- format: "csv" | "xlsx",
- scope: CandidateExportScope = "filtered",
- ) => {
- if (scope === "selected" && selectedIds.size === 0) return;
- try {
- const request = buildCandidateExportRequest(
- filtersSnapshot,
- format,
- scope,
- selectedIds,
- );
- await downloadCandidateExport(request);
- toastOnSuccess(
- scope === "selected"
- ? `Wyeksportowano ${selectedIds.size} zaznaczonych kandydatów.`
- : "Eksport wyników został przygotowany.",
- );
- } catch (error) {
- const detail = (
- error as { response?: { data?: { detail?: string } | Blob } }
- ).response?.data;
- let message = "Eksport nie powiódł się. Spróbuj ponownie.";
- if (detail instanceof Blob) {
- try {
- const payload = JSON.parse(await detail.text()) as { detail?: string };
- if (payload.detail) message = payload.detail;
- } catch {
- // Nieczytelna odpowiedź (np. zerwane połączenie) — zachowaj fallback.
+ const doExport = async (format: "csv" |"xlsx") => {
+ const params = new URLSearchParams();
+ if (search) params.set("q", search);
+ if (statusFilter.length) {
+ // Repeat the param so backend `Optional[list[CandidateStatus]]` parses it.
+ statusFilter.forEach((s) => params.append("status", s));
  }
- } else if (detail && typeof detail === "object" && "detail" in detail) {
- message = String(detail.detail);
+ params.set("format", format);
+ const apiBase = process.env.NEXT_PUBLIC_API_URL ||"";
+ const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+ const res = await fetch(`${apiBase}/api/candidates/export?${params}`, {
+ headers: token ? { Authorization: `Bearer ${token}` } : {},
+ });
+ if (!res.ok) {
+ toastOnSuccess("Eksport nie powiódł się.");
+ return;
  }
- toastOnSuccess(
- message,
- );
- }
+ const blob = await res.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = `kandydaci-${new Date().toISOString().slice(0, 10)}.${format}`;
+ // Anchor MUST be in the DOM for a.click() to trigger the download in all
+ // browsers, and the object URL MUST NOT be revoked synchronously right
+ // after click() — for multi-MB exports (up to 10k rows) the browser is
+ // still reading the blob and the download silently aborts. Mirrors the
+ // working download idiom used everywhere else in the app (MaterialsTab,
+ // CVGenerator, CandidateDetail) + deferred revoke.
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
  };
 
  // Skill expression helpers. The box holds a boolean expression; committing
@@ -1976,11 +1806,77 @@ export function CandidatesListV2() {
  qAnyGroups.flat().length +
  qNone.length;
 
+ // Snapshot of filters used by <ActiveFilterChips> and saved-search plumbing.
+ const filtersSnapshot: CandidateFilters = useMemo(
+ () => ({
+ q: search,
+ status: statusFilter,
+ employment: employmentFilter,
+ availability: availabilityFilter,
+ pipelineStage: pipelineStageFilter,
+ sort: (sortBy as CandidateFilters["sort"]) ||"newest",
+ page,
+ remote: remoteFilter as CandidateFilters["remote"],
+ skillsExpr: skillExpr,
+ location: locationFilter,
+ poolIds,
+ addedByIds,
+ currentCompany: currentCompanyFilter,
+ pastCompany: pastCompanyFilter,
+ currentTitle: currentTitleFilter,
+ workedAtClientIds,
+ recruitmentIds,
+ recruitmentMatch,
+ experienceMin,
+ experienceMax,
+ rateMin,
+ rateMax,
+ stageMovedByIds,
+ stageMovedAfter,
+ stageMovedBefore,
+ stageClientIds,
+ stageCurrentOnly,
+ view: "list",
+ savedSearchId: null,
+ qAll,
+ qAny: qAnyGroups,
+ qNone,
+ }),
+ [
+ search,
+ statusFilter,
+ employmentFilter,
+ availabilityFilter,
+ pipelineStageFilter,
+ sortBy,
+ page,
+ remoteFilter,
+ skillExpr,
+ locationFilter,
+ poolIds,
+ addedByIds,
+ currentCompanyFilter,
+ pastCompanyFilter,
+ currentTitleFilter,
+ workedAtClientIds,
+ experienceMin,
+ experienceMax,
+ rateMin,
+ rateMax,
+ stageMovedByIds,
+ stageMovedAfter,
+ stageMovedBefore,
+ stageClientIds,
+ stageCurrentOnly,
+ qAll,
+ qAnyGroups,
+ qNone,
+ recruitmentIds,
+ recruitmentMatch,
+ ]
+ );
  const applyFiltersPatch = (patch: Partial<CandidateFilters>) => {
- if (patch.q !== undefined) {
- setSearch(patch.q);
- setSearchDraft(patch.q);
- }
+ if (patch.q !== undefined) setSearch(patch.q);
  if (patch.status !== undefined) setStatusFilter(patch.status);
  if (patch.employment !== undefined) setEmploymentFilter(patch.employment);
  if (patch.availability !== undefined) setAvailabilityFilter(patch.availability);
@@ -2014,12 +1910,6 @@ export function CandidatesListV2() {
  if (patch.stageClientIds !== undefined) setStageClientIds(patch.stageClientIds);
  if (patch.stageCurrentOnly !== undefined)
  setStageCurrentOnly(patch.stageCurrentOnly);
- if (patch.openTo !== undefined) setOpenToFilter(patch.openTo);
- if (patch.recentlyChangedJobs !== undefined)
- setRecentlyChangedJobs(patch.recentlyChangedJobs);
- if (patch.view !== undefined) setCandidatesView(patch.view);
- if (patch.savedSearchId !== undefined)
- setActiveSavedSearchId(patch.savedSearchId);
  if (patch.qAll !== undefined) setQAll(patch.qAll);
  if (patch.qAny !== undefined) setQAny(patch.qAny);
  if (patch.qNone !== undefined) setQNone(patch.qNone);
@@ -2030,7 +1920,6 @@ export function CandidatesListV2() {
  // Sortowanie i ustawienia widoku zostają bez zmian.
  const resetAllFilters = () => {
  setSearch("");
- setSearchDraft("");
  setStatusFilter([]);
  setEmploymentFilter([]);
  setAvailabilityFilter([]);
@@ -2057,50 +1946,12 @@ export function CandidatesListV2() {
  setStageMovedBefore("");
  setStageClientIds([]);
  setStageCurrentOnly(false);
- setRecentlyChangedJobs(null);
+ setRecentlyChangedJobs("");
  setQAll([]);
  setQAny([]);
  setQNone([]);
  setPage(1);
  };
-
- const queryErrorDetail =
- (candidatesError as { response?: { data?: { detail?: string } } } | null)
- ?.response?.data?.detail ??
- "Nie udało się pobrać kandydatów. Sprawdź połączenie i spróbuj ponownie.";
- const queryErrorPanel = (
- <div
- role="alert"
- className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center"
- >
- <XCircle className="h-9 w-9 text-destructive" aria-hidden="true" />
- <div>
- <p className="font-medium text-foreground">Nie udało się wczytać listy</p>
- <p className="mt-1 max-w-lg text-sm text-muted-foreground">
- {queryErrorDetail}
- </p>
- </div>
- <Button variant="outline" size="sm" onClick={() => void refetchCandidates()}>
- Spróbuj ponownie
- </Button>
- </div>
- );
- const loadingRows = (
- <div className="space-y-1 p-3" aria-busy="true" aria-label="Ładowanie kandydatów">
- {Array.from({ length: 7 }, (_, index) => (
- <div key={index} className="flex items-center gap-4 rounded-md px-2 py-3">
- <Skeleton className="h-4 w-4" />
- <Skeleton className="h-10 w-10 rounded-full" />
- <div className="min-w-0 flex-1 space-y-2">
- <Skeleton className="h-4 w-48 max-w-full" />
- <Skeleton className="h-3 w-72 max-w-full" />
- </div>
- <Skeleton className="hidden h-8 w-32 sm:block" />
- <Skeleton className="hidden h-8 w-40 lg:block" />
- </div>
- ))}
- </div>
- );
 
  return (
  /* Szerszy cap niż standardowe 1400px reszty list (Oferty/Klienci/Kontrakty),
@@ -2121,78 +1972,62 @@ export function CandidatesListV2() {
  <h1 className="text-lg font-semibold tracking-tight text-foreground/80 mt-0.5">
  Kandydaci
  </h1>
- <p className="text-xs text-muted-foreground mt-0.5" aria-live="polite">
+ <p className="text-xs text-muted-foreground mt-0.5">
  {isLoading ? (
  "Ładowanie…"
- ) : isError && items.length === 0 ? (
- "Nie udało się pobrać danych"
  ) : (
- <>
- {total.toLocaleString("pl-PL")}{" "}
- {search || totalActiveFilters > 0 ? "wyników" : "w bazie"}
- </>
+ <>{total.toLocaleString("pl-PL")} w bazie</>
  )}
- {isFetching && !isLoading ? " · aktualizuję…" : ""}
+ {isFetching && !isLoading ? " · synchronizacja…" : ""}
  </p>
  </div>
 
  <div className="flex items-center gap-2">
+ <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+ <Upload className="h-4 w-4" /> Import CSV
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ onClick={() => setShowAddFromCV(true)}
+ >
+ <Sparkles className="h-4 w-4" /> Dodaj z CV
+ </Button>
+ <Link
+ href="/candidates/bulk-import"
+ className={buttonVariants({ size: "sm", variant: "outline" })}
+ >
+ <FileArchive className="h-4 w-4" /> Bulk CV
+ </Link>
+ {/* „Wyszukaj manualnie" usunięte — dublowało panel „Filtry" (ten sam
+ AdvancedSearchPopover + CC + skills). Boolean/semantyczne wyszukiwanie
+ pozostaje w /candidates/search (zakładka w profilu rekrutacji). */}
  <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline">
- <Upload className="h-4 w-4" /> Importuj
+ <Download className="h-4 w-4" /> Eksport
  </Button>
  </PopoverTrigger>
- <PopoverContent align="end" className="w-52 p-1">
+ <PopoverContent align="end" className="w-40 p-1">
  <button
- onClick={() => setShowImport(true)}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+ onClick={() => doExport("csv")}
+ className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
  >
- <Upload className="h-4 w-4 text-muted-foreground" /> Import CSV
+ CSV
  </button>
  <button
- onClick={() => setShowAddFromCV(true)}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+ onClick={() => doExport("xlsx")}
+ className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
  >
- <Sparkles className="h-4 w-4 text-muted-foreground" /> Dodaj z CV
- </button>
- <Link
- href="/candidates/bulk-import"
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
- >
- <FileArchive className="h-4 w-4 text-muted-foreground" /> Bulk CV
- </Link>
- </PopoverContent>
- </Popover>
- <Popover>
- <PopoverTrigger asChild>
- <Button size="sm" variant="outline">Więcej</Button>
- </PopoverTrigger>
- <PopoverContent align="end" className="w-56 p-1">
- <button
- onClick={() => doExport("csv", "filtered")}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <Download className="h-4 w-4 text-muted-foreground" /> Eksportuj wyniki CSV
- </button>
- <button
- onClick={() => doExport("xlsx", "filtered")}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <FileText className="h-4 w-4 text-muted-foreground" /> Eksportuj wyniki XLSX
- </button>
- <button
- onClick={() => setShowInvite(true)}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <LinkIcon className="h-4 w-4 text-muted-foreground" /> Wygeneruj link
+ Excel (.xlsx)
  </button>
  </PopoverContent>
  </Popover>
+ <Button size="sm" variant="outline" onClick={() => setShowInvite(true)}>
+ <LinkIcon className="h-4 w-4" /> Wygeneruj link
+ </Button>
  <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
- <Plus className="h-4 w-4" />
- <span className="hidden sm:inline">Dodaj kandydata</span>
- <span className="sm:hidden">Dodaj</span>
+ <Plus className="h-4 w-4" /> Dodaj
  </Button>
  </div>
  </div>
@@ -2200,18 +2035,17 @@ export function CandidatesListV2() {
       {/* Toolbar — odchudzony pasek: szukaj + jeden przycisk „Filtry"
           (cała konfiguracja w bocznym panelu) + zapisane wyszukiwania,
           a po prawej sterowanie widokiem (sortowanie, kolumny, układ). */}
-      <div className="sticky top-2 z-30 rounded-xl border border-border bg-card/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
+      <div className="rounded-xl border border-border bg-muted/40 p-3 shadow-sm dark:bg-muted/20">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex-1 min-w-[240px] max-w-lg">
             <Input
               leadingIcon={<Search className="h-4 w-4" />}
               placeholder="Szukaj po imieniu, emailu, stanowisku…"
-              aria-label="Szukaj kandydatów"
               className="h-9 rounded-md"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") commitSearch();
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
               }}
             />
           </div>
@@ -2222,7 +2056,11 @@ export function CandidatesListV2() {
             variant={totalActiveFilters > 0 ? "primary" : "outline"}
             onClick={() => setFiltersOpen(true)}
             title="Wszystkie filtry w jednym panelu"
-            className="font-semibold"
+            className={cn(
+              "font-semibold",
+              totalActiveFilters === 0 &&
+                "border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 hover:text-primary shadow-sm",
+            )}
           >
             <SlidersHorizontal className="h-4 w-4" />
             Filtry
@@ -2234,30 +2072,46 @@ export function CandidatesListV2() {
           </Button>
 
           <SavedSearchesMenu
-            currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
+            currentQs={encodeFilters(filtersSnapshot).toString()}
             onApply={(qs, ssId, previousViewedAt) => {
+              setActiveSavedSearchId(ssId);
               setNewSince(previousViewedAt);
-              const decoded = filtersFromCandidateSavedSearch(
-                { qs },
-                effectiveCandidatesView,
-              );
+              const decoded = decodeFilters(new URLSearchParams(qs));
               applyFiltersPatch({
-                ...decoded,
+                q: decoded.q,
+                status: decoded.status,
+                employment: decoded.employment,
+                availability: decoded.availability,
+                pipelineStage: decoded.pipelineStage,
+                sort: decoded.sort,
                 page: 1,
-                view: effectiveCandidatesView,
-                savedSearchId: ssId,
+                remote: decoded.remote,
+                skillsExpr: decoded.skillsExpr,
+                location: decoded.location,
+                poolIds: decoded.poolIds,
+                addedByIds: decoded.addedByIds,
+                currentCompany: decoded.currentCompany,
+                pastCompany: decoded.pastCompany,
+                currentTitle: decoded.currentTitle,
+                workedAtClientIds: decoded.workedAtClientIds,
+                experienceMin: decoded.experienceMin,
+                experienceMax: decoded.experienceMax,
+                rateMin: decoded.rateMin,
+                rateMax: decoded.rateMax,
+                stageMovedByIds: decoded.stageMovedByIds,
+                stageMovedAfter: decoded.stageMovedAfter,
+                stageMovedBefore: decoded.stageMovedBefore,
+                stageClientIds: decoded.stageClientIds,
+                stageCurrentOnly: decoded.stageCurrentOnly,
+                qAll: decoded.qAll,
+                qAny: decoded.qAny,
+                qNone: decoded.qNone,
               });
-              clearSelection();
             }}
           />
 
           <div className="ml-auto flex items-center gap-2">
-            <Select
-              value={sortBy}
-              onValueChange={(value) =>
-                setSortBy(value as CandidateFilters["sort"])
-              }
-            >
+            <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="w-[160px] h-9 rounded-md shadow-sm font-medium">
                 <SelectValue />
               </SelectTrigger>
@@ -2273,57 +2127,15 @@ export function CandidatesListV2() {
  <Popover>
  <PopoverTrigger asChild>
  <button
- type="button"
  title="Konfiguracja kolumn"
- aria-label="Konfiguracja kolumn"
- className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+ className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground"
  >
  <Columns3 className="h-4 w-4" />
  </button>
  </PopoverTrigger>
  <PopoverContent align="end" className="w-64">
- <div className="mb-3">
- <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
- Presety
- </p>
- <div className="grid grid-cols-2 gap-1.5">
- {COLUMN_PRESETS.map((preset) => {
- const active = activeColumnPreset?.id === preset.id;
- return (
- <button
- key={preset.id}
- type="button"
- onClick={() => applyColumnPreset(preset.columns)}
- aria-pressed={active}
- className={cn(
- "rounded-md border px-2 py-1.5 text-left text-xs transition-colors",
- active
- ? "border-primary bg-primary/10 text-primary"
- : "border-border text-foreground hover:bg-accent",
- )}
- >
- {preset.label}
- </button>
- );
- })}
- <button
- type="button"
- onClick={applyCustomColumns}
- disabled={!customColumnsRef.current}
- aria-pressed={!activeColumnPreset}
- className={cn(
- "rounded-md border px-2 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50",
- !activeColumnPreset
- ? "border-primary bg-primary/10 text-primary"
- : "border-border text-foreground hover:bg-accent",
- )}
- >
- Własny
- </button>
- </div>
- </div>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Kolumny niestandardowe
+ Pokazuj kolumny
  </h3>
  <div className="space-y-1.5">
  {ALL_COLUMNS.map((col) => {
@@ -2331,7 +2143,7 @@ export function CandidatesListV2() {
  return (
  <label
  key={col.id}
- className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-accent"
+ className="flex items-center gap-2 text-sm cursor-pointer rounded-md px-1.5 py-1 hover:bg-primary/10"
  >
  <Checkbox
  checked={shown}
@@ -2420,58 +2232,44 @@ export function CandidatesListV2() {
  </PopoverContent>
  </Popover>
  <div
- className="hidden items-center rounded-md border border-border overflow-hidden md:flex"
+ className="flex items-center rounded-md border border-border overflow-hidden"
  role="group"
  aria-label="Widok listy"
  >
  <button
- type="button"
  onClick={() => setCandidatesView("list")}
  title="Widok tabeli"
- aria-label="Widok tabeli"
- aria-pressed={effectiveCandidatesView === "list"}
+ aria-pressed={candidatesView === "list"}
  className={cn("h-9 w-9 flex items-center justify-center transition-colors",
- effectiveCandidatesView === "list"
- ?"bg-primary text-primary-foreground"
- :"text-muted-foreground hover:bg-accent"
+ candidatesView === "list"
+ ?"bg-primary text-white"
+ :"text-muted-foreground hover:bg-primary/10"
  )}
  >
  <Table2 className="h-4 w-4" />
  </button>
  <button
- type="button"
  onClick={() => setCandidatesView("tiles")}
  title="Widok kafelków"
- aria-label="Widok kafelków"
- aria-pressed={effectiveCandidatesView === "tiles"}
+ aria-pressed={candidatesView === "tiles"}
  className={cn("h-9 w-9 flex items-center justify-center transition-colors",
- effectiveCandidatesView === "tiles"
- ?"bg-primary text-primary-foreground"
- :"text-muted-foreground hover:bg-accent"
+ candidatesView === "tiles"
+ ?"bg-primary text-white"
+ :"text-muted-foreground hover:bg-primary/10"
  )}
  >
  <LayoutGrid className="h-4 w-4" />
  </button>
  </div>
  <button
- type="button"
  onClick={() => setDensity(density === "cozy" ?"compact" :"cozy")}
  title="Przełącz gęstość"
- aria-label={`Gęstość: ${density === "cozy" ? "komfortowa" : "kompaktowa"}. Przełącz widok`}
- className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+ className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground"
  >
  <Rows3 className="h-4 w-4" />
  </button>
  </div>
  </div>
- </div>
-
- <div className="flex flex-wrap items-center justify-between gap-2" aria-live="polite">
- <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
- <span className="ml-auto text-xs text-muted-foreground">
- {total.toLocaleString("pl-PL")}{" "}
- {search || totalActiveFilters > 0 ? "wyników" : "w bazie"}
- </span>
  </div>
 
       {/* Panel filtrów — boczna szuflada z całą konfiguracją (Traffit-style).
@@ -2807,7 +2605,7 @@ export function CandidatesListV2() {
                     {skillBuckets.anyGroups.map((group, i) => (
                       <span
                         key={`any-${i}`}
-                        className="inline-flex items-center gap-1 rounded-full bg-info-muted px-2 py-0.5 text-xs text-info-muted-foreground"
+                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-300"
                         title="Którekolwiek (OR)"
                       >
                         {group.join(" lub ")}
@@ -2824,7 +2622,7 @@ export function CandidatesListV2() {
                     {skillBuckets.none.map((s, i) => (
                       <span
                         key={`none-${s}-${i}`}
-                        className="inline-flex items-center gap-1 rounded-full bg-destructive-muted px-2 py-0.5 text-xs text-destructive-muted-foreground"
+                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-300"
                         title="Wyklucz (NOT)"
                       >
                         bez {s}
@@ -2841,7 +2639,7 @@ export function CandidatesListV2() {
                   </div>
                 )}
                 {skillInput.trim() !== skillExpr.trim() && (
-                  <p className="mt-1 text-xs text-warning-muted-foreground">
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
                     Naciśnij Enter, aby zastosować zmiany.
                   </p>
                 )}
@@ -2852,7 +2650,7 @@ export function CandidatesListV2() {
                     const active = recentlyChangedJobs === opt.value;
                     return (
                       <button
-                        key={opt.value ?? "all"}
+                        key={opt.value || "all"}
                         type="button"
                         aria-pressed={active}
                         onClick={() => {
@@ -2862,8 +2660,8 @@ export function CandidatesListV2() {
                         className={cn(
                           "px-2.5 py-1 text-xs rounded-full border transition-colors",
                           active
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
+                            ? "bg-primary text-white border-primary"
+                            : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
                         )}
                       >
                         {opt.label}
@@ -2942,8 +2740,8 @@ export function CandidatesListV2() {
                           className={cn(
                             "px-2.5 py-1 text-xs rounded-full border transition-colors",
                             active
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-card text-foreground border-border hover:bg-accent",
+                              ? "bg-primary text-white border-primary"
+                              : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
                           )}
                         >
                           {opt.label}
@@ -2985,73 +2783,42 @@ export function CandidatesListV2() {
  }}
  />
 
- {listViewState === "refresh-error" && (
- <div
- role="alert"
- className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm"
- >
- <span className="text-destructive">
- Nie udało się odświeżyć wyników. Wyświetlam poprzednie dane.
- </span>
- <Button variant="outline" size="sm" onClick={() => void refetchCandidates()}>
- Spróbuj ponownie
- </Button>
- </div>
- )}
+ {/* Active filter chips */}
+ <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
 
  {/* Data grid (virtualized) */}
- <div
- className={cn(
- "rounded-lg border border-border bg-card",
- effectiveCandidatesView === "list"
- ? "overflow-x-auto overflow-y-hidden"
- : "overflow-hidden",
- )}
- >
+ <div className="rounded-lg border border-border bg-card overflow-hidden">
  {/* Header row (list view only) */}
- {effectiveCandidatesView === "list" && (
+ {candidatesView === "list" && (
  <div
  className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground bg-muted/60 dark:bg-muted/40 border-b border-border border-l-4 border-l-transparent sticky top-0 z-10",
  density === "compact" ?"h-9" :"h-10"
  )}
- style={{ gridTemplateColumns, minWidth: `${gridMinWidth}px` }}
+ style={{ gridTemplateColumns }}
  >
- <div className="sticky left-0 z-20 flex items-center bg-muted/95">
+ <div className="flex items-center">
  <Checkbox
  checked={
- allVisibleSelected
+ items.length > 0 && items.every((i) => selectedIds.has(i.id))
  ? true
- : visibleSelectedCount > 0
+ : selectedIds.size > 0
  ?"indeterminate"
  : false
  }
- onCheckedChange={selectAllVisible}
- aria-label="Zaznacz stronę"
+ onCheckedChange={(v) => (v ? selectAllVisible() : clearSelection())}
+ aria-label="Zaznacz wszystkie"
  />
  </div>
  {visibleColumns.map((col) => (
- <div
- key={col.id}
- className={cn(
- "truncate",
- col.id === "candidate" &&
- "sticky left-16 z-20 -ml-1 bg-muted/95 py-2 pl-1",
- )}
- >
- {col.label}
- </div>
+ <div key={col.id} className="truncate">{col.label}</div>
  ))}
  <div />
  </div>
  )}
 
  {/* Virtualized body — list or tiles */}
- {effectiveCandidatesView === "tiles" ? (
- listViewState === "initial-loading" ? (
- loadingRows
- ) : listViewState === "error" ? (
- queryErrorPanel
- ) : listViewState === "empty" ? (
+ {candidatesView === "tiles" ? (
+ items.length === 0 && !isLoading ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
@@ -3082,19 +2849,14 @@ export function CandidatesListV2() {
  ) : (
  <div
  ref={parentRef}
- data-testid="candidate-list-scroll"
- style={{
- height: "calc(100vh - 340px)",
- minHeight: 360,
- minWidth: `${gridMinWidth}px`,
- }}
- className="overflow-y-auto overflow-x-hidden"
+ style={{ height: "calc(100vh - 340px)", minHeight: 360 }}
+ className="overflow-auto"
  >
- {listViewState === "initial-loading" ? (
- loadingRows
- ) : listViewState === "error" ? (
- queryErrorPanel
- ) : listViewState === "empty" ? (
+ {isLoading ? (
+ <div className="py-16 text-center text-sm text-muted-foreground">
+ Ładowanie kandydatów…
+ </div>
+ ) : items.length === 0 ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
@@ -3119,7 +2881,12 @@ export function CandidatesListV2() {
  const candidate = items[virtualRow.index];
  const fullName =
  `${candidate.name ??""} ${candidate.lastname ??""}`.trim() ||"Kandydat";
- const initials = getCandidateInitials(candidate) || "?";
+ const initials = fullName
+ .split("")
+ .map((w) => w[0])
+ .slice(0, 2)
+ .join("")
+ .toUpperCase();
  const isSelected = selectedIds.has(candidate.id);
  const stats = candidate.match_stats;
  // Highlight rows that newly matched since the last time this saved search
@@ -3141,9 +2908,7 @@ export function CandidatesListV2() {
  return (
  <div
  key={candidate.id}
- data-testid={`candidate-row-${candidate.id}`}
  data-index={virtualRow.index}
- onClick={openDetail}
  style={{
  position: "absolute",
  top: 0,
@@ -3153,11 +2918,11 @@ export function CandidatesListV2() {
  transform: `translateY(${virtualRow.start}px)`,
  }}
  className={cn(
- "flex cursor-pointer flex-col overflow-hidden border-b border-border transition-colors",
+ "flex flex-col overflow-hidden border-b border-border transition-colors",
  "border-l-4 border-l-transparent",
  // Zebra striping: parzysty index = białe tło, nieparzysty = lawendowy tint.
  virtualRow.index % 2 === 0 ? "bg-card" : "bg-muted/30 dark:bg-muted/20",
- isNewMatch && "bg-success-muted/70 border-l-success",
+ isNewMatch && "bg-emerald-50/70 dark:bg-emerald-950/20 border-l-emerald-400",
  "hover:bg-muted/60 hover:border-l-primary/50",
  isSelected && "!bg-primary/10 !border-l-primary"
  )}
@@ -3167,24 +2932,16 @@ export function CandidatesListV2() {
  style={{ gridTemplateColumns, height: `${rowHeight}px` }}
  >
  <div
- className="sticky left-0 z-10 flex items-center self-stretch bg-card/95"
- onClick={(e) => e.stopPropagation()}
+ className="flex items-center"
+ onClick={(e) => {
+ e.stopPropagation();
+ toggleId(candidate.id);
+ }}
  >
- <Checkbox
- checked={isSelected}
- onCheckedChange={() => toggleId(candidate.id)}
- aria-label={`Zaznacz ${fullName}`}
- />
+ <Checkbox checked={isSelected} onCheckedChange={() => toggleId(candidate.id)} />
  </div>
  {visibleColumns.map((col) => (
- <div
- key={col.id}
- className={cn(
- "min-w-0 overflow-hidden",
- col.id === "candidate" &&
- "sticky left-16 z-10 -ml-1 bg-card/95 py-1 pl-1 backdrop-blur-sm",
- )}
- >
+ <div key={col.id} className="min-w-0 overflow-hidden">
  {/* overflow-hidden → grid item ma auto-min-width:0, więc kolumna kurczy
      się do szerokości tracku (minmax(0,fr)) i przycina treść zamiast
      rozpychać siatkę. Dzięki temu cała tabela zawsze mieści się w ekranie —
@@ -3203,14 +2960,12 @@ export function CandidatesListV2() {
  ))}
  <div className="flex justify-end">
  <button
- type="button"
  onClick={(e) => {
  e.stopPropagation();
  setAssignFor({ id: candidate.id, name: fullName });
  }}
  title="Przypisz do oferty"
- aria-label={`Przypisz ${fullName} do oferty`}
- className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+ className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary"
  >
  <Briefcase className="h-3.5 w-3.5" />
  </button>
@@ -3278,7 +3033,7 @@ export function CandidatesListV2() {
 
  {/* Floating BulkActionsBar */}
  {selectedIds.size > 0 && (
- <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 animate-slide-in-bottom items-center gap-3 rounded-xl border border-border bg-card px-4 py-2.5 text-foreground shadow-md">
+ <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 bg-card text-foreground rounded-xl shadow-md border border-white/10 px-4 py-2.5 flex items-center gap-3 animate-slide-in-bottom">
  <span className="text-xs">
  Zaznaczono: <span className="font-bold">{selectedIds.size}</span>
  </span>
@@ -3293,12 +3048,8 @@ export function CandidatesListV2() {
  >
  <GitCompare className="h-3.5 w-3.5" /> Porównaj (max 3)
  </Button>
- <Button
- size="sm"
- variant="ghost"
- onClick={() => doExport("csv", "selected")}
- >
- <Download className="h-3.5 w-3.5" /> Eksportuj zaznaczone ({selectedIds.size})
+ <Button size="sm" variant="ghost" onClick={() => doExport("csv")}>
+ <Download className="h-3.5 w-3.5" /> Eksportuj
  </Button>
  <Button
  size="sm"
@@ -3377,14 +3128,16 @@ export function CandidatesListV2() {
  onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
  />
 
- {/* Side sheet: lightweight candidate quick view. */}
+ {/* Side sheet: candidate detail (embedded) */}
  <Sheet
  open={detailId !== null}
  onOpenChange={(v) => !v && setDetailId(null)}
  >
- <SheetContent side="right" size="xl" className="!p-0" hideClose>
+ <SheetContent side="right" size="2xl" className="!p-0">
  {detailId !== null && (
- <CandidateQuickView
+ <div className="h-full overflow-y-auto p-6">
+ <CandidateDetailV2
+ embedded
  candidateId={detailId}
  onClose={() => setDetailId(null)}
  navigation={{
@@ -3396,10 +3149,7 @@ export function CandidatesListV2() {
  lastname: c.lastname,
  })),
  total,
- // During keepPreviousData the controls already point at the next page while
- // `items` still belong to the previous response. Pass the response page so
- // prev/next never indexes stale rows as if they came from the new page.
- pageNumber: data?.page ?? page,
+ pageNumber: page,
  pageSize,
  onNavigate: ({ candidateId, position }) => {
  setDetailId(candidateId);
@@ -3412,6 +3162,7 @@ export function CandidatesListV2() {
  },
  }}
  />
+ </div>
  )}
  </SheetContent>
  </Sheet>
@@ -3463,7 +3214,7 @@ function BulkAddToPoolModal({
 
  return (
  <div
- className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 p-4"
+ className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
  onClick={onCancel}
  >
  <div

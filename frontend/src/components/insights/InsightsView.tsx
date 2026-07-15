@@ -4,11 +4,7 @@ import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BarChart3, Building2, Briefcase } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  hasAnalyticsCapability,
-  useAuthStore,
-  type AnalyticsCapability,
-} from "@/store/auth";
+import { hasRole, useAuthStore, type UserRole } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { RekrutacjaPanel } from "@/components/insights/RekrutacjaPanel";
 import { KlienciPanel } from "@/components/insights/KlienciPanel";
@@ -20,34 +16,29 @@ type TabDef = {
   id: TabId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  capabilities: AnalyticsCapability[];
+  roles: UserRole[] | null;
 };
 
 const TABS: TabDef[] = [
-  {
-    id: "rekrutacja",
-    label: "Rekrutacja",
-    icon: BarChart3,
-    capabilities: ["view_operational_aggregates"],
-  },
+  { id: "rekrutacja", label: "Rekrutacja", icon: BarChart3, roles: null },
   {
     id: "klienci",
     label: "Klienci & Delivery",
     icon: Building2,
-    capabilities: ["view_client_operations"],
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
   },
   {
     id: "zarzad",
     label: "Zarząd",
     icon: Briefcase,
-    capabilities: ["view_finance", "view_tenders"],
+    roles: ["admin", "delivery_lead", "tac"],
   },
 ];
 
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
 function getDefaultTabForUser(user: AuthUser): TabId {
-  if (hasAnalyticsCapability(user, "view_client_operations")) return "klienci";
+  if (hasRole(user, "admin", "head_of_recruitment")) return "klienci";
   return "rekrutacja";
 }
 
@@ -63,12 +54,7 @@ export function InsightsView() {
   const toast = useToast();
 
   const visibleTabs = useMemo(
-    () =>
-      TABS.filter((tab) =>
-        tab.capabilities.some((capability) =>
-          hasAnalyticsCapability(user, capability)
-        )
-      ),
+    () => TABS.filter((t) => !t.roles || hasRole(user, ...t.roles)),
     [user]
   );
 

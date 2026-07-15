@@ -30,24 +30,10 @@ from app.core.database import AsyncSessionLocal
 logger = logging.getLogger(__name__)
 
 
-def cache_key(
-    *,
-    provider: str,
-    model: str,
-    dimension: int,
-    text_schema: str,
-    input_type: str,
-    text: str,
-) -> str:
-    """Hash the complete vector-space identity and content."""
+def cache_key(model: str, input_type: str, text: str) -> str:
+    """Stable hash so duplicate text on the same model+input_type collides."""
     h = hashlib.sha256()
-    h.update(provider.encode("utf-8"))
-    h.update(b"|")
     h.update(model.encode("utf-8"))
-    h.update(b"|")
-    h.update(str(dimension).encode("ascii"))
-    h.update(b"|")
-    h.update(text_schema.encode("utf-8"))
     h.update(b"|")
     h.update(input_type.encode("utf-8"))
     h.update(b"|")
@@ -67,24 +53,15 @@ def _bytes_to_floats(b: bytes, dim: int) -> list[float]:
 async def get(
     text: str,
     *,
-    provider: str,
     model: str,
     input_type: str,
-    dimension: int,
-    text_schema: str,
+    dim: int,
     db: Optional[AsyncSession] = None,
 ) -> Optional[list[float]]:
     """Look up a cached embedding. Returns None on miss or any failure."""
     if not text:
         return None
-    key = cache_key(
-        provider=provider,
-        model=model,
-        dimension=dimension,
-        text_schema=text_schema,
-        input_type=input_type,
-        text=text,
-    )
+    key = cache_key(model, input_type, text)
     own_session = db is None
     sess = db or AsyncSessionLocal()
     try:
@@ -96,7 +73,7 @@ async def get(
         # row is a Row; index into embedding column.
         embedding_bytes = row[0].embedding
         cached_dim = row[0].dim
-        if cached_dim != dimension:
+        if cached_dim != dim:
             return None
         # Bump hit counter best-effort (don't block).
         try:
@@ -124,23 +101,14 @@ async def store(
     text: str,
     embedding: list[float],
     *,
-    provider: str,
     model: str,
     input_type: str,
-    text_schema: str,
     db: Optional[AsyncSession] = None,
 ) -> None:
     """Best-effort write. Silent failure — cache is an optimization, not truth."""
     if not text or not embedding:
         return
-    key = cache_key(
-        provider=provider,
-        model=model,
-        dimension=len(embedding),
-        text_schema=text_schema,
-        input_type=input_type,
-        text=text,
-    )
+    key = cache_key(model, input_type, text)
     own_session = db is None
     sess = db or AsyncSessionLocal()
     try:
@@ -149,10 +117,8 @@ async def store(
             pg_insert(Cache)
             .values(
                 content_sha256=key,
-                provider=provider,
                 model=model,
                 input_type=input_type,
-                text_schema=text_schema,
                 dim=len(embedding),
                 embedding=_floats_to_bytes(embedding),
             )

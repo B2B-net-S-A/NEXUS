@@ -1,38 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import DOMPurify from "dompurify";
+import { useState } from "react";
 import { Copy, Mail, X } from "lucide-react";
-
-const EMAIL_DRAFT_ALLOWED_TAGS = [
-  "p",
-  "br",
-  "ul",
-  "ol",
-  "li",
-  "strong",
-  "em",
-  "b",
-  "i",
-  "span",
-  "a",
-];
-
-const EMAIL_DRAFT_ALLOWED_ATTR = ["href", "title"];
-
-/**
- * Draft HTML contains candidate/job data and may therefore include persisted
- * user input. Keep the preview deliberately narrower than a general e-mail
- * renderer: no images, inline CSS, embedded media, forms or event handlers.
- */
-export function sanitizeEmailDraftHtml(value: string): string {
-  return DOMPurify.sanitize(value, {
-    ALLOWED_TAGS: EMAIL_DRAFT_ALLOWED_TAGS,
-    ALLOWED_ATTR: EMAIL_DRAFT_ALLOWED_ATTR,
-    ALLOW_DATA_ATTR: false,
-    ALLOW_ARIA_ATTR: false,
-  });
-}
 
 interface Props {
   title: string;
@@ -60,11 +29,6 @@ export function EmailDraftDialog({
   onClose,
 }: Props) {
   const [copied, setCopied] = useState<"text" | "html" | "subject" | null>(null);
-
-  const sanitizedHtmlBody = useMemo(
-    () => (htmlBody ? sanitizeEmailDraftHtml(htmlBody) : ""),
-    [htmlBody],
-  );
 
   const copy = async (kind: "text" | "html" | "subject", value: string) => {
     try {
@@ -133,11 +97,12 @@ export function EmailDraftDialog({
             </div>
           </Field>
 
-          {sanitizedHtmlBody && (
+          {htmlBody && (
             <Field label="Podgląd (HTML)">
               <div
                 className="bg-muted dark:bg-muted border border-border dark:border-border rounded p-3 max-h-72 overflow-y-auto"
-                dangerouslySetInnerHTML={{ __html: sanitizedHtmlBody }}
+                // eslint-disable-next-line react/no-danger
+                dangerouslySetInnerHTML={{ __html: htmlBody }}
               />
             </Field>
           )}

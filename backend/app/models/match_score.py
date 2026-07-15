@@ -15,7 +15,6 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     PrimaryKeyConstraint,
-    String,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -40,21 +39,6 @@ class CandidateJobMatchScore(Base):
     # 0 = built-in DEFAULT_PROFILE (no row in scoring_weight_profiles);
     # >0 = id of a custom profile.
     profile_id: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    profile_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="1"
-    )
-    scoring_algorithm_version: Mapped[str] = mapped_column(
-        String(40), nullable=False, server_default="legacy"
-    )
-    index_version: Mapped[str] = mapped_column(
-        String(255), nullable=False, server_default="legacy"
-    )
-    candidate_source_hash: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default="legacy"
-    )
-    job_source_hash: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default="legacy"
-    )
     job_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("jobs.id", ondelete="CASCADE"),

@@ -16,12 +16,12 @@ shadcn UI) działa zanim zaczniemy migrować konkretne dashboardy
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.api.deps import CurrentUser, require_dynareporter_access
+from app.api.deps import CurrentUser
 from app.schemas.dynareporter_profile import DynaReporterProfileResponse
 
-router = APIRouter(dependencies=[Depends(require_dynareporter_access)])
+router = APIRouter()
 
 
 @router.get(

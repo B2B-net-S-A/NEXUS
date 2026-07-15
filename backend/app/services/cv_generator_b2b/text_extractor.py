@@ -41,10 +41,7 @@ def _extract_pdf_pdftotext(data: bytes) -> str | None:
             )
             return result.stdout.decode("utf-8", errors="replace")
         except subprocess.CalledProcessError as err:
-            logger.warning(
-                "[cv_b2b] pdftotext failed error_type=%s; falling back",
-                type(err).__name__,
-            )
+            logger.warning("[cv_b2b] pdftotext failed (%s); falling back", err)
             return None
 
 
@@ -85,7 +82,7 @@ def _extract_pdf_ocr(data: bytes) -> str | None:
                 out.append(txt)
         return "\n\n".join(out) if out else ""
     except Exception as err:  # pragma: no cover — system tesseract may be missing
-        logger.warning("[cv_b2b] OCR fallback failed error_type=%s", type(err).__name__)
+        logger.warning("[cv_b2b] OCR fallback failed: %s", err)
         return None
 
 
@@ -128,8 +125,9 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
                 text = _extract_pdf_pdfplumber(data)
             except Exception as err:  # corrupt-ish PDF — OCR may still read it
                 logger.warning(
-                    "[cv_b2b] pdfplumber failed error_type=%s; trying OCR",
-                    type(err).__name__,
+                    "[cv_b2b] pdfplumber failed on %s: %s — trying OCR",
+                    file_name,
+                    err,
                 )
                 text = ""
         # Scanned / image-only PDFs yield (near-)empty text from both native
@@ -137,7 +135,10 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
         if len((text or "").strip()) < _OCR_FALLBACK_THRESHOLD_CHARS:
             ocr = _extract_pdf_ocr(data)
             if ocr and len(ocr.strip()) > len((text or "").strip()):
-                logger.info("[cv_b2b] native PDF extraction near-empty, using OCR")
+                logger.info(
+                    "[cv_b2b] %s: native PDF extraction near-empty, using OCR",
+                    file_name,
+                )
                 text = ocr
     elif ext in (".docx", ".doc"):
         text = _extract_docx(data)

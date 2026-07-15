@@ -1,75 +1,67 @@
-"use client"
+"use client";
 
-import { useQuery } from "@tanstack/react-query"
-import { TrendingUp } from "lucide-react"
+import { useQuery } from "@tanstack/react-query";
+import { TrendingUp, Loader2 } from "lucide-react";
+import { phase3Api } from "@/lib/api";
 
-import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary"
-import { analyticsApi } from "@/lib/analytics"
-
-import type { Period } from "./PeriodSelector"
-
-const PERIOD_MAP: Record<Period, "day" | "week" | "month" | "quarter"> = {
-  today: "day",
-  week: "week",
-  month: "month",
-  quarter: "quarter",
+interface FunnelRow {
+  stage_def_id: number;
+  stage_name: string;
+  category: string;
+  is_terminal: boolean;
+  count: number;
+  conversion_pct: number | null;
 }
 
-export function FunnelSection({ period }: { period: Period }) {
-  const analyticsPeriod = PERIOD_MAP[period]
-  const query = useQuery({
-    queryKey: ["analytics-v1", "recruitment", "funnel", analyticsPeriod, "insights"],
-    queryFn: () => analyticsApi.recruitmentFunnel(analyticsPeriod),
-    staleTime: 5 * 60_000,
-  })
-  const data = query.data?.data
-  const stages = data
-    ? [
-        ["Weryfikacje", data.verified],
-        ["Rekomendacje", data.recommended],
-        ["Interview wewnętrzny", data.internal_interview],
-        ["Interview klienta", data.client_interview],
-        ["Placementy", data.placed],
-      ] as const
-    : []
-  const max = Math.max(...stages.map(([, count]) => count), 1)
+export function FunnelSection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["insights-funnel"],
+    queryFn: () => phase3Api.funnel().then((r) => r.data as { funnel: FunnelRow[] }),
+  });
+
+  const funnel = data?.funnel ?? [];
+  const maxCount = funnel.length ? Math.max(...funnel.map((f) => f.count), 1) : 1;
 
   return (
-    <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-      <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
-        <TrendingUp className="h-5 w-5 text-primary" />
+    <section className="bg-card rounded-xl border border-border p-6 shadow-sm">
+      <h2 className="text-base font-semibold text-foreground flex items-center gap-2 mb-4">
+        <TrendingUp className="w-5 h-5 text-primary" />
         Lejek rekrutacyjny
-        <span className="ml-auto text-xs font-normal text-muted-foreground">
-          pierwszy milestone kandydat × oferta
+        <span className="ml-auto text-xs text-muted-foreground font-normal">
+          Unikalni kandydaci na etap
         </span>
       </h2>
-      <StatsBoundary
-        isLoading={query.isLoading}
-        isFetching={query.isFetching && !query.isLoading}
-        isError={query.isError}
-        error={query.error}
-        isEmpty={!query.data}
-        quality={query.data?.quality}
-        generatedAt={query.data?.generated_at}
-        onRetry={() => query.refetch()}
-      >
-        <div className="space-y-3">
-          {stages.map(([label, count]) => (
-            <div key={label} className="flex items-center gap-3">
-              <span className="w-40 truncate text-sm text-foreground">{label}</span>
-              <div className="h-5 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary"
-                  style={{ width: `${Math.max(2, (count / max) * 100)}%` }}
-                />
-              </div>
-              <span className="w-12 text-right text-sm font-medium tabular-nums text-foreground">
-                {count}
-              </span>
-            </div>
-          ))}
+
+      {isLoading ? (
+        <div className="py-8 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
-      </StatsBoundary>
+      ) : funnel.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">Brak danych.</p>
+      ) : (
+        <div className="space-y-2">
+          {funnel.map((f) => {
+            const w = Math.max(2, (f.count / maxCount) * 100);
+            return (
+              <div key={f.stage_def_id} className="flex items-center gap-3">
+                <span className="w-40 text-sm text-foreground truncate">{f.stage_name}</span>
+                <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={f.is_terminal ? "h-full bg-slate-400" : "h-full bg-primary"}
+                    style={{ width: `${w}%` }}
+                  />
+                </div>
+                <span className="w-12 text-sm text-foreground text-right font-medium">
+                  {f.count}
+                </span>
+                <span className="w-16 text-xs text-muted-foreground text-right">
+                  {f.conversion_pct !== null ? `${f.conversion_pct}%` : "—"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
-  )
+  );
 }

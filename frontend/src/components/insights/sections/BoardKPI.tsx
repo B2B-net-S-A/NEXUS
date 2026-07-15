@@ -1,132 +1,228 @@
-"use client"
+"use client";
 
-import { useQuery } from "@tanstack/react-query"
-import { Briefcase, CircleDollarSign, Target, Trophy, Users } from "lucide-react"
+import { useQuery } from "@tanstack/react-query";
+import {
+  BarChart3,
+  Briefcase,
+  DollarSign,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Trophy,
+  Users,
+} from "lucide-react";
+import { reportsApi } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { formatPLN, KpiCard, LoadingSpinner } from "./_shared";
 
-import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary"
-import { analyticsApi } from "@/lib/analytics"
-
-import type { Period } from "./PeriodSelector"
-
-const PERIOD_MAP: Record<Period, "day" | "week" | "month" | "quarter"> = {
-  today: "day",
-  week: "week",
-  month: "month",
-  quarter: "quarter",
+interface BoardData {
+  recruitment: { placements_ytd: number; funnel_efficiency_avg: number };
+  sales: { revenue_ytd: number; margin_ytd: number; active_consultants: number };
+  delivery: { avg_hit_ratio: number; top_dl: string };
+  tenders: { total: number; win_rate: number };
+  headcount: { total_users: number; total_candidates: number };
+  trends: Array<{
+    month: string;
+    month_label: string;
+    placements: number;
+    revenue: number;
+    consultants: number;
+  }>;
 }
 
-function pln(value: string | null): string {
-  if (value == null) return "—"
-  const parsed = Number(value)
-  return Number.isFinite(parsed)
-    ? new Intl.NumberFormat("pl-PL", {
-        style: "currency",
-        currency: "PLN",
-        maximumFractionDigits: 0,
-      }).format(parsed)
-    : `${value} PLN`
-}
+export function BoardKPI() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["insights-board"],
+    queryFn: () => reportsApi.board().then((r) => r.data as BoardData),
+  });
 
-function Metric({
-  label,
-  value,
-  icon: Icon,
-  detail,
-}: {
-  label: string
-  value: React.ReactNode
-  icon: React.ComponentType<{ className?: string }>
-  detail?: string
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <Icon className="h-4 w-4 text-primary" />
-        {label}
-      </div>
-      <div className="mt-2 text-2xl font-bold text-foreground">{value}</div>
-      {detail && <div className="mt-1 text-xs text-muted-foreground">{detail}</div>}
-    </div>
-  )
-}
+  if (isLoading) return <LoadingSpinner />;
+  if (!data) return null;
 
-export function BoardKPI({ period }: { period: Period }) {
-  const analyticsPeriod = PERIOD_MAP[period]
-  const query = useQuery({
-    queryKey: ["analytics-v1", "executive", "board", analyticsPeriod],
-    queryFn: () => analyticsApi.executiveBoard(analyticsPeriod),
-    staleTime: 5 * 60_000,
-  })
+  const marginPct =
+    data.sales.revenue_ytd > 0
+      ? Math.round((data.sales.margin_ytd / data.sales.revenue_ytd) * 100)
+      : 0;
 
-  const board = query.data?.data
+  const maxRevenue = Math.max(...data.trends.map((t) => t.revenue), 1);
+  const maxPlacements = Math.max(...data.trends.map((t) => t.placements), 1);
+
+  const lastTwo = data.trends.slice(-2);
+  const momRevenue =
+    lastTwo.length === 2 && lastTwo[0].revenue > 0
+      ? Math.round(((lastTwo[1].revenue - lastTwo[0].revenue) / lastTwo[0].revenue) * 100)
+      : 0;
+  const momPlacements =
+    lastTwo.length === 2 && lastTwo[0].placements > 0
+      ? Math.round(((lastTwo[1].placements - lastTwo[0].placements) / lastTwo[0].placements) * 100)
+      : 0;
 
   return (
     <section className="space-y-4">
-      <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
-        <Trophy className="h-5 w-5 text-primary" />
-        Board KPI
-        <span className="ml-auto text-xs font-normal text-muted-foreground">
-          PLN · Europe/Warsaw
-        </span>
+      <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+        <Trophy className="w-5 h-5 text-amber-500" />
+        Board KPI — YTD
       </h2>
-      <StatsBoundary
-        isLoading={query.isLoading}
-        isFetching={query.isFetching && !query.isLoading}
-        isError={query.isError}
-        error={query.error}
-        isEmpty={!query.data}
-        quality={query.data?.quality}
-        generatedAt={query.data?.generated_at}
-        onRetry={() => query.refetch()}
-      >
-        {board && (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-            <Metric
-              label="Placementy"
-              value={board.overview.pipeline.placements}
-              icon={Users}
-            />
-            <Metric
-              label="Aktywne kontrakty"
-              value={board.overview.contracts.active}
-              detail={`${board.overview.contracts.expiring_30_days} wygasa w 30 dni`}
-              icon={Briefcase}
-            />
-            <Metric
-              label="Przychód"
-              value={pln(board.finance.totals.revenue)}
-              detail="po konwersji NBP"
-              icon={CircleDollarSign}
-            />
-            <Metric
-              label="Marża"
-              value={pln(board.finance.totals.margin)}
-              detail={
-                board.finance.totals.margin_pct == null
-                  ? "brak wiarygodnego mianownika"
-                  : `${board.finance.totals.margin_pct.toFixed(1)}% przychodu`
-              }
-              icon={Target}
-            />
-            <Metric
-              label="Przetargi"
-              value={board.tenders.total}
-              detail={`${board.tenders.unknown} bez wyniku`}
-              icon={Trophy}
-            />
-            <Metric
-              label="Win rate"
-              value={
-                board.tenders.win_rate_pct == null
-                  ? "—"
-                  : `${board.tenders.win_rate_pct.toFixed(1)}%`
-              }
-              detail={`${board.tenders.won} wygranych · ${board.tenders.lost} przegranych`}
-              icon={Target}
-            />
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <KpiCard
+          label="Placements YTD"
+          value={data.recruitment.placements_ytd}
+          sub={`Efektywność lejka: ${data.recruitment.funnel_efficiency_avg}%`}
+          icon={Users}
+          color="blue"
+          trend="up"
+        />
+        <KpiCard
+          label="Przychód MRR"
+          value={formatPLN(data.sales.revenue_ytd)}
+          sub={`Marża: ${marginPct}%`}
+          icon={DollarSign}
+          color="green"
+          trend={momRevenue >= 0 ? "up" : "down"}
+        />
+        <KpiCard
+          label="Aktywni konsultanci"
+          value={data.sales.active_consultants}
+          icon={Briefcase}
+          color="purple"
+        />
+        <KpiCard
+          label="Avg. hit ratio"
+          value={`${data.delivery.avg_hit_ratio}%`}
+          sub={`Top DL: ${data.delivery.top_dl}`}
+          icon={Target}
+          color="indigo"
+        />
+        <KpiCard
+          label="Przetargi — win rate"
+          value={`${data.tenders.win_rate}%`}
+          sub={`Łącznie: ${data.tenders.total}`}
+          icon={Trophy}
+          color="orange"
+        />
+        <KpiCard
+          label="Kandydaci w bazie"
+          value={data.headcount.total_candidates.toLocaleString("pl-PL")}
+          sub={`${data.headcount.total_users} użytkowników`}
+          icon={BarChart3}
+          color="blue"
+        />
+      </div>
+
+      {lastTwo.length === 2 && (
+        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+          <h3 className="text-sm font-semibold text-foreground mb-4">
+            Porównanie miesiąc do miesiąca
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              {
+                label: "Przychód",
+                prev: lastTwo[0].revenue,
+                curr: lastTwo[1].revenue,
+                format: formatPLN,
+                mom: momRevenue,
+              },
+              {
+                label: "Placements",
+                prev: lastTwo[0].placements,
+                curr: lastTwo[1].placements,
+                format: (v: number) => String(v),
+                mom: momPlacements,
+              },
+              {
+                label: "Konsultanci",
+                prev: lastTwo[0].consultants,
+                curr: lastTwo[1].consultants,
+                format: (v: number) => String(v),
+                mom:
+                  lastTwo[0].consultants > 0
+                    ? Math.round(
+                        ((lastTwo[1].consultants - lastTwo[0].consultants) /
+                          lastTwo[0].consultants) *
+                          100
+                      )
+                    : 0,
+              },
+            ].map((item) => (
+              <div key={item.label} className="bg-muted/50 rounded-lg p-4">
+                <div className="text-xs text-muted-foreground mb-1">{item.label}</div>
+                <div className="text-xl font-bold text-foreground">{item.format(item.curr)}</div>
+                <div className="flex items-center gap-1 mt-1">
+                  {item.mom > 0 ? (
+                    <TrendingUp className="w-3 h-3 text-green-500" />
+                  ) : item.mom < 0 ? (
+                    <TrendingDown className="w-3 h-3 text-red-400" />
+                  ) : null}
+                  <span
+                    className={cn(
+                      "text-xs font-medium",
+                      item.mom > 0
+                        ? "text-green-600"
+                        : item.mom < 0
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {item.mom > 0 ? "+" : ""}
+                    {item.mom}% vs poprzedni miesiąc
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Poprzednio: {item.format(item.prev)}
+                </div>
+              </div>
+            ))}
           </div>
-        )}
-      </StatsBoundary>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc — przychód</h3>
+          <div className="flex items-end gap-1 h-32">
+            {data.trends.map((t) => (
+              <div key={t.month} className="flex-1 flex flex-col items-center gap-1">
+                <div
+                  className="w-full bg-primary rounded-t opacity-80 hover:opacity-100 transition-opacity cursor-help"
+                  style={{ height: `${(t.revenue / maxRevenue) * 100}%` }}
+                  title={`${t.month_label}: ${formatPLN(t.revenue)}`}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-1 mt-1">
+            {data.trends.map((t) => (
+              <div key={t.month} className="flex-1 text-center">
+                <span className="text-[9px] text-muted-foreground">{t.month_label.slice(0, 3)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc — placements</h3>
+          <div className="flex items-end gap-1 h-32">
+            {data.trends.map((t) => (
+              <div key={t.month} className="flex-1 flex flex-col items-center gap-1">
+                <div
+                  className="w-full bg-green-500 rounded-t opacity-80 hover:opacity-100 transition-opacity cursor-help"
+                  style={{ height: `${(t.placements / maxPlacements) * 100}%` }}
+                  title={`${t.month_label}: ${t.placements}`}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-1 mt-1">
+            {data.trends.map((t) => (
+              <div key={t.month} className="flex-1 text-center">
+                <span className="text-[9px] text-muted-foreground">{t.month_label.slice(0, 3)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </section>
-  )
+  );
 }

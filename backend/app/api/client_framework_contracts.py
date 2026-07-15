@@ -1,7 +1,8 @@
 """Router `/api/clients/{client_id}/framework-contracts` — MSA per klient.
 
-Reads require explicit operational client scope. File reads and writes require
-financial access (admin or assigned Delivery Lead).
+Reads (GET) — `CurrentUser` (każdy zalogowany).
+Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin/HoR globalnie albo
+DL przypisany do klienta).
 
 Pattern multipart upload — zaczerpnięte z `client_materials.py` (one-pagers).
 """
@@ -27,10 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     CurrentUser,
-    FinancialDlAssignedOrAdmin,
+    DlAssignedOrAdmin,
 )
-from app.analytics.scope import require_client_scope
-from app.api.financial_access import require_financial_access
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -129,12 +128,10 @@ async def _to_read(
 )
 async def list_framework_contracts(
     client_id: int,
-    user: CurrentUser,
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[FrameworkContractStatus] = None,
 ):
-    require_financial_access(user)
-    await require_client_scope(db, user=user, client_id=client_id, finance=True)
     await _assert_client(db, client_id)
     stmt = select(ClientFrameworkContract).where(
         ClientFrameworkContract.client_id == client_id
@@ -154,11 +151,9 @@ async def list_framework_contracts(
 async def get_framework_contract(
     client_id: int,
     fc_id: int,
-    user: CurrentUser,
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    require_financial_access(user)
-    await require_client_scope(db, user=user, client_id=client_id, finance=True)
     await _assert_client(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
@@ -181,7 +176,7 @@ async def get_framework_contract(
 )
 async def create_framework_contract(
     client_id: int,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     name: str = Form(...),
@@ -194,7 +189,6 @@ async def create_framework_contract(
     contract_terms_id: Optional[int] = Form(None),
     notes: Optional[str] = Form(None),
 ):
-    require_financial_access(user)
     await _assert_client(db, client_id)
 
     relative_path = None
@@ -259,10 +253,9 @@ async def update_framework_contract(
     client_id: int,
     fc_id: int,
     payload: ClientFrameworkContractUpdate,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    require_financial_access(user)
     await _assert_client(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
@@ -298,11 +291,10 @@ async def update_framework_contract(
 async def delete_framework_contract(
     client_id: int,
     fc_id: int,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete: status → `superseded`. Hard delete tylko gdy `draft`."""
-    require_financial_access(user)
     await _assert_client(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
@@ -342,11 +334,10 @@ async def delete_framework_contract(
 async def replace_framework_contract_file(
     client_id: int,
     fc_id: int,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
-    require_financial_access(user)
     await _assert_client(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
@@ -390,7 +381,7 @@ async def send_framework_contract_to_autenti(
     client_id: int,
     fc_id: int,
     payload: ClientDocSendRequest,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
@@ -399,7 +390,6 @@ async def send_framework_contract_to_autenti(
     Tworzy `DocumentSignature` row, ustawia FC status na `pending_signature`,
     schedules background `send_pdf_to_autenti` (PDF już istnieje na storage).
     """
-    require_financial_access(user)
     from app.services.autenti.client_contracts_sender import (
         prepare_send_framework_contract,
         send_pdf_to_autenti,
@@ -426,11 +416,9 @@ async def send_framework_contract_to_autenti(
 async def download_framework_contract(
     client_id: int,
     fc_id: int,
-    user: CurrentUser,
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    require_financial_access(user)
-    await require_client_scope(db, user=user, client_id=client_id, finance=True)
     await _assert_client(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(

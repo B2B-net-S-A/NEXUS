@@ -2,25 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   formatCandidateLocation,
   getCurrentCompany,
-  getCandidateInitials,
   getCurrentTitle,
   getExperienceLabel,
   getSkillList,
   getTagName,
 } from "@/components/v2/pages/candidate-list-helpers";
-
-describe("getCandidateInitials", () => {
-  it("uses first name and last name rather than two given-name words", () => {
-    expect(
-      getCandidateInitials({ name: "Jan Adam", lastname: "Kowalski" }),
-    ).toBe("JK");
-  });
-
-  it("handles a missing side without inventing a letter", () => {
-    expect(getCandidateInitials({ name: "Anna", lastname: null })).toBe("A");
-    expect(getCandidateInitials({ name: null, lastname: "Nowak" })).toBe("N");
-  });
-});
 
 describe("getCurrentTitle", () => {
   it("prefers linkedin_current_title when present", () => {

@@ -13,8 +13,9 @@ Two review actions finalise the suggestion:
 
 Design notes
 ------------
-* All model calls go through the central AI gateway. Chunk extraction and
-  synthesis are distinct versioned route modes.
+* All LLM calls go through :func:`_call_claude_json`, which mirrors the pattern
+  in `app/api/ai_writer.py::_generate_with_claude` but is generic (caller
+  supplies prompt + system prompt + model).
 * LLM output is validated against `ChampionProfile` schema — hallucinated
   fields raise ValidationError and the suggestion is persisted with
   `status=rejected` and `error_message` set so the UI can display the failure.
@@ -24,20 +25,19 @@ Design notes
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
+import time
 from typing import Any, Iterable, Optional
 
 from fastapi import HTTPException, status as http_status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai import AIRequest, ai_gateway
 from app.models.activity import Activity
-from app.models.ai_feature import AIFeatureKey
 from app.models.champion_suggestion import (
     ChampionProfileSuggestion,
     SuggestionSource,
@@ -74,11 +74,20 @@ from app.services.llm_prompts import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "registry:champion_profile:synthesis"
+DEFAULT_MODEL = os.environ.get("CHAMPION_AI_MODEL", "claude-sonnet-5")
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("CHAMPION_AI_MAX_TRANSCRIPT_CHARS", "40000"))
 
 
 # ── LLM plumbing ────────────────────────────────────────────────────────────
+
+
+def _strip_code_fences(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return raw.strip()
 
 
 async def _call_claude_json(
@@ -87,37 +96,61 @@ async def _call_claude_json(
     system_prompt: str,
     model: str = DEFAULT_MODEL,
     max_tokens: int = 4000,
-    user_id: Optional[int] = None,
-    client_id: Optional[int] = None,
-    job_id: Optional[int] = None,
 ) -> dict[str, Any]:
-    """Compatibility helper backed by the versioned synthesis route."""
-    del model, max_tokens
+    """Call Claude and parse JSON output. Raises on any failure.
 
-    def validate_dict(value: object) -> dict[str, Any]:
-        if not isinstance(value, dict):
-            raise ValueError("Champion response must be an object")
-        return value
+    Logs (without prompt content):  prompt token counts, latency, status.
+    """
+    import anthropic  # local import: avoid cost of import at module load
 
-    result = await ai_gateway.call(
-        AIRequest(
-            feature=AIFeatureKey.champion_profile,
-            mode="synthesis",
-            user_id=user_id,
-            client_id=client_id,
-            subject_type="job" if job_id is not None else "champion_draft",
-            subject_id=job_id,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            prompt_version="champion_synthesis_v2",
-            schema_version="champion_payload_v2",
-            structured_validator=validate_dict,
-            pii=True,
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    started = time.time()
+    # Sync Anthropic SDK — offload the multi-second LLM round-trip so it does
+    # not block the single-worker event loop. This helper is shared by the
+    # champion-draft request handlers and the CloudTalk webhook.
+    message = await run_in_threadpool(
+        client.messages.create,
+        model=model,
+        max_tokens=max_tokens,
+        # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+        # tokens count toward max_tokens and would truncate this JSON output.
+        thinking={"type": "disabled"},
+        system=system_prompt,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    latency_ms = int((time.time() - started) * 1000)
+
+    # Claude 5 models can lead with a non-text block (e.g. a thinking block),
+    # so content[0].text may be absent/empty — collect every text block.
+    raw = _strip_code_fences(
+        "".join(
+            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
         )
     )
-    return result.content
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "champion_draft: LLM returned invalid JSON (model=%s latency=%dms)",
+            model,
+            latency_ms,
+        )
+        raise ValueError(f"Invalid JSON from LLM: {exc}") from exc
+
+    usage = getattr(message, "usage", None)
+    logger.info(
+        "champion_draft: llm_call model=%s latency_ms=%d input_tokens=%s output_tokens=%s",
+        model,
+        latency_ms,
+        getattr(usage, "input_tokens", "?"),
+        getattr(usage, "output_tokens", "?"),
+    )
+    return parsed
 
 
 def _truncate_transcript(text: str, limit: int = MAX_TRANSCRIPT_CHARS) -> str:
@@ -171,12 +204,33 @@ _CHUNK_SYSTEM_PROMPT = (
 )
 
 
+def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
+    """Sync chunk summary. Wrapped in `asyncio.to_thread` by the async caller —
+    matches the sync `anthropic.Anthropic` pattern used by `_call_claude_json`."""
+    import anthropic  # noqa: PLC0415
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model=model,
+        max_tokens=1500,
+        # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+        # tokens count toward max_tokens and would truncate this summary.
+        thinking={"type": "disabled"},
+        system=_CHUNK_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": chunk}],
+    )
+    parts: list[str] = []
+    for block in getattr(message, "content", []) or []:
+        if getattr(block, "type", None) == "text":
+            parts.append(block.text or "")
+    return "\n".join(p for p in parts if p.strip())
+
+
 async def _summarize_transcript_for_champion(
-    transcript: str,
-    *,
-    user_id: Optional[int] = None,
-    client_id: Optional[int] = None,
-    job_id: Optional[int] = None,
+    transcript: str, *, summarize_model: str = "claude-sonnet-5"
 ) -> str:
     """Map-reduce: chunk → per-chunk summary → concat.
 
@@ -184,46 +238,33 @@ async def _summarize_transcript_for_champion(
     than MAX_TRANSCRIPT_CHARS don't lose context past the legacy hard cutoff.
     Short transcripts return verbatim — same output shape as the legacy path.
 
-    The route registry selects Haiku for chunks in ``v2_tiered`` and Sonnet
-    for final synthesis. No provider switch is hidden here.
+    Uses Claude Sonnet 5 for the per-chunk extraction; the merged
+    output is then fed into the existing Champion prompt template.
     """
+    import asyncio as _asyncio  # noqa: PLC0415 — local rename, avoid shadowing top import
+
     if len(transcript) <= MAX_TRANSCRIPT_CHARS:
         return transcript
     chunks = _split_transcript_into_chunks(transcript)
     logger.info(
-        "champion_draft: transcript len=%d -> %d chunks (map-reduce)",
+        "champion_draft: transcript len=%d -> %d chunks (map-reduce, model=%s)",
         len(transcript),
         len(chunks),
+        summarize_model,
     )
     summaries: list[str] = []
     for i, chunk in enumerate(chunks):
         try:
-            result = await ai_gateway.call(
-                AIRequest(
-                    feature=AIFeatureKey.champion_profile,
-                    mode="chunk",
-                    user_id=user_id,
-                    client_id=client_id,
-                    subject_type="job" if job_id is not None else "champion_chunk",
-                    subject_id=job_id,
-                    messages=[
-                        {"role": "system", "content": _CHUNK_SYSTEM_PROMPT},
-                        {"role": "user", "content": chunk},
-                    ],
-                    prompt_version="champion_chunk_v2",
-                    schema_version="text_v1",
-                    pii=True,
-                )
+            s = await _asyncio.to_thread(
+                _summarize_chunk_sync, chunk, model=summarize_model
             )
-            s = str(result.content).strip()
             summaries.append(f"[Część {i + 1}/{len(chunks)}]\n{s}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             logger.warning(
-                "champion_draft: chunk %d/%d summary failed error_type=%s; "
-                "including bounded source slice",
+                "champion_draft: chunk %d/%d summary failed: %s — including raw slice",
                 i + 1,
                 len(chunks),
-                type(exc).__name__,
+                e,
             )
             summaries.append(
                 f"[Część {i + 1}/{len(chunks)} — surowy fragment]\n{chunk[:5000]}"
@@ -270,64 +311,6 @@ async def _supersede_previous_pending(
         prev.status = SuggestionStatus.superseded
 
 
-_CHAMPION_SCHEMA_VERSION = "champion_payload_v2"
-
-
-def _source_fingerprint(source_text: str, prompt_version: int) -> str:
-    raw = f"{prompt_version}:{_CHAMPION_SCHEMA_VERSION}:{source_text}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _attach_source_metadata(
-    payload: dict[str, Any],
-    *,
-    source_type: SuggestionSource,
-    source_ref: Optional[str],
-    source_hash: str,
-    prompt_version: int,
-) -> dict[str, Any]:
-    """Attach auditable provenance to every proposed Champion section."""
-    source = {
-        "source_type": source_type.value,
-        "source_ref": source_ref,
-        "source_hash": source_hash,
-    }
-    for section in VALID_SECTIONS:
-        entry = payload.get(section)
-        if isinstance(entry, dict) and entry.get("value") is not None:
-            entry["sources"] = [source]
-    payload["_meta"] = {
-        "source_hash": source_hash,
-        "prompt_version": prompt_version,
-        "schema_version": _CHAMPION_SCHEMA_VERSION,
-    }
-    return payload
-
-
-async def _cached_pending_suggestion(
-    db: AsyncSession,
-    *,
-    job_id: int,
-    source_type: SuggestionSource,
-    source_hash: str,
-) -> Optional[ChampionProfileSuggestion]:
-    rows = await db.scalars(
-        select(ChampionProfileSuggestion)
-        .where(
-            ChampionProfileSuggestion.job_id == job_id,
-            ChampionProfileSuggestion.source_type == source_type,
-            ChampionProfileSuggestion.status == SuggestionStatus.pending,
-        )
-        .order_by(ChampionProfileSuggestion.id.desc())
-        .limit(10)
-    )
-    for row in rows:
-        meta = (row.payload or {}).get("_meta")
-        if isinstance(meta, dict) and meta.get("source_hash") == source_hash:
-            return row
-    return None
-
-
 async def generate_from_jd(
     db: AsyncSession,
     *,
@@ -354,15 +337,6 @@ async def generate_from_jd(
         client_name=client_name,
         raw_description=raw_description,
     )
-    source_hash = _source_fingerprint(raw_description, CHAMPION_PROFILE_FROM_JD.version)
-    cached = await _cached_pending_suggestion(
-        db,
-        job_id=job_id,
-        source_type=SuggestionSource.jd_paste,
-        source_hash=source_hash,
-    )
-    if cached is not None:
-        return cached
 
     await _supersede_previous_pending(
         db, job_id=job_id, source_type=SuggestionSource.jd_paste
@@ -378,36 +352,21 @@ async def generate_from_jd(
         raw = await _call_claude_json(
             prompt=prompt,
             system_prompt=CHAMPION_PROFILE_FROM_JD.system_prompt or "",
-            user_id=user_id,
-            client_id=job.client_id,
-            job_id=job_id,
         )
         confidence = raw.pop("_confidence", {}) or {}
         profile = ChampionProfile.model_validate(raw)
         payload = payload_from_profile(profile, confidence=confidence)
-        payload = _attach_source_metadata(
-            payload,
-            source_type=SuggestionSource.jd_paste,
-            source_ref=None,
-            source_hash=source_hash,
-            prompt_version=CHAMPION_PROFILE_FROM_JD.version,
-        )
     except ValidationError as exc:
         logger.warning(
-            "champion_draft: ChampionProfile validation failed for job=%s "
-            "error_type=%s",
+            "champion_draft: ChampionProfile validation failed for job %s: %s",
             job_id,
-            type(exc).__name__,
+            exc,
         )
-        error_message = "Walidacja schematu nie powiodła się."
+        error_message = f"Walidacja schematu nie powiodła się: {exc}"
         status_val = SuggestionStatus.rejected
     except Exception as exc:  # noqa: BLE001 — broad catch is intentional here
-        logger.warning(
-            "champion_draft: generate_from_jd failed job=%s error_type=%s",
-            job_id,
-            type(exc).__name__,
-        )
-        error_message = "Błąd generowania profilu."
+        logger.warning("champion_draft: generate_from_jd failed: %s", exc)
+        error_message = f"Błąd generowania: {exc}"
         status_val = SuggestionStatus.rejected
 
     suggestion = ChampionProfileSuggestion(
@@ -436,7 +395,6 @@ async def _generate_enrichment_suggestion(
     source_type: SuggestionSource,
     source_ref: Optional[str],
     user_id: Optional[int],
-    client_id: Optional[int],
 ) -> ChampionProfileSuggestion:
     """Shared path for Fireflies / CloudTalk enrichment.
 
@@ -445,16 +403,6 @@ async def _generate_enrichment_suggestion(
     that the LLM actually touched.
     """
     prompt = template.render(**template_vars)
-    source_hash = _source_fingerprint(prompt, template.version)
-    cached = await _cached_pending_suggestion(
-        db,
-        job_id=job_id,
-        source_type=source_type,
-        source_hash=source_hash,
-    )
-    if cached is not None:
-        return cached
-    await _supersede_previous_pending(db, job_id=job_id, source_type=source_type)
     status_val: SuggestionStatus = SuggestionStatus.pending
     error_message: Optional[str] = None
     payload: dict[str, Any] = {}
@@ -463,9 +411,6 @@ async def _generate_enrichment_suggestion(
         raw = await _call_claude_json(
             prompt=prompt,
             system_prompt=template.system_prompt or "",
-            user_id=user_id,
-            client_id=client_id,
-            job_id=job_id,
         )
         payload = {}
         for section in VALID_SECTIONS:
@@ -489,29 +434,13 @@ async def _generate_enrichment_suggestion(
             )
             status_val = SuggestionStatus.rejected
             error_message = "LLM nie zaproponował żadnych zmian."
-        else:
-            payload = _attach_source_metadata(
-                payload,
-                source_type=source_type,
-                source_ref=source_ref,
-                source_hash=source_hash,
-                prompt_version=template.version,
-            )
     except ValidationError as exc:
-        logger.warning(
-            "champion_draft: enrichment validation failed job=%s error_type=%s",
-            job_id,
-            type(exc).__name__,
-        )
-        error_message = "Walidacja schematu nie powiodła się."
+        logger.warning("champion_draft: enrichment validation failed: %s", exc)
+        error_message = f"Walidacja schematu: {exc}"
         status_val = SuggestionStatus.rejected
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "champion_draft: enrichment call failed job=%s error_type=%s",
-            job_id,
-            type(exc).__name__,
-        )
-        error_message = "Błąd generowania sugestii."
+        logger.warning("champion_draft: enrichment call failed: %s", exc)
+        error_message = f"Błąd generowania: {exc}"
         status_val = SuggestionStatus.rejected
 
     suggestion = ChampionProfileSuggestion(
@@ -548,12 +477,7 @@ async def enrich_from_meeting(
 
     # Long transcripts (>MAX_TRANSCRIPT_CHARS) go through map-reduce so we
     # don't silently lose context past the cutoff.
-    transcript_text = await _summarize_transcript_for_champion(
-        meeting_transcript or "",
-        user_id=user_id,
-        client_id=job.client_id,
-        job_id=job_id,
-    )
+    transcript_text = await _summarize_transcript_for_champion(meeting_transcript or "")
     return await _generate_enrichment_suggestion(
         db,
         template=CHAMPION_PROFILE_ENRICH_FROM_MEETING,
@@ -569,7 +493,6 @@ async def enrich_from_meeting(
         source_type=SuggestionSource.fireflies_meeting,
         source_ref=source_ref,
         user_id=user_id,
-        client_id=job.client_id,
     )
 
 
@@ -588,12 +511,7 @@ async def enrich_from_call(
     client_name = await _client_name(db, job.client_id)
     current_profile_json = json.dumps(job.champion_profile or {}, ensure_ascii=False)
 
-    transcript_text = await _summarize_transcript_for_champion(
-        call_transcript or "",
-        user_id=user_id,
-        client_id=job.client_id,
-        job_id=job_id,
-    )
+    transcript_text = await _summarize_transcript_for_champion(call_transcript or "")
     return await _generate_enrichment_suggestion(
         db,
         template=CHAMPION_PROFILE_ENRICH_FROM_CALL,
@@ -609,7 +527,6 @@ async def enrich_from_call(
         source_type=SuggestionSource.cloudtalk_call,
         source_ref=source_ref,
         user_id=user_id,
-        client_id=job.client_id,
     )
 
 
@@ -722,15 +639,16 @@ async def generate_from_historical_jobs(
         exclude_job_id=job.id,
     )
 
+    await _supersede_previous_pending(
+        db, job_id=job_id, source_type=SuggestionSource.historical_jobs
+    )
+
     status_val: SuggestionStatus = SuggestionStatus.pending
     error_message: Optional[str] = None
     payload: dict[str, Any] = {}
     source_ref: Optional[str] = None
 
     if len(matches) < MIN_MATCHES_FOR_GENERATION:
-        await _supersede_previous_pending(
-            db, job_id=job_id, source_type=SuggestionSource.historical_jobs
-        )
         status_val = SuggestionStatus.rejected
         error_message = (
             f"Za mało historycznych ofert do porównania "
@@ -751,28 +669,11 @@ async def generate_from_historical_jobs(
         }
 
         prompt = CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.render(**template_vars)
-        source_hash = _source_fingerprint(
-            prompt, CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.version
-        )
-        cached = await _cached_pending_suggestion(
-            db,
-            job_id=job_id,
-            source_type=SuggestionSource.historical_jobs,
-            source_hash=source_hash,
-        )
-        if cached is not None:
-            return cached
-        await _supersede_previous_pending(
-            db, job_id=job_id, source_type=SuggestionSource.historical_jobs
-        )
 
         try:
             raw = await _call_claude_json(
                 prompt=prompt,
                 system_prompt=CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.system_prompt or "",
-                user_id=user_id,
-                client_id=job.client_id,
-                job_id=job_id,
             )
             payload = {}
             for section in VALID_SECTIONS:
@@ -793,30 +694,19 @@ async def generate_from_historical_jobs(
                     "LLM nie wygenerował żadnych sekcji z historii — "
                     "podobne role nie dostarczyły wystarczającego sygnału."
                 )
-            else:
-                payload = _attach_source_metadata(
-                    payload,
-                    source_type=SuggestionSource.historical_jobs,
-                    source_ref=source_ref,
-                    source_hash=source_hash,
-                    prompt_version=CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.version,
-                )
         except ValidationError as exc:
             logger.warning(
-                "champion_draft: historical validation failed for job=%s error_type=%s",
+                "champion_draft: historical validation failed for job %s: %s",
                 job_id,
-                type(exc).__name__,
+                exc,
             )
-            error_message = "Walidacja schematu nie powiodła się."
+            error_message = f"Walidacja schematu: {exc}"
             status_val = SuggestionStatus.rejected
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "champion_draft: generate_from_historical_jobs failed job=%s "
-                "error_type=%s",
-                job_id,
-                type(exc).__name__,
+                "champion_draft: generate_from_historical_jobs failed: %s", exc
             )
-            error_message = "Błąd generowania profilu."
+            error_message = f"Błąd generowania: {exc}"
             status_val = SuggestionStatus.rejected
 
     suggestion = ChampionProfileSuggestion(
@@ -1100,9 +990,6 @@ async def generate_recommended_searches(
         prompt=prompt,
         system_prompt=CHAMPION_RECOMMENDED_SEARCHES.system_prompt or "",
         max_tokens=2000,
-        user_id=user_id,
-        client_id=job.client_id,
-        job_id=job_id,
     )
 
     from datetime import datetime, timezone

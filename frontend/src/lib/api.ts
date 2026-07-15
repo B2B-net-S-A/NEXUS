@@ -408,39 +408,6 @@ export const prepKitApi = {
 };
 
 // ── AI Writer ─────────────────────────────────────────────────────────────────
-export interface GenerateJobInput {
-  title: string;
-  client?: string;
-  seniority?: string;
-  skills?: string[];
-  description_hint?: string;
-  benefits?: string[];
-  salary?: {
-    min?: number;
-    max?: number;
-    currency: string;
-    period: "hour" | "day" | "month" | "year";
-    employment_type: "b2b" | "uop" | "uz" | "other";
-  };
-}
-
-export interface GenerateJobOutput {
-  title: string;
-  description: string;
-  requirements: string;
-  nice_to_have: string;
-  benefits: string;
-  salary: {
-    min: number | null;
-    max: number | null;
-    currency: string | null;
-    period: "hour" | "day" | "month" | "year" | null;
-    employment_type: "b2b" | "uop" | "uz" | "other" | null;
-  } | null;
-  generation_source: "ai" | "template";
-  salary_range_suggestion: string;
-}
-
 export const aiWriterApi = {
   generateJobDescription: (data: {
     title: string;
@@ -449,11 +416,13 @@ export const aiWriterApi = {
     seniority?: string;
   }) => api.post("/api/ai/generate-job-description", data),
 
-  generateJob: (data: GenerateJobInput) =>
-    api.post<GenerateJobOutput>("/api/ai/generate-job", data),
-
-  generateJobTemplate: (data: GenerateJobInput) =>
-    api.post<GenerateJobOutput>("/api/ai/generate-job/template", data),
+  generateJob: (data: {
+    title: string;
+    client?: string;
+    seniority?: string;
+    skills?: string[];
+    description_hint?: string;
+  }) => api.post("/api/ai/generate-job", data),
 };
 
 // ── AI Matching ───────────────────────────────────────────────────────────────
@@ -466,28 +435,7 @@ export const matchingApi = {
     jobId: number,
     opts?: { minScore?: number; limit?: number; location?: string },
   ) =>
-    api.get<{
-      job_id: number;
-      job_title: string;
-      required_skills: string[];
-      search_type: string;
-      min_score: number | null;
-      location_filter: string | null;
-      matches: Array<{
-        candidate: {
-          id: number;
-          name: string;
-          lastname: string;
-          email?: string | null;
-          location?: string | null;
-          competence_category?: string | null;
-        };
-        match_score: number | null;
-        matching_skills: string[];
-        gaps: string[];
-      }>;
-      meta?: RecommendationMeta;
-    }>(`/api/jobs/${jobId}/ai-matches`, {
+    api.get(`/api/jobs/${jobId}/ai-matches`, {
       params: {
         min_score: opts?.minScore,
         limit: opts?.limit,
@@ -1519,21 +1467,8 @@ export interface CandidateMatch {
     ai_summary?: string | null;
     avatar_url?: string | null;
   };
-  /**
-   * Null when semantic retrieval is unavailable and the backend returns an
-   * explicitly degraded lexical (BM25) ranking.  A lexical rank is not a
-   * calibrated 0-100 match score and must not be presented as one.
-   */
-  total_score: number | null;
-  breakdown?: ScoreBreakdown | null;
-}
-
-export interface RecommendationMeta {
-  mode: string;
-  degraded: boolean;
-  reason: string | null;
-  index_version?: string | null;
-  scoring_version?: string | null;
+  total_score: number;
+  breakdown?: ScoreBreakdown;
 }
 
 export interface JobMatch {
@@ -1551,8 +1486,8 @@ export interface JobMatch {
     industry: string | null;
     deadline: string | null;
   };
-  total_score: number | null;
-  breakdown?: ScoreBreakdown | null;
+  total_score: number;
+  breakdown?: ScoreBreakdown;
 }
 
 // ── Phase 3 ─────────────────────────────────────────────────────────────────
@@ -2016,9 +1951,6 @@ export interface B2BUopCheckResult {
   issues: B2BUopIssue[];
   rewritten: string;
   summary: string;
-  input_hash: string;
-  analysis_mode: "rules_ai" | "rules_only";
-  requires_confirmation: boolean;
 }
 
 export const candidatePinsApi = {
@@ -2219,16 +2151,9 @@ export const recommendationsApi = {
       search_type: string;
       location_filter?: string | null;
       matches: CandidateMatch[];
-      /** Optional for one-release compatibility with older backends. */
-      meta?: RecommendationMeta;
     }>(`/api/jobs/${jobId}/recommendations`, { params: opts }),
   forCandidate: (candidateId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
-    api.get<{
-      candidate_id: number;
-      candidate_name: string;
-      matches: JobMatch[];
-      meta?: RecommendationMeta;
-    }>(
+    api.get<{ candidate_id: number; candidate_name: string; matches: JobMatch[] }>(
       `/api/candidates/${candidateId}/recommendations`,
       { params: opts },
     ),
@@ -2241,7 +2166,7 @@ export const recommendationsApi = {
       job_id: number;
       must_skills: Array<{ name: string; level?: string | null }>;
       nice_skills: Array<{ name: string; level?: string | null }>;
-      source: "taxonomy" | "ai" | "heuristic";
+      source: "ollama" | "heuristic";
       current_must_skills: Array<{ name: string; level?: string | null }>;
       current_nice_skills: Array<{ name: string; level?: string | null }>;
     }>(`/api/jobs/${jobId}/generate-criteria-preview`),
@@ -2398,12 +2323,11 @@ export interface CvUploadPreviewResponse {
   };
   matches: Array<{
     job: JobMatch["job"];
-    total_score: number | null;
-    breakdown?: ScoreBreakdown | null;
+    total_score: number;
+    breakdown?: ScoreBreakdown;
     warning: string | null;
   }>;
-  search_type: "semantic" | "bm25" | "unavailable";
-  meta?: RecommendationMeta;
+  search_type: "semantic" | "fallback";
 }
 
 // ── Proposal snapshots (Phase 13) ───────────────────────────────────────────
@@ -2498,7 +2422,6 @@ export interface ScoringWeights {
   salary: number;
   location: number;
   availability: number;
-  champion_fit: number;
 }
 
 export interface ScoringWeightProfile {
@@ -2508,7 +2431,6 @@ export interface ScoringWeightProfile {
   client_id: number | null;
   weights: ScoringWeights;
   active: boolean;
-  version: number;
   created_at: string;
   updated_at: string;
 }
@@ -3692,23 +3614,12 @@ export type AIFeatureKey =
   | "job_description_generator"
   | "cv_parser"
   | "candidate_summary"
-  | "champion_draft"
-  | "embeddings"
-  | "reranking"
-  | "matching"
-  | "job_writer"
-  | "champion_profile"
-  | "match_explanation"
-  | "mindy"
-  | "uop_analysis"
-  | "criteria_suggestions"
-  | "cv_b2b";
+  | "champion_draft";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;
   enabled: boolean;
   monthly_limit: number;
-  monthly_budget_usd: number;
   label: string;
   data_sent_to_ai: string[];
 }
@@ -3719,47 +3630,17 @@ export interface AIFeatureUsageDto {
   limit: number;
   period_start: string;
   period_end: string;
-  cost_usd: number;
-  p95_latency_ms: number;
-  error_rate: number;
-  health: "ok" | "degraded" | "down";
-}
-
-export interface AIFeatureRouteDto {
-  modes: Record<
-    string,
-    {
-      provider: string;
-      model: string;
-      operation: string;
-      escalation_models: string[];
-    }
-  >;
 }
 
 export interface AISettingsResponse {
   master_enabled: boolean;
   features: AIFeatureConfigDto[];
   usage: AIFeatureUsageDto[];
-  active_registry_version: string;
-  routing_lock_version: number;
-  routes: Partial<Record<AIFeatureKey, AIFeatureRouteDto>>;
-  compliance: Record<
-    string,
-    {
-      production_allowed: boolean;
-      dpa_approved: boolean;
-      zdr_approved: boolean;
-      subprocessors_reviewed: boolean;
-      transfer_basis: string | null;
-    }
-  >;
 }
 
 export interface AIFeatureUpdate {
   enabled?: boolean;
   monthly_limit?: number;
-  monthly_budget_usd?: number;
 }
 
 export const aiSettingsApi = {

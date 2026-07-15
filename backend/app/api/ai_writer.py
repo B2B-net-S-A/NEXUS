@@ -2,21 +2,20 @@
 AI Job Writer — generuje ogłoszenie o pracę na podstawie danych wejściowych.
 Obsługuje dwa endpointy:
   - POST /api/ai/generate-job-description  (istniejący, template-based)
-  - POST /api/ai/generate-job              (AI; jawny błąd przy awarii)
-  - POST /api/ai/generate-job/template     (jawna akcja szablonowa)
+  - POST /api/ai/generate-job              (nowy, integracja z Claude API lub mock)
 """
 
+import json
+import os
 import logging
-from typing import List, Literal, Optional
-
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, get_current_user
-from app.ai import AIError, AIRequest, ai_gateway
-from app.models.ai_feature import AIFeatureKey
 from app.models.user import User
 from app.models.client import Client
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
@@ -201,59 +200,35 @@ Skontaktujemy się z wybranymi kandydatami w ciągu 3 dni roboczych.
 # ── New: AI Generate Job (structured, Claude or mock) ─────────────────────────
 
 
-class GeneratedSalary(BaseModel):
-    """Salary facts supplied by the user, never guessed by the model."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    min: Optional[int] = Field(default=None, ge=0)
-    max: Optional[int] = Field(default=None, ge=0)
-    currency: Optional[str] = None
-    period: Optional[Literal["hour", "day", "month", "year"]] = None
-    employment_type: Optional[Literal["b2b", "uop", "uz", "other"]] = None
-
-    @model_validator(mode="after")
-    def validate_range(self) -> "GeneratedSalary":
-        if self.min is not None and self.max is not None and self.min > self.max:
-            raise ValueError("salary.min cannot exceed salary.max")
-        if (self.min is not None or self.max is not None) and not (
-            self.currency and self.period and self.employment_type
-        ):
-            raise ValueError("salary units are required when an amount is present")
-        return self
-
-
 class GenerateJobRequest(BaseModel):
     title: str
     client: Optional[str] = None
     seniority: Optional[str] = None  # junior, mid, senior, lead
-    skills: List[str] = Field(default_factory=list)
+    skills: Optional[List[str]] = []
     description_hint: Optional[str] = None
-    benefits: List[str] = Field(default_factory=list)
-    salary: Optional[GeneratedSalary] = None
 
 
 class GenerateJobResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     title: str
     description: str
     requirements: str
     nice_to_have: str
     benefits: str
-    salary: Optional[GeneratedSalary] = None
-    generation_source: Literal["ai", "template"]
-    # Deprecated for one release. It is derived only from structured salary.
-    salary_range_suggestion: str = ""
+    salary_range_suggestion: str
 
 
-async def _generate_with_claude(
-    request: GenerateJobRequest, *, user_id: int
-) -> GenerateJobResponse:
-    """Generate through the central gateway and enforce the response schema."""
+async def _generate_with_claude(request: GenerateJobRequest) -> GenerateJobResponse:
+    """Try to generate using Claude API. Raises on failure."""
+    import anthropic
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    if not api_key:
+        raise ValueError("No Claude API key configured")
+
+    client = anthropic.Anthropic(api_key=api_key)
+
     seniority_label = request.seniority or "senior"
     skills_str = ", ".join(request.skills) if request.skills else "nie podano"
-    benefits_str = ", ".join(request.benefits) if request.benefits else "nie podano"
     client_name = request.client or "nasz klient"
 
     prompt = f"""Wygeneruj profesjonalne ogłoszenie o pracę w języku polskim dla stanowiska:
@@ -263,8 +238,6 @@ Klient: {client_name}
 Poziom: {seniority_label}
 Wymagane technologie/umiejętności: {skills_str}
 Dodatkowy kontekst: {request.description_hint or "brak"}
-Potwierdzone benefity: {benefits_str}
-Potwierdzone wynagrodzenie: {request.salary.model_dump_json() if request.salary else "brak"}
 
 Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładnej strukturze:
 {{
@@ -272,66 +245,47 @@ Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładne
   "description": "2-3 atrakcyjne zdania o roli i firmie",
   "requirements": "lista wymagań w formacie markdown z myślnikami, minimum 6 punktów",
   "nice_to_have": "lista dodatkowych atutów z myślnikami, 3-4 punkty",
-  "benefits": "wyłącznie benefity podane w kontekście; pusty tekst jeśli ich nie podano",
-  "salary": {request.salary.model_dump_json() if request.salary else "null"},
-  "generation_source": "ai",
-  "salary_range_suggestion": ""
+  "benefits": "lista benefitów w formacie markdown z myślnikami, 5-7 punktów",
+  "salary_range_suggestion": "propozycja widełek w formacie np. '18 000 – 28 000 PLN (B2B)'"
 }}"""
 
-    def validate_output(value: object) -> GenerateJobResponse:
-        output = GenerateJobResponse.model_validate(value)
-        if output.generation_source != "ai":
-            raise ValueError("AI endpoint returned a non-AI generation source")
-        if output.salary != request.salary:
-            raise ValueError("AI changed or invented salary")
-        expected_benefits = {item.strip() for item in request.benefits if item.strip()}
-        if not expected_benefits and output.benefits.strip():
-            raise ValueError("AI invented benefits")
-        if expected_benefits and not all(
-            benefit in output.benefits for benefit in expected_benefits
-        ):
-            raise ValueError("AI omitted a confirmed benefit")
-        output.salary_range_suggestion = _legacy_salary_text(output.salary)
-        return output
-
-    result = await ai_gateway.call(
-        AIRequest(
-            feature=AIFeatureKey.job_writer,
-            user_id=user_id,
-            subject_type="job_draft",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Nie wymyślaj stawek, benefitów, lokalizacji ani warunków. "
-                        "Powtarzaj tylko fakty z wejścia i zwróć wyłącznie JSON."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            prompt_version="job_writer_v2",
-            schema_version="job_writer_response_v2",
-            structured_validator=validate_output,
-            pii=True,
-        )
+    # Sync Anthropic SDK — offload so the LLM round-trip does not block the
+    # single-worker event loop.
+    message = await run_in_threadpool(
+        client.messages.create,
+        model="claude-sonnet-5",
+        max_tokens=1500,
+        # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+        # tokens count toward max_tokens and would truncate this JSON output.
+        thinking={"type": "disabled"},
+        messages=[{"role": "user", "content": prompt}],
     )
-    return result.content
 
+    # Claude 5 models can lead with a non-text block (e.g. a thinking block),
+    # so content[0].text may be absent/empty — collect every text block.
+    raw = "".join(
+        getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+    ).strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
 
-def _legacy_salary_text(salary: Optional[GeneratedSalary]) -> str:
-    """One-release compatibility field derived from structured salary only."""
-    if salary is None or (salary.min is None and salary.max is None):
-        return ""
-    amounts = (
-        f"{salary.min}–{salary.max}"
-        if salary.min is not None and salary.max is not None
-        else str(salary.min if salary.min is not None else salary.max)
+    data = json.loads(raw)
+    return GenerateJobResponse(
+        title=data.get("title", f"{seniority_label.title()} {request.title}"),
+        description=data.get("description", ""),
+        requirements=data.get("requirements", ""),
+        nice_to_have=data.get("nice_to_have", ""),
+        benefits=data.get("benefits", ""),
+        salary_range_suggestion=data.get("salary_range_suggestion", ""),
     )
-    return f"{amounts} {salary.currency} / {salary.period} ({salary.employment_type})"
 
 
 def _generate_mock(request: GenerateJobRequest) -> GenerateJobResponse:
-    """Explicit template action; never an automatic AI fallback."""
+    """Fallback: generate a structured response using templates."""
     seniority = (request.seniority or "senior").lower()
     title = request.title.strip()
     client_name = request.client or "nasz klient"
@@ -386,10 +340,21 @@ def _generate_mock(request: GenerateJobRequest) -> GenerateJobResponse:
     )
 
     benefits = (
-        "\n".join(f"- {item}" for item in request.benefits)
-        if request.benefits
-        else "- Uzupełnij benefity potwierdzone przez klienta"
+        "- Elastyczne godziny pracy i możliwość pracy zdalnej\n"
+        "- Stabilne zatrudnienie (B2B lub UoP)\n"
+        "- Prywatna opieka medyczna\n"
+        "- Budżet szkoleniowy i konferencyjny\n"
+        "- Nowoczesne biuro w centrum miasta\n"
+        "- Przyjazna atmosfera i wspierający zespół"
     )
+
+    salary_ranges = {
+        "junior": "8 000 – 14 000 PLN (B2B)",
+        "mid": "14 000 – 22 000 PLN (B2B)",
+        "senior": "20 000 – 32 000 PLN (B2B)",
+        "lead": "28 000 – 42 000 PLN (B2B)",
+    }
+    salary = salary_ranges.get(seniority, "15 000 – 25 000 PLN (B2B)")
 
     return GenerateJobResponse(
         title=full_title,
@@ -397,9 +362,7 @@ def _generate_mock(request: GenerateJobRequest) -> GenerateJobResponse:
         requirements=requirements,
         nice_to_have=nice_to_have,
         benefits=benefits,
-        salary=request.salary,
-        generation_source="template",
-        salary_range_suggestion=_legacy_salary_text(request.salary),
+        salary_range_suggestion=salary,
     )
 
 
@@ -411,25 +374,46 @@ async def generate_job(
 ):
     """
     POST /api/ai/generate-job
-    Generates a structured job description through the versioned AI gateway.
-    Failures are explicit; this endpoint never returns a hidden template.
+    Generates a structured job description using Claude API (or mock if no key).
+
+    Subject to the Settings → AI quota for `job_description_generator`. Returns
+    HTTP 503 if the master toggle is off, the feature is disabled, or the
+    monthly limit has been hit.
     """
+    # Settings → AI quota gate (Traffit gap #5).
+    # Imported lazily so this module stays importable even if the AI quota
+    # tables haven't been migrated yet (e.g. during 0085 rollout).
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+
     try:
-        result = await _generate_with_claude(request, user_id=current_user.id)
-        logger.info("job_writer generation succeeded source=ai")
-        return result
-    except AIError as exc:
+        await check_and_increment(
+            db,
+            AIFeatureKey.job_description_generator,
+            user_id=current_user.id,
+        )
+        # Commit the counter even if downstream Claude fails — we count the
+        # admission decision, not the LLM round-trip success.
+        await db.commit()
+    except AIQuotaExceeded as exc:
+        await db.rollback()
         raise HTTPException(
-            status_code=exc.status_code or status.HTTP_502_BAD_GATEWAY,
-            detail={"code": exc.code, "reason": str(exc)},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
         ) from exc
 
+    # Try Claude first
+    try:
+        result = await _generate_with_claude(request)
+        logger.info(f"[AIJob] Generated with Claude for: {request.title}")
+        return result
+    except Exception as e:
+        logger.warning(f"[AIJob] Claude failed ({e}), using mock template")
 
-@router.post("/ai/generate-job/template", response_model=GenerateJobResponse)
-async def generate_job_template(
-    request: GenerateJobRequest,
-    current_user: User = Depends(get_current_user),
-):
-    """Generate a clearly labelled template only after an explicit user action."""
-    del current_user
+    # Fall back to template-based mock
     return _generate_mock(request)

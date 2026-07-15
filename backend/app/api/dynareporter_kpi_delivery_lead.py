@@ -10,13 +10,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    AdminUser,
-    CurrentUser,
-    DynaReporterSection,
-    RecruiterPlus,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_kpi_delivery_lead import DrKpiDeliveryLead
 from app.models.user import User, UserRole
@@ -26,15 +20,11 @@ from app.schemas.dr_kpi_delivery_lead import (
     DrKpiDeliveryLeadSummary,
 )
 
-router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.delivery_lead))
-    ]
-)
+router = APIRouter()
 
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:
-    is_admin = current_user.has_any_role(
+    is_admin = current_user.role in (
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -80,7 +70,7 @@ async def list_all(
     from_month: Optional[date] = Query(default=None),
     to_month: Optional[date] = Query(default=None),
 ) -> list[DrKpiDeliveryLeadResponse]:
-    is_priv = current_user.has_any_role(
+    is_priv = current_user.role in (
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -152,7 +142,7 @@ async def get_summary(
 )
 async def upsert(
     payload: DrKpiDeliveryLeadCreate,
-    current_user: AdminUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     user_id: Optional[int] = Query(default=None),
 ) -> DrKpiDeliveryLeadResponse:
@@ -180,7 +170,7 @@ async def upsert(
     "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
 async def delete_entry(
-    entry_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
+    entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> None:
     row = (
         await db.execute(

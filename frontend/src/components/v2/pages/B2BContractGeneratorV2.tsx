@@ -65,7 +65,6 @@ import api, {
   type B2BUopCheckResult,
 } from "@/lib/api";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
-import { uopInputHash } from "@/lib/ai-feature-safety";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
@@ -615,12 +614,6 @@ function GeneratorForm() {
 
   // AI-sprawdzenie opisu pod kątem znamion umowy o pracę (#3).
   const [uop, setUop] = useState<B2BUopCheckResult | null>(null);
-  const currentUopInput = useRef({ text: projectDescription, language });
-
-  useEffect(() => {
-    currentUopInput.current = { text: projectDescription, language };
-    setUop(null);
-  }, [projectDescription, language]);
 
   // Płeć Partnera — steruje formami gramatycznymi w umowie (Panem/ią,
   // prowadzącym/cą, zwany/a, zapoznałem/am).
@@ -952,25 +945,13 @@ function GeneratorForm() {
   });
 
   const uopMut = useMutation({
-    mutationFn: (input: { text: string; language: string }) =>
-      b2bGeneratorApi.checkUop(input),
+    mutationFn: () =>
+      b2bGeneratorApi.checkUop({ text: projectDescription, language }),
+    // Rekomendacje znikają dopiero przy PONOWNYM kliknięciu „Sprawdź…" (czyli
+    // tutaj) — nie przy edycji opisu — i od razu generują się nowe.
     onMutate: () => setUop(null),
-    onSuccess: async (d, submitted) => {
-      const current = currentUopInput.current;
-      if (submitted.text === current.text && submitted.language === current.language) {
-        const currentHash = await uopInputHash(current.text, current.language);
-        const latest = currentUopInput.current;
-        if (
-          d.input_hash === currentHash &&
-          submitted.text === latest.text &&
-          submitted.language === latest.language
-        ) {
-          setUop(d);
-        }
-      }
-    },
+    onSuccess: (d) => setUop(d),
     onError: (e) => toast.showError(extractErrorMsg(e)),
-    retry: false,
   });
 
   const onDocx = (lang: Lang) => {
@@ -1493,6 +1474,8 @@ function GeneratorForm() {
               onChange={(e) => {
                 descTouched.current = true;
                 setProjectDescription(e.target.value);
+                // Wynik AI-sprawdzenia ZOSTAJE przy edycji opisu — czyści się
+                // tylko przy ponownym kliknięciu „Sprawdź…" (onMutate uopMut).
               }}
               rows={4}
               placeholder="Auto z obszaru/oferty — możesz nadpisać. Po wklejeniu sprawdź AI…"
@@ -1503,9 +1486,7 @@ function GeneratorForm() {
                 variant="outline"
                 size="sm"
                 disabled={!projectDescription.trim() || uopMut.isPending}
-                onClick={() =>
-                  uopMut.mutate({ text: projectDescription, language })
-                }
+                onClick={() => uopMut.mutate()}
               >
                 {uopMut.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

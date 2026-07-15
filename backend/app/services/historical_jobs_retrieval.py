@@ -37,6 +37,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.services.embedding_service import (
@@ -116,7 +117,7 @@ async def find_similar_historical_jobs(
     if not query_text:
         return []
 
-    embedding = await generate_embedding(query_text, input_type="query")
+    embedding = await generate_embedding(query_text)
     if embedding is None or len(embedding) != VECTOR_SIZE:
         logger.warning(
             "[historical] embedding unavailable (text_len=%d)", len(query_text)
@@ -316,10 +317,10 @@ def _qdrant_search(
     Qdrant errors and returns [] — retrieval must never block the caller.
     """
     try:
+        from qdrant_client import QdrantClient
         from qdrant_client.models import FieldCondition, Filter, MatchValue
-        from app.services.qdrant_factory import get_qdrant_client
 
-        client = get_qdrant_client()
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         query_filter: Optional[Filter] = None
         if client_id is not None:
             query_filter = Filter(

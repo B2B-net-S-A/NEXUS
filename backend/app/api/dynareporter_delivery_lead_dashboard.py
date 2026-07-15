@@ -19,12 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    AdminUser,
-    CurrentUser,
-    DynaReporterSection,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.schemas.dr_delivery_lead_dashboard import (
     DLDashboard,
@@ -37,11 +32,7 @@ from app.schemas.dr_delivery_lead_dashboard import (
 
 logger = logging.getLogger("dynareporter.delivery_lead_dashboard")
 
-router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.delivery_lead))
-    ]
-)
+router = APIRouter()
 
 HIT_RATIO_TARGET = 30  # %
 
@@ -327,10 +318,18 @@ async def get_trend(
 )
 async def upsert_dl_entry(
     payload: DLUpsert,
-    current_user: AdminUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Admin upsert wpisu DL KPI. ON CONFLICT (user_id, report_month)."""
+    from app.models.user import UserRole
+
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Tylko admin może modyfikować KPI DL",
+        )
+
     # YYYY-MM → date(YYYY, MM, 1) — asyncpg wymaga `datetime.date` dla `date` column
     # (string "YYYY-MM-01" daje DataError: 'str' has no attribute 'toordinal').
     try:

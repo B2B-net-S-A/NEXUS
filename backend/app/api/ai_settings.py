@@ -12,8 +12,7 @@ over capacity.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from datetime import date, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,16 +29,12 @@ from app.models.ai_feature import (
     AIMasterToggle,
 )
 from app.schemas.ai_settings import (
-    AISettingsPatch,
     AISettingsOut,
     FeatureConfig,
     FeatureConfigUpdate,
     FeatureUsage,
     MasterToggleUpdate,
 )
-from app.ai.registry import public_registry
-from app.models.ai_platform import AICallLedger, AIProviderCompliance, AIRoutingState
-from app.models.ai_rollout import AIRolloutState
 from app.services.ai_quota import (
     _current_period_start,
     get_total_usage_for_period,
@@ -75,32 +70,11 @@ async def get_ai_settings(
     )
     configs = list(cfg_result.scalars().all())
 
-    routing = await db.get(AIRoutingState, 1)
-    registry_version = routing.registry_version if routing else "v1_current"
-    routing_lock_version = routing.lock_version if routing else 1
-    compliance_rows = list((await db.scalars(select(AIProviderCompliance))).all())
-    rollout_rows = list((await db.scalars(select(AIRolloutState))).all())
-
     period_start = _current_period_start()
     period_end = _end_of_month(period_start)
 
     feature_configs: List[FeatureConfig] = []
     feature_usage: List[FeatureUsage] = []
-    period_datetime = datetime.combine(
-        period_start, datetime.min.time(), tzinfo=timezone.utc
-    )
-    ledger_rows = list(
-        (
-            await db.execute(
-                select(
-                    AICallLedger.feature,
-                    AICallLedger.cost_usd,
-                    AICallLedger.latency_ms,
-                    AICallLedger.status,
-                ).where(AICallLedger.created_at >= period_datetime)
-            )
-        ).all()
-    )
 
     for cfg in configs:
         feature_configs.append(
@@ -108,18 +82,12 @@ async def get_ai_settings(
                 feature=cfg.feature,
                 enabled=cfg.enabled,
                 monthly_limit=cfg.monthly_limit,
-                monthly_budget_usd=cfg.monthly_budget_usd,
                 label=FEATURE_LABELS.get(cfg.feature, cfg.feature.value),
                 data_sent_to_ai=FEATURE_DATA_SENT.get(cfg.feature, []),
             )
         )
 
         used = await get_total_usage_for_period(db, cfg.feature, period_start)
-        attempts = [row for row in ledger_rows if row.feature == cfg.feature.value]
-        latencies = sorted(row.latency_ms for row in attempts if row.latency_ms > 0)
-        p95_index = max(0, int(len(latencies) * 0.95) - 1)
-        errors = sum(1 for row in attempts if row.status == "error")
-        error_rate = errors / len(attempts) if attempts else 0.0
         feature_usage.append(
             FeatureUsage(
                 feature=cfg.feature,
@@ -127,16 +95,6 @@ async def get_ai_settings(
                 limit=cfg.monthly_limit,
                 period_start=period_start,
                 period_end=period_end,
-                cost_usd=sum(
-                    (Decimal(row.cost_usd or 0) for row in attempts), Decimal("0")
-                ),
-                p95_latency_ms=latencies[p95_index] if latencies else 0,
-                error_rate=error_rate,
-                health="down"
-                if error_rate > 0.1
-                else "degraded"
-                if error_rate > 0.01
-                else "ok",
             )
         )
 
@@ -144,31 +102,6 @@ async def get_ai_settings(
         master_enabled=bool(master_enabled),
         features=feature_configs,
         usage=feature_usage,
-        active_registry_version=registry_version,
-        routing_lock_version=routing_lock_version,
-        routes=public_registry(registry_version),
-        compliance={
-            row.provider: {
-                "production_allowed": row.production_allowed,
-                "dpa_approved": row.dpa_approved,
-                "zdr_approved": row.zdr_approved,
-                "subprocessors_reviewed": row.subprocessors_reviewed,
-                "transfer_basis": row.transfer_basis,
-            }
-            for row in compliance_rows
-        },
-        rollouts={
-            row.feature: {
-                "baseline_registry": row.baseline_registry,
-                "target_registry": row.target_registry,
-                "stage": row.stage,
-                "percentage": row.percentage,
-                "status": row.status,
-                "stage_started_at": row.stage_started_at.isoformat(),
-                "rollback_reason": row.rollback_reason,
-            }
-            for row in rollout_rows
-        },
     )
 
 
@@ -214,45 +147,7 @@ async def update_feature_config(
         cfg.enabled = payload.enabled
     if payload.monthly_limit is not None:
         cfg.monthly_limit = payload.monthly_limit
-    if payload.monthly_budget_usd is not None:
-        cfg.monthly_budget_usd = payload.monthly_budget_usd
     cfg.updated_by = admin.id
 
-    await db.commit()
-    return await get_ai_settings(admin, db)
-
-
-@router.patch("", response_model=AISettingsOut)
-async def patch_ai_settings(
-    payload: AISettingsPatch,
-    admin: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> AISettingsOut:
-    """Bulk-update only kill-switch, call limits and monthly budgets."""
-    if payload.master_enabled is not None:
-        master = await db.get(AIMasterToggle, 1)
-        if master is None:
-            master = AIMasterToggle(
-                id=1, enabled=payload.master_enabled, updated_by=admin.id
-            )
-            db.add(master)
-        else:
-            master.enabled = payload.master_enabled
-            master.updated_by = admin.id
-    for item in payload.features:
-        cfg = await db.scalar(
-            select(AIFeatureConfig).where(AIFeatureConfig.feature == item.feature)
-        )
-        if cfg is None:
-            raise HTTPException(
-                status_code=404, detail=f"Feature {item.feature.value} not configured"
-            )
-        if item.enabled is not None:
-            cfg.enabled = item.enabled
-        if item.monthly_limit is not None:
-            cfg.monthly_limit = item.monthly_limit
-        if item.monthly_budget_usd is not None:
-            cfg.monthly_budget_usd = item.monthly_budget_usd
-        cfg.updated_by = admin.id
     await db.commit()
     return await get_ai_settings(admin, db)

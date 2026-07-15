@@ -19,36 +19,25 @@ import logging
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.services.kpi_coach_service import (
-    kpi_coach_nudge_mode,
-    run_scheduled_sweep,
-)
+from app.services.kpi_coach_service import run_scheduled_sweep
 
 logger = logging.getLogger(__name__)
 
 
 async def kpi_coach_nudger_loop() -> None:
     """Entry-point zarejestrowany w `app/main.py` lifespan."""
-    mode = kpi_coach_nudge_mode()
-    if mode == "off":
-        logger.info("kpi_coach_nudger_loop disabled (mode=off)")
-        return
-
     interval = max(60, settings.KPI_COACH_LOOP_INTERVAL_SECONDS)
 
     # Startup grace — daj DB/Qdrant dojść do formy przed pierwszym zapytaniem.
     await asyncio.sleep(60)
 
-    logger.info("kpi_coach_nudger_loop started (interval=%ds mode=%s)", interval, mode)
+    logger.info("kpi_coach_nudger_loop started (interval=%ds)", interval)
 
     while True:
         try:
             async with AsyncSessionLocal() as db:
-                counters = await run_scheduled_sweep(db, dry_run=mode == "dry_run")
-                if mode == "dry_run":
-                    await db.rollback()
-                else:
-                    await db.commit()
+                counters = await run_scheduled_sweep(db)
+                await db.commit()
                 if any(counters.get(k, 0) for k in ("praise", "remind", "eod")):
                     logger.info("kpi_coach sweep: %s", counters)
                 else:

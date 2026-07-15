@@ -84,14 +84,14 @@ async def rerank(
         except httpx.HTTPStatusError as e:
             timer.failed = True
             logger.warning(
-                "[rerank] HTTP %s response_bytes=%d",
+                "[rerank] HTTP %s — %s",
                 e.response.status_code,
-                len(e.response.content),
+                e.response.text[:200],
             )
             return None
         except Exception as e:  # noqa: BLE001 — surface any error, keep retrieval working
             timer.failed = True
-            logger.warning("[rerank] error_type=%s", type(e).__name__)
+            logger.warning("[rerank] error: %s", e)
             return None
 
     # Voyage returns: [{"index": <int>, "relevance_score": <float>, ...}, ...]

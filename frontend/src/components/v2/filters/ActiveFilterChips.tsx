@@ -52,12 +52,6 @@ const AVAILABILITY_LABELS: Record<string, string> = {
  unknown: "Nie wiemy",
 };
 
-const OPEN_TO_LABELS: Record<string, string> = {
- side_projects: "Side-projekty",
- sales_support: "Wsparcie sprzedaży",
- expert_consult: "Konsultacje eksperckie",
-};
-
 const STAGE_LABELS: Record<string, string> = {
  new: "Nowy",
  prep_call: "Prep call",
@@ -139,24 +133,6 @@ function collectChips(
  page: 1,
  }),
  });
- filters.openTo.forEach((value) => {
- chips.push({
- key: `open_to:${value}`,
- label: `Otwartość: ${OPEN_TO_LABELS[value] ?? value}`,
- clear: () =>
- onUpdate({
- openTo: filters.openTo.filter((item) => item !== value),
- page: 1,
- }),
- });
- });
- if (filters.recentlyChangedJobs !== null) {
- chips.push({
- key: "recently_changed_jobs",
- label: `Zmiana pracy: ${filters.recentlyChangedJobs} mies.`,
- clear: () => onUpdate({ recentlyChangedJobs: null, page: 1 }),
- });
- }
  });
  // Stage-move "who" — correlated with the stage chip above.
  filters.stageMovedByIds.forEach((id) => {
@@ -333,21 +309,6 @@ function collectChips(
  page: 1,
  }),
  });
- filters.recruitmentIds.forEach((id) => {
- chips.push({
- key: `recruitment:${id}`,
- label: `${
- filters.recruitmentMatch === "not_assigned"
- ? "Poza rekrutacją"
- : "Rekrutacja"
- }: #${id}`,
- clear: () =>
- onUpdate({
- recruitmentIds: filters.recruitmentIds.filter((item) => item !== id),
- page: 1,
- }),
- });
- });
  });
  if (filters.experienceMin !== null || filters.experienceMax !== null) {
  const lo = filters.experienceMin;
@@ -492,8 +453,6 @@ export function ActiveFilterChips({
  employment: [],
  availability: [],
  pipelineStage: [],
- openTo: [],
- recentlyChangedJobs: null,
  location: "",
  remote: [],
  skillsExpr: "",
@@ -503,8 +462,6 @@ export function ActiveFilterChips({
  pastCompany: [],
  currentTitle: [],
  workedAtClientIds: [],
- recruitmentIds: [],
- recruitmentMatch: "assigned",
  experienceMin: null,
  experienceMax: null,
  rateMin: null,
@@ -526,7 +483,7 @@ export function ActiveFilterChips({
  <button
  key={chip.key}
  onClick={chip.clear}
- className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+ className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors"
  aria-label={`Usuń filtr: ${chip.label}`}
  >
  <span className="truncate max-w-[180px]">{chip.label}</span>

@@ -33,7 +33,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import ws as ws_manager
-from app.core.config import settings
 from app.models.kpi_nudge_log import KpiNudgeChannel, KpiNudgeLog, KpiNudgeType
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
@@ -89,15 +88,6 @@ def is_in_quiet_hours(now: datetime) -> bool:
     return time(9, 0) <= t <= time(17, 30)
 
 
-def kpi_coach_nudge_mode() -> str:
-    """Resolve the rollout mode with compatibility for the original flag."""
-
-    mode = settings.KPI_COACH_V2_NUDGE_MODE
-    if mode == "off" and settings.KPI_COACH_V2_NUDGES_ENABLED:
-        return "live"
-    return mode
-
-
 # ── Core sweep ─────────────────────────────────────────────────────────────
 
 
@@ -107,7 +97,6 @@ async def run_scheduled_sweep(
     *,
     force: bool = False,
     target_user_id: Optional[int] = None,
-    dry_run: bool = False,
 ) -> dict[str, int]:
     """Jeden cykl scheduler'a: ocena wszystkich operacyjnych rekruterów
     + emisja odpowiednich nudge'y.
@@ -134,7 +123,6 @@ async def run_scheduled_sweep(
         "eod": 0,
         "skipped_dedup": 0,
         "skipped_optout": 0,
-        "dry_run": 0,
     }
 
     if not force and not is_in_quiet_hours(now_w):
@@ -169,11 +157,9 @@ async def run_scheduled_sweep(
                     kpi_result=kpi_result,
                     nudge_type=KpiNudgeType.praise_hit,
                     now=now_w,
-                    dry_run=dry_run,
                 )
                 if ok is True:
                     counters["praise"] += 1
-                    counters["dry_run"] += int(dry_run)
                 elif ok is False:
                     counters["skipped_dedup"] += 1
 
@@ -212,26 +198,17 @@ async def run_scheduled_sweep(
                     nudge_type=KpiNudgeType.remind_behind,
                     now=now_w,
                     forced_variant=forced,
-                    dry_run=dry_run,
                 )
                 if ok is True:
                     counters["remind"] += 1
-                    counters["dry_run"] += int(dry_run)
                 elif ok is False:
                     counters["skipped_dedup"] += 1
 
         # EOD per user (nie per KPI).
         if is_eod_window:
-            ok = await _try_emit_eod(
-                db,
-                user=user,
-                kpi_results=kpi_results,
-                now=now_w,
-                dry_run=dry_run,
-            )
+            ok = await _try_emit_eod(db, user=user, kpi_results=kpi_results, now=now_w)
             if ok is True:
                 counters["eod"] += 1
-                counters["dry_run"] += int(dry_run)
             elif ok is False:
                 counters["skipped_dedup"] += 1
 
@@ -249,7 +226,6 @@ async def _try_emit(
     nudge_type: KpiNudgeType,
     now: datetime,
     forced_variant: Optional[int] = None,
-    dry_run: bool = False,
 ) -> Optional[bool]:
     """Próba emisji nudge'a dla konkretnego KPI. Zwraca:
     True  — emitowano (log + notification + WS),
@@ -270,32 +246,6 @@ async def _try_emit(
         period_bucket=bucket,
         forced_variant=forced_variant,
     )
-
-    if dry_run:
-        existing = await db.scalar(
-            select(KpiNudgeLog.id).where(
-                and_(
-                    KpiNudgeLog.user_id == user.id,
-                    KpiNudgeLog.kpi_id == kpi_result.kpi_id,
-                    KpiNudgeLog.nudge_type == nudge_type,
-                    KpiNudgeLog.period_bucket == bucket,
-                )
-            )
-        )
-        if existing is not None:
-            return False
-        logger.info(
-            "kpi_coach_v2 dry_run user=%s kpi=%s type=%s bucket=%s "
-            "current=%s target=%s title=%s",
-            user.id,
-            kpi_result.kpi_id,
-            nudge_type.value,
-            bucket,
-            kpi_result.current,
-            kpi_result.target,
-            message.title,
-        )
-        return True
 
     # 1) Insert kpi_nudge_log (HARD dedup gate).
     log = KpiNudgeLog(
@@ -380,7 +330,6 @@ async def _try_emit_eod(
     user: User,
     kpi_results: list[KpiResult],
     now: datetime,
-    dry_run: bool = False,
 ) -> Optional[bool]:
     """Emit EOD summary. Dedup: syntetyczne kpi_id + day bucket."""
     day_bucket = period_bucket_label(KpiPeriod.day, now)
@@ -406,31 +355,6 @@ async def _try_emit_eod(
         progress_pct=avg_progress,
         period_bucket=day_bucket,
     )
-
-    if dry_run:
-        existing = await db.scalar(
-            select(KpiNudgeLog.id).where(
-                and_(
-                    KpiNudgeLog.user_id == user.id,
-                    KpiNudgeLog.kpi_id == _EOD_KPI_ID,
-                    KpiNudgeLog.nudge_type == KpiNudgeType.eod_summary,
-                    KpiNudgeLog.period_bucket == day_bucket,
-                )
-            )
-        )
-        if existing is not None:
-            return False
-        logger.info(
-            "kpi_coach_v2 dry_run user=%s kpi=%s type=%s bucket=%s "
-            "avg_progress_pct=%.1f title=%s",
-            user.id,
-            _EOD_KPI_ID,
-            KpiNudgeType.eod_summary.value,
-            day_bucket,
-            avg_progress,
-            message.title,
-        )
-        return True
 
     log = KpiNudgeLog(
         user_id=user.id,
@@ -548,4 +472,4 @@ def _as_warsaw(now: datetime) -> datetime:
     return now.astimezone(WARSAW)
 
 
-__all__ = ["is_in_quiet_hours", "kpi_coach_nudge_mode", "run_scheduled_sweep"]
+__all__ = ["is_in_quiet_hours", "run_scheduled_sweep"]

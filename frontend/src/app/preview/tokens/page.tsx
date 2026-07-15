@@ -9,12 +9,8 @@ const SEMANTIC = [
   "primary", "primary-foreground", "secondary", "secondary-foreground",
   "muted", "muted-foreground", "accent", "accent-foreground",
   "destructive", "destructive-foreground", "border", "input", "ring",
-  "success", "success-foreground", "success-muted", "success-muted-foreground",
-  "warning", "warning-foreground", "warning-muted", "warning-muted-foreground",
-  "destructive-muted", "destructive-muted-foreground",
-  "info", "info-foreground", "info-muted", "info-muted-foreground",
+  "success", "success-foreground", "warning", "warning-foreground",
 ]
-const BRAND = ["brand-linkedin", "brand-linkedin-foreground"]
 const SIDEBAR = [
   "sidebar", "sidebar-foreground", "sidebar-muted", "sidebar-border",
   "sidebar-accent", "sidebar-accent-foreground", "sidebar-ring",
@@ -90,7 +86,6 @@ export default function TokensPreview() {
         </div>
 
         <Group title="Semantyczne" tokens={SEMANTIC} />
-        <Group title="Marka" tokens={BRAND} />
         <Group title="Sidebar" tokens={SIDEBAR} />
         <Group title="Chart" tokens={CHART} />
       </div>

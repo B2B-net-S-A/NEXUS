@@ -1,21 +1,9 @@
 import { describe, it, expect } from "vitest"
 
-import {
-  canViewHiringManagerAnalytics,
-  getAvailableDashboardViews,
-  getPreferredDashboardPath,
-  getPreferredDashboardView,
-  hasAnalyticsCapability,
-  hasMinRole,
-  hasRole,
-  hasSection,
-  ROLE_RANK,
-  UserRole,
-} from "./auth"
+import { hasRole, hasMinRole, ROLE_RANK, UserRole } from "./auth"
 
 const ALL_ROLES: UserRole[] = [
   "admin",
-  "head_of_recruitment",
   "delivery_lead",
   "tac",
   "recruiter",
@@ -45,129 +33,6 @@ describe("hasRole", () => {
   it("is not hierarchical — higher role does NOT match lower", () => {
     // admin != recruiter even though admin rangowo wyższy
     expect(hasRole(mkUser("admin"), "recruiter")).toBe(false)
-  })
-
-  it("uses primary and secondary roles", () => {
-    const user = { role: "user" as const, roles: ["delivery_lead" as const] }
-    expect(hasRole(user, "delivery_lead")).toBe(true)
-    expect(hasRole(user, "user")).toBe(true)
-  })
-})
-
-describe("analytics capabilities", () => {
-  it("fails closed for sensitive capabilities when auth payload is legacy", () => {
-    expect(hasAnalyticsCapability(mkUser("admin"), "view_finance")).toBe(false)
-    expect(
-      hasAnalyticsCapability(mkUser("user"), "view_operational_aggregates"),
-    ).toBe(true)
-  })
-
-  it("uses the capabilities issued by the backend", () => {
-    const user = {
-      role: "delivery_lead" as const,
-      analytics_capabilities: ["view_finance" as const],
-    }
-    expect(hasAnalyticsCapability(user, "view_finance")).toBe(true)
-    expect(hasAnalyticsCapability(user, "view_recruitment_team")).toBe(false)
-  })
-
-  it("requires both a Dyna section grant and the matching capability", () => {
-    expect(
-      hasSection(
-        {
-          role: "delivery_lead",
-          allowed_sections: ["clients-mrr"],
-          analytics_capabilities: ["view_client_operations"],
-        },
-        "clients-mrr",
-      ),
-    ).toBe(false)
-    expect(
-      hasSection(
-        {
-          role: "delivery_lead",
-          allowed_sections: ["clients-mrr"],
-          analytics_capabilities: ["view_finance"],
-        },
-        "clients-mrr",
-      ),
-    ).toBe(true)
-  })
-
-  it("mounts hiring-manager analytics only with role and backend capability", () => {
-    expect(
-      canViewHiringManagerAnalytics({
-        role: "admin",
-        analytics_capabilities: ["view_client_operations"],
-      }),
-    ).toBe(true)
-    expect(
-      canViewHiringManagerAnalytics({
-        role: "head_of_recruitment",
-        analytics_capabilities: ["view_client_operations"],
-      }),
-    ).toBe(true)
-    expect(canViewHiringManagerAnalytics(mkUser("admin"))).toBe(false)
-    for (const role of [
-      "delivery_lead",
-      "tac",
-      "recruiter",
-      "sourcer",
-      "user",
-    ] as const) {
-      expect(canViewHiringManagerAnalytics(mkUser(role))).toBe(false)
-    }
-    expect(
-      canViewHiringManagerAnalytics({
-        role: "recruiter",
-        roles: ["head_of_recruitment"],
-        analytics_capabilities: ["view_client_operations"],
-      }),
-    ).toBe(true)
-  })
-})
-
-describe("getPreferredDashboardPath", () => {
-  it("uses multi-role priority instead of only the primary role", () => {
-    expect(
-      getPreferredDashboardPath({
-        role: "recruiter",
-        roles: ["delivery_lead", "recruiter"],
-        analytics_capabilities: [
-          "view_operational_aggregates",
-          "view_personal_recruitment_kpis",
-          "view_client_operations",
-        ],
-      }),
-    ).toBe("/dashboard?view=delivery")
-  })
-
-  it("uses executive as the highest-priority admin view", () => {
-    expect(
-      getPreferredDashboardPath({
-        role: "delivery_lead",
-        roles: ["admin"],
-        analytics_capabilities: ["view_operational_aggregates", "view_finance"],
-      }),
-    ).toBe("/dashboard?view=executive")
-  })
-
-  it("fails closed to operations when a stale admin payload lacks finance", () => {
-    expect(getPreferredDashboardView({ role: "admin" })).toBe("operations")
-  })
-
-  it("derives selectable views from backend capabilities", () => {
-    expect(
-      getAvailableDashboardViews({
-        role: "delivery_lead",
-        roles: ["delivery_lead", "tac"],
-        analytics_capabilities: [
-          "view_operational_aggregates",
-          "view_recruitment_team",
-          "view_client_operations",
-        ],
-      }),
-    ).toEqual(["operations", "recruitment", "delivery"])
   })
 })
 

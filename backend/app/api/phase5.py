@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DeliveryLeadPlus, ManagerOrAdmin
+from app.api.deps import CurrentUser, ManagerOrAdmin
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.candidate import Candidate
@@ -60,7 +60,7 @@ async def embed_diagnostics(
     # Voyage ping — tiny 3-token test query
     if settings.VOYAGE_API_KEY:
         try:
-            emb = await generate_embedding("diagnostic ping", input_type="query")
+            emb = await generate_embedding("diagnostic ping")
             report["voyage"]["ping_ok"] = emb is not None
             if emb is None:
                 report["voyage"]["reason"] = (
@@ -77,9 +77,11 @@ async def embed_diagnostics(
 
     # Qdrant ping — list collections + counts
     def _qdrant_probe():
-        from app.services.qdrant_factory import get_qdrant_client
+        from qdrant_client import QdrantClient
 
-        client = get_qdrant_client(timeout=5)
+        client = QdrantClient(
+            host=settings.QDRANT_HOST, port=settings.QDRANT_PORT, timeout=5
+        )
         existing = [c.name for c in client.get_collections().collections]
         counts = {}
         for name in (_collection(), _jobs_collection()):
@@ -164,7 +166,7 @@ def _rate_to_dict(r: RateHistory) -> dict:
 @router.get("/candidates/{candidate_id}/rate-history")
 async def list_rate_history(
     candidate_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))

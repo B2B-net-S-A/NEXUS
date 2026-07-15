@@ -64,18 +64,11 @@ done
 # Run from /app so that 'alembic' dir is found correctly
 echo "Running database migrations..."
 cd /app
-# A production process must never start against a partially migrated schema.
-# The legacy fallback below cannot create views, triggers, constraints or every
-# additive analytics object, so continuing after an Alembic failure would turn
-# a deploy problem into runtime 500s and potentially inconsistent writes.
-if ! alembic -c alembic/alembic.ini upgrade heads 2>&1; then
-    if [ "${DEBUG:-false}" = "true" ]; then
-        echo "alembic upgrade failed in DEBUG; continuing via create_all/backfill"
-    else
-        echo "FATAL: alembic upgrade failed; refusing to start production"
-        exit 1
-    fi
-fi
+# Tolerate alembic failures in dev: multiple in-flight feature branches can
+# produce duplicate-revision or multi-head states. In DEBUG mode the app
+# falls back to Base.metadata.create_all() on startup, so tables still exist.
+# Production should never hit this path (clean single-head chain on main).
+alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade failed (likely multi-head in dev); continuing via Base.metadata.create_all"
 
 # Safety net: alembic upgrade sometimes bails halfway through the Phase 8
 # multi-head graph (see project_alembic_state memory). The ORM expects
@@ -90,16 +83,6 @@ import asyncpg
 # Every statement here is idempotent. Order matters for enum ADD VALUE
 # (must run outside transaction) vs column adds (can run in tx).
 _ENUM_STATEMENTS = [
-    # Central AI platform (migration 0166).
-    *[
-        f"ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS '{value}'"
-        for value in (
-            "embeddings", "reranking", "matching", "job_writer",
-            "champion_profile", "match_explanation", "mindy",
-            "uop_analysis", "criteria_suggestions", "cv_b2b",
-            "cv_parser_challenger",
-        )
-    ],
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
     # notificationtype: 5 trigger types + champion_profile_updated
@@ -442,183 +425,6 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
-    # Analytics v1 shadow evidence (migration 0165). Keep this idempotent
-    # mirror because production historically carried multiple Alembic heads.
-    """CREATE TABLE IF NOT EXISTS analytics_shadow_comparisons (
-        id BIGSERIAL PRIMARY KEY,
-        observed_on DATE NOT NULL,
-        module_key VARCHAR(64) NOT NULL,
-        metric_key VARCHAR(128) NOT NULL,
-        metric_version VARCHAR(32) NOT NULL,
-        period_start TIMESTAMPTZ NOT NULL,
-        period_end TIMESTAMPTZ NOT NULL,
-        legacy_value NUMERIC(24, 6),
-        analytics_value NUMERIC(24, 6),
-        absolute_diff NUMERIC(24, 6),
-        status VARCHAR(24) NOT NULL,
-        details JSONB NOT NULL DEFAULT '{}'::jsonb,
-        first_observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        last_observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT ck_analytics_shadow_period CHECK (period_start < period_end),
-        CONSTRAINT ck_analytics_shadow_status CHECK (
-            status IN ('identical', 'mismatch', 'unavailable')
-        ),
-        CONSTRAINT uq_analytics_shadow_daily_metric UNIQUE (
-            observed_on, module_key, metric_key, metric_version
-        )
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_status_day ON analytics_shadow_comparisons (status, observed_on DESC)",
-    "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_module_day ON analytics_shadow_comparisons (module_key, observed_on DESC)",
-    "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'voyage'",
-    "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS text_schema VARCHAR(32) NOT NULL DEFAULT 'legacy_v1'",
-    "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS monthly_budget_usd NUMERIC(12,4) NOT NULL DEFAULT 0",
-    """CREATE TABLE IF NOT EXISTS ai_routing_state (
-        id INTEGER PRIMARY KEY,
-        registry_version VARCHAR(64) NOT NULL,
-        lock_version INTEGER NOT NULL DEFAULT 1,
-        reason TEXT NOT NULL,
-        activated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        activated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_provider_compliance (
-        provider VARCHAR(32) PRIMARY KEY,
-        production_allowed BOOLEAN NOT NULL DEFAULT false,
-        dpa_approved BOOLEAN NOT NULL DEFAULT false,
-        zdr_approved BOOLEAN NOT NULL DEFAULT false,
-        subprocessors_reviewed BOOLEAN NOT NULL DEFAULT false,
-        transfer_basis VARCHAR(32),
-        approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        approved_at TIMESTAMPTZ,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_routing_activation_log (
-        id BIGSERIAL PRIMARY KEY,
-        previous_version VARCHAR(64) NOT NULL,
-        registry_version VARCHAR(64) NOT NULL,
-        lock_version INTEGER NOT NULL,
-        reason TEXT NOT NULL,
-        activated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_budget_reservations (
-        id BIGSERIAL PRIMARY KEY,
-        request_id VARCHAR(64) NOT NULL UNIQUE,
-        feature VARCHAR(64) NOT NULL,
-        period_start DATE NOT NULL,
-        reserved_cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
-        actual_cost_usd NUMERIC(12,6),
-        status VARCHAR(20) NOT NULL DEFAULT 'reserved',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        reconciled_at TIMESTAMPTZ
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_call_ledger (
-        id BIGSERIAL PRIMARY KEY,
-        request_id VARCHAR(64) NOT NULL,
-        attempt INTEGER NOT NULL DEFAULT 1,
-        feature VARCHAR(64) NOT NULL,
-        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
-        subject_type VARCHAR(32), subject_id INTEGER,
-        provider VARCHAR(32) NOT NULL, model VARCHAR(128) NOT NULL,
-        route_version VARCHAR(64) NOT NULL,
-        prompt_version VARCHAR(64) NOT NULL,
-        schema_version VARCHAR(64) NOT NULL,
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-        cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
-        latency_ms INTEGER NOT NULL DEFAULT 0,
-        retried BOOLEAN NOT NULL DEFAULT false,
-        escalated BOOLEAN NOT NULL DEFAULT false,
-        pii BOOLEAN NOT NULL DEFAULT false,
-        status VARCHAR(24) NOT NULL,
-        error_code VARCHAR(64), input_hash VARCHAR(64) NOT NULL,
-        output_hash VARCHAR(64),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_ai_call_ledger_request_id ON ai_call_ledger (request_id)",
-    "CREATE INDEX IF NOT EXISTS ix_ai_call_ledger_feature ON ai_call_ledger (feature)",
-    "CREATE INDEX IF NOT EXISTS ix_ai_call_ledger_created_at ON ai_call_ledger (created_at)",
-    "CREATE INDEX IF NOT EXISTS ix_ai_budget_reservations_feature ON ai_budget_reservations (feature)",
-    "INSERT INTO ai_routing_state (id, registry_version, lock_version, reason) VALUES (1, 'v1_current', 1, 'Initial safe baseline') ON CONFLICT (id) DO NOTHING",
-    """INSERT INTO ai_provider_compliance
-        (provider, production_allowed, dpa_approved, zdr_approved, subprocessors_reviewed)
-        VALUES ('anthropic', true, false, false, false),
-               ('voyage', true, false, false, false),
-               ('openai', false, false, false, false)
-        ON CONFLICT (provider) DO NOTHING""",
-    *[
-        "INSERT INTO ai_features (feature, enabled, monthly_limit, monthly_budget_usd) "
-        f"VALUES ('{value}', true, 0, 0) ON CONFLICT (feature) DO NOTHING"
-        for value in (
-            "embeddings", "reranking", "matching", "job_writer",
-            "champion_profile", "match_explanation", "mindy",
-            "uop_analysis", "criteria_suggestions", "cv_b2b",
-        )
-    ],
-    # AI retrieval foundation (migration 0165). The outbox prevents silent
-    # Qdrant drift when candidate/job records are edited outside API handlers.
-    """CREATE TABLE IF NOT EXISTS embedding_index_queue (
-        id BIGSERIAL PRIMARY KEY,
-        entity_type VARCHAR(20) NOT NULL,
-        entity_id INTEGER NOT NULL,
-        operation VARCHAR(10) NOT NULL DEFAULT 'upsert',
-        status VARCHAR(20) NOT NULL DEFAULT 'pending',
-        attempts INTEGER NOT NULL DEFAULT 0,
-        source_hash VARCHAR(64),
-        last_error TEXT,
-        available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        locked_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_embedding_index_entity UNIQUE (entity_type, entity_id)
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_embedding_index_queue_status ON embedding_index_queue (status)",
-    "CREATE INDEX IF NOT EXISTS ix_embedding_index_queue_available_at ON embedding_index_queue (available_at)",
-    "ALTER TABLE scoring_weight_profiles ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
-    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS profile_version INTEGER NOT NULL DEFAULT 1",
-    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS scoring_algorithm_version VARCHAR(40) NOT NULL DEFAULT 'legacy'",
-    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS index_version VARCHAR(255) NOT NULL DEFAULT 'legacy'",
-    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS candidate_source_hash VARCHAR(64) NOT NULL DEFAULT 'legacy'",
-    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS job_source_hash VARCHAR(64) NOT NULL DEFAULT 'legacy'",
-    """CREATE OR REPLACE FUNCTION nexus_enqueue_embedding_index()
-    RETURNS trigger LANGUAGE plpgsql AS $$
-    DECLARE target_id integer; target_operation varchar(10);
-    BEGIN
-        target_id := COALESCE(NEW.id, OLD.id);
-        target_operation := CASE WHEN TG_OP = 'DELETE' THEN 'delete' ELSE 'upsert' END;
-        INSERT INTO embedding_index_queue (
-            entity_type, entity_id, operation, status, attempts,
-            available_at, locked_at, last_error, created_at, updated_at
-        ) VALUES (
-            TG_ARGV[0], target_id, target_operation, 'pending', 0,
-            now(), NULL, NULL, now(), now()
-        ) ON CONFLICT (entity_type, entity_id) DO UPDATE SET
-            operation=EXCLUDED.operation, status='pending', attempts=0,
-            available_at=now(), locked_at=NULL, last_error=NULL, updated_at=now();
-        RETURN COALESCE(NEW, OLD);
-    END $$""",
-    """DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_candidates_embedding_index') THEN
-            CREATE TRIGGER trg_candidates_embedding_index
-            AFTER INSERT OR DELETE OR UPDATE OF name, lastname, competence_category,
-                competence_category_id, years_it_experience, skills, verified_tech,
-                experience, tags, preferences, ai_summary, raw_cv_text, languages
-            ON candidates FOR EACH ROW
-            EXECUTE FUNCTION nexus_enqueue_embedding_index('candidate');
-        END IF;
-    END $$""",
-    """DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_jobs_embedding_index') THEN
-            CREATE TRIGGER trg_jobs_embedding_index
-            AFTER INSERT OR DELETE OR UPDATE OF title, description, requirements,
-                seniority, subcategory, industry, train_name, champion_profile,
-                must_skills, nice_skills, competence_category_id, work_mode
-            ON jobs FOR EACH ROW
-            EXECUTE FUNCTION nexus_enqueue_embedding_index('job');
-        END IF;
-    END $$""",
     # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
     # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
     # UndefinedColumnError gdyby app wystartował przed alembic upgrade.
@@ -1148,134 +954,9 @@ _COLUMN_STATEMENTS = [
         status VARCHAR(12) NOT NULL DEFAULT 'new',
         CONSTRAINT uq_cortex_unmatched_term UNIQUE (term)
     )""",
-    # Blind AI evaluator (0168). Tables contain source references and encrypted
-    # short-lived outputs only; never copied CV text or plaintext responses.
-    """CREATE TABLE IF NOT EXISTS ai_eval_sets (
-        id BIGSERIAL PRIMARY KEY, name VARCHAR(160) NOT NULL,
-        feature VARCHAR(64) NOT NULL, description TEXT NULL,
-        frozen BOOLEAN NOT NULL DEFAULT false,
-        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_eval_cases (
-        id BIGSERIAL PRIMARY KEY,
-        eval_set_id BIGINT NOT NULL REFERENCES ai_eval_sets(id) ON DELETE CASCADE,
-        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-        source_ref VARCHAR(128) NOT NULL DEFAULT 'candidate.raw_cv_text',
-        slice_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_ai_eval_case_ref UNIQUE (eval_set_id,candidate_id,source_ref)
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_eval_runs (
-        id BIGSERIAL PRIMARY KEY,
-        eval_set_id BIGINT NOT NULL REFERENCES ai_eval_sets(id) ON DELETE CASCADE,
-        feature VARCHAR(64) NOT NULL, mode VARCHAR(16) NOT NULL DEFAULT 'offline',
-        status VARCHAR(20) NOT NULL DEFAULT 'draft',
-        champion_provider VARCHAR(32) NOT NULL, champion_model VARCHAR(128) NOT NULL,
-        challenger_provider VARCHAR(32) NOT NULL, challenger_model VARCHAR(128) NOT NULL,
-        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), started_at TIMESTAMPTZ NULL,
-        completed_at TIMESTAMPTZ NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_eval_labels (
-        id BIGSERIAL PRIMARY KEY,
-        run_id BIGINT NOT NULL REFERENCES ai_eval_runs(id) ON DELETE CASCADE,
-        case_id BIGINT NOT NULL REFERENCES ai_eval_cases(id) ON DELETE CASCADE,
-        reviewer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        preferred_variant VARCHAR(1) NULL, rating_a INTEGER NULL, rating_b INTEGER NULL,
-        metrics JSONB NOT NULL DEFAULT '{}'::jsonb, comment TEXT NULL,
-        submitted_at TIMESTAMPTZ NULL,
-        CONSTRAINT uq_ai_eval_reviewer_case UNIQUE (run_id,case_id,reviewer_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_eval_outputs (
-        id BIGSERIAL PRIMARY KEY,
-        run_id BIGINT NOT NULL REFERENCES ai_eval_runs(id) ON DELETE CASCADE,
-        case_id BIGINT NOT NULL REFERENCES ai_eval_cases(id) ON DELETE CASCADE,
-        variant VARCHAR(16) NOT NULL, provider VARCHAR(32) NOT NULL,
-        model VARCHAR(128) NOT NULL, ciphertext BYTEA NOT NULL, nonce BYTEA NOT NULL,
-        output_hash VARCHAR(64) NOT NULL,
-        deterministic_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), expires_at TIMESTAMPTZ NOT NULL,
-        CONSTRAINT uq_ai_eval_output UNIQUE (run_id,case_id,variant)
-    )""",
-    *[
-        f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"
-        for name, table, column in (
-            ("ix_ai_eval_sets_feature", "ai_eval_sets", "feature"),
-            ("ix_ai_eval_cases_eval_set_id", "ai_eval_cases", "eval_set_id"),
-            ("ix_ai_eval_cases_candidate_id", "ai_eval_cases", "candidate_id"),
-            ("ix_ai_eval_runs_eval_set_id", "ai_eval_runs", "eval_set_id"),
-            ("ix_ai_eval_labels_run_id", "ai_eval_labels", "run_id"),
-            ("ix_ai_eval_labels_case_id", "ai_eval_labels", "case_id"),
-            ("ix_ai_eval_labels_reviewer_id", "ai_eval_labels", "reviewer_id"),
-            ("ix_ai_eval_outputs_run_id", "ai_eval_outputs", "run_id"),
-            ("ix_ai_eval_outputs_case_id", "ai_eval_outputs", "case_id"),
-            ("ix_ai_eval_outputs_expires_at", "ai_eval_outputs", "expires_at"),
-        )
-    ],
-    # Staged AI canary/rollback control plane (0169).
-    """CREATE TABLE IF NOT EXISTS ai_rollout_state (
-        feature VARCHAR(64) PRIMARY KEY, baseline_registry VARCHAR(64) NOT NULL,
-        target_registry VARCHAR(64) NOT NULL, stage VARCHAR(16) NOT NULL DEFAULT 'shadow',
-        percentage INTEGER NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'active',
-        min_stage_hours INTEGER NOT NULL DEFAULT 72, lock_version INTEGER NOT NULL DEFAULT 1,
-        offline_gate_reference VARCHAR(256) NOT NULL,
-        baseline_index_targets JSONB NOT NULL DEFAULT '{}'::jsonb,
-        target_index_targets JSONB NOT NULL DEFAULT '{}'::jsonb,
-        reason TEXT NOT NULL, rollback_reason TEXT NULL,
-        started_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        stage_started_at TIMESTAMPTZ NOT NULL DEFAULT now(), completed_at TIMESTAMPTZ NULL,
-        rollback_available_until TIMESTAMPTZ NULL, monitoring_until TIMESTAMPTZ NULL,
-        next_regression_at TIMESTAMPTZ NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_rollout_observations (
-        id BIGSERIAL PRIMARY KEY, feature VARCHAR(64) NOT NULL,
-        registry_version VARCHAR(64) NOT NULL, window_seconds INTEGER NOT NULL,
-        requests INTEGER NOT NULL DEFAULT 0, provider_errors INTEGER NOT NULL DEFAULT 0,
-        privacy_incidents INTEGER NOT NULL DEFAULT 0,
-        critical_hallucinations INTEGER NOT NULL DEFAULT 0,
-        hallucination_samples INTEGER NOT NULL DEFAULT 0,
-        p95_increase_pct DOUBLE PRECISION NOT NULL DEFAULT 0,
-        cost_increase_pct DOUBLE PRECISION NOT NULL DEFAULT 0,
-        recall_at_20_drop_pp DOUBLE PRECISION NOT NULL DEFAULT 0,
-        ndcg_at_10_drop_pct DOUBLE PRECISION NOT NULL DEFAULT 0,
-        worst_slice_drop_pp DOUBLE PRECISION NOT NULL DEFAULT 0,
-        source VARCHAR(64) NOT NULL,
-        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_rollout_events (
-        id BIGSERIAL PRIMARY KEY, feature VARCHAR(64) NOT NULL,
-        event VARCHAR(32) NOT NULL, from_stage VARCHAR(16) NULL, to_stage VARCHAR(16) NULL,
-        reason TEXT NOT NULL, actor_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    """CREATE TABLE IF NOT EXISTS ai_rollout_reports (
-        id BIGSERIAL PRIMARY KEY, feature VARCHAR(64) NOT NULL,
-        report_type VARCHAR(20) NOT NULL, period_start TIMESTAMPTZ NOT NULL,
-        period_end TIMESTAMPTZ NOT NULL, quality_passed BOOLEAN NOT NULL,
-        artifact_ref VARCHAR(512) NOT NULL, notes TEXT NULL,
-        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    *[
-        f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"
-        for name, table, column in (
-            ("ix_ai_rollout_observations_feature", "ai_rollout_observations", "feature"),
-            ("ix_ai_rollout_observations_created_at", "ai_rollout_observations", "created_at"),
-            ("ix_ai_rollout_events_feature", "ai_rollout_events", "feature"),
-            ("ix_ai_rollout_reports_feature", "ai_rollout_reports", "feature"),
-        )
-    ],
 ]
 
 _DATA_STATEMENTS = [
-    """INSERT INTO ai_features
-       (feature, enabled, monthly_limit, monthly_budget_usd, created_at, updated_at)
-       VALUES ('cv_parser_challenger', false, 0, 0, now(), now())
-       ON CONFLICT (feature) DO NOTHING""",
     # Backfill closed_at for historical closed rows so reports sort by "real
     # close date" instead of NULL. Safe because only touches NULL rows.
     "UPDATE jobs SET closed_at = updated_at WHERE status = 'closed' AND closed_at IS NULL",

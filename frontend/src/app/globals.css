@@ -71,20 +71,8 @@
 
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
-    --success-muted: 142 52% 93%;
-    --success-muted-foreground: 142 72% 24%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --warning-muted: 43 96% 90%;
-    --warning-muted-foreground: 32 94% 26%;
-    --destructive-muted: 0 86% 94%;
-    --destructive-muted-foreground: 0 63% 31%;
-    --info: 217 91% 60%;
-    --info-foreground: 0 0% 100%;
-    --info-muted: 214 95% 93%;
-    --info-muted-foreground: 221 83% 32%;
-    --brand-linkedin: 201 100% 35%;
-    --brand-linkedin-foreground: 0 0% 100%;
 
     /* Sidebar — neutral slate panel, shared by every palette. */
     --sidebar: 220 20% 97%;
@@ -128,20 +116,8 @@
 
     --success: 142 69% 48%;
     --success-foreground: 144 60% 10%;
-    --success-muted: 142 30% 18%;
-    --success-muted-foreground: 142 60% 70%;
     --warning: 38 92% 55%;
     --warning-foreground: 38 80% 10%;
-    --warning-muted: 38 35% 18%;
-    --warning-muted-foreground: 43 90% 70%;
-    --destructive-muted: 0 35% 20%;
-    --destructive-muted-foreground: 0 84% 75%;
-    --info: 217 91% 60%;
-    --info-foreground: 222 47% 11%;
-    --info-muted: 217 35% 20%;
-    --info-muted-foreground: 213 95% 75%;
-    --brand-linkedin: 201 100% 45%;
-    --brand-linkedin-foreground: 202 80% 9%;
 
     --sidebar: 222 22% 7%;
     --sidebar-foreground: 210 18% 90%;
@@ -251,20 +227,8 @@
 
     --success: 145 70% 38%;
     --success-foreground: 0 0% 100%;
-    --success-muted: 145 60% 89%;
-    --success-muted-foreground: 145 70% 25%;
     --warning: 35 100% 50%;
     --warning-foreground: 35 80% 12%;
-    --warning-muted: 48 100% 88%;
-    --warning-muted-foreground: 35 80% 24%;
-    --destructive-muted: 0 90% 92%;
-    --destructive-muted-foreground: 0 70% 32%;
-    --info: 201 90% 46%;
-    --info-foreground: 245 40% 14%;
-    --info-muted: 199 90% 89%;
-    --info-muted-foreground: 201 90% 27%;
-    --brand-linkedin: 201 100% 35%;
-    --brand-linkedin-foreground: 0 0% 100%;
 
     --sidebar: 265 90% 96%;              /* light lavender panel */
     --sidebar-foreground: 245 40% 22%;
@@ -307,20 +271,8 @@
 
     --success: 145 65% 50%;
     --success-foreground: 144 60% 10%;
-    --success-muted: 145 35% 22%;
-    --success-muted-foreground: 145 65% 72%;
     --warning: 42 100% 60%;
     --warning-foreground: 38 80% 12%;
-    --warning-muted: 42 45% 22%;
-    --warning-muted-foreground: 48 100% 76%;
-    --destructive-muted: 0 38% 24%;
-    --destructive-muted-foreground: 0 85% 78%;
-    --info: 190 85% 60%;
-    --info-foreground: 258 45% 13%;
-    --info-muted: 190 40% 24%;
-    --info-muted-foreground: 190 85% 78%;
-    --brand-linkedin: 201 100% 58%;
-    --brand-linkedin-foreground: 258 45% 13%;
 
     --sidebar: 260 42% 15%;
     --sidebar-foreground: 50 95% 90%;

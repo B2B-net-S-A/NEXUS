@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -25,7 +25,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
 from app.models.job import Job
-from app.services.fx_service import convert_to_pln, fx_age_days
+from app.services.fx_service import convert_to_pln
 
 router = APIRouter()
 
@@ -41,18 +41,6 @@ def _sql_monthly(col):
         (Contract.rate_unit == "hourly", col * Contract.billing_hours_per_month),
         else_=col,
     )
-
-
-async def _to_pln_strict(
-    db: AsyncSession, amount: Decimal | int, currency: Optional[str]
-) -> Decimal:
-    cur = (currency or "PLN").upper()
-    if cur != "PLN" and await fx_age_days(db, cur) is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Missing FX rate for {cur}; financial aggregate is unavailable",
-        )
-    return await convert_to_pln(db, Decimal(amount or 0), cur)
 
 
 # ── Pydantic DTOs ─────────────────────────────────────────────────────────────
@@ -106,7 +94,6 @@ async def margin_by_contractor(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
-    today = date.today()
     rev_sql = _sql_monthly(Contract.rate_client)
     marg_sql = _sql_monthly(Contract.margin)
     res = await db.execute(
@@ -114,48 +101,27 @@ async def margin_by_contractor(
             Candidate.id,
             Candidate.name,
             Candidate.lastname,
-            Contract.currency,
             func.count(Contract.id).label("active_contracts"),
             func.coalesce(func.sum(marg_sql), 0).label("margin"),
             func.coalesce(func.sum(rev_sql), 0).label("revenue"),
         )
         .join(Contract, Contract.candidate_id == Candidate.id)
-        .where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-            Contract.start_date.is_not(None),
-            Contract.start_date <= today,
-            (Contract.end_date.is_(None)) | (Contract.end_date >= today),
-        )
-        .group_by(Candidate.id, Candidate.name, Candidate.lastname, Contract.currency)
+        .where(Contract.status == ContractStatus.active)
+        .group_by(Candidate.id, Candidate.name, Candidate.lastname)
+        .order_by(func.sum(marg_sql).desc())
+        .limit(limit)
     )
-    grouped: dict[int, dict] = {}
-    for r in res.all():
-        bucket = grouped.setdefault(
-            r.id,
-            {
-                "name": f"{r.name} {r.lastname}",
-                "active_contracts": 0,
-                "revenue": Decimal("0"),
-                "margin": Decimal("0"),
-            },
-        )
-        bucket["active_contracts"] += int(r.active_contracts or 0)
-        bucket["revenue"] += await _to_pln_strict(db, r.revenue or 0, r.currency)
-        bucket["margin"] += await _to_pln_strict(db, r.margin or 0, r.currency)
-
     rows = []
-    for candidate_id, bucket in sorted(
-        grouped.items(), key=lambda item: item[1]["margin"], reverse=True
-    )[:limit]:
-        revenue = bucket["revenue"]
-        margin = bucket["margin"]
+    for r in res.all():
+        revenue = int(r.revenue or 0)
+        margin = int(r.margin or 0)
         rows.append(
             MarginByContractor(
-                candidate_id=candidate_id,
-                candidate_name=bucket["name"],
-                active_contracts=bucket["active_contracts"],
-                total_monthly_margin=int(margin),
-                total_monthly_revenue=int(revenue),
+                candidate_id=r.id,
+                candidate_name=f"{r.name} {r.lastname}",
+                active_contracts=r.active_contracts,
+                total_monthly_margin=margin,
+                total_monthly_revenue=revenue,
                 margin_pct=round((margin / revenue) * 100, 1) if revenue else None,
             )
         )
@@ -168,55 +134,33 @@ async def margin_by_client(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
-    today = date.today()
     rev_sql = _sql_monthly(Contract.rate_client)
     marg_sql = _sql_monthly(Contract.margin)
     res = await db.execute(
         select(
             Client.id,
             Client.name,
-            Contract.currency,
             func.count(Contract.id).label("active_contracts"),
             func.coalesce(func.sum(marg_sql), 0).label("margin"),
             func.coalesce(func.sum(rev_sql), 0).label("revenue"),
         )
         .join(Contract, Contract.client_id == Client.id)
-        .where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-            Contract.start_date.is_not(None),
-            Contract.start_date <= today,
-            (Contract.end_date.is_(None)) | (Contract.end_date >= today),
-        )
-        .group_by(Client.id, Client.name, Contract.currency)
+        .where(Contract.status == ContractStatus.active)
+        .group_by(Client.id, Client.name)
+        .order_by(func.sum(marg_sql).desc())
+        .limit(limit)
     )
-    grouped: dict[int, dict] = {}
-    for r in res.all():
-        bucket = grouped.setdefault(
-            r.id,
-            {
-                "name": r.name,
-                "active_contracts": 0,
-                "revenue": Decimal("0"),
-                "margin": Decimal("0"),
-            },
-        )
-        bucket["active_contracts"] += int(r.active_contracts or 0)
-        bucket["revenue"] += await _to_pln_strict(db, r.revenue or 0, r.currency)
-        bucket["margin"] += await _to_pln_strict(db, r.margin or 0, r.currency)
-
     rows = []
-    for client_id, bucket in sorted(
-        grouped.items(), key=lambda item: item[1]["margin"], reverse=True
-    )[:limit]:
-        revenue = bucket["revenue"]
-        margin = bucket["margin"]
+    for r in res.all():
+        revenue = int(r.revenue or 0)
+        margin = int(r.margin or 0)
         rows.append(
             MarginByClient(
-                client_id=client_id,
-                client_name=bucket["name"],
-                active_contracts=bucket["active_contracts"],
-                total_monthly_margin=int(margin),
-                total_monthly_revenue=int(revenue),
+                client_id=r.id,
+                client_name=r.name,
+                active_contracts=r.active_contracts,
+                total_monthly_margin=margin,
+                total_monthly_revenue=revenue,
                 margin_pct=round((margin / revenue) * 100, 1) if revenue else None,
             )
         )
@@ -228,40 +172,29 @@ async def utilization(
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    today = date.today()
     total_candidates = (
-        await db.execute(
-            select(func.count(func.distinct(Contract.candidate_id))).where(
-                Contract.start_date.is_not(None),
-                Contract.start_date <= today,
-            )
-        )
+        await db.execute(select(func.count(Candidate.id)))
     ).scalar() or 0
 
     active_res = await db.execute(
         select(func.count(func.distinct(Contract.candidate_id))).where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-            Contract.start_date.is_not(None),
-            Contract.start_date <= today,
-            (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+            Contract.status == ContractStatus.active
         )
     )
     candidates_active = active_res.scalar() or 0
     candidates_on_bench = max(0, total_candidates - candidates_active)
 
     # Avg bench days — count days since each bench candidate's last contract end.
+    today = date.today()
     bench_days_res = await db.execute(
-        select(Contract.candidate_id, func.max(Contract.end_date).label("last_end"))
-        .where(Contract.start_date.is_not(None), Contract.start_date <= today)
-        .group_by(Contract.candidate_id)
+        select(Candidate.id, func.max(Contract.end_date).label("last_end"))
+        .outerjoin(Contract, Contract.candidate_id == Candidate.id)
+        .group_by(Candidate.id)
     )
     bench_gaps: list[int] = []
     active_candidate_ids_res = await db.execute(
         select(func.distinct(Contract.candidate_id)).where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-            Contract.start_date.is_not(None),
-            Contract.start_date <= today,
-            (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+            Contract.status == ContractStatus.active
         )
     )
     active_ids = {row[0] for row in active_candidate_ids_res.all() if row[0]}
@@ -295,8 +228,8 @@ async def revenue_forecast(
     db: AsyncSession = Depends(get_db),
     horizon_months: int = Query(12, ge=1, le=24),
     convert_currency: bool = Query(
-        True,
-        description="Deprecated compatibility flag; totals are always converted to PLN.",
+        False,
+        description="If true, converts non-PLN amounts to PLN via cached NBP rates.",
     ),
 ):
     today = date.today()
@@ -304,8 +237,7 @@ async def revenue_forecast(
 
     all_active_res = await db.execute(
         select(Contract).where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-            Contract.start_date.is_not(None),
+            Contract.status.in_([ContractStatus.active, ContractStatus.ending])
         )
     )
     active_contracts = list(all_active_res.scalars().all())
@@ -313,10 +245,9 @@ async def revenue_forecast(
     from app.api.reports import _monthly_margin, _monthly_rate_client
 
     async def _to_display(amount: int, currency: str) -> int:
-        # Financial aggregates must never nominally mix currencies. The legacy
-        # query flag is accepted for compatibility but no longer disables FX.
-        _ = convert_currency
-        converted = await _to_pln_strict(db, Decimal(amount), currency)
+        if not convert_currency or (currency or "PLN").upper() == "PLN":
+            return amount
+        converted = await convert_to_pln(db, Decimal(amount), currency)
         return int(converted)
 
     months: list[ForecastMonth] = []

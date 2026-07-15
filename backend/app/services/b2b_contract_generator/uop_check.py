@@ -5,22 +5,21 @@ prosi Claude o wykrycie sformułowań sugerujących stosunek pracy (podporządko
 polecenia przełożonego, sztywne godziny, urlop, „wynagrodzenie za pracę" itp.)
 oraz o bezpieczniejszą redakcję B2B (język rezultatu/usługi).
 
-Najpierw uruchamia deterministyczne reguły, następnie przekazuje ich wynik do
-Sonnet przez centralny gateway. Wynik jest zawsze doradczy i ma ``input_hash``.
+Reużywa klienta Anthropic z generatora CV (`analyze_with_ai`, model Sonnet),
+wołany w wątku (klient SDK jest synchroniczny). Zwraca strukturę:
+``{ok, issues: [{phrase, why, suggestion}], rewritten, summary}``.
 """
 
 from __future__ import annotations
 
 import json
-import hashlib
 import logging
 import re
-from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from app.ai import AIError, AIRequest, ai_gateway
-from app.models.ai_feature import AIFeatureKey
+from app.services.cv_generator_b2b.ai_client import (
+    CVGeneratorAIError,
+    analyze_with_ai,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,154 +86,45 @@ Text to assess:
 \"\"\""""
 
 
-class _Issue(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    phrase: str
-    why: str
-    suggestion: str
-
-
-class _AIUopResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    issues: list[_Issue] = Field(default_factory=list)
-    rewritten: str
-    summary: str
+def _extract_json(raw: str) -> dict:
+    """Wyjmij obiekt JSON z odpowiedzi (czasem owinięty w ```json ... ```)."""
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    candidate = fenced.group(1) if fenced else raw
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("no JSON object in AI response")
+    return json.loads(candidate[start : end + 1])
 
 
-_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
-    (
-        re.compile(
-            r"\b(?:polece(?:ń|nia)|przełożon(?:ego|ej)|podległo(?:ść|ści))\b", re.I
-        ),
-        "Sformułowanie może wskazywać na podporządkowanie służbowe.",
-        "Opisz uzgodniony rezultat i samodzielność wykonawcy.",
-    ),
-    (
-        re.compile(
-            r"\b(?:godzin(?:y|ach)|czas pracy|od\s+\d{1,2}[:.]\d{2}\s+do)\b", re.I
-        ),
-        "Sztywne godziny mogą przypominać organizację czasu pracy pracownika.",
-        "Wskaż termin lub dostępność rezultatu bez narzucania godzin pracy.",
-    ),
-    (
-        re.compile(
-            r"\b(?:urlop|zwolnieni(?:e|a)|świadczeni(?:e|a) pracownicze)\b", re.I
-        ),
-        "To pojęcie jest charakterystyczne dla stosunku pracy.",
-        "Użyj zasad przerwy w świadczeniu usług uzgodnionych między stronami.",
-    ),
-    (
-        re.compile(
-            r"\b(?:wynagrodzenie za pracę|etat|stanowisko w strukturze)\b", re.I
-        ),
-        "Terminologia bezpośrednio nawiązuje do zatrudnienia pracowniczego.",
-        "Użyj wynagrodzenia za wykonane usługi lub uzgodniony rezultat.",
-    ),
-)
-
-
-def _rule_issues(text: str) -> list[dict[str, str]]:
-    issues: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for pattern, why, suggestion in _RULES:
-        for match in pattern.finditer(text):
-            phrase = match.group(0)
-            key = phrase.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            issues.append({"phrase": phrase, "why": why, "suggestion": suggestion})
-    return issues
-
-
-async def check_employment_hallmarks(
-    text: str, language: str = "pl", *, user_id: Optional[int] = None
-) -> dict:
+def check_employment_hallmarks(text: str, language: str = "pl") -> dict:
     """Sprawdź tekst opisu/zakresu; zwróć ``{ok, issues, rewritten, summary}``.
 
     Raises:
-        Funkcja nie podejmuje decyzji prawnej; odpowiedź wymaga potwierdzenia.
+        CVGeneratorAIError: brak ANTHROPIC_API_KEY lub wyczerpane retry.
+        ValueError: odpowiedź AI nie jest parsowalnym JSON-em.
     """
     clean = (text or "").strip()
     if not clean:
-        return {
-            "ok": True,
-            "issues": [],
-            "rewritten": "",
-            "summary": "",
-            "input_hash": hashlib.sha256(b"").hexdigest(),
-            "analysis_mode": "rules_only",
-            "requires_confirmation": True,
-        }
+        return {"ok": True, "issues": [], "rewritten": "", "summary": ""}
     clean = clean[:_MAX_INPUT_CHARS]
-    input_hash = hashlib.sha256(
-        f"{language.lower()}:{clean}".encode("utf-8")
-    ).hexdigest()
-    deterministic = _rule_issues(clean)
     template = _PROMPT_EN if (language or "pl").lower().startswith("en") else _PROMPT_PL
-    prompt = template.format(text=clean)
-    prompt += (
-        "\n\nDeterministyczny silnik wykrył poniższe frazy. Nie wolno ich usuwać "
-        "z issues; możesz dodać tylko frazę będącą dokładnym cytatem z tekstu:\n"
-        + json.dumps(deterministic, ensure_ascii=False)
-    )
-
-    def validate(value: object) -> _AIUopResult:
-        result = _AIUopResult.model_validate(value)
-        source_lower = clean.casefold()
-        if any(issue.phrase.casefold() not in source_lower for issue in result.issues):
-            raise ValueError("AI issue phrase is not present in source")
-        returned = {issue.phrase.casefold() for issue in result.issues}
-        if any(issue["phrase"].casefold() not in returned for issue in deterministic):
-            raise ValueError("AI omitted a deterministic rule issue")
-        return result
-
-    analysis_mode = "rules_ai"
-    try:
-        gateway_result = await ai_gateway.call(
-            AIRequest(
-                feature=AIFeatureKey.uop_analysis,
-                user_id=user_id,
-                subject_type="b2b_contract_draft",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "To analiza doradcza. Nie wydawaj decyzji prawnej i zwróć wyłącznie JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                prompt_version="uop_rules_sonnet_v2",
-                schema_version="uop_result_v2",
-                structured_validator=validate,
-                pii=True,
-            )
-        )
-        model_result: _AIUopResult = gateway_result.content
-        issues = [item.model_dump() for item in model_result.issues]
-        rewritten = model_result.rewritten
-        summary = model_result.summary
-    except AIError as exc:
-        logger.warning("uop analysis degraded code=%s", exc.code)
-        analysis_mode = "rules_only"
-        issues = deterministic
-        rewritten = clean
-        summary = (
-            "Wykryto ryzykowne sformułowania regułami deterministycznymi; "
-            "redakcja AI jest chwilowo niedostępna."
-            if issues
-            else "Reguły deterministyczne nie wykryły znamion stosunku pracy."
-        )
+    raw = analyze_with_ai(template.format(text=clean), request_id="uop-check")
+    data = _extract_json(raw)
+    issues = data.get("issues") or []
     return {
         "ok": len(issues) == 0,
-        "issues": issues,
-        "rewritten": rewritten,
-        "summary": summary,
-        "input_hash": input_hash,
-        "analysis_mode": analysis_mode,
-        "requires_confirmation": True,
+        "issues": [
+            {
+                "phrase": str(i.get("phrase", "")),
+                "why": str(i.get("why", "")),
+                "suggestion": str(i.get("suggestion", "")),
+            }
+            for i in issues
+            if isinstance(i, dict)
+        ],
+        "rewritten": str(data.get("rewritten") or clean),
+        "summary": str(data.get("summary") or ""),
     }
 
 
-__all__ = ["check_employment_hallmarks"]
+__all__ = ["check_employment_hallmarks", "CVGeneratorAIError"]

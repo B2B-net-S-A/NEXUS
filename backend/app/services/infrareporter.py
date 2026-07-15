@@ -11,10 +11,12 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from app.core.config import settings
-
 logger = logging.getLogger(__name__)
 
+INFRAREPORTER_URL = "https://infrareporter.onrender.com/api/kpi/board/monthly"
+INFRAREPORTER_API_KEY = (
+    "ir_c45b22c54a8281e73c23c402328bcadd31af166b84d148dcd6af155012f218ba"
+)
 CACHE_TTL_SECONDS = 3600  # 1 hour
 
 # Simple in-memory cache
@@ -31,10 +33,6 @@ async def get_infrareporter_kpis() -> Optional[Dict[str, Any]]:
     Returns cached data if available and not expired.
     Returns None if fetch fails.
     """
-    if not settings.INFRAREPORTER_API_KEY:
-        logger.info("InfraReporter: disabled because API key is not configured")
-        return None
-
     async with _cache_lock:
         now = time.time()
         if (
@@ -47,8 +45,8 @@ async def get_infrareporter_kpis() -> Optional[Dict[str, Any]]:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    settings.INFRAREPORTER_URL,
-                    headers={"X-Api-Key": settings.INFRAREPORTER_API_KEY},
+                    INFRAREPORTER_URL,
+                    headers={"X-Api-Key": INFRAREPORTER_API_KEY},
                 )
                 response.raise_for_status()
                 data = response.json()

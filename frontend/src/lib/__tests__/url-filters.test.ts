@@ -3,10 +3,8 @@ import {
   CandidateFilters,
   DEFAULT_FILTERS,
   decodeFilters,
-  encodeFilterCriteria,
   encodeFilters,
   filtersEqual,
-  filtersToApiCriteria,
   filtersToApiParams,
 } from "@/lib/url-filters";
 
@@ -50,8 +48,6 @@ describe("url-filters", () => {
       stageMovedBefore: "2026-05-29",
       stageClientIds: [21, 33],
       stageCurrentOnly: true,
-      openTo: ["side_projects", "expert_consult"],
-      recentlyChangedJobs: 2,
       view: "tiles",
       savedSearchId: 7,
       qAll: ["react native", "typescript"],
@@ -200,61 +196,6 @@ describe("url-filters", () => {
     expect(decoded.page).toBe(1);
   });
 
-  it("round-trips relevance, open-to and recently changed jobs", () => {
-    const filters: CandidateFilters = {
-      ...DEFAULT_FILTERS,
-      sort: "relevance",
-      openTo: ["side_projects", "sales_support"],
-      recentlyChangedJobs: 3,
-    };
-    const encoded = encodeFilters(filters);
-    expect(encoded.get("sort")).toBe("relevance");
-    expect(encoded.get("open_to")).toBe("side_projects,sales_support");
-    expect(encoded.get("rcj")).toBe("3");
-    expect(decodeFilters(encoded)).toEqual(filters);
-  });
-
-  it("accepts repeated open_to values and rejects invalid rcj", () => {
-    const decoded = decodeFilters(
-      sp("open_to=side_projects&open_to=sales_support,expert_consult&rcj=7"),
-    );
-    expect(decoded.openTo).toEqual([
-      "side_projects",
-      "sales_support",
-      "expert_consult",
-    ]);
-    expect(decoded.recentlyChangedJobs).toBeNull();
-  });
-
-  it("saved-search criteria omit transient page, view and saved-search id", () => {
-    const encoded = encodeFilterCriteria({
-      ...DEFAULT_FILTERS,
-      q: "React",
-      page: 9,
-      view: "tiles",
-      savedSearchId: 42,
-    });
-    expect(encoded.get("q")).toBe("React");
-    expect(encoded.has("page")).toBe(false);
-    expect(encoded.has("view")).toBe(false);
-    expect(encoded.has("ss")).toBe(false);
-  });
-
-  it("saved-search API criteria omit pagination and presentation flags", () => {
-    const criteria = filtersToApiCriteria({
-      ...DEFAULT_FILTERS,
-      q: "React",
-      page: 9,
-      view: "tiles",
-      savedSearchId: 42,
-    });
-    expect(criteria.q).toBe("React");
-    expect(criteria).not.toHaveProperty("page");
-    expect(criteria).not.toHaveProperty("view");
-    expect(criteria).not.toHaveProperty("savedSearchId");
-    expect(criteria).not.toHaveProperty("include_match_stats");
-  });
-
   it("treats 0 sentinel in addedByIds as 'system import'", () => {
     const decoded = decodeFilters(sp("added_by=0,12"));
     expect(decoded.addedByIds).toEqual([0, 12]);
@@ -339,19 +280,6 @@ describe("url-filters", () => {
     expect(params.skill_combine).toBeUndefined(); // single must term
     expect(params.skills_any).toEqual(["React|Vue"]);
     expect(params.skills_none).toEqual(["PHP"]);
-  });
-
-  it("maps open-to and recently changed jobs to API params", () => {
-    const params = filtersToApiParams(
-      {
-        ...DEFAULT_FILTERS,
-        openTo: ["expert_consult"],
-        recentlyChangedJobs: 1,
-      },
-      1,
-    );
-    expect(params.open_to).toEqual(["expert_consult"]);
-    expect(params.recently_changed_jobs).toBe(1);
   });
 
   it("sends lowercase skill_combine for multiple AND skills (no 422)", () => {

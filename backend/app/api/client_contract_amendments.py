@@ -19,9 +19,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, FinancialDlAssignedOrAdmin
-from app.analytics.scope import require_client_scope
-from app.api.financial_access import require_financial_access
+from app.api.deps import CurrentUser, DlAssignedOrAdmin
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -83,11 +81,9 @@ def _to_read(a: ClientContractAmendment) -> ClientContractAmendmentRead:
 async def list_amendments(
     client_id: int,
     fc_id: int,
-    user: CurrentUser,
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    require_financial_access(user)
-    await require_client_scope(db, user=user, client_id=client_id, finance=True)
     await _assert_fc(db, client_id, fc_id)
     rows = list(
         (
@@ -109,7 +105,7 @@ async def list_amendments(
 async def create_amendment(
     client_id: int,
     fc_id: int,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     name: str = Form(...),
@@ -120,7 +116,6 @@ async def create_amendment(
 ):
     import json
 
-    require_financial_access(user)
     await _assert_fc(db, client_id, fc_id)
 
     def _parse_json(raw: Optional[str], label: str) -> Optional[dict[str, Any]]:
@@ -196,11 +191,9 @@ async def download_amendment(
     client_id: int,
     fc_id: int,
     amendment_id: int,
-    user: CurrentUser,
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    require_financial_access(user)
-    await require_client_scope(db, user=user, client_id=client_id, finance=True)
     await _assert_fc(db, client_id, fc_id)
     a = await db.scalar(
         select(ClientContractAmendment).where(
@@ -227,11 +220,10 @@ async def send_amendment_to_autenti(
     fc_id: int,
     amendment_id: int,
     payload: ClientDocSendRequest,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    require_financial_access(user)
     from app.services.autenti.client_contracts_sender import (
         prepare_send_amendment,
         send_pdf_to_autenti,
@@ -261,10 +253,9 @@ async def delete_amendment(
     client_id: int,
     fc_id: int,
     amendment_id: int,
-    user: FinancialDlAssignedOrAdmin,
+    user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    require_financial_access(user)
     await _assert_fc(db, client_id, fc_id)
     a = await db.scalar(
         select(ClientContractAmendment).where(

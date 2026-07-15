@@ -52,11 +52,11 @@ async def _bulk_upsert_qdrant(collection: str, points: list[dict]) -> int:
     """Bulk upsert points into Qdrant. Returns number upserted."""
     if not points:
         return 0
+    from qdrant_client import QdrantClient  # noqa: PLC0415
     from qdrant_client.models import PointStruct  # noqa: PLC0415
-    from app.services.qdrant_factory import get_qdrant_client  # noqa: PLC0415
 
     def _upsert():
-        client = get_qdrant_client()
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         client.upsert(
             collection_name=collection,
             points=[PointStruct(**p) for p in points],
@@ -103,9 +103,7 @@ async def _reembed_candidates(
         if embeddings is None:
             processed += len(chunk)
             failed += len(chunk)
-            logger.warning(
-                "[reembed candidates] batch %s-%s failed entirely", i, i + len(chunk)
-            )
+            logger.warning("[reembed candidates] batch %s-%s failed entirely", i, i + len(chunk))
             continue
 
         points: list[dict] = []
@@ -190,9 +188,7 @@ async def _reembed_jobs(
         if embeddings is None:
             processed += len(chunk)
             failed += len(chunk)
-            logger.warning(
-                "[reembed jobs] batch %s-%s failed entirely", i, i + len(chunk)
-            )
+            logger.warning("[reembed jobs] batch %s-%s failed entirely", i, i + len(chunk))
             continue
 
         points: list[dict] = []
@@ -241,13 +237,9 @@ async def _reembed_jobs(
 
 
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--target", choices=["candidates", "jobs", "all"], default="all")
-    p.add_argument(
-        "--commit", action="store_true", help="actually call Voyage + upsert Qdrant"
-    )
+    p.add_argument("--commit", action="store_true", help="actually call Voyage + upsert Qdrant")
     p.add_argument("--dry-run", action="store_true", help="count only, no API calls")
     p.add_argument(
         "--batch",
@@ -255,12 +247,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=128,
         help="Voyage batch size (max 128, default 128 for ~390 calls / 50K candidates)",
     )
-    p.add_argument(
-        "--limit", type=int, default=None, help="cap number of entities (testing)"
-    )
-    p.add_argument(
-        "--log-every", type=int, default=100, help="progress log every N entities"
-    )
+    p.add_argument("--limit", type=int, default=None, help="cap number of entities (testing)")
+    p.add_argument("--log-every", type=int, default=100, help="progress log every N entities")
     args = p.parse_args(argv)
     if not args.commit and not args.dry_run:
         p.error("must pass --commit or --dry-run")

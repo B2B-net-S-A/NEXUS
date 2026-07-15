@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import api from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { HeroLigaMistrzow } from "@/components/v2/gamification/HeroLigaMistrzow"
-import { hasRole, useAuthStore } from "@/store/auth"
+import { useAuthStore } from "@/store/auth"
 
 import { DeliveryTabs } from "./_components/DeliveryTabs"
 import { DlClientsTable } from "./_components/DlClientsTable"
@@ -27,15 +27,10 @@ export default function DeliveryLeadDashboard() {
   const user = useAuthStore((s) => s.user)
   const hydrated = useAuthStore((s) => s.hydrated)
 
-  const isAllowed = hasRole(
-    user,
-    "delivery_lead",
-    "admin",
-    "head_of_recruitment",
-  )
-  const isMeDl =
-    hasRole(user, "delivery_lead") &&
-    !hasRole(user, "admin", "head_of_recruitment")
+  const isAllowed =
+    !!user &&
+    ["delivery_lead", "admin", "head_of_recruitment"].includes(user.role)
+  const isMeDl = user?.role === "delivery_lead"
   const scope: DlScope = isMeDl ? "me" : "team"
 
   // Team-wide report. Used for: team scope view + DL ranking + target threshold.

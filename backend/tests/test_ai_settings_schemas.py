@@ -32,25 +32,14 @@ from app.services.ai_quota import (
 
 
 class TestFeatureKeyEnum:
-    def test_all_production_ai_capabilities_are_registered(self):
+    def test_five_features_match_traffit_parity(self):
         keys = {k.value for k in AIFeatureKey}
         assert keys == {
             "scoring",
             "job_description_generator",
             "cv_parser",
-            "cv_parser_challenger",
             "candidate_summary",
             "champion_draft",
-            "embeddings",
-            "reranking",
-            "matching",
-            "job_writer",
-            "champion_profile",
-            "match_explanation",
-            "mindy",
-            "uop_analysis",
-            "criteria_suggestions",
-            "cv_b2b",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
