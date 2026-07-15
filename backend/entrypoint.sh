@@ -428,6 +428,13 @@ _COLUMN_STATEMENTS = [
     # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
     # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
     # UndefinedColumnError gdyby app wystartował przed alembic upgrade.
+    # candidate_job_match_scores.scoring_algorithm_version (migration 0170) —
+    # versioned score cache. A row whose version != the running
+    # scoring_service.SCORING_ALGORITHM_VERSION is a cache miss, so flipping
+    # AI_SCORING_CONTRACT_V2 auto-invalidates. Backfill to 'score-v1-legacy'
+    # (== the flag-off version) so nothing recomputes on deploy. Without the
+    # column the recommendations read 500s (UndefinedColumn) under multi-head.
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS scoring_algorithm_version VARCHAR(32) NOT NULL DEFAULT 'score-v1-legacy'",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS notify_new_matches BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_seen_candidate_id INTEGER",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS unseen_count INTEGER NOT NULL DEFAULT 0",

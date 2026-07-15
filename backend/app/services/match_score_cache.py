@@ -34,6 +34,7 @@ from app.models.job import Job
 from app.models.match_score import CandidateJobMatchScore
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
+    SCORING_ALGORITHM_VERSION,
     LayerResult,
     ScoreBreakdown,
     WeightProfile,
@@ -87,6 +88,7 @@ async def _upsert_breakdown(
         total_score=breakdown.total,
         breakdown=breakdown.as_dict(),
         stale=False,
+        scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=[
@@ -99,6 +101,7 @@ async def _upsert_breakdown(
             "breakdown": stmt.excluded.breakdown,
             "scored_at": __import__("sqlalchemy").func.now(),
             "stale": False,
+            "scoring_algorithm_version": SCORING_ALGORITHM_VERSION,
         },
     )
     await db.execute(stmt)
@@ -128,7 +131,11 @@ async def get_cached_or_compute(
             CandidateJobMatchScore.profile_id == profile.id,
         )
     )
-    if row is not None and not row.stale:
+    if (
+        row is not None
+        and not row.stale
+        and row.scoring_algorithm_version == SCORING_ALGORITHM_VERSION
+    ):
         return _breakdown_from_row(row)
 
     breakdown = await score_candidate_job(
@@ -164,6 +171,8 @@ async def bulk_get_or_compute(
                     CandidateJobMatchScore.candidate_id.in_([c.id for c in candidates]),
                     CandidateJobMatchScore.profile_id == profile.id,
                     CandidateJobMatchScore.stale.is_(False),
+                    CandidateJobMatchScore.scoring_algorithm_version
+                    == SCORING_ALGORITHM_VERSION,
                 )
             )
         )

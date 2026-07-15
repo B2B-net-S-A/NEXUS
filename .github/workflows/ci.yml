@@ -99,6 +99,7 @@ jobs:
                  tests/test_embedding_correctness.py \
                  tests/test_eval_matching.py \
                  tests/test_match_telemetry.py \
+                 tests/test_scoring_contract.py \
                  tests/test_talent_radar_importer.py \
                  tests/test_merge_duplicate_candidates.py \
                  tests/test_ical_import.py \
