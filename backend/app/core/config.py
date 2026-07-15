@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import List, Literal
+from typing import List
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -23,36 +23,20 @@ class Settings(BaseSettings):
     # Qdrant (vector store for semantic search)
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
-    QDRANT_URL: str = ""
     QDRANT_API_KEY: str = ""
-    # Keep the currently populated indexes active until the blue/green Voyage 4
-    # rebuild is complete. A versioned name is accepted only when it matches the
-    # configured model+dimension; changing the model then fails closed instead
-    # of silently creating/switching to an empty vector space.
     QDRANT_COLLECTION: str = "nexus_candidates"
-    QDRANT_JOBS_COLLECTION: str = "nexus_jobs"
-    QDRANT_CC_CENTROIDS_COLLECTION: str = "nexus_cc_centroids"
-    QDRANT_POOL_CENTROIDS_COLLECTION: str = "nexus_pool_centroids"
 
     # Voyage AI (embeddings)
     VOYAGE_API_KEY: str = ""
     # voyage-3-large: MTEB 65.1 (#1, +9.74% over OpenAI v3-large). Matryoshka
-    # output is 1024-dim; model and dimension remain part of collection identity.
+    # learning keeps 1024-dim outputs compatible with existing Qdrant collection.
     VOYAGE_MODEL: str = "voyage-3-large"
     EMBEDDING_DIMENSION: int = 1024
-    EMBEDDING_TEXT_SCHEMA: Literal["clean_v1", "text_v2"] = "clean_v1"
-    # Historical Talent Radar embeddings have no trustworthy model provenance.
-    # Keep the copier disabled unless exact source model/dimension are declared.
-    TALENT_RADAR_EMBEDDING_COPY_ENABLED: bool = False
-    TALENT_RADAR_EMBEDDING_MODEL: str = ""
-    TALENT_RADAR_EMBEDDING_DIMENSION: int = 0
     # Voyage Rerank 2.5 — best balance accuracy/latency (~595ms p95).
     # Enabled by default — has graceful passthrough on API failure (rerank
     # service returns identity ordering, never breaks retrieval).
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
     RERANKER_ENABLED: bool = True
-    EMBEDDING_INDEX_SYNC_ENABLED: bool = True
-    EMBEDDING_INDEX_SYNC_INTERVAL_SECONDS: int = 5
 
     # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
     # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz
@@ -119,48 +103,18 @@ class Settings(BaseSettings):
     SEMANTIC_CALIBRATION_GAMMA: float = 0.6
     SCORE_UNKNOWN_NEUTRAL_FRACTION: float = 0.65
 
-    # Ollama (local LLM; embeddings require an explicit DEBUG-only opt-in)
+    # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
     OLLAMA_EMBED_MODEL: str = "mxbai-embed-large"
 
     # Anthropic (Claude) — used by CV enrichment and AI job writer
     ANTHROPIC_API_KEY: str = ""
-    # OpenAI is restricted to the offline/shadow evaluator. Empty secrets keep
-    # the challenger fail-closed and do not affect production AI routes.
-    OPENAI_API_KEY: str = ""
-    AI_EVAL_ENCRYPTION_KEY: str = ""
     CLAUDE_MODEL_CV: str = "claude-sonnet-5"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
 
     # Fireflies integration
     FIREFLIES_API_KEY: str = ""
-
-    # Legacy InfraReporter (read-only shadow source during analytics cutover).
-    # The API key must live in the runtime secret vault; never provide a source
-    # default. An empty key disables the integration fail-closed.
-    INFRAREPORTER_URL: str = "https://infrareporter.onrender.com/api/kpi/board/monthly"
-    INFRAREPORTER_API_KEY: str = ""
-
-    # Analytics consolidation rollout. ``shadow`` computes v1 responses while
-    # legacy consumers remain active; modules is a comma-separated allow-list
-    # so operators can canary individual surfaces without rebuilding images.
-    ANALYTICS_V1_MODE: Literal["off", "shadow", "live"] = "shadow"
-    ANALYTICS_V1_MODULES: str = (
-        "overview,pipeline,funnel,recruitment,sources,calls,kpis,clients,"
-        "finance,tenders,delivery,executive"
-    )
-    ANALYTICS_SHADOW_INTERVAL_SECONDS: int = 3600
-
-    # Legacy DynaReporter lifecycle. Production exposes no write mode:
-    #   read_only — secured reads remain, every mutation returns 410,
-    #   off       — every DynaReporter API surface returns 410.
-    DYNAREPORTER_MODE: Literal["read_only", "off"] = "read_only"
-
-    # KPI Coach v2 notifications start disabled and are enabled only after the
-    # dry-run parity window. The v2 read APIs are controlled independently.
-    KPI_COACH_V2_NUDGES_ENABLED: bool = False
-    KPI_COACH_V2_NUDGE_MODE: Literal["off", "dry_run", "live"] = "off"
 
     # CEIDG API v3 (dane.biznes.gov.pl) — token JWT do auto-uzupełniania nazwy
     # firmy JDG w Generatorze Umów B2B. Pusty = używamy tylko Białej Listy MF
@@ -192,9 +146,6 @@ class Settings(BaseSettings):
     BUSINESS_TZ: str = "Europe/Warsaw"
     # Ile Call (status=completed) / dzień roboczy rekrutera musi mieć do 11:45.
     POWERCALLING_DAILY_TARGET: int = 15
-    # Dzienne weryfikacje są osobnym KPI — nie wolno ich mieszać z liczbą
-    # zakończonych rozmów CloudTalk.
-    VERIFICATIONS_DAILY_TARGET: int = 4
     POWERCALLING_CHECK_HOUR: int = 11
     POWERCALLING_CHECK_MINUTE: int = 45
     # Alert do DL o braku feedbacku klienta — przed końcem dnia pracy.

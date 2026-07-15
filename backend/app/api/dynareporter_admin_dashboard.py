@@ -16,11 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    CurrentUser,
-    DynaReporterSection,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.schemas.dr_admin_dashboard import (
@@ -31,9 +27,7 @@ from app.schemas.dr_admin_dashboard import (
 
 logger = logging.getLogger("dynareporter.admin_dashboard")
 
-router = APIRouter(
-    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.admin))]
-)
+router = APIRouter()
 
 
 def _require_admin(current_user: User) -> None:

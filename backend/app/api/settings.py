@@ -41,10 +41,6 @@ router = APIRouter()
 # drop columns that the user just turned on.
 ALLOWED_CANDIDATE_COLUMNS: set[str] = {
     "candidate",
-    "contact",
-    "status_availability",
-    "process",
-    "activity",
     "phone",
     "email",
     "cv",
@@ -78,11 +74,15 @@ REQUIRED_CANDIDATE_COLUMNS: set[str] = {"candidate"}
 DEFAULT_CANDIDATES_COLUMNS: dict[str, Any] = {
     "columns": [
         "candidate",
-        "contact",
-        "status_availability",
-        "process",
+        "phone",
+        "email",
+        "cv",
+        "recruitments",
+        "stage_moved",
         "rate",
-        "activity",
+        "last_note",
+        "rejection_reason",
+        "created",
     ],
 }
 

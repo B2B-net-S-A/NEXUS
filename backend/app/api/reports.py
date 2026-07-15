@@ -5,21 +5,12 @@ Generates live reports from ATS data (recruitment, sales, delivery, tenders, boa
 
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
-from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, text
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus, require_roles
-from app.analytics.periods import AnalyticsPeriod, AnalyticsPeriodKind, resolve_period
-from app.analytics.scope import (
-    delivery_lead_scope,
-    operations_client_scope,
-    require_client_scope,
-    tender_client_scope,
-)
-from app.core.config import settings
+from app.api.deps import CurrentUser, TacPlus, require_roles
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
 from app.models.candidate import Candidate
@@ -28,74 +19,74 @@ from app.models.competence_category import (
     CompetenceCategory,
     UserCompetenceCategory,
 )
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.kpi_panel import _ANCHOR_LOOKBACK_DAYS
-from app.services.analytics_v1 import AnalyticsManagerService, AnalyticsV1Service
 
 router = APIRouter()
 
-WARSAW = ZoneInfo("Europe/Warsaw")
+
+# ── Rate-unit aware helpers (Phase 9 A3) ───────────────────────────────────────
+# Previously reports used a blanket `* 160` multiplier, assuming every Contract
+# stored a monthly rate. Phase 9 A3 introduced `rate_unit` + `billing_hours_per_month`;
+# these helpers normalise stored rates to a monthly amount.
+
+_WORKING_DAYS_PER_MONTH = 22
+
+
+def _monthly(contract: Contract, value: Optional[int]) -> int:
+    if value is None:
+        return 0
+    if contract.rate_unit is None or contract.rate_unit.value == "monthly":
+        return int(value)
+    if contract.rate_unit.value == "daily":
+        return int(value) * _WORKING_DAYS_PER_MONTH
+    # hourly
+    return int(value) * int(contract.billing_hours_per_month or 160)
+
+
+def _monthly_rate_client(contract: Contract) -> int:
+    return _monthly(contract, contract.rate_client)
+
+
+def _monthly_margin(contract: Contract) -> int:
+    return _monthly(contract, contract.margin)
+
+
+def _sql_monthly(col):
+    """SQLAlchemy CASE expr: convert rate column to monthly using Contract.rate_unit."""
+    return case(
+        (Contract.rate_unit == "daily", col * _WORKING_DAYS_PER_MONTH),
+        (Contract.rate_unit == "hourly", col * Contract.billing_hours_per_month),
+        else_=col,
+    )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
 def _period_start(period: str) -> datetime:
-    """Return a calendar-period start in Europe/Warsaw, converted to UTC."""
-    now = datetime.now(WARSAW)
+    """Return the start datetime for the given period string."""
+    now = datetime.now(timezone.utc)
     if period == "week":
-        start = (now - timedelta(days=now.weekday())).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        return now - timedelta(days=7)
     elif period == "month":
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return now - timedelta(days=30)
     elif period == "quarter":
-        quarter_month = ((now.month - 1) // 3) * 3 + 1
-        start = now.replace(
-            month=quarter_month,
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
+        return now - timedelta(days=90)
     elif period == "year":
-        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-    else:
-        return datetime.min.replace(tzinfo=timezone.utc)  # all time
-    return start.astimezone(timezone.utc)
+        return now - timedelta(days=365)
+    return datetime.min.replace(tzinfo=timezone.utc)  # all time
 
 
 def _safe_pct(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator * 100, 1)
-
-
-def _first_milestone_subquery(stage: PipelineStage):
-    """First occurrence of a milestone for every candidate x job pair.
-
-    Legacy reports use this subquery so they reconcile with analytics v1 even
-    before callers are migrated to the new response envelope.  Counting raw
-    ``candidate_stages`` rows would double count candidates moved out of and
-    back into a stage.
-    """
-
-    return (
-        select(
-            CandidateStage.candidate_id.label("candidate_id"),
-            CandidateStage.job_id.label("job_id"),
-            func.min(CandidateStage.moved_at).label("reached_at"),
-        )
-        .where(CandidateStage.stage == stage)
-        .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
-        .subquery()
-    )
 
 
 # ── Recruitment Report ─────────────────────────────────────────────────────────
@@ -142,6 +133,10 @@ async def report_recruitment(
         except ValueError:
             pass
 
+    # We look at the LATEST stage per candidate+job within the period
+    # (moved_at >= start means the stage move happened in this period)
+    stage_filter = [CandidateStage.moved_at >= start]
+
     # Global funnel counts (across all recruiters). Definicje KPI Artura
     # (spójne z panelem „Moje KPI" / app/services/kpi_panel.py):
     # Weryfikacje    = verified    (kandydat zweryfikowany przez rekrutera)
@@ -150,39 +145,11 @@ async def report_recruitment(
     #                               jest w praktyce nieużywany)
     # Placements     = hired       (kontrakt aktywny)
 
-    canonical_stages = [
-        PipelineStage.verified,
-        PipelineStage.cv_sent,
-        PipelineStage.interview,
-        PipelineStage.client_interview,
-        PipelineStage.hired,
-    ]
-    first_milestones = (
-        select(
-            CandidateStage.candidate_id.label("candidate_id"),
-            CandidateStage.job_id.label("job_id"),
-            CandidateStage.stage.label("stage"),
-            func.min(CandidateStage.moved_at).label("reached_at"),
-        )
-        .where(CandidateStage.stage.in_(canonical_stages))
-        .group_by(
-            CandidateStage.candidate_id,
-            CandidateStage.job_id,
-            CandidateStage.stage,
-        )
-        .subquery()
-    )
-
-    async def count_stage(stages: list[PipelineStage]) -> int:
+    async def count_stage(stages: list) -> int:
         q = (
-            select(func.count())
-            .select_from(first_milestones)
-            .join(Job, first_milestones.c.job_id == Job.id)
-            .where(
-                first_milestones.c.stage.in_(stages),
-                first_milestones.c.reached_at >= start,
-                *job_filter,
-            )
+            select(func.count(CandidateStage.id))
+            .join(Job, CandidateStage.job_id == Job.id)
+            .where(CandidateStage.stage.in_(stages), *stage_filter, *job_filter)
         )
         return (await db.execute(q)).scalar() or 0
 
@@ -376,7 +343,7 @@ async def report_recruitment(
 
 @router.get("/sales")
 async def report_sales(
-    current_user: DeliveryLeadPlus,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -388,92 +355,134 @@ async def report_sales(
     if cached is not None:
         return cached
 
-    generated_at = datetime.now(WARSAW)
-    today = generated_at.date()
-    year_period = resolve_period(AnalyticsPeriodKind.year, now=generated_at)
-    manager = AnalyticsManagerService(db)
-    summary = await manager.finance_summary(year_period, generated_at=generated_at)
-    trend = await manager.finance_trend(year_period)
-    clients = await manager.finance_clients(year_period, generated_at=generated_at)
+    today = date.today()
 
-    first_of_month = today.replace(day=1)
-    next_month = (
-        date(today.year + 1, 1, 1)
-        if today.month == 12
-        else date(today.year, today.month + 1, 1)
+    # MRR snapshot — only contracts that are *running today* (already started
+    # and not yet ended). status=active alone isn't enough: it leaks future
+    # contracts (start_date > today) and ones whose end_date has passed but
+    # status hasn't flipped yet. Matches the time-bound logic in `mrr_trend`
+    # below so KPI cards reconcile with the MoM comparison widget.
+    active_q = select(Contract).where(
+        Contract.status == ContractStatus.active,
+        Contract.start_date <= today,
+        (Contract.end_date.is_(None)) | (Contract.end_date >= today),
     )
+    active_contracts = (await db.execute(active_q)).scalars().all()
+
+    total_revenue = sum(_monthly_rate_client(c) for c in active_contracts)
+    total_margin = sum(_monthly_margin(c) for c in active_contracts)
+    active_consultants = len(active_contracts)
+
+    # New contracts this month
+    first_of_month = today.replace(day=1)
     new_this_month = (
         await db.execute(
-            select(func.count(Contract.id)).where(
-                Contract.created_at
-                >= datetime.combine(first_of_month, datetime.min.time(), tzinfo=WARSAW),
-                Contract.created_at
-                < datetime.combine(next_month, datetime.min.time(), tzinfo=WARSAW),
-            )
+            select(func.count(Contract.id)).where(Contract.created_at >= first_of_month)
         )
     ).scalar() or 0
 
+    # Contracts ending in 30 days
     cutoff = today + timedelta(days=30)
-    ending_rows = (
-        await db.execute(
-            select(Contract.id, Contract.end_date, Client.name.label("client_name"))
-            .join(Client, Contract.client_id == Client.id)
-            .where(
-                Contract.start_date.isnot(None),
-                Contract.start_date <= today,
-                Contract.end_date.isnot(None),
-                Contract.end_date >= today,
-                Contract.end_date <= cutoff,
-            )
-            .order_by(Contract.end_date, Contract.id)
+    ending_q = (
+        select(Contract, Client.name.label("client_name"))
+        .join(Client, Contract.client_id == Client.id)
+        .where(
+            Contract.end_date.isnot(None),
+            Contract.end_date <= cutoff,
+            Contract.end_date >= today,
+            Contract.status == ContractStatus.active,
         )
-    ).all()
-    # The legacy adapter deliberately omits raw unit rates. Monetary values are
-    # available only through the PLN finance schemas.
+    )
+    ending_rows = (await db.execute(ending_q)).all()
     ending_contracts_30days = [
         {
-            "contract_id": row.id,
+            "contract_id": row.Contract.id,
             "client_name": row.client_name,
-            "end_date": str(row.end_date),
-            "rate_client": None,
+            "end_date": str(row.Contract.end_date),
+            "rate_client": row.Contract.rate_client,
         }
         for row in ending_rows
     ]
 
-    mrr_trend = [
-        {
-            "month": point.month,
-            "month_label": point.month,
-            "revenue": point.totals.revenue,
-            "margin": point.totals.margin,
-            "consultants": point.active_contracts,
-            "currency": "PLN",
-        }
-        for point in trend.data.months
-    ]
+    # MRR Trend — last 12 months (from all contracts with start_date in range)
+    mrr_trend = []
+    for i in range(11, -1, -1):
+        month_start = (today.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
+        # last day of that month
+        if month_start.month == 12:
+            month_end = month_start.replace(year=month_start.year + 1, month=1, day=1)
+        else:
+            month_end = month_start.replace(month=month_start.month + 1, day=1)
+
+        month_contracts = (
+            (
+                await db.execute(
+                    select(Contract).where(
+                        Contract.start_date < month_end,
+                        (Contract.end_date >= month_start)
+                        | Contract.end_date.is_(None),
+                        Contract.status.in_(
+                            [
+                                ContractStatus.active,
+                                ContractStatus.ending,
+                                ContractStatus.ended,
+                            ]
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        m_revenue = sum(_monthly_rate_client(c) for c in month_contracts)
+        m_margin = sum(_monthly_margin(c) for c in month_contracts)
+
+        mrr_trend.append(
+            {
+                "month": month_start.strftime("%Y-%m"),
+                "month_label": month_start.strftime("%b %Y"),
+                "revenue": m_revenue,
+                "margin": m_margin,
+                "consultants": len(month_contracts),
+            }
+        )
+
+    # Top clients by revenue
+    top_clients_q = (
+        select(
+            Client.id,
+            Client.name,
+            func.count(Contract.id).label("contracts_count"),
+            func.sum(_sql_monthly(Contract.rate_client)).label("revenue"),
+            func.sum(_sql_monthly(Contract.margin)).label("margin"),
+        )
+        .join(Contract, Client.id == Contract.client_id)
+        .where(Contract.status == ContractStatus.active)
+        .group_by(Client.id, Client.name)
+        .order_by(func.sum(_sql_monthly(Contract.rate_client)).desc())
+        .limit(10)
+    )
+    top_clients_rows = (await db.execute(top_clients_q)).all()
     top_clients = [
         {
-            "client_id": row.client_id,
-            "client_name": row.client_name,
-            "contracts_count": row.active_contracts,
-            "revenue": row.totals.revenue,
-            "margin": row.totals.margin,
-            "currency": "PLN",
+            "client_id": r.id,
+            "client_name": r.name,
+            "contracts_count": r.contracts_count,
+            "revenue": int(r.revenue or 0),
+            "margin": int(r.margin or 0),
         }
-        for row in clients.data.clients[:10]
+        for r in top_clients_rows
     ]
 
     result_data = {
-        "total_revenue": summary.data.totals.revenue,
-        "total_margin": summary.data.totals.margin,
-        "active_consultants": summary.data.active_contracts,
+        "total_revenue": total_revenue,
+        "total_margin": total_margin,
+        "active_consultants": active_consultants,
         "new_contracts_this_month": new_this_month,
         "ending_contracts_30days": ending_contracts_30days,
         "mrr_trend": mrr_trend,
         "top_clients": top_clients,
-        "currency": "PLN",
-        "quality": summary.quality_status.value,
-        "warnings": list(summary.warnings),
     }
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data
@@ -512,7 +521,6 @@ async def _compute_dl_metrics(
     db: AsyncSession,
     *,
     period_start: Optional[datetime],
-    period_end: Optional[datetime] = None,
     only_dl_id: Optional[int] = None,
 ) -> tuple[list[dict], dict]:
     """Zwraca (per_dl_rows, overall_totals) dla body_leasing Jobów.
@@ -541,8 +549,6 @@ async def _compute_dl_metrics(
     )
     if period_start is not None:
         jobs_q = jobs_q.where(Job.created_at >= period_start)
-    if period_end is not None:
-        jobs_q = jobs_q.where(Job.created_at < period_end)
     jobs_rows = (await db.execute(jobs_q)).all()
 
     # Map job_id → resolved_dl_id
@@ -568,25 +574,23 @@ async def _compute_dl_metrics(
         if r.client_name:
             bucket["client_names"].add(r.client_name)
 
-    # 2. Placements per DL: first `hired` per candidate x job in the period.
-    first_hired = _first_milestone_subquery(PipelineStage.hired)
+    # 2. Placements per DL w okresie (liczymy `hired` stage ruchy z `hired` in period).
     placements_q = (
         select(
             Job.id.label("job_id"),
             Job.delivery_lead_id,
             Job.client_id,
-            func.count().label("cnt"),
+            func.count(CandidateStage.id).label("cnt"),
         )
-        .join(first_hired, first_hired.c.job_id == Job.id)
+        .join(CandidateStage, CandidateStage.job_id == Job.id)
         .where(
+            CandidateStage.stage == PipelineStage.hired,
             Job.recruitment_type == RecruitmentType.body_leasing,
         )
         .group_by(Job.id, Job.delivery_lead_id, Job.client_id)
     )
     if period_start is not None:
-        placements_q = placements_q.where(first_hired.c.reached_at >= period_start)
-    if period_end is not None:
-        placements_q = placements_q.where(first_hired.c.reached_at < period_end)
+        placements_q = placements_q.where(CandidateStage.moved_at >= period_start)
     placement_rows = (await db.execute(placements_q)).all()
     placements_by_dl: dict[int, int] = {}
     for r in placement_rows:
@@ -613,9 +617,12 @@ async def _compute_dl_metrics(
     filled_map: dict[int, int] = {}
     if open_job_ids:
         filled_q = (
-            select(first_hired.c.job_id, func.count().label("cnt"))
-            .where(first_hired.c.job_id.in_(open_job_ids))
-            .group_by(first_hired.c.job_id)
+            select(CandidateStage.job_id, func.count(CandidateStage.id).label("cnt"))
+            .where(
+                CandidateStage.job_id.in_(open_job_ids),
+                CandidateStage.stage == PipelineStage.hired,
+            )
+            .group_by(CandidateStage.job_id)
         )
         filled_map = {r.job_id: int(r.cnt) for r in (await db.execute(filled_q)).all()}
 
@@ -674,12 +681,6 @@ async def _compute_dl_metrics(
 
     per_dl_out.sort(key=lambda x: x["placements"], reverse=True)
 
-    return per_dl_out, _summarize_dl_rows(per_dl_out)
-
-
-def _summarize_dl_rows(per_dl_out: list[dict]) -> dict:
-    """Recompute totals after applying a caller's row scope."""
-
     total_req = sum(d["total_requests"] for d in per_dl_out)
     total_vac = sum(d["total_vacancies"] for d in per_dl_out)
     total_p = sum(d["placements"] for d in per_dl_out)
@@ -697,7 +698,7 @@ def _summarize_dl_rows(per_dl_out: list[dict]) -> dict:
     )
     target_count = sum(1 for d in per_dl_out if d["target_achieved"])
 
-    return {
+    overall = {
         "total_requests": total_req,
         "total_vacancies": total_vac,
         "total_placements": total_p,
@@ -709,24 +710,12 @@ def _summarize_dl_rows(per_dl_out: list[dict]) -> dict:
         "dl_count": len(per_dl_out),
         "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
     }
-
-
-_DeliveryReportViewer = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.tac,
-            UserRole.head_of_recruitment,
-        )
-    ),
-]
+    return per_dl_out, overall
 
 
 @router.get("/delivery-leads")
 async def report_delivery_leads(
-    current_user: _DeliveryReportViewer,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
 ):
@@ -735,22 +724,13 @@ async def report_delivery_leads(
 
     Cached for 5 minutes.
     """
-    visible_ids = await delivery_lead_scope(db, user=current_user)
-    scope_key = (
-        "organization"
-        if visible_ids is None
-        else ",".join(str(value) for value in sorted(visible_ids)) or "none"
-    )
-    cache_key = f"reports:delivery_leads:v2:{period}:{scope_key}"
+    cache_key = f"reports:delivery_leads:v2:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     start = _period_start(period)
 
     per_dl, overall = await _compute_dl_metrics(db, period_start=start)
-    if visible_ids is not None:
-        per_dl = [row for row in per_dl if row["user_id"] in visible_ids]
-        overall = _summarize_dl_rows(per_dl)
     result_data = {"period": period, "per_dl": per_dl, "overall": overall}
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data
@@ -759,18 +739,12 @@ async def report_delivery_leads(
 @router.get("/delivery-leads/{dl_id}/trend")
 async def report_delivery_lead_trend(
     dl_id: int,
-    current_user: _DeliveryReportViewer,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     months: int = Query(6, ge=1, le=24),
 ):
     """Trend miesiąc-po-miesiącu dla konkretnego DL. 6M default, max 24M."""
-    visible_ids = await delivery_lead_scope(db, user=current_user)
-    if visible_ids is not None and dl_id not in visible_ids:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Delivery analytics are limited to the assigned team",
-        )
-    today = datetime.now(WARSAW).date()
+    today = date.today()
     trend: list[dict] = []
     for i in range(months - 1, -1, -1):
         # Punkt startowy miesiąca (safe month arithmetic).
@@ -779,31 +753,29 @@ async def report_delivery_lead_trend(
         while month <= 0:
             month += 12
             year -= 1
-        month_start_local = datetime(year, month, 1, tzinfo=WARSAW)
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
         if month == 12:
-            month_end_local = datetime(year + 1, 1, 1, tzinfo=WARSAW)
+            datetime(year + 1, 1, 1, tzinfo=timezone.utc)
         else:
-            month_end_local = datetime(year, month + 1, 1, tzinfo=WARSAW)
-        month_start = month_start_local.astimezone(timezone.utc)
-        month_end = month_end_local.astimezone(timezone.utc)
+            datetime(year, month + 1, 1, tzinfo=timezone.utc)
 
         # Snapshot dla okresu miesiąca — używamy period_start = month_start
         # i filtrujemy by `< month_end` przez tymczasowe wybranie z metrics.
         # Prościej: request/placement w okresie [month_start, month_end).
         per_dl_rows, _ = await _compute_dl_metrics(
-            db,
-            period_start=month_start,
-            period_end=month_end,
-            only_dl_id=dl_id,
+            db, period_start=month_start, only_dl_id=dl_id
         )
+        # _compute_dl_metrics używa `>= period_start` dla jobs + placements —
+        # żeby obciąć też od góry używamy quick post-filter na created_at < month_end.
+        # Dla trendu wystarczająco dokładne, bo miesiąc to krótki okres.
         row = per_dl_rows[0] if per_dl_rows else None
         requests = row["total_requests"] if row else 0
         vacancies = row["total_vacancies"] if row else 0
         placements = row["placements"] if row else 0
         trend.append(
             {
-                "month": month_start_local.strftime("%Y-%m"),
-                "month_label": month_start_local.strftime("%b %Y"),
+                "month": month_start.strftime("%Y-%m"),
+                "month_label": month_start.strftime("%b %Y"),
                 "requests": requests,
                 "vacancies": vacancies,
                 "placements": placements,
@@ -823,7 +795,7 @@ async def report_my_delivery_lead(
     """Własne KPI dla użytkownika z rolą `delivery_lead`. Zwraca pozycję
     w rankingu + własne clients + metryki.
     """
-    if not current_user.has_any_role(UserRole.delivery_lead):
+    if current_user.role != UserRole.delivery_lead:
         raise HTTPException(
             status_code=403,
             detail="Requires role=delivery_lead",
@@ -860,7 +832,7 @@ async def report_my_delivery_lead(
         "rank": rank,
         "total_dls": len(per_dl),
         "team_overall": overall,
-        "leaderboard_top5": [],
+        "leaderboard_top5": per_dl[:5],
     }
 
 
@@ -973,17 +945,19 @@ async def _compute_client_hit_ratio(
             bucket["close_reasons"].get(reason_key, 0) + 1
         )
 
-    # 2. First hired milestone for each candidate x closed job.
+    # 2. Hired stages dla zamkniętych jobów — zliczamy placements + distinct filled jobs.
     if closed_job_ids:
-        first_hired = _first_milestone_subquery(PipelineStage.hired)
         hired_q = (
             select(
                 Job.client_id,
                 Job.id.label("job_id"),
-                func.count().label("cnt"),
+                func.count(CandidateStage.id).label("cnt"),
             )
-            .join(first_hired, first_hired.c.job_id == Job.id)
-            .where(Job.id.in_(closed_job_ids))
+            .join(CandidateStage, CandidateStage.job_id == Job.id)
+            .where(
+                Job.id.in_(closed_job_ids),
+                CandidateStage.stage == PipelineStage.hired,
+            )
             .group_by(Job.client_id, Job.id)
         )
         for r in (await db.execute(hired_q)).all():
@@ -1061,12 +1035,7 @@ async def _compute_client_hit_ratio(
             }
         )
 
-    return per_client_out, _summarize_client_rows(per_client_out)
-
-
-def _summarize_client_rows(per_client_out: list[dict]) -> dict:
-    """Recompute client totals after applying assignment scope."""
-
+    # 5. Overall totals.
     total_closed = sum(d["closed_jobs"] for d in per_client_out)
     total_filled = sum(d["filled_jobs"] for d in per_client_out)
     total_placements = sum(d["placements"] for d in per_client_out)
@@ -1095,7 +1064,7 @@ def _summarize_client_rows(per_client_out: list[dict]) -> dict:
     )
     target_count = sum(1 for d in clients_with_jobs if d["target_achieved"])
 
-    return {
+    overall = {
         "total_clients": len(per_client_out),
         "clients_with_closed_jobs": len(clients_with_jobs),
         "total_closed_jobs": total_closed,
@@ -1110,6 +1079,8 @@ def _summarize_client_rows(per_client_out: list[dict]) -> dict:
         "target_count": target_count,
         "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
     }
+
+    return per_client_out, overall
 
 
 def _sort_clients(rows: list[dict], sort: str, min_closed: int) -> list[dict]:
@@ -1170,16 +1141,7 @@ async def report_clients_hit_ratio(
 
     Cached for 5 minutes.
     """
-    visible_client_ids = await operations_client_scope(db, user=current_user)
-    scope_key = (
-        "organization"
-        if visible_client_ids is None
-        else ",".join(str(value) for value in sorted(visible_client_ids)) or "none"
-    )
-    cache_key = (
-        f"reports:clients:{period}:{min_closed}:{sort}:"
-        f"{exclude_reasons or ''}:{scope_key}"
-    )
+    cache_key = f"reports:clients:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1189,11 +1151,6 @@ async def report_clients_hit_ratio(
     per_client_all, overall = await _compute_client_hit_ratio(
         db, period_start=start, exclude_reasons=excluded
     )
-    if visible_client_ids is not None:
-        per_client_all = [
-            row for row in per_client_all if row["client_id"] in visible_client_ids
-        ]
-        overall = _summarize_client_rows(per_client_all)
     per_client = _sort_clients(per_client_all, sort, min_closed)
 
     result_data = {
@@ -1226,52 +1183,27 @@ async def report_clients_at_risk(
     AND current.closed_jobs >= min_closed.
     Cached for 5 minutes.
     """
-    visible_client_ids = await operations_client_scope(db, user=current_user)
-    scope_key = (
-        "organization"
-        if visible_client_ids is None
-        else ",".join(str(value) for value in sorted(visible_client_ids)) or "none"
-    )
-    cache_key = f"reports:clients:at_risk:{period}:{drop_pp}:{min_closed}:{scope_key}"
+    cache_key = f"reports:clients:at_risk:{period}:{drop_pp}:{min_closed}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
-    now_warsaw = datetime.now(WARSAW)
-    kind = AnalyticsPeriodKind(period)
-    current_period = resolve_period(kind, now=now_warsaw)
-    current_start = current_period.start
-    current_end = current_period.end
-    current_local = current_start.astimezone(WARSAW)
-    if kind is AnalyticsPeriodKind.month:
-        if current_local.month == 1:
-            prev_start_local = current_local.replace(
-                year=current_local.year - 1, month=12
-            )
-        else:
-            prev_start_local = current_local.replace(month=current_local.month - 1)
-    elif kind is AnalyticsPeriodKind.quarter:
-        previous_absolute_month = current_local.year * 12 + current_local.month - 4
-        prev_year, prev_month_zero = divmod(previous_absolute_month, 12)
-        prev_start_local = current_local.replace(
-            year=prev_year, month=prev_month_zero + 1
-        )
+    now = datetime.now(timezone.utc)
+    if period == "month":
+        span = timedelta(days=30)
+    elif period == "quarter":
+        span = timedelta(days=90)
     else:
-        prev_start_local = current_local.replace(year=current_local.year - 1)
-    prev_start = prev_start_local.astimezone(timezone.utc)
+        span = timedelta(days=365)
+
+    current_start = now - span
+    prev_start = now - 2 * span
     prev_end = current_start
 
-    current_rows, _ = await _compute_client_hit_ratio(
-        db, period_start=current_start, period_end=current_end
-    )
+    current_rows, _ = await _compute_client_hit_ratio(db, period_start=current_start)
     prev_rows, _ = await _compute_client_hit_ratio(
         db, period_start=prev_start, period_end=prev_end
     )
-    if visible_client_ids is not None:
-        current_rows = [
-            row for row in current_rows if row["client_id"] in visible_client_ids
-        ]
-        prev_rows = [row for row in prev_rows if row["client_id"] in visible_client_ids]
     prev_by_client = {r["client_id"]: r for r in prev_rows}
 
     at_risk: list[dict] = []
@@ -1311,13 +1243,14 @@ async def report_client_trend(
     months: int = Query(6, ge=1, le=24),
 ):
     """Trend miesiąc-po-miesiącu dla konkretnego klienta. 6M default, max 24M."""
-    await require_client_scope(
-        db,
-        user=current_user,
-        client_id=client_id,
-        finance=False,
-    )
-    today = datetime.now(WARSAW).date()
+    # Existence check — daje 404 zamiast pustej tablicy dla nieznanego klienta.
+    exists = (
+        await db.execute(select(Client.id).where(Client.id == client_id))
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    today = datetime.now(timezone.utc).date()
     trend: list[dict] = []
     for i in range(months - 1, -1, -1):
         year = today.year
@@ -1325,13 +1258,11 @@ async def report_client_trend(
         while month <= 0:
             month += 12
             year -= 1
-        month_start_local = datetime(year, month, 1, tzinfo=WARSAW)
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
         if month == 12:
-            month_end_local = datetime(year + 1, 1, 1, tzinfo=WARSAW)
+            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
         else:
-            month_end_local = datetime(year, month + 1, 1, tzinfo=WARSAW)
-        month_start = month_start_local.astimezone(timezone.utc)
-        month_end = month_end_local.astimezone(timezone.utc)
+            month_end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
 
         rows, _ = await _compute_client_hit_ratio(
             db,
@@ -1342,8 +1273,8 @@ async def report_client_trend(
         row = rows[0] if rows else None
         trend.append(
             {
-                "month": month_start_local.strftime("%Y-%m"),
-                "month_label": month_start_local.strftime("%b %Y"),
+                "month": month_start.strftime("%Y-%m"),
+                "month_label": month_start.strftime("%b %Y"),
                 "closed_jobs": row["closed_jobs"] if row else 0,
                 "filled_jobs": row["filled_jobs"] if row else 0,
                 "placements": row["placements"] if row else 0,
@@ -1368,17 +1299,7 @@ async def report_tenders(
     Tenders (przetargi) report: total, won, lost, pending, win rate.
     Cached for 5 minutes.
     """
-    can_view_financials = current_user.has_any_role(
-        UserRole.admin, UserRole.delivery_lead
-    )
-    visible_client_ids = await tender_client_scope(db, user=current_user)
-    scope_key = (
-        "organization"
-        if visible_client_ids is None
-        else ",".join(str(value) for value in sorted(visible_client_ids)) or "none"
-    )
-    cache_scope = "finance" if can_view_financials else "operations_redacted"
-    cache_key = f"reports:tenders:{period}:{cache_scope}:{scope_key}"
+    cache_key = f"reports:tenders:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1393,37 +1314,39 @@ async def report_tenders(
             Job.created_at >= start,
         )
     )
-    if visible_client_ids is not None:
-        tenders_q = tenders_q.where(Job.client_id.in_(visible_client_ids))
     tenders_rows = (await db.execute(tenders_q)).all()
 
     total = len(tenders_rows)
+    sum(
+        1
+        for r in tenders_rows
+        if r.Job.status.value == "closed"
+        and (r.Job.priority.value in ("high", "urgent"))
+    )
+    # Simplification: closed + high/urgent = won; closed + low/medium = lost; rest = pending
+    # A more robust way: use a dedicated field. For now:
     lost_list = []
     won_list = []
     pending_list = []
-    unknown_list = []
+
     for r in tenders_rows:
         j = r.Job
-        value = (j.salary_max or j.salary_min or 0) if can_view_financials else 0
+        value = j.salary_max or j.salary_min or 0
         entry = {
             "job_id": j.id,
             "job_title": j.title,
             "client": r.client_name or "—",
             "status": j.status.value,
             "value": value,
-            "value_redacted": not can_view_financials,
             "deadline": str(j.deadline) if j.deadline else None,
         }
         if j.status.value == "closed":
-            if j.close_reason == JobCloseReason.filled_by_us:
+            if j.priority.value in ("high", "urgent"):
                 entry["result"] = "wygrana"
                 won_list.append(entry)
-            elif j.close_reason is not None:
+            else:
                 entry["result"] = "przegrana"
                 lost_list.append(entry)
-            else:
-                entry["result"] = "nieznany"
-                unknown_list.append(entry)
         else:
             entry["result"] = "w_toku"
             pending_list.append(entry)
@@ -1431,10 +1354,9 @@ async def report_tenders(
     won_count = len(won_list)
     lost_count = len(lost_list)
     pending_count = len(pending_list)
-    unknown_count = len(unknown_list)
     win_rate = _safe_pct(won_count, won_count + lost_count)
 
-    per_tender = won_list + lost_list + unknown_list + pending_list
+    per_tender = won_list + lost_list + pending_list
 
     result_data = {
         "period": period,
@@ -1442,7 +1364,6 @@ async def report_tenders(
         "won": won_count,
         "lost": lost_count,
         "pending": pending_count,
-        "unknown": unknown_count,
         "win_rate": win_rate,
         "per_tender": per_tender,
     }
@@ -1455,7 +1376,7 @@ async def report_tenders(
 
 @router.get("/board")
 async def report_board(
-    current_user: DeliveryLeadPlus,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1468,41 +1389,24 @@ async def report_board(
     if cached is not None:
         return cached
 
-    now_warsaw = datetime.now(WARSAW)
-    now_utc = now_warsaw.astimezone(timezone.utc)
-    today = now_warsaw.date()
-    year_start_date = today.replace(month=1, day=1)
-    year_start = datetime(year_start_date.year, 1, 1, tzinfo=WARSAW).astimezone(
-        timezone.utc
-    )
-    year_period = resolve_period(AnalyticsPeriodKind.year, now=now_warsaw)
-    manager = AnalyticsManagerService(db)
-    finance_summary = await manager.finance_summary(
-        year_period, generated_at=now_warsaw
-    )
-    finance_trend = await manager.finance_trend(year_period)
+    today = date.today()
+    year_start = today.replace(month=1, day=1)
 
     # ── Recruitment YTD ──────────────────────────────────────────────────────
-    first_hired = _first_milestone_subquery(PipelineStage.hired)
     placements_ytd = (
         await db.execute(
-            select(func.count())
-            .select_from(first_hired)
-            .where(
-                first_hired.c.reached_at >= year_start,
-                first_hired.c.reached_at < now_utc,
+            select(func.count(CandidateStage.id)).where(
+                CandidateStage.stage == PipelineStage.hired,
+                CandidateStage.moved_at >= year_start,
             )
         )
     ).scalar() or 0
 
-    first_verified = _first_milestone_subquery(PipelineStage.verified)
     weryfikacje_ytd = (
         await db.execute(
-            select(func.count())
-            .select_from(first_verified)
-            .where(
-                first_verified.c.reached_at >= year_start,
-                first_verified.c.reached_at < now_utc,
+            select(func.count(CandidateStage.id)).where(
+                CandidateStage.stage.in_([PipelineStage.new, PipelineStage.screening]),
+                CandidateStage.moved_at >= year_start,
             )
         )
     ).scalar() or 0
@@ -1515,18 +1419,46 @@ async def report_board(
     # logic in `/sales` and `trends` below so the BoardKPI card reconciles
     # with the MoM comparison widget (QA 2026-05-27: card showed 18k while
     # MoM showed 0 zł because 1 contract had start_date in the future).
-    revenue_ytd = finance_summary.data.totals.revenue
-    margin_ytd = finance_summary.data.totals.margin
-    active_consultants = finance_summary.data.active_contracts
+    active_contracts = (
+        (
+            await db.execute(
+                select(Contract).where(
+                    Contract.status == ContractStatus.active,
+                    Contract.start_date <= today,
+                    (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    revenue_ytd = sum(_monthly_rate_client(c) for c in active_contracts)
+    margin_ytd = sum(_monthly_margin(c) for c in active_contracts)
+    active_consultants = len(active_contracts)
 
     # ── Delivery ─────────────────────────────────────────────────────────────
-    dl_rows, dl_overall = await _compute_dl_metrics(
-        db,
-        period_start=year_start,
-        period_end=now_utc,
+    dl_q = (
+        select(
+            User.name,
+            func.count(CandidateStage.id).label("placements"),
+        )
+        .join(CandidateStage, User.id == CandidateStage.moved_by)
+        .where(
+            CandidateStage.stage == PipelineStage.hired,
+            CandidateStage.moved_at >= year_start,
+        )
+        .group_by(User.id, User.name)
+        .order_by(func.count(CandidateStage.id).desc())
+        .limit(1)
     )
-    top_dl = dl_rows[0]["name"] if dl_rows else "—"
-    avg_hit_ratio = dl_overall["avg_hit_ratio"]
+    top_dl_row = (await db.execute(dl_q)).first()
+    top_dl = top_dl_row.name if top_dl_row else "—"
+
+    jobs_count = (
+        await db.execute(select(func.count(Job.id)).where(Job.created_at >= year_start))
+    ).scalar() or 0
+    avg_hit_ratio = _safe_pct(placements_ytd, jobs_count)
 
     # ── Tenders ──────────────────────────────────────────────────────────────
     tenders_total = (
@@ -1534,7 +1466,6 @@ async def report_board(
             select(func.count(Job.id)).where(
                 Job.recruitment_type == RecruitmentType.tender,
                 Job.created_at >= year_start,
-                Job.created_at < now_utc,
             )
         )
     ).scalar() or 0
@@ -1543,24 +1474,12 @@ async def report_board(
             select(func.count(Job.id)).where(
                 Job.recruitment_type == RecruitmentType.tender,
                 Job.status == "closed",
-                Job.close_reason == JobCloseReason.filled_by_us,
+                Job.priority.in_(["high", "urgent"]),
                 Job.created_at >= year_start,
-                Job.created_at < now_utc,
             )
         )
     ).scalar() or 0
-    tenders_resolved = (
-        await db.execute(
-            select(func.count(Job.id)).where(
-                Job.recruitment_type == RecruitmentType.tender,
-                Job.status == "closed",
-                Job.close_reason.is_not(None),
-                Job.created_at >= year_start,
-                Job.created_at < now_utc,
-            )
-        )
-    ).scalar() or 0
-    tender_win_rate = _safe_pct(tenders_won, tenders_resolved)
+    tender_win_rate = _safe_pct(tenders_won, tenders_total)
 
     # ── Headcount ────────────────────────────────────────────────────────────
     total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
@@ -1569,48 +1488,54 @@ async def report_board(
     ).scalar() or 0
 
     # ── 12-month Trends ───────────────────────────────────────────────────────
-    finance_by_month = {point.month: point for point in finance_trend.data.months}
     trends = []
     for i in range(11, -1, -1):
-        absolute_month = today.year * 12 + (today.month - 1) - i
-        month_year, month_index = divmod(absolute_month, 12)
-        month_start_date = date(month_year, month_index + 1, 1)
-        if month_start_date.month == 12:
-            month_end_date = month_start_date.replace(
-                year=month_start_date.year + 1, month=1, day=1
-            )
+        month_start = (today.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
+        if month_start.month == 12:
+            month_end = month_start.replace(year=month_start.year + 1, month=1, day=1)
         else:
-            month_end_date = month_start_date.replace(
-                month=month_start_date.month + 1, day=1
-            )
-        month_start = datetime.combine(
-            month_start_date, datetime.min.time(), tzinfo=WARSAW
-        ).astimezone(timezone.utc)
-        month_end = datetime.combine(
-            month_end_date, datetime.min.time(), tzinfo=WARSAW
-        ).astimezone(timezone.utc)
+            month_end = month_start.replace(month=month_start.month + 1, day=1)
 
         m_placements = (
             await db.execute(
-                select(func.count())
-                .select_from(first_hired)
-                .where(
-                    first_hired.c.reached_at >= month_start,
-                    first_hired.c.reached_at < month_end,
+                select(func.count(CandidateStage.id)).where(
+                    CandidateStage.stage == PipelineStage.hired,
+                    CandidateStage.moved_at >= month_start,
+                    CandidateStage.moved_at < month_end,
                 )
             )
         ).scalar() or 0
 
-        finance_point = finance_by_month.get(month_start_date.strftime("%Y-%m"))
+        m_contracts = (
+            (
+                await db.execute(
+                    select(Contract).where(
+                        Contract.start_date < month_end,
+                        (Contract.end_date >= month_start)
+                        | Contract.end_date.is_(None),
+                        Contract.status.in_(
+                            [
+                                ContractStatus.active,
+                                ContractStatus.ending,
+                                ContractStatus.ended,
+                            ]
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        m_revenue = sum(_monthly_rate_client(c) for c in m_contracts)
 
         trends.append(
             {
                 "month": month_start.strftime("%Y-%m"),
-                "month_label": month_start_date.strftime("%b %Y"),
+                "month_label": month_start.strftime("%b %Y"),
                 "placements": m_placements,
-                "revenue": (finance_point.totals.revenue if finance_point else None),
-                "consultants": (finance_point.active_contracts if finance_point else 0),
-                "currency": "PLN",
+                "revenue": m_revenue,
+                "consultants": len(m_contracts),
             }
         )
 
@@ -1623,8 +1548,6 @@ async def report_board(
             "revenue_ytd": revenue_ytd,
             "margin_ytd": margin_ytd,
             "active_consultants": active_consultants,
-            "currency": "PLN",
-            "quality": finance_summary.quality_status.value,
         },
         "delivery": {
             "avg_hit_ratio": avg_hit_ratio,
@@ -1639,8 +1562,6 @@ async def report_board(
             "total_candidates": total_candidates,
         },
         "trends": trends,
-        "quality": finance_summary.quality_status.value,
-        "warnings": list(finance_summary.warnings),
     }
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data
@@ -1756,6 +1677,7 @@ async def report_invite_links(
 
 # ── Power Calling (cotygodniowy wymóg 3 wer/dzień roboczy) ─────────────────
 
+POWER_CALLING_TARGET_PER_DAY = 3
 POWER_CALLING_WORKDAYS = 5
 
 
@@ -1763,9 +1685,8 @@ def _iso_week_bounds(
     offset_weeks: int = 1,
 ) -> tuple[datetime, datetime, int, int]:
     """Zwraca (start_utc, end_utc_exclusive, iso_week, iso_year) dla tygodnia
-    sprzed `offset_weeks` (1 = poprzedni tydzień). Granice są lokalnymi
-    północami Europe/Warsaw i tworzą przedział `[start, end)`."""
-    now = datetime.now(WARSAW)
+    sprzed `offset_weeks` (1 = poprzedni tydzień). Tydzień = pon-niedz UTC."""
+    now = datetime.now(timezone.utc)
     monday_this_week = (now - timedelta(days=now.weekday())).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
@@ -1797,41 +1718,39 @@ async def report_power_calling(
         description="0 = bieżący tydzień, 1 = poprzedni (InfraReporter default)",
     ),
 ):
-    """Weekly calls and verification pace as two independent KPIs.
+    """Power Calling — wymóg: min. 3 weryfikacji/dzień roboczy (15/tydzień).
 
-    Power Calling means completed CloudTalk calls. Verifications use the first
-    canonical ``verified`` milestone and its canonical attribution.
-    """
+    Zwraca listę sourcerów/TAC/rekruterów z sumą weryfikacji (CandidateStage
+    new + screening + prep_call) w tygodniu, obliczonym rate per dzień i
+    flagą meets_target."""
     start, end, iso_week, iso_year = _iso_week_bounds(offset_weeks)
-    canonical_period = AnalyticsPeriod(
-        kind=AnalyticsPeriodKind.custom,
-        start=start,
-        end=end,
-    )
-    calls_available = bool(
-        settings.CLOUDTALK_ENABLED
-        and settings.CLOUDTALK_API_KEY_ID
-        and settings.CLOUDTALK_API_KEY_SECRET
-        and settings.CLOUDTALK_WEBHOOK_SECRET
-    )
-    rows = (
-        await AnalyticsV1Service(db).team_kpis(
-            canonical_period, calls_available=calls_available
+
+    # Count weryfikacji per user w tygodniu.
+    stages = [PipelineStage.new, PipelineStage.screening, PipelineStage.prep_call]
+    q = (
+        select(
+            User.id,
+            User.name,
+            User.role,
+            func.count(CandidateStage.id).label("cnt"),
         )
-    ).users
+        .join(CandidateStage, User.id == CandidateStage.moved_by)
+        .where(
+            CandidateStage.stage.in_(stages),
+            CandidateStage.moved_at >= start,
+            CandidateStage.moved_at < end,
+            User.is_active == True,  # noqa: E712
+            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
+        )
+        .group_by(User.id, User.name, User.role)
+        .order_by(func.count(CandidateStage.id).desc())
+    )
+    rows = (await db.execute(q)).all()
 
     # Competence category per user (primary).
-    user_ids = [r.user_id for r in rows]
+    user_ids = [r.id for r in rows]
     cat_map: dict[int, dict] = {}
-    role_map: dict[int, str] = {}
     if user_ids:
-        role_rows = await db.execute(
-            select(User.id, User.role).where(User.id.in_(user_ids))
-        )
-        role_map = {
-            user_id: role.value if hasattr(role, "value") else str(role)
-            for user_id, role in role_rows
-        }
         cc_rows = (
             await db.execute(
                 select(
@@ -1870,47 +1789,26 @@ async def report_power_calling(
 
     entries = []
     for r in rows:
-        calls_per_day = (
-            round(r.calls_completed / POWER_CALLING_WORKDAYS, 2)
-            if r.calls_completed is not None
-            else None
-        )
-        verifications_per_day = round(r.verifications / POWER_CALLING_WORKDAYS, 2)
-        meets_calls = (
-            calls_per_day >= settings.POWERCALLING_DAILY_TARGET
-            if calls_per_day is not None
-            else None
-        )
-        meets_verifications = (
-            verifications_per_day >= settings.VERIFICATIONS_DAILY_TARGET
-        )
+        cnt = int(r.cnt)
+        per_day = round(cnt / POWER_CALLING_WORKDAYS, 2)
         entries.append(
             {
-                "user_id": r.user_id,
-                "name": r.user_name,
-                "role": role_map.get(r.user_id, "recruiter"),
-                "primary_category": cat_map.get(r.user_id),
-                "calls_week": r.calls_completed,
-                "calls_per_day": calls_per_day,
-                "verifications_week": r.verifications,
-                "verifications_per_day": verifications_per_day,
-                # One-release compatibility aliases now use the real Power
-                # Calling definition (completed calls).
-                "per_day": calls_per_day,
+                "user_id": r.id,
+                "name": r.name,
+                "role": r.role.value if hasattr(r.role, "value") else str(r.role),
+                "primary_category": cat_map.get(r.id),
+                "verifications_week": cnt,
+                "per_day": per_day,
                 "workdays": POWER_CALLING_WORKDAYS,
-                "meets_call_target": meets_calls,
-                "meets_verification_target": meets_verifications,
-                "meets_target": meets_calls,
-                "progress_pct": (
-                    min(
-                        100,
-                        round(
-                            (calls_per_day / settings.POWERCALLING_DAILY_TARGET) * 100,
-                            0,
-                        ),
-                    )
-                    if calls_per_day is not None and settings.POWERCALLING_DAILY_TARGET
-                    else None
+                "meets_target": per_day >= POWER_CALLING_TARGET_PER_DAY,
+                "progress_pct": min(
+                    100,
+                    round(
+                        (per_day / POWER_CALLING_TARGET_PER_DAY) * 100
+                        if POWER_CALLING_TARGET_PER_DAY
+                        else 0,
+                        0,
+                    ),
                 ),
             }
         )
@@ -1921,19 +1819,13 @@ async def report_power_calling(
         "iso_year": iso_year,
         "date_from": start.date().isoformat(),
         "date_to": (end - timedelta(days=1)).date().isoformat(),
-        "target_per_day": settings.POWERCALLING_DAILY_TARGET,
-        "call_target_per_day": settings.POWERCALLING_DAILY_TARGET,
-        "verification_target_per_day": settings.VERIFICATIONS_DAILY_TARGET,
-        "calls_available": calls_available,
-        "calls_quality": "complete" if calls_available else "unavailable",
+        "target_per_day": POWER_CALLING_TARGET_PER_DAY,
         "workdays": POWER_CALLING_WORKDAYS,
         "requirement_text": (
-            f"Cele: {settings.POWERCALLING_DAILY_TARGET} zakończonych rozmów i "
-            f"{settings.VERIFICATIONS_DAILY_TARGET} weryfikacje / dzień roboczy"
+            f"Wymóg: min. {POWER_CALLING_TARGET_PER_DAY} weryfikacji / "
+            "dzień roboczy w poprzednim tygodniu"
         ),
         "entries": entries,
-        "meets_target_count": (
-            sum(1 for e in entries if e["meets_target"]) if calls_available else None
-        ),
+        "meets_target_count": sum(1 for e in entries if e["meets_target"]),
         "total_count": len(entries),
     }

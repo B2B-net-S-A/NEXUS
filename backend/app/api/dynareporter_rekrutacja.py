@@ -23,11 +23,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    CurrentUser,
-    DynaReporterSection,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.schemas.dr_rekrutacja import (
     AccelerationPath,
@@ -57,11 +53,7 @@ from app.schemas.dr_rekrutacja import (
 
 logger = logging.getLogger("dynareporter.rekrutacja")
 
-router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.body_leasing))
-    ]
-)
+router = APIRouter()
 
 # Liga Mistrzów scoring system — fallback gdy dr_system_config nieczytany.
 DEFAULT_SCORING = {

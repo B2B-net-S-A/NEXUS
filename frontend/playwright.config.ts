@@ -34,19 +34,11 @@ export default defineConfig({
     },
     {
       name: "chromium",
-      testIgnore: /candidate-ux-preview\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: AUTH_STATE,
       },
       dependencies: ["setup"],
-    },
-    {
-      name: "preview-chromium",
-      testMatch: /candidate-ux-preview\.spec\.ts/,
-      use: {
-        ...devices["Desktop Chrome"],
-      },
     },
   ],
 });

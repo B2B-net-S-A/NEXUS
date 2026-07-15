@@ -21,11 +21,10 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.services.cc_centroid_service import POOL_CENTROIDS_COLLECTION
-from app.services.embedding_service import candidate_collection_name
-from app.services.qdrant_factory import get_qdrant_client
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +52,11 @@ class PoolSuggestion:
 
 def _fetch_candidate_vector_sync(candidate_id: int) -> Optional[list[float]]:
     try:
-        client = get_qdrant_client()
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         points = client.retrieve(
-            collection_name=candidate_collection_name(),
+            collection_name="nexus_candidates",
             ids=[candidate_id],
             with_vectors=True,
         )
@@ -74,7 +75,9 @@ def _search_pool_centroids_sync(
     vector: list[float], limit: int = 20
 ) -> dict[int, float]:
     try:
-        client = get_qdrant_client()
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         hits = client.search(
             collection_name=POOL_CENTROIDS_COLLECTION,
             query_vector=vector,

@@ -14,29 +14,6 @@ export type UserRole =
   | "sourcer"
   | "user"
 
-export type AnalyticsCapability =
-  | "view_operational_aggregates"
-  | "view_personal_recruitment_kpis"
-  | "view_personal_delivery_kpis"
-  | "view_recruitment_team"
-  | "view_client_operations"
-  | "view_finance"
-  | "view_tenders"
-  | "manage_analytics"
-
-export type DashboardView =
-  | "operations"
-  | "recruitment"
-  | "delivery"
-  | "executive"
-
-export const DASHBOARD_VIEW_LABELS: Record<DashboardView, string> = {
-  operations: "Operacje",
-  recruitment: "Rekrutacja",
-  delivery: "Delivery",
-  executive: "Zarząd",
-}
-
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
 // admin > head_of_recruitment > delivery_lead > tac > recruiter/sourcer > user
 // head_of_recruitment = manager zespołu rekrutacji (wyżej niż DL, ale niżej od
@@ -106,10 +83,6 @@ interface User {
    *  Optional: stary kod tworzący `User` (np. OnboardingDLV2/RecruiterV2)
    *  nie ma tego pola — wtedy traktujemy jako []. */
   allowed_sections?: DynaReporterSection[]
-  /** Backend-owned analytics permissions. Sensitive analytics UI must fail
-   *  closed when this field is absent; only the viewer-safe operational
-   *  overview has a one-release compatibility fallback. */
-  analytics_capabilities?: AnalyticsCapability[]
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
@@ -158,104 +131,6 @@ export function hasRole(
   return roles.some((r) => userRoles.includes(r))
 }
 
-/** Legacy hiring-manager analytics is intentionally narrower than client ops. */
-export function canViewHiringManagerAnalytics(
-  user:
-    | Pick<User, "role" | "roles" | "analytics_capabilities">
-    | null
-    | undefined,
-): boolean {
-  return (
-    hasRole(user, "admin", "head_of_recruitment") &&
-    hasAnalyticsCapability(user, "view_client_operations")
-  )
-}
-
-/**
- * Checks a backend-issued analytics capability. We intentionally do not
- * reconstruct sensitive permissions from roles in the browser. During the
- * one-release auth rollout, every authenticated account may still render the
- * PII-free operational overview when the new field is missing.
- */
-export function hasAnalyticsCapability(
-  user:
-    | Pick<User, "role" | "analytics_capabilities">
-    | null
-    | undefined,
-  capability: AnalyticsCapability
-): boolean {
-  if (!user) return false
-  if (Array.isArray(user.analytics_capabilities)) {
-    return user.analytics_capabilities.includes(capability)
-  }
-  return capability === "view_operational_aggregates"
-}
-
-type DashboardUser = Pick<
-  User,
-  "role" | "roles" | "analytics_capabilities"
->
-
-/** Views are allowed only by backend-issued capabilities, never by URL alone. */
-export function getAvailableDashboardViews(
-  user: DashboardUser | null | undefined,
-): DashboardView[] {
-  if (!user) return []
-  const views: DashboardView[] = []
-  if (hasAnalyticsCapability(user, "view_operational_aggregates")) {
-    views.push("operations")
-  }
-  if (
-    hasAnalyticsCapability(user, "view_personal_recruitment_kpis") ||
-    hasAnalyticsCapability(user, "view_recruitment_team")
-  ) {
-    views.push("recruitment")
-  }
-  if (hasAnalyticsCapability(user, "view_client_operations")) {
-    views.push("delivery")
-  }
-  if (
-    hasAnalyticsCapability(user, "view_finance") ||
-    hasAnalyticsCapability(user, "view_tenders")
-  ) {
-    views.push("executive")
-  }
-  return views
-}
-
-/**
- * Canonical view priority: admin → HoR → DL → TAC → recruiter/sourcer → user.
- * If a stale auth payload lacks the required capability, fall back to the
- * first safe view instead of rendering a privileged dashboard optimistically.
- */
-export function getPreferredDashboardView(
-  user: DashboardUser | null | undefined,
-): DashboardView {
-  const available = getAvailableDashboardViews(user)
-  const accepts = (view: DashboardView) => available.includes(view)
-
-  if (hasRole(user, "admin") && accepts("executive")) return "executive"
-  if (hasRole(user, "head_of_recruitment") && accepts("recruitment")) {
-    return "recruitment"
-  }
-  if (hasRole(user, "delivery_lead") && accepts("delivery")) return "delivery"
-  if (
-    hasRole(user, "tac", "recruiter", "sourcer") &&
-    accepts("recruitment")
-  ) {
-    return "recruitment"
-  }
-  if (accepts("operations")) return "operations"
-  return available[0] ?? "operations"
-}
-
-/** Compatibility helper for existing callers during the route cutover. */
-export function getPreferredDashboardPath(
-  user: DashboardUser | null | undefined,
-): string {
-  return `/dashboard?view=${getPreferredDashboardView(user)}`
-}
-
 /**
  * Czy user ma rangę >= minRole (porównanie hierarchiczne).
  * Użyj gdy myślisz w kategoriach "delivery_lead lub wyżej".
@@ -277,34 +152,11 @@ export function hasMinRole(
  * userów musi mieć sekcję jawnie wpisaną w `allowed_sections` przez admina.
  */
 export function hasSection(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "allowed_sections" | "analytics_capabilities"
-      >
-    | null
-    | undefined,
+  user: Pick<User, "role" | "allowed_sections"> | null | undefined,
   section: DynaReporterSection
 ): boolean {
   if (!user) return false
-  const requiredCapability: Record<
-    DynaReporterSection,
-    AnalyticsCapability
-  > = {
-    "body-leasing": "view_recruitment_team",
-    sales: "view_finance",
-    "delivery-lead": "view_client_operations",
-    placements: "view_client_operations",
-    "clients-mrr": "view_finance",
-    competitions: "view_recruitment_team",
-    przetargi: "view_tenders",
-    board: "view_finance",
-    "sales-mgmt": "view_finance",
-    mindy: "manage_analytics",
-    admin: "manage_analytics",
-  }
-  if (!hasAnalyticsCapability(user, requiredCapability[section])) return false
-  if (hasRole(user, "admin")) return true
+  if (user.role === "admin") return true
   return (user.allowed_sections ?? []).includes(section)
 }
 

@@ -26,8 +26,7 @@ def local_now(tz: str = DEFAULT_TZ) -> datetime:
 class DayBounds:
     """UTC-aware start/end of a single local-calendar day in the given zone.
 
-    Half-open interval ``[start, end)``: start = 00:00 local and end = 00:00
-    of the following local day, both converted to UTC.
+    Start = 00:00:00 local, end = 23:59:59.999999 local, both converted to UTC.
     Używane do filtrowania rekordów „z dzisiaj" (np. Call.created_at).
     """
 
@@ -45,7 +44,7 @@ def local_day_bounds(now: datetime, tz: str = DEFAULT_TZ) -> DayBounds:
     local = now.astimezone(zone) if now.tzinfo else now.replace(tzinfo=zone)
     today = local.date()
     start_local = datetime.combine(today, time.min, tzinfo=zone)
-    end_local = datetime.combine(today + timedelta(days=1), time.min, tzinfo=zone)
+    end_local = datetime.combine(today, time.max, tzinfo=zone)
     return DayBounds(
         start_utc=start_local.astimezone(timezone.utc),
         end_utc=end_local.astimezone(timezone.utc),

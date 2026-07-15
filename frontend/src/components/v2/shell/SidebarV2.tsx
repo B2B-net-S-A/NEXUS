@@ -140,12 +140,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/insights", label: "Insights", icon: Lightbulb },
       {
-        href: "/assistant",
-        label: "Asystent MINDY",
-        icon: Sparkles,
-        roles: ["admin"],
-      },
-      {
         href: "/cortex",
         label: "Cortex",
         icon: Brain,

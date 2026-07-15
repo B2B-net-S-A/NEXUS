@@ -475,7 +475,7 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
     1. Run the same CV enrichment used by authenticated `POST /candidates/{id}/cv`
        (parse companies/skills, flag `cv_parsed_at`, invalidate match cache).
     2. Classify the candidate into Competence Categories. When the top-1
-       score is ≥ 0.80, leads #2 by ≥ 0.10 and `competence_category` is empty,
+       score is ≥ 0.30 and `competence_category` is still empty, auto-assign
        it so the candidate shows up in matching right away.
 
     Never raises — every failure is logged so the original apply response
@@ -495,10 +495,7 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
     # (2) CC classification + auto-assign. Needs its own session because the
     # previous task committed and closed its session.
     try:
-        from app.services.cc_classifier import (
-            classify_candidate_to_cc,
-            should_auto_assign,
-        )
+        from app.services.cc_classifier import classify_candidate_to_cc
 
         async with AsyncSessionLocal() as db:
             candidate = await db.scalar(
@@ -507,7 +504,7 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
             if candidate is None:
                 return
             scores = await classify_candidate_to_cc(candidate, db)
-            if should_auto_assign(scores) and not candidate.competence_category:
+            if scores and scores[0].score >= 0.30 and not candidate.competence_category:
                 candidate.competence_category = scores[0].slug
                 candidate.competence_category_id = scores[0].cc_id
                 await db.commit()

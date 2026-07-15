@@ -295,18 +295,13 @@ async def _run_generate_new_job(
                 stage_id=stage_id,
                 language=language,
                 blind_cv=blind_cv,
-                user_id=user_id,
             )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
             await db.commit()
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
-            logger.error(
-                "[cv_b2b] New-mode job %s crashed error_type=%s",
-                generated_id,
-                type(err).__name__,
-            )
+            logger.exception("[cv_b2b] New-mode job %s crashed: %s", generated_id, err)
             await _finalize_failure(
                 db, generated_id, "Nieoczekiwany błąd generacji CV."
             )
@@ -343,17 +338,13 @@ async def _run_generate_upload_job(
     """Background worker for Old-mode (manual upload) generation."""
     async with AsyncSessionLocal() as db:
         try:
-            result = await generate_cv_from_uploads(payload, user_id=user_id)
+            result = await run_in_threadpool(generate_cv_from_uploads, payload)
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
             await db.commit()
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
-            logger.error(
-                "[cv_b2b] Upload job %s crashed error_type=%s",
-                generated_id,
-                type(err).__name__,
-            )
+            logger.exception("[cv_b2b] Upload job %s crashed: %s", generated_id, err)
             await _finalize_failure(
                 db, generated_id, "Nieoczekiwany błąd generacji CV."
             )
@@ -733,13 +724,9 @@ async def download_generated_cv(
             rerender_docx_from_payload, row.render_payload
         )
     except Exception as err:  # noqa: BLE001 — python-docx raises various types
-        logger.error(
-            "[cv_b2b] Re-render of saved CV %s failed error_type=%s",
-            row.id,
-            type(err).__name__,
-        )
+        logger.exception("[cv_b2b] Re-render of saved CV %s failed: %s", row.id, err)
         raise HTTPException(
-            status_code=500, detail="Nie udało się odtworzyć DOCX."
+            status_code=500, detail=f"Nie udało się odtworzyć DOCX: {err}"
         ) from err
     return _build_docx_response(
         docx_bytes=docx_bytes,

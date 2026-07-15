@@ -34,7 +34,6 @@ _CACHE_KEY = "admin:snapshot"
 
 
 async def _snapshot_auth(
-    request: Request,
     x_snapshot_token: Annotated[str | None, Header(alias="X-Snapshot-Token")] = None,
     bearer: Annotated[
         HTTPAuthorizationCredentials | None,
@@ -52,10 +51,10 @@ async def _snapshot_auth(
         )
     if bearer is not None:
         try:
-            user = await get_current_user(request, bearer, db)
+            user = await get_current_user(bearer, db)
         except HTTPException:
             raise
-        if user.has_role(UserRole.admin):
+        if user.role == UserRole.admin:
             return "jwt"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -90,210 +89,16 @@ async def _query_alembic_head() -> dict[str, str | None]:
         return {"head": None, "applied_at": None}
 
 
-async def _query_analytics_shadow_status() -> dict[str, Any]:
-    """Return persisted parity evidence used by the seven-day rollout gate."""
-
-    if settings.ANALYTICS_V1_MODE != "shadow":
-        return {
-            "mode": settings.ANALYTICS_V1_MODE,
-            "quality": "disabled",
-            "observed_days": 0,
-            "identical": 0,
-            "mismatch": 0,
-            "unavailable": 0,
-            "latest_observed_on": None,
-        }
-    try:
-        async with AsyncSessionLocal() as session:
-            result = await asyncio.wait_for(
-                session.execute(
-                    text(
-                        """
-                        SELECT
-                          count(DISTINCT observed_on) AS observed_days,
-                          count(*) FILTER (WHERE status = 'identical') AS identical,
-                          count(*) FILTER (WHERE status = 'mismatch') AS mismatch,
-                          count(*) FILTER (WHERE status = 'unavailable') AS unavailable,
-                          max(observed_on) AS latest_observed_on
-                        FROM analytics_shadow_comparisons
-                        WHERE observed_on >= (current_date - interval '7 days')
-                        """
-                    )
-                ),
-                timeout=2.0,
-            )
-            row = result.mappings().one()
-        mismatches = int(row["mismatch"] or 0)
-        unavailable = int(row["unavailable"] or 0)
-        observed_days = int(row["observed_days"] or 0)
-        return {
-            "mode": "shadow",
-            "quality": (
-                "complete"
-                if observed_days >= 7 and mismatches == 0 and unavailable == 0
-                else "partial"
-            ),
-            "observed_days": observed_days,
-            "identical": int(row["identical"] or 0),
-            "mismatch": mismatches,
-            "unavailable": unavailable,
-            "latest_observed_on": (
-                row["latest_observed_on"].isoformat()
-                if row["latest_observed_on"] is not None
-                else None
-            ),
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "mode": "shadow",
-            "quality": "unavailable",
-            "observed_days": 0,
-            "identical": 0,
-            "mismatch": 0,
-            "unavailable": 0,
-            "latest_observed_on": None,
-            "warning": f"{type(exc).__name__}: {exc}"[:300],
-        }
-
-
-async def _ai_control_plane_snapshot() -> dict[str, Any]:
-    from app.ai.circuit_breaker import circuit_breaker
-
-    try:
-        async with AsyncSessionLocal() as session:
-            routing = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT registry_version, lock_version, activated_at "
-                            "FROM ai_routing_state WHERE id = 1"
-                        )
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            usage = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT feature, count(*) AS attempts, "
-                            "coalesce(sum(cost_usd), 0) AS cost_usd, "
-                            "sum(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errors, "
-                            "max(created_at) AS last_call_at "
-                            "FROM ai_call_ledger "
-                            "WHERE created_at >= now() - interval '30 days' GROUP BY feature"
-                        )
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            queue = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT status, count(*) AS count FROM embedding_index_queue "
-                            "GROUP BY status"
-                        )
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            rollouts = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT feature, baseline_registry, target_registry, stage, "
-                            "percentage, status, lock_version, stage_started_at, "
-                            "rollback_reason, rollback_available_until, monitoring_until, "
-                            "next_regression_at FROM ai_rollout_state ORDER BY feature"
-                        )
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        return {
-            "routing": dict(routing) if routing else {"registry_version": "v1_current"},
-            "usage_30d": [dict(row) for row in usage],
-            "embedding_queue": {row["status"]: row["count"] for row in queue},
-            "rollouts": [dict(row) for row in rollouts],
-            "circuit_breakers": circuit_breaker.snapshot(),
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {"status": "unavailable", "error_type": type(exc).__name__}
-
-
 def _background_tasks_status(request: Request) -> dict[str, Any]:
-    """Inspect lifespan jobs without treating a clean exit as a missing task."""
+    """Inspect app.state.background_tasks dict (populated by lifespan)."""
     tasks = getattr(request.app.state, "background_tasks", None)
     if not isinstance(tasks, dict):
-        return {
-            "running": 0,
-            "disabled": 0,
-            "completed": 0,
-            "crashed": 0,
-            "expected": 0,
-            "tasks": [],
-        }
-
-    enabled_by_config = {
-        "kpi_coach_nudger": (
-            settings.KPI_COACH_V2_NUDGE_MODE != "off"
-            or settings.KPI_COACH_V2_NUDGES_ENABLED
-        ),
-        "linkedin_sync": bool(
-            settings.PROXYCURL_ENABLED and settings.PROXYCURL_API_KEY
-        ),
-        "microsoft365_sync": bool(
-            settings.M365_INTEGRATION_ENABLED and settings.M365_SYNC_LOOP_ENABLED
-        ),
-        "m365_rematch": bool(
-            settings.M365_INTEGRATION_ENABLED and settings.M365_REMATCH_ENABLED
-        ),
-        "m365_webhook_renewal": bool(
-            settings.M365_INTEGRATION_ENABLED and settings.M365_WEBHOOKS_ENABLED
-        ),
-        "m365_recording_discovery": bool(
-            settings.M365_INTEGRATION_ENABLED
-            and settings.M365_RECORDING_DISCOVERY_ENABLED
-        ),
-        "marketplace_sweeper": settings.MARKETPLACE_ENABLED,
-        "autenti_sweeper": settings.AUTENTI_ENABLED,
-        "signing_sweeper": settings.SIGNING_ENABLED,
-        "cloudtalk_sync": settings.CLOUDTALK_ENABLED,
-        "traffit_sync": settings.TRAFFIT_SYNC_ENABLED,
-        "analytics_shadow": settings.ANALYTICS_V1_MODE == "shadow",
-        "embedding_index_sync": settings.EMBEDDING_INDEX_SYNC_ENABLED,
-    }
-
-    rows: list[dict[str, str | None]] = []
-    counts = {"running": 0, "disabled": 0, "completed": 0, "crashed": 0}
-    for name, task in sorted(tasks.items()):
-        error: str | None = None
-        if enabled_by_config.get(name) is False:
-            task_status = "disabled"
-        elif not task.done():
-            task_status = "running"
-        elif task.cancelled():
-            task_status = "completed"
-        else:
-            exception = task.exception()
-            if exception is None:
-                task_status = "completed"
-            else:
-                task_status = "crashed"
-                error = f"{type(exception).__name__}: {exception}"[:300]
-        counts[task_status] += 1
-        rows.append({"name": name, "status": task_status, "error": error})
-
+        return {"running": 0, "expected": 0, "tasks": []}
+    running = [name for name, task in tasks.items() if not task.done()]
     return {
-        **counts,
+        "running": len(running),
         "expected": len(tasks),
-        "tasks": rows,
-        "running_tasks": [r["name"] for r in rows if r["status"] == "running"],
+        "tasks": sorted(running),
     }
 
 
@@ -323,10 +128,6 @@ async def admin_snapshot(
     db_check = await _check_database()
     kpis = await compute_kpi_snapshot(db) if db_check == "healthy" else {}
     alembic = await _query_alembic_head()
-    analytics_shadow = await _query_analytics_shadow_status()
-    ai_control_plane = (
-        await _ai_control_plane_snapshot() if db_check == "healthy" else {}
-    )
 
     snapshot = {
         "health": {
@@ -338,8 +139,6 @@ async def admin_snapshot(
         "kpis": kpis,
         "background_tasks": _background_tasks_status(request),
         "alembic": alembic,
-        "analytics_shadow": analytics_shadow,
-        "ai": ai_control_plane,
         "sentry_release": os.environ.get("GIT_SHA", "unknown"),
         "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }

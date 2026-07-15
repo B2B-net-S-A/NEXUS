@@ -25,16 +25,15 @@ def test_day_bounds_on_winter_day_utc_plus_1():
     now = datetime(2026, 1, 15, 10, 30, tzinfo=WARSAW)
     bounds = local_day_bounds(now)
     assert bounds.start_utc == datetime(2026, 1, 14, 23, 0, tzinfo=timezone.utc)
-    assert bounds.end_utc == datetime(2026, 1, 15, 23, 0, tzinfo=timezone.utc)
-    assert bounds.end_utc.astimezone(WARSAW).date().isoformat() == "2026-01-16"
-    assert bounds.end_utc.astimezone(WARSAW).hour == 0
+    assert bounds.end_utc.astimezone(WARSAW).date() == now.date()
+    assert bounds.end_utc.astimezone(WARSAW).hour == 23
+    assert bounds.end_utc.astimezone(WARSAW).minute == 59
 
 
 def test_day_bounds_on_summer_day_utc_plus_2():
     now = datetime(2026, 7, 15, 10, 30, tzinfo=WARSAW)
     bounds = local_day_bounds(now)
     assert bounds.start_utc == datetime(2026, 7, 14, 22, 0, tzinfo=timezone.utc)
-    assert bounds.end_utc == datetime(2026, 7, 15, 22, 0, tzinfo=timezone.utc)
 
 
 def test_day_bounds_around_dst_transition_spring():
@@ -43,8 +42,6 @@ def test_day_bounds_around_dst_transition_spring():
     bounds = local_day_bounds(now)
     # 30 marca zaczyna się o 23:00 UTC 29 marca (UTC+1 przed zmianą).
     assert bounds.start_utc == datetime(2025, 3, 29, 23, 0, tzinfo=timezone.utc)
-    # Kolejna lokalna północ wypada po 23-godzinnym dniu, o 22:00 UTC.
-    assert bounds.end_utc == datetime(2025, 3, 30, 22, 0, tzinfo=timezone.utc)
 
 
 def test_day_bounds_from_utc_input_converts_correctly():

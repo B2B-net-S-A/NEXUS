@@ -14,7 +14,6 @@ potrzeba async — przerobimy na `aiosmtplib` + do requirements.txt.
 from __future__ import annotations
 
 import html
-import hashlib
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -24,12 +23,6 @@ from typing import Optional
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-
-
-def _recipient_ref(address: str) -> str:
-    """Stable diagnostic reference that does not disclose an e-mail address."""
-    normalized = (address or "").strip().lower().encode("utf-8", errors="replace")
-    return hashlib.sha256(normalized).hexdigest()[:12]
 
 
 def _build_message(
@@ -56,19 +49,14 @@ def send_email(
     Nie rzuca wyjątków — wszystko loguje i zwraca bool. Wynik można zignorować
     w ścieżkach fallback.
     """
-    recipient_ref = _recipient_ref(to)
     if not settings.SMTP_ENABLED:
         logger.debug(
-            "email: SMTP_ENABLED=false — skip send recipient_ref=%s subject_len=%d",
-            recipient_ref,
-            len(subject),
+            "email: SMTP_ENABLED=false — skip send to=%s subject=%r", to, subject
         )
         return False
     if not settings.SMTP_HOST:
         logger.warning(
-            "email: SMTP_ENABLED=true but SMTP_HOST is empty — skipping "
-            "recipient_ref=%s",
-            recipient_ref,
+            "email: SMTP_ENABLED=true but SMTP_HOST is empty — skipping to=%s", to
         )
         return False
 
@@ -80,17 +68,10 @@ def send_email(
             if settings.SMTP_USER and settings.SMTP_PASSWORD:
                 client.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             client.send_message(msg)
-        logger.info(
-            "email sent recipient_ref=%s subject_len=%d", recipient_ref, len(subject)
-        )
+        logger.info("email sent to=%s subject=%r", to, subject)
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "email send failed recipient_ref=%s subject_len=%d error_type=%s",
-            recipient_ref,
-            len(subject),
-            type(exc).__name__,
-        )
+        logger.warning("email send failed to=%s subject=%r error=%s", to, subject, exc)
         return False
 
 

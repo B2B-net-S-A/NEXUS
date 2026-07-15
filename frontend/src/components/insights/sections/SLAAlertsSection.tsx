@@ -2,9 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { AlertTriangle, Clock } from "lucide-react";
+import { AlertTriangle, Clock, Loader2 } from "lucide-react";
 import { phase3Api } from "@/lib/api";
-import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary";
 
 interface SlaAlert {
   candidate_stage_id: number;
@@ -17,7 +16,7 @@ interface SlaAlert {
 }
 
 export function SLAAlertsSection() {
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["insights-sla"],
     queryFn: () =>
       phase3Api.slaAlerts().then((r) => r.data as { count: number; alerts: SlaAlert[] }),
@@ -37,15 +36,15 @@ export function SLAAlertsSection() {
         </span>
       </h2>
 
-      <StatsBoundary
-        isLoading={isLoading}
-        isFetching={isFetching && !isLoading}
-        isError={isError}
-        error={error}
-        isEmpty={!data || alerts.length === 0}
-        emptyTitle="Brak alertów — wszystko w normie"
-        onRetry={() => refetch()}
-      >
+      {isLoading ? (
+        <div className="py-8 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : alerts.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">
+          Brak alertów — wszystko w normie 🎉
+        </p>
+      ) : (
         <ul className="space-y-1 text-sm">
           {alerts.slice(0, 10).map((a) => (
             <li
@@ -67,7 +66,7 @@ export function SLAAlertsSection() {
             </li>
           ))}
         </ul>
-      </StatsBoundary>
+      )}
     </section>
   );
 }

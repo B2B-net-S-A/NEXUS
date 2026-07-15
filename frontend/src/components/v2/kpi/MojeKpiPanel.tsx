@@ -1,28 +1,53 @@
 "use client"
 
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
+  CalendarCheck,
   CheckCircle2,
   FilePlus2,
-  PhoneCall,
   Send,
   Target,
   Trophy,
+  UserCheck,
 } from "lucide-react"
 
-import {
-  analyticsApi,
-  callsAreUnavailable,
-  type PersonalKpiData,
-} from "@/lib/analytics"
+import api from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { hasAnalyticsCapability, useAuthStore } from "@/store/auth"
-import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary"
-import {
-  useRecruitmentKpiPeriod,
-} from "@/components/insights/useInsightsPeriod"
+
+// ── Types (mirror MyPanelSchema z backendu) ──────────────────────────────
 
 type Period = "day" | "week" | "month"
+
+interface FunnelCounts {
+  day: number
+  week: number
+  month: number
+}
+
+interface Precision {
+  value_pct: number | null
+  verified: number
+  sent: number
+  target_pct: number
+  window_days: number
+}
+
+export interface MyPanel {
+  role: string
+  applies: boolean
+  weryfikacje: FunnelCounts
+  rekomendacje: FunnelCounts
+  interview_month: number
+  akceptacje_month: number
+  placementy_month: number
+  cv_to_base: FunnelCounts | null
+  precision: Precision
+  target_verifications_daily: number
+  target_placements_monthly: number
+  target_cv_added_daily: number | null
+  target_precision_pct: number
+}
 
 const PERIOD_LABEL: Record<Period, string> = {
   day: "Dziś",
@@ -30,172 +55,219 @@ const PERIOD_LABEL: Record<Period, string> = {
   month: "Miesiąc",
 }
 
+// ── Pastel tile (spójne z PastelKpi z panelu DL) ─────────────────────────
+
+const TONE = {
+  blue: {
+    bg: "bg-sky-50 border-sky-200",
+    icon: "bg-sky-100 text-sky-700",
+    title: "text-sky-900",
+    value: "text-sky-950",
+  },
+  violet: {
+    bg: "bg-violet-50 border-violet-200",
+    icon: "bg-violet-100 text-violet-700",
+    title: "text-violet-900",
+    value: "text-violet-950",
+  },
+  amber: {
+    bg: "bg-amber-50 border-amber-200",
+    icon: "bg-amber-100 text-amber-700",
+    title: "text-amber-900",
+    value: "text-amber-950",
+  },
+  emerald: {
+    bg: "bg-emerald-50 border-emerald-200",
+    icon: "bg-emerald-100 text-emerald-700",
+    title: "text-emerald-900",
+    value: "text-emerald-950",
+  },
+  slate: {
+    bg: "bg-slate-50 border-slate-200",
+    icon: "bg-slate-100 text-slate-700",
+    title: "text-slate-900",
+    value: "text-slate-950",
+  },
+} as const
+
+type Tone = keyof typeof TONE
+
 function KpiTile({
   title,
   value,
   subtitle,
   icon: Icon,
+  tone,
+  hit = false,
 }: {
   title: string
   value: React.ReactNode
-  subtitle: string
+  subtitle?: string
   icon: React.ComponentType<{ className?: string }>
+  tone: Tone
+  hit?: boolean
 }) {
+  const c = TONE[tone]
   return (
-    <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+    <div className={cn("rounded-lg border px-4 py-3", c.bg)}>
       <div className="mb-2 flex items-center gap-2">
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <span
+          className={cn(
+            "inline-flex h-7 w-7 items-center justify-center rounded-full",
+            c.icon,
+          )}
+        >
           <Icon className="h-4 w-4" />
         </span>
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span
+          className={cn(
+            "text-[11px] font-semibold uppercase tracking-wide",
+            c.title,
+          )}
+        >
           {title}
         </span>
+        {hit && (
+          <CheckCircle2 className="ml-auto h-4 w-4 text-emerald-600" aria-label="cel osiągnięty" />
+        )}
       </div>
-      <div className="text-3xl font-extrabold leading-none text-foreground">{value}</div>
-      <div className="mt-1.5 text-xs text-muted-foreground">{subtitle}</div>
+      <div className={cn("text-3xl font-extrabold leading-none", c.value)}>
+        {value}
+      </div>
+      {subtitle && (
+        <div className={cn("mt-1.5 text-xs opacity-80", c.title)}>{subtitle}</div>
+      )}
     </div>
   )
 }
 
-function metricTiles(data: PersonalKpiData, callsUnavailable: boolean) {
-  return [
-    {
-      key: "calls",
-      title: "Rozmowy",
-      value: callsUnavailable ? "—" : data.calls_completed,
-      subtitle: callsUnavailable
-        ? "CloudTalk niedostępny"
-        : `zakończone · cel ${data.targets.calls_daily}/dzień`,
-      icon: PhoneCall,
-    },
-    {
-      key: "verifications",
-      title: "Weryfikacje",
-      value: data.verifications,
-      subtitle: `pierwsze osiągnięcie · cel ${data.targets.verifications_daily}/dzień`,
-      icon: CheckCircle2,
-    },
-    {
-      key: "candidates",
-      title: "Kandydaci dodani",
-      value: data.candidates_added,
-      subtitle:
-        data.targets.candidates_added_daily == null
-          ? "utworzeni przez Ciebie"
-          : `utworzeni · cel ${data.targets.candidates_added_daily}/dzień`,
-      icon: FilePlus2,
-    },
-    {
-      key: "recommendations",
-      title: "Rekomendacje",
-      value: data.recommendations,
-      subtitle: "pierwsze CV wysłane do klienta",
-      icon: Send,
-    },
-    {
-      key: "placements",
-      title: "Placementy",
-      value: data.placements,
-      subtitle: `pierwsze zatrudnienie · cel ${data.targets.placements_monthly}/mc`,
-      icon: Trophy,
-    },
-    {
-      key: "precision",
-      title: "Precision · 30 dni",
-      value:
-        data.precision_30d.value_pct == null
-          ? "—"
-          : `${Math.round(data.precision_30d.value_pct)}%`,
-      subtitle: `${data.precision_30d.recommended}/${data.precision_30d.verified} · cel ${data.targets.precision_pct}%`,
-      icon: Target,
-    },
-  ]
-}
+// ── Widget ───────────────────────────────────────────────────────────────
 
-/** Canonical personal KPI coach backed only by analytics v1 live ATS data. */
-export function PersonalKpiCoach({ className }: { className?: string }) {
-  const user = useAuthStore((state) => state.user)
-  const canView = hasAnalyticsCapability(user, "view_personal_recruitment_kpis")
-  const [period, setPeriod] = useRecruitmentKpiPeriod("day")
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ["analytics-v1", "me", "kpis", period],
-    queryFn: () => analyticsApi.personalKpis(period),
-    enabled: canView,
+/**
+ * „Moje KPI" — panel statystyk zalogowanego usera na panelu głównym.
+ *
+ * Weryfikacje / rekomendacje / CV do bazy przełączane dzień/tydzień/miesiąc;
+ * placementy / interview / akceptacje za bieżący miesiąc; precision (30 dni)
+ * względem celu 75%. Atrybucja verifier-anchored — zasługa idzie na osobę,
+ * która przeniosła kandydata na „Zweryfikowany".
+ *
+ * Zwraca null gdy backend oznaczy `applies=false` (rola nieoperacyjna bez
+ * aktywności) — widget się nie pokazuje.
+ */
+export function MojeKpiPanel({ className }: { className?: string }) {
+  const [period, setPeriod] = useState<Period>("day")
+  const { data, isLoading, error } = useQuery<MyPanel>({
+    queryKey: ["my-kpi-panel"],
+    queryFn: () => api.get("/api/kpis/me/panel").then((r) => r.data),
     staleTime: 60_000,
   })
 
-  if (!canView) return null
+  if (isLoading || error || !data || !data.applies) return null
+
+  const weryf = data.weryfikacje[period]
+  const rekom = data.rekomendacje[period]
+  const cv = data.cv_to_base ? data.cv_to_base[period] : null
+  const verifTarget = data.target_verifications_daily
+  const cvTarget = data.target_cv_added_daily
+  const prec = data.precision
 
   return (
     <section
       className={cn("rounded-xl border border-border bg-card p-4", className)}
       aria-label="Moje KPI"
     >
-      <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Moje KPI</h2>
-          </div>
-          {data && (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Dane wygenerowane {new Date(data.generated_at).toLocaleString("pl-PL")}
-            </p>
-          )}
+      <header className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Target className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-semibold text-foreground">Moje KPI</h2>
         </div>
         <div className="inline-flex rounded-lg border border-border p-0.5 text-xs">
-          {(Object.keys(PERIOD_LABEL) as Period[]).map((item) => (
+          {(["day", "week", "month"] as Period[]).map((p) => (
             <button
-              key={item}
+              key={p}
               type="button"
-              onClick={() => setPeriod(item)}
+              onClick={() => setPeriod(p)}
               className={cn(
                 "rounded-md px-2.5 py-1 font-medium transition-colors",
-                period === item
+                period === p
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {PERIOD_LABEL[item]}
+              {PERIOD_LABEL[p]}
             </button>
           ))}
         </div>
       </header>
 
-      <StatsBoundary
-        isLoading={isLoading}
-        isFetching={isFetching && !isLoading}
-        isError={isError}
-        error={error}
-        isEmpty={!data}
-        quality={data?.quality}
-        generatedAt={data?.generated_at}
-        staleAfterMs={2 * 60_000}
-        onRetry={() => refetch()}
-        loadingFallback={
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3" aria-label="Ładowanie KPI">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="h-24 animate-pulse rounded-lg bg-muted" />
-            ))}
-          </div>
-        }
-      >
-        {data && (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            {metricTiles(
-              data.data,
-              !data.data.calls_available || callsAreUnavailable(data),
-            ).map(({ key, ...tile }) => (
-              <KpiTile key={key} {...tile} />
-            ))}
-          </div>
+      {/* Wiersz 1 — przełączane dzień/tydzień/miesiąc */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <KpiTile
+          title="Weryfikacje"
+          value={weryf}
+          subtitle={verifTarget > 0 ? `cel ${verifTarget}/dzień` : "zweryfikowani"}
+          icon={CheckCircle2}
+          tone="blue"
+          hit={period === "day" && verifTarget > 0 && weryf >= verifTarget}
+        />
+        <KpiTile
+          title="Rekomendacje"
+          value={rekom}
+          subtitle="CV wysłane do klienta"
+          icon={Send}
+          tone="violet"
+        />
+        {cv !== null && (
+          <KpiTile
+            title="CV do bazy"
+            value={cv}
+            subtitle={cvTarget ? `cel ${cvTarget}/dzień` : "nowi kandydaci"}
+            icon={FilePlus2}
+            tone="slate"
+            hit={period === "day" && cvTarget != null && cvTarget > 0 && cv >= cvTarget}
+          />
         )}
-      </StatsBoundary>
+      </div>
+
+      {/* Wiersz 2 — kamienie milowe miesiąca + precision (stałe okno) */}
+      <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiTile
+          title="Placementy · mc"
+          value={data.placementy_month}
+          subtitle={`cel ${data.target_placements_monthly}/mc`}
+          icon={Trophy}
+          tone="amber"
+          hit={data.placementy_month >= data.target_placements_monthly}
+        />
+        <KpiTile
+          title="Interview · mc"
+          value={data.interview_month}
+          subtitle="zaproszenia"
+          icon={CalendarCheck}
+          tone="slate"
+        />
+        <KpiTile
+          title="Akceptacje · mc"
+          value={data.akceptacje_month}
+          subtitle="zaakceptowani"
+          icon={UserCheck}
+          tone="emerald"
+        />
+        <KpiTile
+          title="Precision"
+          value={prec.value_pct != null ? `${Math.round(prec.value_pct)}%` : "—"}
+          subtitle={
+            prec.value_pct != null
+              ? `cel ${prec.target_pct}% · ${prec.sent}/${prec.verified} (30 dni)`
+              : `za mało danych (${prec.verified}/${prec.window_days} dni)`
+          }
+          icon={Target}
+          tone="violet"
+          hit={prec.value_pct != null && prec.value_pct >= prec.target_pct}
+        />
+      </div>
     </section>
   )
 }
 
-/** Compatibility alias for existing dashboard imports. */
-export const MojeKpiPanel = PersonalKpiCoach
-
-export default PersonalKpiCoach
+export default MojeKpiPanel

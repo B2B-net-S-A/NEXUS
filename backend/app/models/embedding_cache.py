@@ -14,12 +14,8 @@ class EmbeddingCache(Base):
     __tablename__ = "embedding_cache"
 
     content_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
-    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="voyage")
     model: Mapped[str] = mapped_column(String(64), nullable=False)
     input_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    text_schema: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="legacy_v1"
-    )
     dim: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

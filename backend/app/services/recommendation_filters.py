@@ -125,8 +125,6 @@ def _competence_category_matches(job: Job, targets: Sequence[str]) -> bool:
     Each target is matched against job.subcategory / job.industry / job.title.
     Empty `targets` (or empty strings only) → True (no filter).
     """
-    if isinstance(targets, str):
-        targets = [targets]
     needles = [t.lower().strip() for t in targets if t and t.strip()]
     if not needles:
         return True

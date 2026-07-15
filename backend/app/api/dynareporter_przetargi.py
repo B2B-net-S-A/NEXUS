@@ -11,12 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    CurrentUser,
-    DynaReporterSection,
-    require_dynareporter_section,
-)
-from app.api.financial_access import has_financial_access
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.dr_przetargi import (
     DrPrzetargiAllocation,
@@ -25,9 +20,7 @@ from app.models.dr_przetargi import (
     DrPrzetargiProjectCost,
 )
 
-router = APIRouter(
-    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.przetargi))]
-)
+router = APIRouter()
 
 
 class ProjectResponse(BaseModel):
@@ -42,12 +35,6 @@ class ConsultantResponse(BaseModel):
     name: str
     default_cost_rate: Decimal
     default_revenue_rate: Decimal
-    is_active: bool
-
-
-class ConsultantOperationalResponse(BaseModel):
-    id: int
-    name: str
     is_active: bool
 
 
@@ -66,16 +53,6 @@ class AllocationRow(BaseModel):
     margin: Decimal  # revenue - cost
 
 
-class AllocationOperationalRow(BaseModel):
-    id: int
-    project_id: int
-    project_name: Optional[str] = None
-    consultant_id: int
-    consultant_name: Optional[str] = None
-    month: date
-    hours: Decimal
-
-
 class ProjectSummary(BaseModel):
     project_id: int
     project_name: str
@@ -88,13 +65,6 @@ class ProjectSummary(BaseModel):
     )
     net_value: Decimal = Field(description="revenue - cost - other_costs")
     margin_pct: float = Field(description="net_value / revenue × 100")
-
-
-class ProjectOperationalSummary(BaseModel):
-    project_id: int
-    project_name: str
-    months_count: int
-    total_hours: Decimal
 
 
 @router.get("/projects", response_model=list[ProjectResponse])
@@ -110,28 +80,20 @@ async def list_projects(
     return [ProjectResponse.model_validate(r.__dict__) for r in rows]
 
 
-@router.get(
-    "/consultants",
-    response_model=list[ConsultantResponse | ConsultantOperationalResponse],
-)
+@router.get("/consultants", response_model=list[ConsultantResponse])
 async def list_consultants(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     only_active: bool = Query(default=True),
-) -> list[ConsultantResponse | ConsultantOperationalResponse]:
+) -> list[ConsultantResponse]:
     stmt = select(DrPrzetargiConsultant)
     if only_active:
         stmt = stmt.where(DrPrzetargiConsultant.is_active.is_(True))
     rows = (await db.execute(stmt.order_by(DrPrzetargiConsultant.name))).scalars().all()
-    if has_financial_access(current_user):
-        return [ConsultantResponse.model_validate(r.__dict__) for r in rows]
-    return [ConsultantOperationalResponse.model_validate(r.__dict__) for r in rows]
+    return [ConsultantResponse.model_validate(r.__dict__) for r in rows]
 
 
-@router.get(
-    "/allocations",
-    response_model=list[AllocationRow | AllocationOperationalRow],
-)
+@router.get("/allocations", response_model=list[AllocationRow])
 async def list_allocations(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -139,7 +101,7 @@ async def list_allocations(
     consultant_id: Optional[int] = Query(default=None),
     from_month: Optional[date] = Query(default=None),
     to_month: Optional[date] = Query(default=None),
-) -> list[AllocationRow | AllocationOperationalRow]:
+) -> list[AllocationRow]:
     stmt = (
         select(
             DrPrzetargiAllocation,
@@ -168,45 +130,32 @@ async def list_allocations(
     for r, p_name, c_name in rows:
         revenue = (r.hours or Decimal(0)) * (r.revenue_rate or Decimal(0))
         cost = (r.hours or Decimal(0)) * (r.cost_rate or Decimal(0))
-        row_data = {
-            "id": r.id,
-            "project_id": r.project_id,
-            "project_name": p_name,
-            "consultant_id": r.consultant_id,
-            "consultant_name": c_name,
-            "month": r.month,
-            "hours": r.hours or Decimal(0),
-        }
-        if has_financial_access(current_user):
-            out.append(
-                AllocationRow(
-                    **row_data,
-                    cost_rate=r.cost_rate or Decimal(0),
-                    revenue_rate=r.revenue_rate or Decimal(0),
-                    revenue=revenue,
-                    cost=cost,
-                    margin=revenue - cost,
-                )
+        out.append(
+            AllocationRow(
+                id=r.id,
+                project_id=r.project_id,
+                project_name=p_name,
+                consultant_id=r.consultant_id,
+                consultant_name=c_name,
+                month=r.month,
+                hours=r.hours or Decimal(0),
+                cost_rate=r.cost_rate or Decimal(0),
+                revenue_rate=r.revenue_rate or Decimal(0),
+                revenue=revenue,
+                cost=cost,
+                margin=revenue - cost,
             )
-        else:
-            out.append(
-                AllocationOperationalRow(
-                    **row_data,
-                )
-            )
+        )
     return out
 
 
-@router.get(
-    "/project-summary",
-    response_model=list[ProjectSummary | ProjectOperationalSummary],
-)
+@router.get("/project-summary", response_model=list[ProjectSummary])
 async def project_summary(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     from_month: Optional[date] = Query(default=None),
     to_month: Optional[date] = Query(default=None),
-) -> list[ProjectSummary | ProjectOperationalSummary]:
+) -> list[ProjectSummary]:
     """Per project aggregate: revenue, cost, other_costs, margin."""
     # Allocations sum per project
     alloc_stmt = select(
@@ -248,40 +197,24 @@ async def project_summary(
         for p in (await db.execute(select(DrPrzetargiProject))).scalars().all()
     }
 
-    out: list[ProjectSummary | ProjectOperationalSummary] = []
+    out: list[ProjectSummary] = []
     for pid, (months, hours, revenue, cost) in alloc_rows.items():
         other = cost_rows.get(pid, Decimal(0))
         net = (revenue or Decimal(0)) - (cost or Decimal(0)) - (other or Decimal(0))
         rev_d = revenue or Decimal(0)
         margin_pct = float(net) / float(rev_d) * 100 if rev_d > 0 else 0.0
-        if has_financial_access(current_user):
-            out.append(
-                ProjectSummary(
-                    project_id=pid,
-                    project_name=projects.get(pid, f"#{pid}"),
-                    months_count=months or 0,
-                    total_hours=hours or Decimal(0),
-                    total_revenue=rev_d,
-                    total_cost=cost or Decimal(0),
-                    other_costs=other or Decimal(0),
-                    net_value=net,
-                    margin_pct=round(margin_pct, 2),
-                )
+        out.append(
+            ProjectSummary(
+                project_id=pid,
+                project_name=projects.get(pid, f"#{pid}"),
+                months_count=months or 0,
+                total_hours=hours or Decimal(0),
+                total_revenue=rev_d,
+                total_cost=cost or Decimal(0),
+                other_costs=other or Decimal(0),
+                net_value=net,
+                margin_pct=round(margin_pct, 2),
             )
-        else:
-            out.append(
-                ProjectOperationalSummary(
-                    project_id=pid,
-                    project_name=projects.get(pid, f"#{pid}"),
-                    months_count=months or 0,
-                    total_hours=hours or Decimal(0),
-                )
-            )
-    if has_financial_access(current_user):
-        out.sort(
-            key=lambda item: item.net_value if isinstance(item, ProjectSummary) else 0,
-            reverse=True,
         )
-    else:
-        out.sort(key=lambda item: item.project_name)
+    out.sort(key=lambda x: x.net_value, reverse=True)
     return out

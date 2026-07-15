@@ -14,8 +14,6 @@ export interface CandidateExperienceLite {
 }
 
 export interface CandidateLite {
-  name?: string | null;
-  lastname?: string | null;
   position?: string | null;
   current_role?: string | null;
   linkedin_current_title?: string | null;
@@ -23,15 +21,6 @@ export interface CandidateLite {
   experience?: unknown;
   skills?: unknown;
   years_it_experience?: number | null;
-}
-
-/** Initials are the first letters of the first-name and last-name fields. */
-export function getCandidateInitials(
-  candidate: Pick<CandidateLite, "name" | "lastname">,
-): string {
-  const first = candidate.name?.trim().charAt(0) ?? "";
-  const last = candidate.lastname?.trim().charAt(0) ?? "";
-  return `${first}${last}`.toUpperCase();
 }
 
 /** Best-effort extractor for the candidate's CURRENT job title.

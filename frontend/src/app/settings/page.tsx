@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
 import api from "@/lib/api";
 import {
   Settings,
@@ -373,12 +372,7 @@ function FirefliesCard() {
 
 export default function SettingsPage() {
   const { user, hydrated } = useAuthStore();
-  const searchParams = useSearchParams();
-  const requestedTab = searchParams.get("tab");
-  const initialTab = TABS.some((tab) => tab.id === requestedTab)
-    ? (requestedTab as Tab)
-    : "integracje";
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [activeTab, setActiveTab] = useState<Tab>("integracje");
 
   // The auth store hydrates `user` from localStorage in a post-mount effect
   // (AppShellV2). Until then `user` is null, so role-gated tabs (Procesy,
@@ -461,11 +455,7 @@ export default function SettingsPage() {
 
       {activeTab === "procesy" && <PipelineTemplatesTab />}
 
-      {activeTab === "administracja" && (
-        <AdminUsersTab
-          initialSubTab={searchParams.get("subtab") === "import" ? "import" : "users"}
-        />
-      )}
+      {activeTab === "administracja" && <AdminUsersTab />}
 
       {activeTab === "zaawansowane" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

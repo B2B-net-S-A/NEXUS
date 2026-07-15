@@ -11,19 +11,11 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    CurrentUser,
-    DynaReporterSection,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.dr_clients_mrr import DrClient, DrClientMrr, DrFinance
 
-router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.clients_mrr))
-    ]
-)
+router = APIRouter()
 
 
 class ClientResponse(BaseModel):

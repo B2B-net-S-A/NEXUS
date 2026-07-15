@@ -14,7 +14,6 @@ synchronous and slow (30-60 s). All DB access happens in the async part of
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import logging
 import re
@@ -528,12 +527,19 @@ def _close_truncated_json(text: str) -> str:
     return repaired
 
 
-def _json_error_context(text: str, err: json.JSONDecodeError) -> str:
-    """Return useful parse metadata without logging provider output or PII."""
+def _json_error_context(text: str, err: json.JSONDecodeError, radius: int = 180) -> str:
+    """One-line diagnostic around a JSON parse failure.
+
+    The defect is often deep in the document (e.g. char 8416), so logging just
+    the head is useless. Surface length, position and a window around the
+    failing offset so the actual malformation is visible in Grafana/Loki.
+    """
     pos = getattr(err, "pos", 0) or 0
-    digest = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:16]
+    lo = max(0, pos - radius)
+    hi = min(len(text), pos + radius)
     return (
-        f"len={len(text)} pos={pos} line={err.lineno} col={err.colno} sha256={digest}"
+        f"len={len(text)} pos={pos} line={err.lineno} col={err.colno} "
+        f"head={text[:100]!r} tail={text[-100:]!r} window={text[lo:hi]!r}"
     )
 
 
@@ -994,7 +1000,7 @@ def _fabrication_warnings(
 # ── Shared Claude → DOCX pipeline (sync; run via threadpool) ───────────────
 
 
-async def _run_generation_pipeline(
+def _run_generation_pipeline(
     *,
     cv_bytes: bytes,
     cv_filename: str,
@@ -1007,20 +1013,16 @@ async def _run_generation_pipeline(
     started_at: float,
     job_id: int | None = None,
     job_title: str | None = None,
-    user_id: int | None = None,
-    client_id: int | None = None,
-    candidate_id: int | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
-    Provider I/O is async through the gateway; CPU-bound extraction/rendering
-    is offloaded to the threadpool. Used by both DB-backed and upload modes.
+    Fully synchronous — wrap in ``run_in_threadpool`` from async callers.
+    Used by both the DB-backed (New) and the manual-upload (Old) modes; the
+    modes differ only in how the inputs are sourced.
     """
     # ── 1. Extract CV text ───────────────────────────────────────────────
     try:
-        cv_text = await run_in_threadpool(
-            extract_text_from_file, cv_bytes, cv_filename or "cv.pdf"
-        )
+        cv_text = extract_text_from_file(cv_bytes, cv_filename or "cv.pdf")
     except CVTextExtractionError as err:
         raise StandaloneGenerationError(
             code="extraction_failed",
@@ -1058,14 +1060,7 @@ async def _run_generation_pipeline(
 
     # ── 3. Claude call ───────────────────────────────────────────────────
     try:
-        response_text = await analyze_with_ai(
-            user_content,
-            request_id,
-            system=system_prompt,
-            user_id=user_id,
-            client_id=client_id,
-            candidate_id=candidate_id,
-        )
+        response_text = analyze_with_ai(user_content, request_id, system=system_prompt)
     except CVGeneratorTruncatedError as err:
         raise StandaloneGenerationError(code="ai_failed", message=str(err)) from err
     except CVGeneratorOverloadedError as err:
@@ -1085,9 +1080,9 @@ async def _run_generation_pipeline(
     try:
         raw_data = _loads_cv_json(cleaned)
     except json.JSONDecodeError as err:
-        # Do not log any response fragment: Claude output contains CV and
-        # screening-note data. Position, length and a short hash are enough to
-        # correlate failures without copying PII into Loki/Sentry.
+        # The defect is often deep in the document (e.g. char 8416), so a
+        # head-only log hides it — dump length/position and a window around the
+        # failing offset instead. See _json_error_context.
         logger.error(
             "[cv_b2b][%s] Claude returned unparseable JSON: %s",
             request_id,
@@ -1141,18 +1136,12 @@ async def _run_generation_pipeline(
 
     # ── 5. Render DOCX ───────────────────────────────────────────────────
     try:
-        docx_bytes = await run_in_threadpool(
-            render_cv_to_bytes, candidate_data, TEMPLATE_PATH
-        )
+        docx_bytes = render_cv_to_bytes(candidate_data, TEMPLATE_PATH)
     except Exception as err:  # noqa: BLE001 — python-docx raises various types
-        logger.error(
-            "[cv_b2b][%s] DOCX render failed error_type=%s",
-            request_id,
-            type(err).__name__,
-        )
+        logger.exception("[cv_b2b][%s] DOCX render failed: %s", request_id, err)
         raise StandaloneGenerationError(
             code="render_failed",
-            message="Renderowanie DOCX nie powiodło się.",
+            message=f"Renderowanie DOCX nie powiodło się: {err}",
         ) from err
 
     candidate_name = str(candidate_data.get("name") or fallback_name or "Kandydat")
@@ -1163,8 +1152,10 @@ async def _run_generation_pipeline(
     warnings.extend(guard_warnings)
 
     logger.info(
-        "[cv_b2b][%s] OK lang=%s blind=%s warnings=%d (guard=%d) duration_ms=%d",
+        "[cv_b2b][%s] OK candidate=%s lang=%s blind=%s warnings=%d "
+        "(guard=%d) duration_ms=%d",
         request_id,
+        candidate_name,
         language,
         blind_cv,
         len(warnings),
@@ -1325,7 +1316,6 @@ async def generate_cv_for_candidate(
     stage_id: int,
     language: Language = "pl",
     blind_cv: bool = False,
-    user_id: int | None = None,
 ) -> GenerationResult:
     """Generate the B2B-formatted CV for ``candidate_id`` using the champion
     + notes context tied to the given ``stage_id``.
@@ -1402,14 +1392,12 @@ async def generate_cv_for_candidate(
                 object_storage.download_cv, cv_doc.storage_key
             )
         except Exception as err:  # noqa: BLE001
-            logger.error(
-                "[cv_b2b][%s] Object storage download failed error_type=%s",
-                request_id,
-                type(err).__name__,
+            logger.exception(
+                "[cv_b2b][%s] Object storage download failed: %s", request_id, err
             )
             raise StandaloneGenerationError(
                 code="extraction_failed",
-                message="Nie udało się pobrać CV z Object Storage.",
+                message=f"Nie udało się pobrać CV z Object Storage: {err}",
             ) from err
     elif cv_doc.file_content:
         cv_bytes = bytes(cv_doc.file_content)
@@ -1523,23 +1511,22 @@ async def generate_cv_for_candidate(
 
     screening_notes_text = "\n\n".join(screening_parts)
 
-    # ── 4-6. Gateway pipeline; CPU work is offloaded internally ─────────
+    # ── 4-6. Sync pipeline in a worker thread — event loop stays free ────
     fallback_name = f"{candidate.name} {candidate.lastname}".strip() or None
-    return await _run_generation_pipeline(
-        cv_bytes=cv_bytes,
-        cv_filename=cv_doc.filename or "cv.pdf",
-        champion_dto=champion_dto,
-        screening_notes_text=screening_notes_text,
-        language=language,
-        blind_cv=blind_cv,
-        request_id=request_id,
-        fallback_name=fallback_name,
-        started_at=started_at,
-        job_id=job.id,
-        job_title=job.title,
-        user_id=user_id,
-        client_id=job.client_id,
-        candidate_id=candidate_id,
+    return await run_in_threadpool(
+        lambda: _run_generation_pipeline(
+            cv_bytes=cv_bytes,
+            cv_filename=cv_doc.filename or "cv.pdf",
+            champion_dto=champion_dto,
+            screening_notes_text=screening_notes_text,
+            language=language,
+            blind_cv=blind_cv,
+            request_id=request_id,
+            fallback_name=fallback_name,
+            started_at=started_at,
+            job_id=job.id,
+            job_title=job.title,
+        )
     )
 
 
@@ -1584,15 +1571,15 @@ def _validate_upload(
         )
 
 
-async def generate_cv_from_uploads(
-    payload: UploadGenerationInput, *, user_id: int | None = None
-) -> GenerationResult:
+def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult:
     """Generate the B2B CV from user-uploaded files (Old mode).
 
     1:1 with the external CV-Generator ``POST /api/v1/generate`` flow, sharing
     :func:`_run_generation_pipeline` with the DB-backed mode.
 
-    Async because provider I/O goes through the central gateway.
+    Synchronous on purpose — touches no DB. Wrap in ``run_in_threadpool`` at
+    the route layer so FastAPI doesn't block the event loop on the Claude
+    call.
     """
     request_id = f"cvgen_upload_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     started_at = time.time()
@@ -1627,7 +1614,7 @@ async def generate_cv_from_uploads(
                 message=f"Nie udało się odczytać Profilu Championa: {err}",
             ) from err
 
-    return await _run_generation_pipeline(
+    return _run_generation_pipeline(
         cv_bytes=payload.cv_bytes,
         cv_filename=payload.cv_filename,
         champion_dto=champion_dto,
@@ -1637,7 +1624,6 @@ async def generate_cv_from_uploads(
         request_id=request_id,
         fallback_name=None,
         started_at=started_at,
-        user_id=user_id,
     )
 
 

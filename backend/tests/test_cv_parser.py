@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -106,52 +107,62 @@ async def test_parse_cv_skip_llm_respected(monkeypatch):
     async def _fail(*a, **k):  # type: ignore[no-untyped-def]
         raise AssertionError("should not be called when prefer_llm=False")
 
-    monkeypatch.setattr(cvp, "_parse_with_claude", _fail)
+    monkeypatch.setattr(cvp, "_parse_with_ollama", _fail)
     out = await cvp.parse_cv("Python Developer", prefer_llm=False)
     assert out["_source"] == "regex"
     assert any(s["name"].lower() == "python" for s in out["skills"])
 
 
 @pytest.mark.asyncio
-async def test_parse_cv_uses_gateway_result(monkeypatch):
+async def test_parse_cv_uses_ollama_when_available(monkeypatch):
     expected = {
         "years_it_experience": 5,
         "current_position": "Senior Python Developer",
         "skills": [{"name": "Python", "level": "senior", "years": 5}],
         "education": [],
         "languages": [],
-        "_source": "anthropic:claude-haiku-4-5",
+        "_source": "ollama:cv_enrichment:v1",
     }
 
-    async def _mock(_text, **_kwargs):  # type: ignore[no-untyped-def]
+    async def _mock(_text):  # type: ignore[no-untyped-def]
         return expected
 
-    monkeypatch.setattr(cvp, "_parse_with_claude", _mock)
+    monkeypatch.setattr(cvp, "_parse_with_ollama", _mock)
     out = await cvp.parse_cv("irrelevant")
-    assert out["years_it_experience"] == 5
-    assert out["_source"] == "anthropic:claude-haiku-4-5"
-    assert "_provenance" in out
+    assert out == expected
 
 
 @pytest.mark.asyncio
-async def test_parse_cv_falls_back_for_review_when_gateway_fails(monkeypatch):
-    async def _mock(_text, **_kwargs):  # type: ignore[no-untyped-def]
+async def test_parse_cv_falls_back_when_ollama_fails(monkeypatch):
+    async def _mock(_text):  # type: ignore[no-untyped-def]
         return None
 
-    monkeypatch.setattr(cvp, "_parse_with_claude", _mock)
+    monkeypatch.setattr(cvp, "_parse_with_ollama", _mock)
+    # Make sure Claude is disabled for this test
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "")
     out = await cvp.parse_cv("Python Developer, Docker expert.")
     assert out["_source"] == "regex"
-    assert out["_needs_human_review"] is True
     names = {s["name"].lower() for s in out["skills"]}
     assert "python" in names
 
 
-# ── Gateway integration ─────────────────────────────────────────────────────
+# ── Claude integration ──────────────────────────────────────────────────────
+
+
+def _fake_anthropic_response(payload: dict | str) -> MagicMock:
+    """Build a mock that mirrors the real anthropic Messages response shape."""
+    text = payload if isinstance(payload, str) else json.dumps(payload)
+    content_block = MagicMock()
+    content_block.text = text
+    message = MagicMock()
+    message.content = [content_block]
+    return message
 
 
 @pytest.mark.asyncio
 async def test_parse_with_claude_success(monkeypatch):
-    """The provider-neutral gateway result is validated and attributed."""
+    """Claude returns structured JSON; parser surfaces it with claude _source."""
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
     monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
 
     expected_payload = {
@@ -164,73 +175,144 @@ async def test_parse_with_claude_success(monkeypatch):
         "career_summary": "7 lat doświadczenia w backendzie, głównie Python.",
     }
 
-    async def gateway_call(request):  # type: ignore[no-untyped-def]
-        return SimpleNamespace(
-            content=cvp._schema_validator(expected_payload),
-            provider="anthropic",
-            model="claude-haiku-4-5",
-        )
+    fake_client = MagicMock()
+    fake_client.messages.create.return_value = _fake_anthropic_response(
+        expected_payload
+    )
+    mock_anthropic = MagicMock()
+    mock_anthropic.Anthropic.return_value = fake_client
 
-    monkeypatch.setattr(cvp.ai_gateway, "call", gateway_call)
-    out = await cvp._parse_with_claude("some cv text")
+    with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+        out = await cvp._parse_with_claude("some cv text")
 
     assert out is not None
     assert out["companies"] == ["Acme Corp", "Globex"]
     assert out["career_summary"].startswith("7 lat")
     assert out["years_it_experience"] == 7
-    assert out["_source"] == "anthropic:claude-haiku-4-5"
+    assert out["_source"].startswith("claude:cv_enrichment:v")
+
+
+@pytest.mark.asyncio
+async def test_parse_with_claude_strips_markdown_fences(monkeypatch):
+    """Real-world Claude occasionally wraps JSON in ```json fences — parser must unwrap."""
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+
+    payload = {"companies": ["X"], "career_summary": None}
+    fenced = "```json\n" + json.dumps(payload) + "\n```"
+
+    fake_client = MagicMock()
+    fake_client.messages.create.return_value = _fake_anthropic_response(fenced)
+    mock_anthropic = MagicMock()
+    mock_anthropic.Anthropic.return_value = fake_client
+
+    with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+        out = await cvp._parse_with_claude("cv")
+
+    assert out is not None
+    assert out["companies"] == ["X"]
 
 
 @pytest.mark.asyncio
 async def test_parse_with_claude_returns_none_on_exception(monkeypatch):
-    """A gateway error returns None so parse_cv marks a human-review fallback."""
+    """Any exception in Claude path → None so parse_cv can fall through."""
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
     monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
 
-    async def gateway_call(_request):  # type: ignore[no-untyped-def]
-        raise cvp.AIError("provider_error", "upstream down")
+    fake_client = MagicMock()
+    fake_client.messages.create.side_effect = RuntimeError("upstream down")
+    mock_anthropic = MagicMock()
+    mock_anthropic.Anthropic.return_value = fake_client
 
-    monkeypatch.setattr(cvp.ai_gateway, "call", gateway_call)
-    out = await cvp._parse_with_claude("cv")
+    with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+        out = await cvp._parse_with_claude("cv")
 
     assert out is None
+
+
+@pytest.mark.asyncio
+async def test_parse_with_claude_returns_none_when_no_api_key(monkeypatch):
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "")
+    out = await cvp._parse_with_claude("cv")
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_parse_cv_prefers_claude_over_ollama(monkeypatch):
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+
+    claude_payload = {
+        "companies": ["ClaudeCorp"],
+        "career_summary": "from claude",
+        "skills": [],
+        "education": [],
+        "languages": [],
+        "years_it_experience": 1,
+        "current_position": None,
+        "_source": "claude:cv_enrichment:v4",
+    }
+
+    async def _claude_mock(_text):  # type: ignore[no-untyped-def]
+        return claude_payload
+
+    async def _ollama_fail(*_a, **_k):  # type: ignore[no-untyped-def]
+        raise AssertionError("Ollama should not be called when Claude succeeds")
+
+    monkeypatch.setattr(cvp, "_parse_with_claude", _claude_mock)
+    monkeypatch.setattr(cvp, "_parse_with_ollama", _ollama_fail)
+
+    out = await cvp.parse_cv("cv text")
+    assert out["companies"] == ["ClaudeCorp"]
+    assert out["_source"] == "claude:cv_enrichment:v4"
+
+
+@pytest.mark.asyncio
+async def test_parse_cv_falls_back_to_ollama_when_claude_fails(monkeypatch):
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+
+    ollama_payload = {
+        "companies": ["OllamaCorp"],
+        "career_summary": "from ollama",
+        "skills": [],
+        "education": [],
+        "languages": [],
+        "years_it_experience": 2,
+        "current_position": None,
+        "_source": "ollama:cv_enrichment:v4",
+    }
+
+    async def _claude_mock(_text):  # type: ignore[no-untyped-def]
+        return None
+
+    async def _ollama_mock(_text):  # type: ignore[no-untyped-def]
+        return ollama_payload
+
+    monkeypatch.setattr(cvp, "_parse_with_claude", _claude_mock)
+    monkeypatch.setattr(cvp, "_parse_with_ollama", _ollama_mock)
+
+    out = await cvp.parse_cv("cv text")
+    assert out["_source"] == "ollama:cv_enrichment:v4"
+    assert out["companies"] == ["OllamaCorp"]
 
 
 @pytest.mark.asyncio
 async def test_parse_with_claude_skips_when_kill_switch_off(monkeypatch):
-    """The feature kill-switch prevents gateway calls."""
+    """Kill-switch lives inside _parse_with_claude — no SDK import, no API call."""
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
     monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", False)
 
-    async def fail(_request):  # type: ignore[no-untyped-def]
-        raise AssertionError("gateway called despite kill-switch")
-
-    monkeypatch.setattr(cvp.ai_gateway, "call", fail)
-    out = await cvp._parse_with_claude("Python Developer")
+    # Anthropic must NOT be imported at all when the switch is off.
+    # If the gate is bypassed and something tries to `import anthropic`, we force
+    # it to explode loudly by stubbing sys.modules with a sentinel.
+    sentinel = MagicMock()
+    sentinel.Anthropic.side_effect = AssertionError(
+        "anthropic client instantiated despite CV_ENRICHMENT_ENABLED=False"
+    )
+    with patch.dict("sys.modules", {"anthropic": sentinel}):
+        out = await cvp._parse_with_claude("Python Developer")
     assert out is None
-
-
-def test_schema_rejects_invalid_contacts_and_years():
-    with pytest.raises(ValueError):
-        cvp._schema_validator({"email": "not-email", "years_it_experience": 99})
-
-
-@pytest.mark.asyncio
-async def test_deterministic_contacts_override_model(monkeypatch):
-    async def model(_text, **_kwargs):  # type: ignore[no-untyped-def]
-        return {
-            "email": "wrong@example.com",
-            "phone": "500 500 500",
-            "skills": [{"name": "Python", "level": None, "years": None}],
-            "current_position": "Developer",
-            "_source": "anthropic:claude-haiku-4-5",
-        }
-
-    monkeypatch.setattr(cvp, "_parse_with_claude", model)
-    text = "Jan Kowalski\njan@source.pl\n+48 600 123 456\nPython Developer"
-    out = await cvp.parse_cv(text)
-    assert out["email"] == "jan@source.pl"
-    assert "600" in out["phone"]
-    assert out["_provenance"]["email"]["source"] == "deterministic"
-    assert out["_needs_human_review"] is False
 
 
 # ── v4: contact extraction (email / phone / name / city) ────────────────────
@@ -306,7 +388,7 @@ def test_split_name_returns_none_when_no_capitalized_pair():
 def test_apply_contact_fallbacks_fills_only_missing_slots():
     cv = "Jan Kowalski\n+48 600 123 456\njan@example.com"
     parsed: dict = {
-        "first_name": "Janusz",  # LLM already set — must NOT be overridden
+        "first_name": "Janusz",   # LLM already set — must NOT be overridden
         "last_name": None,
         "email": None,
         "phone": None,

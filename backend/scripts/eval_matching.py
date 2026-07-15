@@ -41,7 +41,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 # Allow "python scripts/eval_matching.py" from the backend/ directory
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -52,16 +52,15 @@ from sqlalchemy import case, func, select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
-from app.models.candidate import Candidate  # noqa: E402
+from app.models.candidate import Candidate, CandidateStatus  # noqa: E402
 from app.models.job import Job  # noqa: E402
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage  # noqa: E402
-from app.services.embedding_service import _build_job_text  # noqa: E402
-from app.services.hybrid_search import hybrid_candidates  # noqa: E402
-from app.services.scoring_service import (  # noqa: E402
-    DEFAULT_PROFILE,
-    WeightProfile,
-    rank_candidates_for_job,
+from app.services import scoring_service  # noqa: E402
+from app.services.embedding_service import (  # noqa: E402
+    _build_job_text,
+    search_candidates_semantic,
 )
+from app.services.scoring_service import rank_candidates_for_job  # noqa: E402
 from app.services.similar_job_candidates import (  # noqa: E402
     boost_points_for_sources,
     fetch_historical_boost_map,
@@ -90,53 +89,37 @@ POSITIVE_STAGES: frozenset[PipelineStage] = frozenset(STAGE_RELEVANCE.keys())
 # ── Data classes ─────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class WeightProfile:
+    """Layer point budgets (semantic+skills+salary+location+availability = 100)."""
+
+    name: str
+    semantic: float
+    skills: float
+    salary: float
+    location: float
+    availability: float
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+DEFAULT_PROFILE = WeightProfile(
+    name="default_40_30_15_10_5",
+    semantic=40.0,
+    skills=30.0,
+    salary=15.0,
+    location=10.0,
+    availability=5.0,
+)
+
 ABLATION_PROFILES: tuple[WeightProfile, ...] = (
     DEFAULT_PROFILE,
-    WeightProfile(
-        name="semantic_only",
-        semantic=90,
-        skills=0,
-        salary=0,
-        location=0,
-        availability=0,
-        champion_fit=10,
-    ),
-    WeightProfile(
-        name="skills_only",
-        semantic=0,
-        skills=90,
-        salary=0,
-        location=0,
-        availability=0,
-        champion_fit=10,
-    ),
-    WeightProfile(
-        name="skills_heavy",
-        semantic=20,
-        skills=50,
-        salary=10,
-        location=5,
-        availability=5,
-        champion_fit=10,
-    ),
-    WeightProfile(
-        name="semantic_heavy",
-        semantic=55,
-        skills=20,
-        salary=5,
-        location=5,
-        availability=5,
-        champion_fit=10,
-    ),
-    WeightProfile(
-        name="balanced",
-        semantic=30,
-        skills=30,
-        salary=15,
-        location=10,
-        availability=5,
-        champion_fit=10,
-    ),
+    WeightProfile("semantic_only", 100.0, 0.0, 0.0, 0.0, 0.0),
+    WeightProfile("skills_only", 0.0, 100.0, 0.0, 0.0, 0.0),
+    WeightProfile("skills_heavy", 20.0, 60.0, 10.0, 5.0, 5.0),
+    WeightProfile("semantic_heavy", 60.0, 20.0, 10.0, 5.0, 5.0),
+    WeightProfile("balanced", 30.0, 30.0, 20.0, 15.0, 5.0),
 )
 
 
@@ -193,6 +176,17 @@ def _mean(values: Iterable[float]) -> float:
     return sum(vs) / len(vs) if vs else 0.0
 
 
+def _apply_profile(profile: WeightProfile) -> None:
+    """Monkey-patch scoring_service module constants for ablation runs."""
+    scoring_service.SEMANTIC_MAX = profile.semantic
+    scoring_service.SKILLS_MAX = profile.skills
+    scoring_service.SKILLS_MUST_MAX = profile.skills * (20.0 / 30.0) if profile.skills else 0.0
+    scoring_service.SKILLS_NICE_MAX = profile.skills * (10.0 / 30.0) if profile.skills else 0.0
+    scoring_service.SALARY_MAX = profile.salary
+    scoring_service.LOCATION_MAX = profile.location
+    scoring_service.AVAILABILITY_MAX = profile.availability
+
+
 @dataclass(frozen=True)
 class DataQuality:
     total_jobs: int
@@ -204,9 +198,7 @@ class DataQuality:
     candidates_skills_null: int
 
     def as_markdown_rows(self) -> list[str]:
-        def pct(n: int, d: int) -> str:
-            return f"{n} ({(n / d * 100):.0f}%)" if d else "0"
-
+        pct = lambda n, d: f"{n} ({(n / d * 100):.0f}%)" if d else "0"
         return [
             f"- Jobs: {self.total_jobs} total; **missing must_skills**: {pct(self.jobs_missing_must, self.total_jobs)}; missing nice_skills: {pct(self.jobs_missing_nice, self.total_jobs)}",
             f"- Candidate skills JSONB format: list-of-dict/str = {self.candidates_skills_list}, dict (`technologies`/`stack`) = {self.candidates_skills_dict}, null = {self.candidates_skills_null} (total={self.total_candidates})",
@@ -220,47 +212,38 @@ async def _audit_data_quality(db: AsyncSession) -> DataQuality:
     # plain `jsonb_typeof = 'array' AND jsonb_array_length(...)` crashes when
     # the planner evaluates jsonb_array_length first on a scalar row.
     must_len = case(
-        (
-            func.jsonb_typeof(Job.must_skills) == "array",
-            func.jsonb_array_length(Job.must_skills),
-        ),
+        (func.jsonb_typeof(Job.must_skills) == "array",
+         func.jsonb_array_length(Job.must_skills)),
         else_=0,
     )
     nice_len = case(
-        (
-            func.jsonb_typeof(Job.nice_skills) == "array",
-            func.jsonb_array_length(Job.nice_skills),
-        ),
+        (func.jsonb_typeof(Job.nice_skills) == "array",
+         func.jsonb_array_length(Job.nice_skills)),
         else_=0,
     )
-    present_must = await db.scalar(select(func.count(Job.id)).where(must_len > 0)) or 0
+    present_must = await db.scalar(
+        select(func.count(Job.id)).where(must_len > 0)
+    ) or 0
     missing_must = total_jobs - present_must
-    present_nice = await db.scalar(select(func.count(Job.id)).where(nice_len > 0)) or 0
+    present_nice = await db.scalar(
+        select(func.count(Job.id)).where(nice_len > 0)
+    ) or 0
     missing_nice = total_jobs - present_nice
 
     total_candidates = await db.scalar(select(func.count(Candidate.id))) or 0
-    list_fmt = (
-        await db.scalar(
-            select(func.count(Candidate.id)).where(
-                func.jsonb_typeof(Candidate.skills) == "array"
-            )
+    list_fmt = await db.scalar(
+        select(func.count(Candidate.id)).where(
+            func.jsonb_typeof(Candidate.skills) == "array"
         )
-        or 0
-    )
-    dict_fmt = (
-        await db.scalar(
-            select(func.count(Candidate.id)).where(
-                func.jsonb_typeof(Candidate.skills) == "object"
-            )
+    ) or 0
+    dict_fmt = await db.scalar(
+        select(func.count(Candidate.id)).where(
+            func.jsonb_typeof(Candidate.skills) == "object"
         )
-        or 0
-    )
-    null_fmt = (
-        await db.scalar(
-            select(func.count(Candidate.id)).where(Candidate.skills.is_(None))
-        )
-        or 0
-    )
+    ) or 0
+    null_fmt = await db.scalar(
+        select(func.count(Candidate.id)).where(Candidate.skills.is_(None))
+    ) or 0
 
     return DataQuality(
         total_jobs=total_jobs,
@@ -297,9 +280,7 @@ async def _discover_jobs_with_ground_truth(
         if rel > current:
             job_to_gt[job_id][candidate_id] = rel
 
-    qualifying_job_ids = [
-        jid for jid, m in job_to_gt.items() if len(m) >= min_ground_truth
-    ]
+    qualifying_job_ids = [jid for jid, m in job_to_gt.items() if len(m) >= min_ground_truth]
     if not qualifying_job_ids:
         return []
 
@@ -308,14 +289,16 @@ async def _discover_jobs_with_ground_truth(
     )
     jobs = jobs_res.scalars().all()[:limit]
 
-    return [(j, list(job_to_gt[j.id].keys()), job_to_gt[j.id]) for j in jobs]
+    return [
+        (j, list(job_to_gt[j.id].keys()), job_to_gt[j.id])
+        for j in jobs
+    ]
 
 
 async def _score_job_candidates(
     job: Job,
     db: AsyncSession,
     *,
-    profile: WeightProfile = DEFAULT_PROFILE,
     pool_cap: int = 200,
     with_historical_boost: bool = False,
 ) -> tuple[list[int], int, dict[int, int]]:
@@ -330,13 +313,22 @@ async def _score_job_candidates(
     """
     query_text = _build_job_text(job)
 
-    hits = await hybrid_candidates(
-        db, query_text, pool=pool_cap, final_top_k=pool_cap, use_rerank=None
-    )
-    candidate_ids = [candidate_id for candidate_id, _ in hits]
-    similarity_map = {
-        candidate_id: score for candidate_id, score in hits if score is not None
-    }
+    try:
+        hits = await search_candidates_semantic(query_text, top_k=pool_cap)
+    except Exception as e:
+        logger.warning("semantic search failed for job=%s: %s", job.id, e)
+        hits = []
+
+    similarity_map = {h["candidate_id"]: h["score"] for h in hits}
+    candidate_ids = list(similarity_map.keys())
+
+    if not candidate_ids:
+        fallback = await db.execute(
+            select(Candidate.id)
+            .where(Candidate.status != CandidateStatus.blacklisted)
+            .limit(pool_cap)
+        )
+        candidate_ids = [c for (c,) in fallback.all()]
 
     pool_size = len(candidate_ids)
     if not candidate_ids:
@@ -348,7 +340,7 @@ async def _score_job_candidates(
     candidates = cand_res.scalars().all()
 
     breakdowns = await rank_candidates_for_job(
-        job, candidates, db, similarity_map=similarity_map, profile=profile
+        job, candidates, db, similarity_map=similarity_map
     )
 
     try:
@@ -410,10 +402,11 @@ async def evaluate_profile(
     *,
     with_historical_boost: bool = False,
 ) -> ProfileEval:
+    _apply_profile(profile)
     result = ProfileEval(profile=profile, with_boost=with_historical_boost)
     for job, gt_ids, relevance in job_records:
         ranked_ids, pool_size, boost_map = await _score_job_candidates(
-            job, db, profile=profile, with_historical_boost=with_historical_boost
+            job, db, with_historical_boost=with_historical_boost
         )
         p5, r20, mrr, ndcg = _metrics(ranked_ids, relevance)
         hhr = _historical_hit_rate(ranked_ids, boost_map, k=10)
@@ -487,11 +480,7 @@ def _go_no_go(
             f" Best profile `{best.profile.name}` (Recall@20 = {b_recall:.2f}) beats "
             f"default (Recall@20 = {d_recall:.2f}) — recommend Phase D1 weight tuning."
         )
-        return (
-            "GO (with caveats) — ship Phase A in parallel with Phase D1/B1."
-            + weight_note
-            + data_note
-        )
+        return "GO (with caveats) — ship Phase A in parallel with Phase D1/B1." + weight_note + data_note
     if d_recall >= 0.50:
         return (
             "CAUTION — Recall@20 below the 0.60 target even after ablation. Ship Phase A "
@@ -577,10 +566,7 @@ def _render_markdown(
         )
     # Compare best ablation profile to default
     best = max(profile_results, key=lambda p: p.mean_recall_at_20)
-    if (
-        best.profile.name != DEFAULT_PROFILE.name
-        and best.mean_recall_at_20 > default.mean_recall_at_20 + 0.02
-    ):
+    if best.profile.name != DEFAULT_PROFILE.name and best.mean_recall_at_20 > default.mean_recall_at_20 + 0.02:
         findings.append(
             f"**Profile `{best.profile.name}`** beats the default on Recall@20 "
             f"({best.mean_recall_at_20:.3f} vs {default.mean_recall_at_20:.3f}). "
@@ -620,9 +606,9 @@ def _render_markdown(
         lines.append("")
 
     # Qualitative error analysis on default profile
-    error_cases: list[JobEval] = sorted(default.per_job, key=lambda j: j.recall_at_20)[
-        :error_cases_max
-    ]
+    error_cases: list[JobEval] = sorted(
+        default.per_job, key=lambda j: j.recall_at_20
+    )[:error_cases_max]
     if error_cases:
         lines.append("## Error analysis (worst Recall@20, default profile)")
         lines.append("")
@@ -715,12 +701,14 @@ async def _run(args: argparse.Namespace) -> int:
                     salary=DEFAULT_PROFILE.salary,
                     location=DEFAULT_PROFILE.location,
                     availability=DEFAULT_PROFILE.availability,
-                    champion_fit=DEFAULT_PROFILE.champion_fit,
                 ),
                 per_job=delta_res.per_job,
                 with_boost=True,
             )
             profile_results.append(delta_res)
+
+    # Always restore defaults after ablation so an import in-process sees them
+    _apply_profile(DEFAULT_PROFILE)
 
     generated_at = datetime.now(timezone.utc)
     voyage_configured = bool(os.environ.get("VOYAGE_API_KEY"))

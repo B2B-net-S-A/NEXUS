@@ -81,12 +81,7 @@ export function ClientsHitRatio({ period }: Props) {
   const router = useRouter();
   const reportPeriod = REPORT_PERIOD_MAP[period];
 
-  const {
-    data: leaderboard,
-    isLoading: loadingLb,
-    isError: leaderboardError,
-    refetch: refetchLeaderboard,
-  } = useQuery<KlienciHitResponse>({
+  const { data: leaderboard, isLoading: loadingLb } = useQuery<KlienciHitResponse>({
     queryKey: ["insights-clients-hit", reportPeriod],
     queryFn: () =>
       api
@@ -96,12 +91,7 @@ export function ClientsHitRatio({ period }: Props) {
         .then((r) => r.data),
   });
 
-  const {
-    data: atRisk,
-    isLoading: loadingRisk,
-    isError: atRiskError,
-    refetch: refetchAtRisk,
-  } = useQuery<KlienciAtRiskResponse>({
+  const { data: atRisk, isLoading: loadingRisk } = useQuery<KlienciAtRiskResponse>({
     queryKey: ["insights-clients-at-risk", "quarter"],
     queryFn: () =>
       api
@@ -112,20 +102,6 @@ export function ClientsHitRatio({ period }: Props) {
   });
 
   if (loadingLb) return <LoadingSpinner />;
-  if (leaderboardError) {
-    return (
-      <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-5 text-sm text-destructive">
-        Nie udało się załadować statystyk klientów.
-        <button
-          type="button"
-          onClick={() => refetchLeaderboard()}
-          className="ml-2 font-medium text-primary hover:underline"
-        >
-          Spróbuj ponownie
-        </button>
-      </div>
-    );
-  }
   if (!leaderboard) return null;
 
   const overall = leaderboard.overall;
@@ -258,17 +234,6 @@ export function ClientsHitRatio({ period }: Props) {
         </div>
         {loadingRisk ? (
           <div className="text-sm text-muted-foreground py-3">Ładowanie…</div>
-        ) : atRiskError ? (
-          <div className="py-6 text-center text-sm text-destructive">
-            Nie udało się sprawdzić klientów at-risk.
-            <button
-              type="button"
-              onClick={() => refetchAtRisk()}
-              className="ml-2 font-medium text-primary hover:underline"
-            >
-              Spróbuj ponownie
-            </button>
-          </div>
         ) : !atRisk || atRisk.clients.length === 0 ? (
           <div className="text-center py-6 text-sm text-muted-foreground">
             Żaden klient nie spełnia kryterium — stabilnie.

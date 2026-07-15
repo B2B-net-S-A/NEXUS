@@ -16,7 +16,6 @@ need for a scheduled-send queue in v1.
 
 import logging
 from datetime import date as _date
-from html import escape as _html_escape
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -37,11 +36,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _html(value: object) -> str:
-    """Escape persisted/user-controlled values before HTML interpolation."""
-    return _html_escape(str(value), quote=True)
-
-
 # ── Shortlist email ─────────────────────────────────────────────────────────
 
 
@@ -52,14 +46,14 @@ def _format_jobs_html(jobs: list[Job]) -> str:
     for j in jobs:
         bits: list[str] = []
         if j.location:
-            bits.append(f"📍 {_html(j.location)}")
+            bits.append(f"📍 {j.location}")
         if j.salary_min and j.salary_max:
             bits.append(f"💰 {j.salary_min:,} – {j.salary_max:,} PLN")
         if j.seniority:
-            bits.append(f"🎯 {_html(j.seniority.value)}")
+            bits.append(f"🎯 {j.seniority.value}")
         meta = " · ".join(bits)
         items.append(
-            f"<li><strong>{_html(j.title)}</strong>"
+            f"<li><strong>{j.title}</strong>"
             + (
                 f"<br><span style='color:#666;font-size:90%'>{meta}</span>"
                 if meta
@@ -114,7 +108,7 @@ async def send_candidate_shortlist_email(
     )
     text_body = intro + plain_jobs + "\n\nPozdrawiam,\nZespół B2B.net\n"
     html_body = (
-        f"<p>Cześć {_html(cand.name)},</p>"
+        f"<p>Cześć {cand.name},</p>"
         f"<p>Mamy dla Ciebie <strong>{len(jobs)}</strong> aktualnie otwarte "
         "projekty, które wyglądają na dobre dopasowanie. Daj znać, czy "
         "któryś Cię interesuje — chętnie podeślę szczegóły.</p>"
@@ -180,14 +174,14 @@ def _build_client_proposal_email(
     html = (
         "<p>Cześć,</p>"
         f"<p>Mamy konsultanta, który pasuje do otwartej u Was roli "
-        f'<strong>„{_html(role)}"</strong>.</p>'
+        f'<strong>„{role}"</strong>.</p>'
         "<p><strong>Profil (anonimowy):</strong></p>"
         "<ul>"
-        f"<li>Doświadczenie: <strong>{_html(yrs)} lat</strong></li>"
-        f"<li>Wykształcenie: {_html(edu)}</li>"
-        f"<li>Kompetencje: {_html(cc)}</li>"
-        f"<li>Kluczowe technologie: {_html(skills)}</li>"
-        f"<li>Języki: {_html(languages)}</li>"
+        f"<li>Doświadczenie: <strong>{yrs} lat</strong></li>"
+        f"<li>Wykształcenie: {edu}</li>"
+        f"<li>Kompetencje: {cc}</li>"
+        f"<li>Kluczowe technologie: {skills}</li>"
+        f"<li>Języki: {languages}</li>"
         "</ul>"
         "<p>Daj znać, czy chcecie umówić rozmowę — w odpowiedzi prześlemy "
         "pełne CV.</p>"

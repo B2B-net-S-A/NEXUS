@@ -23,9 +23,6 @@ interface CandidateNavProps {
  onNext: () => void;
  /** Optional spinner state when fetching adjacent pages. */
  isLoading?: boolean;
- /** Non-blocking adjacent-page fetch error. */
- error?: string | null;
- onRetry?: () => void;
  /** Optional close button (embedded mode). */
  onClose?: () => void;
  /** Optional"open in full page" button (embedded mode only). */
@@ -45,8 +42,6 @@ export function CandidateNav({
  onPrev,
  onNext,
  isLoading,
- error,
- onRetry,
  onClose,
  onExpand,
  className,
@@ -71,14 +66,14 @@ export function CandidateNav({
  onClick={onPrev}
  disabled={!hasPrev || isLoading}
  aria-label="Poprzedni kandydat"
- aria-keyshortcuts="K"
+ aria-keyshortcuts="["
  >
  <ChevronLeft className="h-4 w-4" /> Poprzedni
  </Button>
  </span>
  </TooltipTrigger>
  <TooltipContent>
- {prevDisabledMsg ??"Skrót: K"}
+ {prevDisabledMsg ??"Skrót: ["}
  </TooltipContent>
  </Tooltip>
 
@@ -107,14 +102,14 @@ export function CandidateNav({
  onClick={onNext}
  disabled={!hasNext || isLoading}
  aria-label="Następny kandydat"
- aria-keyshortcuts="J"
+ aria-keyshortcuts="]"
  >
  Następny <ChevronRight className="h-4 w-4" />
  </Button>
  </span>
  </TooltipTrigger>
  <TooltipContent>
- {nextDisabledMsg ??"Skrót: J"}
+ {nextDisabledMsg ??"Skrót: ]"}
  </TooltipContent>
  </Tooltip>
 
@@ -144,19 +139,6 @@ export function CandidateNav({
  </Button>
  ) : null}
  </div>
- {error ? (
- <div
- role="alert"
- className="col-span-full flex items-center justify-between gap-2 border-t border-destructive/20 pt-2 text-xs text-destructive"
- >
- <span>{error}</span>
- {onRetry ? (
- <button type="button" onClick={onRetry} className="font-medium underline">
- Ponów
- </button>
- ) : null}
- </div>
- ) : null}
  </div>
  </TooltipProvider>
  );

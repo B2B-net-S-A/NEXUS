@@ -16,12 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    AdminUser,
-    CurrentUser,
-    DynaReporterSection,
-    require_dynareporter_section,
-)
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.schemas.dr_board_dashboard import (
@@ -32,9 +27,7 @@ from app.schemas.dr_board_dashboard import (
 
 logger = logging.getLogger("dynareporter.board_dashboard")
 
-router = APIRouter(
-    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.board))]
-)
+router = APIRouter()
 
 # Earliest report_month brany pod uwagę dla widoku Rady Nadzorczej.
 # Dane sprzed 2024-01-01 to legacy DR — nie pokazujemy.
@@ -146,11 +139,16 @@ async def get_monthly(
 )
 async def upsert_monthly(
     payload: BoardMonthlyUpsert,
-    current_user: AdminUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> BoardMonthlyRow:
     """Admin only — upsert miesięcznego board report. Idempotent ON CONFLICT."""
     _require_board_access(current_user)
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tylko admin może modyfikować board data",
+        )
 
     # YYYY-MM → date(YYYY, MM, 1) — asyncpg wymaga `datetime.date` dla kolumn typu
     # `date` (raw string "YYYY-MM-01" wywoła DataError: 'str' has no attribute 'toordinal').
@@ -266,7 +264,7 @@ async def upsert_monthly(
 )
 async def delete_monthly(
     report_month: str,
-    current_user: AdminUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Admin only — usuwa miesięczny raport + powiązane placement_clients.
@@ -274,6 +272,11 @@ async def delete_monthly(
     Format `report_month`: 'YYYY-MM' (np. '2026-05').
     """
     _require_board_access(current_user)
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tylko admin może usuwać board data",
+        )
 
     try:
         month_date = datetime.strptime(f"{report_month}-01", "%Y-%m-%d").date()

@@ -65,19 +65,6 @@ from app.models.email_verification_token import EmailVerificationToken
 from app.models.rate_history import RateHistory, ContractType
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.embedding_cache import EmbeddingCache  # noqa: F401
-from app.models.ai_evaluation import (  # noqa: F401
-    AIEvalCase,
-    AIEvalLabel,
-    AIEvalOutput,
-    AIEvalRun,
-    AIEvalSet,
-)
-from app.models.ai_rollout import (  # noqa: F401
-    AIRolloutEvent,
-    AIRolloutObservation,
-    AIRolloutReport,
-    AIRolloutState,
-)
 from app.models.pipeline_template import (
     PipelineTemplate,
     PipelineStageDef,
@@ -185,23 +172,9 @@ from app.models.candidate_source_event import (
 from app.models.dictionary import Dictionary, DictionaryItem
 from app.models.entity_field import EntityFieldDef, EntityType, FieldType
 from app.models.match_justification import CandidateMatchJustification
-from app.models.embedding_index_queue import EmbeddingIndexQueue
-from app.models.ai_platform import (
-    AIBudgetReservation,
-    AICallLedger,
-    AIProviderCompliance,
-    AIRoutingActivationLog,
-    AIRoutingState,
-)
 
 __all__ = [
     "CandidateMatchJustification",
-    "EmbeddingIndexQueue",
-    "AIBudgetReservation",
-    "AICallLedger",
-    "AIProviderCompliance",
-    "AIRoutingActivationLog",
-    "AIRoutingState",
     "User",
     "Candidate",
     "Job",
@@ -355,15 +328,6 @@ __all__ = [
     "AIFeatureKey",
     "AIMasterToggle",
     "AIUsageLog",
-    "AIEvalSet",
-    "AIEvalCase",
-    "AIEvalRun",
-    "AIEvalLabel",
-    "AIEvalOutput",
-    "AIRolloutState",
-    "AIRolloutObservation",
-    "AIRolloutEvent",
-    "AIRolloutReport",
     "OAuthClient",
     "OAuthScope",
     "CandidateSourceEvent",
@@ -421,5 +385,4 @@ from app.models.dr_sales import (
 )  # noqa: F401
 from app.models.dr_upload import DrUploadHistory  # noqa: F401
 from app.models.dr_user_seniority import DrUserSeniority  # noqa: F401
-from app.models.skill import Skill, SkillAlias  # noqa: F401
 from app.models.cortex import CortexSkillFact, CortexUnmatchedTerm  # noqa: F401

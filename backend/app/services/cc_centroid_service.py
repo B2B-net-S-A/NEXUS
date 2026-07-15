@@ -21,31 +21,27 @@ from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.competence_category import (
     CandidateCompetenceCategory,
     CompetenceCategory,
 )
 from app.models.talent_pool import TalentPool, TalentPoolMembership
-from app.services.embedding_service import candidate_collection_name
-from app.services.qdrant_factory import (
-    cc_centroids_collection_name,
-    get_qdrant_client,
-    pool_centroids_collection_name,
-)
+from app.services.cc_classifier import CC_CENTROIDS_COLLECTION
 
 logger = logging.getLogger(__name__)
 
-CC_CENTROIDS_COLLECTION = cc_centroids_collection_name()
-POOL_CENTROIDS_COLLECTION = pool_centroids_collection_name()
+POOL_CENTROIDS_COLLECTION = "nexus_pool_centroids"
 VECTOR_SIZE = 1024
 
 
 def _ensure_centroid_collections() -> None:
     """Create CC/pool centroid Qdrant collections if missing."""
     try:
+        from qdrant_client import QdrantClient
         from qdrant_client.models import Distance, VectorParams
 
-        client = get_qdrant_client()
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         existing = {c.name for c in client.get_collections().collections}
         for coll in (CC_CENTROIDS_COLLECTION, POOL_CENTROIDS_COLLECTION):
             if coll not in existing:
@@ -63,7 +59,9 @@ def _ensure_centroid_collections() -> None:
 def _retrieve_vectors_sync(collection: str, ids: list[int]) -> list[list[float]]:
     """Retrieve embedding vectors from Qdrant in batch. Missing ids are skipped."""
     try:
-        client = get_qdrant_client()
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         points = client.retrieve(collection_name=collection, ids=ids, with_vectors=True)
     except Exception as e:
         logger.warning("[Centroid] retrieve failed (%s): %s", collection, e)
@@ -91,9 +89,10 @@ def _mean_vector(vectors: list[list[float]]) -> Optional[list[float]]:
 
 
 def _upsert_centroid_sync(collection: str, point_id: int, vector: list[float]) -> None:
+    from qdrant_client import QdrantClient
     from qdrant_client.models import PointStruct
 
-    client = get_qdrant_client()
+    client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
     client.upsert(
         collection_name=collection,
         points=[PointStruct(id=point_id, vector=vector, payload={})],
@@ -107,7 +106,7 @@ async def _bootstrap_cc_from_keywords(cc: CompetenceCategory) -> Optional[list[f
     text_parts = [cc.name_pl, cc.name_en, cc.description or ""]
     text_parts.extend(cc.keywords or [])
     text = " ".join(p for p in text_parts if p)
-    return await generate_embedding(text, input_type="document")
+    return await generate_embedding(text)
 
 
 async def compute_cc_centroid(db: AsyncSession, cc_id: int) -> bool:
@@ -130,7 +129,7 @@ async def compute_cc_centroid(db: AsyncSession, cc_id: int) -> bool:
     vector: Optional[list[float]] = None
     if candidate_ids:
         vectors = await asyncio.to_thread(
-            _retrieve_vectors_sync, candidate_collection_name(), candidate_ids
+            _retrieve_vectors_sync, "nexus_candidates", candidate_ids
         )
         vector = _mean_vector(vectors)
 
@@ -175,7 +174,7 @@ async def compute_pool_centroid(db: AsyncSession, pool_id: int) -> bool:
         return False
 
     vectors = await asyncio.to_thread(
-        _retrieve_vectors_sync, candidate_collection_name(), candidate_ids
+        _retrieve_vectors_sync, "nexus_candidates", candidate_ids
     )
     vector = _mean_vector(vectors)
     if vector is None:

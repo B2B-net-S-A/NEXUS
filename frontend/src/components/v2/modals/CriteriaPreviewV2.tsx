@@ -4,7 +4,6 @@ import * as React from"react";
 import { useCallback, useEffect, useState } from"react";
 import { ArrowDown, ArrowUp, Plus, Save, Sparkles, X } from"lucide-react";
 import api, { recommendationsApi } from"@/lib/api";
-import { criteriaSaveState } from"@/lib/ai-feature-safety";
 import {
  Dialog,
  DialogBody,
@@ -31,8 +30,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  const [loading, setLoading] = useState(true);
  const [saving, setSaving] = useState(false);
  const [error, setError] = useState<string | null>(null);
- const [source, setSource] = useState<"taxonomy" | "ai" | "heuristic" | null>(null);
- const [confirmEmpty, setConfirmEmpty] = useState(false);
+ const [source, setSource] = useState<"ollama" |"heuristic" | null>(null);
  const [must, setMust] = useState<Skill[]>([]);
  const [nice, setNice] = useState<Skill[]>([]);
  const [newMust, setNewMust] = useState("");
@@ -57,7 +55,6 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  (async () => {
  setLoading(true);
  setError(null);
- setConfirmEmpty(false);
  setTechMap({});
  try {
  const r = await recommendationsApi.previewCriteria(jobId);
@@ -87,7 +84,6 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  const setter = list === "must" ? setMust : setNice;
  const arr = list === "must" ? must : nice;
  if (arr.some((s) => s.name.toLowerCase() === n.toLowerCase())) return;
- setConfirmEmpty(false);
  setter([...arr, { name: n }]);
  void classify([n]);
  if (list === "must") setNewMust("");
@@ -95,13 +91,11 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  };
 
  const remove = (list: "must" |"nice", idx: number) => {
- setConfirmEmpty(false);
  if (list === "must") setMust(must.filter((_, i) => i !== idx));
  else setNice(nice.filter((_, i) => i !== idx));
  };
 
  const move = (from: "must" |"nice", idx: number) => {
- setConfirmEmpty(false);
  if (from === "must") {
  const s = must[idx];
  setMust(must.filter((_, i) => i !== idx));
@@ -114,18 +108,6 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  };
 
  const handleSave = async () => {
- const saveState = criteriaSaveState({
- loading,
- saving,
- error,
- count: must.length + nice.length,
- emptyConfirmed: confirmEmpty,
- });
- if (saveState === "blocked") return;
- if (saveState === "confirm-empty") {
- setConfirmEmpty(true);
- return;
- }
  setSaving(true);
  setError(null);
  try {
@@ -148,7 +130,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  <DialogTitle>Kryteria AI — must-have / nice-to-have</DialogTitle>
  {source && (
  <Badge variant="soft" size="sm">
- {source === "ai" ? "AI" : source === "taxonomy" ? "taksonomia" : "heurystyka"}
+ {source === "ollama" ?"Ollama" :"heurystyka"}
  </Badge>
  )}
  </div>
@@ -204,25 +186,13 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  )}
  </DialogBody>
 
-<DialogFooter>
- {confirmEmpty && must.length === 0 && nice.length === 0 ? (
- <p className="mr-auto text-xs text-destructive">
- Zestaw jest pusty. Kliknij „Zapisz pusty zestaw”, aby potwierdzić.
- </p>
- ) : null}
+ <DialogFooter>
  <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>
  Anuluj
  </Button>
- <Button
- variant="primary"
- onClick={handleSave}
- loading={saving}
- disabled={loading || saving || !!error}
- >
+ <Button variant="primary" onClick={handleSave} loading={saving}>
  <Save className="h-4 w-4" />
- {confirmEmpty && must.length === 0 && nice.length === 0
- ? "Zapisz pusty zestaw"
- : "Zapisz"}
+ Zapisz
  </Button>
  </DialogFooter>
  </DialogContent>

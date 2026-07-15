@@ -1,6 +1,6 @@
 """Tests for AI-recommended searches on the Champion Profile.
 
-Covers: generation (mocked central AI gateway) with whitelist validation, the DL
+Covers: generation (mocked Anthropic) with whitelist validation, the DL
 decision flow (approve → materialised pinned+shared SavedSearch; reject;
 reset → SavedSearch deleted), PUT preservation, and the phase4 list change
 that surfaces other users' shared searches pinned to a job.
@@ -8,7 +8,8 @@ that surfaces other users' shared searches pinned to a job.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import json
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -42,16 +43,26 @@ SAMPLE_SEARCHES_OUTPUT = {
 }
 
 
+class _FakeAnthropicMessage:
+    def __init__(self, text: str):
+        self.content = [MagicMock(text=text)]
+        self.usage = MagicMock(input_tokens=100, output_tokens=200)
+
+
+class _FakeAnthropic:
+    def __init__(self, *_, **__):
+        self.messages = self
+
+    def create(self, **_):
+        return _FakeAnthropicMessage(json.dumps(SAMPLE_SEARCHES_OUTPUT))
+
+
 @pytest.fixture
-def _patch_ai_gateway(monkeypatch):
-    from app.services import champion_draft_service
+def _patch_anthropic(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-dummy")
+    import anthropic
 
-    async def call(request):  # type: ignore[no-untyped-def]
-        return SimpleNamespace(
-            content=request.structured_validator(SAMPLE_SEARCHES_OUTPUT)
-        )
-
-    monkeypatch.setattr(champion_draft_service.ai_gateway, "call", call)
+    monkeypatch.setattr(anthropic, "Anthropic", _FakeAnthropic)
 
 
 async def _seed_job() -> int:
@@ -86,7 +97,7 @@ async def _generate(app_client, app_auth_headers, job_id: int) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_generate_validates_and_drops_empty(
-    app_client, app_auth_headers, _patch_ai_gateway
+    app_client, app_auth_headers, _patch_anthropic
 ):
     job_id = await _seed_job()
     searches = await _generate(app_client, app_auth_headers, job_id)
@@ -99,7 +110,7 @@ async def test_generate_validates_and_drops_empty(
 
 @pytest.mark.asyncio
 async def test_approve_materialises_pinned_shared_saved_search(
-    app_client, app_auth_headers, _patch_ai_gateway
+    app_client, app_auth_headers, _patch_anthropic
 ):
     job_id = await _seed_job()
     searches = await _generate(app_client, app_auth_headers, job_id)
@@ -136,7 +147,7 @@ async def test_approve_materialises_pinned_shared_saved_search(
 
 @pytest.mark.asyncio
 async def test_reject_and_reset_roundtrip(
-    app_client, app_auth_headers, _patch_ai_gateway
+    app_client, app_auth_headers, _patch_anthropic
 ):
     job_id = await _seed_job()
     searches = await _generate(app_client, app_auth_headers, job_id)
@@ -170,7 +181,7 @@ async def test_reject_and_reset_roundtrip(
 
 @pytest.mark.asyncio
 async def test_reset_after_approve_deletes_saved_search(
-    app_client, app_auth_headers, _patch_ai_gateway
+    app_client, app_auth_headers, _patch_anthropic
 ):
     job_id = await _seed_job()
     searches = await _generate(app_client, app_auth_headers, job_id)
@@ -201,7 +212,7 @@ async def test_reset_after_approve_deletes_saved_search(
 
 @pytest.mark.asyncio
 async def test_put_profile_preserves_recommended_searches(
-    app_client, app_auth_headers, _patch_ai_gateway
+    app_client, app_auth_headers, _patch_anthropic
 ):
     job_id = await _seed_job()
     searches = await _generate(app_client, app_auth_headers, job_id)

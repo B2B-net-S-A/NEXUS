@@ -5,8 +5,8 @@ Extends the Phase 1 `/api/jobs/{id}/ai-matches` with a richer `/recommendations`
 endpoint that returns an explainable ScoreBreakdown per candidate, and adds a
 reverse `/api/candidates/{id}/recommendations` for candidate→jobs direction.
 
-Also exposes `POST /api/jobs/{id}/refresh-criteria` (taxonomy + routed AI)
-and `POST /api/jobs/{id}/recompute-scores` (batch rescoring).
+Also exposes `POST /api/jobs/{id}/refresh-criteria` (AI-generated must/nice
+skills via Ollama) and `POST /api/jobs/{id}/recompute-scores` (batch rescoring).
 """
 
 from __future__ import annotations
@@ -16,11 +16,9 @@ import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai import AIError, AIRequest, ai_gateway
 from app.api.deps import (
     CurrentUser,
     get_current_user,
@@ -33,7 +31,6 @@ from app.services.candidate_stage_cv_service import (
 )
 from app.core.rate_limit import limiter
 from app.models.user import User, UserRole
-from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -52,7 +49,6 @@ from app.services.scoring_service import (
     resolve_active_profile,
 )
 from app.services.location_utils import location_matches, location_tokens
-from app.services.hybrid_search import bm25_candidates, bm25_jobs
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.similar_job_candidates import (
     boost_points_for_sources,
@@ -160,29 +156,15 @@ async def recommend_candidates_for_job(
     hits = await search_candidates_semantic(query_text, top_k=pool_size)
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
-    retrieval_mode = "dense"
-    retrieval_degraded = False
-    retrieval_reason: str | None = None
 
-    # Qdrant/Voyage failure used to fall back to the first 200 database rows.
-    # That produced arbitrary candidates and then persisted apparently normal
-    # composite scores with a missing semantic layer.  Use lexical retrieval
-    # instead and keep the response explicitly degraded and unscored.
+    # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
     if not candidate_ids:
-        retrieval_mode = "bm25"
-        retrieval_degraded = True
-        retrieval_reason = "semantic_unavailable"
-        try:
-            candidate_ids = await bm25_candidates(db, query_text, limit=pool_size)
-        except Exception as exc:  # pragma: no cover - DB/FTS infrastructure path
-            logger.warning(
-                "BM25 fallback failed for job=%s error_type=%s",
-                job_id,
-                type(exc).__name__,
-            )
-            candidate_ids = []
-            retrieval_mode = "unavailable"
-            retrieval_reason = "semantic_and_bm25_unavailable"
+        fallback = await db.execute(
+            select(Candidate.id)
+            .where(Candidate.status != CandidateStatus.blacklisted)
+            .limit(200)
+        )
+        candidate_ids = [c for (c,) in fallback.all()]
 
     if exclude_in_pipeline and candidate_ids:
         in_pipeline = await db.execute(
@@ -203,26 +185,12 @@ async def recommend_candidates_for_job(
             "search_type": "hybrid",
             "location_filter": requested_location if location_active else None,
             "matches": [],
-            "meta": {
-                "mode": retrieval_mode,
-                "degraded": retrieval_degraded,
-                "reason": retrieval_reason,
-            },
         }
 
     cand_res = await db.execute(
-        select(Candidate).where(
-            Candidate.id.in_(candidate_ids),
-            Candidate.status != CandidateStatus.blacklisted,
-        )
+        select(Candidate).where(Candidate.id.in_(candidate_ids))
     )
     candidates = list(cand_res.scalars().all())
-    candidate_order = {
-        candidate_id: rank for rank, candidate_id in enumerate(candidate_ids)
-    }
-    candidates.sort(
-        key=lambda candidate: candidate_order.get(candidate.id, len(candidate_order))
-    )
 
     # Location filter: drop candidates whose location doesn't match BEFORE
     # scoring, so only the matched subset bears the (cache-first) scoring cost.
@@ -239,57 +207,7 @@ async def recommend_candidates_for_job(
                 "search_type": "hybrid",
                 "location_filter": requested_location,
                 "matches": [],
-                "meta": {
-                    "mode": retrieval_mode,
-                    "degraded": retrieval_degraded,
-                    "reason": retrieval_reason,
-                },
             }
-
-    if retrieval_degraded:
-        matches = []
-        for candidate in candidates[:top_k]:
-            match = {
-                "candidate": {
-                    "id": candidate.id,
-                    "name": candidate.name,
-                    "lastname": candidate.lastname,
-                    "email": candidate.email,
-                    "phone": candidate.phone,
-                    "location": candidate.location,
-                    "status": candidate.status.value if candidate.status else None,
-                    "competence_category": candidate.competence_category,
-                    "salary_expectation": candidate.salary_expectation,
-                    "salary_currency": candidate.salary_currency,
-                    "years_it_experience": candidate.years_it_experience,
-                    "champion": candidate.champion,
-                    "avatar_url": candidate.avatar_url,
-                    "tags": candidate.tags,
-                    "skills": candidate.skills,
-                    "ai_summary": candidate.ai_summary,
-                },
-                # BM25 rank is useful for continuity, but it is not calibrated
-                # to the production 0-100 score and must never masquerade as it.
-                "total_score": None,
-            }
-            if include_breakdown:
-                match["breakdown"] = None
-            matches.append(match)
-
-        return {
-            "job_id": job_id,
-            "job_title": job.title,
-            "search_type": "hybrid",
-            "min_score": None,
-            "profile": {"id": profile.id, "name": profile.name},
-            "location_filter": requested_location if location_active else None,
-            "matches": matches,
-            "meta": {
-                "mode": retrieval_mode,
-                "degraded": True,
-                "reason": retrieval_reason,
-            },
-        }
 
     # Phase C1 + D1: cache-first scoring keyed by active profile.
     breakdowns = await bulk_get_or_compute(
@@ -362,11 +280,6 @@ async def recommend_candidates_for_job(
         "profile": {"id": profile.id, "name": profile.name},
         "location_filter": requested_location if location_active else None,
         "matches": matches,
-        "meta": {
-            "mode": retrieval_mode,
-            "degraded": False,
-            "reason": None,
-        },
     }
 
 
@@ -707,44 +620,19 @@ async def recommend_jobs_for_candidate(
     hits = await search_jobs_semantic(query_text, top_k=top_k * 4)
     similarity_map = {h["job_id"]: h["score"] for h in hits}
     job_ids = list(similarity_map.keys())
-    retrieval_mode = "dense"
-    retrieval_degraded = False
-    retrieval_reason: str | None = None
 
-    # Never score arbitrary first rows when the semantic index is unavailable.
-    # BM25 preserves useful lexical continuity, but its rank is not a calibrated
-    # 0-100 match score and therefore remains explicitly unscored/degraded.
+    # Fallback when Qdrant is empty/offline: all open jobs (draft + published).
     if not job_ids:
-        retrieval_mode = "bm25"
-        retrieval_degraded = True
-        retrieval_reason = "semantic_unavailable"
-        try:
-            job_ids = await bm25_jobs(
-                db,
-                query_text,
-                limit=max(top_k * 4, 50),
-                status_filter="open" if only_open else "all",
-            )
-        except Exception as exc:  # pragma: no cover - infrastructure failure path
-            logger.warning(
-                "candidate recommendations BM25 failed candidate=%s error_type=%s",
-                candidate_id,
-                type(exc).__name__,
-            )
-            job_ids = []
-            retrieval_mode = "unavailable"
-            retrieval_reason = "semantic_and_bm25_unavailable"
+        open_jobs = await db.execute(
+            select(Job.id).where(Job.status.in_(_RECOMMENDABLE_STATUSES)).limit(100)
+        )
+        job_ids = [j for (j,) in open_jobs.all()]
 
     if not job_ids:
         return {
             "candidate_id": candidate_id,
             "candidate_name": f"{candidate.name} {candidate.lastname}",
             "matches": [],
-            "meta": {
-                "mode": retrieval_mode,
-                "degraded": retrieval_degraded,
-                "reason": retrieval_reason,
-            },
         }
 
     job_query = select(Job).where(Job.id.in_(job_ids))
@@ -752,8 +640,7 @@ async def recommend_jobs_for_candidate(
         # "Open" = draft + published (matches scan_candidate_for_top_jobs);
         # closed jobs are never recommended.
         job_query = job_query.where(Job.status.in_(_RECOMMENDABLE_STATUSES))
-    jobs_by_id = {job.id: job for job in (await db.execute(job_query)).scalars().all()}
-    jobs = [jobs_by_id[job_id] for job_id in job_ids if job_id in jobs_by_id]
+    jobs = (await db.execute(job_query)).scalars().all()
 
     # Skip jobs already in this candidate's pipeline
     in_pipeline = await db.execute(
@@ -766,42 +653,6 @@ async def recommend_jobs_for_candidate(
     )
     already = {jid for (jid,) in in_pipeline.all()}
     jobs = [j for j in jobs if j.id not in already]
-
-    if retrieval_degraded:
-        matches = []
-        for job in jobs[:top_k]:
-            match = {
-                "job": {
-                    "id": job.id,
-                    "title": job.title,
-                    "client_id": job.client_id,
-                    "location": job.location,
-                    "salary_min": job.salary_min,
-                    "salary_max": job.salary_max,
-                    "remote_policy": (
-                        job.remote_policy.value if job.remote_policy else None
-                    ),
-                    "status": job.status.value if job.status else None,
-                    "priority": job.priority.value if job.priority else None,
-                    "seniority": job.seniority.value if job.seniority else None,
-                    "industry": job.industry,
-                    "deadline": job.deadline.isoformat() if job.deadline else None,
-                },
-                "total_score": None,
-            }
-            if include_breakdown:
-                match["breakdown"] = None
-            matches.append(match)
-        return {
-            "candidate_id": candidate_id,
-            "candidate_name": f"{candidate.name} {candidate.lastname}",
-            "matches": matches,
-            "meta": {
-                "mode": retrieval_mode,
-                "degraded": True,
-                "reason": retrieval_reason,
-            },
-        }
 
     breakdowns = await rank_jobs_for_candidate(
         candidate, jobs, db, similarity_map=similarity_map
@@ -844,77 +695,25 @@ async def recommend_jobs_for_candidate(
         "candidate_id": candidate_id,
         "candidate_name": f"{candidate.name} {candidate.lastname}",
         "matches": matches,
-        "meta": {"mode": retrieval_mode, "degraded": False, "reason": None},
     }
 
 
 # ── AI-generated criteria (must/nice skills from description) ───────────────
 
 
-class _CriteriaSkill(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    level: Optional[str] = None
-
-
-class _CriteriaOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    must_skills: list[_CriteriaSkill] = Field(default_factory=list)
-    nice_skills: list[_CriteriaSkill] = Field(default_factory=list)
-
-
-def _taxonomy_criteria(job: Job) -> tuple[dict, list[str]]:
-    """Resolve explicit MUST/NICE sections without a model; return ambiguities."""
-    from app.services.scoring_service import ALIAS_MAP, _alias_pattern
-
-    pattern = _alias_pattern()
-    if pattern is None:
-        return {"must_skills": [], "nice_skills": []}, []
-    must: list[str] = []
-    nice: list[str] = []
-    ambiguous: list[str] = []
-    section: Optional[str] = None
-    text = "\n".join(
-        value
-        for value in (job.title, job.requirements, job.description)
-        if isinstance(value, str) and value.strip()
+async def _generate_criteria_with_ollama(job: Job) -> Optional[dict]:
+    """Call local Ollama (if configured) to extract must/nice from description."""
+    # Config only defines OLLAMA_BASE_URL; the legacy OLLAMA_HOST is never set,
+    # so checking OLLAMA_HOST alone left this path permanently dead (always
+    # falling through to the heuristic). Resolve both, mirroring cv_parser.
+    ollama_host = getattr(settings, "OLLAMA_HOST", None) or getattr(
+        settings, "OLLAMA_BASE_URL", None
     )
-    for line in text.splitlines():
-        lowered = line.casefold()
-        if any(
-            marker in lowered for marker in ("mile widziane", "nice to have", "atutem")
-        ):
-            section = "nice"
-        elif any(
-            marker in lowered for marker in ("wymagania", "must have", "required")
-        ):
-            section = "must"
-        for match in pattern.finditer(line):
-            canonical = ALIAS_MAP.get(match.group(1).lower())
-            if not canonical:
-                continue
-            target = (
-                nice if section == "nice" else must if section == "must" else ambiguous
-            )
-            if canonical not in target:
-                target.append(canonical)
-    return {
-        "must_skills": [{"name": value, "level": None} for value in must],
-        "nice_skills": [{"name": value, "level": None} for value in nice],
-    }, ambiguous
+    if not ollama_host:
+        return None
+    model = getattr(settings, "OLLAMA_MODEL", "llama3.2")
 
-
-async def _generate_criteria(job: Job, *, user_id: int) -> dict:
-    deterministic, ambiguous = _taxonomy_criteria(job)
-    if not ambiguous and not (
-        deterministic["must_skills"] or deterministic["nice_skills"]
-    ):
-        return {**_fallback_criteria_from_text(job), "_source": "heuristic"}
-    if not ambiguous and (deterministic["must_skills"] or deterministic["nice_skills"]):
-        return {**deterministic, "_source": "taxonomy"}
-
+    import httpx
     from app.services.llm_prompts import JOB_CRITERIA_FROM_DESCRIPTION
 
     prompt = JOB_CRITERIA_FROM_DESCRIPTION.render(
@@ -922,55 +721,45 @@ async def _generate_criteria(job: Job, *, user_id: int) -> dict:
         description=(job.description or "")[:2000],
         requirements=(job.requirements or "")[:2000],
     )
-    prompt += (
-        "\n\nTaksonomia rozpoznała jednoznaczne kryteria i kandydatów "
-        "niejednoznacznych. Zachowaj jednoznaczne przypisania:\n"
-        f"deterministic={deterministic}\nambiguous={ambiguous}"
-    )
-    allowed = {
-        item["name"].casefold() for group in deterministic.values() for item in group
-    } | {item.casefold() for item in ambiguous}
-
-    def validate(value: object) -> dict:
-        result = _CriteriaOutput.model_validate(value)
-        names = {
-            item.name.casefold() for item in [*result.must_skills, *result.nice_skills]
-        }
-        if allowed and not names.issubset(allowed):
-            raise ValueError("AI returned a skill outside the taxonomy candidates")
-        for group, items in deterministic.items():
-            returned = {item.name.casefold() for item in getattr(result, group)}
-            expected = {item["name"].casefold() for item in items}
-            if not expected.issubset(returned):
-                raise ValueError("AI changed an unambiguous taxonomy match")
-        return result.model_dump()
 
     try:
-        result = await ai_gateway.call(
-            AIRequest(
-                feature=AIFeatureKey.criteria_suggestions,
-                user_id=user_id,
-                client_id=job.client_id,
-                subject_type="job",
-                subject_id=job.id,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Klasyfikuj tylko podane kryteria i zwróć wyłącznie JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                prompt_version="criteria_taxonomy_v2",
-                schema_version="criteria_v2",
-                structured_validator=validate,
-                pii=True,
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{ollama_host.rstrip('/')}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json",
+                },
             )
+            resp.raise_for_status()
+            payload = resp.json().get("response", "").strip()
+            import json
+
+            data = json.loads(payload)
+            if not isinstance(data, dict):
+                return None
+            # Stamp the source so refresh/preview can report "ollama" vs
+            # "heuristic" (the endpoints key on ``"_source" in criteria``).
+            # It is a top-level key, not part of must/nice, so it never leaks
+            # into the persisted skill lists.
+            return {
+                "must_skills": data.get("must_skills") or [],
+                "nice_skills": data.get("nice_skills") or [],
+                "_source": (
+                    f"ollama:{JOB_CRITERIA_FROM_DESCRIPTION.name}"
+                    f":v{JOB_CRITERIA_FROM_DESCRIPTION.version}"
+                ),
+            }
+    except Exception as e:
+        logger.warning(
+            "[Ollama] criteria generation failed (template=%s v%d): %s",
+            JOB_CRITERIA_FROM_DESCRIPTION.name,
+            JOB_CRITERIA_FROM_DESCRIPTION.version,
+            e,
         )
-        return {**result.content, "_source": "ai"}
-    except AIError as exc:
-        logger.warning("criteria AI unavailable code=%s", exc.code)
-        fallback = _fallback_criteria_from_text(job)
-        return {**fallback, "_source": "heuristic"}
+        return None
 
 
 def _fallback_criteria_from_text(job: Job) -> dict:
@@ -1024,7 +813,7 @@ async def refresh_job_criteria(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    criteria = await _generate_criteria(job, user_id=current_user.id)
+    criteria = await _generate_criteria_with_ollama(job)
     if not criteria:
         criteria = _fallback_criteria_from_text(job)
 
@@ -1045,7 +834,7 @@ async def refresh_job_criteria(
         "must_skills": job.must_skills,
         "nice_skills": job.nice_skills,
         "criteria_generated_at": job.criteria_generated_at.isoformat(),
-        "source": criteria.get("_source", "heuristic"),
+        "source": "ollama" if criteria and "_source" in criteria else "heuristic",
     }
 
 
@@ -1065,8 +854,8 @@ async def generate_job_criteria_preview(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    criteria = await _generate_criteria(job, user_id=current_user.id)
-    source = criteria.get("_source", "heuristic") if criteria else "heuristic"
+    criteria = await _generate_criteria_with_ollama(job)
+    source = "ollama" if criteria and "_source" in criteria else "heuristic"
     if not criteria:
         criteria = _fallback_criteria_from_text(job)
 
@@ -1412,21 +1201,20 @@ async def seeking_contractors(
     )
 
     items: list[dict] = []
-    semantic_degraded = False
     for cand in candidates:
         # 2a. Personalized Qdrant search — narrow to a candidate-relevant pool.
         query_text = _candidate_query_text(cand)
         hits = await search_jobs_semantic(query_text, top_k=min(top_k * 6, 100))
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
 
-        # Score only real semantic hits. This dashboard has no nullable-score
-        # contract, so on outage it must fail closed instead of presenting the
-        # first 50 jobs as calibrated recommendations.
+        # Restrict scoring to (a) Qdrant hits ∩ open jobs OR (b) all open jobs
+        # when Qdrant is empty/offline. Either way keep a small pool.
         if similarity_map:
             scoring_pool = [j for j in all_open_jobs if j.id in similarity_map]
         else:
-            semantic_degraded = True
-            scoring_pool = []
+            # Fallback: rank against the full open-jobs set, capped to keep
+            # response time predictable for the dashboard.
+            scoring_pool = all_open_jobs[:50]
 
         # 2b. Apply user filters (incl. industry_blocklist via CandidateConflict)
         filtered, _stats = await apply_user_filters(
@@ -1484,9 +1272,4 @@ async def seeking_contractors(
         "horizon_days": horizon_days,
         "total": len(items),
         "items": items,
-        "meta": {
-            "mode": "unavailable" if semantic_degraded else "dense",
-            "degraded": semantic_degraded,
-            "reason": "semantic_unavailable" if semantic_degraded else None,
-        },
     }

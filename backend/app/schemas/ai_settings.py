@@ -4,8 +4,7 @@ Mirrors `app.models.ai_feature` ORM models.
 """
 
 from datetime import date
-from decimal import Decimal
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +21,6 @@ class FeatureConfig(BaseModel):
         ge=0,
         description="0 = unlimited; positive = monthly call cap",
     )
-    monthly_budget_usd: Decimal = Field(Decimal("0"), ge=0)
 
     # Display-only (not editable):
     label: str = Field(..., description="Human-readable PL label")
@@ -45,10 +43,6 @@ class FeatureUsage(BaseModel):
         ...,
         description="Last day of the current month (UTC) — quota window end.",
     )
-    cost_usd: Decimal = Field(Decimal("0"), ge=0)
-    p95_latency_ms: int = Field(0, ge=0)
-    error_rate: float = Field(0, ge=0, le=1)
-    health: str = "ok"
 
     @property
     def is_exhausted(self) -> bool:
@@ -61,11 +55,6 @@ class AISettingsOut(BaseModel):
     master_enabled: bool
     features: List[FeatureConfig]
     usage: List[FeatureUsage]
-    active_registry_version: str = "v1_current"
-    routing_lock_version: int = 1
-    routes: dict[str, Any] = Field(default_factory=dict)
-    compliance: dict[str, Any] = Field(default_factory=dict)
-    rollouts: dict[str, Any] = Field(default_factory=dict)
 
 
 class FeatureConfigUpdate(BaseModel):
@@ -73,25 +62,12 @@ class FeatureConfigUpdate(BaseModel):
 
     enabled: Optional[bool] = None
     monthly_limit: Optional[int] = Field(None, ge=0)
-    monthly_budget_usd: Optional[Decimal] = Field(None, ge=0)
-    model_config = {"extra": "forbid"}
-
-
-class FeatureConfigPatch(FeatureConfigUpdate):
-    feature: AIFeatureKey
-
-
-class AISettingsPatch(BaseModel):
-    master_enabled: Optional[bool] = None
-    features: List[FeatureConfigPatch] = Field(default_factory=list)
-    model_config = {"extra": "forbid"}
 
 
 class MasterToggleUpdate(BaseModel):
     """Patch payload for ``PATCH /settings/ai/master``."""
 
     enabled: bool
-    model_config = {"extra": "forbid"}
 
 
 class QuotaCheckResult(BaseModel):

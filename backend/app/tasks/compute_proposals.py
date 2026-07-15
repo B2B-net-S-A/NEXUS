@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.candidate import Candidate
+from app.models.candidate import Candidate, CandidateStatus
 from app.models.job import Job
 from app.models.proposal_snapshot import (
     ProposalSnapshot,
@@ -136,20 +136,14 @@ async def compute_proposal_for_job(
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())
 
-            # Snapshots only store calibrated breakdowns. If semantic retrieval
-            # is unavailable, fail closed and let the UI use the live BM25
-            # degraded path; never persist arbitrary rows as normal proposals.
+            # Fallback when Qdrant is empty / job not indexed yet.
             if not candidate_ids:
-                snap.status = STATUS_FAILED
-                snap.candidate_ids = []
-                snap.breakdowns = []
-                snap.error_message = "semantic_unavailable"
-                await session.commit()
-                logger.warning(
-                    "[Proposals] snapshot %s failed closed: semantic unavailable",
-                    snapshot_id,
+                fallback = await session.execute(
+                    select(Candidate.id)
+                    .where(Candidate.status != CandidateStatus.blacklisted)
+                    .limit(200)
                 )
-                return
+                candidate_ids = [c for (c,) in fallback.all()]
 
             # Exclude candidates already in this job's pipeline — they aren't
             # "proposals" anymore; they're already being worked.
@@ -200,19 +194,18 @@ async def compute_proposal_for_job(
                 job_id,
             )
         except Exception as e:  # pragma: no cover
-            logger.error(
-                "[Proposals] snapshot %s failed for job %s error_type=%s",
+            logger.exception(
+                "[Proposals] snapshot %s failed for job %s: %s",
                 snapshot_id,
                 job_id,
-                type(e).__name__,
+                e,
             )
             snap.status = STATUS_FAILED
-            snap.error_message = "proposal_computation_failed"
+            snap.error_message = str(e)[:500]
             try:
                 await session.commit()
             except Exception as commit_err:
                 logger.warning(
-                    "[Proposals] failed to persist failure state error_type=%s",
-                    type(commit_err).__name__,
+                    "[Proposals] failed to persist failure state: %s", commit_err
                 )
                 await session.rollback()

@@ -1,65 +1,16 @@
-from enum import Enum
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from app.analytics.capabilities import (
-    AnalyticsCapability,
-    capabilities_for_user,
-)
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User, UserRole
 
 security = HTTPBearer()
-
-# A passive internal viewer is deliberately aggregate-only. Keeping this gate
-# in the common auth dependency prevents a forgotten router dependency or a
-# directly-entered URL from exposing PII/client/financial data.
-_VIEWER_SAFE_READ_PATHS = frozenset(
-    {
-        "/api/auth/me",
-        "/api/users/me/onboarding",
-        "/api/users/me/preferences",
-        "/api/dashboard/stats",
-        "/api/dashboard/kpis",
-        "/api/postings/stats",
-        "/api/analytics/v1/overview",
-        "/api/analytics/v1/pipeline/snapshot",
-        "/api/analytics/v1/recruitment/funnel",
-        "/api/analytics/v1/sources",
-        "/api/analytics/v1/calls/aggregate",
-        "/api/analytics/v1/meta/metrics",
-    }
-)
-_VIEWER_SAFE_SELF_MUTATIONS = frozenset(
-    {
-        "/api/auth/change-password",
-        "/api/users/me/onboarding",
-        "/api/users/me/preferences",
-    }
-)
-
-
-def _enforce_passive_viewer_scope(request: Request, user: User) -> None:
-    if user.get_all_roles() != {UserRole.user}:
-        return
-    method = request.method.upper()
-    path = request.url.path.rstrip("/") or "/"
-    if method in _IMPERSONATION_SAFE_METHODS and path in _VIEWER_SAFE_READ_PATHS:
-        return
-    if method in {"POST", "PATCH", "PUT"} and path in _VIEWER_SAFE_SELF_MUTATIONS:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Viewer accounts can access aggregate analytics only",
-    )
-
 
 # ── Admin "podgląd jako użytkownik" (impersonation) ──────────────────────────
 #
@@ -163,13 +114,9 @@ async def get_current_user(
         raise credentials_exception
 
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
-    effective_user = user
     if impersonate_raw:
-        effective_user = await _resolve_impersonation(
-            request, user, impersonate_raw, db
-        )
-    _enforce_passive_viewer_scope(request, effective_user)
-    return effective_user
+        return await _resolve_impersonation(request, user, impersonate_raw, db)
+    return user
 
 
 def require_roles(*roles: UserRole):
@@ -190,152 +137,6 @@ def require_roles(*roles: UserRole):
         return current_user
 
     return _check_role
-
-
-def require_analytics_capabilities(
-    *capabilities: AnalyticsCapability,
-    require_all: bool = True,
-):
-    """Capability dependency backed by the canonical multi-role mapping.
-
-    Capabilities control the maximum data class a caller may access. Endpoint
-    services must still apply self/team/client row scoping where applicable.
-    """
-
-    async def _check_capabilities(
-        current_user: User = Depends(get_current_user),
-    ) -> User:
-        granted = capabilities_for_user(current_user)
-        allowed = (
-            all(capability in granted for capability in capabilities)
-            if require_all
-            else any(capability in granted for capability in capabilities)
-        )
-        if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "message": "Missing analytics capability",
-                    "required": [capability.value for capability in capabilities],
-                    "mode": "all" if require_all else "any",
-                },
-            )
-        return current_user
-
-    return _check_capabilities
-
-
-class DynaReporterSection(str, Enum):
-    """Legacy section identifiers stored in ``users.allowed_sections``."""
-
-    body_leasing = "body-leasing"
-    sales = "sales"
-    delivery_lead = "delivery-lead"
-    placements = "placements"
-    clients_mrr = "clients-mrr"
-    competitions = "competitions"
-    przetargi = "przetargi"
-    board = "board"
-    sales_mgmt = "sales-mgmt"
-    mindy = "mindy"
-    admin = "admin"
-
-
-_DYNAREPORTER_SECTION_CAPABILITY: dict[DynaReporterSection, AnalyticsCapability] = {
-    DynaReporterSection.body_leasing: AnalyticsCapability.view_recruitment_team,
-    DynaReporterSection.sales: AnalyticsCapability.view_recruitment_team,
-    DynaReporterSection.delivery_lead: AnalyticsCapability.view_client_operations,
-    DynaReporterSection.placements: AnalyticsCapability.view_recruitment_team,
-    DynaReporterSection.clients_mrr: AnalyticsCapability.view_finance,
-    DynaReporterSection.competitions: AnalyticsCapability.view_recruitment_team,
-    DynaReporterSection.przetargi: AnalyticsCapability.view_tenders,
-    DynaReporterSection.board: AnalyticsCapability.view_finance,
-    DynaReporterSection.sales_mgmt: AnalyticsCapability.view_client_operations,
-    DynaReporterSection.mindy: AnalyticsCapability.view_recruitment_team,
-    DynaReporterSection.admin: AnalyticsCapability.manage_analytics,
-}
-
-_READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
-
-def _ensure_dynareporter_enabled(request: Request, *, enforce_write_mode: bool) -> None:
-    """Apply the non-bypassable DynaReporter lifecycle switch."""
-    mode = settings.DYNAREPORTER_MODE
-    if mode == "off":
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="DynaReporter API has been retired",
-        )
-    if (
-        enforce_write_mode
-        and request.method.upper() not in _READ_ONLY_METHODS
-        and mode != "admin_write"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="DynaReporter is read-only",
-        )
-
-
-def require_dynareporter_section(
-    section: DynaReporterSection,
-    *,
-    enforce_write_mode: bool = True,
-):
-    """Require both role capability and the legacy per-user section grant.
-
-    A section grant can only narrow role capabilities, never expand them.
-    Admins have an intentional section-list bypass because legacy admin users
-    predate ``allowed_sections`` and commonly hold an empty list.
-    """
-    required_capability = _DYNAREPORTER_SECTION_CAPABILITY[section]
-
-    async def _check_dynareporter_section(
-        request: Request,
-        current_user: User = Depends(get_current_user),
-    ) -> User:
-        _ensure_dynareporter_enabled(
-            request,
-            enforce_write_mode=enforce_write_mode,
-        )
-        if required_capability not in capabilities_for_user(current_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Missing analytics capability: {required_capability.value}",
-            )
-        if current_user.has_role(UserRole.admin):
-            return current_user
-        if section.value not in set(current_user.allowed_sections or []):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"DynaReporter section not granted: {section.value}",
-            )
-        return current_user
-
-    return _check_dynareporter_section
-
-
-async def require_dynareporter_access(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """Guard the profile/landing API, which is not tied to one section."""
-    _ensure_dynareporter_enabled(request, enforce_write_mode=True)
-    granted = capabilities_for_user(current_user)
-    has_legacy_capability = bool(
-        granted - {AnalyticsCapability.view_operational_aggregates}
-    )
-    if not has_legacy_capability:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="DynaReporter requires an operational analytics capability",
-        )
-    if not current_user.has_role(UserRole.admin) and not current_user.allowed_sections:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No DynaReporter sections granted",
-        )
-    return current_user
 
 
 # ── Named guards (hierarchiczne "role X or higher") ──────────────────────────
@@ -447,25 +248,3 @@ async def require_dl_assigned_or_admin(
 
 
 DlAssignedOrAdmin = Annotated[User, Depends(require_dl_assigned_or_admin)]
-
-
-async def require_financial_dl_assigned_or_admin(
-    client_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """Admin globally or an assigned DL; HoR never receives write finance."""
-
-    user = await require_dl_assigned_or_admin(client_id, current_user, db)
-    if not user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Financial client writes require admin or delivery_lead role",
-        )
-    return user
-
-
-FinancialDlAssignedOrAdmin = Annotated[
-    User,
-    Depends(require_financial_dl_assigned_or_admin),
-]
