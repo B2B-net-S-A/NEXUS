@@ -1088,6 +1088,65 @@ async def api_health_check():
     )
 
 
+@app.get("/api/health/alembic")
+async def api_health_alembic():
+    """Read-only diagnostic: prod ``alembic_version`` vs the code's revisions.
+
+    After the 2026-07-15 rollback the prod DB's migration bookmark points at a
+    Codex revision the reverted code no longer ships, so ``alembic upgrade heads``
+    is a no-op and schema lands only via the entrypoint safety-net. This surfaces
+    the exact mismatch (DB bookmark vs code heads / which revisions are orphaned)
+    so it can be reconciled deliberately. Auth-free by design — leaks only alembic
+    revision ids, never data.
+    """
+    import os
+
+    from fastapi import status as http_status
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text as _sql_text
+
+    from app.core.database import AsyncSessionLocal
+
+    out: dict = {}
+
+    # The DB's bookmark(s). Multiple rows == the chronic multi-head state.
+    try:
+        async with AsyncSessionLocal() as session:
+            rows = (
+                (
+                    await session.execute(
+                        _sql_text("SELECT version_num FROM alembic_version")
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        out["db_versions"] = list(rows)
+    except Exception as exc:  # noqa: BLE001 — diagnostic must not raise
+        out["db_versions"] = []
+        out["db_error"] = type(exc).__name__
+
+    # The code's revision graph (best-effort; alembic runs on prod).
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        script_location = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic"
+        )
+        cfg = Config()
+        cfg.set_main_option("script_location", script_location)
+        script = ScriptDirectory.from_config(cfg)
+        known = {rev.revision for rev in script.walk_revisions()}
+        out["code_heads"] = list(script.get_heads())
+        out["orphaned"] = [v for v in out.get("db_versions", []) if v not in known]
+        out["reconcilable"] = not out["orphaned"]
+    except Exception as exc:  # noqa: BLE001 — diagnostic must not raise
+        out["code_error"] = type(exc).__name__
+
+    return JSONResponse(content=out, status_code=http_status.HTTP_200_OK)
+
+
 @app.get("/api/health/deep")
 async def api_health_deep_check():
     """Deep healthcheck — probes core business tables against the live ORM.
