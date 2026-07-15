@@ -164,6 +164,8 @@ async def _purge_expired_ai_ledger() -> None:
                 "WHERE created_at < now() - interval '13 months'"
             )
         )
+        # Evaluation outputs are encrypted but intentionally short-lived.
+        await db.execute(text("DELETE FROM ai_eval_outputs WHERE expires_at <= now()"))
         await db.commit()
 
 

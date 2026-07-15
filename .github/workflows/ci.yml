@@ -151,6 +151,7 @@ jobs:
                  tests/test_cv_generator_b2b_async.py \
                  tests/test_job_criteria_generation.py \
                  tests/test_ai_gateway.py \
+                 tests/test_ai_evaluations.py \
                  tests/test_ai_settings_schemas.py \
                  tests/test_ai_feature_migrations.py \
                  tests/test_ai_sdk_boundary.py \

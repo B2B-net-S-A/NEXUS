@@ -65,6 +65,13 @@ from app.models.email_verification_token import EmailVerificationToken
 from app.models.rate_history import RateHistory, ContractType
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.embedding_cache import EmbeddingCache  # noqa: F401
+from app.models.ai_evaluation import (  # noqa: F401
+    AIEvalCase,
+    AIEvalLabel,
+    AIEvalOutput,
+    AIEvalRun,
+    AIEvalSet,
+)
 from app.models.pipeline_template import (
     PipelineTemplate,
     PipelineStageDef,
@@ -342,6 +349,11 @@ __all__ = [
     "AIFeatureKey",
     "AIMasterToggle",
     "AIUsageLog",
+    "AIEvalSet",
+    "AIEvalCase",
+    "AIEvalRun",
+    "AIEvalLabel",
+    "AIEvalOutput",
     "OAuthClient",
     "OAuthScope",
     "CandidateSourceEvent",

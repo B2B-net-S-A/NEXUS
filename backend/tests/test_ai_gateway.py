@@ -22,7 +22,7 @@ def test_all_escalations_stay_within_the_declared_provider() -> None:
                 configured.values() if isinstance(configured, dict) else [configured]
             )
             for route in routes:
-                assert route.provider in {"anthropic", "voyage", "internal"}
+                assert route.provider in {"anthropic", "voyage", "internal", "openai"}
                 assert all(model for model in route.escalation_models)
 
 
