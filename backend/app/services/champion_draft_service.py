@@ -101,20 +101,21 @@ async def _call_claude_json(
 
     Logs (without prompt content):  prompt token counts, latency, status.
     """
-    import anthropic  # local import: avoid cost of import at module load
+    # Shared resilient helper: explicit timeout + transient-retry backoff.
+    from app.services.claude_client import call_claude  # local: avoid load-time cost
 
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
 
-    client = anthropic.Anthropic(api_key=api_key)
-
     started = time.time()
     # Sync Anthropic SDK — offload the multi-second LLM round-trip so it does
     # not block the single-worker event loop. This helper is shared by the
-    # champion-draft request handlers and the CloudTalk webhook.
+    # champion-draft request handlers and the CloudTalk webhook. call_claude
+    # adds an explicit timeout + transient-retry backoff; it returns the same
+    # Message the SDK would, so the parsing below is unchanged.
     message = await run_in_threadpool(
-        client.messages.create,
+        call_claude,
         model=model,
         max_tokens=max_tokens,
         # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
@@ -122,6 +123,7 @@ async def _call_claude_json(
         thinking={"type": "disabled"},
         system=system_prompt,
         messages=[{"role": "user", "content": prompt}],
+        api_key=api_key,
     )
     latency_ms = int((time.time() - started) * 1000)
 
@@ -207,13 +209,14 @@ _CHUNK_SYSTEM_PROMPT = (
 def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
     """Sync chunk summary. Wrapped in `asyncio.to_thread` by the async caller —
     matches the sync `anthropic.Anthropic` pattern used by `_call_claude_json`."""
-    import anthropic  # noqa: PLC0415
+    from app.services.claude_client import call_claude  # noqa: PLC0415
 
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
+    # Already sync (wrapped in asyncio.to_thread upstream) → call directly.
+    # call_claude adds an explicit timeout + transient-retry backoff.
+    message = call_claude(
         model=model,
         max_tokens=1500,
         # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
@@ -221,6 +224,7 @@ def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
         thinking={"type": "disabled"},
         system=_CHUNK_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": chunk}],
+        api_key=api_key,
     )
     parts: list[str] = []
     for block in getattr(message, "content", []) or []:

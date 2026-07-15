@@ -17,7 +17,6 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from anthropic import Anthropic
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -163,11 +162,13 @@ async def commentary(
         "Daj zwięzły (3-5 zdań) komentarz o jego performance i 1 konkretną sugestię."
     )
 
-    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    from app.services.claude_client import call_claude  # local: avoid load-time cost
+
     try:
-        # Sync Anthropic SDK — offload off the single-worker event loop.
+        # Shared resilient helper (explicit timeout + transient-retry backoff),
+        # offloaded off the single-worker event loop.
         message = await run_in_threadpool(
-            client.messages.create,
+            call_claude,
             model=settings.CLAUDE_MODEL_CV,
             max_tokens=400,
             system=MINDY_SYSTEM_PROMPT,
@@ -210,11 +211,13 @@ async def chat(
     # Convert messages format
     api_messages = [{"role": m.role, "content": m.content} for m in payload.messages]
 
-    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    from app.services.claude_client import call_claude  # local: avoid load-time cost
+
     try:
-        # Sync Anthropic SDK — offload off the single-worker event loop.
+        # Shared resilient helper (explicit timeout + transient-retry backoff),
+        # offloaded off the single-worker event loop.
         message = await run_in_threadpool(
-            client.messages.create,
+            call_claude,
             model=settings.CLAUDE_MODEL_CV,
             max_tokens=800,
             system=full_system,
