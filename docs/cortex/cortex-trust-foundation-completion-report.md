@@ -38,6 +38,26 @@ Realizacja **Etapu 0** planu remediacji ([audyt](./cortex-audit-2026-07-13.md), 
 - **Unmatched reconcile-on-removal** nie zaimplementowany (kandydat porzucający unmatched term → drobny overcount; kolejka kuracji, nie metryka precyzyjna).
 - **Aktywacja daily sync:** wymaga `TRAFFIT_SYNC_ENABLED=true` (+ secrety Traffit) na prod.
 
-## Następne kroki
-- Etap 1 (Action Layer): drill-down komórka→kandydaci, client×stack, workflow kuracji taksonomii (map/ignore/create), strict active-contract predykat.
-- Etap 2 (Intelligence Layer): CV/LLM extractor + resolved facts + integracja ze scoringiem/Qdrant.
+## Etap 1 — Action Layer (zrobione, commit `615bf1b`)
+Backend (`app/services/cortex/{drill_down,client_stack,curation}.py`, endpointy `app/api/cortex.py`, migracja `0161_cortex_curation_audit`):
+- **drill-down** `GET /skill/{id}/candidates` — kandydaci z evidence/confidence/świeżość/seniority/zatrudnienie (RODO gate); `GET /skills` — pełna, przeszukiwalna, paginowana lista (koniec top-40).
+- **client × stack** `GET /client-stack` (contract ∪ hired→job→client); **następcy** `GET /successors` (kontrakty kończące się w N dni + dostępni ze wspólnym stackiem).
+- **kuracja** (admin, audyt `curated_by/at`): `POST unmatched-terms/{id}/map|ignore`, `POST skills`, `POST skills/{id}/aliases` + odświeżenie `ALIAS_MAP`.
+- `tech-map` zwraca `skill_ids` (drill-down z komórki); unmatched/coverage zwracają `id`.
+Frontend: nowe zakładki `CortexView` (Technologie, Klienci, Następcy, Kuracja) + `SkillCandidatesDrawer` (klikalne komórki), filtry heatmapy w URL.
+PR0: plik audytu zwersjonowany + korekty (atrybucja a11y, staleness, „scoring już case-insensitive").
+
+## Etap 2 — Intelligence Layer (zrobione + świadome bramki)
+Zbudowane (`app/services/cortex/{extractor_cv_llm,resolved,supply_demand}.py`, endpointy, `scripts/eval_cortex_extraction.py`):
+- **CV/LLM extractor** (`source=cv_llm`, `parse_cv` na `raw_cv_text`) — gated `CORTEX_CV_LLM_ENABLED` (default OFF), **nigdy auto**, tylko admin endpoint `POST /admin/backfill-cv-llm`, przez `cortex_extraction_runs`, `only_active` first, `limit` dla kontrolowanej populacji.
+- **resolved facts** — jeden fakt per (kandydat, skill): precedencja `screening>cv_llm>traffit` × freshness-decay; `GET /candidate/{id}/resolved-skills`; helper `resolved_canonical_names` pod scoring.
+- **podaż vs popyt** `GET /supply-demand` (rozwiązane fakty vs skille otwartych jobów, luki); **normalizacja tytułu** `GET /normalize-title` (heurystyka, bez LLM).
+- **harness** precision/recall ekstrakcji (gold-set) — gotowy do użycia po oznaczeniu ~30-50 kandydatów.
+Frontend: zakładka „Podaż/Popyt", karta CV-LLM backfill (admin), rozwiązane kompetencje w drawerze.
+
+**Świadome bramki (NIE wpięte domyślnie — wymagają walidacji, której nie da się zrobić autonomicznie):**
+- **Integracja resolved facts ze scoringiem/Qdrant** — flaga `CORTEX_FACTS_IN_SCORING` (default OFF, zero zmiany zachowania). Włączenie zmienia matching → **wymaga `scripts/eval_matching.py`** (reguła autonomous-verification §4) na danych prod-like. Building block gotowy (`resolved_canonical_names`), wpięcie w hot-path scoringu odłożone do walidacji.
+- **Wymuszone procesy zbierania** (`close_reason`/`termination_reason`/availability/expected_rate/verified_tech) — duża zmiana produktowa (formularze + walidacja w wielu ekranach), część danych już istnieje na modelach; poza zakresem generacji kodu bez decyzji produktowych.
+
+## Bramka wdrożeniowa (bez zmian)
+Merge Etapu 0→2 na `main` **uruchamia nieodwracalną migrację dedup `0160` na prodzie**. Wymaga **read-only SQL audytu** realnych duplikatów przed merge (brak dostępu do prod-DB w tej sesji → nie mergowane autonomicznie).

@@ -231,3 +231,52 @@ async def test_cortex_curation_create_skill_from_term(
                 delete(CortexUnmatchedTerm).where(CortexUnmatchedTerm.id == term_id)
             )
             await db.commit()
+
+
+# ── Etap 2: Intelligence Layer ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cortex_supply_demand_shape(app_client: AsyncClient, app_auth_headers):
+    resp = await app_client.get("/api/cortex/supply-demand", headers=app_auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert {"skills", "open_jobs", "only_must"} <= set(data)
+    assert isinstance(data["skills"], list)
+
+
+@pytest.mark.asyncio
+async def test_cortex_resolved_skills_shape(app_client: AsyncClient, app_auth_headers):
+    resp = await app_client.get(
+        "/api/cortex/candidate/1/resolved-skills", headers=app_auth_headers
+    )
+    assert resp.status_code == 200
+    assert "skills" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_cortex_normalize_title(app_client: AsyncClient, app_auth_headers):
+    # 'python' jest seedowany migracją 0012; 'senior' → seniority.
+    resp = await app_client.get(
+        "/api/cortex/normalize-title",
+        headers=app_auth_headers,
+        params={"title": "Senior Python Developer"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["seniority"] == "senior"
+    assert "python" in data["technologies"]
+
+
+@pytest.mark.asyncio
+async def test_cortex_cv_llm_gated_by_default(app_client: AsyncClient, app_auth_headers):
+    # CORTEX_CV_LLM_ENABLED domyślnie False → backfill zwraca 503.
+    resp = await app_client.post(
+        "/api/cortex/admin/backfill-cv-llm", headers=app_auth_headers
+    )
+    assert resp.status_code == 503
+    st = await app_client.get(
+        "/api/cortex/admin/backfill-cv-llm/status", headers=app_auth_headers
+    )
+    assert st.status_code == 200
+    assert st.json()["enabled"] is False

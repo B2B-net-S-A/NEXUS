@@ -1364,6 +1364,71 @@ export interface CortexBackfillStatus {
   last_error: string | null;
 }
 
+// ── Cortex Intelligence Layer (Etap 2): supply/demand, resolved skills, ──────
+//    title normalization, CV-LLM extraction backfill.
+
+export interface CortexSupplyDemandSkill {
+  skill: string;
+  /** Distinct candidates with a fact for the skill. */
+  supply: number;
+  /** Open jobs that require the skill. */
+  demand: number;
+  /** demand − supply; positive = shortage ("niedobór"). */
+  gap: number;
+}
+
+export interface CortexSupplyDemand {
+  /** Already sorted by gap desc (biggest shortage first). */
+  skills: CortexSupplyDemandSkill[];
+  open_jobs: number;
+  only_must: boolean;
+}
+
+/** One resolved fact per skill, picked by source precedence × freshness. */
+export interface CortexResolvedSkill {
+  skill_id: number;
+  skill: string;
+  source: string;
+  effective_confidence: number;
+  level: string | null;
+  years: number | null;
+  observed_at: string | null;
+}
+
+export interface CortexResolvedSkills {
+  candidate_id: number;
+  skills: CortexResolvedSkill[];
+}
+
+export interface CortexNormalizedTitle {
+  title: string;
+  seniority: string | null;
+  technologies: string[];
+}
+
+export interface CortexCvLlmStatus {
+  running: boolean;
+  status: string;
+  run_id?: number;
+  source?: string;
+  total: number;
+  processed: number;
+  facts_upserted: number;
+  errors: number;
+  started_at: string | null;
+  finished_at: string | null;
+  last_error: string | null;
+  /** FALSE when CORTEX_CV_LLM_ENABLED=false → trigger returns 503. */
+  enabled: boolean;
+}
+
+export interface CortexCvLlmTrigger {
+  status: string;
+  run_id: number;
+  /** Echoed back; null when no cap was passed. */
+  limit: number | null;
+}
+
 export const cortexApi = {
   techMap: (params: {
     source?: string;
@@ -1433,6 +1498,30 @@ export const cortexApi = {
   }) => api.post<CortexCreatedSkill>("/api/cortex/skills", payload),
   addAlias: (skillId: number, alias: string) =>
     api.post(`/api/cortex/skills/${skillId}/aliases`, { alias }),
+
+  // ── Intelligence Layer (Etap 2) ─────────────────────────────────────────────
+  /** Supply (candidates) vs demand (open jobs) per skill, sorted by gap desc. */
+  supplyDemand: (only_must?: boolean) =>
+    api.get<CortexSupplyDemand>("/api/cortex/supply-demand", {
+      params: only_must != null ? { only_must } : {},
+    }),
+  /** One resolved fact per skill for a candidate (source precedence × freshness). */
+  resolvedSkills: (candidateId: number) =>
+    api.get<CortexResolvedSkills>(
+      `/api/cortex/candidate/${candidateId}/resolved-skills`,
+    ),
+  /** Normalize a free-text job title → seniority + technologies. */
+  normalizeTitle: (title: string) =>
+    api.get<CortexNormalizedTitle>("/api/cortex/normalize-title", {
+      params: { title },
+    }),
+  /** Admin-only CV-LLM extraction backfill. 503 when disabled, 409 if running. */
+  triggerCvLlmBackfill: (params?: { limit?: number; only_active?: boolean }) =>
+    api.post<CortexCvLlmTrigger>("/api/cortex/admin/backfill-cv-llm", null, {
+      params: params ?? {},
+    }),
+  cvLlmStatus: () =>
+    api.get<CortexCvLlmStatus>("/api/cortex/admin/backfill-cv-llm/status"),
 };
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────

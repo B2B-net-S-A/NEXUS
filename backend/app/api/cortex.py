@@ -23,14 +23,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, get_db, require_roles
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.cortex import CortexUnmatchedTerm
 from app.models.user import User, UserRole
 from app.services.cortex import client_stack as client_stack_svc
 from app.services.cortex import curation as curation_svc
 from app.services.cortex import drill_down as drill_down_svc
+from app.services.cortex import resolved as resolved_svc
 from app.services.cortex import runs
+from app.services.cortex import supply_demand as supply_demand_svc
 from app.services.cortex.coverage import compute_coverage
+from app.services.cortex.extractor_cv_llm import execute_cv_llm_run
 from app.services.cortex.extractor_traffit import execute_run
 from app.services.cortex.tech_map import compute_tech_map
 
@@ -67,6 +71,54 @@ async def _run_backfill_task(run_id: int, limit: Optional[int]) -> None:
             await execute_run(task_db, run_id, limit=limit)
     except Exception:  # noqa: BLE001 — run już oznaczony `failed` w execute_run
         logger.exception("[cortex] backfill task crashed (run_id=%s)", run_id)
+
+
+async def _run_cv_llm_task(
+    run_id: int, limit: Optional[int], only_active: bool
+) -> None:
+    try:
+        async with AsyncSessionLocal() as task_db:
+            await execute_cv_llm_run(
+                task_db, run_id, limit=limit, only_active=only_active
+            )
+    except Exception:  # noqa: BLE001 — run już oznaczony `failed`
+        logger.exception("[cortex] cv_llm task crashed (run_id=%s)", run_id)
+
+
+def _idle_run_status() -> dict[str, Any]:
+    return {
+        "running": False,
+        "status": "idle",
+        "total": 0,
+        "processed": 0,
+        "facts_upserted": 0,
+        "unmatched_tokens": 0,
+        "errors": 0,
+        "started_at": None,
+        "finished_at": None,
+        "last_error": None,
+    }
+
+
+def _serialize_run(run) -> dict[str, Any]:
+    stats = run.stats or {}
+    return {
+        "running": run.status == "running",
+        "status": run.status,
+        "run_id": run.id,
+        "run_type": run.run_type,
+        "source": run.source,
+        "triggered_by": run.triggered_by,
+        "total": stats.get("total", 0),
+        "processed": stats.get("processed", 0),
+        "facts_upserted": stats.get("facts_upserted", 0),
+        "unmatched_tokens": stats.get("unmatched_tokens", 0),
+        "errors": stats.get("errors", 0),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "heartbeat_at": run.heartbeat_at.isoformat() if run.heartbeat_at else None,
+        "last_error": run.last_error,
+    }
 
 
 @router.get("/tech-map")
@@ -205,6 +257,45 @@ async def cortex_successors(
     )
 
 
+# ── Etap 2: warstwa inteligencji (resolved facts, podaż/popyt, tytuły) ────────
+
+
+@router.get("/candidate/{candidate_id}/resolved-skills")
+async def cortex_candidate_resolved_skills(
+    candidate_id: int,
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Rozwiązane skille kandydata: jeden per skill wg precedencji źródła
+    (screening>cv_llm>traffit) × freshness-decay. Zasila profil/matching."""
+    return {
+        "candidate_id": candidate_id,
+        "skills": await resolved_svc.resolve_candidate_skills(db, candidate_id),
+    }
+
+
+@router.get("/supply-demand")
+async def cortex_supply_demand(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    only_must: bool = Query(
+        default=False, description="Licz popyt tylko z must-have skilli jobów."
+    ),
+) -> dict[str, Any]:
+    """Podaż kompetencji (rozwiązane fakty) vs popyt (otwarte joby) — luki per skill."""
+    return await supply_demand_svc.supply_vs_demand(db, only_must=only_must)
+
+
+@router.get("/normalize-title")
+async def cortex_normalize_title(
+    _user: CortexUser,
+    title: str = Query(min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Normalizuj tytuł stanowiska → seniority + technologie z taksonomii (bez LLM)."""
+    return await supply_demand_svc.normalize_title(db, title)
+
+
 # ── Etap 1: kuracja taksonomii (admin-only, z audytem) ────────────────────────
 
 
@@ -326,34 +417,57 @@ async def traffit_backfill_status(
 ) -> dict[str, Any]:
     """Postęp ostatniego backfillu — z trwałego ``cortex_extraction_runs``
     (przeżywa restart kontenera, w przeciwieństwie do dawnego in-memory dict)."""
-    run = await runs.latest_run(db)
-    if run is None:
-        return {
-            "running": False,
-            "status": "idle",
-            "total": 0,
-            "processed": 0,
-            "facts_upserted": 0,
-            "unmatched_tokens": 0,
-            "errors": 0,
-            "started_at": None,
-            "finished_at": None,
-            "last_error": None,
-        }
-    stats = run.stats or {}
-    return {
-        "running": run.status == "running",
-        "status": run.status,
-        "run_id": run.id,
-        "run_type": run.run_type,
-        "triggered_by": run.triggered_by,
-        "total": stats.get("total", 0),
-        "processed": stats.get("processed", 0),
-        "facts_upserted": stats.get("facts_upserted", 0),
-        "unmatched_tokens": stats.get("unmatched_tokens", 0),
-        "errors": stats.get("errors", 0),
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-        "heartbeat_at": run.heartbeat_at.isoformat() if run.heartbeat_at else None,
-        "last_error": run.last_error,
-    }
+    run = await runs.latest_run(db, source="traffit")
+    return _idle_run_status() if run is None else _serialize_run(run)
+
+
+# ── Etap 2: CV/LLM extractor (kosztowny, gated, admin-only, nigdy auto) ────────
+
+
+@router.post("/admin/backfill-cv-llm")
+async def trigger_cv_llm_backfill(
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        description="Przetwórz co najwyżej N kandydatów (kontrolowana populacja).",
+    ),
+    only_active: bool = Query(
+        default=True,
+        description="Tylko aktywni konsultanci (u klienta) — najpierw oni (Etap 2).",
+    ),
+) -> dict[str, Any]:
+    """Odpal ekstrakcję cv_llm w tle. Admin only, gated ``CORTEX_CV_LLM_ENABLED``.
+
+    Kosztowny (LLM per kandydat) — pełnego backfillu NIE uruchamiać przed
+    walidacją Etapu 0 i ekstraktora na ograniczonej populacji (``limit``)."""
+    if not settings.CORTEX_CV_LLM_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CV/LLM extractor wyłączony (CORTEX_CV_LLM_ENABLED=false)",
+        )
+    await runs.reap_orphans(db)
+    run_id = await runs.create_run(
+        db,
+        run_type="manual",
+        triggered_by=getattr(_admin, "email", None),
+        source="cv_llm",
+    )
+    if run_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Ekstrakcja cv_llm już trwa"
+        )
+    _spawn(_run_cv_llm_task(run_id, limit, only_active))
+    return {"status": "started", "run_id": run_id, "limit": limit}
+
+
+@router.get("/admin/backfill-cv-llm/status")
+async def cv_llm_backfill_status(
+    _admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Postęp ostatniej ekstrakcji cv_llm (trwały ``cortex_extraction_runs``)."""
+    run = await runs.latest_run(db, source="cv_llm")
+    status_dict = _idle_run_status() if run is None else _serialize_run(run)
+    status_dict["enabled"] = settings.CORTEX_CV_LLM_ENABLED
+    return status_dict

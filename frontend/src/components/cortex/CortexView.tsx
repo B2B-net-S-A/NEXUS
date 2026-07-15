@@ -9,6 +9,7 @@ import {
   Grid3x3,
   Layers,
   ListChecks,
+  Scale,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RequireRole } from "@/components/RequireRole";
@@ -17,6 +18,7 @@ import { TechMapPanel } from "@/components/cortex/TechMapPanel";
 import { SkillSearchPanel } from "@/components/cortex/SkillSearchPanel";
 import { ClientStackPanel } from "@/components/cortex/ClientStackPanel";
 import { SuccessorsPanel } from "@/components/cortex/SuccessorsPanel";
+import { SupplyDemandPanel } from "@/components/cortex/SupplyDemandPanel";
 import { CurationPanel } from "@/components/cortex/CurationPanel";
 import { hasRole, useAuthStore, type UserRole } from "@/store/auth";
 
@@ -34,6 +36,7 @@ type TabId =
   | "skills"
   | "clients"
   | "successors"
+  | "supply"
   | "coverage"
   | "curation";
 
@@ -50,6 +53,7 @@ const TABS: TabDef[] = [
   { id: "skills", label: "Technologie", icon: Layers },
   { id: "clients", label: "Klienci", icon: Building2 },
   { id: "successors", label: "Następcy", icon: ArrowLeftRight },
+  { id: "supply", label: "Podaż/Popyt", icon: Scale },
   { id: "coverage", label: "Jakość danych", icon: Gauge },
   { id: "curation", label: "Kuracja", icon: ListChecks, adminOnly: true },
 ];
@@ -132,6 +136,7 @@ export function CortexView() {
           {activeTab === "skills" && <SkillSearchPanel />}
           {activeTab === "clients" && <ClientStackPanel />}
           {activeTab === "successors" && <SuccessorsPanel />}
+          {activeTab === "supply" && <SupplyDemandPanel />}
           {activeTab === "coverage" && <CoveragePanel />}
           {activeTab === "curation" && <CurationPanel />}
         </div>

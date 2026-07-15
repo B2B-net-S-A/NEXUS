@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Building2,
+  ChevronDown,
+  ChevronRight,
   Loader2,
   RefreshCw,
   Users,
@@ -13,6 +15,7 @@ import {
 import {
   cortexApi,
   extractErrorMsg,
+  type CortexResolvedSkills,
   type CortexSkillCandidate,
   type CortexSkillCandidates,
 } from "@/lib/api";
@@ -331,6 +334,7 @@ export function SkillCandidatesDrawer({
 }
 
 function CandidateRow({ candidate }: { candidate: CortexSkillCandidate }) {
+  const [expanded, setExpanded] = useState(false);
   const fullName =
     `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim() || "—";
   return (
@@ -389,6 +393,93 @@ function CandidateRow({ candidate }: { candidate: CortexSkillCandidate }) {
           {candidate.evidence}
         </p>
       ) : null}
+
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+      >
+        {expanded ? (
+          <ChevronDown className="w-3.5 h-3.5" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5" />
+        )}
+        Rozwiązane kompetencje
+      </button>
+
+      {expanded ? <ResolvedSkillsInline candidateId={candidate.id} /> : null}
     </li>
+  );
+}
+
+/** Lazily-loaded resolved skills (one row per skill, precedence × freshness). */
+function ResolvedSkillsInline({ candidateId }: { candidateId: number }) {
+  const { data, isLoading, isError, error, refetch } =
+    useQuery<CortexResolvedSkills>({
+      queryKey: ["cortex-resolved-skills", candidateId],
+      queryFn: async () =>
+        (await cortexApi.resolvedSkills(candidateId)).data,
+    });
+
+  if (isError) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+        <AlertTriangle className="w-3.5 h-3.5" />
+        {extractErrorMsg(error)}
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          Spróbuj ponownie
+        </button>
+      </div>
+    );
+  }
+
+  if (isLoading || !data) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        <Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1.5" />
+        Ładowanie kompetencji…
+      </p>
+    );
+  }
+
+  if (data.skills.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Brak rozwiązanych kompetencji dla tego kandydata.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="flex flex-wrap gap-1.5">
+      {data.skills.map((s) => (
+        <li
+          key={s.skill_id}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 text-xs"
+          title={`źródło: ${s.source}${s.observed_at ? ` · ${new Date(s.observed_at).toLocaleDateString("pl-PL")}` : ""}`}
+        >
+          <span className="font-medium text-foreground">{s.skill}</span>
+          <span className="text-muted-foreground tabular-nums">
+            {confidencePct(s.effective_confidence)}
+          </span>
+          <Badge variant="outline" size="sm">
+            {s.source}
+          </Badge>
+          {s.level ? (
+            <span className="text-muted-foreground">{s.level}</span>
+          ) : null}
+          {s.years != null ? (
+            <span className="text-muted-foreground tabular-nums">
+              {s.years} lat
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   );
 }
