@@ -5,6 +5,7 @@ import {
   downloadBlob,
   downloadAuthenticatedFile,
   fetchAuthenticatedObjectUrl,
+  openAuthenticatedFile,
 } from "@/lib/authenticated-files";
 
 // A minimal Response stand-in — only the bits the helper reads.
@@ -156,6 +157,46 @@ describe("authenticated-files", () => {
       await expect(
         downloadAuthenticatedFile("/api/x", "f.pdf"),
       ).rejects.toThrow("HTTP 403");
+    });
+  });
+
+  describe("openAuthenticatedFile", () => {
+    it("opens a tab synchronously and points it at the (re-typed) blob URL", async () => {
+      const fakeWin = { location: { href: "" }, close: vi.fn() };
+      const openSpy = vi
+        .spyOn(window, "open")
+        .mockReturnValue(fakeWin as unknown as Window);
+      fetchMock.mockResolvedValue(
+        fakeResponse(new Blob(["<html>"], { type: "application/octet-stream" })),
+      );
+
+      await openAuthenticatedFile("/api/x/render-pdf", "text/html");
+
+      expect(openSpy).toHaveBeenCalledWith("", "_blank");
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(createObjectURL.mock.calls[0][0].type).toBe("text/html");
+      expect(fakeWin.location.href).toBe("blob:mock-url");
+    });
+
+    it("falls back to a download when the popup is blocked", async () => {
+      vi.spyOn(window, "open").mockReturnValue(null);
+      const clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => {});
+      fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
+
+      await openAuthenticatedFile("/api/x", "text/html", "fallback.pdf");
+
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes the opened tab and throws when the fetch fails", async () => {
+      const fakeWin = { location: { href: "" }, close: vi.fn() };
+      vi.spyOn(window, "open").mockReturnValue(fakeWin as unknown as Window);
+      fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"]), 403));
+
+      await expect(openAuthenticatedFile("/api/x")).rejects.toThrow("HTTP 403");
+      expect(fakeWin.close).toHaveBeenCalledTimes(1);
     });
   });
 });
