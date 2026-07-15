@@ -83,6 +83,60 @@ export function summarizeBreakdown(
   };
 }
 
+export type CompareStatus = "matched" | "gap" | "na";
+
+export interface SkillCompareRow {
+  skill: string;
+  /** candidate_id → whether they matched this skill, are missing it, or it's
+   * not a requirement for them (na). */
+  status: Record<number, CompareStatus>;
+}
+
+/**
+ * Build the request-aware compare rows for one skill kind (must / nice): the
+ * union of all skills across the selected candidates, each row marking every
+ * candidate as matched / gap / na (SEARCH-P1-06). Rows are sorted so the most
+ * widely-required skills surface first, then alphabetically.
+ */
+export function compareSkillRows(
+  candidateIds: number[],
+  breakdowns: Record<string, MatchBreakdown | undefined>,
+  kind: "must" | "nice",
+): SkillCompareRow[] {
+  const summaries = new Map<number, BreakdownSummary>();
+  const skills = new Set<string>();
+  for (const cid of candidateIds) {
+    const s = summarizeBreakdown(breakdowns[String(cid)]);
+    summaries.set(cid, s);
+    const matched = kind === "must" ? s.matchedMust : s.matchedNice;
+    const gap = kind === "must" ? s.gapMust : s.gapNice;
+    for (const t of [...matched, ...gap]) skills.add(t);
+  }
+
+  const rows: SkillCompareRow[] = [];
+  for (const skill of skills) {
+    const status: Record<number, CompareStatus> = {};
+    for (const cid of candidateIds) {
+      const s = summaries.get(cid)!;
+      const matched = kind === "must" ? s.matchedMust : s.matchedNice;
+      const gap = kind === "must" ? s.gapMust : s.gapNice;
+      status[cid] = matched.includes(skill)
+        ? "matched"
+        : gap.includes(skill)
+          ? "gap"
+          : "na";
+    }
+    rows.push({ skill, status });
+  }
+
+  const matchedCount = (r: SkillCompareRow) =>
+    Object.values(r.status).filter((v) => v === "matched").length;
+  rows.sort(
+    (a, b) => matchedCount(b) - matchedCount(a) || a.skill.localeCompare(b.skill),
+  );
+  return rows;
+}
+
 /** True when a breakdown has anything worth showing in the detail panel. */
 export function hasBreakdownDetail(raw: MatchBreakdown | null | undefined): boolean {
   const s = summarizeBreakdown(raw);

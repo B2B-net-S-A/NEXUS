@@ -68,3 +68,47 @@ describe("hasBreakdownDetail", () => {
     expect(hasBreakdownDetail({ salary: { points: 0, max: 0 } })).toBe(false);
   });
 });
+
+import { compareSkillRows } from "@/lib/match-breakdown";
+
+describe("compareSkillRows", () => {
+  const breakdowns = {
+    "1": {
+      matching_must: ["Python", "AWS"],
+      gap_must: ["Kafka"],
+    },
+    "2": {
+      matching_must: ["Python"],
+      gap_must: ["AWS", "Kafka"],
+    },
+  };
+
+  it("unions must-skills and marks matched/gap/na per candidate", () => {
+    const rows = compareSkillRows([1, 2], breakdowns, "must");
+    const py = rows.find((r) => r.skill === "Python");
+    const aws = rows.find((r) => r.skill === "AWS");
+    const kafka = rows.find((r) => r.skill === "Kafka");
+    expect(py?.status).toEqual({ 1: "matched", 2: "matched" });
+    expect(aws?.status).toEqual({ 1: "matched", 2: "gap" });
+    expect(kafka?.status).toEqual({ 1: "gap", 2: "gap" });
+  });
+
+  it("sorts most-matched skills first", () => {
+    const rows = compareSkillRows([1, 2], breakdowns, "must");
+    // Python (2 matched) before AWS (1) before Kafka (0)
+    expect(rows.map((r) => r.skill)).toEqual(["Python", "AWS", "Kafka"]);
+  });
+
+  it("returns [] when no candidate has skills of that kind", () => {
+    expect(compareSkillRows([1, 2], breakdowns, "nice")).toEqual([]);
+  });
+
+  it("marks 'na' when a candidate never listed the skill", () => {
+    const rows = compareSkillRows(
+      [1, 2],
+      { "1": { matching_must: ["Go"] }, "2": {} },
+      "must",
+    );
+    expect(rows[0].status).toEqual({ 1: "matched", 2: "na" });
+  });
+});
