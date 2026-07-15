@@ -18,6 +18,7 @@ Why a separate module:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from sqlalchemy import String, and_, case, cast, func, not_, or_
@@ -99,36 +100,61 @@ def _bool_eq(col: ColumnElement, value: Optional[bool]) -> Optional[ColumnElemen
     return col.is_(True) if value else col.is_(False)
 
 
-def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
-    """Return SQLAlchemy WHERE clauses for every populated structured chip.
+@dataclass(frozen=True)
+class FilterGroup:
+    """A named bundle of WHERE clauses for one filter dimension.
 
-    The caller is responsible for ``AND``-ing this list with the boolean
-    clause and the FTS clause.
+    Used both to build the flat filter (``build_structured_filter``) and to
+    drive the zero-result exclusion waterfall (``/diagnostics``), where each
+    group is applied cumulatively and its surviving count is reported."""
+
+    key: str
+    label: str
+    clauses: list[ColumnElement]
+
+
+def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
+    """Return the populated structured filters, grouped and labelled.
+
+    Only groups with at least one clause are returned. The concatenation of
+    ``group.clauses`` (in order) is exactly what ``build_structured_filter``
+    emits — this is the single source of truth for both.
     """
-    clauses: list[ColumnElement] = []
+    groups: list[FilterGroup] = []
 
+    def add(key: str, label: str, clauses: list[ColumnElement]) -> None:
+        if clauses:
+            groups.append(FilterGroup(key=key, label=label, clauses=clauses))
+
+    cc: list[ColumnElement] = []
     if req.competence_category_ids:
-        clauses.append(
-            Candidate.competence_category_id.in_(req.competence_category_ids)
-        )
+        cc.append(Candidate.competence_category_id.in_(req.competence_category_ids))
+    add("competence_category", "Kategoria kompetencji", cc)
 
+    skills: list[ColumnElement] = []
     for skill in req.skills_must:
-        clauses.append(_skill_match(skill))
+        skills.append(_skill_match(skill))
     if req.skills_any:
-        clauses.append(or_(*(_skill_match(s) for s in req.skills_any)))
+        skills.append(or_(*(_skill_match(s) for s in req.skills_any)))
     for skill in req.skills_none:
-        clauses.append(not_(_skill_match(skill)))
+        skills.append(not_(_skill_match(skill)))
+    add("skills", "Umiejętności", skills)
 
+    experience: list[ColumnElement] = []
     if req.experience_years_min is not None:
-        clauses.append(Candidate.years_it_experience >= req.experience_years_min)
+        experience.append(Candidate.years_it_experience >= req.experience_years_min)
     if req.experience_years_max is not None:
-        clauses.append(Candidate.years_it_experience <= req.experience_years_max)
+        experience.append(Candidate.years_it_experience <= req.experience_years_max)
+    add("experience", "Doświadczenie", experience)
 
+    languages: list[ColumnElement] = []
     for lang in req.languages:
         lang_clause = _language_clause(lang)
         if lang_clause is not None:
-            clauses.append(lang_clause)
+            languages.append(lang_clause)
+    add("languages", "Języki", languages)
 
+    location: list[ColumnElement] = []
     if req.location_cities:
         city_clauses = [
             or_(
@@ -137,29 +163,33 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
             )
             for c in req.location_cities
         ]
-        clauses.append(or_(*city_clauses))
-
+        location.append(or_(*city_clauses))
     if req.location_countries:
-        clauses.append(
+        location.append(
             Candidate.country.in_([c.upper() for c in req.location_countries])
         )
+    add("location", "Lokalizacja", location)
 
+    eligibility: list[ColumnElement] = []
     if req.exclude_blacklisted:
         # Global blacklist = eligibility visibility "hidden" (SEARCH-P0-04).
         # Forced on for job-context search server-side; opt-in elsewhere.
-        clauses.append(Candidate.status != CandidateStatus.blacklisted)
+        eligibility.append(Candidate.status != CandidateStatus.blacklisted)
+    add("eligibility", "Dostępność do przypisania", eligibility)
 
+    status: list[ColumnElement] = []
     if req.status:
-        clauses.append(Candidate.status.in_(req.status))
-    if req.availability_status:
-        clauses.append(Candidate.availability_status.in_(req.availability_status))
+        status.append(Candidate.status.in_(req.status))
+    add("status", "Status kandydata", status)
 
+    availability: list[ColumnElement] = []
+    if req.availability_status:
+        availability.append(Candidate.availability_status.in_(req.availability_status))
     if req.availability_date_before is not None:
-        clauses.append(
+        availability.append(
             Candidate.availability_date.is_(None)
             | (Candidate.availability_date <= req.availability_date_before)
         )
-
     if req.notice_period_max is not None:
         # Normalize value+unit to days for comparison. NULL unit = legacy days.
         # Approximation: 1 week = 7 days, 1 month = 30 days. Stored intent
@@ -170,74 +200,92 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
             (Candidate.notice_period_unit == "months", Candidate.notice_period * 30),
             else_=Candidate.notice_period,
         )
-        clauses.append(
+        availability.append(
             Candidate.notice_period.is_(None) | (notice_days <= req.notice_period_max)
         )
+    add("availability", "Dyspozycyjność", availability)
 
+    salary: list[ColumnElement] = []
     if req.salary_min is not None:
-        clauses.append(Candidate.salary_expectation >= req.salary_min)
+        salary.append(Candidate.salary_expectation >= req.salary_min)
     if req.salary_max is not None:
-        clauses.append(Candidate.salary_expectation <= req.salary_max)
+        salary.append(Candidate.salary_expectation <= req.salary_max)
     if req.salary_currency:
-        clauses.append(
+        salary.append(
             func.upper(Candidate.salary_currency) == req.salary_currency.upper()
         )
+    add("salary_monthly", "Wynagrodzenie miesięczne", salary)
 
     # Hourly rate (PLN/h) — filter on ``expected_rate_hourly``, NOT the monthly
     # ``salary_expectation``. Missing rate is unknown → included (never a hard
     # exclusion), matching the availability/notice-period NULL policy above.
+    rate: list[ColumnElement] = []
     if req.rate_hourly_min is not None or req.rate_hourly_max is not None:
         bounds: list[ColumnElement] = []
         if req.rate_hourly_min is not None:
             bounds.append(Candidate.expected_rate_hourly >= req.rate_hourly_min)
         if req.rate_hourly_max is not None:
             bounds.append(Candidate.expected_rate_hourly <= req.rate_hourly_max)
-        clauses.append(Candidate.expected_rate_hourly.is_(None) | and_(*bounds))
+        rate.append(Candidate.expected_rate_hourly.is_(None) | and_(*bounds))
+    add("rate_hourly", "Stawka godzinowa", rate)
 
+    sources: list[ColumnElement] = []
     if req.sources:
-        clauses.append(Candidate.source.in_(req.sources))
+        sources.append(Candidate.source.in_(req.sources))
+    add("sources", "Źródło", sources)
 
+    tags: list[ColumnElement] = []
     if req.tags:
         tags_text = func.coalesce(cast(Candidate.tags, String), "")
         for tag in req.tags:
-            clauses.append(tags_text.ilike(f"%{_escape_like(tag)}%", escape="\\"))
+            tags.append(tags_text.ilike(f"%{_escape_like(tag)}%", escape="\\"))
+    add("tags", "Tagi", tags)
 
+    attributes: list[ColumnElement] = []
     has_cv_clause = _bool_clause_has_cv(req.has_cv)
     if has_cv_clause is not None:
-        clauses.append(has_cv_clause)
-
+        attributes.append(has_cv_clause)
     if req.has_linkedin is not None:
         if req.has_linkedin:
-            clauses.append(Candidate.linkedin.isnot(None))
+            attributes.append(Candidate.linkedin.isnot(None))
         else:
-            clauses.append(Candidate.linkedin.is_(None))
-
+            attributes.append(Candidate.linkedin.is_(None))
     champion_clause = _bool_eq(Candidate.champion, req.is_champion)
     if champion_clause is not None:
-        clauses.append(champion_clause)
-
+        attributes.append(champion_clause)
     ambassador_clause = _bool_eq(Candidate.is_ambassador, req.is_ambassador)
     if ambassador_clause is not None:
-        clauses.append(ambassador_clause)
-
+        attributes.append(ambassador_clause)
     side_proj_clause = _bool_eq(
         Candidate.open_to_side_projects, req.open_to_side_projects
     )
     if side_proj_clause is not None:
-        clauses.append(side_proj_clause)
-
+        attributes.append(side_proj_clause)
     sales_clause = _bool_eq(Candidate.open_to_sales_support, req.open_to_sales_support)
     if sales_clause is not None:
-        clauses.append(sales_clause)
-
+        attributes.append(sales_clause)
     expert_clause = _bool_eq(
         Candidate.open_to_expert_consult, req.open_to_expert_consult
     )
     if expert_clause is not None:
-        clauses.append(expert_clause)
-
+        attributes.append(expert_clause)
     if req.cv_parsed_after is not None:
-        clauses.append(Candidate.cv_parsed_at >= req.cv_parsed_after)
+        attributes.append(Candidate.cv_parsed_at >= req.cv_parsed_after)
+    add("attributes", "Atrybuty", attributes)
+
+    return groups
+
+
+def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
+    """Return SQLAlchemy WHERE clauses for every populated structured chip.
+
+    The caller is responsible for ``AND``-ing this list with the boolean
+    clause and the FTS clause. Delegates to :func:`build_filter_groups` so the
+    grouping and the flat filter never drift.
+    """
+    clauses: list[ColumnElement] = []
+    for group in build_filter_groups(req):
+        clauses.extend(group.clauses)
 
     return clauses
 
