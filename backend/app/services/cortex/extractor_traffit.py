@@ -6,25 +6,29 @@ Split → normalizacja przez taksonomię → upsert faktów ``source="traffit"``
 (confidence=0.8, level/years=NULL — źródło ich nie niesie, observed_at=NULL —
 Traffit nie daje daty sygnału; evidence = surowy token przed normalizacją).
 
-Kształt pętli lustruje ``cv_backfill.backfill_missing_names``: iteracja po id,
-commit co ``_COMMIT_EVERY`` (re-run i tak jest idempotentny), ``progress``
-dict aktualizowany na bieżąco dla endpointu statusu.
+Odporność (audyt P0/P1):
+- **reconcile** per kandydat — skill usunięty ze źródła znika z fact store;
+- **savepoint** per kandydat — zatruta transakcja jednego nie ubija całego runu;
+- **trwały run** (``cortex_extraction_runs``) + heartbeat — restart-safe status;
+- **delta** (``since``) — faza w daily Traffit sync przetwarza tylko zmienionych.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.cortex import runs
 from app.services.cortex.fact_store import (
     RawSkillToken,
     load_taxonomy,
     normalize_and_upsert,
-    record_unmatched,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +42,6 @@ TRAFFIT_CONFIDENCE = 0.8
 _RAW_SPLIT_RE = re.compile(r"[,;\n]+")
 
 _COMMIT_EVERY = 100
-_UNMATCHED_FLUSH_EVERY = 500
 _LOG_EVERY = 500
 
 
@@ -49,30 +52,40 @@ def split_traffit_technologie(value: str) -> list[str]:
     return [t.strip() for t in _RAW_SPLIT_RE.split(value) if t.strip()]
 
 
-async def _flush_unmatched(db: AsyncSession, counter: dict[str, int]) -> None:
-    for term, count in counter.items():
-        await record_unmatched(db, term, count)
-    counter.clear()
+def _content_hash(raw: str) -> str:
+    """Fingerprint surowego źródła (pod przyszły skip-unchanged / provenance)."""
+    return hashlib.sha256((raw or "").encode("utf-8")).hexdigest()
 
 
 async def run_traffit_backfill(
     db: AsyncSession,
     *,
     limit: Optional[int] = None,
+    since: Optional[datetime] = None,
+    reconcile: bool = True,
+    run_id: Optional[int] = None,
     progress: Optional[dict] = None,
 ) -> dict:
-    """Przetwórz kandydatów z niepustym ``traffit_technologie``. Zwraca staty."""
+    """Przetwórz kandydatów z niepustym ``traffit_technologie``. Zwraca staty.
+
+    ``since`` → delta (tylko ``updated_at >= since``). ``run_id`` → heartbeat do
+    ``cortex_extraction_runs``. Bez ``run_id`` działa jako czysty backfill.
+    """
     taxonomy = await load_taxonomy(db)
 
     sql = (
         "SELECT id, cv_extracted_data->>'traffit_technologie' AS tech "
         "FROM candidates "
         "WHERE COALESCE(cv_extracted_data->>'traffit_technologie', '') <> '' "
-        "ORDER BY id"
     )
+    params: dict = {}
+    if since is not None:
+        sql += "AND updated_at >= :since "
+        params["since"] = since
+    sql += "ORDER BY id"
     if limit:
         sql += f" LIMIT {int(limit)}"
-    rows = (await db.execute(text(sql))).all()
+    rows = (await db.execute(text(sql), params)).all()
 
     stats = {
         "total": len(rows),
@@ -84,24 +97,28 @@ async def run_traffit_backfill(
     if progress is not None:
         progress.update(stats)
 
-    unmatched_counter: dict[str, int] = {}
-
     for candidate_id, tech in rows:
         try:
-            tokens = [
-                RawSkillToken(
-                    name=raw, confidence=TRAFFIT_CONFIDENCE, evidence=raw[:300]
+            # Savepoint: błąd jednego kandydata cofa TYLKO jego zapisy, nie
+            # zatruwa transakcji dla reszty batcha.
+            async with db.begin_nested():
+                tokens = [
+                    RawSkillToken(
+                        name=raw, confidence=TRAFFIT_CONFIDENCE, evidence=raw[:300]
+                    )
+                    for raw in split_traffit_technologie(tech or "")
+                ]
+                fact_stats = await normalize_and_upsert(
+                    db,
+                    candidate_id=candidate_id,
+                    tokens=tokens,
+                    source=SOURCE,
+                    taxonomy=taxonomy,
+                    reconcile=reconcile,
+                    run_id=run_id,
+                    extractor_version=runs.EXTRACTOR_VERSION,
+                    content_hash=_content_hash(tech or ""),
                 )
-                for raw in split_traffit_technologie(tech or "")
-            ]
-            fact_stats = await normalize_and_upsert(
-                db,
-                candidate_id=candidate_id,
-                tokens=tokens,
-                source=SOURCE,
-                taxonomy=taxonomy,
-                unmatched_counter=unmatched_counter,
-            )
             stats["facts_upserted"] += fact_stats.matched
             stats["unmatched_tokens"] += fact_stats.unmatched
         except Exception:  # noqa: BLE001 — pojedynczy kandydat nie ubija runu
@@ -112,9 +129,10 @@ async def run_traffit_backfill(
 
         if stats["processed"] % _COMMIT_EVERY == 0:
             await db.commit()
-        if len(unmatched_counter) >= _UNMATCHED_FLUSH_EVERY:
-            await _flush_unmatched(db, unmatched_counter)
-            await db.commit()
+            if run_id is not None:
+                await runs.heartbeat_run(
+                    db, run_id, cursor_candidate_id=candidate_id, stats=dict(stats)
+                )
         if stats["processed"] % _LOG_EVERY == 0:
             logger.info(
                 "cortex traffit backfill: %s/%s (facts=%s, unmatched=%s)",
@@ -126,9 +144,71 @@ async def run_traffit_backfill(
         if progress is not None:
             progress.update(stats)
 
-    await _flush_unmatched(db, unmatched_counter)
     await db.commit()
     if progress is not None:
         progress.update(stats)
     logger.info("cortex traffit backfill done: %s", stats)
     return stats
+
+
+async def execute_run(
+    db: AsyncSession,
+    run_id: int,
+    *,
+    since: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    progress: Optional[dict] = None,
+) -> dict:
+    """Wykonaj backfill dla istniejącego wiersza runu i sfinalizuj jego status.
+
+    Slot single-flight jest już zarezerwowany przez ``runs.create_run`` (partial
+    unique ``status='running'``), więc tu tylko liczymy fakty i zamykamy run.
+    """
+    try:
+        stats = await run_traffit_backfill(
+            db,
+            since=since,
+            limit=limit,
+            reconcile=True,
+            run_id=run_id,
+            progress=progress,
+        )
+        status = "errors" if stats.get("errors") else "ok"
+        await runs.finish_run(db, run_id, status=status, stats=stats)
+        return stats
+    except Exception as exc:  # noqa: BLE001 — zapisz porażkę na wierszu runu
+        logger.exception("cortex extraction run failed (run_id=%s)", run_id)
+        await db.rollback()
+        await runs.finish_run(db, run_id, status="failed", last_error=str(exc))
+        raise
+
+
+async def run_managed_extraction(
+    db: AsyncSession,
+    *,
+    run_type: str,
+    triggered_by: Optional[str] = None,
+    since: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    progress: Optional[dict] = None,
+) -> dict:
+    """Zarezerwuj slot (single-flight) i wykonaj run. No-op gdy inny run trwa."""
+    run_id = await runs.create_run(
+        db, run_type=run_type, triggered_by=triggered_by, source=SOURCE
+    )
+    if run_id is None:
+        logger.info("cortex extraction skipped — another run active (%s)", run_type)
+        return {"skipped": "already_running", "run_type": run_type}
+    return await execute_run(db, run_id, since=since, limit=limit, progress=progress)
+
+
+async def import_cortex_facts(
+    db: AsyncSession, *, since: Optional[datetime] = None
+) -> dict:
+    """Wejście dla daily Traffit sync — delta (``since``) lub full (``since=None``)."""
+    return await run_managed_extraction(
+        db,
+        run_type="daily" if since is not None else "full",
+        triggered_by="traffit_sync",
+        since=since,
+    )

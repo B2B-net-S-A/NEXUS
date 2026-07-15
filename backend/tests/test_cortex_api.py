@@ -6,11 +6,12 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
-from app.api.cortex import _TRAFFIT_JOB
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.cortex import CortexExtractionRun, CortexUnmatchedTerm
+from app.models.skill import Skill, SkillAlias
 from app.models.user import User, UserRole
 
 
@@ -22,11 +23,13 @@ async def test_tech_map_shape(app_client: AsyncClient, app_auth_headers):
     for key in (
         "cells",
         "skills",
+        "skill_totals",
         "seniorities",
         "candidates_covered",
         "candidates_total",
         "fill_rate_pct",
         "sources",
+        "data_as_of",
     ):
         assert key in data
     assert data["seniorities"] == ["junior", "mid", "senior", "unknown"]
@@ -38,6 +41,7 @@ async def test_coverage_shape(app_client: AsyncClient, app_auth_headers):
     assert resp.status_code == 200
     data = resp.json()
     assert "candidates" in data and "facts" in data and "processes" in data
+    assert "data_as_of" in data
     assert "with_any_fact_pct" in data["candidates"]
     assert set(data["facts"]["freshness"]) == {"lt_1y", "y1_3", "gt_3y", "unknown"}
 
@@ -80,16 +84,27 @@ async def test_tech_map_rejects_recruiter(app_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_backfill_double_start_guard(app_client: AsyncClient, app_auth_headers):
-    # Deterministycznie: symulujemy trwający run zamiast wyścigu z prawdziwym.
-    assert _TRAFFIT_JOB["running"] is False
-    _TRAFFIT_JOB["running"] = True
+    # Single-flight jest teraz trwały (partial unique `status='running'` na
+    # cortex_extraction_runs): wstaw aktywny run i sprawdź że POST → 409.
+    # started_at=now() (server_default) → orphan reaper go nie sprzątnie.
+    async with AsyncSessionLocal() as db:
+        run = CortexExtractionRun(
+            run_type="manual", source="traffit", status="running"
+        )
+        db.add(run)
+        await db.commit()
+        run_id = run.id
     try:
         resp = await app_client.post(
             "/api/cortex/admin/backfill-traffit", headers=app_auth_headers
         )
         assert resp.status_code == 409
     finally:
-        _TRAFFIT_JOB["running"] = False
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CortexExtractionRun).where(CortexExtractionRun.id == run_id)
+            )
+            await db.commit()
 
 
 @pytest.mark.asyncio
@@ -99,3 +114,169 @@ async def test_unmatched_terms_admin_only(app_client: AsyncClient, app_auth_head
     )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+# ── Etap 1: Action Layer ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cortex_skills_shape(app_client: AsyncClient, app_auth_headers):
+    resp = await app_client.get("/api/cortex/skills", headers=app_auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    for key in ("skills", "total", "limit", "offset"):
+        assert key in data
+    assert isinstance(data["skills"], list)
+
+
+@pytest.mark.asyncio
+async def test_cortex_client_stack_and_successors_shape(
+    app_client: AsyncClient, app_auth_headers
+):
+    cs = await app_client.get("/api/cortex/client-stack", headers=app_auth_headers)
+    assert cs.status_code == 200
+    assert {"cells", "clients", "min_count"} <= set(cs.json())
+
+    su = await app_client.get(
+        "/api/cortex/successors?days=30", headers=app_auth_headers
+    )
+    assert su.status_code == 200
+    assert "ending_contracts" in su.json()
+
+
+@pytest.mark.asyncio
+async def test_cortex_drilldown_rejects_recruiter(app_client: AsyncClient):
+    unique = uuid.uuid4().hex[:8]
+    email = f"pytest-recruiter-dd-{unique}@example.com"
+    password = f"T3st_{unique}!PassX"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name="Pytest Recruiter DD",
+                role=UserRole.recruiter,
+                is_active=True,
+            )
+        )
+        await db.commit()
+    try:
+        login = await app_client.post(
+            "/api/auth/login", json={"email": email, "password": password}
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        # Drill-down (nazwiska) i kuracja niedostępne dla recruitera.
+        assert (
+            await app_client.get("/api/cortex/skill/1/candidates", headers=headers)
+        ).status_code == 403
+        assert (
+            await app_client.post(
+                "/api/cortex/skills",
+                headers=headers,
+                json={"canonical_name": "x"},
+            )
+        ).status_code == 403
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.email == email))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_cortex_curation_create_skill_from_term(
+    app_client: AsyncClient, app_auth_headers
+):
+    unique = uuid.uuid4().hex[:8]
+    term_text = f"kurtest-{unique}"
+    canonical = f"KurTest-{unique}"
+    async with AsyncSessionLocal() as db:
+        t = CortexUnmatchedTerm(term=term_text, occurrences=3)
+        db.add(t)
+        await db.commit()
+        term_id = t.id
+
+    skill_id = None
+    try:
+        resp = await app_client.post(
+            "/api/cortex/skills",
+            headers=app_auth_headers,
+            json={"canonical_name": canonical, "from_term_id": term_id},
+        )
+        assert resp.status_code == 200
+        skill_id = resp.json()["id"]
+
+        async with AsyncSessionLocal() as db:
+            term = await db.get(CortexUnmatchedTerm, term_id)
+            assert term.status == "mapped"
+            alias = await db.scalar(
+                select(SkillAlias).where(SkillAlias.alias == term_text)
+            )
+            assert alias is not None and alias.skill_id == skill_id
+
+        # Idempotencja tworzenia: duplikat (case-insensitive) → 400.
+        dup = await app_client.post(
+            "/api/cortex/skills",
+            headers=app_auth_headers,
+            json={"canonical_name": canonical.lower()},
+        )
+        assert dup.status_code == 400
+    finally:
+        async with AsyncSessionLocal() as db:
+            if skill_id:
+                await db.execute(
+                    delete(SkillAlias).where(SkillAlias.skill_id == skill_id)
+                )
+                await db.execute(delete(Skill).where(Skill.id == skill_id))
+            await db.execute(
+                delete(CortexUnmatchedTerm).where(CortexUnmatchedTerm.id == term_id)
+            )
+            await db.commit()
+
+
+# ── Etap 2: Intelligence Layer ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cortex_supply_demand_shape(app_client: AsyncClient, app_auth_headers):
+    resp = await app_client.get("/api/cortex/supply-demand", headers=app_auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert {"skills", "open_jobs", "only_must"} <= set(data)
+    assert isinstance(data["skills"], list)
+
+
+@pytest.mark.asyncio
+async def test_cortex_resolved_skills_shape(app_client: AsyncClient, app_auth_headers):
+    resp = await app_client.get(
+        "/api/cortex/candidate/1/resolved-skills", headers=app_auth_headers
+    )
+    assert resp.status_code == 200
+    assert "skills" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_cortex_normalize_title(app_client: AsyncClient, app_auth_headers):
+    # 'python' jest seedowany migracją 0012; 'senior' → seniority.
+    resp = await app_client.get(
+        "/api/cortex/normalize-title",
+        headers=app_auth_headers,
+        params={"title": "Senior Python Developer"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["seniority"] == "senior"
+    assert "python" in data["technologies"]
+
+
+@pytest.mark.asyncio
+async def test_cortex_cv_llm_gated_by_default(app_client: AsyncClient, app_auth_headers):
+    # CORTEX_CV_LLM_ENABLED domyślnie False → backfill zwraca 503.
+    resp = await app_client.post(
+        "/api/cortex/admin/backfill-cv-llm", headers=app_auth_headers
+    )
+    assert resp.status_code == 503
+    st = await app_client.get(
+        "/api/cortex/admin/backfill-cv-llm/status", headers=app_auth_headers
+    )
+    assert st.status_code == 200
+    assert st.json()["enabled"] is False

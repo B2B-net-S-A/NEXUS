@@ -130,6 +130,7 @@ async def compute_coverage(db: AsyncSession) -> dict:
     unmatched_rows = (
         await db.execute(
             select(
+                CortexUnmatchedTerm.id,
                 CortexUnmatchedTerm.term,
                 CortexUnmatchedTerm.occurrences,
                 CortexUnmatchedTerm.status,
@@ -141,10 +142,16 @@ async def compute_coverage(db: AsyncSession) -> dict:
         )
     ).all()
 
+    # „Dane na dzień" — najświeższy fakt (discovery: nie udawaj bieżących liczb).
+    data_as_of = (
+        await db.execute(select(func.max(CortexSkillFact.extracted_at)))
+    ).scalar()
+
     def pct(part: int, whole: int) -> float:
         return round(part / whole * 100, 1) if whole else 0.0
 
     return {
+        "data_as_of": data_as_of.isoformat() if data_as_of else None,
         "candidates": {
             "total": candidates_total,
             "with_cv_file": with_cv_file,
@@ -172,11 +179,12 @@ async def compute_coverage(db: AsyncSession) -> dict:
         },
         "unmatched_terms": [
             {
+                "id": tid,
                 "term": term,
                 "occurrences": occurrences,
                 "status": status,
                 "last_seen_at": last_seen_at.isoformat() if last_seen_at else None,
             }
-            for term, occurrences, status, last_seen_at in unmatched_rows
+            for tid, term, occurrences, status, last_seen_at in unmatched_rows
         ],
     }

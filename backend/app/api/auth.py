@@ -142,6 +142,7 @@ async def login(
             user.id,
             user.role.value,
             force_password_change=user.force_password_change,
+            roles=[r.value for r in user.get_all_roles()],
         ),
         refresh_token=create_refresh_token(user.id),
     )
@@ -378,6 +379,7 @@ async def refresh_token(
             user.id,
             user.role.value,
             force_password_change=user.force_password_change,
+            roles=[r.value for r in user.get_all_roles()],
         ),
         refresh_token=create_refresh_token(user.id),
     )

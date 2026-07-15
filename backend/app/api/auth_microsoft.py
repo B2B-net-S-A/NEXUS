@@ -545,6 +545,7 @@ async def callback(
         user.id,
         user.role.value,
         force_password_change=user.force_password_change,
+        roles=[r.value for r in user.get_all_roles()],
     )
     refresh = create_refresh_token(user.id)
 

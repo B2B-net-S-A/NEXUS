@@ -33,6 +33,8 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.services.cortex import runs as cortex_runs
+from app.services.cortex.extractor_traffit import import_cortex_facts
 from app.services.traffit.client import TraffitClient, TraffitConfig
 from app.services.traffit.importer import TraffitImporter
 
@@ -159,6 +161,44 @@ async def _upsert_state(
     await db.commit()
 
 
+# ── Cortex extraction phase ──────────────────────────────────────────────────
+
+
+class _CortexPhaseResult:
+    """Adapter stats ekstraktora Cortexa na kontrakt fazy (as_dict/errors/*_at)."""
+
+    def __init__(
+        self, stats: dict[str, Any], started_at: datetime, finished_at: datetime
+    ):
+        self._stats = stats
+        self.started_at = started_at
+        self.finished_at = finished_at
+        self.errors = int(stats.get("errors") or 0)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "processed": self._stats.get("processed", 0),
+            "inserted": self._stats.get("facts_upserted", 0),
+            "skipped": self._stats.get("unmatched_tokens", 0),
+            "errors": self.errors,
+            "total_source": self._stats.get("total", 0),
+            **({"note": self._stats["skipped"]} if "skipped" in self._stats else {}),
+        }
+
+
+async def _cortex_phase(since: Optional[datetime]) -> _CortexPhaseResult:
+    """Faza Cortexa w daily sync — własna sesja (izoluje częste commity ekstraktora).
+
+    Delta (``since=files_since``=run_start) re-ekstrahuje tylko kandydatów, których
+    faza ``candidates`` dotknęła w tym runie; full (``since=None``) skanuje bazę i
+    reconciluje. Najpierw sprząta osierocone runy (zwalnia slot single-flight)."""
+    started = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as cortex_db:
+        await cortex_runs.reap_orphans(cortex_db)
+        stats = await import_cortex_facts(cortex_db, since=since)
+    return _CortexPhaseResult(stats, started, datetime.now(timezone.utc))
+
+
 # ── Phase plan ───────────────────────────────────────────────────────────────
 
 
@@ -186,6 +226,15 @@ def _phase_plan(
         ("contacts", importer.import_contacts),
         ("workflows", importer.import_workflows),
         ("candidates", lambda: importer.import_candidates(since=since)),
+        # Cortex re-ekstrahuje fakty skilli tuż po upsercie kandydatów. W delcie
+        # używa ``files_since`` (=run_start) — tylko kandydaci dotknięci w tym
+        # runie (updated_at >= run_start), tak jak faza plików. Reconcile +
+        # single-flight czynią to bezpiecznym.
+        *(
+            [("cortex", lambda: _cortex_phase(files_since))]
+            if settings.CORTEX_SYNC_ENABLED
+            else []
+        ),
         ("jobs", lambda: importer.import_jobs(since=since)),
         ("talents", importer.import_talents),
         ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),

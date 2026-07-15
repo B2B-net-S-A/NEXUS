@@ -18,15 +18,24 @@ from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, get_db, require_roles
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.cortex import CortexUnmatchedTerm
 from app.models.user import User, UserRole
+from app.services.cortex import client_stack as client_stack_svc
+from app.services.cortex import curation as curation_svc
+from app.services.cortex import drill_down as drill_down_svc
+from app.services.cortex import resolved as resolved_svc
+from app.services.cortex import runs
+from app.services.cortex import supply_demand as supply_demand_svc
 from app.services.cortex.coverage import compute_coverage
-from app.services.cortex.extractor_traffit import run_traffit_backfill
+from app.services.cortex.extractor_cv_llm import execute_cv_llm_run
+from app.services.cortex.extractor_traffit import execute_run
 from app.services.cortex.tech_map import compute_tech_map
 
 logger = logging.getLogger(__name__)
@@ -45,44 +54,71 @@ CortexUser = Annotated[
     ),
 ]
 
-# Single-flight, in-memory (wzorzec admin_candidates._JOB): backfill jest
-# idempotentny, więc po restarcie kontenera wystarczy odpalić ponownie.
-_TRAFFIT_JOB: dict[str, Any] = {
-    "running": False,
-    "total": 0,
-    "processed": 0,
-    "facts_upserted": 0,
-    "unmatched_tokens": 0,
-    "errors": 0,
-    "started_at": None,
-    "finished_at": None,
-    "limit": None,
-    "last_error": None,
-}
+# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC).
+_bg_tasks: set[asyncio.Task] = set()
 
 
-async def _run_traffit_job(limit: Optional[int]) -> None:
-    _TRAFFIT_JOB.update(
-        running=True,
-        total=0,
-        processed=0,
-        facts_upserted=0,
-        unmatched_tokens=0,
-        errors=0,
-        started_at=datetime.now(timezone.utc).isoformat(),
-        finished_at=None,
-        limit=limit,
-        last_error=None,
-    )
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+async def _run_backfill_task(run_id: int, limit: Optional[int]) -> None:
+    """Wykonaj zarezerwowany run w osobnej sesji (przeżywa zamknięcie requestu)."""
     try:
-        async with AsyncSessionLocal() as db:
-            await run_traffit_backfill(db, limit=limit, progress=_TRAFFIT_JOB)
-    except Exception as e:  # noqa: BLE001 — never crash the background task
-        _TRAFFIT_JOB["last_error"] = repr(e)
-        logger.exception("[cortex] traffit backfill job crashed")
-    finally:
-        _TRAFFIT_JOB["running"] = False
-        _TRAFFIT_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+        async with AsyncSessionLocal() as task_db:
+            await execute_run(task_db, run_id, limit=limit)
+    except Exception:  # noqa: BLE001 — run już oznaczony `failed` w execute_run
+        logger.exception("[cortex] backfill task crashed (run_id=%s)", run_id)
+
+
+async def _run_cv_llm_task(
+    run_id: int, limit: Optional[int], only_active: bool
+) -> None:
+    try:
+        async with AsyncSessionLocal() as task_db:
+            await execute_cv_llm_run(
+                task_db, run_id, limit=limit, only_active=only_active
+            )
+    except Exception:  # noqa: BLE001 — run już oznaczony `failed`
+        logger.exception("[cortex] cv_llm task crashed (run_id=%s)", run_id)
+
+
+def _idle_run_status() -> dict[str, Any]:
+    return {
+        "running": False,
+        "status": "idle",
+        "total": 0,
+        "processed": 0,
+        "facts_upserted": 0,
+        "unmatched_tokens": 0,
+        "errors": 0,
+        "started_at": None,
+        "finished_at": None,
+        "last_error": None,
+    }
+
+
+def _serialize_run(run) -> dict[str, Any]:
+    stats = run.stats or {}
+    return {
+        "running": run.status == "running",
+        "status": run.status,
+        "run_id": run.id,
+        "run_type": run.run_type,
+        "source": run.source,
+        "triggered_by": run.triggered_by,
+        "total": stats.get("total", 0),
+        "processed": stats.get("processed", 0),
+        "facts_upserted": stats.get("facts_upserted", 0),
+        "unmatched_tokens": stats.get("unmatched_tokens", 0),
+        "errors": stats.get("errors", 0),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "heartbeat_at": run.heartbeat_at.isoformat() if run.heartbeat_at else None,
+        "last_error": run.last_error,
+    }
 
 
 @router.get("/tech-map")
@@ -136,18 +172,219 @@ async def unmatched_terms(
     rows = (await db.execute(q.limit(limit))).scalars().all()
     return [
         {
+            "id": row.id,
             "term": row.term,
             "occurrences": row.occurrences,
             "status": row.status,
+            "curated_by": row.curated_by,
+            "curated_at": row.curated_at.isoformat() if row.curated_at else None,
+            "first_seen_at": (
+                row.first_seen_at.isoformat() if row.first_seen_at else None
+            ),
             "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         }
         for row in rows
     ]
 
 
+# ── Etap 1: Action Layer (drill-down, search, client×stack, następcy) ─────────
+
+
+@router.get("/skills")
+async def cortex_skills(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = Query(default=None, description="Szukaj po canonical/alias."),
+    source: Optional[str] = Query(default=None, pattern="^(traffit|cv_llm|screening)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """Pełna, przeszukiwalna, paginowana lista skilli z faktami (koniec top-40)."""
+    return await drill_down_svc.list_skills(
+        db, q=q, source=source, limit=limit, offset=offset
+    )
+
+
+@router.get("/skill/{skill_id}/candidates")
+async def cortex_skill_candidates(
+    skill_id: int,
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    seniority: Optional[list[str]] = Query(default=None),
+    source: Optional[str] = Query(default=None, pattern="^(traffit|cv_llm|screening)$"),
+    employment: Optional[str] = Query(default=None, pattern="^(at_client|available)$"),
+    min_confidence: Optional[float] = Query(default=None, ge=0, le=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """Drill-down: konkretni kandydaci z danym skillem (evidence/confidence/świeżość).
+
+    Widok nazwiskowy — RODO gate do ról Cortex (te same, co lista kandydatów)."""
+    return await drill_down_svc.skill_candidates(
+        db,
+        skill_id,
+        seniorities=seniority,
+        source=source,
+        employment=employment,
+        min_confidence=min_confidence,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/client-stack")
+async def cortex_client_stack(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    client_id: Optional[int] = Query(default=None),
+    min_count: int = Query(default=1, ge=1, le=100),
+) -> dict[str, Any]:
+    """Macierz klient × stack × konsultanci (kto siedzi u klienta i z jakim stackiem)."""
+    return await client_stack_svc.client_stack(
+        db, client_id=client_id, min_count=min_count
+    )
+
+
+@router.get("/successors")
+async def cortex_successors(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(default=30, ge=1, le=365),
+) -> dict[str, Any]:
+    """Następcy dla kontraktów kończących się w ``days`` dni (dostępni, wspólny stack)."""
+    return await client_stack_svc.contract_successors(
+        db, now=datetime.now(timezone.utc).date(), days=days
+    )
+
+
+# ── Etap 2: warstwa inteligencji (resolved facts, podaż/popyt, tytuły) ────────
+
+
+@router.get("/candidate/{candidate_id}/resolved-skills")
+async def cortex_candidate_resolved_skills(
+    candidate_id: int,
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Rozwiązane skille kandydata: jeden per skill wg precedencji źródła
+    (screening>cv_llm>traffit) × freshness-decay. Zasila profil/matching."""
+    return {
+        "candidate_id": candidate_id,
+        "skills": await resolved_svc.resolve_candidate_skills(db, candidate_id),
+    }
+
+
+@router.get("/supply-demand")
+async def cortex_supply_demand(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    only_must: bool = Query(
+        default=False, description="Licz popyt tylko z must-have skilli jobów."
+    ),
+) -> dict[str, Any]:
+    """Podaż kompetencji (rozwiązane fakty) vs popyt (otwarte joby) — luki per skill."""
+    return await supply_demand_svc.supply_vs_demand(db, only_must=only_must)
+
+
+@router.get("/normalize-title")
+async def cortex_normalize_title(
+    _user: CortexUser,
+    title: str = Query(min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Normalizuj tytuł stanowiska → seniority + technologie z taksonomii (bez LLM)."""
+    return await supply_demand_svc.normalize_title(db, title)
+
+
+# ── Etap 1: kuracja taksonomii (admin-only, z audytem) ────────────────────────
+
+
+class MapTermRequest(BaseModel):
+    skill_id: int
+
+
+class CreateSkillRequest(BaseModel):
+    canonical_name: str = Field(min_length=1, max_length=255)
+    category: Optional[str] = Field(default=None, max_length=64)
+    aliases: Optional[list[str]] = None
+    from_term_id: Optional[int] = None
+
+
+class AddAliasRequest(BaseModel):
+    alias: str = Field(min_length=1, max_length=255)
+
+
+@router.post("/unmatched-terms/{term_id}/map")
+async def cortex_map_term(
+    term_id: int,
+    payload: MapTermRequest,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zmapuj unmatched term na istniejący skill (dodaje alias). Admin only."""
+    try:
+        return await curation_svc.map_term_to_skill(
+            db, term_id, payload.skill_id, curated_by=getattr(admin, "email", None)
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/unmatched-terms/{term_id}/ignore")
+async def cortex_ignore_term(
+    term_id: int,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Oznacz unmatched term jako ignored. Admin only."""
+    try:
+        return await curation_svc.ignore_term(
+            db, term_id, curated_by=getattr(admin, "email", None)
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/skills")
+async def cortex_create_skill(
+    payload: CreateSkillRequest,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Utwórz nowy canonical skill (+ opcjonalne aliasy / z unmatched termu). Admin only."""
+    try:
+        return await curation_svc.create_skill(
+            db,
+            canonical_name=payload.canonical_name,
+            category=payload.category,
+            aliases=payload.aliases,
+            from_term_id=payload.from_term_id,
+            curated_by=getattr(admin, "email", None),
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/skills/{skill_id}/aliases")
+async def cortex_add_alias(
+    skill_id: int,
+    payload: AddAliasRequest,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dodaj alias do istniejącego skilla. Admin only."""
+    try:
+        return await curation_svc.add_alias(
+            db, skill_id, payload.alias, curated_by=getattr(admin, "email", None)
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/admin/backfill-traffit")
 async def trigger_traffit_backfill(
     _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
     limit: Optional[int] = Query(
         default=None,
         ge=1,
@@ -155,17 +392,82 @@ async def trigger_traffit_backfill(
         "Bez limitu = cała baza z niepustym traffit_technologie.",
     ),
 ) -> dict[str, Any]:
-    """Odpal backfill faktów z Traffita w tle. Admin only."""
-    if _TRAFFIT_JOB["running"]:
+    """Odpal backfill faktów z Traffita w tle. Admin only.
+
+    Single-flight jest atomowy: ``runs.create_run`` rezerwuje slot przez partial
+    unique ``status='running'`` — zwraca ``None`` gdy inny run trwa (koniec
+    TOCTOU z dawnej flagi in-memory). Sprzątamy najpierw osierocone runy.
+    """
+    await runs.reap_orphans(db)
+    run_id = await runs.create_run(
+        db, run_type="manual", triggered_by=getattr(_admin, "email", None)
+    )
+    if run_id is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Backfill już trwa",
         )
-    asyncio.create_task(_run_traffit_job(limit))
-    return {"status": "started", "limit": limit}
+    _spawn(_run_backfill_task(run_id, limit))
+    return {"status": "started", "run_id": run_id, "limit": limit}
 
 
 @router.get("/admin/backfill-traffit/status")
-async def traffit_backfill_status(_admin: AdminUser) -> dict[str, Any]:
-    """Postęp backfillu (in-memory; znika po restarcie kontenera)."""
-    return dict(_TRAFFIT_JOB)
+async def traffit_backfill_status(
+    _admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Postęp ostatniego backfillu — z trwałego ``cortex_extraction_runs``
+    (przeżywa restart kontenera, w przeciwieństwie do dawnego in-memory dict)."""
+    run = await runs.latest_run(db, source="traffit")
+    return _idle_run_status() if run is None else _serialize_run(run)
+
+
+# ── Etap 2: CV/LLM extractor (kosztowny, gated, admin-only, nigdy auto) ────────
+
+
+@router.post("/admin/backfill-cv-llm")
+async def trigger_cv_llm_backfill(
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        description="Przetwórz co najwyżej N kandydatów (kontrolowana populacja).",
+    ),
+    only_active: bool = Query(
+        default=True,
+        description="Tylko aktywni konsultanci (u klienta) — najpierw oni (Etap 2).",
+    ),
+) -> dict[str, Any]:
+    """Odpal ekstrakcję cv_llm w tle. Admin only, gated ``CORTEX_CV_LLM_ENABLED``.
+
+    Kosztowny (LLM per kandydat) — pełnego backfillu NIE uruchamiać przed
+    walidacją Etapu 0 i ekstraktora na ograniczonej populacji (``limit``)."""
+    if not settings.CORTEX_CV_LLM_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CV/LLM extractor wyłączony (CORTEX_CV_LLM_ENABLED=false)",
+        )
+    await runs.reap_orphans(db)
+    run_id = await runs.create_run(
+        db,
+        run_type="manual",
+        triggered_by=getattr(_admin, "email", None),
+        source="cv_llm",
+    )
+    if run_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Ekstrakcja cv_llm już trwa"
+        )
+    _spawn(_run_cv_llm_task(run_id, limit, only_active))
+    return {"status": "started", "run_id": run_id, "limit": limit}
+
+
+@router.get("/admin/backfill-cv-llm/status")
+async def cv_llm_backfill_status(
+    _admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Postęp ostatniej ekstrakcji cv_llm (trwały ``cortex_extraction_runs``)."""
+    run = await runs.latest_run(db, source="cv_llm")
+    status_dict = _idle_run_status() if run is None else _serialize_run(run)
+    status_dict["enabled"] = settings.CORTEX_CV_LLM_ENABLED
+    return status_dict

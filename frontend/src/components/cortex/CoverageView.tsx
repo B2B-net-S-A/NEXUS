@@ -11,10 +11,14 @@ const FRESHNESS_LABELS: Record<string, string> = {
   unknown: "nieznana data",
 };
 
+// Semantic freshness ramp using existing theme tokens (globals.css defines
+// --success / --warning; --destructive is also a mapped Tailwind color). Arbitrary
+// `bg-[hsl(var(--…))]` values keep this theme-aware without adding new tokens.
+// fresh → good (success), medium → warning, stale → destructive.
 const FRESHNESS_COLORS: Record<string, string> = {
-  lt_1y: "bg-emerald-500",
-  y1_3: "bg-amber-400",
-  gt_3y: "bg-orange-500",
+  lt_1y: "bg-[hsl(var(--success))]",
+  y1_3: "bg-[hsl(var(--warning))]",
+  gt_3y: "bg-destructive",
   unknown: "bg-muted-foreground/40",
 };
 

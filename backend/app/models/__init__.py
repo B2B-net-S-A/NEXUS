@@ -387,4 +387,9 @@ from app.models.dr_sales import (
 )  # noqa: F401
 from app.models.dr_upload import DrUploadHistory  # noqa: F401
 from app.models.dr_user_seniority import DrUserSeniority  # noqa: F401
-from app.models.cortex import CortexSkillFact, CortexUnmatchedTerm  # noqa: F401
+from app.models.cortex import (  # noqa: F401
+    CortexExtractionRun,
+    CortexSkillFact,
+    CortexUnmatchedObservation,
+    CortexUnmatchedTerm,
+)

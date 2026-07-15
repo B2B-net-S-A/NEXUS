@@ -977,6 +977,56 @@ _COLUMN_STATEMENTS = [
         status VARCHAR(12) NOT NULL DEFAULT 'new',
         CONSTRAINT uq_cortex_unmatched_term UNIQUE (term)
     )""",
+    # Cortex Trust Foundation (0160): nowe TABELE/KOLUMNY/INDEXY muszą być
+    # mirrorowane tu, inaczej `select(CortexSkillFact/…)` 500-kuje na prod przy
+    # multi-head/skipniętym alembicu (ta sama reguła co wyżej, incident 2026-07-12).
+    "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS extractor_version VARCHAR(40)",
+    "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS run_id BIGINT",
+    "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)",
+    "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS source_ref VARCHAR(120)",
+    "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ",
+    "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_by VARCHAR(120)",
+    "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_at TIMESTAMPTZ",
+    """CREATE TABLE IF NOT EXISTS cortex_extraction_runs (
+        id BIGSERIAL PRIMARY KEY,
+        run_type VARCHAR(10) NOT NULL,
+        source VARCHAR(20) NOT NULL DEFAULT 'traffit',
+        status VARCHAR(12) NOT NULL DEFAULT 'running',
+        triggered_by VARCHAR(120) NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at TIMESTAMPTZ NULL,
+        heartbeat_at TIMESTAMPTZ NULL,
+        cursor_candidate_id INTEGER NULL,
+        stats JSONB NULL,
+        last_error TEXT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_runs_status_started "
+    "ON cortex_extraction_runs (status, started_at)",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_runs_started "
+    "ON cortex_extraction_runs (started_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_cortex_single_running "
+    "ON cortex_extraction_runs (source) WHERE status = 'running'",
+    """CREATE TABLE IF NOT EXISTS cortex_unmatched_observations (
+        id BIGSERIAL PRIMARY KEY,
+        term TEXT NOT NULL,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        source VARCHAR(20) NOT NULL DEFAULT 'traffit',
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_cortex_unmatched_obs UNIQUE (term, candidate_id, source)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_obs_term "
+    "ON cortex_unmatched_observations (term)",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_obs_candidate "
+    "ON cortex_unmatched_observations (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_status "
+    "ON cortex_unmatched_terms (status)",
+    # Guard po dedupie taksonomii (0160). Jeśli alembic nie zdążył scalić
+    # duplikatów, te CREATE UNIQUE INDEX padną i zostaną pominięte (try/except
+    # w backfill()) — wrócą przy następnym deployu po udanym alembicu.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_skills_canonical_lower "
+    "ON skills (lower(canonical_name))",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_skill_aliases_alias_lower "
+    "ON skill_aliases (lower(alias))",
 ]
 
 _DATA_STATEMENTS = [

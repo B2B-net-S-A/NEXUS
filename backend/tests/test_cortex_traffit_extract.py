@@ -15,7 +15,11 @@ from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
-from app.models.cortex import CortexSkillFact, CortexUnmatchedTerm
+from app.models.cortex import (
+    CortexSkillFact,
+    CortexUnmatchedObservation,
+    CortexUnmatchedTerm,
+)
 from app.models.skill import Skill, SkillAlias
 from app.services.cortex.extractor_traffit import run_traffit_backfill
 
@@ -110,12 +114,20 @@ async def test_traffit_backfill_upserts_facts_idempotently(app_client: AsyncClie
                     )
                 )
             ).scalar_one()
-            assert term_row.occurrences == first_occurrences + 1
+            # Idempotencja unmatched: rerun na niezmienionych danych NIE zawyża
+            # licznika (dawny bug — liczył przebiegi backfillu, nie unikalnych
+            # kandydatów; teraz gate przez cortex_unmatched_observations).
+            assert term_row.occurrences == first_occurrences
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(
                 delete(CortexSkillFact).where(
                     CortexSkillFact.candidate_id == candidate_id
+                )
+            )
+            await db.execute(
+                delete(CortexUnmatchedObservation).where(
+                    CortexUnmatchedObservation.candidate_id == candidate_id
                 )
             )
             await db.execute(
@@ -128,4 +140,67 @@ async def test_traffit_backfill_upserts_facts_idempotently(app_client: AsyncClie
                 delete(SkillAlias).where(SkillAlias.skill_id == skill_id)
             )
             await db.execute(delete(Skill).where(Skill.id == skill_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_traffit_backfill_reconciles_removed_skills(app_client: AsyncClient):
+    """Skill usunięty ze źródła znika z fact store (reconcile per candidate)."""
+    unique = uuid.uuid4().hex[:8]
+    canon_a = f"recon-a-{unique}"
+    canon_b = f"recon-b-{unique}"
+
+    async with AsyncSessionLocal() as db:
+        skill_a = Skill(canonical_name=canon_a, category="test")
+        skill_b = Skill(canonical_name=canon_b, category="test")
+        db.add_all([skill_a, skill_b])
+        await db.flush()
+        candidate = Candidate(
+            name="Recon",
+            lastname=f"Test-{unique}",
+            email=f"recon-{unique}@example.com",
+            cv_extracted_data={"traffit_technologie": f"{canon_a}, {canon_b}"},
+        )
+        db.add(candidate)
+        await db.commit()
+        candidate_id, a_id, b_id = candidate.id, skill_a.id, skill_b.id
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await run_traffit_backfill(db, limit=None)
+        async with AsyncSessionLocal() as db:
+            facts = (
+                await db.execute(
+                    select(CortexSkillFact).where(
+                        CortexSkillFact.candidate_id == candidate_id
+                    )
+                )
+            ).scalars().all()
+            assert {f.skill_id for f in facts} == {a_id, b_id}
+
+        # Usuń skill B ze źródła → reconcile ma go skasować.
+        async with AsyncSessionLocal() as db:
+            cand = await db.get(Candidate, candidate_id)
+            cand.cv_extracted_data = {"traffit_technologie": canon_a}
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            await run_traffit_backfill(db, limit=None)
+        async with AsyncSessionLocal() as db:
+            facts = (
+                await db.execute(
+                    select(CortexSkillFact).where(
+                        CortexSkillFact.candidate_id == candidate_id
+                    )
+                )
+            ).scalars().all()
+            assert {f.skill_id for f in facts} == {a_id}
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CortexSkillFact).where(
+                    CortexSkillFact.candidate_id == candidate_id
+                )
+            )
+            await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
+            await db.execute(delete(Skill).where(Skill.id.in_([a_id, b_id])))
             await db.commit()

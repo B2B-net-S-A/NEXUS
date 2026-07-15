@@ -545,6 +545,21 @@ class Settings(BaseSettings):
     # everything changed in Traffit since the one-time migration. After that,
     # the watermark drives the cutoff.
     TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
+    # Cortex extraction phase within the Traffit sync — keeps skill facts fresh
+    # (delta re-extraction of just-changed candidates + weekly full reconcile).
+    # Runs only when TRAFFIT_SYNC_ENABLED is also True; idempotent + reconciled,
+    # so safe. Set False to disable the phase without disabling the whole sync.
+    CORTEX_SYNC_ENABLED: bool = True
+    # Cortex CV/LLM extractor (Etap 2) — parses stored CV text via parse_cv
+    # (Claude→Ollama→regex) into source='cv_llm' facts. Kosztowny (LLM) i
+    # NIGDY nie odpala się automatycznie — tylko ręczny admin endpoint, gated.
+    # Default OFF: nie uruchamiać pełnego backfillu przed walidacją Etapu 0.
+    CORTEX_CV_LLM_ENABLED: bool = False
+    # Cortex resolved facts jako DODATKOWY sygnał w scoringu (Etap 2). Default
+    # OFF — włączenie zmienia wyniki matchingu, więc WYMAGA walidacji przez
+    # scripts/eval_matching.py (Precision@5/Recall@20/MRR/nDCG przed/po) zgodnie
+    # z regułą autonomous-verification §4. Gdy OFF: zero zmiany zachowania.
+    CORTEX_FACTS_IN_SCORING: bool = False
 
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but

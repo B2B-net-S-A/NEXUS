@@ -1053,6 +1053,42 @@ async def api_health_check():
         except Exception:
             checks["traffit"] = "degraded"
 
+    # Cortex extraction — informational. Świeżość ostatniego przebiegu faktów
+    # skilli (cortex_extraction_runs). Overall status pozostaje DB-only; to tylko
+    # uwidacznia stale/failed backfill po deployu. `unconfigured` (brak runów) /
+    # `degraded` (failed / stary / z błędami) / `healthy` (świeży ok / w toku).
+    try:
+        from datetime import datetime as _cdt
+        from datetime import timedelta as _ctd
+        from datetime import timezone as _ctz
+
+        async with AsyncSessionLocal() as session:
+            row = await asyncio.wait_for(
+                session.execute(
+                    text(
+                        "SELECT status, finished_at, started_at "
+                        "FROM cortex_extraction_runs "
+                        "ORDER BY started_at DESC LIMIT 1"
+                    )
+                ),
+                timeout=1.0,
+            )
+        r = row.fetchone()
+        if r is None:
+            checks["cortex"] = "unconfigured"  # nigdy nie ekstrahowano
+        elif r[0] == "running":
+            checks["cortex"] = "healthy"  # run w toku
+        elif r[0] in ("failed", "errors"):
+            checks["cortex"] = "degraded"
+        else:  # ok
+            finished = r[1] or r[2]
+            if finished is None or (_cdt.now(_ctz.utc) - finished) > _ctd(days=8):
+                checks["cortex"] = "degraded"  # stary (daily + weekly full)
+            else:
+                checks["cortex"] = "healthy"
+    except Exception:
+        checks["cortex"] = "degraded"
+
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
     # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
@@ -1193,10 +1229,17 @@ async def api_health_deep_check():
     from app.models.contract import Contract
     from app.models.contract_candidate_rate import ContractCandidateRate
     from app.models.contract_client_rate import ContractClientRate
+    from app.models.cortex import (
+        CortexExtractionRun,
+        CortexSkillFact,
+        CortexUnmatchedObservation,
+        CortexUnmatchedTerm,
+    )
     from app.models.job import Job
 
     # (check_name, ORM model). Names are table-oriented so a red check in the
-    # deploy log points straight at the drifted table.
+    # deploy log points straight at the drifted table. Cortex tables added after
+    # the 2026-07-12 incident (green deploy, tables missing → /api/cortex/* 500).
     core_checks = [
         ("contracts", Contract),
         ("contract_candidate_rates", ContractCandidateRate),
@@ -1204,6 +1247,10 @@ async def api_health_deep_check():
         ("candidates", Candidate),
         ("clients", Client),
         ("jobs", Job),
+        ("cortex_skill_facts", CortexSkillFact),
+        ("cortex_unmatched_terms", CortexUnmatchedTerm),
+        ("cortex_unmatched_observations", CortexUnmatchedObservation),
+        ("cortex_extraction_runs", CortexExtractionRun),
     ]
 
     checks: dict[str, str] = {}

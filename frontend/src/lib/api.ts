@@ -1220,7 +1220,19 @@ export interface CortexTechMap {
   candidates_covered: number;
   candidates_total: number;
   fill_rate_pct: number;
+  /** Per-source distinct-candidate counts that MAY OVERLAP (a candidate present
+   *  in two sources counts in both) — never sum these for a headline. */
   sources: Record<string, number>;
+  /** TRUE per-skill total (distinct candidates), NOT filtered by min_count and
+   *  NOT the sum of visible cells — use for the "Σ" column. */
+  skill_totals: Record<string, number>;
+  /** Canonical skill name → skill id for the visible skills — enables drill-down
+   *  from a heatmap cell (the heatmap works on names, drill-down needs the id). */
+  skill_ids: Record<string, number>;
+  /** Active employment filter echoed back by the backend (null = all). */
+  employment: string | null;
+  /** ISO timestamp of the freshest underlying fact (null = unknown). */
+  data_as_of: string | null;
   min_count: number;
 }
 
@@ -1251,14 +1263,113 @@ export interface CortexCoverage {
     contracts_natural_expiry: number;
   };
   unmatched_terms: CortexUnmatchedTerm[];
+  /** ISO timestamp of the freshest underlying fact (null = unknown). */
+  data_as_of: string | null;
 }
 
 export interface CortexUnmatchedTerm {
+  /** Row id — needed by the admin curation actions (map/ignore). Both
+   *  `/unmatched-terms` and `coverage.unmatched_terms` serialize it. */
+  id: number;
   term: string;
   occurrences: number;
   status: "new" | "mapped" | "ignored";
   last_seen_at: string | null;
 }
+
+// ── Cortex Action Layer (Etap 1): drill-down, search, client×stack, successors ──
+
+export interface CortexSkillListItem {
+  id: number;
+  canonical_name: string;
+  category: string | null;
+  candidates: number;
+}
+
+export interface CortexSkillList {
+  skills: CortexSkillListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CortexSkillCandidate {
+  id: number;
+  name: string;
+  lastname: string;
+  availability_status: string | null;
+  seniority: string;
+  confidence: number;
+  level: string | null;
+  years: number | null;
+  evidence: string | null;
+  sources: string[];
+  at_client: boolean;
+  observed_at: string | null;
+  /** Freshness bucket of the strongest fact: lt_1y | y1_3 | gt_3y | unknown. */
+  freshness: string;
+}
+
+export interface CortexSkillCandidates {
+  candidates: CortexSkillCandidate[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CortexClientStackCell {
+  client_id: number;
+  client: string;
+  skill: string;
+  count: number;
+}
+
+export interface CortexClientStackClient {
+  id: number;
+  name: string;
+  consultants: number;
+}
+
+export interface CortexClientStack {
+  cells: CortexClientStackCell[];
+  clients: CortexClientStackClient[];
+  min_count: number;
+}
+
+export interface CortexSuccessorCandidate {
+  id: number;
+  name: string;
+  lastname: string;
+  availability_status: string | null;
+  /** Number of overlapping skills with the departing consultant. */
+  overlap: number;
+}
+
+export interface CortexEndingContract {
+  contract_id: number;
+  candidate_id: number;
+  candidate_name: string | null;
+  candidate_lastname: string | null;
+  client_id: number;
+  client_name: string | null;
+  end_date: string | null;
+  skill_count: number;
+  successors: CortexSuccessorCandidate[];
+}
+
+export interface CortexSuccessors {
+  days: number;
+  ending_contracts: CortexEndingContract[];
+}
+
+export interface CortexCreatedSkill {
+  id: number;
+  canonical_name: string;
+  mapped_term: string | null;
+}
+
+/** Multi-value seniority filter for the drill-down. */
+export type CortexSeniority = "junior" | "mid" | "senior" | "unknown";
 
 export interface CortexBackfillStatus {
   running: boolean;
@@ -1273,6 +1384,71 @@ export interface CortexBackfillStatus {
   last_error: string | null;
 }
 
+// ── Cortex Intelligence Layer (Etap 2): supply/demand, resolved skills, ──────
+//    title normalization, CV-LLM extraction backfill.
+
+export interface CortexSupplyDemandSkill {
+  skill: string;
+  /** Distinct candidates with a fact for the skill. */
+  supply: number;
+  /** Open jobs that require the skill. */
+  demand: number;
+  /** demand − supply; positive = shortage ("niedobór"). */
+  gap: number;
+}
+
+export interface CortexSupplyDemand {
+  /** Already sorted by gap desc (biggest shortage first). */
+  skills: CortexSupplyDemandSkill[];
+  open_jobs: number;
+  only_must: boolean;
+}
+
+/** One resolved fact per skill, picked by source precedence × freshness. */
+export interface CortexResolvedSkill {
+  skill_id: number;
+  skill: string;
+  source: string;
+  effective_confidence: number;
+  level: string | null;
+  years: number | null;
+  observed_at: string | null;
+}
+
+export interface CortexResolvedSkills {
+  candidate_id: number;
+  skills: CortexResolvedSkill[];
+}
+
+export interface CortexNormalizedTitle {
+  title: string;
+  seniority: string | null;
+  technologies: string[];
+}
+
+export interface CortexCvLlmStatus {
+  running: boolean;
+  status: string;
+  run_id?: number;
+  source?: string;
+  total: number;
+  processed: number;
+  facts_upserted: number;
+  errors: number;
+  started_at: string | null;
+  finished_at: string | null;
+  last_error: string | null;
+  /** FALSE when CORTEX_CV_LLM_ENABLED=false → trigger returns 503. */
+  enabled: boolean;
+}
+
+export interface CortexCvLlmTrigger {
+  status: string;
+  run_id: number;
+  /** Echoed back; null when no cap was passed. */
+  limit: number | null;
+}
+
 export const cortexApi = {
   techMap: (params: {
     source?: string;
@@ -1280,9 +1456,12 @@ export const cortexApi = {
     min_count?: number;
   }) => api.get<CortexTechMap>("/api/cortex/tech-map", { params }),
   coverage: () => api.get<CortexCoverage>("/api/cortex/coverage"),
-  unmatchedTerms: (limit = 100) =>
+  unmatchedTerms: (params?: {
+    status?: "new" | "mapped" | "ignored" | "all";
+    limit?: number;
+  }) =>
     api.get<CortexUnmatchedTerm[]>("/api/cortex/unmatched-terms", {
-      params: { limit },
+      params: { status: params?.status ?? "new", limit: params?.limit ?? 100 },
     }),
   triggerTraffitBackfill: (limit?: number) =>
     api.post("/api/cortex/admin/backfill-traffit", null, {
@@ -1290,6 +1469,79 @@ export const cortexApi = {
     }),
   traffitBackfillStatus: () =>
     api.get<CortexBackfillStatus>("/api/cortex/admin/backfill-traffit/status"),
+
+  // ── Action Layer (Etap 1) ──────────────────────────────────────────────────
+  /** Full, searchable, paginated skill list (replaces the top-40 heatmap cap). */
+  skills: (params?: {
+    q?: string;
+    source?: string;
+    limit?: number;
+    offset?: number;
+  }) => api.get<CortexSkillList>("/api/cortex/skills", { params }),
+  /** Drill-down: concrete candidates who have a fact for `skillId`. */
+  skillCandidates: (
+    skillId: number,
+    params?: {
+      seniority?: string[];
+      source?: string;
+      employment?: "at_client" | "available";
+      min_confidence?: number;
+      limit?: number;
+      offset?: number;
+    },
+  ) =>
+    api.get<CortexSkillCandidates>(`/api/cortex/skill/${skillId}/candidates`, {
+      params,
+      // FastAPI `Query(list)` needs repeated `seniority=a&seniority=b` — the
+      // axios default bracket form (`seniority[]=a`) is NOT parsed as a list.
+      paramsSerializer: { indexes: null },
+    }),
+  /** Matrix client × skill × #consultants embedded at the client. */
+  clientStack: (params?: { client_id?: number; min_count?: number }) =>
+    api.get<CortexClientStack>("/api/cortex/client-stack", { params }),
+  /** Ending contracts within `days` and their available successors. */
+  successors: (days = 30) =>
+    api.get<CortexSuccessors>("/api/cortex/successors", { params: { days } }),
+
+  // ── Curation (admin-only) ──────────────────────────────────────────────────
+  mapTerm: (termId: number, skillId: number) =>
+    api.post(`/api/cortex/unmatched-terms/${termId}/map`, {
+      skill_id: skillId,
+    }),
+  ignoreTerm: (termId: number) =>
+    api.post(`/api/cortex/unmatched-terms/${termId}/ignore`),
+  createSkill: (payload: {
+    canonical_name: string;
+    category?: string;
+    aliases?: string[];
+    from_term_id?: number;
+  }) => api.post<CortexCreatedSkill>("/api/cortex/skills", payload),
+  addAlias: (skillId: number, alias: string) =>
+    api.post(`/api/cortex/skills/${skillId}/aliases`, { alias }),
+
+  // ── Intelligence Layer (Etap 2) ─────────────────────────────────────────────
+  /** Supply (candidates) vs demand (open jobs) per skill, sorted by gap desc. */
+  supplyDemand: (only_must?: boolean) =>
+    api.get<CortexSupplyDemand>("/api/cortex/supply-demand", {
+      params: only_must != null ? { only_must } : {},
+    }),
+  /** One resolved fact per skill for a candidate (source precedence × freshness). */
+  resolvedSkills: (candidateId: number) =>
+    api.get<CortexResolvedSkills>(
+      `/api/cortex/candidate/${candidateId}/resolved-skills`,
+    ),
+  /** Normalize a free-text job title → seniority + technologies. */
+  normalizeTitle: (title: string) =>
+    api.get<CortexNormalizedTitle>("/api/cortex/normalize-title", {
+      params: { title },
+    }),
+  /** Admin-only CV-LLM extraction backfill. 503 when disabled, 409 if running. */
+  triggerCvLlmBackfill: (params?: { limit?: number; only_active?: boolean }) =>
+    api.post<CortexCvLlmTrigger>("/api/cortex/admin/backfill-cv-llm", null, {
+      params: params ?? {},
+    }),
+  cvLlmStatus: () =>
+    api.get<CortexCvLlmStatus>("/api/cortex/admin/backfill-cv-llm/status"),
 };
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────

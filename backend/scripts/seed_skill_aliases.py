@@ -27,7 +27,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import func, select  # noqa: E402
 from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
@@ -485,8 +485,14 @@ async def _run(commit: bool) -> int:
         for category, skills in SKILL_TAXONOMY.items():
             for canonical, aliases in skills.items():
                 # 1) Insert canonical Skill (or fetch existing).
+                #    Lookup CASE-INSENSITIVE — inaczej "Python" (ten seed) nie
+                #    znajdował "python" (migracja 0012) i tworzył DUPLIKAT
+                #    (root-cause dedupu w migracji 0160). Guard DB: funkcyjny
+                #    unique ``lower(canonical_name)``.
                 existing = await db.scalar(
-                    select(Skill).where(Skill.canonical_name == canonical)
+                    select(Skill).where(
+                        func.lower(Skill.canonical_name) == canonical.lower()
+                    )
                 )
                 if existing is None:
                     if commit:
@@ -500,7 +506,10 @@ async def _run(commit: bool) -> int:
                         if skill_id is None:
                             # Race: another worker inserted between SELECT and INSERT.
                             skill_id = await db.scalar(
-                                select(Skill.id).where(Skill.canonical_name == canonical)
+                                select(Skill.id).where(
+                                    func.lower(Skill.canonical_name)
+                                    == canonical.lower()
+                                )
                             )
                         inserted_skills += 1
                     else:

@@ -60,10 +60,30 @@ async def compute_tech_map(
     employment: Optional[str] = None,
     min_count: int = 2,
 ) -> dict:
-    """Agregat: komórki (skill, seniority) → liczba UNIKALNYCH kandydatów."""
-    seniority = derived_seniority_case().label("seniority")
+    """Agregat: komórki (skill, seniority) → liczba UNIKALNYCH kandydatów.
 
-    base = (
+    Spójny kohort: te same filtry (``source`` + ``employment``) stosujemy do
+    komórek, licznika pokrytych, mianownika i rozbicia źródeł — inaczej
+    fill-rate i „Σ" wprowadzały w błąd (audyt P1):
+    - ``skill_totals`` = PEŁNY total per skill (BEZ ``min_count``), żeby „Σ" w UI
+      był prawdziwy, a nie sumą tylko widocznych komórek;
+    - ``candidates_covered`` = distinct kandydatów po wszystkich źródłach
+      (overlap-aware) — headline; ``sources`` = rozbicie per-źródło (może się
+      nakładać, więc NIE sumować go w UI);
+    - mianownik (``candidates_total``) respektuje kohort ``employment``.
+    """
+    seniority = derived_seniority_case().label("seniority")
+    emp_pred = _employment_predicate() if employment == "at_client" else None
+
+    def _scoped(q):
+        if source:
+            q = q.where(CortexSkillFact.source == source)
+        if emp_pred is not None:
+            q = q.where(emp_pred)
+        return q
+
+    # Komórki heatmapy (filtrowane ``min_count``).
+    cells_q = _scoped(
         select(
             Skill.canonical_name.label("skill"),
             seniority,
@@ -72,58 +92,108 @@ async def compute_tech_map(
         .select_from(CortexSkillFact)
         .join(Skill, Skill.id == CortexSkillFact.skill_id)
         .join(Candidate, Candidate.id == CortexSkillFact.candidate_id)
-    )
-    covered_q = (
+    ).group_by(Skill.canonical_name, seniority)
+    if min_count > 1:
+        cells_q = cells_q.having(
+            func.count(distinct(CortexSkillFact.candidate_id)) >= min_count
+        )
+
+    # Prawdziwy total per skill — BEZ ``min_count`` (poprawne „Σ").
+    totals_q = _scoped(
+        select(
+            Skill.canonical_name.label("skill"),
+            func.count(distinct(CortexSkillFact.candidate_id)).label("cnt"),
+        )
+        .select_from(CortexSkillFact)
+        .join(Skill, Skill.id == CortexSkillFact.skill_id)
+        .join(Candidate, Candidate.id == CortexSkillFact.candidate_id)
+    ).group_by(Skill.canonical_name)
+
+    covered_q = _scoped(
         select(func.count(distinct(CortexSkillFact.candidate_id)))
         .select_from(CortexSkillFact)
         .join(Candidate, Candidate.id == CortexSkillFact.candidate_id)
     )
-    if source:
-        base = base.where(CortexSkillFact.source == source)
-        covered_q = covered_q.where(CortexSkillFact.source == source)
-    if employment == "at_client":
-        base = base.where(_employment_predicate())
-        covered_q = covered_q.where(_employment_predicate())
 
-    base = base.group_by(Skill.canonical_name, seniority)
-    if min_count > 1:
-        base = base.having(
-            func.count(distinct(CortexSkillFact.candidate_id)) >= min_count
+    # Mianownik = kohort (respektuje filtr zatrudnienia).
+    total_q = select(func.count(Candidate.id))
+    if emp_pred is not None:
+        total_q = total_q.where(emp_pred)
+
+    # Rozbicie per-źródło (respektuje kohort zatrudnienia; NIE zawężamy do
+    # jednego źródła — chcemy pokazać nakładanie się źródeł).
+    sources_q = (
+        select(
+            CortexSkillFact.source,
+            func.count(distinct(CortexSkillFact.candidate_id)),
         )
+        .select_from(CortexSkillFact)
+        .join(Candidate, Candidate.id == CortexSkillFact.candidate_id)
+        .group_by(CortexSkillFact.source)
+    )
+    if emp_pred is not None:
+        sources_q = sources_q.where(emp_pred)
 
-    rows = (await db.execute(base)).all()
+    # „Dane na dzień" — najświeższy fakt w kohorcie (discovery: nie udawaj, że
+    # liczby są bieżące).
+    as_of_q = _scoped(
+        select(func.max(CortexSkillFact.extracted_at))
+        .select_from(CortexSkillFact)
+        .join(Candidate, Candidate.id == CortexSkillFact.candidate_id)
+    )
+
+    cell_rows = (await db.execute(cells_q)).all()
+    total_rows = (await db.execute(totals_q)).all()
     covered = (await db.execute(covered_q)).scalar() or 0
-    total_candidates = (
-        await db.execute(select(func.count(Candidate.id)))
-    ).scalar() or 0
-
-    per_source_rows = (
-        await db.execute(
-            select(
-                CortexSkillFact.source,
-                func.count(distinct(CortexSkillFact.candidate_id)),
-            ).group_by(CortexSkillFact.source)
-        )
-    ).all()
+    total_candidates = (await db.execute(total_q)).scalar() or 0
+    per_source_rows = (await db.execute(sources_q)).all()
+    data_as_of = (await db.execute(as_of_q)).scalar()
 
     cells = [
         {"skill": skill, "seniority": seniority_val, "count": cnt}
-        for skill, seniority_val, cnt in rows
+        for skill, seniority_val, cnt in cell_rows
     ]
-    skill_totals: dict[str, int] = {}
-    for cell in cells:
-        skill_totals[cell["skill"]] = skill_totals.get(cell["skill"], 0) + cell["count"]
-    skills_axis = sorted(skill_totals, key=lambda s: -skill_totals[s])
+    skill_totals = {skill: cnt for skill, cnt in total_rows}
+    # Oś = skille z widoczną komórką (po ``min_count``), sortowane wg PEŁNEGO totalu.
+    visible = {cell["skill"] for cell in cells}
+    skills_axis = [
+        skill
+        for skill in sorted(skill_totals, key=lambda s: -skill_totals[s])
+        if skill in visible
+    ]
+
+    # Mapa nazwa→skill_id dla widocznych skilli — umożliwia drill-down z komórki
+    # (heatmapa operuje na nazwach kanonicznych).
+    skill_ids: dict[str, int] = {}
+    if skills_axis:
+        skill_ids = {
+            name: sid
+            for name, sid in (
+                await db.execute(
+                    select(Skill.canonical_name, Skill.id).where(
+                        Skill.canonical_name.in_(skills_axis)
+                    )
+                )
+            ).all()
+        }
 
     return {
         "cells": cells,
         "skills": skills_axis,
+        # Nazwa→id dla drill-downu z komórki.
+        "skill_ids": skill_ids,
+        # Prawdziwy total per skill (dla „Σ" w UI — nie sumować komórek).
+        "skill_totals": {skill: skill_totals[skill] for skill in skills_axis},
         "seniorities": SENIORITY_ORDER,
         "candidates_covered": covered,
         "candidates_total": total_candidates,
         "fill_rate_pct": (
             round(covered / total_candidates * 100, 1) if total_candidates else 0.0
         ),
+        # Rozbicie per-źródło — MOŻE się nakładać (kandydat w 2 źródłach liczony
+        # w obu), więc UI pokazuje je osobno, a nie jako sumę.
         "sources": {src: cnt for src, cnt in per_source_rows},
+        "employment": employment,
         "min_count": min_count,
+        "data_as_of": data_as_of.isoformat() if data_as_of else None,
     }
