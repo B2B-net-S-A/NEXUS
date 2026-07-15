@@ -273,9 +273,6 @@ export const dlPortalApi = {
   deleteFrameworkContract: (clientId: number, fcId: number) =>
     api.delete(`/api/clients/${clientId}/framework-contracts/${fcId}`),
 
-  downloadFrameworkContractUrl: (clientId: number, fcId: number) =>
-    `/api/clients/${clientId}/framework-contracts/${fcId}/file`,
-
   // Amendments
   listAmendments: (clientId: number, fcId: number) =>
     api.get<AmendmentRead[]>(
@@ -327,9 +324,6 @@ export const dlPortalApi = {
 
   deleteOrder: (clientId: number, orderId: number) =>
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),
-
-  downloadOrderUrl: (clientId: number, orderId: number) =>
-    `/api/clients/${clientId}/orders/${orderId}/file`,
 
   // My clients
   listMyClients: () => api.get<MyClientRow[]>("/api/my-clients"),

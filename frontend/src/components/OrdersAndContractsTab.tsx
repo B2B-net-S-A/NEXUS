@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import type {
   ClientOrderRead,
   ClientOrderStatus,
@@ -339,6 +340,19 @@ function OrderRow({
   const expiringWarn =
     order.days_to_end !== null && order.days_to_end >= 0 && order.days_to_end <= 30;
 
+  // The file endpoint is Bearer-guarded — a raw <a href> sends no Authorization
+  // header. Fetch the bytes with the token and download the same-origin blob.
+  const handleDownloadPo = async () => {
+    try {
+      await downloadAuthenticatedFile(
+        `/api/clients/${clientId}/orders/${order.id}/file`,
+        order.filename ?? `zamowienie-${order.id}.pdf`,
+      );
+    } catch {
+      onError("Nie udało się pobrać pliku zamówienia.");
+    }
+  };
+
   return (
     <div className="flex items-start justify-between gap-3 text-sm border border-border rounded p-2 bg-background">
       <div className="flex-1 min-w-0">
@@ -373,15 +387,14 @@ function OrderRow({
             <span className="text-violet-600">Job: {order.job_title}</span>
           )}
           {order.has_file && (
-            <a
-              href={dlPortalApi.downloadOrderUrl(clientId, order.id)}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={handleDownloadPo}
               className="flex items-center gap-1 hover:text-violet-600"
             >
               <Download className="w-3 h-3" />
               PDF
-            </a>
+            </button>
           )}
         </div>
       </div>

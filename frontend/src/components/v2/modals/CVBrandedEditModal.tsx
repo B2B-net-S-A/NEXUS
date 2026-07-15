@@ -35,6 +35,7 @@ import {
  SelectValue,
 } from"@/components/ui/select";
 import { useToast } from"@/components/Toast";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import {
  candidateStageCvApi,
  type CVBrandedState,
@@ -187,8 +188,18 @@ export function CVBrandedEditModal({
  swapMut.mutate(payload);
  };
 
- const handlePrint = () => {
- window.open(candidateStageCvApi.branded.printableUrl(stageId), "_blank");
+ // Print view is Bearer-guarded — a raw window.open sends no Authorization
+ // header and lands on a white "Not authenticated" page. Fetch the HTML with
+ // auth and open it as a same-origin blob URL (its inline window.print() runs).
+ const handlePrint = async () => {
+   try {
+     await openAuthenticatedFile(
+       `/api/candidates/stages/${stageId}/cv/branded/render-pdf`,
+       "text/html",
+     );
+   } catch {
+     showError("Nie udało się otworzyć CV do druku.");
+   }
  };
 
  const isFinalized = data?.status === "finalized";

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import type {
   FrameworkContractRead,
   FrameworkContractStatus,
@@ -135,8 +136,24 @@ function FrameworkContractRow({
   onToggle,
   onDelete,
 }: FrameworkContractRowProps) {
+  const { showToast } = useToast();
   const expiringWarn =
     fc.days_to_expiry !== null && fc.days_to_expiry >= 0 && fc.days_to_expiry <= 30;
+
+  // The file endpoint is Bearer-guarded — a raw <a href> sends no Authorization
+  // header (and the relative path would resolve to the frontend origin anyway).
+  // Fetch the bytes with the token and download the resulting same-origin blob.
+  const handleDownload = async () => {
+    if (!fc.filename) return;
+    try {
+      await downloadAuthenticatedFile(
+        `/api/clients/${clientId}/framework-contracts/${fc.id}/file`,
+        fc.filename,
+      );
+    } catch {
+      showToast("Nie udało się pobrać pliku umowy.", "error");
+    }
+  };
 
   return (
     <li className="border border-border rounded-lg overflow-hidden bg-card">
@@ -172,14 +189,17 @@ function FrameworkContractRow({
               {fc.expiry_date && <span>do {fc.expiry_date}</span>}
               {fc.currency && <span>{fc.currency}</span>}
               {fc.has_file && fc.filename && (
-                <a
-                  href={dlPortalApi.downloadFrameworkContractUrl(clientId, fc.id)}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownload();
+                  }}
                   className="flex items-center gap-1 hover:text-violet-600"
-                  onClick={(e) => e.stopPropagation()}
                 >
                   <Download className="w-3 h-3" />
                   {fc.filename}
-                </a>
+                </button>
               )}
             </div>
           </div>
