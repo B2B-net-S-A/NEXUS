@@ -31,6 +31,10 @@ import {
   type SortMode,
 } from "@/lib/candidate-search-api";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import {
+  formatReasonCounts,
+  summarizeBulkResult,
+} from "@/lib/bulk-result-summary";
 
 const DEFAULT_REQUEST: CandidateSearchRequest = {
   q: null,
@@ -516,14 +520,29 @@ export function CandidateSearchView({
         </div>
       )}
 
-      {bulkResult && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-          Dodano {bulkResult.total_added} kandydatów do requestu „{addToJob?.title}".
-          {bulkResult.total_skipped > 0 && (
-            <> Pominięto {bulkResult.total_skipped} (już w jobie / blacklist).</>
-          )}
-        </div>
-      )}
+      {bulkResult &&
+        (() => {
+          const summary = summarizeBulkResult(bulkResult);
+          return (
+            <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+              <div>
+                Dodano {summary.added} kandydatów do requestu „{addToJob?.title}
+                ".
+              </div>
+              {summary.warnings.length > 0 && (
+                <div className="text-amber-700 dark:text-amber-300">
+                  ⚠ Z ostrzeżeniem: {formatReasonCounts(summary.warnings)}.
+                </div>
+              )}
+              {summary.skipped.length > 0 && (
+                <div className="text-zinc-600 dark:text-zinc-400">
+                  Pominięto {bulkResult.total_skipped}:{" "}
+                  {formatReasonCounts(summary.skipped)}.
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Result rows */}
       <ul className="divide-y rounded-lg border bg-card dark:border-zinc-800">
