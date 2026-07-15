@@ -166,6 +166,11 @@ async def _purge_expired_ai_ledger() -> None:
         )
         # Evaluation outputs are encrypted but intentionally short-lived.
         await db.execute(text("DELETE FROM ai_eval_outputs WHERE expires_at <= now()"))
+        # Re-evaluate the latest telemetry so direct DB/monitoring ingestion can
+        # trigger the same rollback decision as the admin API.
+        from app.services.ai_rollout import evaluate_active_rollouts
+
+        await evaluate_active_rollouts(db)
         await db.commit()
 
 

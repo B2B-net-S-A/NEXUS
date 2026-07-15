@@ -1213,6 +1213,62 @@ _COLUMN_STATEMENTS = [
             ("ix_ai_eval_outputs_expires_at", "ai_eval_outputs", "expires_at"),
         )
     ],
+    # Staged AI canary/rollback control plane (0169).
+    """CREATE TABLE IF NOT EXISTS ai_rollout_state (
+        feature VARCHAR(64) PRIMARY KEY, baseline_registry VARCHAR(64) NOT NULL,
+        target_registry VARCHAR(64) NOT NULL, stage VARCHAR(16) NOT NULL DEFAULT 'shadow',
+        percentage INTEGER NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'active',
+        min_stage_hours INTEGER NOT NULL DEFAULT 72, lock_version INTEGER NOT NULL DEFAULT 1,
+        offline_gate_reference VARCHAR(256) NOT NULL,
+        baseline_index_targets JSONB NOT NULL DEFAULT '{}'::jsonb,
+        target_index_targets JSONB NOT NULL DEFAULT '{}'::jsonb,
+        reason TEXT NOT NULL, rollback_reason TEXT NULL,
+        started_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        stage_started_at TIMESTAMPTZ NOT NULL DEFAULT now(), completed_at TIMESTAMPTZ NULL,
+        rollback_available_until TIMESTAMPTZ NULL, monitoring_until TIMESTAMPTZ NULL,
+        next_regression_at TIMESTAMPTZ NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_rollout_observations (
+        id BIGSERIAL PRIMARY KEY, feature VARCHAR(64) NOT NULL,
+        registry_version VARCHAR(64) NOT NULL, window_seconds INTEGER NOT NULL,
+        requests INTEGER NOT NULL DEFAULT 0, provider_errors INTEGER NOT NULL DEFAULT 0,
+        privacy_incidents INTEGER NOT NULL DEFAULT 0,
+        critical_hallucinations INTEGER NOT NULL DEFAULT 0,
+        hallucination_samples INTEGER NOT NULL DEFAULT 0,
+        p95_increase_pct DOUBLE PRECISION NOT NULL DEFAULT 0,
+        cost_increase_pct DOUBLE PRECISION NOT NULL DEFAULT 0,
+        recall_at_20_drop_pp DOUBLE PRECISION NOT NULL DEFAULT 0,
+        ndcg_at_10_drop_pct DOUBLE PRECISION NOT NULL DEFAULT 0,
+        worst_slice_drop_pp DOUBLE PRECISION NOT NULL DEFAULT 0,
+        source VARCHAR(64) NOT NULL,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_rollout_events (
+        id BIGSERIAL PRIMARY KEY, feature VARCHAR(64) NOT NULL,
+        event VARCHAR(32) NOT NULL, from_stage VARCHAR(16) NULL, to_stage VARCHAR(16) NULL,
+        reason TEXT NOT NULL, actor_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_rollout_reports (
+        id BIGSERIAL PRIMARY KEY, feature VARCHAR(64) NOT NULL,
+        report_type VARCHAR(20) NOT NULL, period_start TIMESTAMPTZ NOT NULL,
+        period_end TIMESTAMPTZ NOT NULL, quality_passed BOOLEAN NOT NULL,
+        artifact_ref VARCHAR(512) NOT NULL, notes TEXT NULL,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    *[
+        f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"
+        for name, table, column in (
+            ("ix_ai_rollout_observations_feature", "ai_rollout_observations", "feature"),
+            ("ix_ai_rollout_observations_created_at", "ai_rollout_observations", "created_at"),
+            ("ix_ai_rollout_events_feature", "ai_rollout_events", "feature"),
+            ("ix_ai_rollout_reports_feature", "ai_rollout_reports", "feature"),
+        )
+    ],
 ]
 
 _DATA_STATEMENTS = [
