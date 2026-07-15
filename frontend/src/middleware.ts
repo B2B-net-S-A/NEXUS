@@ -38,6 +38,7 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/settings/chats", roles: ["admin"] },
   { prefix: "/settings/team-structure", roles: ["admin"] },
   { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
+  { prefix: "/settings/data-imports", roles: ["admin"] },
   { prefix: "/settings/clients-overview", roles: ["admin", "head_of_recruitment"] },
   { prefix: "/settings/hiring-managers", roles: ["admin", "head_of_recruitment"] },
   // Cortex — dane kompetencyjne kandydatów (RODO gate, parytet z backendowym

@@ -11,6 +11,9 @@ import {
 import { cn } from "@/lib/utils"
 import { hasAnalyticsCapability, useAuthStore } from "@/store/auth"
 import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary"
+import {
+  useRecruitmentKpiPeriod,
+} from "@/components/insights/useInsightsPeriod"
 
 type Period = "day" | "week" | "month"
 type SortKey =
@@ -20,6 +23,7 @@ type SortKey =
   | "candidates_added"
   | "recommendations"
   | "placements"
+  | "precision_30d"
 
 const PERIOD_LABEL: Record<Period, string> = {
   day: "Dziś",
@@ -43,7 +47,7 @@ const COLUMNS: Array<{
 export function TeamKpiCoachSummary({ className }: { className?: string }) {
   const user = useAuthStore((state) => state.user)
   const canView = hasAnalyticsCapability(user, "view_recruitment_team")
-  const [period, setPeriod] = useState<Period>("week")
+  const [period, setPeriod] = useRecruitmentKpiPeriod("week")
   const [nameQuery, setNameQuery] = useState("")
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({
     key: "placements",
@@ -67,7 +71,13 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
       if (sort.key === "user_name") {
         return direction * left.user_name.localeCompare(right.user_name, "pl")
       }
-      const delta = (left[sort.key] ?? -1) - (right[sort.key] ?? -1)
+      const leftValue = sort.key === "precision_30d"
+        ? left.precision_30d.value_pct ?? -1
+        : left[sort.key] ?? -1
+      const rightValue = sort.key === "precision_30d"
+        ? right.precision_30d.value_pct ?? -1
+        : right[sort.key] ?? -1
+      const delta = leftValue - rightValue
       return delta === 0
         ? left.user_name.localeCompare(right.user_name, "pl")
         : direction * delta
@@ -83,6 +93,9 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
           candidates_added: sum.candidates_added + row.candidates_added,
           recommendations: sum.recommendations + row.recommendations,
           placements: sum.placements + row.placements,
+          precision_verified: sum.precision_verified + row.precision_30d.verified,
+          precision_recommended:
+            sum.precision_recommended + row.precision_30d.recommended,
         }),
         {
           calls_completed: 0,
@@ -90,6 +103,8 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
           candidates_added: 0,
           recommendations: 0,
           placements: 0,
+          precision_verified: 0,
+          precision_recommended: 0,
         },
       ),
     [rows],
@@ -198,6 +213,11 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
                       </button>
                     </th>
                   ))}
+                  <th className="px-2 py-2 text-right font-medium" title="Rekomendacje w kohorcie weryfikacji z ostatnich 30 dni">
+                    <button type="button" onClick={() => toggleSort("precision_30d")}>
+                      Precision 30 dni
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -219,6 +239,11 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
                     <td className="px-2 py-2 text-right font-semibold tabular-nums">
                       {row.placements}
                     </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {row.precision_30d.value_pct === null
+                        ? "—"
+                        : `${row.precision_30d.value_pct}%`}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -232,6 +257,11 @@ export function TeamKpiCoachSummary({ className }: { className?: string }) {
                   <td className="px-2 py-2 text-right tabular-nums">{totals.candidates_added}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{totals.recommendations}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{totals.placements}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {totals.precision_verified < 5
+                      ? "—"
+                      : `${Math.round((totals.precision_recommended * 10_000) / totals.precision_verified) / 100}%`}
+                  </td>
                 </tr>
               </tfoot>
             </table>

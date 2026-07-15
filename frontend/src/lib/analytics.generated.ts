@@ -271,6 +271,7 @@ export interface TeamKpiRow {
   candidates_added: number
   recommendations: number
   placements: number
+  precision_30d: PrecisionMetric
   targets: KpiTargets
 }
 

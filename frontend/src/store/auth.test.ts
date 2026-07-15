@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 
 import {
+  canViewHiringManagerAnalytics,
   getAvailableDashboardViews,
   getPreferredDashboardPath,
   getPreferredDashboardView,
@@ -90,6 +91,38 @@ describe("analytics capabilities", () => {
         },
         "clients-mrr",
       ),
+    ).toBe(true)
+  })
+
+  it("mounts hiring-manager analytics only with role and backend capability", () => {
+    expect(
+      canViewHiringManagerAnalytics({
+        role: "admin",
+        analytics_capabilities: ["view_client_operations"],
+      }),
+    ).toBe(true)
+    expect(
+      canViewHiringManagerAnalytics({
+        role: "head_of_recruitment",
+        analytics_capabilities: ["view_client_operations"],
+      }),
+    ).toBe(true)
+    expect(canViewHiringManagerAnalytics(mkUser("admin"))).toBe(false)
+    for (const role of [
+      "delivery_lead",
+      "tac",
+      "recruiter",
+      "sourcer",
+      "user",
+    ] as const) {
+      expect(canViewHiringManagerAnalytics(mkUser(role))).toBe(false)
+    }
+    expect(
+      canViewHiringManagerAnalytics({
+        role: "recruiter",
+        roles: ["head_of_recruitment"],
+        analytics_capabilities: ["view_client_operations"],
+      }),
     ).toBe(true)
   })
 })

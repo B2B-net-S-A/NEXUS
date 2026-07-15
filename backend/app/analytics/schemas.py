@@ -175,6 +175,7 @@ class TeamKpiRow(BaseModel):
     candidates_added: int
     recommendations: int
     placements: int
+    precision_30d: PrecisionMetric
     targets: KpiTargets
 
 

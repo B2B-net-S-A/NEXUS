@@ -432,6 +432,33 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
+    # Analytics v1 shadow evidence (migration 0165). Keep this idempotent
+    # mirror because production historically carried multiple Alembic heads.
+    """CREATE TABLE IF NOT EXISTS analytics_shadow_comparisons (
+        id BIGSERIAL PRIMARY KEY,
+        observed_on DATE NOT NULL,
+        module_key VARCHAR(64) NOT NULL,
+        metric_key VARCHAR(128) NOT NULL,
+        metric_version VARCHAR(32) NOT NULL,
+        period_start TIMESTAMPTZ NOT NULL,
+        period_end TIMESTAMPTZ NOT NULL,
+        legacy_value NUMERIC(24, 6),
+        analytics_value NUMERIC(24, 6),
+        absolute_diff NUMERIC(24, 6),
+        status VARCHAR(24) NOT NULL,
+        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+        first_observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_analytics_shadow_period CHECK (period_start < period_end),
+        CONSTRAINT ck_analytics_shadow_status CHECK (
+            status IN ('identical', 'mismatch', 'unavailable')
+        ),
+        CONSTRAINT uq_analytics_shadow_daily_metric UNIQUE (
+            observed_on, module_key, metric_key, metric_version
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_status_day ON analytics_shadow_comparisons (status, observed_on DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_module_day ON analytics_shadow_comparisons (module_key, observed_on DESC)",
     # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
     # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
     # UndefinedColumnError gdyby app wystartował przed alembic upgrade.
