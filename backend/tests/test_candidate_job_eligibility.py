@@ -14,6 +14,7 @@ from app.services.candidate_job_eligibility import (
     Severity,
     Visibility,
     evaluate_eligibility,
+    extract_excluded_client_ids,
 )
 
 NOW = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
@@ -155,6 +156,30 @@ class TestAlreadyInJob:
             already_in_job=True,
         )
         assert d.reason_code is EligibilityReason.client_blacklist
+
+
+class TestExtractExcludedClientIds:
+    def test_reads_int_list(self):
+        assert extract_excluded_client_ids({"excluded_clients": [1, 2, 3]}) == frozenset(
+            {1, 2, 3}
+        )
+
+    def test_reads_digit_strings(self):
+        assert extract_excluded_client_ids({"excluded_clients": ["5", "7"]}) == frozenset(
+            {5, 7}
+        )
+
+    def test_ignores_bools_and_junk(self):
+        got = extract_excluded_client_ids(
+            {"excluded_clients": [1, True, "abc", None, 2.5, 9]}
+        )
+        assert got == frozenset({1, 9})
+
+    def test_missing_key_or_wrong_shape(self):
+        assert extract_excluded_client_ids({}) == frozenset()
+        assert extract_excluded_client_ids({"excluded_clients": "5"}) == frozenset()
+        assert extract_excluded_client_ids(None) == frozenset()
+        assert extract_excluded_client_ids("nope") == frozenset()
 
 
 class TestEligibleBaseline:

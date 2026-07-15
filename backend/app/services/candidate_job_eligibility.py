@@ -88,6 +88,29 @@ _REASON_LABELS_PL: dict[EligibilityReason, str] = {
 }
 
 
+def extract_excluded_client_ids(preferences: object) -> frozenset[int]:
+    """Read ``Candidate.preferences.excluded_clients`` (JSONB) into a set of
+    client ids for :class:`EligibilityInput`.
+
+    Defensive: the JSONB shape is loosely typed across importers, so accept
+    ints and digit-strings and ignore anything else (bools included, since
+    ``bool`` is an ``int`` subclass in Python)."""
+    if not isinstance(preferences, dict):
+        return frozenset()
+    raw = preferences.get("excluded_clients")
+    if not isinstance(raw, list):
+        return frozenset()
+    out: set[int] = set()
+    for c in raw:
+        if isinstance(c, bool):
+            continue
+        if isinstance(c, int):
+            out.add(c)
+        elif isinstance(c, str) and c.isdigit():
+            out.add(int(c))
+    return frozenset(out)
+
+
 @dataclass(frozen=True)
 class ConflictInput:
     """A single ``CandidateConflict`` row, reduced to what the policy needs."""

@@ -143,7 +143,12 @@ export const candidateSearchApi = {
 export type BulkSkipReason =
   | "already_in_job"
   | "blacklisted"
-  | "candidate_not_found";
+  | "candidate_not_found"
+  | "client_blacklist"
+  | "client_nda"
+  | "client_competitor";
+
+export type BulkWarningReason = "current_employment" | "excluded_by_candidate";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];
@@ -155,11 +160,19 @@ export interface BulkProposalsRequest {
 export interface BulkSkippedRow {
   candidate_id: number;
   reason: BulkSkipReason;
+  reason_label?: string | null;
+}
+
+export interface BulkWarningRow {
+  candidate_id: number;
+  reason: BulkWarningReason;
+  reason_label?: string | null;
 }
 
 export interface BulkProposalsResponse {
   added: number[];
   skipped: BulkSkippedRow[];
+  warnings?: BulkWarningRow[];
   total_added: number;
   total_skipped: number;
 }
