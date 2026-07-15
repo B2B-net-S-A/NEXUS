@@ -18,6 +18,7 @@ from app.services.traffit.mappers import (
     normalize_traffit_role,
     select_all_files_with_priority,
     select_primary_cv_file,
+    strip_employment_marker,
     traffit_activity_to_activity,
     traffit_client_to_nexus,
     traffit_crm_person_to_nexus,
@@ -360,6 +361,53 @@ class TestTraffitEmployeeToCandidate:
     def test_missing_id_raises(self):
         with pytest.raises(ValueError, match="missing 'id'"):
             traffit_employee_to_candidate({"name": "X"})
+
+    def test_strips_legacy_employed_marker_from_name(self):
+        payload = {"id": 1, "name": "Jan", "lastname": "Kowalski [zatrudniony]"}
+        result = traffit_employee_to_candidate(payload)
+        assert result["name"] == "Jan"
+        assert result["lastname"] == "Kowalski"
+
+    def test_marker_only_lastname_falls_back_to_placeholder(self):
+        # Field held nothing but the marker → mapper's empty-name fallback.
+        payload = {"id": 1, "name": "[ZATRUDNIONY]", "lastname": "", "email": "a@b.pl"}
+        result = traffit_employee_to_candidate(payload)
+        assert result["name"] == "a"
+        assert result["lastname"] == "?"
+
+
+class TestStripEmploymentMarker:
+    def test_bracketed_suffix(self):
+        assert strip_employment_marker("Kowalski [zatrudniony]") == "Kowalski"
+
+    def test_parenthesized(self):
+        assert strip_employment_marker("Nowak (zatrudniona)") == "Nowak"
+
+    def test_bare_with_dash_separator(self):
+        assert strip_employment_marker("Kowalski - zatrudniony") == "Kowalski"
+
+    def test_case_insensitive_and_prefix(self):
+        assert strip_employment_marker("[ZATRUDNIONY] Jan") == "Jan"
+
+    def test_embedded_between_tokens(self):
+        assert strip_employment_marker("Jan zatrudniony Kowalski") == "Jan Kowalski"
+
+    def test_declension_variants(self):
+        assert strip_employment_marker("Anna [zatrudniona]") == "Anna"
+        assert strip_employment_marker("Jan [zatrudnionego]") == "Jan"
+
+    def test_marker_only_returns_empty(self):
+        assert strip_employment_marker("[zatrudniony]") == ""
+
+    def test_no_marker_is_unchanged(self):
+        assert strip_employment_marker("Jan Kowalski") == "Jan Kowalski"
+
+    def test_empty_input_is_unchanged(self):
+        assert strip_employment_marker("") == ""
+
+    def test_does_not_eat_glued_surname(self):
+        # Bounded declension suffix must not greedily swallow a joined surname.
+        assert strip_employment_marker("zatrudnionyNowak") == "Nowak"
 
 
 # ── Faza 5: recruitment → job ───────────────────────────────────────────────

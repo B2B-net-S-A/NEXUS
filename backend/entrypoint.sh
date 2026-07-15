@@ -992,6 +992,56 @@ _DATA_STATEMENTS = [
           '["pm","product manager","project manager","delivery lead","delivery manager","scrum master","agile coach","product owner","po","business analyst","ba","engineering manager","tech lead","team lead","cto","director","head of"]'::jsonb,
           5, true)
        ON CONFLICT (slug) DO NOTHING""",
+    # ── Sprzątanie reliktu "[zatrudniony]" w nazwiskach (mirror migracji 0165) ──
+    # Traffit nie miał statusu zatrudnienia, więc zatrudnionych oznaczano
+    # wpisując "[zatrudniony]" w imię/nazwisko. Nexus wyprowadza zatrudnienie z
+    # sygnałów (aktywny kontrakt / konflikt current_employment / etap hired), więc
+    # marker jest zbędny (psuje wyszukiwanie po nazwisku + nagłówki CV). Prod ma
+    # chroniczny multi-head alembic (DB przed kodem), więc migracja 0165 może nie
+    # wejść — dublujemy ją tu, żeby czyszczenie NA PEWNO się wykonało. Idempotentne:
+    # po pierwszym przebiegu ILIKE nie łapie już żadnego wiersza. Kolejność ważna —
+    # PARK przed STRIP (park wykrywa grupę B po markerze, który strip usuwa).
+    #
+    # 1) Parkuj trwały tag dla oznaczonych BEZ realnego sygnału zatrudnienia
+    #    (grupa B). Mapper stripuje marker z nazwiska przy imporcie, więc bez tego
+    #    ich jedyny ślad zniknąłby po cichu; tags nie jest nadpisywany przez sync.
+    #    Guard: tylko array-owe tags + brak duplikatu.
+    r"""
+    UPDATE candidates cand
+    SET tags = COALESCE(cand.tags, '[]'::jsonb)
+               || '["Traffit: oznaczony jako zatrudniony (do weryfikacji)"]'::jsonb
+    WHERE (cand.name ILIKE '%zatrudnion%' OR cand.lastname ILIKE '%zatrudnion%')
+      AND jsonb_typeof(COALESCE(cand.tags, '[]'::jsonb)) = 'array'
+      AND NOT (COALESCE(cand.tags, '[]'::jsonb)
+               @> '["Traffit: oznaczony jako zatrudniony (do weryfikacji)"]'::jsonb)
+      AND NOT (
+          EXISTS (SELECT 1 FROM contracts c
+                  WHERE c.candidate_id = cand.id AND c.status::text = 'active')
+          OR EXISTS (SELECT 1 FROM candidate_conflicts cc
+                     WHERE cc.candidate_id = cand.id
+                       AND cc.type::text = 'current_employment' AND cc.active)
+          OR EXISTS (SELECT 1 FROM candidate_stages cs
+                     WHERE cs.candidate_id = cand.id AND cs.stage::text = 'hired'
+                       AND NOT EXISTS (
+                           SELECT 1 FROM candidate_stages later
+                           WHERE later.candidate_id = cs.candidate_id
+                             AND later.job_id = cs.job_id
+                             AND (later.moved_at, later.id) > (cs.moved_at, cs.id)))
+      )""",
+    # 2) Wyczyść marker z name/lastname wszystkich oznaczonych. Osoby z realnym
+    #    sygnałem dalej mają badge "U klienta" (przez _derive_employment). Fallback
+    #    '?' gdy pole było samym markerem (jak w mapperze). Capturing group (...) —
+    #    NIE (?:...) — spójne z migracją 0165. asyncpg nie parsuje bind-paramów,
+    #    więc dwukropek nie jest problemem, ale trzymamy jeden wzorzec.
+    r"""
+    UPDATE candidates cand
+    SET name = COALESCE(NULLIF(btrim(regexp_replace(
+                   regexp_replace(cand.name, '[[(]?\s*zatrudnion(ego|ej|ych|ymi|[yaieą])?\s*[])]?', ' ', 'gi'),
+                   '\s+', ' ', 'g'), ' -–,;'), ''), '?'),
+        lastname = COALESCE(NULLIF(btrim(regexp_replace(
+                   regexp_replace(cand.lastname, '[[(]?\s*zatrudnion(ego|ej|ych|ymi|[yaieą])?\s*[])]?', ' ', 'gi'),
+                   '\s+', ' ', 'g'), ' -–,;'), ''), '?')
+    WHERE cand.name ILIKE '%zatrudnion%' OR cand.lastname ILIKE '%zatrudnion%'""",
 ]
 
 

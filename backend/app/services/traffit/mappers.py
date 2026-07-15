@@ -14,8 +14,44 @@ Discovery findings (docs/traffit-discovery.md):
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Optional
+
+# Legacy Traffit hack: recruiters flagged placed consultants by stuffing
+# "[zatrudniony]" into the candidate's name/lastname, because Traffit had no
+# employment status field. Nexus derives employment properly (active contract /
+# `current_employment` conflict / `hired` pipeline stage — see
+# app/api/candidates.py::_derive_employment), so the marker is pure noise that
+# also breaks name search and CV headers. Strip it on every import so the daily
+# sync never re-introduces it (the candidate UPSERT overwrites name/lastname
+# from the payload). Matches bracketed / parenthesized / bare forms, any case,
+# with adjacent separators; the suffix list covers Polish declensions without
+# greedily eating a glued surname.
+_EMPLOYMENT_MARKER_RE = re.compile(
+    # Multi-char endings first: alternation is ordered, so a bare "e" must not
+    # win over "ego"/"ej" and leave a dangling suffix. Plain capturing group
+    # (not `(?:...)`) to stay byte-identical with migration 0165's _MARKER,
+    # where `(?:` would trip SQLAlchemy text() bind-param parsing.
+    r"[\[(]?\s*zatrudnion(ego|ej|ych|ymi|[yaieą])?\s*[\])]?",
+    re.IGNORECASE,
+)
+
+
+def strip_employment_marker(value: str) -> str:
+    """Remove the legacy ``[zatrudniony]`` employment tag from a name string.
+
+    Returns the input unchanged when no marker is present. Collapses the
+    whitespace left behind and trims dangling separators, so
+    ``"Kowalski - zatrudniony"`` → ``"Kowalski"`` and
+    ``"[ZATRUDNIONY] Jan"`` → ``"Jan"``. May return ``""`` when the field held
+    nothing but the marker — callers apply their own empty-name fallback.
+    """
+    if not value or "zatrudnion" not in value.lower():
+        return value
+    cleaned = _EMPLOYMENT_MARKER_RE.sub(" ", value)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip(" -–,;")
 
 
 def _parse_traffit_datetime(value: Any) -> Optional[datetime]:
@@ -335,8 +371,8 @@ def traffit_employee_to_candidate(
     if traffit_id is None:
         raise ValueError("Traffit employee missing 'id'")
 
-    name = (payload.get("name") or "").strip()
-    lastname = (payload.get("lastname") or "").strip()
+    name = strip_employment_marker((payload.get("name") or "").strip())
+    lastname = strip_employment_marker((payload.get("lastname") or "").strip())
     if not name:
         email = payload.get("email") or ""
         if "@" in email:
