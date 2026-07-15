@@ -468,6 +468,8 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_status_day ON analytics_shadow_comparisons (status, observed_on DESC)",
     "CREATE INDEX IF NOT EXISTS ix_analytics_shadow_module_day ON analytics_shadow_comparisons (module_key, observed_on DESC)",
+    "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'voyage'",
+    "ALTER TABLE embedding_cache ADD COLUMN IF NOT EXISTS text_schema VARCHAR(32) NOT NULL DEFAULT 'legacy_v1'",
     "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS monthly_budget_usd NUMERIC(12,4) NOT NULL DEFAULT 0",
     """CREATE TABLE IF NOT EXISTS ai_routing_state (
         id INTEGER PRIMARY KEY,
