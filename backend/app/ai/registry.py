@@ -60,7 +60,18 @@ V1_CURRENT: dict[AIFeatureKey, FeatureRoute | dict[str, FeatureRoute]] = {
     },
     AIFeatureKey.uop_analysis: _r("anthropic", "claude-sonnet-5"),
     AIFeatureKey.criteria_suggestions: _r("anthropic", "claude-sonnet-5"),
-    AIFeatureKey.cv_b2b: _r("anthropic", "claude-sonnet-4-6", max_tokens=8192),
+    # 2026-07-15: Anthropic wycofał claude-sonnet-4-6 (API → 404 not_found), a ta
+    # trasa była jedyną wciąż na nim (reszta już na sonnet-5) → generacja CV padała
+    # 404. Bez escalation gateway nie miał na co przejść (poprzedni wrapper miał
+    # fallback na opus — migracja do gatewaya go zgubiła). Primary → sonnet-5
+    # (ten sam pool co reszta NEXUS-a) + escalation opus/haiku, żeby przyszłe
+    # wycofanie/przeciążenie kaskadowało zamiast ubijać generację.
+    AIFeatureKey.cv_b2b: _r(
+        "anthropic",
+        "claude-sonnet-5",
+        max_tokens=8192,
+        escalation=("claude-opus-4-8", "claude-haiku-4-5"),
+    ),
 }
 
 V2_TIERED: dict[AIFeatureKey, FeatureRoute | dict[str, FeatureRoute]] = {
@@ -99,7 +110,18 @@ V2_TIERED: dict[AIFeatureKey, FeatureRoute | dict[str, FeatureRoute]] = {
     },
     AIFeatureKey.uop_analysis: _r("anthropic", "claude-sonnet-5"),
     AIFeatureKey.criteria_suggestions: _r("anthropic", "claude-haiku-4-5"),
-    AIFeatureKey.cv_b2b: _r("anthropic", "claude-sonnet-4-6", max_tokens=8192),
+    # 2026-07-15: Anthropic wycofał claude-sonnet-4-6 (API → 404 not_found), a ta
+    # trasa była jedyną wciąż na nim (reszta już na sonnet-5) → generacja CV padała
+    # 404. Bez escalation gateway nie miał na co przejść (poprzedni wrapper miał
+    # fallback na opus — migracja do gatewaya go zgubiła). Primary → sonnet-5
+    # (ten sam pool co reszta NEXUS-a) + escalation opus/haiku, żeby przyszłe
+    # wycofanie/przeciążenie kaskadowało zamiast ubijać generację.
+    AIFeatureKey.cv_b2b: _r(
+        "anthropic",
+        "claude-sonnet-5",
+        max_tokens=8192,
+        escalation=("claude-opus-4-8", "claude-haiku-4-5"),
+    ),
 }
 
 REGISTRIES = {"v1_current": V1_CURRENT, "v2_tiered": V2_TIERED}

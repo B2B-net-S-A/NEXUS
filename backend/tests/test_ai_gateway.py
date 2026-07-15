@@ -26,6 +26,32 @@ def test_all_escalations_stay_within_the_declared_provider() -> None:
                 assert all(model for model in route.escalation_models)
 
 
+def test_no_route_pins_the_retired_sonnet_4_6() -> None:
+    # 2026-07-15: Anthropic retired claude-sonnet-4-6 (API returns 404
+    # not_found_error). It must not appear as any route's primary or escalation
+    # model in any code-owned registry — that pin took CV generation down.
+    for version, registry in REGISTRIES.items():
+        for feature, configured in registry.items():
+            routes = (
+                configured.values() if isinstance(configured, dict) else [configured]
+            )
+            for route in routes:
+                assert route.model != "claude-sonnet-4-6", (
+                    f"{version}/{feature.value} still pins the retired sonnet-4-6"
+                )
+                assert "claude-sonnet-4-6" not in route.escalation_models
+
+
+def test_cv_b2b_uses_live_model_with_escalation_fallback() -> None:
+    # cv_b2b was the only feature left on the retired model and — unlike the old
+    # wrapper — the gateway route had no escalation, so its 404 hard-failed with
+    # no fallover. Guard both: a live primary and a non-empty escalation chain.
+    for version in REGISTRIES:
+        route = get_feature_route(version, AIFeatureKey.cv_b2b)
+        assert route.model == "claude-sonnet-5"
+        assert route.escalation_models, f"{version} cv_b2b lost its fallback"
+
+
 def test_mindy_mode_is_selected_by_the_caller() -> None:
     quick = get_feature_route("v2_tiered", AIFeatureKey.mindy, "quick")
     deep = get_feature_route("v2_tiered", AIFeatureKey.mindy, "deep")
