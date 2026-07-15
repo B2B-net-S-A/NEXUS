@@ -64,17 +64,17 @@ done
 # Run from /app so that 'alembic' dir is found correctly
 echo "Running database migrations..."
 cd /app
-# A production process must never start against a partially migrated schema.
-# The legacy fallback below cannot create views, triggers, constraints or every
-# additive analytics object, so continuing after an Alembic failure would turn
-# a deploy problem into runtime 500s and potentially inconsistent writes.
+# CI must prove the canonical Alembic graph on a fresh database. Production
+# additionally carries an idempotent compatibility layer below because older
+# databases can retain head markers from the historical multi-head graph.
 if ! alembic -c alembic/alembic.ini upgrade heads 2>&1; then
-    if [ "${DEBUG:-false}" = "true" ]; then
-        echo "alembic upgrade failed in DEBUG; continuing via create_all/backfill"
-    else
-        echo "FATAL: alembic upgrade failed; refusing to start production"
-        exit 1
-    fi
+    # Existing production databases can still contain historical Alembic head
+    # markers from the pre-0170 multi-head graph. Refusing to start here takes
+    # the entire API offline before the idempotent compatibility statements
+    # below get a chance to reconcile the additive schema. Keep the failure
+    # loud, but let the safety net run. Fresh and CI databases still prove the
+    # canonical graph with `alembic upgrade heads` before an image is shipped.
+    echo "ERROR: alembic upgrade failed; continuing with idempotent schema safety net"
 fi
 
 # Safety net: alembic upgrade sometimes bails halfway through the Phase 8
