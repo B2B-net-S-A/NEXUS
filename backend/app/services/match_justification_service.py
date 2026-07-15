@@ -1,4 +1,4 @@
-"""AI match-justification service — the prose behind the "Dopasowanie" tab.
+"""Deterministic match justification built only from ``ScoreBreakdown``.
 
 Pipeline for one (candidate, job) pair:
   1. Compute the deterministic hybrid score (``scoring_service`` via the shared
@@ -6,13 +6,8 @@ Pipeline for one (candidate, job) pair:
   2. Fingerprint the inputs (CV + requirements + champion + score). If a cached
      ``CandidateMatchJustification`` row matches that fingerprint, serve it — no
      LLM call.
-  3. On a miss (or ``force``), gate the paid LLM call behind the reserved
-     ``AIFeatureKey.scoring`` toggle/quota, ask Claude to *explain* the score
-     (never to change it), and upsert the prose.
-
-The LLM only produces prose (summary / pros / watch-outs). The number always
-comes from the deterministic engine, so the ring stays consistent with the rest
-of the app and the model can't inflate a match.
+  3. On a miss (or ``force``), render summary/pros/watch-outs directly from the
+     scored layers, matched skills, gaps and penalties. No LLM is involved.
 """
 
 from __future__ import annotations
@@ -20,40 +15,27 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
-import time
-from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ai_feature import AIFeatureKey, AIUsageLog
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_justification import CandidateMatchJustification
-from app.services.ai_quota import (
-    AIQuotaExceeded,
-    get_feature_config,
-    get_master_enabled,
-    get_total_usage_for_period,
-)
-from app.services.llm_prompts import MATCH_JUSTIFICATION
 from app.services.match_score_cache import get_cached_or_compute
 from app.services.scoring_service import ScoreBreakdown
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.environ.get("MATCH_SCORING_MODEL", "claude-sonnet-5")
-MAX_CV_CHARS = int(os.environ.get("MATCH_SCORING_MAX_CV_CHARS", "6000"))
+DEFAULT_MODEL = "deterministic:score_breakdown_v1"
+MAX_CV_CHARS = 6000
 MAX_REQ_CHARS = 3000
 MAX_CHAMPION_CHARS = 2000
-MAX_TOKENS = 1500
+JUSTIFICATION_VERSION = "score_breakdown_v1"
 
-# Output caps so a runaway model can't bloat the row / the tab.
+# Output caps keep the stored explanation compact and UI-safe.
 _MAX_SUMMARY_CHARS = 1200
 _MAX_BULLET_CHARS = 320
 _MAX_BULLETS = 8
@@ -64,76 +46,7 @@ class MatchJustificationNotFound(Exception):
 
 
 class MatchJustificationLLMError(Exception):
-    """The LLM call failed or returned unusable output."""
-
-
-# ── LLM plumbing (mirrors champion_draft_service._call_claude_json) ──────────
-
-
-def _strip_code_fences(raw: str) -> str:
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return raw.strip()
-
-
-async def _call_claude_json(
-    *, prompt: str, system_prompt: str, model: str, max_tokens: int
-) -> dict[str, Any]:
-    """Call Claude and parse JSON. Raises MatchJustificationLLMError on failure."""
-    import anthropic  # local import: avoid import cost at module load
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        raise MatchJustificationLLMError("ANTHROPIC_API_KEY not configured")
-
-    client = anthropic.Anthropic(api_key=api_key)
-    started = time.time()
-    try:
-        message = await run_in_threadpool(
-            client.messages.create,
-            model=model,
-            max_tokens=max_tokens,
-            # Sonnet 5 does adaptive thinking by default; those tokens count
-            # toward max_tokens and would truncate this JSON. Disable it.
-            thinking={"type": "disabled"},
-            system=system_prompt,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except Exception as exc:  # noqa: BLE001 - surface as a clean domain error
-        raise MatchJustificationLLMError("LLM request failed") from exc
-
-    latency_ms = int((time.time() - started) * 1000)
-    # Claude 5 can lead with a non-text (thinking) block → collect every text
-    # block rather than trusting content[0].text.
-    raw = _strip_code_fences(
-        "".join(
-            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
-        )
-    )
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.warning(
-            "match_justification: invalid JSON (model=%s latency=%dms)",
-            model,
-            latency_ms,
-        )
-        raise MatchJustificationLLMError(f"Invalid JSON from LLM: {exc}") from exc
-
-    usage = getattr(message, "usage", None)
-    logger.info(
-        "match_justification: llm_call model=%s latency_ms=%d in=%s out=%s",
-        model,
-        latency_ms,
-        getattr(usage, "input_tokens", "?"),
-        getattr(usage, "output_tokens", "?"),
-    )
-    if not isinstance(parsed, dict):
-        raise MatchJustificationLLMError("LLM returned non-object JSON")
-    return parsed
+    """Deprecated compatibility error; deterministic generation does not raise it."""
 
 
 # ── Prompt context builders ─────────────────────────────────────────────────
@@ -257,7 +170,7 @@ def _input_hash(candidate: Candidate, job: Job, breakdown: dict) -> str:
     """
     payload = json.dumps(
         {
-            "prompt_version": MATCH_JUSTIFICATION.version,
+            "prompt_version": JUSTIFICATION_VERSION,
             "model": DEFAULT_MODEL,
             "score": int(round(breakdown.get("total") or 0)),
             "cv": _candidate_cv_text(candidate),
@@ -292,16 +205,20 @@ def _clean_bullets(raw: Any) -> list[str]:
     return out
 
 
-def _sanitize_llm_output(parsed: dict) -> dict:
+def _sanitize_output(parsed: dict) -> dict:
     summary = (str(parsed.get("summary") or "")).strip()[:_MAX_SUMMARY_CHARS]
     pros = _clean_bullets(parsed.get("pros"))
     watchouts = _clean_bullets(parsed.get("watchouts"))
     if not summary and not pros:
-        raise MatchJustificationLLMError("LLM output empty (no summary / pros)")
+        raise MatchJustificationLLMError("Explanation output empty (no summary / pros)")
     return {"summary": summary, "pros": pros, "watchouts": watchouts}
 
 
-# ── Score + quota ───────────────────────────────────────────────────────────
+# Backward-compatible name for callers/tests from the previous implementation.
+_sanitize_llm_output = _sanitize_output
+
+
+# ── Score computation ──────────────────────────────────────────────────────
 
 
 async def _compute_breakdown(
@@ -328,72 +245,64 @@ async def _compute_breakdown(
     )
 
 
-async def _gate_and_count(db: AsyncSession, user_id: Optional[int]) -> None:
-    """Respect the AI kill-switch + `scoring` toggle/limit, then record 1 use.
-
-    Tolerant of a missing `ai_features` row: `AIFeatureConfig.enabled` defaults
-    to True, so an unseeded feature is treated as enabled (only an explicit
-    disable or the master toggle blocks). Raises ``AIQuotaExceeded`` if blocked.
-    """
-    if not await get_master_enabled(db):
-        raise AIQuotaExceeded(AIFeatureKey.scoring, "Funkcje AI są wyłączone globalnie")
-
-    config = await get_feature_config(db, AIFeatureKey.scoring)
-    if config is not None and not config.enabled:
-        raise AIQuotaExceeded(
-            AIFeatureKey.scoring, "Funkcja AI wyłączona w ustawieniach"
-        )
-
-    limit = config.monthly_limit if config else 0
-    period = datetime.now(timezone.utc).date().replace(day=1)
-    used = await get_total_usage_for_period(db, AIFeatureKey.scoring, period)
-    if limit > 0 and used >= limit:
-        raise AIQuotaExceeded(
-            AIFeatureKey.scoring, "Miesięczny limit wyczerpany", used=used, limit=limit
-        )
-
-    now = datetime.now(timezone.utc)
-    await db.execute(
-        pg_insert(AIUsageLog)
-        .values(
-            feature=AIFeatureKey.scoring,
-            user_id=user_id,
-            period_start=period,
-            count=1,
-            last_call_at=now,
-        )
-        .on_conflict_do_update(
-            constraint="uq_ai_usage_feature_user_period",
-            set_={"count": AIUsageLog.count + 1, "last_call_at": now},
-        )
-    )
-
-
 # ── Orchestration ───────────────────────────────────────────────────────────
 
 
 async def generate_prose(
     candidate: Candidate, job: Job, breakdown: dict, *, model: str = DEFAULT_MODEL
 ) -> dict:
-    """Ask Claude to explain the score. Returns {summary, pros, watchouts}."""
-    prompt = MATCH_JUSTIFICATION.render(
-        job_title=job.title or "(brak tytułu)",
-        job_requirements=_job_requirements_text(job),
-        champion_context=_champion_context_text(job),
-        competence_category=candidate.competence_category or "(brak)",
-        candidate_summary=_truncate(candidate.ai_summary, 1500) or "(brak)",
-        candidate_skills=_skills_to_text(candidate.skills),
-        candidate_cv=_candidate_cv_text(candidate),
-        score=int(round(breakdown.get("total") or 0)),
-        score_breakdown=_format_score_breakdown(breakdown),
-    )
-    parsed = await _call_claude_json(
-        prompt=prompt,
-        system_prompt=MATCH_JUSTIFICATION.system_prompt or "",
-        model=model,
-        max_tokens=MAX_TOKENS,
-    )
-    return _sanitize_llm_output(parsed)
+    """Render an explanation exclusively from ``ScoreBreakdown`` fields.
+
+    ``candidate``, ``job`` and ``model`` remain in the signature for one-release
+    API compatibility. They are deliberately not read: unscored CV/JD facts
+    must never leak into or alter the explanation.
+    """
+    del candidate, job, model
+    total = int(round(min(max(float(breakdown.get("total") or 0), 0), 100)))
+    layer_labels = {
+        "semantic": "Dopasowanie semantyczne",
+        "skills": "Umiejętności",
+        "salary": "Stawka",
+        "location": "Lokalizacja",
+        "availability": "Dostępność",
+        "champion_fit": "Profil Champion",
+    }
+    pros: list[str] = []
+    watchouts: list[str] = []
+
+    matching_must = [str(v) for v in breakdown.get("matching_must") or []]
+    matching_nice = [str(v) for v in breakdown.get("matching_nice") or []]
+    gap_must = [str(v) for v in breakdown.get("gap_must") or []]
+    gap_nice = [str(v) for v in breakdown.get("gap_nice") or []]
+    penalties = [str(v) for v in breakdown.get("penalties") or []]
+    if matching_must:
+        pros.append("Spełnione wymagania MUST: " + ", ".join(matching_must))
+    if matching_nice:
+        pros.append("Spełnione wymagania NICE: " + ", ".join(matching_nice))
+    if gap_must:
+        watchouts.append("Braki w wymaganiach MUST: " + ", ".join(gap_must))
+    if gap_nice:
+        watchouts.append("Braki w wymaganiach NICE: " + ", ".join(gap_nice))
+    if penalties:
+        watchouts.append("Aktywne kary scoringu: " + ", ".join(penalties))
+
+    layer_parts: list[str] = []
+    for key, label in layer_labels.items():
+        layer = breakdown.get(key)
+        if not isinstance(layer, dict):
+            continue
+        points = float(layer.get("points") or 0)
+        maximum = float(layer.get("max") or 0)
+        reason = str(layer.get("reason") or "").strip()
+        detail = f"{label}: {points:g}/{maximum:g}"
+        if reason:
+            detail += f" — {reason}"
+        layer_parts.append(detail)
+        target = pros if maximum > 0 and points / maximum >= 0.6 else watchouts
+        target.append(detail)
+
+    summary = f"Wynik dopasowania: {total}/100. " + "; ".join(layer_parts) + "."
+    return _sanitize_output({"summary": summary, "pros": pros, "watchouts": watchouts})
 
 
 async def get_or_generate(
@@ -406,9 +315,7 @@ async def get_or_generate(
 ) -> CandidateMatchJustification:
     """Return the (cached or freshly generated) justification row.
 
-    Raises ``MatchJustificationNotFound`` (unknown candidate/job),
-    ``AIQuotaExceeded`` (AI disabled / over limit) or
-    ``MatchJustificationLLMError`` (generation failed).
+    Raises ``MatchJustificationNotFound`` for an unknown candidate/job.
     """
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if candidate is None:
@@ -431,8 +338,8 @@ async def get_or_generate(
     if row is not None and not force and row.input_hash == input_hash:
         return row
 
-    # Cache miss / forced refresh / stale inputs → paid LLM call (gated).
-    await _gate_and_count(db, user_id)
+    # Cache miss / forced refresh / stale inputs → local deterministic render.
+    del user_id
     prose = await generate_prose(candidate, job, breakdown)
 
     if row is None:
@@ -456,7 +363,7 @@ async def get_or_generate(
     except IntegrityError:
         # Concurrent first-view of the same (candidate, job) inserted the row
         # first (unique constraint). Roll back and serve the winner's row —
-        # the LLM work is wasted but the request still succeeds.
+        # the duplicate render is harmless and the request still succeeds.
         await db.rollback()
         existing = await get_cached(candidate_id, job_id, db)
         if existing is not None:

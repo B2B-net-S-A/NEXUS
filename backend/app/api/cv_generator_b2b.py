@@ -295,6 +295,7 @@ async def _run_generate_new_job(
                 stage_id=stage_id,
                 language=language,
                 blind_cv=blind_cv,
+                user_id=user_id,
             )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
@@ -342,7 +343,7 @@ async def _run_generate_upload_job(
     """Background worker for Old-mode (manual upload) generation."""
     async with AsyncSessionLocal() as db:
         try:
-            result = await run_in_threadpool(generate_cv_from_uploads, payload)
+            result = await generate_cv_from_uploads(payload, user_id=user_id)
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
             await db.commit()

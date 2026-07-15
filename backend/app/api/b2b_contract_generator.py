@@ -65,10 +65,7 @@ from app.services.b2b_contract_generator.docx_renderer import (
 )
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.render_context import build_render_context
-from app.services.b2b_contract_generator.uop_check import (
-    CVGeneratorAIError,
-    check_employment_hallmarks,
-)
+from app.services.b2b_contract_generator.uop_check import check_employment_hallmarks
 
 router = APIRouter()
 
@@ -759,22 +756,15 @@ async def check_uop(
     """AI-sprawdzenie opisu/zakresu pod kątem znamion umowy o pracę (art. 22 §1 KP).
 
     Zwraca wykryte ryzykowne sformułowania + bezpieczniejszą redakcję. Wymaga
-    skonfigurowanego ``ANTHROPIC_API_KEY`` (inaczej 503)."""
+    Wynik silnika reguł jest zawsze dostępny; gateway AI może go rozszerzyć,
+    a przy awarii odpowiedź jawnie ma ``analysis_mode=rules_only``."""
     text = (payload.text or "").strip()
     if not text:
-        return B2BUopCheckResponse(ok=True, issues=[], rewritten="", summary="")
-    try:
-        result = await run_in_threadpool(
-            check_employment_hallmarks, text, payload.language
+        result = await check_employment_hallmarks(
+            "", payload.language, user_id=current_user.id
         )
-    except CVGeneratorAIError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Sprawdzanie AI jest niedostępne (brak konfiguracji ANTHROPIC_API_KEY).",
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="AI zwróciło nieprawidłową odpowiedź — spróbuj ponownie.",
-        ) from exc
+        return B2BUopCheckResponse(**result)
+    result = await check_employment_hallmarks(
+        text, payload.language, user_id=current_user.id
+    )
     return B2BUopCheckResponse(**result)

@@ -1,86 +1,59 @@
-"""Tests for AI-generated job criteria (must/nice skills).
-
-Covers the P0 fixes in ``app.api.recommendations``:
-  1. ``_generate_criteria_with_ollama`` resolves the host via ``OLLAMA_BASE_URL``
-     (the config var that actually exists) — the old code only checked the
-     never-defined ``OLLAMA_HOST`` and so always fell through to the heuristic.
-  2. A successful Ollama call stamps ``_source`` so refresh/preview report
-     "ollama" instead of always "heuristic".
-  3. ``_fallback_criteria_from_text`` extracts ONLY recognised tech tokens and
-     never persists raw requirement prose as a skill; output is deterministic.
-"""
+"""Tests for taxonomy-first job criteria suggestions."""
 
 from __future__ import annotations
 
-import httpx
+from types import SimpleNamespace
 
 from app.api.recommendations import (
     _fallback_criteria_from_text,
-    _generate_criteria_with_ollama,
+    _generate_criteria,
 )
-from app.core.config import settings
+from app.api import recommendations
 from app.models.job import Job
+from app.services.scoring_service import set_alias_map
 
 
-# ── Ollama path: host resolution + _source stamping ────────────────────────
+# ── Taxonomy and routed AI paths ───────────────────────────────────────────
 
 
-class _FakeResponse:
-    def __init__(self, response_text: str) -> None:
-        self._text = response_text
+async def test_unambiguous_taxonomy_does_not_call_ai(monkeypatch):
+    set_alias_map({"java": "Java", "aws": "AWS"})
 
-    def raise_for_status(self) -> None:
-        return None
+    async def fail(_request):  # type: ignore[no-untyped-def]
+        raise AssertionError("AI should not run for explicit sections")
 
-    def json(self) -> dict:
-        return {"response": self._text}
+    monkeypatch.setattr(recommendations.ai_gateway, "call", fail)
+    job = Job(
+        title="Developer",
+        requirements="Wymagania:\nJava\nMile widziane:\nAWS",
+        description="",
+    )
+    result = await _generate_criteria(job, user_id=7)
+    assert result["_source"] == "taxonomy"
+    assert result["must_skills"] == [{"name": "java", "level": None}]
+    assert result["nice_skills"] == [{"name": "aws", "level": None}]
 
 
-class _FakeAsyncClient:
-    """Stand-in for ``httpx.AsyncClient`` — records the URL it POSTs to."""
+async def test_ambiguous_taxonomy_uses_routed_ai(monkeypatch):
+    set_alias_map({"java": "Java", "aws": "AWS"})
+    captured = {}
 
-    posted_url: str | None = None
-
-    def __init__(self, *args, **kwargs) -> None:
-        pass
-
-    async def __aenter__(self) -> "_FakeAsyncClient":
-        return self
-
-    async def __aexit__(self, *exc) -> bool:
-        return False
-
-    async def post(self, url: str, json: dict | None = None) -> _FakeResponse:
-        type(self).posted_url = url
-        return _FakeResponse(
-            '{"must_skills": [{"name": "Java", "level": null}], '
-            '"nice_skills": [{"name": "AWS", "level": null}]}'
+    async def call(request):  # type: ignore[no-untyped-def]
+        captured["request"] = request
+        return SimpleNamespace(
+            content={
+                "must_skills": [{"name": "java", "level": None}],
+                "nice_skills": [{"name": "aws", "level": None}],
+            }
         )
 
-
-async def test_ollama_uses_base_url_and_stamps_source(monkeypatch):
-    monkeypatch.setattr(settings, "OLLAMA_BASE_URL", "http://ollama.test:11434")
-    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
-    _FakeAsyncClient.posted_url = None
-
-    job = Job(title="Senior Java Developer", description="", requirements="Java, AWS")
-    result = await _generate_criteria_with_ollama(job)
-
-    assert result is not None
-    # host resolved from OLLAMA_BASE_URL (not the non-existent OLLAMA_HOST)
-    assert _FakeAsyncClient.posted_url == "http://ollama.test:11434/api/generate"
-    # source stamped so endpoints report "ollama"
-    assert result["_source"].startswith("ollama:")
-    assert result["must_skills"] == [{"name": "Java", "level": None}]
-    assert result["nice_skills"] == [{"name": "AWS", "level": None}]
-
-
-async def test_ollama_returns_none_when_no_host_configured(monkeypatch):
-    monkeypatch.setattr(settings, "OLLAMA_BASE_URL", "")
-    monkeypatch.delattr(settings, "OLLAMA_HOST", raising=False)
-
-    job = Job(title="Dev", description="", requirements="")
-    assert await _generate_criteria_with_ollama(job) is None
+    monkeypatch.setattr(recommendations.ai_gateway, "call", call)
+    job = Job(
+        id=3, client_id=5, title="Java AWS Developer", description="", requirements=""
+    )
+    result = await _generate_criteria(job, user_id=7)
+    assert result["_source"] == "ai"
+    assert captured["request"].feature.value == "criteria_suggestions"
 
 
 # ── Heuristic fallback: tech-only, no prose, deterministic ─────────────────
@@ -148,7 +121,9 @@ def test_fallback_splits_must_then_nice():
 
 
 def test_fallback_dedupes_repeated_tokens():
-    job = Job(title="Python dev", description="Python Python python", requirements="Python")
+    job = Job(
+        title="Python dev", description="Python Python python", requirements="Python"
+    )
     result = _fallback_criteria_from_text(job)
     all_names = [s["name"] for s in result["must_skills"] + result["nice_skills"]]
     assert len(all_names) == 1  # de-duplicated case-insensitively

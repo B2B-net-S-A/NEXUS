@@ -1,9 +1,4 @@
-"""Unit tests for the AI match-justification service.
-
-Pure logic only — no DB, no network. The LLM call is monkeypatched so the
-prompt-render → sanitise pipeline is exercised deterministically. DB-backed
-caching / quota gating is covered by the integration suite.
-"""
+"""Unit tests for deterministic match explanations."""
 
 from __future__ import annotations
 
@@ -192,38 +187,32 @@ def test_format_score_breakdown_lists_layers_and_gaps():
     assert "Spełnione MUST: aws, terraform" in txt
 
 
-# ── generate_prose (LLM monkeypatched) ───────────────────────────────────────
+# ── generate_prose ──────────────────────────────────────────────────────────
 
 
-async def test_generate_prose_renders_prompt_and_sanitizes(monkeypatch):
-    captured = {}
-
-    async def fake_call(*, prompt, system_prompt, model, max_tokens):
-        captured["prompt"] = prompt
-        captured["system_prompt"] = system_prompt
-        return {
-            "summary": "Silne dopasowanie.",
-            "pros": ["6 lat DevOps", "AWS + Terraform"],
-            "watchouts": ["Potwierdzić K8s"],
-        }
-
-    monkeypatch.setattr(mjs, "_call_claude_json", fake_call)
-
+async def test_generate_prose_uses_only_score_breakdown():
     out = await mjs.generate_prose(make_candidate(), make_job(), make_breakdown())
+    rendered = " ".join([out["summary"], *out["pros"], *out["watchouts"]])
+    assert "78/100" in rendered
+    assert "aws, terraform" in rendered
+    assert "kubernetes" in rendered
+    assert "25/30" in rendered
+    assert "6 lat" not in rendered
+    assert "Senior DevOps Engineer" not in rendered
 
-    assert out["summary"] == "Silne dopasowanie."
-    assert out["pros"] == ["6 lat DevOps", "AWS + Terraform"]
-    assert out["watchouts"] == ["Potwierdzić K8s"]
-    # The real score + a concrete requirement made it into the rendered prompt.
-    assert "78/100" in captured["prompt"]
-    assert "Senior DevOps Engineer" in captured["prompt"]
 
-
-async def test_generate_prose_raises_on_unusable_output(monkeypatch):
-    async def fake_call(*, prompt, system_prompt, model, max_tokens):
-        return {"summary": "", "pros": [], "watchouts": []}
-
-    monkeypatch.setattr(mjs, "_call_claude_json", fake_call)
-
-    with pytest.raises(mjs.MatchJustificationLLMError):
-        await mjs.generate_prose(make_candidate(), make_job(), make_breakdown())
+async def test_generate_prose_reports_gaps_penalties_and_every_layer():
+    bd = make_breakdown(gap_must=["docker"], penalties=["active_conflict"])
+    out = await mjs.generate_prose(make_candidate(), make_job(), bd)
+    rendered = " ".join([out["summary"], *out["pros"], *out["watchouts"]])
+    assert "docker" in rendered
+    assert "active_conflict" in rendered
+    for label in (
+        "Dopasowanie semantyczne",
+        "Umiejętności",
+        "Stawka",
+        "Lokalizacja",
+        "Dostępność",
+        "Profil Champion",
+    ):
+        assert label in rendered

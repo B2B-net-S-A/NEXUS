@@ -268,6 +268,9 @@ class B2BUopCheckResponse(BaseModel):
     issues: list[B2BUopIssue] = []
     rewritten: str = ""
     summary: str = ""
+    input_hash: str
+    analysis_mode: str = "rules_ai"
+    requires_confirmation: bool = True
 
 
 class B2BGeneratedContractItem(BaseModel):
