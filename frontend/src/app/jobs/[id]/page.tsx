@@ -20,8 +20,8 @@ import { jobChatApi } from "@/lib/api";
 import { MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus, ChevronUp, ChevronDown } from "lucide-react";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
-import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { buildJobSearchPrefill } from "@/lib/job-search-prefill";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -1477,33 +1477,7 @@ interface ManualSearchTabProps {
  * are excluded server-side via ``exclude_in_job_id``.
  */
 function ManualSearchTab({ jobId, job, onBulkAdded }: ManualSearchTabProps) {
-  const skillsFromList = (raw: unknown): string[] => {
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .map((s) => {
-        if (typeof s === "string") return s;
-        if (s && typeof s === "object" && "name" in s) {
-          const name = (s as { name?: unknown }).name;
-          return typeof name === "string" ? name : null;
-        }
-        return null;
-      })
-      .filter((s): s is string => Boolean(s))
-      .slice(0, 10);
-  };
-
-  const initial: Partial<CandidateSearchRequest> = {
-    q: job.title,
-    competence_category_ids: job.competence_category_id
-      ? [job.competence_category_id]
-      : [],
-    skills_must: skillsFromList(job.must_skills),
-    skills_any: skillsFromList(job.nice_skills),
-    salary_min: job.salary_min ?? null,
-    salary_max: job.salary_max ?? null,
-    location_cities: job.location ? [job.location] : [],
-    sort: "relevance",
-  };
+  const initial = buildJobSearchPrefill(job);
 
   return (
     <CandidateSearchView

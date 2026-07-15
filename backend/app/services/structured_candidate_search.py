@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import String, case, cast, func, not_, or_
+from sqlalchemy import String, and_, case, cast, func, not_, or_
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import (
@@ -175,6 +175,19 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
     if req.salary_currency:
         clauses.append(
             func.upper(Candidate.salary_currency) == req.salary_currency.upper()
+        )
+
+    # Hourly rate (PLN/h) — filter on ``expected_rate_hourly``, NOT the monthly
+    # ``salary_expectation``. Missing rate is unknown → included (never a hard
+    # exclusion), matching the availability/notice-period NULL policy above.
+    if req.rate_hourly_min is not None or req.rate_hourly_max is not None:
+        bounds: list[ColumnElement] = []
+        if req.rate_hourly_min is not None:
+            bounds.append(Candidate.expected_rate_hourly >= req.rate_hourly_min)
+        if req.rate_hourly_max is not None:
+            bounds.append(Candidate.expected_rate_hourly <= req.rate_hourly_max)
+        clauses.append(
+            Candidate.expected_rate_hourly.is_(None) | and_(*bounds)
         )
 
     if req.sources:
