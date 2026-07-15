@@ -113,9 +113,7 @@ def call_claude(
     request_timeout = (
         timeout if timeout is not None else settings.ANTHROPIC_TIMEOUT_SECONDS
     )
-    retries = (
-        max_retries if max_retries is not None else settings.ANTHROPIC_MAX_RETRIES
-    )
+    retries = max_retries if max_retries is not None else settings.ANTHROPIC_MAX_RETRIES
 
     # max_retries=0 — the SDK's own retry policy is disabled so it does not stack
     # on top of the manual backoff below; the explicit timeout caps a hung attempt.
