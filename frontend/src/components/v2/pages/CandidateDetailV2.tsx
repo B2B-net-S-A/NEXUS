@@ -112,6 +112,7 @@ import { SendEmailV2 } from"@/components/v2/modals/SendEmailV2";
 import { AutentiEnvelopeCard } from"@/components/v2/contract/AutentiEnvelopeCard";
 import { CVGeneratorV2 } from"@/components/v2/modals/CVGeneratorV2";
 import { CVOriginalPreviewModal } from"@/components/v2/modals/CVOriginalPreviewModal";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import { CVBrandedEditModal } from"@/components/v2/modals/CVBrandedEditModal";
 import { CVShareLinkModal } from"@/components/v2/modals/CVShareLinkModal";
 import {
@@ -2124,11 +2125,18 @@ function DraftEditor({
  <Button
  size="sm"
  variant="outline"
- onClick={() =>
- window.open(
- contractsApi.draft.printableUrl(contractId), "_blank",
- )
+ onClick={async () => {
+ // Print view is Bearer-guarded — raw window.open → white
+ // "Not authenticated" page. Fetch HTML with auth → blob URL.
+ try {
+ await openAuthenticatedFile(
+ `/api/contracts/${contractId}/draft/render-pdf`,
+ "text/html",
+ );
+ } catch {
+ showError("Nie udało się otworzyć umowy do druku.");
  }
+ }}
  disabled={!data.content_html}
  title="Otwiera HTML w nowej karcie z auto-print → Save as PDF"
  >
