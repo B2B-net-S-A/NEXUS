@@ -909,6 +909,29 @@ _COLUMN_STATEMENTS = [
     "ON contract_client_rates (effective_from)",
     "CREATE INDEX IF NOT EXISTS ix_contract_client_rates_id "
     "ON contract_client_rates (id)",
+    # `contract_framework_rates` (0165) to NOWA tabela — harmonogram stawki z
+    # umowy ramowej, bliźniacza do contract_candidate_rates (ma `effective_to`).
+    # create_all zwykle ją utworzy, ale trzymamy DDL tu na wypadek multi-head
+    # driftu (patrz precedens contract_client_rates). Idempotentne.
+    """CREATE TABLE IF NOT EXISTS contract_framework_rates (
+        id              SERIAL PRIMARY KEY,
+        contract_id     INTEGER NOT NULL
+                            REFERENCES contracts(id) ON DELETE CASCADE,
+        rate            NUMERIC(12, 2) NOT NULL,
+        effective_from  DATE NOT NULL,
+        effective_to    DATE NULL,
+        note            TEXT NULL,
+        created_by      INTEGER NULL
+                            REFERENCES users(id) ON DELETE SET NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_contract_framework_rates_contract_id "
+    "ON contract_framework_rates (contract_id)",
+    "CREATE INDEX IF NOT EXISTS ix_contract_framework_rates_effective_from "
+    "ON contract_framework_rates (effective_from)",
+    "CREATE INDEX IF NOT EXISTS ix_contract_framework_rates_id "
+    "ON contract_framework_rates (id)",
     # Stawka ramowa + widełki docelowe z groszami (0157): INTEGER → NUMERIC(12,2)
     # na ISTNIEJĄCYCH kolumnach `contracts`. Gdy alembic padnie na multi-head,
     # model już mapuje Decimal — zapis 215,60 w INTEGER kończy się DataError

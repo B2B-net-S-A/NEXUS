@@ -75,6 +75,14 @@ interface ContractDetail {
     note: string | null;
     created_at: string;
   }[];
+  framework_rate_schedule: {
+    id: number;
+    rate: number;
+    effective_from: string;
+    effective_to: string | null;
+    note: string | null;
+    created_at: string;
+  }[];
   framework_rate: number | null;
   target_rate_min: number | null;
   target_rate_max: number | null;
@@ -320,6 +328,9 @@ interface EditForm {
   candidate_rate_schedule: RateScheduleRow[];
   rate_client: string;
   framework_rate: string;
+  // Progressive framework-rate schedule ("stawka z umowy ramowej"). Empty ⇒ plain
+  // single `framework_rate`; non-empty ⇒ the schedule editor drives it over time.
+  framework_rate_schedule: RateScheduleRow[];
   target_rate_min: string;
   target_rate_max: string;
   currency: string;
@@ -357,6 +368,15 @@ function contractToForm(c: ContractDetail): EditForm {
       })),
     rate_client: c.rate_client?.toString() ?? "",
     framework_rate: c.framework_rate?.toString() ?? "",
+    // Prefill the framework schedule editor from the persisted schedule
+    // (oldest → newest). Empty when the contract has no framework schedule yet.
+    framework_rate_schedule: [...(c.framework_rate_schedule ?? [])]
+      .sort((a, b) => a.effective_from.localeCompare(b.effective_from))
+      .map((s) => ({
+        rate: s.rate?.toString() ?? "",
+        effectiveFrom: s.effective_from ?? "",
+        effectiveTo: s.effective_to ?? "",
+      })),
     target_rate_min: c.target_rate_min?.toString() ?? "",
     target_rate_max: c.target_rate_max?.toString() ?? "",
     currency: c.currency,
@@ -513,13 +533,51 @@ export default function ContractDetailPage() {
           r.effectiveFrom !== form.start_date,
       );
 
+    // ── Framework rate: plain single value vs progressive schedule ──────────
+    // Same shape/logic as the candidate schedule above ("Stawka z umowy ramowej").
+    const frameworkSteps = form.framework_rate_schedule
+      .map((r) => ({
+        rate: parseDecimalInput(r.rate),
+        effective_from: r.effectiveFrom || form.start_date,
+        effective_to: r.effectiveTo || null,
+      }))
+      .filter(
+        (
+          r,
+        ): r is { rate: number; effective_from: string; effective_to: string | null } =>
+          r.rate !== null && !!r.effective_from,
+      );
+    const frameworkFromDates = frameworkSteps.map((s) => s.effective_from);
+    if (new Set(frameworkFromDates).size !== frameworkFromDates.length) {
+      setError(
+        'Każdy etap stawki z umowy ramowej musi mieć inną datę „Obowiązuje od".',
+      );
+      return;
+    }
+    if (
+      frameworkSteps.some((s) => s.effective_to && s.effective_to < s.effective_from)
+    ) {
+      setError('„Obowiązuje do" nie może być wcześniejsze niż „Obowiązuje od".');
+      return;
+    }
+    const hadFrameworkSchedule = contract.framework_rate_schedule.length > 0;
+    const isFrameworkProgressive =
+      frameworkSteps.length >= 2 ||
+      frameworkSteps.some((s) => s.effective_to) ||
+      form.framework_rate_schedule.some(
+        (r) =>
+          parseDecimalInput(r.rate) !== null &&
+          !!r.effectiveFrom &&
+          r.effectiveFrom !== form.start_date,
+      );
+
     const payload: Record<string, unknown> = {
       start_date: form.start_date || null,
       end_date: form.end_date || null,
       client_order_end_date: form.client_order_end_date || null,
       // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
       rate_client: parseDecimalInput(form.rate_client),
-      framework_rate: parseDecimalInput(form.framework_rate),
+      // framework_rate / framework_rate_schedule set conditionally below.
       target_rate_min: parseDecimalInput(form.target_rate_min),
       target_rate_max: parseDecimalInput(form.target_rate_max),
       currency: form.currency,
@@ -554,6 +612,24 @@ export default function ContractDetailPage() {
         scheduleSteps.length > 0
           ? scheduleSteps[0].rate
           : parseDecimalInput(form.rate_candidate);
+    }
+    // ── Framework rate payload (mirror of the candidate logic above) ────────
+    if (
+      (isFrameworkProgressive || hadFrameworkSchedule) &&
+      frameworkSteps.length > 0
+    ) {
+      // Schedule drives the framework rate — backend derives framework_rate.
+      payload.framework_rate_schedule = frameworkSteps;
+    } else if (hadFrameworkSchedule && frameworkSteps.length === 0) {
+      // A former schedule was fully cleared → drop it, keep the plain rate.
+      payload.framework_rate_schedule = [];
+      payload.framework_rate = parseDecimalInput(form.framework_rate);
+    } else {
+      // Plain single framework rate, no schedule (omit the schedule key).
+      payload.framework_rate =
+        frameworkSteps.length > 0
+          ? frameworkSteps[0].rate
+          : parseDecimalInput(form.framework_rate);
     }
     updateMutation.mutate(payload);
   };
@@ -973,24 +1049,6 @@ export default function ContractDetailPage() {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
-                      Stawka z umowy ramowej
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={form.framework_rate}
-                      onChange={(e) =>
-                        setForm((f) =>
-                          f
-                            ? { ...f, framework_rate: sanitizeDecimalInput(e.target.value) }
-                            : f,
-                        )
-                      }
-                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Stawka klienta
                     </label>
                     <input
@@ -1067,6 +1125,189 @@ export default function ContractDetailPage() {
                       <option value="GBP">GBP</option>
                     </select>
                   </div>
+                </div>
+
+                {/* Stawka z umowy ramowej — pojedyncza lub progresywna (harmonogram) */}
+                <div className="space-y-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
+                      Stawka z umowy ramowej
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      Zaplanuj zmianę stawki ramowej — system zastosuje aktualną od
+                      wskazanej daty.
+                    </span>
+                  </div>
+
+                  {form.framework_rate_schedule.length === 0 ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={form.framework_rate}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f
+                            ? {
+                                ...f,
+                                framework_rate: sanitizeDecimalInput(e.target.value),
+                              }
+                            : f,
+                        )
+                      }
+                      placeholder="np. 215,60"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                      {form.framework_rate_schedule.map((row, idx) => (
+                        <div key={idx} className="flex items-end gap-2">
+                          <div className="flex-1">
+                            {idx === 0 && (
+                              <span className="mb-1 block text-[11px] text-muted-foreground">
+                                Stawka
+                              </span>
+                            )}
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={row.rate}
+                              onChange={(e) =>
+                                setForm((f) =>
+                                  f
+                                    ? {
+                                        ...f,
+                                        framework_rate_schedule:
+                                          f.framework_rate_schedule.map((r, i) =>
+                                            i === idx
+                                              ? {
+                                                  ...r,
+                                                  rate: sanitizeDecimalInput(
+                                                    e.target.value,
+                                                  ),
+                                                }
+                                              : r,
+                                          ),
+                                      }
+                                    : f,
+                                )
+                              }
+                              placeholder="np. 215,60"
+                              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            {idx === 0 && (
+                              <span className="mb-1 block text-[11px] text-muted-foreground">
+                                Obowiązuje od
+                              </span>
+                            )}
+                            <input
+                              type="date"
+                              value={row.effectiveFrom}
+                              onChange={(e) =>
+                                setForm((f) =>
+                                  f
+                                    ? {
+                                        ...f,
+                                        framework_rate_schedule:
+                                          f.framework_rate_schedule.map((r, i) =>
+                                            i === idx
+                                              ? { ...r, effectiveFrom: e.target.value }
+                                              : r,
+                                          ),
+                                      }
+                                    : f,
+                                )
+                              }
+                              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            {idx === 0 && (
+                              <span className="mb-1 block text-[11px] text-muted-foreground">
+                                Obowiązuje do
+                              </span>
+                            )}
+                            <input
+                              type="date"
+                              value={row.effectiveTo}
+                              onChange={(e) =>
+                                setForm((f) =>
+                                  f
+                                    ? {
+                                        ...f,
+                                        framework_rate_schedule:
+                                          f.framework_rate_schedule.map((r, i) =>
+                                            i === idx
+                                              ? { ...r, effectiveTo: e.target.value }
+                                              : r,
+                                          ),
+                                      }
+                                    : f,
+                                )
+                              }
+                              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            title="Usuń etap stawki"
+                            onClick={() =>
+                              setForm((f) =>
+                                f
+                                  ? {
+                                      ...f,
+                                      framework_rate_schedule:
+                                        f.framework_rate_schedule.filter(
+                                          (_, i) => i !== idx,
+                                        ),
+                                    }
+                                  : f,
+                              )
+                            }
+                            className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {form.framework_rate_schedule[0]?.effectiveFrom === "" && (
+                        <p className="text-xs text-muted-foreground">
+                          Pierwszy etap bez daty obowiązuje od daty rozpoczęcia
+                          kontraktu.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((f) => {
+                        if (!f) return f;
+                        // First click: seed the current framework rate as step 1 and
+                        // open a blank step 2. Later clicks: append another blank step.
+                        const next =
+                          f.framework_rate_schedule.length === 0
+                            ? [
+                                {
+                                  rate: f.framework_rate,
+                                  effectiveFrom: "",
+                                  effectiveTo: "",
+                                },
+                                { rate: "", effectiveFrom: "", effectiveTo: "" },
+                              ]
+                            : [
+                                ...f.framework_rate_schedule,
+                                { rate: "", effectiveFrom: "", effectiveTo: "" },
+                              ];
+                        return { ...f, framework_rate_schedule: next };
+                      })
+                    }
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Dodaj etap stawki ramowej
+                  </button>
                 </div>
 
                 {/* Stawka kandydata — pojedyncza lub progresywna (harmonogram) */}

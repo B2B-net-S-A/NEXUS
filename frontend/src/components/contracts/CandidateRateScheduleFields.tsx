@@ -12,17 +12,34 @@ interface Props {
   onChange: (rows: RateScheduleRow[]) => void;
   /** Data rozpoczęcia kontraktu — domyślne „Obowiązuje od" pierwszego etapu. */
   startDate: string;
+  /** Nagłówek sekcji (domyślnie „Stawka kandydata"). */
+  label?: string;
+  /** Podpowiedź obok nagłówka. */
+  hint?: string;
+  /** Tekst przycisku dodania etapu. */
+  addLabel?: string;
 }
 
+const DEFAULT_HINT =
+  "Możesz zaplanować progresję stawki — system zastosuje aktualną od wskazanej daty.";
+
 /**
- * Progresywna stawka kandydata — lista etapów `{ Stawka, Obowiązuje od,
- * Obowiązuje do }` wprowadzana przy tworzeniu kontraktu. „Obowiązuje do" jest
- * edytowalne (można wpisać konkretną datę końcową); pozostawione puste wylicza
- * się automatycznie z początku kolejnego etapu, a ostatni etap „bezterminowo"
- * (patrz `buildCandidateRateSchedule`). Współdzielone przez `/contracts/new` i
- * rejestr per-klient.
+ * Progresywna stawka — lista etapów `{ Stawka, Obowiązuje od, Obowiązuje do }`
+ * wprowadzana przy tworzeniu kontraktu. „Obowiązuje do" jest edytowalne (można
+ * wpisać konkretną datę końcową); pozostawione puste wylicza się automatycznie z
+ * początku kolejnego etapu, a ostatni etap „bezterminowo" (patrz
+ * `buildCandidateRateSchedule`). Domyślne etykiety opisują stawkę kandydata;
+ * `label`/`hint`/`addLabel` pozwalają użyć tego samego edytora dla stawki z umowy
+ * ramowej. Współdzielone przez `/contracts/new` i rejestr per-klient.
  */
-export function CandidateRateScheduleFields({ rows, onChange, startDate }: Props) {
+export function CandidateRateScheduleFields({
+  rows,
+  onChange,
+  startDate,
+  label = "Stawka kandydata",
+  hint = DEFAULT_HINT,
+  addLabel = "+ Dodaj stawkę progresywną",
+}: Props) {
   const patchRow = (idx: number, patch: Partial<RateScheduleRow>) =>
     onChange(rows.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
 
@@ -34,11 +51,8 @@ export function CandidateRateScheduleFields({ rows, onChange, startDate }: Props
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
-        <Label className="block">Stawka kandydata</Label>
-        <span className="text-xs text-muted-foreground">
-          Możesz zaplanować progresję stawki — system zastosuje aktualną od
-          wskazanej daty.
-        </span>
+        <Label className="block">{label}</Label>
+        <span className="text-xs text-muted-foreground">{hint}</span>
       </div>
 
       <div className="space-y-2">
@@ -105,7 +119,7 @@ export function CandidateRateScheduleFields({ rows, onChange, startDate }: Props
       </div>
 
       <Button type="button" variant="outline" size="sm" onClick={addRow}>
-        + Dodaj stawkę progresywną
+        {addLabel}
       </Button>
 
       {rows[0]?.effectiveFrom === "" && (

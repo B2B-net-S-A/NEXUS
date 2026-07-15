@@ -35,6 +35,7 @@ from app.models.contract import (
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
+from app.models.contract_framework_rate import ContractFrameworkRate
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
@@ -51,6 +52,7 @@ from app.schemas.contract import (
     ContractBenchmarkComparison,
     ContractCandidateRateEntry,
     ContractClientRateEntry,
+    ContractFrameworkRateEntry,
     ContractCreate,
     ContractDetailResponse,
     ContractDraftFinalizeResponse,
@@ -103,11 +105,14 @@ def _effective_rate_fields(contract: Contract, on: date) -> dict:
     so we recompute `rate_candidate`/`rate_client`/`margin`/monthly-equivalents
     from the entries in effect on `on` rather than trusting any cached column. A
     future-dated step (e.g. a `rate_change` amendment for the next order) does not
-    change today's rate. Requires both `candidate_rate_schedule` and
-    `client_rate_schedule` to be eager-loaded.
+    change today's rate. The framework rate ("stawka z umowy ramowej") is derived
+    the same way so a planned framework-rate change shows up on its date without an
+    edit — it never feeds the margin. Requires `candidate_rate_schedule`,
+    `client_rate_schedule` and `framework_rate_schedule` to be eager-loaded.
     """
     eff_candidate = contract.effective_candidate_rate(on)
     eff_client = contract.effective_client_rate(on)
+    eff_framework = contract.effective_framework_rate(on)
     candidate_dec = Contract._as_decimal(eff_candidate)
     client_dec = Contract._as_decimal(eff_client)
     margin = (
@@ -125,6 +130,7 @@ def _effective_rate_fields(contract: Contract, on: date) -> dict:
     return {
         "rate_candidate": eff_candidate,
         "rate_client": eff_client,
+        "framework_rate": eff_framework,
         "margin": margin,
         "monthly_rate_candidate": monthly_candidate,
         "monthly_rate_client": monthly_client,
@@ -148,6 +154,18 @@ def _client_schedule_entries(contract: Contract) -> list[ContractClientRateEntry
         ContractClientRateEntry.model_validate(e)
         for e in sorted(
             contract.client_rate_schedule or [], key=lambda e: e.effective_from
+        )
+    ]
+
+
+def _framework_schedule_entries(
+    contract: Contract,
+) -> list[ContractFrameworkRateEntry]:
+    """Serialize a contract's framework-rate schedule (oldest → newest)."""
+    return [
+        ContractFrameworkRateEntry.model_validate(e)
+        for e in sorted(
+            contract.framework_rate_schedule or [], key=lambda e: e.effective_from
         )
     ]
 
@@ -200,6 +218,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "rate_client": contract.rate_client,
         "candidate_rate_schedule": _schedule_entries(contract),
         "client_rate_schedule": _client_schedule_entries(contract),
+        "framework_rate_schedule": _framework_schedule_entries(contract),
         "framework_rate": contract.framework_rate,
         "target_rate_min": contract.target_rate_min,
         "target_rate_max": contract.target_rate_max,
@@ -392,6 +411,7 @@ async def list_contracts(
         selectinload(Contract.job),
         selectinload(Contract.candidate_rate_schedule),
         selectinload(Contract.client_rate_schedule),
+        selectinload(Contract.framework_rate_schedule),
     )
     query = _apply_contract_list_filters(
         query,
@@ -442,6 +462,7 @@ async def list_contracts(
                 "latest_order_end_date": latest_order_dates.get(c.id),
                 "candidate_rate_schedule": _schedule_entries(c),
                 "client_rate_schedule": _client_schedule_entries(c),
+                "framework_rate_schedule": _framework_schedule_entries(c),
                 # Current candidate + client rates / margin derived from schedules.
                 **_effective_rate_fields(c, _today),
             }
@@ -558,7 +579,7 @@ def _contract_export_row(
         _num_cell(eff["monthly_rate_candidate"]),
         _num_cell(eff["monthly_rate_client"]),
         _num_cell(eff["monthly_margin"]),
-        _num_cell(c.framework_rate),
+        _num_cell(eff["framework_rate"]),
         c.project_code or "",
         c.project_name or "",
         c.client_pm_name or "",
@@ -600,6 +621,7 @@ async def export_contracts(
         selectinload(Contract.job),
         selectinload(Contract.candidate_rate_schedule),
         selectinload(Contract.client_rate_schedule),
+        selectinload(Contract.framework_rate_schedule),
     )
     query = _apply_contract_list_filters(
         query,
@@ -676,6 +698,7 @@ async def create_contract(
 ):
     payload = data.model_dump()
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
+    framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     contract = Contract(**payload)
     if schedule_input:
         # Schedule drives the candidate rate over time; persist each step.
@@ -689,6 +712,18 @@ async def create_contract(
             )
             for step in schedule_input
         ]
+    if framework_schedule_input:
+        # Schedule drives the framework rate over time; persist each step.
+        contract.framework_rate_schedule = [
+            ContractFrameworkRate(
+                rate=step["rate"],
+                effective_from=step["effective_from"],
+                effective_to=step.get("effective_to"),
+                note=step.get("note"),
+                created_by=current_user.id,
+            )
+            for step in framework_schedule_input
+        ]
     # "Zakończony"/"Kończący się" only hold once the end date has passed; a fresh
     # indefinite or future-dated contract stays active (see update_contract).
     contract.status = _status_after_end_date_change(
@@ -699,6 +734,9 @@ async def create_contract(
     if schedule_input:
         # Keep the cached column consistent with the schedule (current step).
         contract.rate_candidate = contract.effective_candidate_rate(date.today())
+    if framework_schedule_input:
+        # Keep the cached framework_rate consistent with the current step.
+        contract.framework_rate = contract.effective_framework_rate(date.today())
     db.add(
         Activity(
             entity_type="contract",
@@ -718,6 +756,7 @@ async def create_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     return _to_detail(result.scalar_one())
@@ -846,6 +885,7 @@ async def expiring_contracts(
         .options(
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     today = date.today()
@@ -857,6 +897,7 @@ async def expiring_contracts(
                 },
                 "candidate_rate_schedule": _schedule_entries(c),
                 "client_rate_schedule": _client_schedule_entries(c),
+                "framework_rate_schedule": _framework_schedule_entries(c),
                 **_effective_rate_fields(c, today),
             }
         )
@@ -878,6 +919,7 @@ async def get_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -981,6 +1023,7 @@ async def update_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -993,6 +1036,10 @@ async def update_contract(
     # the existing schedule untouched (partial PATCHes stay backward-compatible).
     schedule_sent = "candidate_rate_schedule" in updates
     schedule_input = updates.pop("candidate_rate_schedule", None)
+    # The framework-rate schedule ("stawka z umowy ramowej") follows the same
+    # replace-on-presence contract as the candidate schedule above.
+    framework_sent = "framework_rate_schedule" in updates
+    framework_input = updates.pop("framework_rate_schedule", None)
     for k, v in updates.items():
         setattr(contract, k, v)
     if schedule_sent:
@@ -1011,6 +1058,22 @@ async def update_contract(
         # (set above by the setattr loop when present in this same PATCH).
         if contract.candidate_rate_schedule:
             contract.rate_candidate = contract.effective_candidate_rate(date.today())
+    if framework_sent:
+        contract.framework_rate_schedule = [
+            ContractFrameworkRate(
+                rate=step["rate"],
+                effective_from=step["effective_from"],
+                effective_to=step.get("effective_to"),
+                note=step.get("note"),
+                created_by=current_user.id,
+            )
+            for step in (framework_input or [])
+        ]
+        # A non-empty schedule drives the cached framework_rate; an empty schedule
+        # clears history and defers to the plain `framework_rate` field (set by the
+        # setattr loop when present in this same PATCH).
+        if contract.framework_rate_schedule:
+            contract.framework_rate = contract.effective_framework_rate(date.today())
     # Coherence guard: a PATCH that leaves the contract indefinite or with a
     # future end date makes a stored "Zakończony"/"Kończący się" stale. Reset to
     # active so editing only the end date to "bezterminowo" heals a contract
@@ -1038,11 +1101,16 @@ async def update_contract(
                     if schedule_sent
                     else {}
                 ),
+                **(
+                    {"framework_rate_schedule_steps": len(framework_input or [])}
+                    if framework_sent
+                    else {}
+                ),
             },
         )
     )
     await db.flush()
-    if schedule_sent:
+    if schedule_sent or framework_sent:
         # Reload with relations so the response carries the replaced schedule
         # (+ ids/created_at) without risking an async lazy-load on the collection
         # we just reassigned. Mirrors create_contract's re-select.
@@ -1055,6 +1123,7 @@ async def update_contract(
                 selectinload(Contract.job),
                 selectinload(Contract.candidate_rate_schedule),
                 selectinload(Contract.client_rate_schedule),
+                selectinload(Contract.framework_rate_schedule),
             )
         )
         return _to_detail(reloaded.scalar_one())
@@ -1085,6 +1154,7 @@ async def activate_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -1152,6 +1222,7 @@ async def _load_contract_with_relations(db: AsyncSession, contract_id: int) -> C
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
             selectinload(Contract.b2b_detail).selectinload(B2BContractDetail.role),
         )
     )
@@ -2178,6 +2249,7 @@ async def terminate_contract(
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
