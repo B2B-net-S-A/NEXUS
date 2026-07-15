@@ -428,6 +428,28 @@ _COLUMN_STATEMENTS = [
     # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
     # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
     # UndefinedColumnError gdyby app wystartował przed alembic upgrade.
+    # match_index_outbox (migration 0171) — durable reindex queue drained by the
+    # flag-gated index_outbox worker. Table must exist before the worker/enqueue
+    # paths run under prod's multi-head alembic drift.
+    """CREATE TABLE IF NOT EXISTS match_index_outbox (
+        id BIGSERIAL PRIMARY KEY,
+        entity_type VARCHAR(16) NOT NULL,
+        entity_id INTEGER NOT NULL,
+        entity_revision BIGINT NOT NULL,
+        desired_hash VARCHAR(64) NOT NULL,
+        operation VARCHAR(16) NOT NULL DEFAULT 'upsert',
+        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error VARCHAR(500),
+        indexed_hash VARCHAR(64),
+        indexed_revision BIGINT,
+        heartbeat_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_match_index_outbox_pending ON match_index_outbox (status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_match_index_outbox_entity ON match_index_outbox (entity_type, entity_id)",
+    "CREATE INDEX IF NOT EXISTS ix_match_index_outbox_status ON match_index_outbox (status)",
     # candidate_job_match_scores.scoring_algorithm_version (migration 0170) —
     # versioned score cache. A row whose version != the running
     # scoring_service.SCORING_ALGORITHM_VERSION is a cache miss, so flipping

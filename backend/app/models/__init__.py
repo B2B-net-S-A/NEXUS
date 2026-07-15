@@ -174,11 +174,13 @@ from app.models.dictionary import Dictionary, DictionaryItem
 from app.models.entity_field import EntityFieldDef, EntityType, FieldType
 from app.models.match_justification import CandidateMatchJustification
 from app.models.match_telemetry import MatchImpression, MatchOutcome  # noqa: F401
+from app.models.index_outbox import IndexOutboxEvent  # noqa: F401
 
 __all__ = [
     "CandidateMatchJustification",
     "MatchImpression",
     "MatchOutcome",
+    "IndexOutboxEvent",
     "User",
     "Candidate",
     "Job",
