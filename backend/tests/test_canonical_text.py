@@ -23,6 +23,7 @@ def _cand(**kw) -> SimpleNamespace:
         verified_tech=["PostgreSQL"],
         experience=[{"role": "Senior Dev", "company": "Acme", "desc": "Built APIs"}],
         preferences={"industries": ["fintech"]},
+        tags=["backend"],
         ai_summary="Experienced backend engineer.",
         raw_cv_text="Jan Kowalski CV ...",
     )
