@@ -80,6 +80,16 @@ def is_retryable_anthropic_error(err: BaseException) -> bool:
     return False
 
 
+def _record_health(started: float, *, failed: bool) -> None:
+    """Feed the call outcome into the Claude circuit breaker (never raises)."""
+    try:
+        from app.services.ai_health import record_provider_call
+
+        record_provider_call("claude", int((time.monotonic() - started) * 1000), failed)
+    except Exception:  # noqa: BLE001 — health telemetry must not break a call
+        pass
+
+
 def call_claude(
     *,
     messages: list[dict[str, Any]],
@@ -119,15 +129,18 @@ def call_claude(
     # on top of the manual backoff below; the explicit timeout caps a hung attempt.
     client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=request_timeout)
 
+    started = time.monotonic()
     last_err: BaseException | None = None
     for attempt in range(retries + 1):
         try:
-            return client.messages.create(
+            message = client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
                 messages=messages,
                 **kwargs,
             )
+            _record_health(started, failed=False)
+            return message
         except BaseException as err:  # noqa: BLE001 — classify then re-raise
             last_err = err
             retryable = is_retryable_anthropic_error(err)
@@ -140,6 +153,7 @@ def call_claude(
                 retryable,
             )
             if attempt >= retries or not retryable:
+                _record_health(started, failed=True)
                 raise
             delay = min(_BACKOFF_CAP, _BACKOFF_BASE * (2**attempt)) + random.uniform(
                 0, _BACKOFF_JITTER
@@ -147,4 +161,5 @@ def call_claude(
             time.sleep(delay)
 
     # Unreachable (the loop either returns or raises), but satisfies type-checkers.
+    _record_health(started, failed=True)
     raise last_err if last_err is not None else RuntimeError("call_claude failed")
