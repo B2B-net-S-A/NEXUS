@@ -154,6 +154,8 @@ jobs:
                  tests/test_ai_settings_schemas.py \
                  tests/test_ai_feature_migrations.py \
                  tests/test_ai_sdk_boundary.py \
+                 tests/test_embedding_safety.py \
+                 tests/test_voyage4_migration.py \
                  tests/test_cv_parser.py \
                  tests/test_cv_parser_linkedin_extraction.py \
                  tests/test_sentry_filtering.py \

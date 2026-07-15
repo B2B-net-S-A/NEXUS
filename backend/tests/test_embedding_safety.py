@@ -63,6 +63,18 @@ def test_collection_allows_text_schema_versions_in_same_vector_space(monkeypatch
     assert embedding_service._collection() == collection
 
 
+def test_active_aliases_are_valid_configured_collection_names(monkeypatch):
+    monkeypatch.setattr(
+        embedding_service.settings, "QDRANT_COLLECTION", "nexus_candidates_active"
+    )
+    monkeypatch.setattr(
+        embedding_service.settings, "QDRANT_JOBS_COLLECTION", "nexus_jobs_active"
+    )
+
+    assert embedding_service._collection() == "nexus_candidates_active"
+    assert embedding_service._jobs_collection() == "nexus_jobs_active"
+
+
 @pytest.mark.asyncio
 async def test_voyage_http_error_log_never_contains_response_body(monkeypatch, caplog):
     secret_response = "candidate=anna.private@example.com phone=+48-600-700-800 CV body"
@@ -195,18 +207,21 @@ async def test_voyage_document_cache_uses_provider_qualified_namespace(monkeypat
     )
 
     assert result == vector
-    expected_model = f"voyage:{embedding_service._voyage_model()}"
     cache_get.assert_awaited_once_with(
         "FastAPI",
-        model=expected_model,
+        provider="voyage",
+        model=embedding_service._voyage_model(),
         input_type="document",
-        dim=embedding_service.VECTOR_SIZE,
+        dimension=embedding_service.VECTOR_SIZE,
+        text_schema=embedding_service._active_text_schema(),
     )
     cache_store.assert_awaited_once_with(
         "FastAPI",
         vector,
-        model=expected_model,
+        provider="voyage",
+        model=embedding_service._voyage_model(),
         input_type="document",
+        text_schema=embedding_service._active_text_schema(),
     )
 
 
