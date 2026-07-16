@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import APIRouter
 
-from app.api.deps import CurrentUser
+from app.api.recruitment_access import RecruitmentReadAccess
 from app.api.ws import manager
 
 router = APIRouter(prefix="/api/presence", tags=["presence"])
@@ -23,11 +23,12 @@ ResourceType = Literal["candidate", "job"]
 async def get_viewers(
     resource_type: ResourceType,
     resource_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
 ) -> dict:
     """Return a snapshot of who is currently viewing a candidate or job page.
 
-    ACL: any authenticated user. The viewer list may include the caller.
+    P1.3: gated to internal operational roles (viewer excluded), matching the
+    WS presence subscribe gate. The payload no longer carries viewer emails.
     """
     viewers = manager.get_viewers(resource_type, resource_id)
     return {"viewers": viewers}
