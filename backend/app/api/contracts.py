@@ -658,8 +658,11 @@ async def export_contracts(
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
     if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        # NB: `status` to nazwa parametru query tego endpointu (przesłania
+        # moduł fastapi.status), więc kod HTTP musi być literałem, nie
+        # status.HTTP_403_FORBIDDEN.
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Eksport kontraktów wymaga uprawnienia finansowego (admin/DL)",
         )
     query = select(Contract).options(
