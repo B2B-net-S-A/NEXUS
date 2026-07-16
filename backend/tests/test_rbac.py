@@ -139,9 +139,9 @@ TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
     ("POST", "/api/contracts"),
     ("POST", "/api/clients"),  # PR #17 — było CurrentUser, teraz TacPlus
-    # R0 (plan 2026-07-16): odczyty kontraktów/faktur = dane finansowe.
+    # R0: odczyt listy kontraktów = TacPlus (kwoty redagowane per VIEW_FINANCE,
+    # M5 PR-01d). Faktury zeszły na DL+ w M5 PR-01c (patrz niżej).
     ("GET", "/api/contracts"),
-    ("GET", "/api/invoices"),
 ]
 
 # Endpointy wymagające RecruiterPlus (wszyscy poza `user`):
@@ -166,6 +166,8 @@ DELIVERY_LEAD_PLUS_ENDPOINTS = [
     ("GET", "/api/reports/sales"),
     ("GET", "/api/reports/board"),
     ("GET", "/api/reports/tenders"),
+    # M5 PR-01c: faktury to w całości dane finansowe → VIEW_FINANCE (admin/DL).
+    ("GET", "/api/invoices"),
 ]
 
 # Endpointy admin-only:
