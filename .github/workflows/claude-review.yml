@@ -29,5 +29,9 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # dynaminds-codex-bot pushes fix commits to PR branches; without this entry the
+          # actor check fails the job (rerun keeps the actor, so it can never recover).
+          # Deliberately a single named bot, not '*'.
+          allowed_bots: "dynaminds-codex-bot"
           prompt: "Review this pull request for bugs, security issues, and missing test coverage. Be concise — only flag real problems and cite file:line. Skip style nitpicks."
           claude_args: "--model claude-sonnet-4-6 --max-turns 5"
