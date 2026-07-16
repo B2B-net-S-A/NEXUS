@@ -1,12 +1,11 @@
 import { extractErrorMsg } from "@/lib/api";
 
 /**
- * PL sentences for the eligibility reason codes the backend returns as the
- * 409 ``detail`` of ``POST /api/candidates/{id}/assign-to-job/{jobId}`` and
- * shortlist promote (see ``candidate_job_eligibility.EligibilityReason``).
- *
- * Raw codes like ``client_blacklist`` are meaningless in a toast — every
- * assign surface should run its error through {@link assignErrorMessage}.
+ * PL sentences for eligibility reason CODES, in case a producer ever puts the
+ * raw ``EligibilityReason`` code in a 409 ``detail``. The single-assign and
+ * promote endpoints already send the Polish ``EligibilityDecision.reason``
+ * (``_REASON_LABELS_PL``) — those pass through {@link assignErrorMessage}
+ * unchanged; this map is a defensive fallback so a code never reaches a toast.
  */
 export const ASSIGN_BLOCKED_LABELS: Record<string, string> = {
   blacklisted: "Kandydat jest na globalnej czarnej liście.",

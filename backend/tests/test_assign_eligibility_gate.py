@@ -1,7 +1,8 @@
 """Integration tests for the eligibility gate on single-assign (SEARCH-P0-04).
 
 ``POST /api/candidates/{candidate_id}/assign-to-job/{job_id}`` must return
-409 with the eligibility reason code as ``detail`` when the candidate is
+409 with the Polish eligibility reason (``EligibilityDecision.reason``, from
+``_REASON_LABELS_PL``) as ``detail`` when the candidate is
 globally blacklisted or has an active, unexpired hard client conflict
 (blacklist/nda/competitor) for the job's client — and must still assign when
 the conflict has expired. Follow-up flagged in PR #738 (the endpoint had no
@@ -93,8 +94,13 @@ async def test_assign_blocked_for_blacklisted_candidate(
         _assign_url(candidate_id, job_id), headers=app_auth_headers
     )
 
+    from app.services.candidate_job_eligibility import (
+        _REASON_LABELS_PL,
+        EligibilityReason,
+    )
+
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == "blacklisted"
+    assert resp.json()["detail"] == _REASON_LABELS_PL[EligibilityReason.blacklisted]
 
 
 async def test_assign_blocked_for_active_client_nda(
@@ -108,8 +114,13 @@ async def test_assign_blocked_for_active_client_nda(
         _assign_url(candidate_id, job_id), headers=app_auth_headers
     )
 
+    from app.services.candidate_job_eligibility import (
+        _REASON_LABELS_PL,
+        EligibilityReason,
+    )
+
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == "client_nda"
+    assert resp.json()["detail"] == _REASON_LABELS_PL[EligibilityReason.client_nda]
 
 
 async def test_assign_allowed_when_conflict_expired(
