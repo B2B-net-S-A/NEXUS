@@ -82,7 +82,7 @@ async def test_backfill_idempotent(board_history):
             )
         )
     assert snap is not None
-    assert snap.value["revenue"] == "100000"
+    assert snap.value["revenue"] == "100000.00"  # Numeric(12,2) -> 2 miejsca
     assert len(snap.checksum) == 64
 
 
