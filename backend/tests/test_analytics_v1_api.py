@@ -46,8 +46,11 @@ async def v1_client():
     from app.main import app
 
     _limiter.enabled = False
+    # raise_app_exceptions=True: nieobsłużony wyjątek ma wywalić test z pełnym
+    # tracebackiem zamiast anonimowego 500 (HTTPException-y i tak obsługuje
+    # FastAPI, więc asercje 403/422/503 działają bez zmian).
     async with AsyncClient(
-        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        transport=ASGITransport(app=app, raise_app_exceptions=True),
         base_url="http://testserver",
     ) as c:
         yield c
