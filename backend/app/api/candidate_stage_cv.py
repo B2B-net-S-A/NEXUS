@@ -33,6 +33,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from app.core.http_headers import content_disposition_attachment
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.services.cv_html_renderer import _generate_cv_html
 from app.services.html_sanitizer import sanitize_cv_html
@@ -591,6 +592,7 @@ async def list_cv_share_tokens(
         (
             await db.execute(
                 select(CVShareToken)
+                .options(selectinload(CVShareToken.creator))
                 .where(CVShareToken.candidate_stage_cv_id == csv.id)
                 .order_by(CVShareToken.created_at.desc())
             )
