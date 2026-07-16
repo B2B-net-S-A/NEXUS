@@ -16,6 +16,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from sqlalchemy import select
 
+from app.api.candidate_access import user_has_candidate_read
 from app.core.database import AsyncSessionLocal
 from app.core.security import decode_token
 from app.models.user import User
@@ -266,7 +267,9 @@ class ConnectionManager:
                 {
                     "user_id": info.user_id,
                     "name": info.name,
-                    "email": info.email,
+                    # P1.3: email removed — presence must not leak a colleague's
+                    # address to everyone viewing a candidate/job. The frontend
+                    # avatar falls back to `name`.
                     "role": info.role,
                     "editing": sorted(editing_for_key.get(uid, set())),
                     "since": since_for_key.get(uid),
@@ -353,11 +356,19 @@ async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) 
     if rt not in _ALLOWED_RESOURCE_TYPES or not isinstance(rid, int):
         return
 
+    # P1.3: presence is an internal collaboration signal. A read-only viewer
+    # (UserRole.user) must not be able to see — or announce themselves in — the
+    # viewer list of an arbitrary candidate/job. Unsubscribe stays open so a
+    # role change can always tear a stale subscription down.
     if msg_type == "presence:subscribe":
+        if not user_has_candidate_read(user):
+            return
         await manager.subscribe(user, websocket, rt, rid)
     elif msg_type == "presence:unsubscribe":
         await manager.unsubscribe(user.id, websocket, rt, rid)
     elif msg_type == "presence:editing":
+        if not user_has_candidate_read(user):
+            return
         field = msg.get("field")
         active = bool(msg.get("active"))
         if isinstance(field, str) and field:
