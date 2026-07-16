@@ -119,6 +119,8 @@ _CC_JOB: dict[str, Any] = {
     "errors": 0,
     "by_primary": {},
     "only_missing": True,
+    "start_after_id": 0,
+    "last_id": 0,
     "started_at": None,
     "finished_at": None,
     "limit": None,
@@ -126,7 +128,9 @@ _CC_JOB: dict[str, Any] = {
 }
 
 
-async def _run_cc_backfill(limit: Optional[int], only_missing: bool) -> None:
+async def _run_cc_backfill(
+    limit: Optional[int], only_missing: bool, start_after_id: int
+) -> None:
     _CC_JOB.update(
         running=True,
         total=0,
@@ -136,6 +140,8 @@ async def _run_cc_backfill(limit: Optional[int], only_missing: bool) -> None:
         errors=0,
         by_primary={},
         only_missing=only_missing,
+        start_after_id=start_after_id,
+        last_id=start_after_id,
         started_at=datetime.now(timezone.utc).isoformat(),
         finished_at=None,
         limit=limit,
@@ -144,7 +150,11 @@ async def _run_cc_backfill(limit: Optional[int], only_missing: bool) -> None:
     try:
         async with AsyncSessionLocal() as db:
             await backfill_candidate_ccs(
-                db, limit=limit, only_missing=only_missing, progress=_CC_JOB
+                db,
+                limit=limit,
+                only_missing=only_missing,
+                start_after_id=start_after_id,
+                progress=_CC_JOB,
             )
     except Exception as e:  # noqa: BLE001 — never crash the background task
         _CC_JOB["last_error"] = repr(e)
@@ -170,6 +180,14 @@ async def trigger_backfill_cc(
         "touches already-classified or manually-curated profiles. Set false to "
         "re-classify every candidate (still skips manual assignments).",
     ),
+    start_after_id: int = Query(
+        default=0,
+        ge=0,
+        description="Resume cursor: scan only candidates with id > this value. "
+        "Pass the `last_id` watermark from a previous (interrupted) run so a "
+        "container restart continues the pass instead of rescanning the "
+        "low-signal skipped convoy from id 0.",
+    ),
 ) -> dict[str, Any]:
     """Kick a competence-category backfill in the background. Admin only."""
     if _CC_JOB["running"]:
@@ -177,8 +195,13 @@ async def trigger_backfill_cc(
             status_code=status.HTTP_409_CONFLICT,
             detail="A competence-category backfill is already in progress",
         )
-    asyncio.create_task(_run_cc_backfill(limit, only_missing))
-    return {"status": "started", "limit": limit, "only_missing": only_missing}
+    asyncio.create_task(_run_cc_backfill(limit, only_missing, start_after_id))
+    return {
+        "status": "started",
+        "limit": limit,
+        "only_missing": only_missing,
+        "start_after_id": start_after_id,
+    }
 
 
 @router.get("/backfill-cc/status")
