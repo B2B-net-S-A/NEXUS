@@ -10,7 +10,9 @@ gate) lives in ``match_justification_service``; this module is a thin transport
 layer that maps domain errors to HTTP status codes.
 """
 
-from __future__ import annotations
+# UWAGA: bez `from __future__ import annotations` — PEP 563 zamienia
+# adnotacje FastAPI w ForwardRef i wywala app.openapi() na Annotated
+# guardach (OperationalUser); ten sam trap co slowapi #579.
 
 from datetime import datetime, timezone
 from typing import Optional

@@ -73,6 +73,10 @@ _WRITE_DECORATOR = re.compile(
 # Wyjątki świadome: self-scoped stan usera (read-marker notyfikacji).
 _ALLOWED_CURRENTUSER_WRITES = {
     ("dynareporter_competitions.py", "mark_read"),
+    # Mindy: POSTy generujące LLM-komentarz/czat nad WŁASNYM KPI usera —
+    # nic nie zapisują do danych raportowych.
+    ("dynareporter_mindy.py", "commentary"),
+    ("dynareporter_mindy.py", "chat"),
 }
 
 
