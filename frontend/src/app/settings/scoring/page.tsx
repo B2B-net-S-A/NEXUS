@@ -11,12 +11,18 @@ import {
   type ScoringWeights,
 } from "@/lib/api";
 
-const DEFAULT_WEIGHTS: ScoringWeights = {
-  semantic: 40,
+// Sześć warstw silnika — spójne z backendowym built-in (scoring_service.py):
+// 35 + 30 + 12 + 8 + 5 + 10 = 100. Edytor był 5-warstwowy (M3-SCORE/UI):
+// ukrywał warstwę Champion i każdy zapisany profil dostawał champion_fit=0
+// (cicho wyłączona warstwa), a stare 5-kluczowe rekordy w runtime dostają
+// domyślne +10 PONAD budżet 100.
+const DEFAULT_WEIGHTS: Required<ScoringWeights> = {
+  semantic: 35,
   skills: 30,
-  salary: 15,
-  location: 10,
+  salary: 12,
+  location: 8,
   availability: 5,
+  champion_fit: 10,
 };
 
 const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
@@ -25,6 +31,7 @@ const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
   salary: "Zarobki",
   location: "Lokalizacja / tryb pracy",
   availability: "Dostępność",
+  champion_fit: "Champion fit (profil idealnego kandydata)",
 };
 
 const LAYER_COLORS: Record<keyof ScoringWeights, string> = {
@@ -33,10 +40,27 @@ const LAYER_COLORS: Record<keyof ScoringWeights, string> = {
   salary: "bg-emerald-500",
   location: "bg-amber-500",
   availability: "bg-rose-500",
+  champion_fit: "bg-cyan-500",
 };
 
 function sum(w: ScoringWeights): number {
-  return w.semantic + w.skills + w.salary + w.location + w.availability;
+  return (
+    w.semantic +
+    w.skills +
+    w.salary +
+    w.location +
+    w.availability +
+    (w.champion_fit ?? 0)
+  );
+}
+
+/**
+ * Normalizacja do 6 jawnych warstw. Historyczny rekord bez `champion_fit`
+ * dostaje 10 — tyle właśnie dolicza mu legacy runtime, więc edycja od razu
+ * pokazuje realną sumę (110) i wymusza rebalans do 100 przed zapisem.
+ */
+function normalizeWeights(w: ScoringWeights): Required<ScoringWeights> {
+  return { ...w, champion_fit: w.champion_fit ?? 10 };
 }
 
 interface ProfileEditorProps {
@@ -47,8 +71,8 @@ interface ProfileEditorProps {
 
 function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
   const [name, setName] = useState(initial?.name ?? "Nowy profil");
-  const [weights, setWeights] = useState<ScoringWeights>(
-    initial?.weights ?? DEFAULT_WEIGHTS
+  const [weights, setWeights] = useState<Required<ScoringWeights>>(
+    initial?.weights ? normalizeWeights(initial.weights) : DEFAULT_WEIGHTS
   );
   const [active, setActive] = useState(initial?.active ?? true);
   const [error, setError] = useState<string | null>(null);
@@ -320,9 +344,10 @@ export default function ScoringWeightsPage() {
             Profile wag scoringu
           </h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            Domyślnie: semantic 40 + skills 30 + salary 15 + location 10 +
-            availability 5. Własne profile ułatwią tunowanie pod konkretnego
-            klienta (np. &quot;klient woli seniorów&quot; → boost skills).
+            Domyślnie: semantic 35 + skills 30 + salary 12 + location 8 +
+            availability 5 + champion 10 (suma 100). Własne profile ułatwią
+            tunowanie pod konkretnego klienta (np. &quot;klient woli
+            seniorów&quot; → boost skills).
           </p>
         </div>
         {editing === null && (
@@ -361,7 +386,7 @@ export default function ScoringWeightsPage() {
       )}
       {!isLoading && data && data.length === 0 && editing === null && (
         <div className="text-center py-10 text-muted-foreground dark:text-muted-foreground text-sm border border-dashed border-border dark:border-border rounded-xl">
-          Brak profili — scoring używa domyślnych wag (40/30/15/10/5).
+          Brak profili — scoring używa domyślnych wag (35/30/12/8/5/10).
         </div>
       )}
       {data && data.length > 0 && (

@@ -362,8 +362,9 @@ function BelowThresholdSection({ count }: { count: number }) {
       </button>
       {open && (
         <p className="mt-2 text-xs text-muted-foreground italic">
-          {count} ofert poniżej progu jakości — kliknij &ldquo;Pokaż wszystkie&rdquo;
-          przy karcie aby zobaczyć pełną listę (TODO).
+          {count} {count === 1 ? "oferta wypadła" : "ofert wypadło"} poniżej progu
+          jakości dopasowania i nie {count === 1 ? "jest pokazywana" : "są pokazywane"}.
+          Obniż „Min. dopasowanie&rdquo; w filtrach, aby je zobaczyć.
         </p>
       )}
     </div>

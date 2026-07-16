@@ -48,4 +48,26 @@ describe("ScoreBreakdownTooltip", () => {
     expect(screen.getByText(/penalties/i)).toBeInTheDocument();
     expect(screen.getByText(/blacklisted/)).toBeInTheDocument();
   });
+
+  // M3-SCORE-01: boost historyczny wchodzi do totalu — musi być widoczny,
+  // inaczej suma pokazanych warstw ≠ total („ukryte 5 pkt" z audytu).
+  it("shows historical boost row when boost > 0", () => {
+    const withBoost: ScoreBreakdown = {
+      ...FIXTURE,
+      total: 83.5,
+      historical_boost: 5,
+      historical_sources_count: 2,
+    };
+    render(<ScoreBreakdownTooltip breakdown={withBoost} />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("Historia")).toBeInTheDocument();
+    expect(screen.getByText(/\+5\.0 pkt/)).toBeInTheDocument();
+    expect(screen.getByText(/2 podobn/)).toBeInTheDocument();
+  });
+
+  it("hides historical boost row when absent or zero", () => {
+    render(<ScoreBreakdownTooltip breakdown={FIXTURE} />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.queryByText("Historia")).not.toBeInTheDocument();
+  });
 });
