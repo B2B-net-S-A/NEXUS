@@ -11,7 +11,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.models.user import User
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_przetargi import (
     DrPrzetargiAllocation,
@@ -69,7 +73,9 @@ class ProjectSummary(BaseModel):
 
 @router.get("/projects", response_model=list[ProjectResponse])
 async def list_projects(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("przetargi", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     only_active: bool = Query(default=True),
 ) -> list[ProjectResponse]:
@@ -82,7 +88,9 @@ async def list_projects(
 
 @router.get("/consultants", response_model=list[ConsultantResponse])
 async def list_consultants(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("przetargi", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     only_active: bool = Query(default=True),
 ) -> list[ConsultantResponse]:
@@ -95,7 +103,9 @@ async def list_consultants(
 
 @router.get("/allocations", response_model=list[AllocationRow])
 async def list_allocations(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("przetargi", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     project_id: Optional[int] = Query(default=None),
     consultant_id: Optional[int] = Query(default=None),
@@ -151,7 +161,9 @@ async def list_allocations(
 
 @router.get("/project-summary", response_model=list[ProjectSummary])
 async def project_summary(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("przetargi", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     from_month: Optional[date] = Query(default=None),
     to_month: Optional[date] = Query(default=None),

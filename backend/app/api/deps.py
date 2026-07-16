@@ -184,6 +184,24 @@ RecruiterPlus = Annotated[
     ),
 ]
 
+# R0 (plan analytics 2026-07-16): każdy operacyjny — czyli wszyscy POZA
+# read-only viewerem `user` (QC/klient). W odróżnieniu od RecruiterPlus
+# zawiera head_of_recruitment. Do feedów/danych z PII kandydatów, które nie
+# są „bezpiecznymi agregatami", ale też nie wymagają konkretnej roli.
+OperationalUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.recruiter,
+            UserRole.sourcer,
+        )
+    ),
+]
+
 # Pending verification approval (migracja 0056) — admin + delivery_lead +
 # head_of_recruitment mogą akceptować / odrzucać kandydatów na stage `verified`
 # kiedy rate przekracza Job.salary_max. Recruiter który wrzucił NIE może sam

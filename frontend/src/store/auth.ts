@@ -83,6 +83,11 @@ interface User {
    *  Optional: stary kod tworzący `User` (np. OnboardingDLV2/RecruiterV2)
    *  nie ma tego pola — wtedy traktujemy jako []. */
   allowed_sections?: DynaReporterSection[]
+  /** Analytics v1 (plan 2026-07-16, R0): unia capabilities ze wszystkich ról,
+   *  liczona przez backend w GET /api/auth/me. Frontend używa ich WYŁĄCZNIE
+   *  do routingu i gate'owania zapytań (fail-closed przy braku pola) —
+   *  twarde guardy siedzą na backendzie. */
+  analytics_capabilities?: string[]
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
@@ -158,6 +163,22 @@ export function hasSection(
   if (!user) return false
   if (user.role === "admin") return true
   return (user.allowed_sections ?? []).includes(section)
+}
+
+/**
+ * Analytics v1 (R0): czy user ma daną capability zwróconą przez backend
+ * w /api/auth/me. Fail-closed — brak pola (stary cache localStorage) = false.
+ * Kanoniczne wartości: view_operational_aggregates, view_own_recruitment_kpi,
+ * view_own_delivery_kpi, view_recruitment_ranking, view_team_kpi,
+ * view_client_operations, view_finance, view_tenders_operational,
+ * admin_analytics.
+ */
+export function hasAnalyticsCapability(
+  user: Pick<User, "analytics_capabilities"> | null | undefined,
+  capability: string
+): boolean {
+  if (!user) return false
+  return (user.analytics_capabilities ?? []).includes(capability)
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────

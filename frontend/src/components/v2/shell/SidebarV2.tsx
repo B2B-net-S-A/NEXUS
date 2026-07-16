@@ -94,7 +94,21 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Delivery",
     icon: Handshake,
     items: [
-      { href: "/clients", label: "Klienci", icon: Building2 },
+      // R0 (plan analytics 2026-07-16): backend odcina rolę `user` od bazy
+      // klientów (OperationalUser) — nie pokazujemy linku, do którego 403.
+      {
+        href: "/clients",
+        label: "Klienci",
+        icon: Building2,
+        roles: [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "tac",
+          "recruiter",
+          "sourcer",
+        ],
+      },
       {
         href: "/my-clients",
         label: "Moi klienci",
@@ -112,7 +126,13 @@ const NAV_SECTIONS: NavSection[] = [
       // "Kontraktorzy" item was folded in — /contractors redirects to
       // /contracts?view=operations. Operations mode is role-gated inside
       // the page (same roles the old nav item used).
-      { href: "/contracts", label: "Kontrakty", icon: FileText },
+      // R0: odczyty kontraktów (stawki!) = TacPlus na backendzie.
+      {
+        href: "/contracts",
+        label: "Kontrakty",
+        icon: FileText,
+        roles: ["admin", "delivery_lead", "tac"],
+      },
       // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
       //    na prośbę usera ("wylacz z UI na razie"). Route
       //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji

@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 async def kpi_coach_nudger_loop() -> None:
     """Entry-point zarejestrowany w `app/main.py` lifespan."""
+    # R0 (plan 2026-07-16): stary Coach liczy KPI z UserActivity (log
+    # pomocniczy, nie kanoniczne metryki) — emisja nudge'y wstrzymana do
+    # czasu KPI Coach v2 na danych ATS. Historia notyfikacji zostaje.
+    if not settings.KPI_COACH_NUDGER_ENABLED:
+        logger.info(
+            "kpi_coach_nudger_loop disabled (KPI_COACH_NUDGER_ENABLED=false) — "
+            "wznowienie po migracji na KPI Coach v2 (canonical ATS metrics)"
+        )
+        return
+
     interval = max(60, settings.KPI_COACH_LOOP_INTERVAL_SECONDS)
 
     # Startup grace — daj DB/Qdrant dojść do formy przed pierwszym zapytaniem.

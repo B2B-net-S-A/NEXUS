@@ -28,7 +28,7 @@ from sqlalchemy import and_, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.user import User, UserRole
@@ -261,7 +261,7 @@ async def get_ranking(
 )
 async def upsert_entry(
     payload: DrKpiBodyLeasingCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     user_id: Optional[int] = Query(
         default=None, description="Target user (admin only)"
@@ -327,7 +327,7 @@ async def upsert_entry(
 )
 async def delete_entry(
     entry_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Usuwa wpis — autor wpisu lub admin (DL/HoR też mogą)."""

@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * DynaReporter B.2.11 — Upload + History (admin).
+ * DynaReporter B.2.11 — historia uploadów (admin, read-only).
+ *
+ * R0 (plan analytics 2026-07-16): sam upload wycofany (backend: 410 Gone) —
+ * strona pokazuje wyłącznie archiwalną historię.
  */
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore, hasSection } from "@/store/auth";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -22,42 +24,14 @@ interface UploadHistoryEntry {
   created_at: string;
 }
 
-const FILE_TYPES = [
-  { value: "body_leasing", label: "Body Leasing KPI" },
-  { value: "sales", label: "Sales KPI" },
-  { value: "finances", label: "Finanse" },
-  { value: "mrr_monthly", label: "MRR miesięczny" },
-  { value: "sales_weekly", label: "Sales weekly activity" },
-];
-
 export default function AdminUploadPage() {
   const { user, hydrated } = useAuthStore();
-  const queryClient = useQueryClient();
-  const [fileType, setFileType] = useState("body_leasing");
-  const [file, setFile] = useState<File | null>(null);
 
   const historyQ = useQuery({
     queryKey: ["dr", "upload-history"],
     queryFn: () =>
       api.get<UploadHistoryEntry[]>("/api/dynareporter/upload/history").then((r) => r.data),
     enabled: hydrated && !!user && hasSection(user, "admin"),
-  });
-
-  const uploadMut = useMutation({
-    mutationFn: async () => {
-      if (!file) throw new Error("Wybierz plik");
-      const formData = new FormData();
-      formData.append("file", file);
-      const resp = await api.post("/api/dynareporter/upload/excel", formData, {
-        params: { file_type: fileType },
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      return resp.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["dr", "upload-history"] });
-      setFile(null);
-    },
   });
 
   if (!hydrated) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
@@ -78,62 +52,20 @@ export default function AdminUploadPage() {
   return (
     <div className="container mx-auto max-w-5xl p-6 space-y-6">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">Upload XLSX + Historia</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Historia uploadów XLSX</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Wgrywanie Excel z KPI/MRR/finansów. NOTE: parsing XLSX jest TODO w
-          follow-up — obecnie endpoint zapisuje audit log z error_message.
+          Archiwum historycznych uploadów DynaReportera (audit log).
         </p>
       </header>
 
-      <section className="rounded-lg border border-border bg-card p-5">
-        <h2 className="font-semibold mb-3">Upload nowego pliku</h2>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              Typ pliku
-            </label>
-            <select
-              value={fileType}
-              onChange={(e) => setFileType(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-            >
-              {FILE_TYPES.map((ft) => (
-                <option key={ft.value} value={ft.value}>
-                  {ft.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              Plik XLSX
-            </label>
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => uploadMut.mutate()}
-            disabled={!file || uploadMut.isPending}
-            className="rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium disabled:opacity-50"
-          >
-            {uploadMut.isPending ? "Wgrywam…" : "Wgraj plik"}
-          </button>
-          {uploadMut.isSuccess && (
-            <p className="text-xs text-muted-foreground">
-              Audit log zapisany. Wynik: {uploadMut.data?.status}. {uploadMut.data?.error_message}
-            </p>
-          )}
-          {uploadMut.isError && (
-            <p className="text-xs text-destructive">
-              Błąd: {(uploadMut.error as Error).message}
-            </p>
-          )}
-        </div>
+      {/* R0 (plan analytics 2026-07-16): upload wycofany — backend zwraca
+          410 Gone. Bieżące statystyki liczy live ATS (Analytics v1). */}
+      <section className="rounded-lg border border-amber-300 bg-amber-50 p-5">
+        <h2 className="font-semibold mb-1 text-[#7a4c0d]">Upload wycofany</h2>
+        <p className="text-sm text-[#7a4c0d]">
+          Ręczne wgrywanie XLSX zostało wycofane — bieżące statystyki pochodzą
+          wprost z live ATS. Poniższa historia pozostaje jako archiwum.
+        </p>
       </section>
 
       <section className="rounded-lg border border-border bg-card p-4">

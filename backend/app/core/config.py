@@ -274,6 +274,10 @@ class Settings(BaseSettings):
     # kompromis między "niemal real-time" a niską presją na DB. Clampowane
     # do >= 60s w loopie.
     KPI_COACH_LOOP_INTERVAL_SECONDS: int = 300
+    # R0 (plan analytics 2026-07-16): stary nudger liczy KPI z UserActivity —
+    # emisja wstrzymana (default OFF) do czasu KPI Coach v2 na kanonicznych
+    # danych ATS. Historia notyfikacji w DB pozostaje nietknięta.
+    KPI_COACH_NUDGER_ENABLED: bool = False
 
     # Externally reachable base URL for the public API. Used by Outlook
     # Actionable Messages (Phase 7.5) which require Microsoft's servers to be

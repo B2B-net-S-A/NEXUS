@@ -26,7 +26,7 @@ from app.schemas.client_profile import (
     OpenJobItem,
     RecruiterBrief,
 )
-from app.api.deps import CurrentUser, RecruiterPlus, TacPlus, DeliveryLeadPlus
+from app.api.deps import OperationalUser, TacPlus, DeliveryLeadPlus
 
 router = APIRouter()
 
@@ -98,7 +98,7 @@ def _days_to(target: Optional[date]) -> Optional[int]:
 
 @router.get("", response_model=ClientList)
 async def list_clients(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -137,7 +137,7 @@ async def create_client(
 
 @router.get("/{client_id}", response_model=ClientResponse)
 async def get_client(
-    client_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    client_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Client).where(Client.id == client_id))
     client = result.scalar_one_or_none()
@@ -149,7 +149,7 @@ async def get_client(
 @router.get("/{client_id}/profile", response_model=ClientProfileResponse)
 async def get_client_profile(
     client_id: int,
-    current_user: RecruiterPlus,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Aggregated profile view — open jobs + active consultants + history.
@@ -354,12 +354,27 @@ async def get_client_profile(
         avg_time_to_fill_days=round(avg_ttf, 1) if avg_ttf is not None else None,
     )
 
-    return ClientProfileResponse(
+    response = ClientProfileResponse(
         summary=summary,
         open_jobs=open_jobs,
         active_consultants=active_consultants,
         historical=ClientProfileHistory(placements=placements, lost_jobs=lost_jobs),
     )
+
+    # R0 (plan 2026-07-16): stawki/marże/MRR/LTV tylko dla VIEW_FINANCE
+    # (delivery_lead, admin). Pozostałe role widzą profil operacyjny.
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        response.summary.active_mrr = None
+        response.summary.ltv = None
+        for consultant in response.active_consultants:
+            consultant.monthly_rate_client = None
+            consultant.monthly_margin = None
+        for placement in response.historical.placements:
+            placement.total_revenue = None
+
+    return response
 
 
 @router.patch("/{client_id}", response_model=ClientResponse)

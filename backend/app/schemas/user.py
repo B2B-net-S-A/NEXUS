@@ -57,6 +57,10 @@ class UserResponse(BaseModel):
     # proxy "ostatniego logowania" w UI profilu — true `last_login` wymagałby
     # osobnej kolumny + login event hook (kandydat na osobne enhancement).
     last_seen_at: Optional[datetime] = None
+    # Analytics v1 (plan 2026-07-16, R0): unia capabilities ze wszystkich ról.
+    # Wypełniane w GET /api/auth/me; frontend używa WYŁĄCZNIE do routingu
+    # i gate'owania zapytań — twarde guardy siedzą na backendzie.
+    analytics_capabilities: list[str] = []
     created_at: datetime
     updated_at: datetime
 

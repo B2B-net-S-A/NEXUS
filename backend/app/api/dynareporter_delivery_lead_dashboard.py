@@ -19,7 +19,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser
+from app.models.user import User
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.schemas.dr_delivery_lead_dashboard import (
     DLDashboard,
@@ -46,7 +51,11 @@ _DATE_RE = r"^\d{4}-\d{2}-\d{2}$"
     summary="Pełen Delivery Lead dashboard (team summary + team history)",
 )
 async def get_dashboard(
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: User = Depends(
+        require_dynareporter_section(
+            "delivery-lead", AnalyticsCapability.VIEW_TEAM_KPI
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     start_date: Optional[str] = Query(
         default=None,
@@ -276,7 +285,11 @@ async def get_dashboard(
 )
 async def get_trend(
     user_id: int,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: User = Depends(
+        require_dynareporter_section(
+            "delivery-lead", AnalyticsCapability.VIEW_TEAM_KPI
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     months: int = Query(default=6, ge=1, le=24),
 ) -> list[DLTrendRow]:
@@ -318,13 +331,13 @@ async def get_trend(
 )
 async def upsert_dl_entry(
     payload: DLUpsert,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Admin upsert wpisu DL KPI. ON CONFLICT (user_id, report_month)."""
     from app.models.user import UserRole
 
-    if current_user.role != UserRole.admin:
+    if not current_user.has_role(UserRole.admin):
         raise HTTPException(
             status_code=403,
             detail="Tylko admin może modyfikować KPI DL",

@@ -130,6 +130,8 @@ const ADVANCED_LINKS: Array<{
     title: "Stawki rynkowe",
     description: "Import i zarządzanie benchmarkami stawek (No Fluff Jobs, Bulldogjob, własne).",
     icon: <Coins className="w-5 h-5" />,
+    // R0 (plan analytics 2026-07-16): benchmarki stawek = finanse (DL+/admin).
+    roles: ["admin", "delivery_lead"],
   },
   {
     href: "/settings/contract-templates",

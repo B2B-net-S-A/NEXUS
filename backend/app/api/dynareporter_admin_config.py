@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.user import UserRole
 
@@ -77,7 +77,7 @@ def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
     summary="Aktualna punktacja Ligi Mistrzów",
 )
 async def get_scoring(
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionsLeagueScoring:
     """Każdy zalogowany user może czytać scoring (jest też w dashboard response)."""

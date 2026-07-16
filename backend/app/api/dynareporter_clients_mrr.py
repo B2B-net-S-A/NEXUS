@@ -11,7 +11,11 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.models.user import User
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_clients_mrr import DrClient, DrClientMrr, DrFinance
 
@@ -52,7 +56,9 @@ class MrrSummary(BaseModel):
 
 @router.get("/clients", response_model=list[ClientResponse])
 async def list_clients(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("clients-mrr", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     only_active: bool = Query(default=True),
 ) -> list[ClientResponse]:
@@ -65,7 +71,9 @@ async def list_clients(
 
 @router.get("/mrr", response_model=list[ClientMrrResponse])
 async def list_mrr(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("clients-mrr", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     client_id: Optional[int] = Query(default=None),
     from_month: Optional[date] = Query(default=None),
@@ -99,7 +107,9 @@ async def list_mrr(
 
 @router.get("/finances", response_model=list[FinanceResponse])
 async def list_finances(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("clients-mrr", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     department: Optional[str] = Query(default=None),
     months: int = Query(default=24, ge=1, le=120),
@@ -127,7 +137,9 @@ async def list_finances(
 
 @router.get("/summary", response_model=MrrSummary)
 async def get_mrr_summary(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("clients-mrr", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     months: int = Query(default=12, ge=1, le=120),
 ) -> MrrSummary:

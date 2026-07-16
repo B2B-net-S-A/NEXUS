@@ -31,7 +31,9 @@ const TABS: TabDef[] = [
     id: "zarzad",
     label: "Zarząd",
     icon: Briefcase,
-    roles: ["admin", "delivery_lead", "tac"],
+    // R0 (plan analytics 2026-07-16): TAC bez finansów (P&L, przetargi z
+    // kwotami) — tab tylko dla adminów i delivery leadów.
+    roles: ["admin", "delivery_lead"],
   },
 ];
 

@@ -82,12 +82,9 @@ function Sparkline({ data, color ="hsl(var(--primary))" }: { data: number[]; col
  );
 }
 
-function seedSparkline(base: number, seed: number): number[] {
- return Array.from({ length: 7 }, (_, i) => {
- const factor = 1 + 0.18 * Math.sin((i + seed) * 1.7);
- return Math.max(0, Math.round(base * factor));
- });
-}
+// R0 (plan analytics 2026-07-16): seedSparkline usunięty — syntetyczne
+// sparklines i zmyślone trendy (+8/+5/-2/+12%) udawały dane. Prawdziwe serie
+// wróci Analytics v1 (PR 5); do tego czasu karty pokazują tylko realne liczby.
 
 // ── StatCard ───────────────────────────────────────────────────────────
 interface StatProps {
@@ -338,11 +335,15 @@ function UpcomingEventsV2({ events }: { events?: any[] }) {
 }
 
 // ── Placements ─────────────────────────────────────────────────────────
-function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?: number }) {
- const placements = ir?.placements ?? ir?.total_placements ?? 0;
- const byClient = ir?.placements_by_client ?? {};
- const hasData = Object.keys(byClient).length > 0;
- const max = hasData ? Math.max(...(Object.values(byClient) as number[])) : 1;
+// R0 (plan analytics 2026-07-16): dane z live ATS (/api/dashboard/kpis),
+// nie z InfraReportera (zewnętrzny serwis wycięty — hardcoded API key).
+function PlacementsV2({
+ placements,
+ expiringContracts,
+}: {
+ placements?: number;
+ expiringContracts?: number;
+}) {
  return (
  <Card>
  <CardHeader>
@@ -355,30 +356,10 @@ function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?:
  <CardDescription>zatrudnienia B2B.net</CardDescription>
  </div>
  <span className="font-semibold text-3xl font-extrabold text-foreground tracking-[-0.02em]">
- {placements}
+ {placements ?? "—"}
  </span>
  </div>
  </CardHeader>
- {hasData && (
- <CardContent>
- <div className="space-y-2">
- {Object.entries(byClient).slice(0, 4).map(([client, count]) => (
- <div key={client} className="flex items-center gap-3 text-xs">
- <span className="flex-1 truncate text-foreground">{client}</span>
- <div className="w-24 rounded-full bg-[hsl(var(--border))]/60 h-1.5 overflow-hidden">
- <div
- className="h-full rounded-full bg-primary"
- style={{ width: `${Math.min(100, ((count as number) / max) * 100)}%` }}
- />
- </div>
- <span className="font-semibold text-foreground w-4 text-right">
- {count as number}
- </span>
- </div>
- ))}
- </div>
- </CardContent>
- )}
  {!!expiringContracts && (
  <CardContent>
  <div className="mt-2 flex items-center gap-2 text-xs text-[#7a4c0d] bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
@@ -436,6 +417,20 @@ function ContractorDraftsWidget() {
 
 // ── Main ───────────────────────────────────────────────────────────────
 export function DashboardV2() {
+ // R0 (plan analytics 2026-07-16): rola `user` (read-only viewer) nie
+ // wykonuje requestów do endpointów z PII/rankingiem (feed, leaderboard) —
+ // backend i tak je zetnie 403, ale frontend nie ma prawa nawet pytać.
+ const { user } = useAuthStore();
+ const isOperational = hasRole(
+ user,
+ "admin",
+ "head_of_recruitment",
+ "delivery_lead",
+ "tac",
+ "recruiter",
+ "sourcer"
+ );
+
  const {
  data: stats,
  isLoading: statsLoading,
@@ -467,6 +462,7 @@ export function DashboardV2() {
  .catch(() =>
  api.get("/api/dashboard/recent-activity?limit=10").then((r) => r.data)
  ),
+ enabled: isOperational,
  });
 
  const {
@@ -506,6 +502,7 @@ export function DashboardV2() {
  queryFn: () =>
  api.get("/api/activities/leaderboard?period=month&limit=5").then((r) => r.data),
  staleTime: 5 * 60 * 1000,
+ enabled: isOperational,
  });
 
  const { data: postingsStats } = useQuery({
@@ -517,12 +514,6 @@ export function DashboardV2() {
  const recentHires = (activity ?? []).filter(
  (a: any) => a.action === "hired" || a.action_type === "hired"
  );
-
- const ir = kpis?.infrareporter;
- const candidatesBase = stats?.candidates?.total ?? 50;
- const jobsBase = stats?.jobs?.open ?? 10;
- const clientsBase = stats?.clients?.total ?? 20;
- const contractsBase = stats?.contracts?.active ?? 15;
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-6">
@@ -590,19 +581,21 @@ export function DashboardV2() {
  <StatCardV2
  title="Kandydaci"
  value={stats?.candidates?.total ??"—"}
- subtitle={`${stats?.candidates?.active ?? 0} aktywnych`}
+ subtitle={
+ stats?.candidates?.active != null
+ ? `${stats.candidates.active} aktywnych`
+ : undefined
+ }
  icon={Users}
- trend={{ value: 8, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(candidatesBase, 1)}
  href="/candidates"
  />
  <StatCardV2
  title="Otwarte oferty"
  value={stats?.jobs?.open ??"—"}
- subtitle={`${stats?.jobs?.total ?? 0} łącznie`}
+ subtitle={
+ stats?.jobs?.total != null ? `${stats.jobs.total} łącznie` : undefined
+ }
  icon={Briefcase}
- trend={{ value: 5, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(jobsBase, 3)}
  href="/jobs"
  />
  <StatCardV2
@@ -610,17 +603,17 @@ export function DashboardV2() {
  value={stats?.clients?.total ??"—"}
  subtitle="aktywne konta"
  icon={Building2}
- trend={{ value: -2, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(clientsBase, 5)}
  href="/clients"
  />
  <StatCardV2
  title="Aktywne kontrakty"
  value={stats?.contracts?.active ??"—"}
- subtitle={`${stats?.contracts?.expiring_soon ?? 0} kończących się`}
+ subtitle={
+ stats?.contracts?.expiring_soon != null
+ ? `${stats.contracts.expiring_soon} kończących się`
+ : undefined
+ }
  icon={FileText}
- trend={{ value: 12, label: "vs. poprzedni miesiąc" }}
- sparkline={seedSparkline(contractsBase, 7)}
  href="/contracts"
  />
  </div>
@@ -658,6 +651,8 @@ export function DashboardV2() {
  </CardContent>
  </Card>
 
+ {/* R0: feed z nazwiskami — nie renderujemy (ani nie pytamy) dla viewera */}
+ {isOperational && (
  <Card className="lg:col-span-2">
  <CardHeader>
  <div className="flex items-center gap-2">
@@ -683,10 +678,13 @@ export function DashboardV2() {
  )}
  </CardContent>
  </Card>
+ )}
  </div>
 
  {/* Performers + Upcoming */}
  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+ {/* R0: imienny ranking — nie dla viewera (backend: VIEW_RECRUITMENT_RANKING) */}
+ {isOperational && (
  <Card className="lg:col-span-2">
  <CardHeader>
  <div className="flex items-center gap-2">
@@ -712,6 +710,7 @@ export function DashboardV2() {
  )}
  </CardContent>
  </Card>
+ )}
 
  <Card>
  <CardHeader>
@@ -744,7 +743,7 @@ export function DashboardV2() {
  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
  <div className="lg:col-span-2">
  <PlacementsV2
- ir={ir}
+ placements={kpis?.ats?.placements_this_month}
  expiringContracts={stats?.contracts?.expiring_soon}
  />
  </div>
@@ -752,18 +751,21 @@ export function DashboardV2() {
  <Card>
  <CardHeader>
  <CardTitle>Zdrowie systemu</CardTitle>
- <CardDescription>Integracje i job boards</CardDescription>
+ <CardDescription>Job boards</CardDescription>
  </CardHeader>
  <CardContent className="space-y-2 text-sm">
+ {/* R0 (plan analytics 2026-07-16): wycięte hardcodowane „zdrowe"
+ wiersze Fireflies/Voyage — udawały monitoring. Pełny widget
+ na bazie /api/health wróci z Analytics v1 (PR 5). */}
  <HealthRow
  label="Publikacje ofert"
- detail={`${postingsStats?.total ?? 0} aktywnych`}
- ok
+ detail={
+ postingsStats?.total != null
+ ? `${postingsStats.total} aktywnych`
+ : "—"
+ }
+ ok={postingsStats?.total != null}
  />
- <Separator />
- <HealthRow label="Fireflies sync" detail="Aktywny" ok />
- <Separator />
- <HealthRow label="Voyage AI" detail="embedding v3" ok />
  </CardContent>
  </Card>
  </div>

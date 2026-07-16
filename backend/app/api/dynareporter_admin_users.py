@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.user import UserRole
 
@@ -448,7 +448,7 @@ async def list_sourcer_categories(
     summary="Competence categories list (read-only)",
 )
 async def list_competence_categories(
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[CompetenceCategoryRow]:
     """List wszystkich active competence categories — used dla dropdownów
