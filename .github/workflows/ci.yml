@@ -189,6 +189,7 @@ jobs:
                  tests/test_contract_client_rate_schedule.py \
                  tests/test_contract_framework_rate_schedule.py \
                  tests/test_contract_amendments.py \
+                 tests/test_contract_future_termination.py \
                  tests/test_contracts_expiring.py \
                  tests/test_contracts_export.py \
                  tests/test_match_justification.py \
