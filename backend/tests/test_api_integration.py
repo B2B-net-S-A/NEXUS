@@ -183,4 +183,5 @@ async def test_ical_import_rejects_bad_url(
         headers=app_auth_headers,
     )
     assert r.status_code == 422
-    assert "URL must start with" in r.json()["detail"]
+    # PR-07 tightened this to https/webcal only (SSRF containment).
+    assert "https://" in r.json()["detail"]
