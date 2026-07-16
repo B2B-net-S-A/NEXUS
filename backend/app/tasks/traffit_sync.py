@@ -253,7 +253,13 @@ def _phase_plan(
 
 
 def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
-    """Compact per-phase summary for the watermark stats JSONB."""
+    """Compact per-phase summary for the watermark stats JSONB.
+
+    Zachowuje też przycięte ``error_samples`` — bez nich watermark mówi tylko
+    "errors: 311" i diagnoza z admin statusu jest niemożliwa (prod nie ma
+    dostępnych logów kontenera po restarcie). Sample zawierają identyfikatory
+    i repr wyjątku, nie wartości pól kandydata.
+    """
     keys = (
         "processed",
         "inserted",
@@ -263,7 +269,11 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "notes_promoted",
         "total_source",
     )
-    return {k: progress_dict.get(k) for k in keys if k in progress_dict}
+    out = {k: progress_dict.get(k) for k in keys if k in progress_dict}
+    samples = progress_dict.get("error_samples") or []
+    if samples:
+        out["error_samples"] = [str(s)[:200] for s in samples[:10]]
+    return out
 
 
 # ── Orchestrator ─────────────────────────────────────────────────────────────

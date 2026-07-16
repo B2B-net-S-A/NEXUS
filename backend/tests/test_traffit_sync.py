@@ -155,3 +155,39 @@ async def test_get_paginated_falls_back_to_full_scan_on_400():
     assert items == [{"id": 2}]
     assert "X-Request-Filter" in captured[0].headers
     assert "X-Request-Filter" not in captured[1].headers
+
+
+# ── Watermark stats summary ──────────────────────────────────────────────────
+
+
+def test_summarize_keeps_truncated_error_samples():
+    # Bez sampli watermark mówi tylko "errors: N" — treść błędu przepada wraz
+    # z logami kontenera po restarcie (prod nie ma trwałych logów). PR 0
+    # integracji dwukierunkowej wymaga diagnozowalności z admin statusu.
+    from app.tasks.traffit_sync import _summarize
+
+    pd = {
+        "processed": 100,
+        "errors": 2,
+        "error_samples": ["boom " * 100, "upsert stage ext=42: IntegrityError(...)"],
+        "started_at": "2026-07-16T00:00:00",  # non-whitelisted → dropped
+    }
+    out = _summarize(pd)
+    assert out["errors"] == 2
+    assert len(out["error_samples"]) == 2
+    assert all(len(s) <= 200 for s in out["error_samples"])
+    assert "started_at" not in out
+
+
+def test_summarize_omits_error_samples_when_clean():
+    from app.tasks.traffit_sync import _summarize
+
+    out = _summarize({"processed": 5, "errors": 0, "error_samples": []})
+    assert "error_samples" not in out
+
+
+def test_summarize_caps_sample_count_at_ten():
+    from app.tasks.traffit_sync import _summarize
+
+    out = _summarize({"errors": 20, "error_samples": [f"e{i}" for i in range(20)]})
+    assert len(out["error_samples"]) == 10
