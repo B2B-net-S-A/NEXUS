@@ -19,15 +19,17 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.deps import DlAssignedOrAdmin, get_current_user
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_framework_contract import ClientFrameworkContract
+from app.models.user import User
 from app.schemas.client_contract_amendment import ClientContractAmendmentRead
 from app.services import storage_service
+from app.services.client_access import deny, resolve_client_access
 
 router = APIRouter()
 
@@ -52,6 +54,30 @@ async def _assert_fc(
     if fc is None:
         raise HTTPException(404, detail="Framework contract not found")
     return fc
+
+
+async def _require_amendment_legal_read(
+    client_id: int,
+    fc_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Read scope aneksów = dokumenty prawne klienta.
+
+    P0.6a containment: list/download były bare ``CurrentUser`` + tylko check
+    istnienia client/framework, więc read-only viewer (``user``) oraz
+    recruiter/sourcer mogli iterować i pobierać aneksy dowolnego klienta.
+    Mirrors ``client_framework_contracts._require_legal_docs_reader`` —
+    ``resolve_client_access.can_view_legal_documents`` (admin/HoR/DL/TAC).
+    """
+    await _assert_fc(db, client_id, fc_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_legal_documents:
+        raise deny("aneksy umowy ramowej klienta wymagają roli admin/HoR/DL/TAC")
+    return current_user
+
+
+AmendmentLegalReader = Depends(_require_amendment_legal_read)
 
 
 def _to_read(a: ClientContractAmendment) -> ClientContractAmendmentRead:
@@ -81,10 +107,9 @@ def _to_read(a: ClientContractAmendment) -> ClientContractAmendmentRead:
 async def list_amendments(
     client_id: int,
     fc_id: int,
-    _user: CurrentUser,
+    _user=AmendmentLegalReader,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_fc(db, client_id, fc_id)
     rows = list(
         (
             await db.execute(
@@ -191,10 +216,9 @@ async def download_amendment(
     client_id: int,
     fc_id: int,
     amendment_id: int,
-    _user: CurrentUser,
+    _user=AmendmentLegalReader,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_fc(db, client_id, fc_id)
     a = await db.scalar(
         select(ClientContractAmendment).where(
             ClientContractAmendment.id == amendment_id,
