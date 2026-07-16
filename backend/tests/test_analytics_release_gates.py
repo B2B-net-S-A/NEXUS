@@ -71,13 +71,20 @@ _WRITE_DECORATOR = re.compile(
 )
 
 # Wyjątki świadome: self-scoped stan usera (read-marker notyfikacji).
+# UWAGA (audyt M7 PR-01): mindy commentary/chat zeszły z allowlisty — mają
+# teraz router-level guard (require_dynareporter_section), wykrywany niżej.
 _ALLOWED_CURRENTUSER_WRITES = {
     ("dynareporter_competitions.py", "mark_read"),
-    # Mindy: POSTy generujące LLM-komentarz/czat nad WŁASNYM KPI usera —
-    # nic nie zapisują do danych raportowych.
-    ("dynareporter_mindy.py", "commentary"),
-    ("dynareporter_mindy.py", "chat"),
 }
+
+# Router-level guard: `APIRouter(dependencies=[Depends(require_...)])` chroni
+# wszystkie endpointy pliku, mimo że nie widać go w sygnaturze handlera.
+_ROUTER_LEVEL_GUARD = re.compile(
+    r"APIRouter\(\s*dependencies=\[.*?"
+    r"(?:require_capability|require_dynareporter_section|AdminUser|DlAssignedOrAdmin)"
+    r".*?\]",
+    re.S,
+)
 
 
 def test_no_currentuser_only_mutations_in_analytics_and_dyna():
@@ -88,12 +95,14 @@ def test_no_currentuser_only_mutations_in_analytics_and_dyna():
         api_dir / "financial_adjustments.py",
     ]:
         src = f.read_text(encoding="utf-8")
+        router_level_guard = bool(_ROUTER_LEVEL_GUARD.search(src))
         for m in _WRITE_DECORATOR.finditer(src):
             handler, params = m.group(2), m.group(3)
             if (f.name, handler) in _ALLOWED_CURRENTUSER_WRITES:
                 continue
             protected = (
-                "AdminUser" in params
+                router_level_guard
+                or "AdminUser" in params
                 or "require_capability" in params
                 or "require_dynareporter_section" in params
                 or "DlAssignedOrAdmin" in params

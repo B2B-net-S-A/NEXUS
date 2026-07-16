@@ -10,6 +10,10 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.dr_sales import (
@@ -20,7 +24,20 @@ from app.models.dr_sales import (
     DrWeeklySalesActivity,
 )
 
-router = APIRouter()
+# Router-level guard (audyt M7 PR-01, P0.2): egzekwuje sekcję `sales-mgmt`
+# backendowo — dotąd endpointy były na gołym CurrentUser (każdy zalogowany
+# przez direct API), mimo że frontend już wymaga hasSection("sales-mgmt").
+# VIEW_OPERATIONAL_AGGREGATES = sekcja jest właściwym gate'em (nadanie przez
+# admina), a nie-nadani (w tym viewer) dostają 403. Zero regresji dla nadanych.
+router = APIRouter(
+    dependencies=[
+        Depends(
+            require_dynareporter_section(
+                "sales-mgmt", AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES
+            )
+        )
+    ]
+)
 
 
 class SalesProjectResponse(BaseModel):

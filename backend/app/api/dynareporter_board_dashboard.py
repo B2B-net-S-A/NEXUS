@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.user import User, UserRole
@@ -37,24 +38,21 @@ router = APIRouter()
 # column type (DataError: 'str' object has no attribute 'toordinal').
 BOARD_REPORT_START: date = date(2024, 1, 1)
 
-# Rola umożliwiająca dostęp do widoku Board (financials).
-# admin + delivery_lead + head_of_recruitment = managerski layer.
-BOARD_ALLOWED_ROLES = (
-    UserRole.admin,
-    UserRole.delivery_lead,
-    UserRole.head_of_recruitment,
-)
-
 
 def _require_board_access(current_user: User) -> None:
-    """Multi-role aware — używa `has_any_role()` żeby uznać secondary
-    role z `users.roles` JSONB (multi-role schema, migracja 0110).
-    Bez tego user z primary=`recruiter` + secondary=`delivery_lead`
-    byłby fałszywie odrzucany (quality check LOW #10)."""
-    if not current_user.has_any_role(*BOARD_ALLOWED_ROLES):
+    """Audyt M7 PR-01 (P0.1): widok Rady Nadzorczej to pełny P&L (revenue,
+    koszty, profit) → wymaga ``VIEW_FINANCE``. Head of recruitment NIE ma tej
+    capability (patrz analytics/capabilities.py §4.3), więc traci dostęp do
+    finansów zarządczych — ujednolica z ``dynareporter_board.py``, który już
+    gate'uje przez VIEW_FINANCE. Wcześniej ``BOARD_ALLOWED_ROLES`` wpuszczało
+    HoR do P&L (split-brain względem macierzy capability).
+
+    Multi-role aware: ``user_has_capability`` liczy unię z ``get_all_roles()``,
+    więc secondary role (np. recruiter+delivery_lead) są uwzględniane."""
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Brak uprawnień do widoku Rady Nadzorczej",
+            detail="Brak uprawnień do widoku Rady Nadzorczej (wymaga VIEW_FINANCE)",
         )
 
 

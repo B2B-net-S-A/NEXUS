@@ -8,9 +8,12 @@ Endpoints:
   funnel, performance table, league ranking)
 - GET /api/dynareporter/rekrutacja/available-weeks — tygodnie z danymi
 
-Uprawnienia:
-- Każdy zalogowany user widzi widok (dashboard team-wide).
-- Endpoint NIE filtruje po current_user (team view, nie personal).
+Uprawnienia (audyt M7 PR-01, P0.2):
+- Router-level guard ``VIEW_RECRUITMENT_RANKING`` — widok zawiera imienne
+  rankingi/KPI/nagrody, więc rola ``user`` (read-only viewer) dostaje 403
+  także przez direct API. Wcześniej endpointy były na gołym ``CurrentUser``.
+- Dashboard jest team-wide (NIE filtruje po current_user) — dlatego wymaga
+  capability rankingowej, nie tylko zalogowania.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import AnalyticsCapability, require_capability
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.schemas.dr_rekrutacja import (
@@ -53,7 +57,13 @@ from app.schemas.dr_rekrutacja import (
 
 logger = logging.getLogger("dynareporter.rekrutacja")
 
-router = APIRouter()
+# Router-level guard (audyt M7 PR-01): cały dashboard rekrutacji to imienne
+# rankingi/KPI/nagrody → wymaga VIEW_RECRUITMENT_RANKING (wszyscy poza `user`).
+router = APIRouter(
+    dependencies=[
+        Depends(require_capability(AnalyticsCapability.VIEW_RECRUITMENT_RANKING))
+    ]
+)
 
 # Liga Mistrzów scoring system — fallback gdy dr_system_config nieczytany.
 DEFAULT_SCORING = {

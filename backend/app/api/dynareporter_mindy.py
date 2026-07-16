@@ -23,6 +23,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
 from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.database import get_db
@@ -30,7 +34,19 @@ from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.dr_kpi_sales import DrKpiSales
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+
+# Router-level guard (audyt M7 PR-01, P0.2): oba endpointy to POST wołające LLM
+# (koszt) nad KPI — dotąd goły CurrentUser (każdy zalogowany mógł palić tokeny).
+# Egzekwuje sekcję `mindy` backendowo (mirror frontendowego hasSection("mindy")).
+router = APIRouter(
+    dependencies=[
+        Depends(
+            require_dynareporter_section(
+                "mindy", AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES
+            )
+        )
+    ]
+)
 
 
 MINDY_SYSTEM_PROMPT = """Jesteś MINDY — AI asystentką w DynaReporter (system raportowania KPI
