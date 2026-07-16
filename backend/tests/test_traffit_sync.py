@@ -191,3 +191,40 @@ def test_summarize_caps_sample_count_at_ten():
 
     out = _summarize({"errors": 20, "error_samples": [f"e{i}" for i in range(20)]})
     assert len(out["error_samples"]) == 10
+
+
+# ── Pipelines: withdrawn wymaga rejection_reason (constraint 0068) ───────────
+
+
+def test_fallback_reason_only_for_withdrawn():
+    # ck_candidate_stages_withdrawn_requires_reason: stage='withdrawn' ⇒
+    # rejection_reason_id NOT NULL. Bez fallbacku każdy ruch Traffit "wait"
+    # padał na constraincie → stałe ~311 błędów fazy pipelines i permanentny
+    # checks.traffit=degraded.
+    reason_map = {10: 77, 11: 78}
+    fb = TraffitImporter._fallback_rejection_reason_id
+    assert fb("withdrawn", 10, reason_map) == 77
+    assert fb("withdrawn", 11, reason_map) == 78
+    # Job bez template'u / spoza mapy → None (wiersz nadal będzie widoczny
+    # w error_samples zamiast cicho przejść z błędnym powodem).
+    assert fb("withdrawn", 999, reason_map) is None
+    assert fb("withdrawn", None, reason_map) is None
+
+
+def test_fallback_reason_never_for_other_stages():
+    reason_map = {10: 77}
+    fb = TraffitImporter._fallback_rejection_reason_id
+    for stage in ("rejected", "hired", "screening", "interview", "cv_sent"):
+        assert fb(stage, 10, reason_map) is None, stage
+
+
+def test_pipelines_upsert_carries_rejection_reason_and_never_clobbers():
+    # Tripwire na SQL: INSERT musi nieść rejection_reason_id, a DO UPDATE
+    # musi COALESCE'ować z ISTNIEJĄCĄ wartością (fallback nie może nadpisać
+    # powodu wybranego przez rekrutera ani z rejection_backfill).
+    import inspect
+
+    src = inspect.getsource(TraffitImporter.import_pipelines)
+    assert ":rejection_reason_id" in src
+    assert "candidate_stages.rejection_reason_id" in src
+    assert "_fallback_rejection_reason_id" in src
