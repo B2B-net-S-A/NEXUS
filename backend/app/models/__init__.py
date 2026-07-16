@@ -155,6 +155,10 @@ from app.models.screening_note_mention import ScreeningNoteMention
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.candidate_document import CandidateDocument
 from app.models.cv_share_token import CVShareToken
+from app.models.recruitment_process import (  # noqa: F401
+    ProcessStatus,
+    RecruitmentProcess,
+)
 from app.models.workflow_revision import (  # noqa: F401
     StageRevision,
     WorkflowDefinition,
