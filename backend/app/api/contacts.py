@@ -296,9 +296,7 @@ async def update_contact(
             # Owner relacji: tylko pola relacyjne swojego kontaktu.
             # Niezmieniony owner_id (np. FE odsyła pełny obiekt) nie jest
             # traktowany jako próba przepisania.
-            tolerated = (
-                {"key_relationship_owner_id"} if not owner_changed else set()
-            )
+            tolerated = {"key_relationship_owner_id"} if not owner_changed else set()
             illegal = requested_fields - _OWNER_EDITABLE_FIELDS - tolerated
             if illegal:
                 raise deny(
