@@ -1345,6 +1345,72 @@ _COLUMN_STATEMENTS = [
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS last_error TEXT',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS next_due_at TIMESTAMPTZ',
+    # ── Analytics v1 foundation (0174, plan analytics PR 2) ──────────────
+    # Indeksy + kanoniczne views. DDL 1:1 z 0174_analytics_v1_foundation —
+    # przy zmianie definicji view bump metryki (app/analytics/cache.py
+    # METRIC_VERSION) i aktualizacja OBU miejsc.
+    "CREATE INDEX IF NOT EXISTS ix_analytics_cs_cand_job_moved "
+    "ON candidate_stages (candidate_id, job_id, moved_at DESC, id DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_cs_stage_first "
+    "ON candidate_stages (stage, candidate_id, job_id, moved_at ASC, id ASC) "
+    "WHERE stage IN "
+    "('verified', 'cv_sent', 'interview', 'client_interview', 'hired')",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_calls_user_effective "
+    "ON calls (user_id, status, (COALESCE(started_at, created_at)))",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_cse_first_touch "
+    "ON candidate_source_events (candidate_id, captured_at ASC, id ASC)",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_contracts_dates "
+    "ON contracts (start_date, end_date)",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_jobs_close_reason "
+    "ON jobs (close_reason) WHERE close_reason IS NOT NULL",
+    """CREATE OR REPLACE VIEW analytics_current_pipeline AS
+        SELECT DISTINCT ON (candidate_id, job_id)
+            candidate_id,
+            job_id,
+            stage,
+            moved_at,
+            moved_by,
+            id AS candidate_stage_id
+        FROM candidate_stages
+        ORDER BY candidate_id, job_id, moved_at DESC, id DESC""",
+    """CREATE OR REPLACE VIEW analytics_first_milestones AS
+        SELECT
+            candidate_id,
+            job_id,
+            stage,
+            moved_at AS first_reached_at,
+            moved_by AS first_moved_by,
+            id AS candidate_stage_id
+        FROM (
+            SELECT
+                cs.candidate_id,
+                cs.job_id,
+                cs.stage,
+                cs.moved_at,
+                cs.moved_by,
+                cs.id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY cs.candidate_id, cs.job_id, cs.stage
+                    ORDER BY cs.moved_at ASC, cs.id ASC
+                ) AS rn
+            FROM candidate_stages cs
+            WHERE cs.stage IN (
+                'verified', 'cv_sent', 'interview', 'client_interview', 'hired'
+            )
+        ) ranked
+        WHERE rn = 1""",
+    """CREATE OR REPLACE VIEW analytics_candidate_first_sources AS
+        SELECT DISTINCT ON (candidate_id)
+            candidate_id,
+            channel,
+            job_id,
+            utm_source,
+            utm_medium,
+            utm_campaign,
+            captured_at,
+            id AS source_event_id
+        FROM candidate_source_events
+        ORDER BY candidate_id, captured_at ASC, id ASC""",
 ]
 
 _DATA_STATEMENTS = [

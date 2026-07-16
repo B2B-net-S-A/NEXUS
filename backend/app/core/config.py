@@ -279,6 +279,40 @@ class Settings(BaseSettings):
     # danych ATS. Historia notyfikacji w DB pozostaje nietknięta.
     KPI_COACH_NUDGER_ENABLED: bool = False
 
+    # ── Analytics v1 (plan 2026-07-16, PR 2) ──────────────────────────────────
+    # Tryb rolloutu:
+    #   off    — router /api/analytics/v1 zwraca 503, zero zmian zachowania,
+    #   shadow — endpointy v1 liczą i logują (porównanie z legacy), stare
+    #            odpowiedzi UI pozostają NIEZMIENIONE,
+    #   live   — v1 jest źródłem aktywnego UI (dopiero po 7 dniach shadow
+    #            + canary per rola; patrz plan §8).
+    # UWAGA: guardy RBAC/capabilities NIE zależą od tego flaga (R0 jest
+    # niewyłączalne) — flag steruje wyłącznie NOWĄ powierzchnią v1.
+    ANALYTICS_V1_MODE: str = "off"
+    # Opcjonalne zawężenie aktywnych modułów v1 (csv, np. "overview,funnel").
+    # Pusta wartość = wszystkie moduły w danym trybie.
+    ANALYTICS_V1_MODULES: str = ""
+    # Legacy DynaReporter: read_only (adaptery czytają) | off (410 na readach).
+    DYNAREPORTER_MODE: str = "read_only"
+    # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
+    KPI_COACH_V2_NUDGES_ENABLED: bool = False
+
+    @field_validator("ANALYTICS_V1_MODE")
+    @classmethod
+    def _validate_analytics_mode(cls, v: str) -> str:
+        allowed = {"off", "shadow", "live"}
+        if v not in allowed:
+            raise ValueError(f"ANALYTICS_V1_MODE must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator("DYNAREPORTER_MODE")
+    @classmethod
+    def _validate_dynareporter_mode(cls, v: str) -> str:
+        allowed = {"read_only", "off"}
+        if v not in allowed:
+            raise ValueError(f"DYNAREPORTER_MODE must be one of {sorted(allowed)}")
+        return v
+
     # Externally reachable base URL for the public API. Used by Outlook
     # Actionable Messages (Phase 7.5) which require Microsoft's servers to be
     # able to resolve the action target URL — localhost/tunnel won't work.
