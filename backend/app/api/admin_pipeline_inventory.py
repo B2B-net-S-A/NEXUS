@@ -53,8 +53,7 @@ _LATEST_CTE = """
 
 # Terminalność wiersza: sygnał stage_def LUB legacy enum (którykolwiek).
 _TERMINAL_ROW = (
-    "(COALESCE(d.is_terminal, FALSE) "
-    "OR l.stage IN ('hired', 'rejected', 'withdrawn'))"
+    "(COALESCE(d.is_terminal, FALSE) OR l.stage IN ('hired', 'rejected', 'withdrawn'))"
 )
 
 
@@ -422,9 +421,7 @@ async def _run_check(
         )
         rows = result.mappings().all()
         count = int(rows[0]["total_count"]) if rows else 0
-        sample = [
-            {k: v for k, v in row.items() if k != "total_count"} for row in rows
-        ]
+        sample = [{k: v for k, v in row.items() if k != "total_count"} for row in rows]
         return {
             "key": key,
             "severity": severity,
@@ -458,9 +455,11 @@ async def pipeline_inventory(
     totals: dict[str, Any]
     try:
         totals_row = (
-            (await asyncio.wait_for(
-                db.execute(text(_TOTALS_SQL)), timeout=CHECK_TIMEOUT_SECONDS
-            ))
+            (
+                await asyncio.wait_for(
+                    db.execute(text(_TOTALS_SQL)), timeout=CHECK_TIMEOUT_SECONDS
+                )
+            )
             .mappings()
             .one()
         )
@@ -476,23 +475,15 @@ async def pipeline_inventory(
     counted = [c for c in checks if c["count"] is not None]
     return {
         "query_version": QUERY_VERSION,
-        "generated_at": datetime.now(tz=timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        ),
+        "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "sample_limit": SAMPLE_LIMIT,
         "totals": totals,
         "summary": {
             "checks_total": len(checks),
             "checks_failed": len(checks) - len(counted),
-            "anomalies_p0": sum(
-                c["count"] for c in counted if c["severity"] == "P0"
-            ),
-            "anomalies_p1": sum(
-                c["count"] for c in counted if c["severity"] == "P1"
-            ),
-            "anomalies_p2": sum(
-                c["count"] for c in counted if c["severity"] == "P2"
-            ),
+            "anomalies_p0": sum(c["count"] for c in counted if c["severity"] == "P0"),
+            "anomalies_p1": sum(c["count"] for c in counted if c["severity"] == "P1"),
+            "anomalies_p2": sum(c["count"] for c in counted if c["severity"] == "P2"),
         },
         "checks": checks,
         "elapsed_ms": int((time.monotonic() - started) * 1000),

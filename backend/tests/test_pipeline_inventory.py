@@ -262,9 +262,7 @@ async def test_inventory_shape_detects_anomalies_and_does_not_mutate(
 
     # Czysta para (tylko aktywne etapy, bez anomalii czasowych) nie jest
     # raportowana w klasach P0.
-    assert (cand_e, job_e) not in _sample_pairs(
-        _check(report, "pending_not_current")
-    )
+    assert (cand_e, job_e) not in _sample_pairs(_check(report, "pending_not_current"))
     assert (cand_a, job_a) not in _sample_pairs(_check(report, "hired_no_contract"))
 
 
