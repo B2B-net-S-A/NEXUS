@@ -102,10 +102,10 @@ from app.api.candidate_access import (
     CandidateFinanceAccess,
     CandidatePIIAccess,
     CandidateSearchAccess,
-    CandidateWriteAccess,
     privacy_workflow_unavailable,
 )
 from app.api.financial_access import has_financial_access, redact_financial_fields
+from app.api.recruitment_access import RecruitmentRateEditAccess
 from app.services import candidate_audit
 from app.api import ws as ws_manager
 
@@ -3080,7 +3080,7 @@ async def set_recruitment_expected_rate(
     candidate_id: int,
     job_id: int,
     payload: ClientRateUpdate,
-    current_user: CandidateWriteAccess,
+    current_user: RecruitmentRateEditAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Ustaw/wyczyść „Stawkę kandydata" (oczekiwania kandydata, expected_rate)

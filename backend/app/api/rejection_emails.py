@@ -24,7 +24,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.recruitment_access import (
+    RecruitmentReadAccess,
+    user_has_rejection_email_oversight,
+)
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
@@ -32,7 +35,6 @@ from app.models.rejection_email import (
     RejectionEmailStatus,
     ScheduledRejectionEmail,
 )
-from app.models.user import UserRole
 
 router = APIRouter()
 
@@ -103,7 +105,7 @@ def _to_response(row: ScheduledRejectionEmail) -> RejectionEmailResponse:
 @router.get("/{rejection_email_id}", response_model=RejectionEmailResponse)
 async def get_rejection_email(
     rejection_email_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ) -> RejectionEmailResponse:
     """Fetch a scheduled rejection email by id (for toast preview / timeline)."""
@@ -119,7 +121,7 @@ async def get_rejection_email(
 @router.post("/{rejection_email_id}/cancel", response_model=RejectionEmailResponse)
 async def cancel_rejection_email(
     rejection_email_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ) -> RejectionEmailResponse:
     """Cancel a pending rejection email (undo the 15-minute countdown).
@@ -135,14 +137,18 @@ async def cancel_rejection_email(
             detail="Scheduled rejection email not found",
         )
 
-    # AuthZ — recruiter who owns the row, admin, or delivery lead.
-    if current_user.id != row.recruiter_id and current_user.role not in (
-        UserRole.admin,
-        UserRole.delivery_lead,
+    # AuthZ — recruiter who owns the row or an oversight role. M4 PR-01:
+    # multi-role aware (has_any_role) zamiast porównania primary ``role``,
+    # oversight = admin / delivery_lead / head_of_recruitment.
+    if current_user.id != row.recruiter_id and not user_has_rejection_email_oversight(
+        current_user
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the assigned recruiter or an admin/delivery lead can cancel.",
+            detail=(
+                "Only the assigned recruiter or an admin/delivery lead/"
+                "head of recruitment can cancel."
+            ),
         )
 
     if row.status == RejectionEmailStatus.cancelled:
@@ -197,7 +203,7 @@ async def cancel_rejection_email(
 )
 async def list_for_candidate(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ) -> List[RejectionEmailResponse]:
     """List all rejection emails scheduled for a candidate (timeline view).

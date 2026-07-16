@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -200,8 +200,17 @@ async def _resolve_user_ids_for_rule(
                 "stage_notif: role %r is not a valid UserRole — skipping", rule.role
             )
             return []
+        # M4 PR-01: pełny zbiór ról (primary `role` + JSONB `roles`), nie tylko
+        # primary — hybrydowa persona (np. TAC z dodatkową rolą delivery_lead)
+        # ma dostawać powiadomienia reguł kierowanych do delivery_lead.
         rows = await db.execute(
-            select(User.id).where(User.role == role_enum, User.is_active.is_(True))
+            select(User.id).where(
+                or_(
+                    User.role == role_enum,
+                    User.roles.contains([role_enum.value]),
+                ),
+                User.is_active.is_(True),
+            )
         )
         return list(rows.scalars().all())
 
