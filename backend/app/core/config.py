@@ -237,6 +237,13 @@ class Settings(BaseSettings):
     MARKETPLACE_DEFAULT_DURATION_DAYS: int = 30
     MARKETPLACE_SWEEP_INTERVAL_SECONDS: int = 1800  # 30 min safety net
     MARKETPLACE_TOP_K_MATCHES_PER_CANDIDATE: int = 3
+    # M3-JOB-01/M3-RETR-02: pula retrieval po stronie jobów PRZED filtrem
+    # statusu. Qdrant index jobów zawiera wszystkie statusy (payload nie ma
+    # `status`), a baza to w większości closed joby z importu Traffit — top-30
+    # semantic bywa w całości closed/draft i flow zwraca zero, mimo że niżej w
+    # rankingu są dobre published joby (starvation). Szeroka pula + filtr w DB
+    # to tani fix do czasu dodania statusu do payloadu.
+    JOB_SEMANTIC_POOL_SIZE: int = 150
     # Rate-limit: max notyfikacji na kandydata per owner per 24h. Powyżej →
     # agregat "N nowych matchy ≥70" (Phase 2 feature; w MVP wyłączone przez 0).
     MARKETPLACE_MAX_ALERTS_PER_CANDIDATE_PER_DAY: int = 0

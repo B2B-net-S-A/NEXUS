@@ -88,6 +88,8 @@ async def recommend_candidates_for_job(
     ),
     min_score: float | None = Query(
         None,
+        ge=0.0,
+        le=100.0,
         description=(
             "Minimum hybrid score (0-100) a candidate must reach to be shown. "
             "Defaults to settings.RECOMMENDATION_MIN_SCORE. Lower = show more."
@@ -106,6 +108,7 @@ async def recommend_candidates_for_job(
     ),
     location: str | None = Query(
         None,
+        max_length=120,
         description=(
             "Restrict results to candidates whose location matches this place "
             "(city/region, substring-tolerant, blob-aware). Falls back to the "
@@ -119,6 +122,41 @@ async def recommend_candidates_for_job(
     """
     Top-K ranking of candidates for a job using hybrid scoring
     (semantic 40 + skills 30 + salary 15 + location 10 + availability 5 − penalties).
+
+    Transport-only wrapper: parses/validates query params and delegates to
+    ``_recommend_candidates_core`` so in-process callers (``recompute_scores``)
+    never touch FastAPI ``Query(...)`` sentinels or the slowapi wrapper
+    (M3-API-01).
+    """
+    return await _recommend_candidates_core(
+        job_id,
+        current_user=current_user,
+        db=db,
+        top_k=top_k,
+        min_score=min_score,
+        include_breakdown=include_breakdown,
+        exclude_in_pipeline=exclude_in_pipeline,
+        profile_id=profile_id,
+        location=location,
+    )
+
+
+async def _recommend_candidates_core(
+    job_id: int,
+    *,
+    current_user: User,
+    db: AsyncSession,
+    top_k: int = 200,
+    min_score: float | None = None,
+    include_breakdown: bool = True,
+    exclude_in_pipeline: bool = True,
+    profile_id: Optional[int] = None,
+    location: str | None = None,
+) -> dict:
+    """Application-service core of job→candidates recommendations.
+
+    Plain async function (no FastAPI transport objects) — callable from the
+    route above and from ``recompute_scores`` without a ``Request``.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
@@ -126,12 +164,8 @@ async def recommend_candidates_for_job(
 
     # ── Location filter (post-scoring; mirrors legacy /ai-matches PR #424) ────
     # Explicit query param wins; otherwise fall back to the job's own location
-    # (empty for ~99.6% of imported jobs, hence the param). The `isinstance`
-    # guard keeps the in-process direct call from `recompute_scores` — where
-    # FastAPI passes the `Query(...)` sentinel rather than a str — from tripping
-    # `.strip()`.
-    location_param = location if isinstance(location, str) else ""
-    requested_location = location_param.strip() or (job.location or "").strip()
+    # (empty for ~99.6% of imported jobs, hence the param).
+    requested_location = (location or "").strip() or (job.location or "").strip()
     requested_tokens = location_tokens(requested_location)
     location_active = bool(requested_tokens)
 
@@ -163,6 +197,13 @@ async def recommend_candidates_for_job(
     hits = await search_candidates_semantic(query_text, top_k=pool_size)
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
+
+    # Degraded retrieval: Qdrant down or index empty. The DB fallback below still
+    # serves results, but its composites are computed with a NEUTRAL semantic
+    # layer — persisting them would poison the shared score cache as "fresh"
+    # long after the provider recovers (M3-CACHE-01), so cache writes are
+    # disabled for this request.
+    semantic_degraded = not candidate_ids
 
     # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
     if not candidate_ids:
@@ -218,7 +259,12 @@ async def recommend_candidates_for_job(
 
     # Phase C1 + D1: cache-first scoring keyed by active profile.
     breakdowns = await bulk_get_or_compute(
-        job, candidates, db, similarity_map=similarity_map, profile=profile
+        job,
+        candidates,
+        db,
+        similarity_map=similarity_map,
+        profile=profile,
+        allow_cache_write=not semantic_degraded,
     )
 
     # Phase 14: apply historical-boost from semantically-similar past jobs.
@@ -624,7 +670,12 @@ async def recommend_jobs_for_candidate(
         parts.append(candidate.ai_summary[:300])
     query_text = " ".join(parts).strip() or f"{candidate.name} {candidate.lastname}"
 
-    hits = await search_jobs_semantic(query_text, top_k=top_k * 4)
+    # Wide retrieval pool BEFORE the status filter — the jobs index holds all
+    # statuses (mostly closed), so a narrow top-N can be 100% closed and starve
+    # the published/draft intersection to zero (M3-JOB-01).
+    hits = await search_jobs_semantic(
+        query_text, top_k=max(top_k * 4, settings.JOB_SEMANTIC_POOL_SIZE)
+    )
     similarity_map = {h["job_id"]: h["score"] for h in hits}
     job_ids = list(similarity_map.keys())
 
@@ -898,14 +949,17 @@ async def recompute_scores(
 
     await embed_job(job_id, db)
 
-    # Trigger a full recommendation pass (results not returned to keep payload small)
-    result = await recommend_candidates_for_job(
-        job_id=job_id,
+    # Trigger a full recommendation pass (results not returned to keep payload
+    # small). Calls the application-service core, NOT the route — the route is
+    # wrapped by slowapi and takes a required `Request` plus `Query(...)`
+    # defaults, so a direct route-to-route call crashes at runtime (M3-API-01).
+    result = await _recommend_candidates_core(
+        job_id,
         current_user=current_user,
+        db=db,
         top_k=top_k,
         include_breakdown=False,
         exclude_in_pipeline=False,
-        db=db,
     )
 
     return {
@@ -1255,8 +1309,13 @@ async def seeking_contractors(
     items: list[dict] = []
     for cand in candidates:
         # 2a. Personalized Qdrant search — narrow to a candidate-relevant pool.
+        # Wide pool BEFORE the published-intersection (M3-JOB-01): the jobs
+        # index holds all statuses (mostly closed), so a narrow top-N could be
+        # 100% closed and the published intersection starved to zero.
         query_text = _candidate_query_text(cand)
-        hits = await search_jobs_semantic(query_text, top_k=min(top_k * 6, 100))
+        hits = await search_jobs_semantic(
+            query_text, top_k=settings.JOB_SEMANTIC_POOL_SIZE
+        )
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
 
         # Restrict scoring to (a) Qdrant hits ∩ open jobs OR (b) all open jobs

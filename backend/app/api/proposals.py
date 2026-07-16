@@ -20,7 +20,7 @@ from fastapi import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import OperationalUser, TacPlus
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -103,7 +103,7 @@ async def _load_snapshot_candidates(
 async def get_latest_proposal(
     request: Request,
     job_id: int,
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the latest proposal snapshot for `job_id` (any status).
@@ -142,7 +142,7 @@ async def get_latest_proposal(
 async def list_proposals(
     request: Request,
     job_id: int,
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
