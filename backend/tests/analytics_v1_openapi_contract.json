@@ -1,0 +1,58 @@
+{
+  "paths": {
+    "/api/analytics/v1/calls/aggregate": [
+      "get"
+    ],
+    "/api/analytics/v1/clients/{client_id}/finance": [
+      "get"
+    ],
+    "/api/analytics/v1/clients/{client_id}/operations": [
+      "get"
+    ],
+    "/api/analytics/v1/commercial/tenders": [
+      "get"
+    ],
+    "/api/analytics/v1/executive/board": [
+      "get"
+    ],
+    "/api/analytics/v1/finance/clients": [
+      "get"
+    ],
+    "/api/analytics/v1/finance/summary": [
+      "get"
+    ],
+    "/api/analytics/v1/finance/trend": [
+      "get"
+    ],
+    "/api/analytics/v1/me/calls": [
+      "get"
+    ],
+    "/api/analytics/v1/me/kpis": [
+      "get"
+    ],
+    "/api/analytics/v1/meta/metrics": [
+      "get"
+    ],
+    "/api/analytics/v1/overview": [
+      "get"
+    ],
+    "/api/analytics/v1/pipeline/snapshot": [
+      "get"
+    ],
+    "/api/analytics/v1/recruitment/funnel": [
+      "get"
+    ],
+    "/api/analytics/v1/recruitment/users/{user_id}": [
+      "get"
+    ],
+    "/api/analytics/v1/sources": [
+      "get"
+    ],
+    "/api/analytics/v1/team/calls": [
+      "get"
+    ],
+    "/api/analytics/v1/team/kpis": [
+      "get"
+    ]
+  }
+}
