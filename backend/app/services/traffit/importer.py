@@ -1236,6 +1236,65 @@ class TraffitImporter:
 
     # ── Faza 5b helpers — lookup maps dla pipelines/activities/sources ──────
 
+    async def _build_withdrawn_fallback_reason_map(self) -> dict[int, int]:
+        """Mapa ``job_id → rejection_reason_id`` fallbacku dla ruchów withdrawn.
+
+        DB wymusza ``ck_candidate_stages_withdrawn_requires_reason``
+        (stage='withdrawn' ⇒ rejection_reason_id NOT NULL, migracja 0068), a
+        Traffit ``recruitment_history`` nie niesie powodu — trafia on osobno do
+        ``rejection_note`` przez rejection_backfill (join po activities). Bez
+        fallbacku KAŻDY ruch na stan typu "wait" (legacy 'withdrawn') pada na
+        constraincie — to było źródło stałych ~311 błędów fazy pipelines i
+        permanentnego ``checks.traffit=degraded``.
+
+        Używamy dokładnie tego samego seeda co backfill 0068:
+        ``legacy_unknown`` (category='withdrawn', inactive, order 999) per
+        template. Templates utworzone PO 0068 mogą go nie mieć — dosiewamy
+        idempotentnie (poza dry-run), zanim zbudujemy mapę.
+        """
+        if not self.dry_run:
+            await self.db.execute(
+                text(
+                    """
+                    INSERT INTO rejection_reasons
+                        (template_id, name, category, "order", active,
+                         created_at, updated_at)
+                    SELECT id, 'legacy_unknown', 'withdrawn', 999, FALSE,
+                           NOW(), NOW()
+                    FROM pipeline_templates
+                    ON CONFLICT (template_id, name, category) DO NOTHING
+                    """
+                )
+            )
+            await self.db.commit()
+        result = await self.db.execute(
+            text(
+                """
+                SELECT j.id AS job_id, rr.id AS reason_id
+                FROM jobs j
+                JOIN rejection_reasons rr
+                  ON rr.template_id = j.pipeline_template_id
+                WHERE rr.name = 'legacy_unknown'
+                  AND rr.category = 'withdrawn'
+                """
+            )
+        )
+        return {row.job_id: row.reason_id for row in result}
+
+    @staticmethod
+    def _fallback_rejection_reason_id(
+        legacy_enum: str,
+        job_id: Optional[int],
+        withdrawn_reason_map: dict[int, int],
+    ) -> Optional[int]:
+        """Fallback reason TYLKO dla withdrawn (constraint tego wymaga);
+        rejected/inne przechodzą z NULL — realny powód uzupełnia
+        rejection_backfill z activities, a ręczne ruchy rekruterów mają
+        własny wybór z UI."""
+        if legacy_enum != "withdrawn" or job_id is None:
+            return None
+        return withdrawn_reason_map.get(job_id)
+
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
             text(
@@ -1694,12 +1753,15 @@ class TraffitImporter:
         job_map = await self._build_job_external_id_map()
         sd_id_map, sd_legacy_map = await self._build_stage_def_lookup()
         user_map = await self.build_user_id_map()
+        withdrawn_reason_map = await self._build_withdrawn_fallback_reason_map()
         logger.info(
-            "Pipelines lookups: candidates=%d jobs=%d stage_defs=%d users=%d",
+            "Pipelines lookups: candidates=%d jobs=%d stage_defs=%d users=%d "
+            "withdrawn_fallbacks=%d",
             len(cand_map),
             len(job_map),
             len(sd_id_map),
             len(user_map),
+            len(withdrawn_reason_map),
         )
 
         # Commit po każdym successful upsert (zamiast per-batch). Eliminuje
@@ -1737,7 +1799,7 @@ class TraffitImporter:
                         INSERT INTO candidate_stages (
                             external_id, external_source,
                             candidate_id, job_id, stage_def_id, stage,
-                            moved_at, moved_by,
+                            moved_at, moved_by, rejection_reason_id,
                             verification_status,
                             created_at, updated_at
                         ) VALUES (
@@ -1745,6 +1807,7 @@ class TraffitImporter:
                             :candidate_id, :job_id, :stage_def_id,
                             CAST(:stage AS pipelinestage),
                             CAST(:moved_at AS TIMESTAMPTZ), :moved_by,
+                            :rejection_reason_id,
                             CAST('active' AS verificationstatus),
                             NOW(), NOW()
                         )
@@ -1756,6 +1819,12 @@ class TraffitImporter:
                             moved_at     = EXCLUDED.moved_at,
                             moved_by     = COALESCE(
                                 EXCLUDED.moved_by, candidate_stages.moved_by
+                            ),
+                            -- Fallback nigdy nie nadpisuje realnego powodu
+                            -- (wybranego przez rekrutera lub z backfillu).
+                            rejection_reason_id = COALESCE(
+                                candidate_stages.rejection_reason_id,
+                                EXCLUDED.rejection_reason_id
                             ),
                             updated_at   = NOW()
                         RETURNING id, (xmax = 0) AS was_insert
@@ -1769,6 +1838,13 @@ class TraffitImporter:
                         "stage": payload["stage_legacy_enum"],
                         "moved_at": payload["moved_at"],
                         "moved_by": payload["moved_by"],
+                        # withdrawn wymaga powodu (constraint 0068); fallback
+                        # 'legacy_unknown' per template — patrz helper.
+                        "rejection_reason_id": self._fallback_rejection_reason_id(
+                            payload["stage_legacy_enum"],
+                            payload["job_id"],
+                            withdrawn_reason_map,
+                        ),
                     },
                 )
                 row = result.fetchone()
