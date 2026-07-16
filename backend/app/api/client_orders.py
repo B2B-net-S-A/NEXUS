@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.deps import DlAssignedOrAdmin, TacPlus
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -160,7 +160,7 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 @router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
 async def list_contractors_with_orders(
     client_id: int,
-    _user: CurrentUser,
+    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę kontraktorów (per Contract) z historią Orderów per Contract.
@@ -238,7 +238,7 @@ async def list_contractors_with_orders(
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    _user: CurrentUser,
+    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
@@ -260,7 +260,7 @@ async def list_active_contracts_for_extension(
 async def get_order(
     client_id: int,
     order_id: int,
-    _user: CurrentUser,
+    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)
@@ -467,7 +467,7 @@ async def delete_order(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    _user: CurrentUser,
+    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)

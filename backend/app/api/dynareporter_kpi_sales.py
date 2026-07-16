@@ -10,7 +10,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_kpi_sales import DrKpiSales
 from app.models.user import User, UserRole
@@ -143,7 +143,7 @@ async def get_summary(
 @router.post("", response_model=DrKpiSalesResponse, status_code=status.HTTP_201_CREATED)
 async def upsert_entry(
     payload: DrKpiSalesCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     user_id: Optional[int] = Query(default=None),
 ) -> DrKpiSalesResponse:
@@ -171,7 +171,7 @@ async def upsert_entry(
     "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
 async def delete_entry(
-    entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    entry_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> None:
     row = (
         await db.execute(select(DrKpiSales).where(DrKpiSales.id == entry_id))

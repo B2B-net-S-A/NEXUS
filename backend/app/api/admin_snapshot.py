@@ -34,6 +34,7 @@ _CACHE_KEY = "admin:snapshot"
 
 
 async def _snapshot_auth(
+    request: Request,
     x_snapshot_token: Annotated[str | None, Header(alias="X-Snapshot-Token")] = None,
     bearer: Annotated[
         HTTPAuthorizationCredentials | None,
@@ -51,10 +52,13 @@ async def _snapshot_auth(
         )
     if bearer is not None:
         try:
-            user = await get_current_user(bearer, db)
+            # R0 fix (plan 2026-07-16): get_current_user(request, credentials, db)
+            # — wcześniejsze wywołanie (bearer, db) mijało się z sygnaturą
+            # i ścieżka JWT wywalała się 500 zamiast działać.
+            user = await get_current_user(request, bearer, db)
         except HTTPException:
             raise
-        if user.role == UserRole.admin:
+        if user.has_role(UserRole.admin):
             return "jwt"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

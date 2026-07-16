@@ -5,7 +5,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore, hasSection } from "@/store/auth";
+import { useAuthStore, hasRole, hasSection } from "@/store/auth";
 import api from "@/lib/api";
 
 interface ClientMrr {
@@ -34,11 +34,14 @@ interface MrrSummary {
 
 export default function ClientsMrrPage() {
   const { user, hydrated } = useAuthStore();
+  // R0 (plan analytics 2026-07-16): finanse Dyna = rola finansowa (admin/DL)
+  // ∩ sekcja "clients-mrr" — lustro backendowego guardu (fail-closed).
+  const canView = hasRole(user, "admin", "delivery_lead") && hasSection(user, "clients-mrr");
   const mrrQ = useQuery({
     queryKey: ["dr", "mrr"],
     queryFn: () =>
       api.get<ClientMrr[]>("/api/dynareporter/clients-mrr/mrr").then((r) => r.data),
-    enabled: hydrated && !!user && hasSection(user, "clients-mrr"),
+    enabled: hydrated && !!user && canView,
   });
   const finQ = useQuery({
     queryKey: ["dr", "finances"],
@@ -46,18 +49,18 @@ export default function ClientsMrrPage() {
       api
         .get<Finance[]>("/api/dynareporter/clients-mrr/finances", { params: { months: 12 } })
         .then((r) => r.data),
-    enabled: hydrated && !!user && hasSection(user, "clients-mrr"),
+    enabled: hydrated && !!user && canView,
   });
   const sumQ = useQuery({
     queryKey: ["dr", "mrr", "summary"],
     queryFn: () =>
       api.get<MrrSummary>("/api/dynareporter/clients-mrr/summary").then((r) => r.data),
-    enabled: hydrated && !!user && hasSection(user, "clients-mrr"),
+    enabled: hydrated && !!user && canView,
   });
 
   if (!hydrated) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
   if (!user) return <div className="p-8 text-sm text-muted-foreground">Zaloguj się.</div>;
-  if (!hasSection(user, "clients-mrr")) {
+  if (!canView) {
     return (
       <div className="container mx-auto max-w-2xl p-6">
         <div className="rounded-lg border border-destructive bg-destructive/5 p-4">

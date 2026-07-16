@@ -87,7 +87,7 @@ from app.schemas.contract_onboarding import (
 from app.services import storage_service
 from app.services.contract_service import validate_ready_for_activation
 from app.tasks.contract_alerts import run_contract_alerts_cycle
-from app.api.deps import AdminUser, CurrentUser, TacPlus
+from app.api.deps import AdminUser, TacPlus
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -368,7 +368,7 @@ async def _latest_order_end_dates(
 
 @router.get("", response_model=ContractList)
 async def list_contracts(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -592,7 +592,7 @@ def _contract_export_row(
 
 @router.get("/export")
 async def export_contracts(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     format: str = Query("xlsx", regex="^(csv|xlsx)$"),
     q: Optional[str] = Query(None),
@@ -860,7 +860,7 @@ async def bulk_mark_ended(
 
 @router.get("/expiring", response_model=List[ContractResponse])
 async def expiring_contracts(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     days: int = Query(EXPIRY_WARNING_DAYS, ge=1, le=90),
 ):
@@ -907,7 +907,7 @@ async def expiring_contracts(
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)
 async def get_contract(
-    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     """Return contract with denormalized candidate/client/job names."""
     result = await db.execute(
@@ -931,7 +931,7 @@ async def get_contract(
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
 async def contract_activities(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -969,7 +969,7 @@ async def contract_activities(
 )
 async def contract_rate_history(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Return rate history for this contract's candidate+client combination."""
@@ -1297,7 +1297,7 @@ def _draft_response(
 @router.get("/{contract_id}/draft", response_model=ContractDraftResponse)
 async def get_contract_draft(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Return editable draft state for a contract.
@@ -1416,7 +1416,7 @@ async def update_contract_draft(
 @router.get("/{contract_id}/draft/render-pdf", response_class=HTMLResponse)
 async def render_draft_for_print(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the draft body wrapped in a printable HTML page.
@@ -1597,7 +1597,7 @@ async def _document_to_response(
     response_model=List[ContractDocumentResponse],
 )
 async def list_contract_documents(
-    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     await _assert_contract(db, contract_id)
     result = await db.execute(
@@ -1703,7 +1703,7 @@ async def update_contract_document(
 async def download_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id)
@@ -1791,7 +1791,7 @@ async def _amendment_to_response(
     response_model=List[ContractAmendmentResponse],
 )
 async def list_contract_amendments(
-    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     await _assert_contract(db, contract_id)
     result = await db.execute(
@@ -2001,7 +2001,7 @@ async def create_contract_amendment(
     response_model=List[OnboardingItemResponse],
 )
 async def list_onboarding_items(
-    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     await _assert_contract(db, contract_id)
     res = await db.execute(
@@ -2088,7 +2088,7 @@ async def delete_onboarding_item(
     response_model=List[ContractEquipmentResponse],
 )
 async def list_contract_equipment(
-    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     await _assert_contract(db, contract_id)
     result = await db.execute(
@@ -2315,7 +2315,7 @@ async def terminate_contract(
 )
 async def contract_timeline(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=500),
 ):
@@ -2417,7 +2417,7 @@ async def _resolve_role_for_contract(
 )
 async def contract_benchmark(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(

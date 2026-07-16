@@ -11,7 +11,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.models.user import User
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_board import DrBoardMonthlyReport, DrBoardPlacementClient
 
@@ -34,7 +38,9 @@ class BoardMonthlyResponse(BaseModel):
 
 @router.get("/months", response_model=list[BoardMonthlyResponse])
 async def list_months(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("board", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
     months: int = Query(default=12, ge=1, le=120),
 ) -> list[BoardMonthlyResponse]:
@@ -85,7 +91,9 @@ async def list_months(
 
 @router.get("/latest", response_model=Optional[BoardMonthlyResponse])
 async def latest_month(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_dynareporter_section("board", AnalyticsCapability.VIEW_FINANCE)
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[BoardMonthlyResponse]:
     stmt = (

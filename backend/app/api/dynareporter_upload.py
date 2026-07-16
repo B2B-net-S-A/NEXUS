@@ -1,14 +1,8 @@
-"""DynaReporter B.2.11 — Upload + PDF endpoints.
+"""DynaReporter B.2.11 — historia uploadów (read-only) + wycofany upload.
 
-Audit log uploadów (historia kto co kiedy wgrał).
-
-NOTE: pełna obsługa parsowania XLSX (openpyxl) jest TODO w follow-up.
-Endpoint POST /excel obecnie tylko rejestruje upload jako 'failed' z
-error_message="parsowanie XLSX TODO". Po implementacji parserów per
-file_type — zacząć insertować do dr_kpi_body_leasing / dr_kpi_sales / etc.
-
-PDF generation — pominięte (WeasyPrint ma 200MB+ apt deps na ARM).
-Można dodać reportlab w kolejnym PR po user feedback.
+R0 (plan 2026-07-16): POST /excel zwraca 410 Gone — parsowanie XLSX nigdy
+nie powstało, a „pozorny sukces" wprowadzał w błąd. GET /history zostaje
+jako audit log historycznych uploadów.
 """
 
 from __future__ import annotations
@@ -16,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,14 +21,6 @@ from app.models.dr_upload import DrUploadHistory
 from app.models.user import User, UserRole
 
 router = APIRouter()
-
-ALLOWED_FILE_TYPES = {
-    "body_leasing",
-    "sales",
-    "finances",
-    "mrr_monthly",
-    "sales_weekly",
-}
 
 
 class UploadHistoryResponse(BaseModel):
@@ -47,13 +33,6 @@ class UploadHistoryResponse(BaseModel):
     status: str
     error_message: Optional[str] = None
     created_at: datetime
-
-
-class UploadResultResponse(BaseModel):
-    upload_id: int
-    status: str  # 'success' | 'failed' | 'partial'
-    records_inserted: int
-    error_message: Optional[str] = None
 
 
 @router.get("/history", response_model=list[UploadHistoryResponse])
@@ -83,58 +62,20 @@ async def list_history(
     ]
 
 
-@router.post(
-    "/excel",
-    response_model=UploadResultResponse,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("/excel")
 async def upload_excel(
     current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-    file: UploadFile = File(...),
-    file_type: str = Query(
-        ..., description="body_leasing | sales | finances | mrr_monthly | sales_weekly"
-    ),
-) -> UploadResultResponse:
-    """Audit upload — XLSX parsing TODO.
-
-    Obecnie zapisuje wpis w dr_upload_history ze statusem 'failed' i
-    error_message wyjaśniającym że XLSX parsing nie jest zaimplementowany.
-    Po dodaniu openpyxl parserów per file_type — będą wstrzykiwać dane
-    do odpowiednich tabel dr_kpi_*.
+) -> None:
+    """Wycofane (R0, plan 2026-07-16): XLSX upload nigdy nie parsował danych —
+    zwracał 201 z pozornym audit-logiem, sugerując że coś się wydarzyło.
+    Live ATS jest jedynym źródłem bieżących statystyk; ręczne uploady
+    DynaReportera nie wracają. Historia w dr_upload_history zostaje
+    nietknięta (GET /history nadal działa).
     """
-    if file_type not in ALLOWED_FILE_TYPES:
-        return UploadResultResponse(
-            upload_id=0,
-            status="failed",
-            records_inserted=0,
-            error_message=f"Niedozwolony file_type. Oczekiwane: {ALLOWED_FILE_TYPES}",
-        )
-
-    file_name = file.filename or "unnamed.xlsx"
-    # Read content to verify upload (but don't parse yet)
-    content = await file.read()
-    size_kb = len(content) // 1024
-
-    entry = DrUploadHistory(
-        uploaded_by=current_user.id,
-        file_type=file_type,
-        file_name=file_name,
-        records_count=0,
-        status="failed",
-        error_message=(
-            f"XLSX parsing dla file_type={file_type} jeszcze nie zaimplementowane "
-            f"(B.2.11 follow-up). Plik {file_name} ({size_kb} KB) zarejestrowany "
-            "tylko jako audit log."
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Upload XLSX do DynaReportera został wycofany — bieżące statystyki "
+            "liczy live ATS (Analytics v1)."
         ),
-    )
-    db.add(entry)
-    await db.commit()
-    await db.refresh(entry)
-
-    return UploadResultResponse(
-        upload_id=entry.id,
-        status=entry.status,
-        records_inserted=0,
-        error_message=entry.error_message,
     )

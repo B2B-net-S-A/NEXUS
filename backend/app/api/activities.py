@@ -7,7 +7,7 @@ Also provides a combined activity feed for the dashboard.
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +15,12 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.activity import Activity
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, OperationalUser
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_capability,
+    user_has_capability,
+)
 
 router = APIRouter()
 
@@ -44,7 +49,19 @@ async def get_activity_stats(
     """
     Returns counts per action type for a specific user or all users.
     GET /api/activities/stats?user_id=X&period=week
+
+    R0 (plan 2026-07-16): statystyki INNEGO usera wymagają VIEW_TEAM_KPI —
+    wcześniej dowolny zalogowany mógł odpytać dowolnego usera (IDOR).
     """
+    if (
+        user_id is not None
+        and user_id != current_user.id
+        and not user_has_capability(current_user, AnalyticsCapability.VIEW_TEAM_KPI)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Statystyki innego użytkownika wymagają uprawnień zespołowych",
+        )
     since = _period_start(period)
     query = select(
         UserActivity.action_type,
@@ -72,7 +89,10 @@ async def get_activity_stats(
 
 @router.get("/leaderboard")
 async def get_leaderboard(
-    current_user: CurrentUser,
+    # R0: imienny ranking = VIEW_RECRUITMENT_RANKING (rola `user` odpada).
+    current_user: User = Depends(
+        require_capability(AnalyticsCapability.VIEW_RECRUITMENT_RANKING)
+    ),
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", pattern="^(today|week|month|quarter)$"),
     limit: int = Query(10, ge=1, le=50),
@@ -202,7 +222,7 @@ def _entity_link(entity_type: str, entity_id: int) -> Optional[str]:
 
 @router.get("/feed")
 async def get_activity_feed(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=100),
 ):
@@ -210,6 +230,9 @@ async def get_activity_feed(
     Combined feed of all recent system activities.
     Returns last N activities across all entity types with Polish descriptions.
     GET /api/activities/feed
+
+    R0: feed niesie nazwiska kandydatów / nazwy klientów w ``entity_name``
+    i surowe ``details`` — nie dla roli ``user`` (guard OperationalUser).
     """
     # Load activities with user join
     query = (

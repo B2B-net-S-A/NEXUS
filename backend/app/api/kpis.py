@@ -285,15 +285,31 @@ async def get_team_panel(
 @router.get("/users/{user_id}/today", response_model=List[KpiResultSchema])
 async def get_user_kpis_today(
     user_id: int,
-    _: RecruiterPlus,  # tylko zalogowany user (późniejsze RBAC dla managera)
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> list[KpiResultSchema]:
-    """Progres dowolnego usera. Używane przez admina/delivery_leada do
-    monitorowania teamu. W MVP pozwala też rekruterowi sprawdzić kogoś
-    innego — zmieni się gdy Faza D doda admin UI z właściwym RBAC."""
+    """Progres KPI usera.
+
+    R0 (plan 2026-07-16): koniec MVP-owego IDOR-a — cudze KPI wymagają
+    VIEW_TEAM_KPI (admin / head_of_recruitment / delivery_lead); rekruter
+    i sourcer widzą wyłącznie własne. Scoping DL→przypisany zespół dojdzie
+    z kanonicznym modelem zespołu (plan PR 4).
+    """
     from sqlalchemy import select
 
+    from app.analytics.capabilities import (
+        AnalyticsCapability,
+        user_has_capability,
+    )
     from app.models.user import User
+
+    if user_id != current_user.id and not user_has_capability(
+        current_user, AnalyticsCapability.VIEW_TEAM_KPI
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="KPI innego użytkownika wymagają uprawnień zespołowych",
+        )
 
     user = await db.scalar(select(User).where(User.id == user_id))
     if not user or not user.is_active:

@@ -387,7 +387,13 @@ async def refresh_token(
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: CurrentUser):
-    return current_user
+    from app.analytics.capabilities import capabilities_for
+
+    response = UserResponse.model_validate(current_user)
+    response.analytics_capabilities = sorted(
+        cap.value for cap in capabilities_for(current_user)
+    )
+    return response
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)

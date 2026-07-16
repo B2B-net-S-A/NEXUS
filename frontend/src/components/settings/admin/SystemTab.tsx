@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Database, Clock, Cpu } from "lucide-react";
+import { Database, Clock } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -34,10 +34,12 @@ export function SystemTab() {
     { label: "Użytkownicy", value: stats.counts.users, icon: "🔑" },
   ];
 
+  // R0 (plan analytics 2026-07-16): koniec z fałszywym „Redis OK" i zawsze
+  // zieloną kropką — pokazujemy tylko wartości realnie zwrócone przez API,
+  // a wskaźnik świeci na zielono wyłącznie gdy metryka istnieje.
   const healthMetrics = [
-    { label: "Rozmiar bazy danych", value: stats.database?.size || "—", icon: Database, color: "bg-primary/10 dark:bg-primary/30 text-primary" },
-    { label: "Uptime serwera", value: stats.uptime || "—", icon: Clock, color: "bg-green-50 dark:bg-green-900/30 text-green-600" },
-    { label: "Cache", value: "Redis OK", icon: Cpu, color: "bg-purple-50 dark:bg-purple-900/30 text-purple-600" },
+    { label: "Rozmiar bazy danych", value: stats.database?.size || null, icon: Database, color: "bg-primary/10 dark:bg-primary/30 text-primary" },
+    { label: "Uptime serwera", value: stats.uptime || null, icon: Clock, color: "bg-green-50 dark:bg-green-900/30 text-green-600" },
   ];
 
   return (
@@ -50,9 +52,15 @@ export function SystemTab() {
             </div>
             <div className="flex-1">
               <div className="text-xs text-muted-foreground dark:text-muted-foreground">{m.label}</div>
-              <div className="text-sm font-semibold text-foreground dark:text-foreground">{m.value}</div>
+              <div className="text-sm font-semibold text-foreground dark:text-foreground">{m.value ?? "—"}</div>
             </div>
-            <div className="w-2 h-2 rounded-full bg-green-500" title="Zdrowy" />
+            <div
+              className={cn(
+                "w-2 h-2 rounded-full",
+                m.value ? "bg-green-500" : "bg-[hsl(var(--border))]"
+              )}
+              title={m.value ? "Dostępne" : "Brak danych"}
+            />
           </div>
         ))}
       </div>

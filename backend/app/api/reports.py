@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TacPlus, require_roles
+from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus, require_roles
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
 from app.models.candidate import Candidate
@@ -343,7 +343,8 @@ async def report_recruitment(
 
 @router.get("/sales")
 async def report_sales(
-    current_user: TacPlus,
+    # R0 (plan 2026-07-16): revenue/margin/MRR = VIEW_FINANCE -> DL+/admin.
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1291,7 +1292,9 @@ async def report_client_trend(
 
 @router.get("/tenders")
 async def report_tenders(
-    current_user: TacPlus,
+    # R0: raport zawiera wartości przetargów -> DL+/admin (wariant bez kwot
+    # dla TAC dojdzie w Analytics v1).
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     period: str = Query("year", enum=["week", "month", "quarter", "year"]),
 ):
@@ -1376,7 +1379,8 @@ async def report_tenders(
 
 @router.get("/board")
 async def report_board(
-    current_user: TacPlus,
+    # R0: P&L zarządu = VIEW_FINANCE -> DL+/admin.
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """

@@ -1,6 +1,6 @@
 """Router `/api/clients/{client_id}/framework-contracts` — MSA per klient.
 
-Reads (GET) — `CurrentUser` (każdy zalogowany).
+Reads (GET) — `TacPlus` (R0 2026-07-16: stawki ramowe = finanse; wcześniej każdy zalogowany).
 Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin/HoR globalnie albo
 DL przypisany do klienta).
 
@@ -27,8 +27,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
-    CurrentUser,
     DlAssignedOrAdmin,
+    TacPlus,
 )
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
@@ -128,7 +128,7 @@ async def _to_read(
 )
 async def list_framework_contracts(
     client_id: int,
-    _user: CurrentUser,
+    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[FrameworkContractStatus] = None,
 ):
@@ -151,7 +151,7 @@ async def list_framework_contracts(
 async def get_framework_contract(
     client_id: int,
     fc_id: int,
-    _user: CurrentUser,
+    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)
@@ -416,7 +416,7 @@ async def send_framework_contract_to_autenti(
 async def download_framework_contract(
     client_id: int,
     fc_id: int,
-    _user: CurrentUser,
+    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)

@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.user import UserRole
 
@@ -91,7 +91,7 @@ def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
     summary="Lista klientów (dr_clients) z aggregated stats",
 )
 async def list_clients(
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[DrClientRow]:
     """Read-only lista wszystkich klientów z dr_clients + placements count."""
@@ -277,7 +277,7 @@ async def delete_client(
     summary="Lista konsultantów (dr_consultants) z client name",
 )
 async def list_consultants(
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[DrConsultantRow]:
     """Read-only lista wszystkich konsultantów + default rates."""

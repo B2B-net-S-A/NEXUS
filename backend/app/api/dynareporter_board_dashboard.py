@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.schemas.dr_board_dashboard import (
@@ -139,7 +139,7 @@ async def get_monthly(
 )
 async def upsert_monthly(
     payload: BoardMonthlyUpsert,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> BoardMonthlyRow:
     """Admin only — upsert miesięcznego board report. Idempotent ON CONFLICT."""
@@ -264,7 +264,7 @@ async def upsert_monthly(
 )
 async def delete_monthly(
     report_month: str,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Admin only — usuwa miesięczny raport + powiązane placement_clients.
