@@ -11,6 +11,7 @@ import api, {
   type JobMatch,
   type RecommendationMeta,
 } from "@/lib/api";
+import { assignErrorMessage } from "@/lib/assign-error";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
@@ -104,7 +105,7 @@ export function SuggestedJobsWidget({
     },
     onError: (error) =>
       showError(
-        extractErrorMsg(error) || "Nie udało się przypisać do rekrutacji",
+        assignErrorMessage(error) || "Nie udało się przypisać do rekrutacji",
       ),
   });
 

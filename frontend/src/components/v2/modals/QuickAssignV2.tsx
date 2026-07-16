@@ -22,6 +22,7 @@ import { Badge } from"@/components/ui/badge";
 import { Input } from"@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
 import { RiskBadge } from"@/components/v2/RiskBadge";
+import { assignErrorMessage } from"@/lib/assign-error";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 
 interface JobLite {
@@ -62,6 +63,7 @@ export function QuickAssignV2({
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
  const [assigning, setAssigning] = useState<number | null>(null);
+ const [assignError, setAssignError] = useState<string | null>(null);
  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
  // Phase 17 (migracja 0068): risk profile dla ostrzeżenia przy assign'ie.
  const [risk, setRisk] = useState<CandidateRiskProfile | null>(null);
@@ -158,10 +160,15 @@ export function QuickAssignV2({
 
  const handleAssign = async (jobId: number) => {
  setAssigning(jobId);
+ setAssignError(null);
  try {
  await recommendationsApi.assignToJob(candidateId, jobId);
  setAssignedIds((prev) => new Set(prev).add(jobId));
  onAssigned?.(jobId);
+ } catch (e: unknown) {
+ // 409 = eligibility block (blacklist / konflikt klienta) — pokaż powód
+ // zamiast cicho połykać błąd (wcześniej wyglądało jak "nic się nie stało").
+ setAssignError(assignErrorMessage(e));
  } finally {
  setAssigning(null);
  }
@@ -250,6 +257,13 @@ export function QuickAssignV2({
  `, w tym ${risk.breakdown.post_accept}× po akceptacji oferty`}
  . Decyzja należy do Ciebie — system tylko ostrzega.
  </div>
+ </div>
+ )}
+
+ {assignError && (
+ <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+ <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+ <div>{assignError}</div>
  </div>
  )}
 

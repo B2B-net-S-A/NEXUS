@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -132,6 +133,7 @@ export function CandidateSearchView({
     Record<string, MatchBreakdown>
   >({});
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const queryClient = useQueryClient();
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
   const [bulkOptionsOpen, setBulkOptionsOpen] = useState(false);
@@ -256,6 +258,17 @@ export function CandidateSearchView({
     }
   };
 
+  // The job page caches its kanban via react-query (["kanban", id] with the
+  // route param as a STRING). Adding candidates from search (bulk-add or
+  // shortlist promote) must invalidate it, or the Pipeline tab keeps showing
+  // stale counts until a full page reload.
+  const invalidatePipeline = useCallback(() => {
+    if (!addToJob) return;
+    const id = String(addToJob.id);
+    queryClient.invalidateQueries({ queryKey: ["kanban", id] });
+    queryClient.invalidateQueries({ queryKey: ["pipeline-scores", id] });
+  }, [addToJob, queryClient]);
+
   const submitBulk = async () => {
     if (!addToJob || selected.size === 0) return;
     setBulkPending(true);
@@ -279,6 +292,7 @@ export function CandidateSearchView({
       setBulkOptionsOpen(false);
       // Re-run the search so newly added candidates drop out (excluded).
       setRequest((r) => ({ ...r }));
+      invalidatePipeline();
       onBulkAdded?.(resp);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Bulk add nie powiódł się");
@@ -462,8 +476,9 @@ export function CandidateSearchView({
           jobId={addToJob.id}
           refreshSignal={shortlistRefresh}
           onPromoted={() => {
-            // Promoted candidate is now in the pipeline → refresh results + AI tab.
+            // Promoted candidate is now in the pipeline → refresh results + kanban.
             setRequest((r) => ({ ...r }));
+            invalidatePipeline();
           }}
         />
       )}
