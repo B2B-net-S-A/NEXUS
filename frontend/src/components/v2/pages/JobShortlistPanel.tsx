@@ -27,6 +27,16 @@ const OUTREACH_LABELS: Record<OutreachStatus, string> = {
   brak_zainteresowania: "Brak zainteresowania",
 };
 
+function apiErrorStatus(err: unknown): number | undefined {
+  return (err as { response?: { status?: number } })?.response?.status;
+}
+
+function apiErrorMessage(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })
+    ?.response?.data?.detail;
+  return typeof detail === "string" && detail ? detail : fallback;
+}
+
 const SELECT_CLASS =
   "h-7 rounded-md border bg-background px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 dark:border-zinc-700";
 
@@ -53,13 +63,20 @@ export function JobShortlistPanel({
   const [open, setOpen] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // M4 PR-03 (audyt P2.8): błąd pobrania NIE udaje pustej listy — panel
+  // pokazuje stan błędu z możliwością ponowienia zamiast znikać.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     shortlistApi
       .list(jobId)
       .then(setEntries)
-      .catch(() => setEntries([]))
+      .catch((err) => {
+        console.error("Shortlist load failed", err);
+        setLoadError(apiErrorMessage(err, "Nie udało się pobrać shortlisty."));
+      })
       .finally(() => setLoading(false));
   }, [jobId]);
 
@@ -76,9 +93,18 @@ export function JobShortlistPanel({
         ...body,
       });
       setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-    } catch {
-      setError("Wpis zmieniony w innym miejscu — lista odświeżona.");
-      load();
+    } catch (err) {
+      // M4 PR-03 (audyt P2.8): 409 = realny konflikt wersji; pozostałe
+      // statusy przestają udawać konflikt równoległej edycji.
+      const status = apiErrorStatus(err);
+      if (status === 409) {
+        setError("Wpis zmieniony w innym miejscu — lista odświeżona.");
+        load();
+      } else if (status === 403) {
+        setError("Brak uprawnień do zmiany tego wpisu.");
+      } else {
+        setError(apiErrorMessage(err, "Nie udało się zapisać zmiany."));
+      }
     } finally {
       setBusyId(null);
     }
@@ -92,9 +118,7 @@ export function JobShortlistPanel({
       onPromoted?.();
       load();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Nie udało się przenieść do rekrutacji.",
-      );
+      setError(apiErrorMessage(err, "Nie udało się przenieść do rekrutacji."));
     } finally {
       setBusyId(null);
     }
@@ -102,15 +126,35 @@ export function JobShortlistPanel({
 
   const remove = async (entry: ShortlistEntry) => {
     setBusyId(entry.id);
+    setError(null);
     try {
       await shortlistApi.remove(entry.id);
       setEntries((prev) => prev.filter((e) => e.id !== entry.id));
-    } catch {
+    } catch (err) {
+      // M4 PR-03 (audyt P2.8): błąd usunięcia był cicho maskowany reloadem.
+      setError(apiErrorMessage(err, "Nie udało się usunąć wpisu."));
       load();
     } finally {
       setBusyId(null);
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="rounded-lg border bg-card p-3 text-sm dark:border-zinc-800">
+        <span className="text-rose-600 dark:text-rose-400">{loadError}</span>{" "}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={load}
+          className="ml-2 h-7 text-xs"
+        >
+          Spróbuj ponownie
+        </Button>
+      </div>
+    );
+  }
 
   if (entries.length === 0 && !loading) return null;
 

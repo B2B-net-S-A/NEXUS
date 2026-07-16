@@ -33,7 +33,7 @@ import api, {
  type RateUnit,
 } from"@/lib/api";
 import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
-import { useAuthStore } from"@/store/auth";
+import { getUserRoles, useAuthStore } from"@/store/auth";
 import { VerifiedRateModal } from"@/components/v2/modals/VerifiedRateModal";
 import { ClientRateModal } from"@/components/v2/modals/ClientRateModal";
 import {
@@ -456,7 +456,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <Trash2 className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
  </button>
 
- {canScreen && density !== "compact" && !isPending && (
+ {canScreen && !isPending && (
  <button
  type="button"
  onClick={(e) => {
@@ -471,7 +471,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  Screening
  </button>
  )}
- {isPending && isApprover && density !== "compact" && (
+ {isPending && isApprover && (
  <div className="mt-2 pt-2 border-t border-amber-200 flex items-center gap-1.5">
  <button
  type="button"
@@ -637,8 +637,10 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  const setDensity = useUiStore((s) => s.setDensity);
  const queryClient = useQueryClient();
  const { showActionToast, showSuccess, showError } = useToast();
- const userRole = useAuthStore((s) => s.user?.role);
- const isApprover = !!userRole && APPROVER_ROLES.has(userRole);
+ // M4 PR-03: pełny zbiór ról (primary + secondary), nie tylko primary —
+ // hybrydowy TAC+DL ma widzieć akcje approvera (parity z backendem #782).
+ const authUser = useAuthStore((s) => s.user);
+ const isApprover = getUserRoles(authUser).some((r) => APPROVER_ROLES.has(r));
  const [cols, setCols] = useState(columns);
  const [selected, setSelected] = useState<Set<number>>(new Set());
  const [bulkBusy, setBulkBusy] = useState(false);
@@ -652,6 +654,13 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  { id: string; label: string; applies_to: ("rejected" |"withdrawn")[] }[]
  >([]);
  const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
+ // M4 PR-03 (audyt P1.6): potwierdzenie przed hired — ruch tworzy draft
+ // kontraktu + zamówienia, nie powinien być skutkiem samego puszczenia myszy.
+ const [hiredConfirm, setHiredConfirm] = useState<{
+ item: KanbanItem;
+ destCol: KanbanColumn;
+ srcColId: string;
+ } | null>(null);
  const [jobBudgetMax, setJobBudgetMax] = useState<number | null>(null);
 
  // --- Wysokość kolumn liczona dynamicznie od realnej pozycji boardu ---------
@@ -834,6 +843,20 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  []
  );
 
+ // M4 PR-03: po błędzie ruchu NIE zostawiamy karty w niepotwierdzonej
+ // kolumnie — dociągamy prawdę z serwera (a nie lokalny snapshot, bo 409
+ // oznacza, że stan pary i tak się zmienił pod nami).
+ const refreshBoardAfterMove = useCallback(async () => {
+ try {
+ const fresh = await pipelineApi.kanban(jobId);
+ if (Array.isArray(fresh.data?.columns)) {
+ setCols(fresh.data.columns as KanbanColumn[]);
+ }
+ } catch (e) {
+ console.error("Kanban refresh failed", e);
+ }
+ }, [jobId]);
+
  const sendMove = useCallback(
  async (
  item: KanbanItem,
@@ -850,6 +873,8 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  ): Promise<boolean> => {
  try {
  const response = await api.post<{
+ id?: number;
+ verification_status?:"active" |"pending" |"rejected";
  scheduled_rejection_email_id?: number | null;
  }>("/api/pipeline/move", {
  candidate_id: item.candidate_id,
@@ -863,6 +888,34 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  candidate_offer_response:
  reason?.candidateOfferResponse ?? undefined,
  });
+
+ // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta w
+ // cache dostaje jego id + status z serwera. Bez tego kolejne akcje
+ // (screening, scorecard, accept/reject) celowały w historyczny rekord.
+ const newStageId = response?.data?.id;
+ const serverVerifStatus = response?.data?.verification_status;
+ if (typeof newStageId === "number" && newStageId !== item.id) {
+ setCols((prev) =>
+ prev.map((c) => {
+ if (colId(c) !== colId(dst)) return c;
+ return {
+ ...c,
+ items: c.items.map((i) =>
+ i.id === item.id
+ ? {
+ ...i,
+ id: newStageId,
+ verification_status:
+ serverVerifStatus ?? i.verification_status,
+ }
+ : i
+ ),
+ };
+ })
+ );
+ }
+ const currentStageId =
+ typeof newStageId === "number" ? newStageId : item.id;
 
  // Kids mode: confetti + mascot pop on a win. No-op outside game mode.
  if (dst.stage === "hired") {
@@ -893,18 +946,19 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  );
  }
 
- // Prompt screening if moved to external-visible stage
+ // Prompt screening if moved to external-visible stage — na NOWYM id
+ // (M4 PR-03: screening zapisywał się na historycznym rekordzie).
  if (EXTERNAL_STAGES_FOR_SCREENING.has(dst.stage)) {
  setScreeningPrompt({
- stageId: item.id,
+ stageId: currentStageId,
  candidateName: `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat",
  });
  }
- // Prompt scorecard if stage has one
+ // Prompt scorecard if stage has one — również na nowym id.
  if (dst.stage_def_id && stagesWithScorecard.has(dst.stage_def_id)) {
  setScorecardPrompt({
- candidateStageId: item.id,
- stageId: item.id,
+ candidateStageId: currentStageId,
+ stageId: currentStageId,
  stageDefId: dst.stage_def_id,
  stageName: dst.name ?? dst.stage,
  });
@@ -914,18 +968,33 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  console.error("Move failed", e);
  if (!opts?.silent) {
  // Pokaż konkretny powód z backendu (np. wymóg stawki/powodu
- // odrzucenia) zamiast generycznego komunikatu.
+ // odrzucenia, 409 pending-gate) zamiast generycznego komunikatu.
  const detail = (e as { response?: { data?: { detail?: unknown } } })
  ?.response?.data?.detail;
+ const status = (e as { response?: { status?: number } })?.response
+ ?.status;
  showError(
- typeof detail === "string" ? detail :"Nie udało się zmienić etapu."
+ typeof detail === "string"
+ ? status === 409
+ ? `Konflikt stanu: ${detail}`
+ : detail
+ :"Nie udało się zmienić etapu."
  );
+ // M4 PR-03 (audyt P1.4): rollback optimistic — plansza wraca do
+ // prawdy serwera zamiast kłamać kolumną, której DB nie potwierdziła.
+ await refreshBoardAfterMove();
  }
- // TODO: revert optimistic on error
  return false;
  }
  },
- [jobId, stagesWithScorecard, showActionToast, showSuccess, showError]
+ [
+ jobId,
+ stagesWithScorecard,
+ refreshBoardAfterMove,
+ showActionToast,
+ showSuccess,
+ showError,
+ ]
  );
 
  const onDragEnd = useCallback(
@@ -957,6 +1026,13 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  setClientRateQueue([]);
  setClientRateBulkTotal(1);
  setClientRatePrompt({ item, destCol: dst, srcColId: colId(src) });
+ return;
+ }
+
+ // M4 PR-03 (audyt P1.6): hired = artefakty (draft kontraktu i zamówienia)
+ // — wymaga jawnego potwierdzenia zamiast samego drop-u.
+ if (dst.stage === "hired") {
+ setHiredConfirm({ item, destCol: dst, srcColId: colId(src) });
  return;
  }
 
@@ -1016,6 +1092,9 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  if (colId(c) === colId(destCol)) {
  const enriched: KanbanItem = {
  ...item,
+ // M4 PR-03 (audyt P1.3): karta niesie id NOWEGO CandidateStage —
+ // późniejsze accept/reject-verification przestaje celować w stary rekord.
+ id: newStageId ?? item.id,
  stage: destCol.stage,
  days_in_stage: 0,
  verification_status: verifStatus ??"active",
@@ -1159,19 +1238,6 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  });
  };
 
- // Po częściowym niepowodzeniu bulk-ruchu stan optymistyczny kłamie —
- // dociągnij świeży kanban z serwera.
- const refreshBoard = useCallback(async () => {
- try {
- const fresh = await pipelineApi.kanban(jobId);
- if (Array.isArray(fresh.data?.columns)) {
- setCols(fresh.data.columns as KanbanColumn[]);
- }
- } catch (e) {
- console.error("Kanban refresh failed", e);
- }
- }, [jobId]);
-
  // Submit z modala „CV Wysłane — stawka do klienta". `payload === null` =
  // recruiter pominął stawkę (ruch i tak następuje). Najpierw ruch (tworzy
  // nowy CandidateStage), potem PATCH stawki na ten najnowszy etap. Obsługuje
@@ -1202,7 +1268,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  );
  }
  } else if (!ok && isBulk) {
- await refreshBoard();
+ await refreshBoardAfterMove();
  }
 
  // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki (lub zamknij).
@@ -1219,7 +1285,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  jobId,
  applyOptimistic,
  sendMove,
- refreshBoard,
+ refreshBoardAfterMove,
  showSuccess,
  showError,
  ]
@@ -1271,6 +1337,13 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  return;
  }
 
+ // M4 PR-03 (audyt P1.6): zbiorcze zatrudnianie bez wizardu = N draftów
+ // kontraktów jednym kliknięciem — wykonuj pojedynczo (drag z potwierdzeniem).
+ if (dst.stage === "hired") {
+ showError("Zatrudnienie oznaczaj pojedynczo — przeciągnij kartę kandydata.");
+ return;
+ }
+
  // Etapy terminalne wymagają powodu — jeden modal, wspólny powód dla
  // całego zaznaczenia.
  if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
@@ -1295,7 +1368,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  showError(
  `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
  );
- await refreshBoard();
+ await refreshBoardAfterMove();
  } else if (entries.length > 1) {
  showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
  }
@@ -1517,7 +1590,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
  );
  }
- await refreshBoard();
+ await refreshBoardAfterMove();
  } else if (entries.length > 1) {
  showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
  }
@@ -1593,6 +1666,37 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  onConfirm={(payload) => submitClientRateMove(payload)}
  onSkip={() => submitClientRateMove(null)}
  />
+ )}
+
+ {/* M4 PR-03 (audyt P1.6): potwierdzenie przed hired — powstają artefakty */}
+ {hiredConfirm && (
+ <Dialog open onOpenChange={(o) => !o && setHiredConfirm(null)}>
+ <DialogContent>
+ <DialogHeader>
+ <DialogTitle>Potwierdź zatrudnienie</DialogTitle>
+ <DialogDescription>
+ {`${hiredConfirm.item.name ??""} ${hiredConfirm.item.lastname ??""}`.trim() ||"Kandydat"}{" "}
+ trafi na etap „Zatrudniony”. System utworzy szkic kontraktu i
+ zamówienia dla tej oferty.
+ </DialogDescription>
+ </DialogHeader>
+ <DialogFooter>
+ <Button variant="outline" onClick={() => setHiredConfirm(null)}>
+ Anuluj
+ </Button>
+ <Button
+ onClick={() => {
+ const { item, destCol, srcColId } = hiredConfirm;
+ setHiredConfirm(null);
+ applyOptimistic(item, srcColId, destCol);
+ void sendMove(item, destCol);
+ }}
+ >
+ Potwierdź zatrudnienie
+ </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
  )}
 
  {/* Reject verification modal — approver wpisuje notatkę */}
