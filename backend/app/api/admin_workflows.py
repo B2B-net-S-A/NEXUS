@@ -112,6 +112,39 @@ async def list_workflows(
     ]
 
 
+@router.get("/workflows/revisions/{revision_id}")
+async def get_revision_detail(
+    revision_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Szczegóły rewizji z id etapów — bez tego nie da się operacyjnie
+    użyć PATCH stage-revisions (luka wykryta przy bootstrapie na prod)."""
+    rev = await _load_revision(db, revision_id)
+    return {
+        "id": rev.id,
+        "workflow_id": rev.workflow_id,
+        "revision_no": rev.revision_no,
+        "status": rev.status.value,
+        "registry_version": rev.registry_version,
+        "stages": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "order": s.order,
+                "category": s.category,
+                "semantic_key": s.semantic_key,
+                "is_terminal": s.is_terminal,
+                "terminal_type": s.terminal_type,
+                "sla_max_days": s.sla_max_days,
+                "source_stage_def_id": s.source_stage_def_id,
+            }
+            for s in sorted(rev.stages, key=lambda x: x.order)
+        ],
+        "edges_count": len(rev.edges),
+    }
+
+
 async def _load_revision(db: AsyncSession, revision_id: int) -> WorkflowRevision:
     rev = await db.scalar(
         select(WorkflowRevision)
