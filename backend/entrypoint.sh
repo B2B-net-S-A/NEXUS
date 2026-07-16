@@ -83,6 +83,10 @@ import asyncpg
 # Every statement here is idempotent. Order matters for enum ADD VALUE
 # (must run outside transaction) vs column adds (can run in tx).
 _ENUM_STATEMENTS = [
+    # Plan analytics PR 6 — status korekt finansowych.
+    """DO $$ BEGIN
+        CREATE TYPE adjustmentstatus AS ENUM ('draft', 'approved');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
     # notificationtype: 5 trigger types + champion_profile_updated
@@ -1401,6 +1405,28 @@ _COLUMN_STATEMENTS = [
             )
         ) ranked
         WHERE rn = 1""",
+    # ── Finanse (0176, plan analytics PR 6) ─────────────────────────────
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS filled_at TIMESTAMPTZ",
+    """CREATE TABLE IF NOT EXISTS financial_adjustments (
+        id              SERIAL PRIMARY KEY,
+        effective_month DATE NOT NULL,
+        kind            VARCHAR(50) NOT NULL,
+        amount          NUMERIC(14, 2) NOT NULL,
+        currency        VARCHAR(3) NOT NULL DEFAULT 'PLN',
+        description     TEXT NOT NULL,
+        client_id       INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+        status          adjustmentstatus NOT NULL DEFAULT 'draft',
+        created_by      INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        approved_by     INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+        approved_at     TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_financial_adjustments_month "
+    "ON financial_adjustments (effective_month)",
+    "CREATE INDEX IF NOT EXISTS ix_financial_adjustments_status "
+    "ON financial_adjustments (status)",
+    "CREATE INDEX IF NOT EXISTS ix_financial_adjustments_client "
+    "ON financial_adjustments (client_id)",
     """CREATE OR REPLACE VIEW analytics_candidate_first_sources AS
         SELECT DISTINCT ON (candidate_id)
             candidate_id,

@@ -381,8 +381,8 @@ async def get_client_finance(
     scope = await ensure_client_scope(db, current_user, client_id)
 
     async def _compute():
-        data, warnings = await metrics.client_finance(db, client_id)
-        return data, _finance_quality(warnings)
+        data, warnings, flag = await metrics.client_finance(db, client_id)
+        return data, _finance_quality(warnings, flag)
 
     return await _cached_envelope(
         endpoint="client-finance",
@@ -393,11 +393,14 @@ async def get_client_finance(
     )
 
 
-def _finance_quality(warnings: list[str]) -> QualityPayload:
-    return QualityPayload(
-        status=QualityStatus.partial if warnings else QualityStatus.complete,
-        warnings=warnings,
-    )
+def _finance_quality(warnings: list[str], flag: str = "complete") -> QualityPayload:
+    if flag == "unavailable":
+        status = QualityStatus.unavailable
+    elif warnings or flag == "partial":
+        status = QualityStatus.partial
+    else:
+        status = QualityStatus.complete
+    return QualityPayload(status=status, warnings=warnings)
 
 
 # ── Finanse i zarząd — VIEW_FINANCE ──────────────────────────────────────────
@@ -411,11 +414,56 @@ async def get_finance_summary(
     db: AsyncSession = Depends(get_db),
 ):
     async def _compute():
-        data, warnings = await metrics.finance_summary(db)
-        return data, _finance_quality(warnings)
+        data, warnings, flag = await metrics.finance_summary(db)
+        return data, _finance_quality(warnings, flag)
 
     return await _cached_envelope(
         endpoint="finance-summary",
+        user=current_user,
+        scope=organization_scope(),
+        period=period,
+        compute=_compute,
+    )
+
+
+@router.get("/finance/trend", response_model=AnalyticsEnvelope)
+async def get_finance_trend(
+    current_user: User = Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+    _: None = Depends(_analytics_enabled),
+    period: Period = Depends(_parse_period),
+    months: int = Query(12, ge=1, le=36),
+    db: AsyncSession = Depends(get_db),
+):
+    """Miesięczny trend MRR/marży — date-effective na 1. dzień miesiąca,
+    prawdziwa arytmetyka kalendarza, FX po kursie z danej daty (plan PR 6)."""
+
+    async def _compute():
+        data, warnings, flag = await metrics.finance_trend(db, months=months)
+        return data, _finance_quality(warnings, flag)
+
+    return await _cached_envelope(
+        endpoint="finance-trend",
+        user=current_user,
+        scope=organization_scope(),
+        period=period,
+        compute=_compute,
+        filters={"months": months},
+    )
+
+
+@router.get("/finance/clients", response_model=AnalyticsEnvelope)
+async def get_finance_clients(
+    current_user: User = Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+    _: None = Depends(_analytics_enabled),
+    period: Period = Depends(_parse_period),
+    db: AsyncSession = Depends(get_db),
+):
+    async def _compute():
+        data, warnings, flag = await metrics.finance_clients(db)
+        return data, _finance_quality(warnings, flag)
+
+    return await _cached_envelope(
+        endpoint="finance-clients",
         user=current_user,
         scope=organization_scope(),
         period=period,
@@ -433,9 +481,9 @@ async def get_executive_board(
     async def _compute():
         ov = await metrics.overview(db, period)
         funnel = await metrics.recruitment_funnel(db, period)
-        finance, warnings = await metrics.finance_summary(db)
+        finance, warnings, flag = await metrics.finance_summary(db)
         data = {"overview": ov, "funnel": funnel["funnel"], "finance": finance}
-        return data, _finance_quality(warnings)
+        return data, _finance_quality(warnings, flag)
 
     return await _cached_envelope(
         endpoint="executive-board",

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,9 @@ from app.models.user import User
 
 # Stage'y milestone'ów w kolejności lejka.
 FUNNEL_STAGES = ["verified", "cv_sent", "interview", "client_interview", "hired"]
+
+# Status jakości sum finansowych (mapowany na QualityPayload w routerze).
+QualityFlag = Literal["complete", "partial", "unavailable"]
 
 # Efektywna data rozmowy (plan §4.2).
 _CALL_EFFECTIVE_AT = func.coalesce(Call.started_at, Call.created_at)
@@ -435,26 +438,76 @@ async def _active_contracts(db: AsyncSession, *, client_id: int | None = None):
     return (await db.execute(stmt)).scalars().all()
 
 
-def _sum_finance(contracts) -> tuple[dict[str, Any], list[str]]:
-    """Suma MRR/marży w PLN (Decimal). Waluty ≠ PLN → warning (partial),
-    NIGDY nominalne sumowanie (plan §3.4/PR 6)."""
+async def _fx_rates_to_pln(
+    db: AsyncSession, currencies: set[str], on: date
+) -> dict[str, Decimal | None]:
+    """Kurs raportowy → PLN per waluta: najnowszy kurs ≤ ``on`` z fx_rates.
+
+    Brak kursu = None — NIGDY nominalne 1:1 (plan §3.4/PR 6). Świadomie NIE
+    używamy fx_service.convert_to_pln, bo tamten degraduje do 1:1.
+    """
+    from app.models.fx_rate import FxRate
+
+    out: dict[str, Decimal | None] = {}
+    for cur in currencies:
+        if cur == "PLN":
+            out[cur] = Decimal("1")
+            continue
+        row = (
+            await db.execute(
+                select(FxRate.rate_to_pln)
+                .where(FxRate.currency == cur, FxRate.effective_date <= on)
+                .order_by(FxRate.effective_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        out[cur] = Decimal(row) if row is not None else None
+    return out
+
+
+async def _sum_finance(
+    db: AsyncSession, contracts, *, on: date | None = None
+) -> tuple[dict[str, Any], list[str], QualityFlag]:
+    """Suma MRR/marży w PLN (Decimal) z obowiązkową konwersją FX.
+
+    Zwraca (data, warnings, flag): flag == "unavailable" gdy jakikolwiek
+    kontrakt w walucie bez kursu raportowego (plan PR 6 pkt 3) — bez kursu
+    kwota NIE wchodzi do sumy i suma NIE udaje kompletnej.
+    """
+    on = on or date.today()
+    currencies = {(c.currency or "PLN").upper() for c in contracts}
+    rates = await _fx_rates_to_pln(db, currencies, on)
+
     mrr = Decimal("0")
     margin = Decimal("0")
-    skipped_foreign = 0
+    missing: dict[str, int] = {}
     warnings: list[str] = []
     for c in contracts:
-        if (c.currency or "PLN") != "PLN":
-            skipped_foreign += 1
+        cur = (c.currency or "PLN").upper()
+        rate = rates.get(cur)
+        if rate is None:
+            missing[cur] = missing.get(cur, 0) + 1
             continue
         if c.monthly_rate_client is not None:
-            mrr += Decimal(c.monthly_rate_client)
+            mrr += Decimal(c.monthly_rate_client) * rate
         if c.monthly_margin is not None:
-            margin += Decimal(c.monthly_margin)
-    if skipped_foreign:
+            margin += Decimal(c.monthly_margin) * rate
+
+    flag: QualityFlag = "complete"
+    if missing:
+        flag = "unavailable"
+        details = ", ".join(f"{cur} ({n})" for cur, n in sorted(missing.items()))
         warnings.append(
-            f"{skipped_foreign} kontraktów w walucie ≠ PLN pominięto — "
-            "konwersja FX wymaga kursu raportowego (plan PR 6)"
+            f"Brak kursu NBP dla walut: {details} — kwoty NIEDOSTĘPNE "
+            "(uzupełnij fx_rates: POST /api/fx/refresh)"
         )
+    foreign = [c for c in currencies if c != "PLN" and rates.get(c) is not None]
+    if foreign:
+        warnings.append(
+            "Konwersja po kursie raportowym NBP (najnowszy ≤ "
+            f"{on.isoformat()}): {', '.join(sorted(foreign))}"
+        )
+
     data = {
         "mrr": _dec(mrr),
         "monthly_margin": _dec(margin),
@@ -464,13 +517,162 @@ def _sum_finance(contracts) -> tuple[dict[str, Any], list[str]]:
         "currency": "PLN",
         "active_contracts": len(contracts),
     }
-    return data, warnings
+    return data, warnings, flag
 
 
-async def finance_summary(db: AsyncSession) -> tuple[dict[str, Any], list[str]]:
-    """MRR/marża date-effective na dziś, Decimal, PLN."""
+async def _bench_and_utilization(db: AsyncSession) -> dict[str, Any]:
+    """Bench = kandydat MIAŁ kontrakt, ale dziś nie ma aktywnego (plan PR 6).
+
+    Utilization = aktywni / (aktywni + bench) — mianownik to populacja
+    konsultantów (ktokolwiek kiedykolwiek na kontrakcie), nie cała baza.
+    """
+    today = date.today()
+    active_cands = (
+        await db.execute(
+            select(func.count(distinct(Contract.candidate_id))).where(
+                Contract.status != ContractStatus.draft,
+                Contract.start_date.isnot(None),
+                Contract.start_date <= today,
+                (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+            )
+        )
+    ).scalar() or 0
+    ever_cands = (
+        await db.execute(
+            select(func.count(distinct(Contract.candidate_id))).where(
+                Contract.status != ContractStatus.draft,
+                Contract.start_date.isnot(None),
+                Contract.start_date <= today,
+            )
+        )
+    ).scalar() or 0
+    bench = max(0, ever_cands - active_cands)
+    denominator = active_cands + bench
+    return {
+        "active_consultants": active_cands,
+        "bench": bench,
+        "utilization_pct": (
+            round(100.0 * active_cands / denominator, 1) if denominator else None
+        ),
+    }
+
+
+async def finance_summary(
+    db: AsyncSession,
+) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
+    """MRR/marża date-effective na dziś (Decimal, PLN, FX) + bench/utilization."""
     contracts = await _active_contracts(db)
-    return _sum_finance(contracts)
+    data, warnings, flag = await _sum_finance(db, contracts)
+    data["consultants"] = await _bench_and_utilization(db)
+    return data, warnings, flag
+
+
+def _month_starts_back(n: int, *, today: date | None = None) -> list[date]:
+    """Ostatnie n początków miesięcy (rosnąco) — prawdziwa arytmetyka
+    kalendarza (28/29/30/31 dni), nie timedelta(30)."""
+    today = today or date.today()
+    y, m = today.year, today.month
+    out: list[date] = []
+    for _ in range(n):
+        out.append(date(y, m, 1))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    return list(reversed(out))
+
+
+async def finance_trend(
+    db: AsyncSession, *, months: int = 12
+) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
+    """Miesięczny trend MRR/marży: date-effective na 1. dzień każdego
+    miesiąca, FX po kursie raportowym z tej daty."""
+    month_starts = _month_starts_back(months)
+    earliest = month_starts[0]
+    stmt = (
+        select(Contract)
+        .where(
+            Contract.status != ContractStatus.draft,
+            Contract.start_date.isnot(None),
+            Contract.start_date <= date.today(),
+            (Contract.end_date.is_(None)) | (Contract.end_date >= earliest),
+        )
+        .options(
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+    )
+    contracts = (await db.execute(stmt)).scalars().all()
+
+    points: list[dict[str, Any]] = []
+    all_warnings: list[str] = []
+    worst: QualityFlag = "complete"
+    for month_start in month_starts:
+        active = [
+            c
+            for c in contracts
+            if c.start_date is not None
+            and c.start_date <= month_start
+            and (c.end_date is None or c.end_date >= month_start)
+        ]
+        data, warnings, flag = await _sum_finance(db, active, on=month_start)
+        if flag == "unavailable":
+            worst = "unavailable"
+        points.append(
+            {
+                "month": month_start.isoformat()[:7],
+                "mrr": data["mrr"],
+                "monthly_margin": data["monthly_margin"],
+                "active_contracts": data["active_contracts"],
+            }
+        )
+        for w in warnings:
+            if w not in all_warnings:
+                all_warnings.append(w)
+    return {"months": points, "currency": "PLN"}, all_warnings, worst
+
+
+async def finance_clients(
+    db: AsyncSession, *, limit: int = 20
+) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
+    """Per-klient MRR/marża (date-effective dziś, FX), top wg MRR."""
+    contracts = await _active_contracts(db)
+    by_client: dict[int, list] = {}
+    for c in contracts:
+        by_client.setdefault(c.client_id, []).append(c)
+
+    client_names = {
+        r.id: r.name
+        for r in (
+            await db.execute(
+                select(Client.id, Client.name).where(
+                    Client.id.in_(list(by_client.keys()) or [0])
+                )
+            )
+        ).all()
+    }
+
+    rows: list[dict[str, Any]] = []
+    all_warnings: list[str] = []
+    worst: QualityFlag = "complete"
+    for client_id, cs in by_client.items():
+        data, warnings, flag = await _sum_finance(db, cs)
+        if flag == "unavailable":
+            worst = "unavailable"
+        rows.append(
+            {
+                "client_id": client_id,
+                "client_name": client_names.get(client_id, f"#{client_id}"),
+                "mrr": data["mrr"],
+                "monthly_margin": data["monthly_margin"],
+                "active_contracts": data["active_contracts"],
+            }
+        )
+        for w in warnings:
+            if w not in all_warnings:
+                all_warnings.append(w)
+    rows.sort(key=lambda r: Decimal(r["mrr"] or "0"), reverse=True)
+    return {"clients": rows[:limit]}, all_warnings, worst
 
 
 async def client_operations(
@@ -516,9 +718,9 @@ async def client_operations(
 
 async def client_finance(
     db: AsyncSession, client_id: int
-) -> tuple[dict[str, Any], list[str]]:
+) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
     contracts = await _active_contracts(db, client_id=client_id)
-    return _sum_finance(contracts)
+    return await _sum_finance(db, contracts)
 
 
 # ── /meta/metrics — rejestr definicji ────────────────────────────────────────

@@ -17,12 +17,13 @@ przedłużenie z podwyżką).
 from __future__ import annotations
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
     Date,
+    DateTime,
     Enum,
     ForeignKey,
     Integer,
@@ -85,6 +86,14 @@ class ClientOrder(Base, TimestampMixin):
     )
 
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # Plan analytics PR 6: FAKT pierwszej aktywacji zamówienia (nie estymata).
+    # Ustawiane raz — przy utworzeniu ze statusem active albo pierwszym
+    # przejściu na active. Historyczne zamówienia sprzed migracji 0176 mają
+    # NULL → raporty czasu wypełnienia oznaczają je jako partial, NIGDY nie
+    # zgadują daty.
+    filled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     """``NULL`` = open-ended. Indeksowane — scheduler skanuje expiry."""
 
