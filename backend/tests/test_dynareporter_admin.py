@@ -24,6 +24,18 @@ import pytest
 from httpx import AsyncClient
 
 
+@pytest.fixture(autouse=True)
+def _dynareporter_write_breakglass(monkeypatch):
+    """Audyt M7 PR-02: mutacje DR są blokowane przy DYNAREPORTER_MODE=read_only
+    (409 DYNAREPORTER_READ_ONLY). Ten moduł testuje samą FUNKCJONALNOŚĆ write
+    (walidacja Pydantic 422, persist scoring/HoF, coercion daty board) — więc
+    odblokowujemy zapisy przez break-glass. Samą blokadę read_only weryfikuje
+    test_dynareporter_readonly.py."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DYNAREPORTER_WRITE_BREAKGLASS", True)
+
+
 # ---------------------------------------------------------------------------
 # Scoring Config — covers PR #266, #271
 # ---------------------------------------------------------------------------
