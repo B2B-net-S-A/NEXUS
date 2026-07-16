@@ -67,18 +67,33 @@ const NAV_SECTIONS: NavSection[] = [
     icon: Users,
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/candidates", label: "Kandydaci", icon: Users, badgeKey: "candidates" },
+      // Moduł kandydatów (audyt M2 PR1): rola `user` (viewer/klient) nie ma
+      // dostępu — backend 403 + middleware /403; chowamy linki żeby nie
+      // prowadzić w ślepy zaułek.
+      {
+        href: "/candidates",
+        label: "Kandydaci",
+        icon: Users,
+        badgeKey: "candidates",
+        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+      },
       { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
       // Generator Umów B2B — dostępny dla wszystkich ról (sourcing tooling).
       // Wcześniej w sekcji Delivery z gate'em tac+; przeniesiony tu 2026-06-08
       // na prośbę usera. Edycja katalogu 29 ról nadal admin-only (zakładka
       // "Zakresy ról (admin)" w komponencie, gate `isAdmin`).
       { href: "/contracts/b2b-generator", label: "Generator Umów B2B", icon: FileSignature },
-      { href: "/talents", label: "Talenty", icon: Star },
+      {
+        href: "/talents",
+        label: "Talenty",
+        icon: Star,
+        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+      },
       {
         href: "/sourcing/marketplace",
         label: "Targ / Dostępni",
         icon: Store,
+        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
       },
     ],
   },
