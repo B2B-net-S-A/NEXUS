@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -125,6 +126,9 @@ class Candidate(Base, TimestampMixin):
 
     # AI Summary
     ai_summary: Mapped[Optional[str]] = mapped_column(Text)
+    # Edytowalny opis profilu synchronizowany z Traffit `candidate_about`.
+    # Celowo oddzielony od `ai_summary`, które pozostaje wynikiem AI.
+    profile_about: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Candidate preferences (matching-engine input)
     # Shape:
@@ -292,6 +296,14 @@ class Candidate(Base, TimestampMixin):
     )
     cv_language: Mapped[Optional[str]] = mapped_column(String(10))
     cv_extracted_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    # Tenantowe pola Traffit (w tym `_<SID>` z metadata). Legacy wartości
+    # pozostają w cv_extracted_data; integracja czyta/pisze tę strukturę.
+    custom_fields: Mapped[dict] = mapped_column(
+        JSONB,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+        nullable=False,
+    )
 
     # Metadane rekrutacyjne
     notes_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

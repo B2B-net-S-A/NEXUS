@@ -600,6 +600,41 @@ class Settings(BaseSettings):
     # everything changed in Traffit since the one-time migration. After that,
     # the watermark drives the cutoff.
     TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
+
+    # ── Traffit bidirectional integration (plan 2026-07-16) ────────────────
+    # Twarde kill-switche środowiskowe. Runtime control w tabeli
+    # `traffit_integration_control` może dodatkowo pauzować kierunek, ale
+    # NIGDY nie może włączyć wyłączonego env gate'a. Bezpieczne defaulty
+    # rolloutu: accept/apply/poll/send OFF; dry-run ON.
+    TRAFFIT_INTEGRATION_ENABLED: bool = False
+    TRAFFIT_WEBHOOK_ACCEPT_ENABLED: bool = False
+    TRAFFIT_INBOUND_APPLY_ENABLED: bool = False
+    TRAFFIT_POLL_ENABLED: bool = False
+    TRAFFIT_OUTBOUND_ENABLED: bool = False
+    TRAFFIT_DRY_RUN: bool = True
+
+    # SHA-256 wysokoentropijnego sekretu osadzonego w URL subskrypcji webhooka.
+    # Plaintext generowany raz, nigdy nie przechowywany w env ani DB. HMAC
+    # konfigurować tylko jeśli tenant potwierdzi podpisywanie.
+    TRAFFIT_INTEGRATION_WEBHOOK_SECRET_HASH: str = ""
+    TRAFFIT_INTEGRATION_WEBHOOK_HMAC_SECRET: str = ""
+
+    # Live streams muszą mieścić się w 15-minutowym SLO widoczności. Workery
+    # clampują niebezpieczne wartości; jeden globalny limiter dla obu kierunków.
+    TRAFFIT_INTEGRATION_POLL_INTERVAL_SECONDS: int = 300
+    TRAFFIT_INTEGRATION_FILE_SWEEP_INTERVAL_SECONDS: int = 600
+    TRAFFIT_INTEGRATION_WORKER_INTERVAL_SECONDS: int = 5
+    TRAFFIT_INTEGRATION_SCHEMA_REFRESH_INTERVAL_SECONDS: int = 86400
+    TRAFFIT_INTEGRATION_FULL_RECONCILE_INTERVAL_SECONDS: int = 604800
+    TRAFFIT_INTEGRATION_DELTA_LOOKBACK_HOURS: int = 48
+    TRAFFIT_INTEGRATION_HISTORY_API_BUDGET_PERCENT: int = 20
+
+    # Retry/leader/tombstone safety controls.
+    TRAFFIT_INTEGRATION_MAX_ATTEMPTS: int = 8
+    TRAFFIT_INTEGRATION_LEASE_TTL_SECONDS: int = 90
+    TRAFFIT_INTEGRATION_LEASE_HEARTBEAT_SECONDS: int = 30
+    TRAFFIT_INTEGRATION_TOMBSTONE_MISSING_STRIKES: int = 2
+    TRAFFIT_INTEGRATION_TOMBSTONE_GRACE_DAYS: int = 7
     # Cortex extraction phase within the Traffit sync — keeps skill facts fresh
     # (delta re-extraction of just-changed candidates + weekly full reconcile).
     # Runs only when TRAFFIT_SYNC_ENABLED is also True; idempotent + reconciled,
