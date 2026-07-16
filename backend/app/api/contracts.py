@@ -366,6 +366,39 @@ async def _latest_order_end_dates(
     return {row[0]: row[1] for row in rows.all()}
 
 
+# P0.12: pola kwotowe kontraktu widzą tylko role z VIEW_FINANCE (admin +
+# delivery_lead) — kanoniczna polityka NEXUS (analytics R0). TAC zachowuje
+# operacyjny widok listy/detalu, ale bez stawek, marży i harmonogramów kwot
+# (wzorzec redakcji z clients.py). `rate_unit`/`currency` to metadane, nie kwoty.
+_CONTRACT_FINANCE_SCALARS = (
+    "rate_candidate",
+    "rate_client",
+    "framework_rate",
+    "target_rate_min",
+    "target_rate_max",
+    "margin",
+    "monthly_rate_candidate",
+    "monthly_rate_client",
+    "monthly_margin",
+)
+_CONTRACT_FINANCE_LISTS = (
+    "candidate_rate_schedule",
+    "client_rate_schedule",
+    "framework_rate_schedule",
+)
+
+
+def _redact_contract_finance(item):
+    """Wyzeruj pola kwotowe na zbudowanym ContractResponse/DetailResponse."""
+    for field in _CONTRACT_FINANCE_SCALARS:
+        if hasattr(item, field):
+            setattr(item, field, None)
+    for field in _CONTRACT_FINANCE_LISTS:
+        if hasattr(item, field):
+            setattr(item, field, [])
+    return item
+
+
 @router.get("", response_model=ContractList)
 async def list_contracts(
     current_user: TacPlus,
@@ -469,6 +502,11 @@ async def list_contracts(
         )
         for c in contracts
     ]
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        for item in items:
+            _redact_contract_finance(item)
     return ContractList(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -615,6 +653,15 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
+    # P0.12: eksport zawiera kolumny kwotowe (stawki, marża) i trafia do
+    # finance/delivery — dostęp tylko dla VIEW_FINANCE (admin + delivery_lead).
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Eksport kontraktów wymaga uprawnienia finansowego (admin/DL)",
+        )
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -925,7 +972,12 @@ async def get_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    return _to_detail(contract)
+    detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
