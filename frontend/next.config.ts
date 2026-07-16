@@ -15,6 +15,33 @@ const nextConfig: NextConfig = {
   // has consistent posture. HSTS is here too (CF token didn't have permission
   // to enable it zone-wide). Includes ATS HR-data-handling defaults: deny
   // framing, no MIME sniffing, strict referrer, deny camera/mic/geolocation.
+  // Plan analytics PR 7: wygaszanie DynaReportera — legacy strony raportowe
+  // przekierowują 307 (temporary) do następców w Insights. Po potwierdzonej
+  // parity zmiana na permanent: true (308). Strony administracyjne
+  // (/dynareporter/admin*, /upload, /profile) zostają jako archiwum.
+  async redirects() {
+    const insights = (tab: string) => `/insights?tab=${tab}`;
+    const to = (source: string, destination: string) => ({
+      source,
+      destination,
+      permanent: false, // 307 — etap pierwszy (plan PR 7 §Redirecty)
+    });
+    return [
+      to("/dynareporter/rekrutacja", insights("rekrutacja")),
+      to("/dynareporter/body-leasing", insights("rekrutacja")),
+      to("/dynareporter/placements", insights("rekrutacja")),
+      to("/dynareporter/competitions", insights("rekrutacja")),
+      to("/dynareporter/delivery-lead", insights("klienci")),
+      to("/dynareporter/delivery-lead-dashboard", insights("klienci")),
+      to("/dynareporter/clients-mrr", insights("klienci")),
+      to("/dynareporter/sales", insights("klienci")),
+      to("/dynareporter/sales-mgmt", insights("klienci")),
+      to("/dynareporter/board", insights("zarzad")),
+      to("/dynareporter/board-dashboard", insights("zarzad")),
+      to("/dynareporter/przetargi", insights("zarzad")),
+      to("/dynareporter/mindy", insights("rekrutacja")),
+    ];
+  },
   async headers() {
     return [
       {
