@@ -28,11 +28,12 @@ jobs:
         id: inspect
         run: |
           echo "== GET /api/v1/deployments (currently running/queued) =="
+          # NOTE: do NOT print the raw payload — each deployment's `logs` field
+          # echoes build commands incl. the git deploy key material.
           curl -sS -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
             -H "Accept: application/json" \
-            "${{ secrets.COOLIFY_URL }}/api/v1/deployments" | tee /tmp/deployments.json | head -c 4000
-          echo ""
-          echo "== parsed =="
+            "${{ secrets.COOLIFY_URL }}/api/v1/deployments" > /tmp/deployments.json
+          echo "== parsed (logs stripped) =="
           python3 - <<'PY'
           import json
           try:
