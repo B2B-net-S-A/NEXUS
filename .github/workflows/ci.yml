@@ -158,6 +158,7 @@ jobs:
                  tests/test_jobs_deadline_serialization.py \
                  tests/test_dynareporter_profile.py \
                  tests/test_dynareporter_admin.py \
+                 tests/test_dynareporter_readonly.py \
                  tests/test_rbac.py \
                  tests/test_dashboard.py \
                  tests/test_analytics_periods.py \

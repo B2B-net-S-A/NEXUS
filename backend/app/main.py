@@ -308,6 +308,31 @@ _LEGACY_STATS_PREFIXES = (
     "/api/competitions",
 )
 
+# Audyt M7 PR-02 (P0.3): metody mutujące blokowane przy DYNAREPORTER_MODE=read_only.
+_DYNAREPORTER_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Ścieżki zwolnione z blokady read_only — nie tworzą DANYCH RAPORTOWYCH:
+# - mindy/*: POST generujące komentarz/czat LLM (stateless, nic nie zapisują),
+# - competitions notifications .../read: self-scoped read-marker powiadomień usera.
+_DYNAREPORTER_READONLY_EXEMPT_PREFIXES = ("/api/dynareporter/mindy/",)
+
+
+def _dynareporter_write_exempt(path: str, method: str) -> bool:
+    """Czy dana mutacja DR jest zwolniona z blokady read_only (nie-raportowa)."""
+    # upload/excel ma własny terminalny 410 GONE (R0) — mocniejszy niż read_only
+    # 409; nie przykrywamy go (zachowuje kontrakt „trwale wycofane").
+    if path == "/api/dynareporter/upload/excel":
+        return True
+    if path.startswith(_DYNAREPORTER_READONLY_EXEMPT_PREFIXES):
+        return True
+    if (
+        method == "PATCH"
+        and path.startswith("/api/dynareporter/competitions/notifications/")
+        and path.endswith("/read")
+    ):
+        return True
+    return False
+
 
 class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -328,6 +353,36 @@ class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
                             "DynaReporter został wygaszony — bieżące statystyki: "
                             "/api/analytics/v1 (UI: /insights)"
                         )
+                    },
+                )
+
+            # Audyt M7 PR-02 (P0.3): read_only egzekwuje read-only CENTRALNIE.
+            # Dotąd read_only nie przechwytywało zapisów (split-brain: „archiwum",
+            # które nadal przyjmuje mutacje). Teraz każda mutacja DR daje 409 z
+            # kodem DYNAREPORTER_READ_ONLY, chyba że jest zwolniona (mindy/read-
+            # marker) albo operator włączył break-glass na czas edycji danych.
+            if (
+                settings.DYNAREPORTER_MODE == "read_only"
+                and request.method in _DYNAREPORTER_MUTATING_METHODS
+                and not _dynareporter_write_exempt(path, request.method)
+                and not settings.DYNAREPORTER_WRITE_BREAKGLASS
+            ):
+                # Audyt próby zapisu bez payloadu (bez PII).
+                logger.warning(
+                    "dynareporter_write_blocked method=%s path=%s",
+                    request.method,
+                    path,
+                )
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "detail": (
+                            "DynaReporter działa w trybie tylko-do-odczytu "
+                            "(archiwum) — zapisy są zablokowane."
+                        ),
+                        "code": "DYNAREPORTER_READ_ONLY",
                     },
                 )
 

@@ -301,6 +301,13 @@ class Settings(BaseSettings):
     ANALYTICS_V1_MODULES: str = ""
     # Legacy DynaReporter: read_only (adaptery czytają) | off (410 na readach).
     DYNAREPORTER_MODE: str = "read_only"
+    # Audyt M7 PR-02 (P0.3): przy DYNAREPORTER_MODE=read_only backend blokuje
+    # mutacje (POST/PUT/PATCH/DELETE) na /api/dynareporter — dotąd read_only NIE
+    # przechwytywało zapisów (tylko off dawało 410). Break-glass odblokowuje
+    # zapisy tymczasowo (np. admin musi wprowadzić dane board/master-data), z
+    # audytem. Domyślnie zamknięte (fail-closed, DR = archive per §19 planu).
+    # Operacyjnie: ustaw =true w Coolify na czas edycji, zdejmij po zakończeniu.
+    DYNAREPORTER_WRITE_BREAKGLASS: bool = False
     # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
     KPI_COACH_V2_NUDGES_ENABLED: bool = False
 
