@@ -5,7 +5,9 @@ używając semantycznego wyszukiwania Qdrant (Voyage AI) + fallback tag-based.
 GET /api/jobs/{id}/ai-matches
 """
 
-from __future__ import annotations
+# UWAGA: bez `from __future__ import annotations` — PEP 563 zamienia
+# adnotacje FastAPI w ForwardRef i wywala app.openapi() na Annotated
+# guardach (OperationalUser); ten sam trap co slowapi #579.
 
 import json
 import logging
