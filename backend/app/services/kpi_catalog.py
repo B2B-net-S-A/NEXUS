@@ -1,10 +1,10 @@
-"""KPI Coach — statyczny katalog KPI.
+"""KPI Coach v2 — statyczny katalog KPI (plan analytics 2026-07-16, PR 4).
 
-Definicje KPI (co liczymy, z jakich akcji, per jaka rola default) żyją tu
-w kodzie jako frozen dataclass. To świadoma decyzja: KPI to kontrakt z
-enumem `UserActionType`, a nie dane. Zmiana definicji wymaga deploya —
-targety (liczby) można zmieniać w DB przez tabelę `kpi_role_defaults` /
-`user_kpi_targets`.
+Definicje KPI żyją tu w kodzie jako frozen dataclass. KPI Coach v2 liczy
+z KANONICZNYCH danych ATS (Call / view analytics_first_milestones /
+candidates.created_by) — NIE z martwego logu `user_activities` (plan §4.1).
+Zmiana definicji wymaga deploya — targety (liczby) można zmieniać w DB
+przez tabelę `kpi_role_defaults` / `user_kpi_targets`.
 
 Dodawanie nowego KPI:
   1) Dopisz `KpiDef(...)` do `KPI_CATALOG`.
@@ -23,13 +23,31 @@ from enum import Enum
 from typing import Optional
 
 from app.models.user import UserRole
-from app.models.user_activity import UserActionType
 
 
 class KpiPeriod(str, Enum):
     day = "day"
     week = "week"
     month = "month"
+
+
+class KpiMetric(str, Enum):
+    """Kanoniczne źródło licznika (plan §4.2):
+
+    - completed_calls        — Call.status=completed po dacie efektywnej
+                               COALESCE(started_at, created_at),
+    - first_verifications    — pierwsze `verified` per (kandydat, job)
+                               z atrybucją verifier-anchored,
+    - new_candidates         — candidates.created_by w oknie,
+    - first_recommendations  — pierwsze `cv_sent` (atrybucja j.w.),
+    - first_placements       — pierwsze `hired` (atrybucja j.w.).
+    """
+
+    completed_calls = "completed_calls"
+    first_verifications = "first_verifications"
+    new_candidates = "new_candidates"
+    first_recommendations = "first_recommendations"
+    first_placements = "first_placements"
 
 
 @dataclass(frozen=True)
@@ -40,32 +58,49 @@ class KpiDef:
     period: KpiPeriod
     title_pl: str
     description_pl: str
-    # Jakie akcje z user_activities wchodzą do licznika.
-    action_types: tuple[UserActionType, ...]
+    # Kanoniczne źródło licznika (patrz KpiMetric).
+    metric: KpiMetric
     # Defaulty per rola jeśli w DB brak rekordu `kpi_role_defaults`.
     # Role spoza dict traktowane jako 0 (KPI niewidoczne).
     default_targets: dict[UserRole, int] = field(default_factory=dict)
-    # Opcjonalny filtr po `user_activities.details` (JSONB). Np. dla
-    # `stage_changed → cv_sent`: {"stage": "cv_sent"}.
-    details_filter: Optional[dict] = None
 
 
-# ── Catalog (MVP: 5 KPI) ─────────────────────────────────────────────────
+# ── Catalog v2 (plan PR 4) ───────────────────────────────────────────────
+#
+# Zmiany vs v1 (UserActivity):
+# - `daily_activity_count` → `daily_completed_calls` (target 15/dzień — plan),
+# - NOWE `daily_first_verifications` (target 4/dzień — plan; niezależny od
+#   rozmów), `weekly_screenings` usunięte (screening nie ma kanonicznego
+#   źródła w ATS),
+# - `weekly_cvs_sent` = pierwsze rekomendacje (cv_sent) z atrybucją,
+# - `monthly_placements` = pierwsze `hired` z atrybucją.
+# Id `daily_new_candidates` / `weekly_cvs_sent` / `monthly_placements`
+# zachowane — DB-owe targety (`kpi_role_defaults`, `user_kpi_targets`)
+# i warianty wiadomości (`kpi_messages`) nadal pasują.
 
 KPI_CATALOG: tuple[KpiDef, ...] = (
     KpiDef(
-        kpi_id="daily_activity_count",
+        kpi_id="daily_completed_calls",
         period=KpiPeriod.day,
-        title_pl="Aktywności dziś",
-        description_pl="Rozmowy + screeningi łącznie",
-        action_types=(
-            UserActionType.call_made,
-            UserActionType.screening_done,
-        ),
+        title_pl="Rozmowy dziś",
+        description_pl="Zakończone rozmowy (CloudTalk)",
+        metric=KpiMetric.completed_calls,
         default_targets={
-            UserRole.recruiter: 10,
-            UserRole.tac: 12,
-            UserRole.sourcer: 8,
+            UserRole.recruiter: 15,
+            UserRole.tac: 15,
+            UserRole.sourcer: 15,
+        },
+    ),
+    KpiDef(
+        kpi_id="daily_first_verifications",
+        period=KpiPeriod.day,
+        title_pl="Weryfikacje dziś",
+        description_pl="Kandydaci zweryfikowani (pierwsze przejście na verified)",
+        metric=KpiMetric.first_verifications,
+        default_targets={
+            UserRole.recruiter: 4,
+            UserRole.tac: 4,
+            UserRole.sourcer: 4,
         },
     ),
     KpiDef(
@@ -73,7 +108,7 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         period=KpiPeriod.day,
         title_pl="Nowi kandydaci dziś",
         description_pl="Liczba nowych kandydatów dodanych w systemie",
-        action_types=(UserActionType.candidate_added,),
+        metric=KpiMetric.new_candidates,
         default_targets={
             UserRole.recruiter: 3,
             UserRole.tac: 2,
@@ -83,36 +118,20 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
     KpiDef(
         kpi_id="weekly_cvs_sent",
         period=KpiPeriod.week,
-        title_pl="CV wysłane w tygodniu",
-        description_pl="Wgrania CV + przejścia na etap cv_sent",
-        action_types=(
-            UserActionType.cv_uploaded,
-            UserActionType.stage_changed,
-        ),
-        details_filter={"stage": "cv_sent"},
+        title_pl="Rekomendacje w tygodniu",
+        description_pl="Pierwsze wysyłki CV do klienta (cv_sent)",
+        metric=KpiMetric.first_recommendations,
         default_targets={
             UserRole.recruiter: 15,
             UserRole.tac: 12,
         },
     ),
     KpiDef(
-        kpi_id="weekly_screenings",
-        period=KpiPeriod.week,
-        title_pl="Screeningi w tygodniu",
-        description_pl="Rozmowy screeningowe przeprowadzone",
-        action_types=(UserActionType.screening_done,),
-        default_targets={
-            UserRole.recruiter: 5,
-            UserRole.tac: 7,
-            UserRole.sourcer: 3,
-        },
-    ),
-    KpiDef(
         kpi_id="monthly_placements",
         period=KpiPeriod.month,
         title_pl="Placementy w tym miesiącu",
-        description_pl="Zamknięte placementy (hired)",
-        action_types=(UserActionType.placement_closed,),
+        description_pl="Zamknięte placementy (pierwsze hired)",
+        metric=KpiMetric.first_placements,
         default_targets={
             UserRole.recruiter: 2,
             UserRole.tac: 3,

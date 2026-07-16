@@ -247,6 +247,26 @@ async def _try_emit(
         forced_variant=forced_variant,
     )
 
+    # DRY-RUN (plan analytics PR 4 §nudge rollout): dopóki
+    # KPI_COACH_V2_NUDGES_ENABLED=false, sweep liczy i loguje co BY wysłał,
+    # ale nie pisze notyfikacji ani logu dedup — 7 dni porównania parity z
+    # UI/canonical API zanim ktokolwiek dostanie nudge'a.
+    from app.core.config import settings as _settings
+
+    if not _settings.KPI_COACH_V2_NUDGES_ENABLED:
+        logger.info(
+            "kpi_coach DRY-RUN: would send %s user=%s kpi=%s bucket=%s "
+            "current=%s target=%s state=%s",
+            nudge_type.value,
+            user.id,
+            kpi_result.kpi_id,
+            bucket,
+            kpi_result.current,
+            kpi_result.target,
+            kpi_result.state,
+        )
+        return True
+
     # 1) Insert kpi_nudge_log (HARD dedup gate).
     log = KpiNudgeLog(
         user_id=user.id,
@@ -355,6 +375,17 @@ async def _try_emit_eod(
         progress_pct=avg_progress,
         period_bucket=day_bucket,
     )
+
+    # DRY-RUN — patrz komentarz w _try_emit_nudge (plan PR 4).
+    from app.core.config import settings as _settings
+
+    if not _settings.KPI_COACH_V2_NUDGES_ENABLED:
+        logger.info(
+            "kpi_coach DRY-RUN: would send eod_summary user=%s avg_progress=%.1f",
+            user.id,
+            avg_progress,
+        )
+        return True
 
     log = KpiNudgeLog(
         user_id=user.id,

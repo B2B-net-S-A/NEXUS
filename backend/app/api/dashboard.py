@@ -1,7 +1,7 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import (
@@ -10,11 +10,9 @@ from app.analytics.capabilities import (
 )
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
+from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.activity import Activity
-from app.models.user import User
-from app.models.user_activity import UserActivity, UserActionType
 from app.api.deps import CurrentUser, OperationalUser
 from app.services.dashboard_metrics import compute_kpi_snapshot
 
@@ -56,55 +54,59 @@ async def get_kpis(current_user: CurrentUser, db: AsyncSession = Depends(get_db)
     ).scalar()
 
     first_of_month = date.today().replace(day=1)
+    # PR 4: pierwsze osiągnięcia `hired` (kanoniczny view) zamiast liczenia
+    # każdego ruchu na etap hired (multi-count przy cofnięciach).
     placements_this_month = (
         await db.execute(
-            select(func.count(CandidateStage.id)).where(
-                CandidateStage.stage == PipelineStage.hired,
-                CandidateStage.moved_at >= first_of_month,
-            )
+            text(
+                "SELECT COUNT(*) FROM analytics_first_milestones "
+                "WHERE stage = 'hired' AND first_reached_at >= :start"
+            ),
+            {"start": first_of_month},
         )
     ).scalar()
 
+    # PR 4: kanonicznie z tabeli candidates (created_by/created_at) —
+    # UserActivity to log pomocniczy, nie źródło metryk (plan §4.1).
     candidates_added_this_month = (
         await db.execute(
-            select(func.count(UserActivity.id)).where(
-                UserActivity.action_type == UserActionType.candidate_added,
-                UserActivity.created_at >= first_of_month,
+            select(func.count(Candidate.id)).where(
+                Candidate.created_at >= first_of_month,
+                Candidate.created_by.isnot(None),
             )
         )
     ).scalar()
 
     top_recruiters: list[dict] = []
     if include_ranking:
-        # Top recruiters this month (from user activities)
-        from sqlalchemy import case
+        # PR 4 (plan analytics): ranking z kanonicznej atrybucji
+        # (VERIFIER_ANCHORED_CTE / view analytics_first_milestones) —
+        # te same liczby co panel „Moje KPI" i panel zespołu.
+        from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
         leaderboard_result = await db.execute(
-            select(
-                User.id,
-                User.name,
-                func.count(UserActivity.id).label("total_actions"),
-                func.sum(
-                    case(
-                        (
-                            UserActivity.action_type == UserActionType.placement_closed,
-                            1,
-                        ),
-                        else_=0,
-                    )
-                ).label("placements"),
-            )
-            .join(UserActivity, User.id == UserActivity.user_id)
-            .where(UserActivity.created_at >= first_of_month)
-            .group_by(User.id, User.name)
-            .order_by(func.count(UserActivity.id).desc())
-            .limit(5)
+            text(
+                VERIFIER_ANCHORED_CTE
+                + """
+                SELECT u.id, u.name,
+                       count(*) AS total_milestones,
+                       count(*) FILTER (WHERE c.stage = 'hired') AS placements
+                FROM credited c
+                JOIN users u ON u.id = c.credit_user
+                WHERE c.reached_at >= :month_start
+                  AND u.is_active IS TRUE
+                GROUP BY u.id, u.name
+                ORDER BY placements DESC, total_milestones DESC
+                LIMIT 5
+                """
+            ),
+            {"month_start": first_of_month},
         )
         top_recruiters = [
             {
                 "user_id": row.id,
                 "user_name": row.name,
-                "total_actions": row.total_actions,
+                "total_actions": row.total_milestones,
                 "placements": row.placements,
             }
             for row in leaderboard_result.all()
@@ -156,10 +158,59 @@ async def recent_activity(
 async def pipeline_funnel(
     current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ):
-    """Aggregate pipeline counts per stage across all jobs."""
+    """Aggregate pipeline counts per stage across all jobs.
+
+    PR 4 (plan analytics): aktualny pipeline = OSTATNI stage per
+    kandydat × job (view analytics_current_pipeline), nie suma
+    historycznych ruchów (§3.2 — kandydat cofnięty i ruszony ponownie
+    liczył się wielokrotnie).
+    """
     result = await db.execute(
-        select(CandidateStage.stage, func.count(CandidateStage.id)).group_by(
-            CandidateStage.stage
+        text(
+            "SELECT stage, COUNT(*) AS cnt FROM analytics_current_pipeline "
+            "GROUP BY stage"
         )
     )
-    return {stage.value: count for stage, count in result.all()}
+    return {row.stage: row.cnt for row in result.all()}
+
+
+@router.get("/recent-hires")
+async def recent_hires(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(8, ge=1, le=50),
+):
+    """Ostatnie zatrudnienia — dedykowany, typowany endpoint (plan PR 4 §3).
+
+    Wcześniej frontend filtrował luźny activity feed po action == 'hired';
+    tu źródłem jest kanoniczny view (pierwsze osiągnięcie `hired` per
+    kandydat × job) + nazwiska/oferta/klient jednym zapytaniem.
+    """
+    rows = (
+        (
+            await db.execute(
+                text(
+                    """
+                SELECT
+                    fm.candidate_id,
+                    fm.job_id,
+                    fm.first_reached_at AS hired_at,
+                    (c.name || ' ' || c.lastname) AS candidate_name,
+                    j.title AS job_title,
+                    cl.name AS client_name
+                FROM analytics_first_milestones fm
+                JOIN candidates c ON c.id = fm.candidate_id
+                JOIN jobs j ON j.id = fm.job_id
+                JOIN clients cl ON cl.id = j.client_id
+                WHERE fm.stage = 'hired'
+                ORDER BY fm.first_reached_at DESC
+                LIMIT :limit
+                """
+                ),
+                {"limit": limit},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]

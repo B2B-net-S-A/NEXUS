@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate, CandidateStatus
@@ -34,7 +34,21 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             select(func.count(Job.id)).where(Job.status == JobStatus.published)
         )
     ).scalar()
+    # PR 4 (plan analytics §3.2): prawdziwy jobs.total + rozdzielenie
+    # clients total/active (aktywny = date-effective kontrakt DZIŚ).
+    jobs_total = (await db.execute(select(func.count(Job.id)))).scalar()
     clients_total = (await db.execute(select(func.count(Client.id)))).scalar()
+    today_d = date.today()
+    clients_active = (
+        await db.execute(
+            select(func.count(distinct(Contract.client_id))).where(
+                Contract.status != ContractStatus.draft,
+                Contract.start_date.isnot(None),
+                Contract.start_date <= today_d,
+                (Contract.end_date.is_(None)) | (Contract.end_date >= today_d),
+            )
+        )
+    ).scalar()
     contracts_active = (
         await db.execute(
             select(func.count(Contract.id)).where(
@@ -72,8 +86,8 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             "total": candidates_total or 0,
             "active": candidates_active or 0,
         },
-        "jobs": {"open": jobs_open or 0},
-        "clients": {"total": clients_total or 0},
+        "jobs": {"open": jobs_open or 0, "total": jobs_total or 0},
+        "clients": {"total": clients_total or 0, "active": clients_active or 0},
         "contracts": {
             "active": contracts_active or 0,
             "expiring_soon": contracts_expiring or 0,

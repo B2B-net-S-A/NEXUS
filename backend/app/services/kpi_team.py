@@ -30,7 +30,6 @@ from app.models.user import User
 from app.services.kpi_catalog import KpiPeriod
 from app.services.kpi_engine import WARSAW, period_bounds
 from app.services.kpi_panel import (
-    _ANCHOR_LOOKBACK_DAYS,
     _OPERATIONAL_ROLES,
     _PRECISION_MIN_DENOM,
     _PRECISION_WINDOW_DAYS,
@@ -131,14 +130,12 @@ async def compute_team_panel(
 
     period_start, _ = period_bounds(period, now)
     rolling30 = now - timedelta(days=_PRECISION_WINDOW_DAYS)
-    lookback = now - timedelta(days=_ANCHOR_LOOKBACK_DAYS)
 
     funnel_rows = (
         (
             await db.execute(
                 _TEAM_FUNNEL_SQL,
                 {
-                    "lookback": lookback,
                     "period_start": period_start,
                     "rolling30": rolling30,
                 },
@@ -178,8 +175,8 @@ async def compute_team_panel(
     shown_uids: set[int] = set(user_meta)
 
     # Dołóż każdego AKTYWNEGO usera spoza puli, który MA aktywność (np. admin
-    # ruszający etapy). Filtr `is_active` jest kluczowy: bez niego 400-dniowe
-    # okno atrybucji (`_ANCHOR_LOOKBACK_DAYS`) wciągało do panelu wszystkich
+    # ruszający etapy). Filtr `is_active` jest kluczowy: kanoniczny view liczy
+    # bez limitu czasowego, więc bez niego panel wciągałby wszystkich
     # zdezaktywowanych/zarchiwizowanych rekruterów, którzy kiedykolwiek ruszyli
     # kandydata — panel managerski pokazuje tylko BIEŻĄCY zespół.
     extra_uids = (set(agg) | set(cv_by_uid)) - shown_uids

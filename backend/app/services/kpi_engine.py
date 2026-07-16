@@ -21,14 +21,15 @@ from datetime import datetime, time, timedelta
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.models.call import Call, CallStatus
+from app.models.candidate import Candidate
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.user import User, UserRole
-from app.models.user_activity import UserActionType, UserActivity
-from app.services.kpi_catalog import KPI_CATALOG, KpiDef, KpiPeriod
+from app.services.kpi_catalog import KPI_CATALOG, KpiDef, KpiMetric, KpiPeriod
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 
@@ -233,33 +234,74 @@ async def resolve_target(db: AsyncSession, *, user: User, kpi_def: KpiDef) -> in
     return int(kpi_def.default_targets.get(user.role, 0))
 
 
-async def count_user_action_in_window(
+# Mapowanie metryki milestone'owej na stage w kanonicznym view.
+_MILESTONE_STAGE: dict[KpiMetric, str] = {
+    KpiMetric.first_verifications: "verified",
+    KpiMetric.first_recommendations: "cv_sent",
+    KpiMetric.first_placements: "hired",
+}
+
+
+async def count_canonical_metric(
     db: AsyncSession,
     *,
     user_id: int,
-    action_types: tuple[UserActionType, ...],
+    metric: KpiMetric,
     since: datetime,
     until: datetime,
-    details_filter: Optional[dict] = None,
 ) -> int:
-    """COUNT user_activities pasujących do kryteriów.
+    """Kanoniczny licznik KPI v2 (plan §4.2) — te same definicje co
+    Analytics v1 i panel „Moje KPI":
 
-    - `action_types`: IN (...) po enumie.
-    - `details_filter`: JSONB containment `details @> :filter` (np.
-      `{"stage": "cv_sent"}`). Pomijane gdy None.
+    - completed_calls: Call completed po COALESCE(started_at, created_at),
+    - first_*: pierwsze milestone'y z atrybucją verifier-anchored
+      (VERIFIER_ANCHORED_CTE / view analytics_first_milestones),
+    - new_candidates: candidates.created_by.
     """
-    conds = [
-        UserActivity.user_id == user_id,
-        UserActivity.created_at >= since,
-        UserActivity.created_at < until,
-    ]
-    if action_types:
-        conds.append(UserActivity.action_type.in_(action_types))
-    if details_filter:
-        # JSONB @> operator — `details` zawiera filter jako sub-obiekt.
-        conds.append(UserActivity.details.cast(JSONB).contains(details_filter))
+    if metric is KpiMetric.completed_calls:
+        effective_at = func.coalesce(Call.started_at, Call.created_at)
+        result = await db.scalar(
+            select(func.count(Call.id)).where(
+                and_(
+                    Call.user_id == user_id,
+                    Call.status == CallStatus.completed,
+                    effective_at >= since,
+                    effective_at < until,
+                )
+            )
+        )
+        return int(result or 0)
 
-    result = await db.scalar(select(func.count(UserActivity.id)).where(and_(*conds)))
+    if metric is KpiMetric.new_candidates:
+        result = await db.scalar(
+            select(func.count(Candidate.id)).where(
+                and_(
+                    Candidate.created_by == user_id,
+                    Candidate.created_at >= since,
+                    Candidate.created_at < until,
+                )
+            )
+        )
+        return int(result or 0)
+
+    stage = _MILESTONE_STAGE[metric]
+    # Import lokalny — kpi_panel importuje z tego modułu (WARSAW,
+    # period_bounds), więc top-level import byłby cyklem.
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    result = await db.scalar(
+        text(
+            VERIFIER_ANCHORED_CTE
+            + """
+            SELECT count(*) FROM credited
+            WHERE credit_user = :uid
+              AND stage = :stage
+              AND reached_at >= :since
+              AND reached_at < :until
+            """
+        ),
+        {"uid": user_id, "stage": stage, "since": since, "until": until},
+    )
     return int(result or 0)
 
 
@@ -301,15 +343,21 @@ async def evaluate_user_kpis(
 
     results: list[KpiResult] = []
     for kpi_def in KPI_CATALOG:
+        # CloudTalk off/misconfigured ⇒ metryka rozmów jest NIEDOSTĘPNA,
+        # nie zerowa (plan §3.3) — pomijamy KPI zamiast straszyć "behind".
+        if (
+            kpi_def.metric is KpiMetric.completed_calls
+            and not settings.CLOUDTALK_ENABLED
+        ):
+            continue
         target = await resolve_target(db, user=user, kpi_def=kpi_def)
         start, end = period_bounds(kpi_def.period, now)
-        current = await count_user_action_in_window(
+        current = await count_canonical_metric(
             db,
             user_id=user.id,
-            action_types=kpi_def.action_types,
+            metric=kpi_def.metric,
             since=start,
             until=end,
-            details_filter=kpi_def.details_filter,
         )
         ratio = expected_progress_ratio(kpi_def.period, now)
         state = derive_state(current=current, target=target, expected_ratio=ratio)
@@ -337,7 +385,7 @@ __all__ = [
     "KpiResult",
     "KpiState",
     "WARSAW",
-    "count_user_action_in_window",
+    "count_canonical_metric",
     "derive_state",
     "evaluate_user_kpis",
     "expected_progress_ratio",

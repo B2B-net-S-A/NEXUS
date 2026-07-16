@@ -33,10 +33,9 @@ from app.services.kpi_engine import WARSAW, period_bounds
 # Minimalna liczba weryfikacji w oknie, by pokazać precision (mniej = szum).
 _PRECISION_MIN_DENOM = 5
 _PRECISION_WINDOW_DAYS = 30
-# Jak głęboko wstecz szukamy etapu `verified` jako kotwicy atrybucji.
-# Para zweryfikowana dawno, a placement w tym miesiącu — kotwica musi być
-# znaleziona. 400 dni z zapasem; starsze pary lecą na fallback (rzadkie).
-_ANCHOR_LOOKBACK_DAYS = 400
+# PR 4 (plan analytics): kotwica atrybucji przychodzi z kanonicznego view
+# analytics_first_milestones — bez limitu czasowego (_ANCHOR_LOOKBACK_DAYS
+# usunięty; plan §3.2 wskazywał go jako źródło gubienia weryfikatorów).
 
 # Role operacyjne — panel pokazuje się zawsze (reszta tylko gdy ma aktywność).
 _OPERATIONAL_ROLES = {
@@ -77,26 +76,24 @@ PANEL_KPI_DEFAULTS: dict[str, dict[UserRole, int]] = {
 
 # ── SQL: verifier-anchored funnel ────────────────────────────────────────────
 
-# Wspólne CTE atrybucji (reużywane przez panel per-user ORAZ panel zespołowy
-# w `kpi_team.py`, żeby liczby zgadzały się co do jednego). Dla każdej pary
-# (kandydat, job):
-#   1) `mf`       — pierwszy ruch na każdy istotny etap (kto + kiedy).
-#   2) `anchor`   — weryfikator = first_mover etapu `verified`.
-#   3) `credited` — credit_user = COALESCE(weryfikator, mover tego kamienia).
-# Konsument dokleja własny SELECT … FROM credited (parametr :lookback wspólny).
+# Wspólne CTE atrybucji (reużywane przez panel per-user, panel zespołowy
+# w `kpi_team.py`, reports per-recruiter i KPI Coach v2 — żeby liczby
+# zgadzały się co do jednego). PR 4 planu analytics (2026-07-16): źródłem
+# jest kanoniczny view ``analytics_first_milestones`` (migracja 0174/0175) —
+# pierwsze osiągnięcie stage'a per (kandydat, job). Zniknął lookback 400 dni
+# (plan §3.2: arbitralny cutoff potrafił zgubić właściwego weryfikatora).
+# Dla każdej pary (kandydat, job):
+#   1) `mf`       — pierwszy ruch na każdy istotny etap (kto + kiedy) = view.
+#   2) `anchor`   — weryfikator = first_moved_by etapu `verified`.
+#   3) `credited` — credit_user = COALESCE(weryfikator, mover tego kamienia)
+#      (plan §4.2: atrybucja = osoba pierwszej weryfikacji; bez weryfikacji
+#      wykonawca milestone'u).
+# Konsument dokleja własny SELECT … FROM credited.
 VERIFIER_ANCHORED_CTE = """
-    WITH cs AS (
-        SELECT candidate_id, job_id, stage::text AS stage, moved_at, moved_by, id
-        FROM candidate_stages
-        WHERE stage IN ('verified', 'cv_sent', 'interview', 'acceptance', 'hired')
-          AND moved_at >= :lookback
-    ),
-    mf AS (
-        SELECT DISTINCT ON (candidate_id, job_id, stage)
-               candidate_id, job_id, stage,
-               moved_by AS first_mover, moved_at AS reached_at
-        FROM cs
-        ORDER BY candidate_id, job_id, stage, moved_at ASC, id ASC
+    WITH mf AS (
+        SELECT candidate_id, job_id, stage::text AS stage,
+               first_moved_by AS first_mover, first_reached_at AS reached_at
+        FROM analytics_first_milestones
     ),
     anchor AS (
         SELECT candidate_id, job_id, first_mover AS verifier
@@ -104,7 +101,7 @@ VERIFIER_ANCHORED_CTE = """
         WHERE stage = 'verified'
     ),
     credited AS (
-        SELECT mf.stage, mf.reached_at,
+        SELECT mf.stage, mf.reached_at, mf.candidate_id, mf.job_id,
                COALESCE(a.verifier, mf.first_mover) AS credit_user
         FROM mf
         LEFT JOIN anchor a USING (candidate_id, job_id)
@@ -236,7 +233,6 @@ async def compute_my_panel(
     week_start, _ = period_bounds(KpiPeriod.week, now)
     month_start, _ = period_bounds(KpiPeriod.month, now)
     rolling30 = now - timedelta(days=_PRECISION_WINDOW_DAYS)
-    lookback = now - timedelta(days=_ANCHOR_LOOKBACK_DAYS)
 
     funnel_params = {
         "uid": user.id,
@@ -244,7 +240,6 @@ async def compute_my_panel(
         "week_start": week_start,
         "month_start": month_start,
         "rolling30": rolling30,
-        "lookback": lookback,
     }
     rows = (await db.execute(_FUNNEL_SQL, funnel_params)).mappings().all()
     by_stage: dict[str, dict] = {r["stage"]: dict(r) for r in rows}

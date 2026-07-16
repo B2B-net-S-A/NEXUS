@@ -1351,10 +1351,11 @@ _COLUMN_STATEMENTS = [
     # METRIC_VERSION) i aktualizacja OBU miejsc.
     "CREATE INDEX IF NOT EXISTS ix_analytics_cs_cand_job_moved "
     "ON candidate_stages (candidate_id, job_id, moved_at DESC, id DESC)",
-    "CREATE INDEX IF NOT EXISTS ix_analytics_cs_stage_first "
+    "DROP INDEX IF EXISTS ix_analytics_cs_stage_first",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_cs_stage_first_v2 "
     "ON candidate_stages (stage, candidate_id, job_id, moved_at ASC, id ASC) "
     "WHERE stage IN "
-    "('verified', 'cv_sent', 'interview', 'client_interview', 'hired')",
+    "('verified', 'cv_sent', 'interview', 'client_interview', 'acceptance', 'hired')",
     "CREATE INDEX IF NOT EXISTS ix_analytics_calls_user_effective "
     "ON calls (user_id, status, (COALESCE(started_at, created_at)))",
     "CREATE INDEX IF NOT EXISTS ix_analytics_cse_first_touch "
@@ -1395,7 +1396,8 @@ _COLUMN_STATEMENTS = [
                 ) AS rn
             FROM candidate_stages cs
             WHERE cs.stage IN (
-                'verified', 'cv_sent', 'interview', 'client_interview', 'hired'
+                'verified', 'cv_sent', 'interview', 'client_interview',
+                'acceptance', 'hired'
             )
         ) ranked
         WHERE rn = 1""",
