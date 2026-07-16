@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { recommendationsApi, type SeekingContractorRow } from "@/lib/api";
 import { EmailDraftDialog } from "./EmailDraftDialog";
+import { assignErrorMessage } from "@/lib/assign-error";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
 interface Props {
@@ -154,12 +155,7 @@ export function ContractorMatchCard({ row }: Props) {
       await recommendationsApi.assignToJob(c.id, jobId);
       setAssignedIds((prev) => new Set(prev).add(jobId));
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail ?? "Błąd")
-          : "Błąd";
-      alert(`Nie udało się przypisać: ${msg}`);
+      alert(`Nie udało się przypisać: ${assignErrorMessage(e)}`);
     } finally {
       setAssigningJobId(null);
     }

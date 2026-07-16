@@ -15,6 +15,7 @@ import {
   type ScoreBreakdown,
 } from "@/lib/api";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
+import { assignErrorMessage } from "@/lib/assign-error";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
@@ -225,11 +226,7 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         return next;
       });
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
-      alert(`Nie przypisano: ${msg}`);
+      alert(`Nie przypisano: ${assignErrorMessage(e)}`);
     } finally {
       setAssigning(null);
     }
