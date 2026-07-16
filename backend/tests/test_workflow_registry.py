@@ -325,3 +325,23 @@ def test_graph_validator_catches_problems():
     assert "terminal bez terminal_type" in joined
     assert "sla_max_days" in joined
     assert "nie ma ścieżki" in joined
+
+
+async def test_revision_detail_exposes_stage_ids(
+    app_client: AsyncClient, app_auth_headers
+):
+    """GET detali rewizji — operacyjny warunek użycia PATCH stage-revisions."""
+    tpl = await _seed_template()
+    r = await app_client.post(f"{BASE}/bootstrap", headers=app_auth_headers)
+    rev_id = next(
+        d["revision_id"] for d in r.json()["details"] if d["template_id"] == tpl
+    )
+    detail = await app_client.get(
+        f"{BASE}/revisions/{rev_id}", headers=app_auth_headers
+    )
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["status"] == "published"
+    assert len(body["stages"]) == 3
+    assert all("id" in s and "semantic_key" in s for s in body["stages"])
+    assert body["edges_count"] > 0
