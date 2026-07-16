@@ -52,9 +52,7 @@ _DATE_RE = r"^\d{4}-\d{2}-\d{2}$"
 )
 async def get_dashboard(
     current_user: User = Depends(
-        require_dynareporter_section(
-            "delivery-lead", AnalyticsCapability.VIEW_TEAM_KPI
-        )
+        require_dynareporter_section("delivery-lead", AnalyticsCapability.VIEW_TEAM_KPI)
     ),
     db: AsyncSession = Depends(get_db),
     start_date: Optional[str] = Query(
@@ -286,9 +284,7 @@ async def get_dashboard(
 async def get_trend(
     user_id: int,
     current_user: User = Depends(
-        require_dynareporter_section(
-            "delivery-lead", AnalyticsCapability.VIEW_TEAM_KPI
-        )
+        require_dynareporter_section("delivery-lead", AnalyticsCapability.VIEW_TEAM_KPI)
     ),
     db: AsyncSession = Depends(get_db),
     months: int = Query(default=6, ge=1, le=24),

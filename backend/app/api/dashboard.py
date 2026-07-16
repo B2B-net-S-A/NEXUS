@@ -87,8 +87,7 @@ async def get_kpis(current_user: CurrentUser, db: AsyncSession = Depends(get_db)
                 func.sum(
                     case(
                         (
-                            UserActivity.action_type
-                            == UserActionType.placement_closed,
+                            UserActivity.action_type == UserActionType.placement_closed,
                             1,
                         ),
                         else_=0,

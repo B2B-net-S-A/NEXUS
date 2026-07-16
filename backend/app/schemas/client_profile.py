@@ -42,7 +42,9 @@ class ClientProfileSummary(BaseModel):
     # R0 (plan 2026-07-16): finanse są Optional — dla ról bez VIEW_FINANCE
     # endpoint redaguje je do None zamiast zwracać kwoty.
     active_mrr: Optional[int] = None  # sum monthly margin for active contracts (PLN)
-    ltv: Optional[int] = None  # lifetime revenue (PLN, monthly_rate_client * duration_months)
+    ltv: Optional[int] = (
+        None  # lifetime revenue (PLN, monthly_rate_client * duration_months)
+    )
     avg_time_to_fill_days: Optional[float] = (
         None  # mean (Contract.start_date - Job.created_at) for placed jobs
     )
