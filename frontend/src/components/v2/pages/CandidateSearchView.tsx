@@ -734,7 +734,7 @@ export function CandidateSearchView({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 gap-1 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+              className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
               onClick={() => setBulkOptionsOpen((o) => !o)}
               disabled={bulkPending}
             >
@@ -754,7 +754,7 @@ export function CandidateSearchView({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+              className="h-7 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
               onClick={clearSelection}
               disabled={bulkPending || shortlistPending}
             >
@@ -764,7 +764,7 @@ export function CandidateSearchView({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 gap-1 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+              className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
               onClick={submitShortlist}
               disabled={bulkPending || shortlistPending}
             >
@@ -780,7 +780,7 @@ export function CandidateSearchView({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+                className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
                 onClick={() => setCompareOpen(true)}
                 disabled={bulkPending || shortlistPending}
               >
