@@ -121,6 +121,9 @@ GET_ENDPOINTS_ALL = [
 # R0: odczyty operacyjne (wszyscy POZA read-only viewerem `user`):
 OPERATIONAL_ENDPOINTS = [
     ("GET", "/api/clients"),
+    # Celowo operacyjny (nie TacPlus): team-wide agregat dla dashboardu —
+    # patrz komentarz nad reports.py::report_recruitment.
+    ("GET", "/api/reports/recruitment"),
     ("GET", "/api/activities/feed"),
     ("GET", "/api/activities/leaderboard"),
     ("GET", "/api/dashboard/recent-activity"),
@@ -131,7 +134,6 @@ TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
     ("POST", "/api/contracts"),
     ("POST", "/api/clients"),  # PR #17 — było CurrentUser, teraz TacPlus
-    ("GET", "/api/reports/recruitment"),
     # R0 (plan 2026-07-16): odczyty kontraktów/faktur = dane finansowe.
     ("GET", "/api/contracts"),
     ("GET", "/api/invoices"),
@@ -465,6 +467,7 @@ async def test_change_password_requires_auth(rbac_client: AsyncClient):
     )
     assert resp.status_code in (401, 403)
 
+
 # ── R0 (plan 2026-07-16): odczyty operacyjne — `user` (viewer) odpada ────────
 
 
@@ -657,16 +660,12 @@ async def test_dynareporter_upload_gone(rbac_client: AsyncClient):
     """POST /excel: 410 dla uprawnionych, 403 dla viewera."""
     email, password = await _seed_user(UserRole.recruiter)
     headers = await _login(rbac_client, email, password)
-    resp = await rbac_client.post(
-        "/api/dynareporter/upload/excel", headers=headers
-    )
+    resp = await rbac_client.post("/api/dynareporter/upload/excel", headers=headers)
     assert resp.status_code == 410, resp.text
 
     email_v, pass_v = await _seed_user(UserRole.user)
     headers_v = await _login(rbac_client, email_v, pass_v)
-    resp_v = await rbac_client.post(
-        "/api/dynareporter/upload/excel", headers=headers_v
-    )
+    resp_v = await rbac_client.post("/api/dynareporter/upload/excel", headers=headers_v)
     assert resp_v.status_code == 403, resp_v.text
 
 
