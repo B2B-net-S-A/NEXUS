@@ -45,8 +45,18 @@ export function extractErrorMsg(error: unknown): string {
       if (Array.isArray(data.detail) && data.detail.length > 0) {
         const first = data.detail[0];
         if (typeof first?.msg === "string") {
-          const field = Array.isArray(first.loc) ? first.loc.join(".") : "field";
-          return `${field}: ${first.msg}`;
+          const loc = Array.isArray(first.loc) ? first.loc : [];
+          // Tylko `body` to dane wpisane przez użytkownika — tam nazwa pola
+          // + komunikat są actionable (quality finding MEDIUM #23).
+          if (loc[0] === "body") {
+            const field = loc.slice(1).join(".") || "pole";
+            return `${field}: ${first.msg}`;
+          }
+          // query/path/header ustawia kod aplikacji, nie użytkownik — surowy
+          // loc to wyciek wewnętrznego kontraktu (M3-UI-02, np.
+          // "query.current_user: Field required" na zakładce Dopasowanie).
+          console.error("[api] request contract error:", data.detail);
+          return "Błąd żądania — odśwież stronę lub spróbuj ponownie.";
         }
       }
       if (typeof data.message === "string") return data.message;
@@ -1720,6 +1730,14 @@ export interface ScoreBreakdown {
   matching_nice: string[];
   gap_nice: string[];
   penalties: string[];
+  /**
+   * Phase 14: bonus za obecność kandydata w semantycznie podobnych
+   * historycznych projektach. Wchodzi do `total`, więc MUSI być widoczny w
+   * rozbiciu — inaczej suma warstw nie zgadza się z totalem (M3-SCORE-01).
+   */
+  historical_boost?: number;
+  historical_sources_count?: number;
+  fit_confidence?: number;
 }
 
 export interface CandidateMatch {
@@ -2715,6 +2733,13 @@ export interface ScoringWeights {
   salary: number;
   location: number;
   availability: number;
+  /**
+   * Szósta warstwa silnika (Champion fit, backend built-in = 10). Opcjonalna,
+   * bo historyczne profile mają tylko 5 kluczy; brak klucza ≠ 0 — legacy
+   * runtime dolicza wtedy domyślne 10 pkt PONAD budżet 100 (AI-P0-05).
+   * Edytor zawsze wysyła jawną wartość, żeby suma = dokładnie 100.
+   */
+  champion_fit?: number;
 }
 
 export interface ScoringWeightProfile {

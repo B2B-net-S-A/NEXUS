@@ -40,6 +40,10 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
   const [industryBlocklist, setIndustryBlocklist] = useState(
     initial?.industry_blocklist ?? true,
   );
+  // Próg jakości dopasowania (0-100) — oferty poniżej lądują w zwiniętej
+  // sekcji „Słabe dopasowania". Wcześniej sztywne 40 bez kontrolki, a UI
+  // odsyłało do nieistniejącej akcji „Pokaż wszystkie" (M3-UI-01).
+  const [threshold, setThreshold] = useState(initial?.threshold ?? 40);
 
   const toggleCategory = (cat: string) => {
     setCompetenceCategories((prev) =>
@@ -56,6 +60,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
       competence_category:
         competenceCategories.length > 0 ? competenceCategories : undefined,
       industry_blocklist: industryBlocklist,
+      threshold,
     });
   };
 
@@ -66,6 +71,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
     setSalaryMax("");
     setCompetenceCategories([]);
     setIndustryBlocklist(true);
+    setThreshold(40);
     onApply({ horizon_days: 30, industry_blocklist: true });
   };
 
@@ -161,6 +167,27 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
             value={salaryMax}
             onChange={(e) => setSalaryMax(e.target.value)}
             className="border rounded px-2 py-1 text-sm"
+          />
+        </label>
+
+        <label className="flex flex-col">
+          <span
+            className="text-xs text-muted-foreground dark:text-muted-foreground mb-1"
+            title="Oferty z dopasowaniem poniżej progu trafiają do zwiniętej sekcji „Słabe dopasowania” zamiast na listę."
+          >
+            Min. dopasowanie (0–100)
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={5}
+            value={threshold}
+            onChange={(e) =>
+              setThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+            }
+            className="border rounded px-2 py-1 text-sm"
+            data-testid="threshold-input"
           />
         </label>
 

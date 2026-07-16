@@ -76,6 +76,26 @@ export function ScoreBreakdownTooltip({ breakdown, compact }: Props) {
           {breakdown.champion_fit && (
             <Row label="Champion" {...breakdown.champion_fit} />
           )}
+          {/* Bonus historyczny wchodzi do totalu — bez tego wiersza suma
+              widocznych warstw ≠ total (M3-SCORE-01, „ukryte 5 pkt"). */}
+          {(breakdown.historical_boost ?? 0) > 0 && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="w-24 text-muted-foreground dark:text-muted-foreground">
+                Historia
+              </span>
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                +{(breakdown.historical_boost ?? 0).toFixed(1)} pkt
+              </span>
+              <span
+                className="flex-1 text-[11px] text-muted-foreground truncate"
+                title="Bonus za udział kandydata w semantycznie podobnych historycznych projektach"
+              >
+                {breakdown.historical_sources_count
+                  ? `bonus: ${breakdown.historical_sources_count} podobn. projekt(y) w historii`
+                  : "bonus: podobne projekty w historii"}
+              </span>
+            </div>
+          )}
 
           {breakdown.penalties.length > 0 && (
             <div className="mt-2 rounded bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 p-2 text-xs text-destructive dark:text-red-300">

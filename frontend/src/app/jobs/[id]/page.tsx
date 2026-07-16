@@ -29,6 +29,7 @@ import Link from "next/link";
 import { formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { useTabsStore } from "@/store/tabs";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
@@ -975,6 +976,11 @@ export default function JobDetailPage() {
   const searchParams = useSearchParams();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
+  // Legacy AI Matching (M3-UI-01): trzy równoległe rankingi na jednym ekranie
+  // dezorientują — sekcja legacy (+ operacyjne akcje "Przelicz scoring" /
+  // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
+  const authUser = useAuthStore((s) => s.user);
+  const isAdmin = hasRole(authUser, "admin");
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
@@ -1428,14 +1434,18 @@ export default function JobDetailPage() {
               defaultLocation={formatCandidateLocation(job?.location)}
             />
           </div>
-          <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
-            <div className="flex items-center gap-2 mb-6">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <h2 className="text-lg font-semibold">Klasyczne AI Matching (legacy)</h2>
-              <span className="text-xs text-muted-foreground ml-1">Prosty semantic + tag fallback</span>
+          {isAdmin && (
+            <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
+              <div className="flex items-center gap-2 mb-6">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <h2 className="text-lg font-semibold">Klasyczne AI Matching (legacy)</h2>
+                <span className="text-xs text-muted-foreground ml-1">
+                  Prosty semantic + tag fallback · widok diagnostyczny (admin)
+                </span>
+              </div>
+              <AIMatchingSection jobId={Number(id)} job={job} />
             </div>
-            <AIMatchingSection jobId={Number(id)} job={job} />
-          </div>
+          )}
         </div>
       )}
 
