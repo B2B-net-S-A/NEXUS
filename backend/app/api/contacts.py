@@ -186,8 +186,13 @@ async def list_all_contacts(
     rows = result.all()
     contacts_out: list[AnyContactWithClientResponse] = []
     for contact, client_name in rows:
-        can_see_notes = is_admin_like or (
-            contact.key_relationship_owner_id == current_user.id
+        # Ta sama reguła co ClientAccess.can_view_contact_private_notes:
+        # admin/HoR wszystko; owner swoje; nie-zaklaimowane (owner=None)
+        # widzą role edytujące — a tu są wyłącznie takie (admin/HoR/DL/TAC).
+        can_see_notes = (
+            is_admin_like
+            or contact.key_relationship_owner_id == current_user.id
+            or contact.key_relationship_owner_id is None
         )
         model = (
             ContactWithClientResponse

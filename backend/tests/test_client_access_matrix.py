@@ -353,6 +353,32 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     # Pozostałe pola relacyjne (operacyjne) zostają
     assert body["is_key_relationship"] is True
 
+    # Recruiter z Jobem u klienta (odczyt operacyjny, bez prawa edycji) —
+    # nie widzi także notatek NIE-zaklaimowanych
+    r_id, r_email, r_pass = await _seed_user(UserRole.recruiter)
+    await _seed_job(client_id, r_id)
+    await _seed_contact(client_id, owner_id=None, notes="Niczyje notatki")
+    r_headers = await _login(cam_client, r_email, r_pass)
+    resp = await cam_client.get(
+        f"/api/clients/{client_id}/contacts", headers=r_headers
+    )
+    assert resp.status_code == 200
+    for item in resp.json():
+        assert "relationship_notes" not in item
+
+    # ...ale TAC (rola edytująca) widzi nie-zaklaimowane notatki — inaczej
+    # KeyRelationshipDialog pokazywałby pustkę i przy zapisie wymazał treść
+    resp = await cam_client.get(
+        f"/api/clients/{client_id}/contacts", headers=tac_headers
+    )
+    assert resp.status_code == 200
+    unowned = [
+        c for c in resp.json() if c.get("key_relationship_owner_id") is None
+    ]
+    assert unowned and any(
+        c.get("relationship_notes") == "Niczyje notatki" for c in unowned
+    )
+
 
 # ── Reguły właściciela relacji ───────────────────────────────────────────────
 

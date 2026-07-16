@@ -84,13 +84,17 @@ class ClientAccess:
 
         Zawierają dane osobiste (urodziny, rodzina, hobby) — domyślnie
         widzi je tylko owner i administracja (rekomendacja audytu, pkt 19.4).
+
+        Notatki NIE-zaklaimowane (owner is None — UI historycznie nie
+        ustawiało ownera) widzą role z prawem edycji kontaktów. Inaczej
+        DL/TAC, który sam je zapisał, dostawałby pusty formularz i przy
+        zapisie po cichu WYMAZAŁ istniejącą treść (dialog odsyła całość).
         """
         if self.is_admin_like:
             return True
-        return (
-            contact.key_relationship_owner_id is not None
-            and contact.key_relationship_owner_id == self.user_id
-        )
+        if contact.key_relationship_owner_id is None:
+            return self.can_edit_contacts
+        return contact.key_relationship_owner_id == self.user_id
 
     def is_relationship_owner(self, contact: Contact) -> bool:
         return (

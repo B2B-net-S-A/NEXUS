@@ -8,12 +8,31 @@
 
 - **Branch:** `fix/client-rbac-containment`
 - **PR:** [#770](https://github.com/artur-t-96/Nexus/pull/770)
-- **Merge SHA:** _(uzupełnione po merge)_
-- **Deployed SHA (`/api/health.version`):** _(uzupełnione po deployu)_
+- **Merge/deploy:** squash-merge po zielonym CI; weryfikacja deployu
+  (`/api/health.version` = short SHA merge'a, UA `dynaminds-smoke-test/1.0`)
+  wykonana po deployu — dowody w komentarzu PR #770.
 - **Feature flag:** brak — poprawki P0 RBAC są fail-closed i działają od deployu
   (zgodnie z planem: „deploy bez flagi dla naprawy zapisu").
 - **Migracja DB:** brak (audit używa istniejącej tabeli `activities`) →
   brak zmian w `backend/entrypoint.sh`.
+
+## Koordynacja z równoległym R0 (analytics containment, PR #769)
+
+Podczas prac zmergował się równoległy PR #769 (R0 analytics), który nachodził
+na moduł klienta. Rozstrzygnięcia przy rebase (bez duplikacji zasad):
+
+- `clients.py` list/detail/profile → guard `OperationalUser` z R0 zostaje
+  (viewer nie przechodzi w ogóle — ostrzejsze niż projekcja PR1);
+  na wierzchu nakłada się projekcja legal PR1 (`ClientSafeResponse`).
+- Redakcja finansów profilu: zostaje mechanizm R0 (`VIEW_FINANCE`
+  capability, admin/DL, multi-role) — duplikat `has_financial_access`
+  z PR1 usunięty.
+- `client_framework_contracts.py` ready: R0 dał `TacPlus`; PR1 unifikuje
+  przez `LegalDocsReader`/`ClientAccess.can_view_legal_documents`
+  (ten sam zbiór + head_of_recruitment).
+- `ClientProfileSummary.active_mrr/ltv` Optional — wersja R0 zostaje.
+- HoR przechodzi teraz do `/profile` (OperationalUser), finanse dla HoR
+  nadal redagowane (brak VIEW_FINANCE).
 
 ## Weryfikacja audytu na origin/main (adcfa43) przed implementacją
 
@@ -44,7 +63,7 @@
 | `app/api/client_knowledge.py` | create/delete = admin/HoR/DL/TAC; read + przypisany recruiter/sourcer; audit eventy |
 | `app/api/client_materials.py` | one-pagery: bez viewera; `contract-terms` GET: tylko admin/HoR/DL/TAC |
 | `app/api/client_framework_contracts.py` | wszystkie GET-y (lista/szczegół/**download MSA**) przez `LegalDocsReader` |
-| `app/api/clients.py` | `ClientSafeResponse` (bez `legal_name`/`nip`/`regon`/`notes`) dla ról bez legal; `/profile` redaguje MRR/LTV/stawki/marże przez `financial_access`; audit update loguje nazwy pól, nie wartości |
+| `app/api/clients.py` | `ClientSafeResponse` (bez `legal_name`/`nip`/`regon`/`notes`) dla ról bez legal; redakcja finansów `/profile` = mechanizm R0 (`VIEW_FINANCE`); audit update loguje nazwy pól, nie wartości |
 | `app/api/my_clients.py`, `my_relationships.py`, `clients_team.py` | multi-role: `has_any_role`/`has_role` |
 | `app/schemas/client.py`, `client_profile.py` | rozdzielone projekcje; `active_mrr`/`ltv` nullable |
 | `frontend/src/types/client-profile.ts` | typy nullable (`formatPLN(null)` → „—") |
@@ -64,7 +83,8 @@
 | Pola prawne klienta (NIP/legal/notes) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Finanse (MRR/LTV/marże) | admin ✅ / HoR ❌ | DL ✅ / TAC ❌ | ❌ | ❌ | ❌ |
 
-Finanse = istniejący helper `financial_access` (admin+DL) — bez duplikacji zasad.
+Finanse = capability `VIEW_FINANCE` z R0 (admin+DL, multi-role) — bez duplikacji zasad;
+`ClientAccess.can_view_financials` deleguje do istniejącego `financial_access` (ten sam zbiór).
 
 ## Decyzje wymagające potwierdzenia właściciela produktu
 
@@ -76,9 +96,9 @@ Finanse = istniejący helper `financial_access` (admin+DL) — bez duplikacji za
    zepsułby quick-add hiring managera z formularza Joba — create Job jest
    `TacPlus` bez bramki per klient). Zacieśnienie per klient = PR2
    (`ClientRelationValidator`).
-4. **HoR nie przechodzi `RecruiterPlus` na `/clients/{id}/profile`** — stan
-   sprzed PR (nie rozszerzano dostępu w containmencie); do decyzji czy HoR ma
-   widzieć profil operacyjny.
+4. ~~HoR nie przechodzi na `/clients/{id}/profile`~~ — rozwiązane przez R0
+   (#769): profil jest `OperationalUser`, HoR widzi część operacyjną,
+   finanse nadal redagowane (brak `VIEW_FINANCE`).
 
 ## Świadome zmiany zachowania UI
 
@@ -95,9 +115,11 @@ Finanse = istniejący helper `financial_access` (admin+DL) — bez duplikacji za
 
 - Lokalnie: `ruff check` (backend) ✅, `python3 -m py_compile` ✅,
   `tsc --noEmit` (frontend) ✅, `eslint` zmienionego pliku ✅.
-- CI: _(status po zakończeniu)_
-- Prod smoke: _(po deployu — `/api/health` z UA `dynaminds-smoke-test/1.0`,
-  curl endpointów + parsowany JSON)_
+- CI: wymagany job `Backend (ruff + pytest)` zawiera nowy suite
+  `tests/test_client_access_matrix.py`; merge wyłącznie po zielonym CI.
+- Prod smoke po deployu: `/api/health` z UA `dynaminds-smoke-test/1.0`
+  (version = short SHA merge'a) + curl endpointów z parsowanym JSON —
+  wynik w komentarzu PR #770.
 
 ## Rollback
 
