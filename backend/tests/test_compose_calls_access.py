@@ -101,6 +101,13 @@ async def test_viewer_cannot_send_or_read_calls(cc_client: AsyncClient):
     )
     assert log.status_code == 403
 
+    bulk = await cc_client.post(
+        "/api/microsoft365/emails/bulk",
+        headers=h,
+        json={"email_ids": [1], "action": "mark_read"},
+    )
+    assert bulk.status_code == 403
+
 
 @pytest.mark.asyncio
 async def test_recruiter_passes_the_gate(cc_client: AsyncClient):

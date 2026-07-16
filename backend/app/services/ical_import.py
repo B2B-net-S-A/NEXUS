@@ -76,7 +76,15 @@ async def _assert_host_is_public(host: str) -> None:
     bounce the request to an internal address.
     """
     try:
-        infos = await asyncio.to_thread(socket.getaddrinfo, host, None)
+        # Cap DNS resolution itself — a slow/malicious resolver would otherwise
+        # hold a thread-pool worker for the OS default (5–30s); the httpx
+        # timeout only starts after getaddrinfo returns.
+        infos = await asyncio.wait_for(
+            asyncio.to_thread(socket.getaddrinfo, host, None),
+            timeout=5,
+        )
+    except asyncio.TimeoutError as exc:
+        raise ICalFetchError("host resolution timed out") from exc
     except socket.gaierror as exc:
         raise ICalFetchError("host could not be resolved") from exc
     ips = {info[4][0] for info in infos}

@@ -17,6 +17,41 @@ from app.core.security import hash_password
 from app.models.user import User, UserRole
 
 
+class _FakeWS:
+    """Minimal stand-in for a Starlette WebSocket — presence broadcasts call
+    ``send_json`` on subscribed sockets."""
+
+    async def send_json(self, *args, **kwargs):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_ws_presence_subscribe_gate_excludes_viewer():
+    """The WS-side gate (not just the HTTP snapshot): a viewer's
+    presence:subscribe is silently dropped; an operational role is admitted."""
+    from app.api.ws import _handle_presence_message, manager
+
+    ws = _FakeWS()
+    viewer = User(id=990001, name="V", email="v@example.com", role=UserRole.user)
+    await _handle_presence_message(
+        viewer,
+        ws,
+        {"type": "presence:subscribe", "resource_type": "candidate", "resource_id": 990001},
+    )
+    assert manager.get_viewers("candidate", 990001) == []  # viewer not added
+
+    recruiter = User(
+        id=990002, name="R", email="r@example.com", role=UserRole.recruiter
+    )
+    await _handle_presence_message(
+        recruiter,
+        ws,
+        {"type": "presence:subscribe", "resource_type": "candidate", "resource_id": 990002},
+    )
+    viewers = manager.get_viewers("candidate", 990002)
+    assert len(viewers) == 1 and viewers[0]["user_id"] == 990002
+
+
 def test_viewers_payload_has_no_email():
     mgr = ConnectionManager()
     key = "candidate:1"
