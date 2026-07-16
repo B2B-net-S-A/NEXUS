@@ -44,6 +44,7 @@ from app.api import (
 from app.api import activities
 from app.api import admin
 from app.api import analytics_v1 as analytics_v1_api
+from app.api import financial_adjustments as financial_adjustments_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import postings
@@ -806,6 +807,12 @@ app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
 app.include_router(
     analytics_v1_api.router, prefix="/api/analytics/v1", tags=["analytics-v1"]
+)
+# Korekty finansowe (plan analytics PR 6) — immutable audit trail.
+app.include_router(
+    financial_adjustments_api.router,
+    prefix="/api/financial-adjustments",
+    tags=["financial-adjustments"],
 )
 app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])

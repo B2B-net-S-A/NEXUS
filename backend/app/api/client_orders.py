@@ -356,6 +356,12 @@ async def create_order_extension(
         title=title,
         description=description,
         status=order_status,
+        # PR 6 (plan analytics): fakt pierwszej aktywacji — nie estymata.
+        filled_at=(
+            datetime.now(timezone.utc)
+            if order_status == ClientOrderStatus.active
+            else None
+        ),
         start_date=start_date,
         end_date=end_date,
         rate_client=rate_client,
@@ -409,6 +415,15 @@ async def update_order(
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(order, field, value)
+
+    # PR 6 (plan analytics): pierwsze przejście na active stempluje filled_at
+    # (fakt, ustawiany RAZ — kolejne pauzy/reaktywacje go nie ruszają).
+    if (
+        order.status == ClientOrderStatus.active
+        and order.filled_at is None
+        and "status" in data
+    ):
+        order.filled_at = datetime.now(timezone.utc)
 
     db.add(
         Activity(
@@ -561,6 +576,7 @@ async def create_contract_with_order(
         framework_contract_id=payload.framework_contract_id,
         title=payload.title,
         status=ClientOrderStatus.active,
+        filled_at=datetime.now(timezone.utc),  # PR 6: fakt pierwszej aktywacji
         start_date=payload.order_start_date,
         end_date=payload.order_end_date,
         rate_client=payload.rate_client,
