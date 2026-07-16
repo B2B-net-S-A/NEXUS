@@ -211,17 +211,44 @@ WRITE_ENDPOINTS = [
     ("POST", "/api/candidates/999999/sources", {"channel": "other"}),
     ("POST", "/api/talent-pools", {"name": "m2-denied"}),
     ("POST", "/api/candidates/999999/assign-to-job/999999", None),
-    (
-        "PATCH",
-        "/api/candidates/999999/recruitments/999999/expected-rate",
-        {"rate_value": 100},
-    ),
+    # expected-rate przeniesiony z write- do rate-edit-matrix (M4 PR-01):
+    # sourcer stracił edycję stawek — patrz test niżej i
+    # tests/test_recruitment_module_access.py.
     (
         "POST",
         "/api/candidates/bulk",
         {"action": "add_tags", "candidate_ids": [999999], "params": {"tags": ["x"]}},
     ),
 ]
+
+# M4 PR-01: stawka kandydata = osobne capability (admin/DL/tac/recruiter,
+# bez sourcera) — audyt M4 P0.3.
+RATE_EDIT_ROLES = {
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.recruiter,
+}
+
+
+async def test_expected_rate_requires_rate_edit_capability(
+    m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
+):
+    """Expected rate — rola sourcer i viewer 403 (M4 PR-01 zawężenie)."""
+    for role in ROLES:
+        resp = await m2_client.patch(
+            "/api/candidates/999999/recruitments/999999/expected-rate",
+            headers=headers_by_role[role],
+            json={"rate_value": 100},
+        )
+        if role in RATE_EDIT_ROLES:
+            assert resp.status_code != 403, (
+                f"[{role.value}] expected-rate unexpectedly forbidden"
+            )
+        else:
+            assert resp.status_code == 403, (
+                f"[{role.value}] expected-rate expected 403, got {resp.status_code}"
+            )
 
 
 @pytest.mark.parametrize("method,path,body", WRITE_ENDPOINTS)
