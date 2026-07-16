@@ -88,6 +88,9 @@ interface User {
    *  do routingu i gate'owania zapytań (fail-closed przy braku pola) —
    *  twarde guardy siedzą na backendzie. */
   analytics_capabilities?: string[]
+  /** Tryb rolloutu Analytics v1 (off|shadow|live) z GET /api/auth/me.
+   *  Frontend pyta /api/analytics/v1 tylko przy "live" (fail-closed). */
+  analytics_v1_mode?: string
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
