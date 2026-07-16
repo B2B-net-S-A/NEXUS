@@ -166,6 +166,10 @@ async def test_dynareporter_mode_off_gives_410(api_client, monkeypatch):
 
 async def test_cutover_requires_first_of_month(api_client, monkeypatch):
     monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "shadow")
+    # Audyt M7 PR-05 (P1.7): cutover jest zamrożony za break-glass — ten test
+    # weryfikuje walidację + persist, więc odblokowujemy. Sam freeze testuje
+    # test_cutover_frozen_without_breakglass poniżej.
+    monkeypatch.setattr(settings, "ANALYTICS_CUTOVER_BREAKGLASS", True)
     email, password = await _seed_admin()
     resp = await api_client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -189,3 +193,112 @@ async def test_cutover_requires_first_of_month(api_client, monkeypatch):
     async with AsyncSessionLocal() as db:
         await db.execute(delete(AnalyticsCutover))
         await db.commit()
+
+
+async def test_cutover_frozen_without_breakglass(api_client, monkeypatch):
+    """Audyt M7 PR-05 (P1.7): bez ANALYTICS_CUTOVER_BREAKGLASS cutover = 412
+    i NIC nie zapisuje — nawet dla admina z poprawnym payloadem."""
+    monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "shadow")
+    monkeypatch.setattr(settings, "ANALYTICS_CUTOVER_BREAKGLASS", False)
+    email, password = await _seed_admin()
+    resp = await api_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    frozen = await api_client.post(
+        "/api/analytics/v1/admin/cutover",
+        json={"module": "finance", "cutover_date": "2026-07-01"},
+        headers=headers,
+    )
+    assert frozen.status_code == 412, frozen.text
+    assert "zamrożony" in frozen.json()["detail"].lower()
+
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(AnalyticsCutover))).scalars().all()
+        assert rows == [], "freeze nie może zapisać cutoveru"
+
+
+# ── Audyt M7 PR-05 (P1.15): debug-fire-nudge containment ─────────────────────
+
+
+async def test_debug_fire_nudge_hidden_without_breakglass(api_client, monkeypatch):
+    """W prod (DEBUG=False) bez KPI_COACH_DEBUG_BREAKGLASS endpoint = 404,
+    nawet dla admina — smoke-test nie może istnieć jako stała powierzchnia."""
+    monkeypatch.setattr(settings, "DEBUG", False)
+    monkeypatch.setattr(settings, "KPI_COACH_DEBUG_BREAKGLASS", False)
+    email, password = await _seed_admin()
+    resp = await api_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    r = await api_client.post(
+        "/api/kpis/admin/debug-fire-nudge?target_user_id=1", headers=headers
+    )
+    assert r.status_code == 404, r.text
+
+
+async def test_debug_fire_nudge_preserves_dedup_log(api_client, monkeypatch):
+    """Smoke-test NIE kasuje historii dedupe (wcześniej DELETE przed emisją):
+    istniejący wpis (user, kpi, type, bucket) ⇒ emitted=False i wpis zostaje."""
+    from datetime import datetime
+
+    from app.models.kpi_nudge_log import KpiNudgeChannel, KpiNudgeLog, KpiNudgeType
+    from app.services.kpi_catalog import get_kpi
+    from app.services.kpi_coach_service import WARSAW
+    from app.services.kpi_engine import period_bucket_label
+
+    monkeypatch.setattr(settings, "DEBUG", False)
+    monkeypatch.setattr(settings, "KPI_COACH_DEBUG_BREAKGLASS", True)
+    # Realna ścieżka emisji (nie dry-run) — dopiero ona dotyka kpi_nudge_log.
+    monkeypatch.setattr(settings, "KPI_COACH_V2_NUDGES_ENABLED", True)
+
+    email, password = await _seed_admin()
+    resp = await api_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    kpi_id = "daily_new_candidates"
+    bucket = period_bucket_label(get_kpi(kpi_id).period, datetime.now(WARSAW))
+    async with AsyncSessionLocal() as db:
+        admin = await db.scalar(select(User).where(User.email == email))
+        await db.execute(delete(KpiNudgeLog).where(KpiNudgeLog.user_id == admin.id))
+        db.add(
+            KpiNudgeLog(
+                user_id=admin.id,
+                kpi_id=kpi_id,
+                nudge_type=KpiNudgeType.praise_hit,
+                channel=KpiNudgeChannel.toast,
+                message_variant=0,
+                period_bucket=bucket,
+            )
+        )
+        await db.commit()
+        admin_id = admin.id
+
+    r = await api_client.post(
+        f"/api/kpis/admin/debug-fire-nudge?target_user_id={admin_id}"
+        f"&kpi_id={kpi_id}&nudge_type=praise_hit",
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["emitted"] is False, "dedup musi zablokować re-fire, nie DELETE"
+
+    async with AsyncSessionLocal() as db:
+        count = len(
+            (
+                await db.execute(
+                    select(KpiNudgeLog).where(
+                        KpiNudgeLog.user_id == admin_id,
+                        KpiNudgeLog.kpi_id == kpi_id,
+                        KpiNudgeLog.period_bucket == bucket,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert count == 1, "wpis dedupe musi przetrwać smoke-test nietknięty"
