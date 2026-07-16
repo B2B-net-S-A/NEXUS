@@ -44,9 +44,15 @@
 
 Plan każe wykonać PR 1 (tenant discovery) przed persistence. PR 1 wymaga **sandboxowego tenanta Traffit** (round-trip note/file, clear semantics), którego nie ma w env — wykonano PR 2/3a najpierw, bo są schema-only/pure-logic i nie zależą od wyników discovery (kontrakty pól są dynamiczne — JSONB `traffit_field_contracts` absorbuje dowolny wynik discovery). **Outbound pozostaje zablokowany do czasu discovery** zgodnie z §4.1 P0 („brak świeżego kontraktu metadata nie blokuje outboundu" — u nas blokuje, bo gate'y OFF).
 
+## 3a. Root cause 311 błędów pipelines — ZNALEZIONY I NAPRAWIONY (PR #808)
+
+Łańcuch: Traffit state typu `"wait"` → legacy enum `withdrawn` (`mappers._TRAFFIT_STATE_MAPPING`) → upsert fazy pipelines nie ustawiał `rejection_reason_id` → constraint `ck_candidate_stages_withdrawn_requires_reason` (0068) odrzucał każdy taki INSERT deterministycznie → ~311 błędów co run → `last_status=errors` → permanentny `degraded`.
+
+Fix ([#808](https://github.com/artur-t-96/Nexus/pull/808)): ruchy `withdrawn` dostają fallbackowy powód `legacy_unknown` per template (dokładnie ten sam seed, którego 0068 użyła do backfillu istniejących wierszy; dosiewany idempotentnie dla nowszych templates). `DO UPDATE` COALESCE'uje z istniejącą wartością — fallback nigdy nie nadpisze powodu od rekrutera ani z `rejection_backfill`. Samonaprawa: failowane wiersze nigdy nie weszły do DB, a faza skanuje pełną historię co run → następny daily wstawi je poprawnie i `traffit` wróci do `healthy`.
+
 ## 4. Następne kroki
 
-1. **Odczyt sampli 311 błędów** po zakończeniu ręcznego delta runu (`GET /api/admin/traffit/sync/status`, faza `pipelines` → `stats.error_samples`) → root-cause fix osobnym PR-em → `traffit` wraca do `healthy`; gate wejścia: healthy ≥ 48 h.
+1. ~~Odczyt sampli 311 błędów → root-cause fix~~ **zrobione** (§3a); po deployu #808 zweryfikować, że kolejny daily run ma `pipelines errors=0` i `checks.traffit=healthy`; gate wejścia integracji: healthy ≥ 48 h.
 2. **PR 1 discovery** — wymaga decyzji Artura: sandbox tenant Traffit (lub zgoda na read-only discovery na prod tenancie: metadata, webhook types, workflows, GUID lookup — bez zapisów).
 3. **PR 3b** — entity link backfill z istniejących external IDs + refactor legacy importera na wspólny applier + shadow cursory.
 4. PR 4–8 sekwencyjnie (inbox/webhook, outbox/outbound, assignments/stages, notes/files, admin UI) — wg planu, gate'y OFF.
