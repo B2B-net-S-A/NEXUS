@@ -421,3 +421,7 @@ from app.models.cortex import (  # noqa: F401
 
 from app.models.job_shortlist import JobShortlistEntry  # noqa: F401
 from app.models.financial_adjustment import FinancialAdjustment  # noqa: F401,E501
+from app.models.analytics_snapshot import (  # noqa: F401
+    AnalyticsCutover,
+    AnalyticsMetricSnapshot,
+)

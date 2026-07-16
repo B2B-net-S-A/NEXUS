@@ -1405,6 +1405,29 @@ _COLUMN_STATEMENTS = [
             )
         ) ranked
         WHERE rn = 1""",
+    # ── Snapshoty + cutover (0177, plan analytics PR 7) ─────────────────
+    """CREATE TABLE IF NOT EXISTS analytics_metric_snapshots (
+        id           SERIAL PRIMARY KEY,
+        module       VARCHAR(50) NOT NULL,
+        metric       VARCHAR(80) NOT NULL,
+        period_label VARCHAR(20) NOT NULL,
+        value        JSONB NOT NULL,
+        source       VARCHAR(40) NOT NULL DEFAULT 'dynareporter',
+        checksum     VARCHAR(64) NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_analytics_snapshot
+            UNIQUE (module, metric, period_label, source)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_analytics_snapshots_module "
+    "ON analytics_metric_snapshots (module, period_label)",
+    """CREATE TABLE IF NOT EXISTS analytics_cutovers (
+        id            SERIAL PRIMARY KEY,
+        module        VARCHAR(50) NOT NULL UNIQUE,
+        cutover_date  DATE NOT NULL,
+        legacy_source VARCHAR(40) NOT NULL DEFAULT 'dynareporter',
+        notes         TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
     # ── Finanse (0176, plan analytics PR 6) ─────────────────────────────
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS filled_at TIMESTAMPTZ",
     """CREATE TABLE IF NOT EXISTS financial_adjustments (

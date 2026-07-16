@@ -16,10 +16,12 @@ waluty ≠ PLN bez kursu ⇒ finanse partial z warningiem (pełny FX = PR 6).
 from __future__ import annotations
 
 from datetime import date
+from datetime import date as date_type
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics import metrics
@@ -513,6 +515,60 @@ async def get_commercial_tenders(
         compute=lambda: metrics.tenders(db, period, include_values=include_values),
         filters={"include_values": include_values},
     )
+
+
+# ── Admin (plan PR 7): backfill snapshotów + cutover ─────────────────────────
+# Celowo BEZ mode-gate (_analytics_enabled): przygotowanie historii i
+# ustawienie cutoveru dzieje się w shadow, zanim v1 pójdzie live.
+
+
+@router.post("/admin/backfill-board-snapshots")
+async def admin_backfill_board_snapshots(
+    current_user: User = Depends(
+        require_capability(AnalyticsCapability.ADMIN_ANALYTICS)
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Idempotentny backfill nieodtwarzalnej historii Board/P&L
+    (dr_board_monthly_report → analytics_metric_snapshots)."""
+    from app.services.analytics_snapshots import backfill_board_snapshots
+
+    return await backfill_board_snapshots(db)
+
+
+class _CutoverPayload(BaseModel):
+    module: str
+    # Początek pełnego miesiąca Warsaw (plan PR 7 pkt 4).
+    cutover_date: date_type
+
+
+@router.post("/admin/cutover")
+async def admin_set_cutover(
+    payload: _CutoverPayload,
+    current_user: User = Depends(
+        require_capability(AnalyticsCapability.ADMIN_ANALYTICS)
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ustaw/zmień datę cutoveru modułu. Wymusza 1. dzień miesiąca."""
+    from app.models.analytics_snapshot import AnalyticsCutover
+
+    if payload.cutover_date.day != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="cutover_date musi być 1. dniem miesiąca (pełny miesiąc Warsaw)",
+        )
+    existing = await db.scalar(
+        select(AnalyticsCutover).where(AnalyticsCutover.module == payload.module)
+    )
+    if existing is None:
+        db.add(
+            AnalyticsCutover(module=payload.module, cutover_date=payload.cutover_date)
+        )
+    else:
+        existing.cutover_date = payload.cutover_date
+    await db.commit()
+    return {"module": payload.module, "cutover_date": payload.cutover_date.isoformat()}
 
 
 # ── Meta ─────────────────────────────────────────────────────────────────────

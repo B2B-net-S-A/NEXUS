@@ -604,10 +604,57 @@ async def finance_trend(
     )
     contracts = (await db.execute(stmt)).scalars().all()
 
+    # Resolver legacy/live (plan PR 7): miesiące PRZED cutoverem modułu
+    # 'finance' czytamy ze snapshotów DynaReportera (nieodtwarzalna
+    # historia), od cutoveru — live ATS. NIGDY suma obu źródeł.
+    from app.services.analytics_snapshots import (
+        BOARD_MODULE,
+        get_cutover,
+        snapshot_for_month,
+    )
+
+    cutover = await get_cutover(db, BOARD_MODULE)
+
     points: list[dict[str, Any]] = []
     all_warnings: list[str] = []
     worst: QualityFlag = "complete"
     for month_start in month_starts:
+        label = month_start.isoformat()[:7]
+        if cutover is not None and month_start < cutover:
+            snap = await snapshot_for_month(
+                db, module=BOARD_MODULE, metric="board_monthly", period_label=label
+            )
+            if snap is None:
+                worst = "partial" if worst == "complete" else worst
+                all_warnings.append(
+                    f"Brak snapshotu legacy dla {label} (miesiąc przed cutoverem)"
+                )
+                points.append(
+                    {
+                        "month": label,
+                        "source": "legacy",
+                        "mrr": None,
+                        "monthly_margin": None,
+                        "active_contracts": None,
+                    }
+                )
+                continue
+            revenue = Decimal(snap.get("revenue", "0"))
+            costs = Decimal(snap.get("consultant_costs", "0")) + Decimal(
+                snap.get("other_costs", "0")
+            )
+            points.append(
+                {
+                    "month": label,
+                    "source": "legacy",
+                    # Miesięczny przychód traktujemy jak MRR (kontrakt board).
+                    "mrr": _dec(revenue),
+                    "monthly_margin": _dec(revenue - costs),
+                    "active_contracts": snap.get("active_consultants"),
+                }
+            )
+            continue
+
         active = [
             c
             for c in contracts
@@ -620,7 +667,8 @@ async def finance_trend(
             worst = "unavailable"
         points.append(
             {
-                "month": month_start.isoformat()[:7],
+                "month": label,
+                "source": "live",
                 "mrr": data["mrr"],
                 "monthly_margin": data["monthly_margin"],
                 "active_contracts": data["active_contracts"],
