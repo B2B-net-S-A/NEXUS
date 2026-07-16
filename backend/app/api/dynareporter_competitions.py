@@ -5,13 +5,17 @@ from __future__ import annotations
 import logging
 
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.dr_competition import DrCompetitionNotification, DrCompetitionWinner
@@ -20,6 +24,20 @@ from app.models.user import User
 logger = logging.getLogger("dynareporter.competitions")
 
 router = APIRouter()
+
+# Audyt M7 PR-01, P0.2: winners/podium to imienny ranking Ligi Mistrzów +
+# nagrody → VIEW_RECRUITMENT_RANKING ∩ sekcja `competitions` (dotąd goły
+# CurrentUser). Ranking rekrutacyjny, więc `user` nie dostaje nawet z sekcją —
+# spójnie z dynareporter_rekrutacja. Własne powiadomienia (my-notifications,
+# mark-read) pozostają self-scoped na CurrentUser.
+_RequireCompetitions = Annotated[
+    User,
+    Depends(
+        require_dynareporter_section(
+            "competitions", AnalyticsCapability.VIEW_RECRUITMENT_RANKING
+        )
+    ),
+]
 
 
 class WinnerResponse(BaseModel):
@@ -46,7 +64,7 @@ class NotificationResponse(BaseModel):
 
 @router.get("/winners", response_model=list[WinnerResponse])
 async def list_winners(
-    current_user: CurrentUser,
+    _guard: _RequireCompetitions,
     db: AsyncSession = Depends(get_db),
     competition_type: Optional[str] = Query(default=None),
     period: Optional[str] = Query(default=None),
@@ -72,7 +90,7 @@ async def list_winners(
 
 @router.get("/podium", response_model=list[WinnerResponse])
 async def current_podium(
-    current_user: CurrentUser,
+    _guard: _RequireCompetitions,
     db: AsyncSession = Depends(get_db),
     competition_type: str = Query(default="quarterly"),
 ) -> list[WinnerResponse]:

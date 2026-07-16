@@ -1,7 +1,13 @@
-"""Router `/api/admin/clients-overview` — przekrojowe widoki dla admin/HoR.
+"""Router `/api/admin/clients-overview` — przekrojowe widoki finansowe (admin).
 
 GET `/` — wszyscy klienci z agregatami (rank po revenue desc).
 GET `/by-dl` — KPI per DL (suma revenue z managed clients).
+
+Audyt M7 PR-01 (P0.1): oba endpointy zwracają lifetime/active revenue i marżę
+per klient oraz per DL — to dane ``VIEW_FINANCE``. Head of recruitment NIE ma
+tej capability (analytics/capabilities.py §4.3), dlatego guard zszedł z
+``HeadOfRecruitmentPlus`` na ``AdminUser`` (globalny przekrój wszystkich klientów
+i DL to widok zarządczy; per-client scope dla DL to osobna decyzja — §31/Fala C).
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import HeadOfRecruitmentPlus
+from app.api.deps import AdminUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -30,7 +36,7 @@ router = APIRouter()
 
 @router.get("", response_model=list[OverviewRow])
 async def clients_overview(
-    _user: HeadOfRecruitmentPlus,
+    _user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     clients = list((await db.execute(select(Client).order_by(Client.name))).scalars())
@@ -185,7 +191,7 @@ async def clients_overview(
 
 @router.get("/by-dl", response_model=list[DlKpiRow])
 async def kpi_by_dl(
-    _user: HeadOfRecruitmentPlus,
+    _user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Leaderboard DL — agregaty po klientach gdzie DL ma assignment."""

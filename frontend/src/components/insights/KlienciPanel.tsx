@@ -31,7 +31,14 @@ export function KlienciPanel() {
     [router, searchParams]
   );
 
-  const canSeeAdminClients = hasRole(user, "admin", "head_of_recruitment");
+  // Audyt M7 PR-01 (P0.1): ClientsRanking + DLRevenueLeaderboard pokazują
+  // lifetime/active revenue i marżę per klient/DL → tylko admin (backend
+  // /api/admin/clients-overview = AdminUser). HoR nie ma VIEW_FINANCE, więc
+  // traci revenue — wcześniej UI + backend wpuszczały go (split-brain).
+  const canSeeClientFinance = hasRole(user, "admin");
+  // Hiring managers to dane operacyjne (kontakty klienta), nie finanse — HoR
+  // zachowuje dostęp, spójnie z middleware /settings/hiring-managers.
+  const canSeeHiringManagers = hasRole(user, "admin", "head_of_recruitment");
   // R0: SalesOverview pokazuje revenue/margin/MRR — TAC bez finansów.
   const canSeeSales = hasRole(user, "admin", "delivery_lead");
   const canSeeHitRatio = hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac");
@@ -45,10 +52,10 @@ export function KlienciPanel() {
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
-      {canSeeAdminClients && <ClientsRanking />}
-      {canSeeAdminClients && <DLRevenueLeaderboard />}
+      {canSeeClientFinance && <ClientsRanking />}
+      {canSeeClientFinance && <DLRevenueLeaderboard />}
       {canSeeSales && <SalesOverview />}
-      {canSeeAdminClients && <HiringManagersSection />}
+      {canSeeHiringManagers && <HiringManagersSection />}
       {canSeeHitRatio && <ClientsHitRatio period={period} />}
     </div>
   );

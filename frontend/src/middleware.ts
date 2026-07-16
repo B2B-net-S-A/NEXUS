@@ -38,7 +38,10 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/settings/chats", roles: ["admin"] },
   { prefix: "/settings/team-structure", roles: ["admin"] },
   { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
-  { prefix: "/settings/clients-overview", roles: ["admin", "head_of_recruitment"] },
+  // Audyt M7 PR-01 (P0.1): clients-overview pokazuje lifetime/active revenue —
+  // dane finansowe (VIEW_FINANCE). HoR nie ma tej capability → admin-only,
+  // spójnie z backendem /api/admin/clients-overview (AdminUser).
+  { prefix: "/settings/clients-overview", roles: ["admin"] },
   { prefix: "/settings/hiring-managers", roles: ["admin", "head_of_recruitment"] },
   // Cortex — dane kompetencyjne kandydatów (RODO gate, parytet z backendowym
   // CortexUser i zakładką Insights → Klienci & Delivery).
