@@ -136,6 +136,11 @@ async def compute_proposal_for_job(
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())
 
+            # Degraded retrieval (Qdrant down/empty) — mirror recommendations:
+            # composites liczone z neutralnym semantic NIE mogą trafić do
+            # wspólnego score cache jako świeże (M3-CACHE-01).
+            semantic_degraded = not candidate_ids
+
             # Fallback when Qdrant is empty / job not indexed yet.
             if not candidate_ids:
                 fallback = await session.execute(
@@ -171,6 +176,7 @@ async def compute_proposal_for_job(
                     session,
                     similarity_map=similarity_map,
                     profile=profile,
+                    allow_cache_write=not semantic_degraded,
                 )
                 # Persist ALL candidates that fit (score >= threshold), ranked
                 # best-first — not a fixed top-K. `top_k` is now just a payload

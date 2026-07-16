@@ -536,7 +536,13 @@ async def scan_candidate_for_top_jobs(
     if not cand_text:
         return []
 
-    hits = await search_jobs_semantic(query=cand_text, top_k=30)
+    # Szeroka pula PRZED filtrem statusu (M3-JOB-01): index jobów w Qdrant ma
+    # wszystkie statusy, a większość bazy to closed joby z importu — top-30
+    # semantic bywało w całości closed i wiersz „Top oferty" pokazywał pusto,
+    # mimo że niżej w rankingu istniały dobre published joby.
+    hits = await search_jobs_semantic(
+        query=cand_text, top_k=settings.JOB_SEMANTIC_POOL_SIZE
+    )
     if not hits:
         return []
 

@@ -105,6 +105,7 @@ jobs:
                  tests/test_canonical_text.py \
                  tests/test_matching_orchestrator.py \
                  tests/test_ai_matching_diagnostics.py \
+                 tests/test_matching_containment.py \
                  tests/test_talent_radar_importer.py \
                  tests/test_merge_duplicate_candidates.py \
                  tests/test_ical_import.py \

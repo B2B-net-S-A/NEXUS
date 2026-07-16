@@ -158,8 +158,16 @@ async def bulk_get_or_compute(
     *,
     similarity_map: Optional[dict[int, float]] = None,
     profile: WeightProfile = DEFAULT_PROFILE,
+    allow_cache_write: bool = True,
 ) -> list[ScoreBreakdown]:
-    """Score N candidates against one job, preferring cache, sorted desc by total."""
+    """Score N candidates against one job, preferring cache, sorted desc by total.
+
+    ``allow_cache_write=False`` — degraded-retrieval mode (M3-CACHE-01): the
+    caller had no Qdrant similarities, so freshly computed composites carry a
+    neutral semantic layer. They are still returned for display, but must NOT
+    be persisted as fresh cache rows, or the wrong scores would outlive the
+    provider outage. Cache READS remain allowed (previous good rows are fine).
+    """
     if not candidates:
         return []
 
@@ -195,7 +203,7 @@ async def bulk_get_or_compute(
         results.append(breakdown)
         pending_writes.append(breakdown)
 
-    if pending_writes:
+    if pending_writes and allow_cache_write:
         try:
             for b in pending_writes:
                 await _upsert_breakdown(db, b, profile_id=profile.id)

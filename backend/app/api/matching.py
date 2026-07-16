@@ -11,11 +11,11 @@ import json
 import logging
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, CurrentUser
+from app.api.deps import get_db, OperationalUser
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -208,10 +208,14 @@ def _parse_required_skills(job: Job) -> list[str]:
 @router.get("/jobs/{job_id}/ai-matches")
 async def get_ai_matches(
     job_id: int,
-    current_user: CurrentUser,
-    min_score: float | None = None,
-    limit: int | None = None,
-    location: str | None = None,
+    current_user: OperationalUser,
+    # M3-COST-01: bounds są twarde — bez nich `limit` rozszerza effective_pool
+    # (Qdrant fetch + liczba dokumentów rerankowanych przez Voyage) bez granic,
+    # a odpowiedź zawiera PII kandydatów. 422 zanim jakikolwiek provider zostanie
+    # dotknięty.
+    min_score: float | None = Query(None, ge=0.0, le=1.0),
+    limit: int | None = Query(None, ge=1, le=500),
+    location: str | None = Query(None, max_length=120),
     db: AsyncSession = Depends(get_db),
 ):
     """

@@ -223,9 +223,22 @@ async def generate_embedding(
     emb = await _voyage_embed(text, input_type=input_type)
     from_voyage = emb is not None
     if emb is None:
+        # Ollama fallback ONLY when Voyage is not configured at all (offline/dev
+        # mode — both queries and documents live in a consistent Ollama space).
+        # When Voyage IS configured but transiently failing, mixing an Ollama
+        # vector into the Voyage-embedded index/queries yields random cosine
+        # similarities despite the matching dimension (M3-VEC-01) — degrade to
+        # None instead, so callers hit their lexical/DB fallbacks and the
+        # entity gets re-embedded once Voyage recovers.
+        if settings.VOYAGE_API_KEY:
+            logger.warning(
+                "[embedding] Voyage configured but unavailable — degraded "
+                "(no Ollama fallback: mixed vector spaces poison the index)"
+            )
+            return None
         emb = await _ollama_embed(text)
         if emb is not None:
-            logger.info("[embedding] using Ollama fallback (Voyage unavailable)")
+            logger.info("[embedding] using Ollama fallback (Voyage not configured)")
 
     if emb is None:
         logger.warning("[embedding] both Voyage and Ollama unavailable")

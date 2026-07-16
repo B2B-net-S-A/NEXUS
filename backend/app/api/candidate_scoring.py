@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import OperationalUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.job import Job
@@ -80,7 +80,10 @@ async def get_scoring_justification(
     request: Request,
     candidate_id: int,
     job_id: int,
-    current_user: CurrentUser,
+    # M3-SEC-01/M3-COST-01: cache-miss uruchamia PŁATNE wywołanie Claude
+    # (a `refresh=true` wymusza je zawsze) — read-only viewer (`user`,
+    # QC/klient) nie może generować kosztu ani czytać wewnętrznych ocen AI.
+    current_user: OperationalUser,
     refresh: bool = Query(
         False, description="Wymuś regenerację uzasadnienia (nowe wywołanie AI)."
     ),
@@ -115,7 +118,7 @@ async def rate_scoring_justification(
     candidate_id: int,
     job_id: int,
     payload: ScoringFeedbackIn,
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> MatchJustificationOut:
     """Record "Oceń ten scoring" feedback on an existing justification."""
