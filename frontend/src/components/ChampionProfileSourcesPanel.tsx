@@ -79,7 +79,9 @@ export function ChampionProfileSourcesPanel({
   const unlinked = useQuery<NoteListResponse>({
     queryKey: ["notes-unlinked"],
     queryFn: async () => {
-      const res = await api.get<NoteListResponse>(`/api/notes`);
+      // Only unlinked meeting notes are needed here — ask the server for the
+      // meeting category instead of dumping every note (P0.6 containment).
+      const res = await api.get<NoteListResponse>(`/api/notes?note_type=meeting`);
       return res.data;
     },
   });
