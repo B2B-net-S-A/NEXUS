@@ -153,6 +153,7 @@ jobs:
                  tests/test_candidate_module_access.py \
                  tests/test_candidate_pins.py \
                  tests/test_note_crud.py \
+                 tests/test_compose_calls_access.py \
                  tests/test_note_mention_render.py \
                  tests/test_job_reference.py \
                  tests/test_jobs_deadline_serialization.py \

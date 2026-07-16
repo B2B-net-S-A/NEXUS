@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.database import get_db
@@ -74,10 +75,15 @@ def format_duration(seconds: Optional[int]) -> str:
 @router.get("/candidates/{candidate_id}/calls", response_model=list[CallResponse])
 async def list_candidate_calls(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    """Pobierz listę rozmów dla danego kandydata."""
+    """Pobierz listę rozmów dla danego kandydata.
+
+    P0.11: calls carry transcripts + recording URLs (candidate PII). This is
+    gated to internal operational roles (viewer excluded), consistent with the
+    rest of the candidate surface.
+    """
     result = await db.execute(
         select(Call)
         .where(Call.candidate_id == candidate_id)
@@ -89,7 +95,7 @@ async def list_candidate_calls(
 @router.post("/calls", response_model=CallResponse, status_code=status.HTTP_201_CREATED)
 async def log_call(
     data: CallCreate,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Ręczne zalogowanie rozmowy (np. po kliknięciu 'Zadzwoń')."""
