@@ -55,7 +55,8 @@ async def list_my_key_relationships(
 
     Admin/HoR widzi wszystkie key contacts (debug + management view).
     """
-    is_admin = user.role in (UserRole.admin, UserRole.head_of_recruitment)
+    # Multi-role aware (M1-RBAC-02) — patrz my_clients.py.
+    is_admin = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
     stmt = (
         select(

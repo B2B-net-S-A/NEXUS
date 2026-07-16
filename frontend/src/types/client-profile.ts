@@ -45,8 +45,9 @@ export interface ClientProfileSummary {
   open_jobs: number;
   active_consultants: number;
   total_placements: number;
-  active_mrr: number;
-  ltv: number;
+  /** null = brak uprawnień finansowych (backend redaguje; formatPLN → "—") */
+  active_mrr: number | null;
+  ltv: number | null;
   avg_time_to_fill_days: number | null;
 }
 

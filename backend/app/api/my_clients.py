@@ -51,7 +51,9 @@ async def list_my_clients(
     db: AsyncSession = Depends(get_db),
 ):
     """Lista klientów DL (lub wszystkich dla admin/HoR)."""
-    is_admin = user.role in (UserRole.admin, UserRole.head_of_recruitment)
+    # Multi-role aware (M1-RBAC-02): hybryda np. recruiter+DL ma przejść
+    # po roli dodatkowej, nie tylko primary.
+    is_admin = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
     if is_admin:
         # Admin: wszyscy klienci, is_head_dl ustawione na False (admin nie ma DL assignment)
@@ -60,7 +62,7 @@ async def list_my_clients(
         client_ids = [c.id for c in clients]
         head_lookup: dict[int, bool] = {}
     else:
-        if user.role != UserRole.delivery_lead:
+        if not user.has_role(UserRole.delivery_lead):
             raise HTTPException(
                 403,
                 detail="Only Delivery Leads or admin/head_of_recruitment can view My Clients",

@@ -191,6 +191,7 @@ jobs:
                  tests/test_traffit_sync.py \
                  tests/test_traffit_integration_models.py \
                  tests/test_traffit_merge.py \
+                 tests/test_client_access_matrix.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
