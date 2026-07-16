@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, BellRing, Bookmark, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
+import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import { buildCandidateSavedSearchPayload } from "@/lib/candidate-saved-search";
 import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
@@ -95,6 +96,18 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  };
 
  const applyRow = async (ss: SavedSearchRow, isMine: boolean) => {
+ // SEARCH-P0-05 containment: zapisy z manualnego wyszukiwania (surowy
+ // CandidateSearchRequest) nie mają `qs` — otwarcie ich tutaj po cichu
+ // aplikowało PUSTE filtry. Wykryj i pokieruj zamiast otwierać domyślne.
+ const format = detectSavedSearchFormat(ss.filters);
+ if (format !== "candidates_list") {
+ alert(
+ format === "search_request"
+ ? `Zapis „${ss.name}" pochodzi z wyszukiwania manualnego — otwórz go w zakładce „Wyszukaj manualnie" rekrutacji.`
+ : `Zapis „${ss.name}" ma nieobsługiwany format — nie został otwarty.`,
+ );
+ return;
+ }
  const qs = typeof ss.filters.qs === "string" ? ss.filters.qs : "";
  let previousViewedAt: string | null = null;
  if (isMine) {
@@ -134,6 +147,13 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  type="button"
  onClick={(e) => {
  e.stopPropagation();
+ // Włączenie dzwonka przebudowuje filters z `qs` — dla zapisu z
+ // wyszukiwania manualnego NADPISAŁOBY (skasowało) jego filtry, a
+ // skaner alertów i tak czyta tylko format listy. Zablokuj.
+ if (detectSavedSearchFormat(ss.filters) !== "candidates_list") {
+ alert("Alerty są dostępne tylko dla zapisów z listy kandydatów.");
+ return;
+ }
  alertMutation.mutate(ss);
  }}
  className={
