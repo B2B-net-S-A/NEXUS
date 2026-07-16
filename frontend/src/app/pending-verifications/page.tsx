@@ -18,7 +18,7 @@ import {
 } from"@/components/ui/dialog";
 import { FormField } from"@/components/ui/form-field";
 import { useToast } from"@/components/Toast";
-import { useAuthStore } from"@/store/auth";
+import { getUserRoles, useAuthStore } from"@/store/auth";
 import { pipelineApi, type PendingVerificationItem } from"@/lib/api";
 
 const APPROVER_ROLES = new Set(["admin","delivery_lead","head_of_recruitment",
@@ -57,8 +57,9 @@ function formatDate(iso: string): string {
 }
 
 export default function PendingVerificationsPage() {
- const userRole = useAuthStore((s) => s.user?.role);
- const isApprover = !!userRole && APPROVER_ROLES.has(userRole);
+ // M4 PR-03: pełny zbiór ról (primary + secondary) — parity z backendem.
+ const authUser = useAuthStore((s) => s.user);
+ const isApprover = getUserRoles(authUser).some((r) => APPROVER_ROLES.has(r));
  const { showSuccess, showError } = useToast();
  const qc = useQueryClient();
  const [rejectTarget, setRejectTarget] = useState<{

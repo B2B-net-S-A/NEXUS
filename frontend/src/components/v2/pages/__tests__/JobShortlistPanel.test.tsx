@@ -1,5 +1,5 @@
 import * as React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ShortlistEntry } from "@/lib/candidate-search-api";
@@ -70,5 +70,78 @@ describe("JobShortlistPanel", () => {
       expect(screen.getByText("w rekrutacji")).toBeInTheDocument(),
     );
     expect(screen.queryByText("Do rekrutacji")).not.toBeInTheDocument();
+  });
+});
+
+// ── M4 PR-03 (audyt P2.8): taksonomia błędów zamiast maskowania ─────────────
+
+function axiosErr(status: number, detail?: string) {
+  return Object.assign(new Error(`HTTP ${status}`), {
+    response: { status, data: detail ? { detail } : {} },
+  });
+}
+
+describe("JobShortlistPanel — error taxonomy (M4 PR-03)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("błąd pobrania pokazuje stan błędu z retry, nie znika jak pusta lista", async () => {
+    list.mockRejectedValueOnce(axiosErr(500));
+    list.mockResolvedValueOnce([entry()]);
+    render(<JobShortlistPanel jobId={10} />);
+
+    expect(
+      await screen.findByText("Nie udało się pobrać shortlisty.")
+    ).toBeTruthy();
+    const retry = screen.getByRole("button", { name: "Spróbuj ponownie" });
+    retry.click();
+    expect(await screen.findByText(/Kowalska/)).toBeTruthy();
+  });
+
+  it("PATCH 403 to komunikat o uprawnieniach, nie fałszywy konflikt", async () => {
+    list.mockResolvedValue([entry()]);
+    update.mockRejectedValueOnce(axiosErr(403));
+    render(<JobShortlistPanel jobId={10} />);
+    const select = await screen.findByLabelText("Ocena");
+    fireEvent.change(select, { target: { value: "zatwierdzony" } });
+    expect(
+      await screen.findByText("Brak uprawnień do zmiany tego wpisu.")
+    ).toBeTruthy();
+  });
+
+  it("PATCH 409 nadal komunikuje konflikt równoległej edycji", async () => {
+    list.mockResolvedValue([entry()]);
+    update.mockRejectedValueOnce(axiosErr(409));
+    render(<JobShortlistPanel jobId={10} />);
+    const select = await screen.findByLabelText("Ocena");
+    fireEvent.change(select, { target: { value: "zatwierdzony" } });
+    expect(
+      await screen.findByText("Wpis zmieniony w innym miejscu — lista odświeżona.")
+    ).toBeTruthy();
+  });
+
+  it("promote pokazuje detail z backendu (np. eligibility 409)", async () => {
+    list.mockResolvedValue([entry()]);
+    promote.mockRejectedValueOnce(
+      axiosErr(409, "Kandydat ma konflikt NDA z tym klientem.")
+    );
+    render(<JobShortlistPanel jobId={10} />);
+    const btn = await screen.findByRole("button", { name: /Do rekrutacji/ });
+    btn.click();
+    expect(
+      await screen.findByText("Kandydat ma konflikt NDA z tym klientem.")
+    ).toBeTruthy();
+  });
+
+  it("błąd usunięcia jest widoczny, nie połknięty", async () => {
+    list.mockResolvedValue([entry()]);
+    remove.mockRejectedValueOnce(axiosErr(500));
+    render(<JobShortlistPanel jobId={10} />);
+    const btn = await screen.findByLabelText(/Usuń Anna z shortlisty/);
+    btn.click();
+    expect(
+      await screen.findByText("Nie udało się usunąć wpisu.")
+    ).toBeTruthy();
   });
 });
