@@ -19,6 +19,7 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics import metrics
@@ -119,7 +120,12 @@ async def _cached_envelope(
     )
     cached = await analytics_cache_get(key)
     if cached is not None:
-        return AnalyticsEnvelope(**cached)
+        try:
+            return AnalyticsEnvelope(**cached)
+        except ValidationError:
+            # Niekompatybilny wpis (np. stara wersja koperty po deployu) —
+            # traktuj jak cache miss i przelicz zamiast 500.
+            pass
     result = await compute()
     if isinstance(result, tuple):
         data, quality = result

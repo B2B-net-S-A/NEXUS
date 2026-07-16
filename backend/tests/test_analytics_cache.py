@@ -43,7 +43,9 @@ def _key(**overrides) -> str:
         period=_PERIOD,
         filters=None,
     )
-    endpoint = overrides.pop("endpoint", "overview")
+    # Nierealny endpoint: cache jest module-global i przeżywa między plikami
+    # testów — użycie 'overview' zatruwałoby wpisy dla testów API v1.
+    endpoint = overrides.pop("endpoint", "cache-isolation-test")
     params.update(overrides)
     return build_cache_key(endpoint, **params)
 
@@ -58,7 +60,7 @@ def test_key_differs_by_capability_set():
 
 
 def test_key_differs_by_endpoint():
-    assert _key(endpoint="overview") != _key(endpoint="finance-summary")
+    assert _key(endpoint="cache-isolation-test") != _key(endpoint="other-endpoint")
 
 
 def test_key_differs_by_scope():
@@ -90,7 +92,7 @@ def test_key_differs_by_metric_version():
 
 
 def test_key_has_analytics_prefix():
-    assert _key().startswith("analytics:v1:overview:")
+    assert _key().startswith("analytics:v1:cache-isolation-test:")
 
 
 @pytest.mark.asyncio
