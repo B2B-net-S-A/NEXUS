@@ -22,7 +22,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.deps import ManagerOrAdmin
+from app.api.recruitment_access import (
+    RecruitmentAssessmentWriteAccess,
+    RecruitmentReadAccess,
+)
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -45,7 +49,7 @@ router = APIRouter()
 @router.get("/pipeline-stages/{stage_def_id}/scorecard")
 async def get_stage_scorecard(
     stage_def_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the scorecard schema for one PipelineStageDef."""
@@ -83,7 +87,7 @@ async def set_stage_scorecard(
 async def submit_scorecard_answers(
     candidate_stage_id: int,
     data: ScorecardSubmission,
-    current_user: CurrentUser,
+    current_user: RecruitmentAssessmentWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Persist scorecard answers on a CandidateStage row."""
@@ -111,7 +115,7 @@ async def submit_scorecard_answers(
 
 @router.get("/pipeline/overview-sla")
 async def sla_alerts(
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """List CandidateStage rows that exceeded PipelineStageDef.sla_max_days.
@@ -231,7 +235,7 @@ async def sla_alerts(
 @router.get("/candidates/{candidate_id}/pipelines")
 async def candidate_pipelines(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -308,7 +312,7 @@ async def candidate_pipelines(
 
 @router.get("/reports/funnel")
 async def funnel_report(
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     template_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -381,7 +385,7 @@ async def funnel_report(
 
 @router.get("/reports/time-to-hire")
 async def time_to_hire(
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     days_lookback: int = Query(180, ge=7, le=720),
     db: AsyncSession = Depends(get_db),
 ):

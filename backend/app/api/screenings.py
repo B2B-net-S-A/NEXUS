@@ -16,7 +16,10 @@ from app.models.screening_note import (
 )
 from app.models.candidate import Candidate
 from app.models.screening_note_mention import ScreeningNoteMention
-from app.api.deps import CurrentUser
+from app.api.recruitment_access import (
+    RecruitmentAssessmentWriteAccess,
+    RecruitmentReadAccess,
+)
 from app.services.mention_dispatch import (
     build_screening_note_deep_link,
     enqueue_mention_notifications,
@@ -108,7 +111,7 @@ class ScreeningNoteResponse(BaseModel):
 )
 async def list_candidate_screenings(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
@@ -130,7 +133,7 @@ async def list_candidate_screenings(
 )
 async def create_screening_note(
     data: ScreeningNoteCreate,
-    current_user: CurrentUser,
+    current_user: RecruitmentAssessmentWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -210,7 +213,7 @@ async def create_screening_note(
 @router.get("/candidates/{candidate_id}/ai-profile")
 async def get_candidate_ai_profile(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))

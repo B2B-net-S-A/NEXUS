@@ -20,7 +20,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.recruitment_access import (
+    RecruitmentAssessmentWriteAccess,
+    RecruitmentReadAccess,
+)
 from app.core.database import get_db
 from app.models.calendar_event import CalendarEvent
 from app.models.interview_feedback import (
@@ -126,15 +129,18 @@ def _to_out(fb: InterviewFeedback) -> InterviewFeedbackOut:
 
 
 def _can_edit(user: User, fb: InterviewFeedback) -> bool:
-    """Author, DL, HR, lub admin mogą edytować."""
+    """Author, DL, HR, lub admin mogą edytować.
+
+    M4 PR-01: ``has_any_role`` zamiast porównania primary ``user.role`` —
+    hybrydowa persona (np. TAC z dodatkową rolą delivery_lead) przechodzi.
+    """
     if fb.author_id == user.id:
         return True
-    privileged = {
+    return user.has_any_role(
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
         UserRole.admin,
-    }
-    return user.role in privileged
+    )
 
 
 async def _clear_needs_attention(db: AsyncSession, calendar_event_id: int) -> None:
@@ -155,8 +161,8 @@ async def _clear_needs_attention(db: AsyncSession, calendar_event_id: int) -> No
 )
 async def create_feedback(
     payload: InterviewFeedbackCreate,
+    current_user: RecruitmentAssessmentWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> InterviewFeedbackOut:
     event = await db.get(CalendarEvent, payload.calendar_event_id)
     if event is None:
@@ -214,11 +220,11 @@ async def create_feedback(
     response_model=list[InterviewFeedbackOut],
 )
 async def list_feedback(
+    current_user: RecruitmentReadAccess,
     calendar_event_id: Optional[int] = Query(None),
     candidate_id: Optional[int] = Query(None),
     job_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> list[InterviewFeedbackOut]:
     stmt = select(InterviewFeedback)
     if calendar_event_id is not None:
@@ -238,8 +244,8 @@ async def list_feedback(
 )
 async def get_feedback(
     feedback_id: int,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> InterviewFeedbackOut:
     fb = await db.get(InterviewFeedback, feedback_id)
     if fb is None:
@@ -254,8 +260,8 @@ async def get_feedback(
 async def update_feedback(
     feedback_id: int,
     payload: InterviewFeedbackUpdate,
+    current_user: RecruitmentAssessmentWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> InterviewFeedbackOut:
     fb = await db.get(InterviewFeedback, feedback_id)
     if fb is None:
@@ -290,8 +296,8 @@ async def update_feedback(
 )
 async def delete_feedback(
     feedback_id: int,
+    current_user: RecruitmentAssessmentWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     fb = await db.get(InterviewFeedback, feedback_id)
     if fb is None:

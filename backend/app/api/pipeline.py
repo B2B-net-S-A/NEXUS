@@ -42,6 +42,10 @@ from app.schemas.pipeline import (
     STAGE_LABELS,
 )
 from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
+from app.api.recruitment_access import (
+    user_can_edit_rates,
+    user_can_terminal_transition,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -325,6 +329,33 @@ async def move_candidate(
             legacy_enum = PipelineStage(stage_def.legacy_enum_value)
         except ValueError:
             legacy_enum = data.stage or PipelineStage.new
+
+    # ── M4 PR-01: capability guard na ruchy terminalne i rate-bearing ──────
+    # Terminal (po stage_def LUB legacy enum): sourcer nie zamyka rekrutacji
+    # (audyt P0.3 — RecruiterPlus obejmuje sourcera, a terminal nie miał
+    # osobnego guardu). Ruch na `verified` niesie stawkę kandydata
+    # (expected_rate_*), więc wymaga capability edycji stawek.
+    is_terminal_target = bool(stage_def and stage_def.is_terminal) or legacy_enum in (
+        PipelineStage.hired,
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+    )
+    if is_terminal_target and not user_can_terminal_transition(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Ruch na etap terminalny (hired/rejected/withdrawn) wymaga roli "
+                "recruiter/tac/delivery_lead/admin."
+            ),
+        )
+    if legacy_enum == PipelineStage.verified and not user_can_edit_rates(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Ruch na etap 'Zweryfikowany' ustawia stawkę kandydata i wymaga "
+                "roli recruiter/tac/delivery_lead/admin."
+            ),
+        )
 
     # Terminal-move validation: require rejection_reason_id
     is_terminal_move_stagedef = bool(
@@ -1454,6 +1485,27 @@ async def bulk_move_candidates(
             detail=(
                 f"Bulk-move na stage '{data.stage.value}' niedozwolony — "
                 "użyj indywidualnego /move z rejection_reason_id."
+            ),
+        )
+
+    # M4 PR-01: bulk na `hired` = decyzja terminalna (sourcer nie zamyka
+    # rekrutacji), bulk na `verified` niesie semantykę stawki — te same
+    # capability co pojedynczy /move.
+    if data.stage == PipelineStage.hired and not user_can_terminal_transition(
+        current_user
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Bulk-move na 'hired' wymaga roli recruiter/tac/delivery_lead/admin."
+            ),
+        )
+    if data.stage == PipelineStage.verified and not user_can_edit_rates(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Bulk-move na 'Zweryfikowany' wymaga roli "
+                "recruiter/tac/delivery_lead/admin."
             ),
         )
 

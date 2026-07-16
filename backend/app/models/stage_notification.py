@@ -95,8 +95,12 @@ class StageNotificationRule(Base):
     recipient_type: Mapped[RecipientType] = mapped_column(
         _RECIPIENT_TYPE_ENUM, nullable=False
     )
+    # M4 PR-01 (migracja 0175): CASCADE zamiast SET NULL — SET NULL kolidował
+    # z CHECK (non-NULL wymagany dla recipient_type='specific_user'), więc
+    # DELETE użytkownika naruszał CHECK. Reguła wskazująca usuniętego odbiorcę
+    # jest bezprzedmiotowa → kasujemy razem z użytkownikiem.
     specific_user_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     notify_inapp: Mapped[bool] = mapped_column(
@@ -171,8 +175,12 @@ class ClientStageNotificationOverride(Base):
     recipient_type: Mapped[RecipientType] = mapped_column(
         _RECIPIENT_TYPE_ENUM, nullable=False
     )
+    # M4 PR-01 (migracja 0175): CASCADE zamiast SET NULL — SET NULL kolidował
+    # z CHECK (non-NULL wymagany dla recipient_type='specific_user'), więc
+    # DELETE użytkownika naruszał CHECK. Reguła wskazująca usuniętego odbiorcę
+    # jest bezprzedmiotowa → kasujemy razem z użytkownikiem.
     specific_user_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     notify_inapp: Mapped[bool] = mapped_column(

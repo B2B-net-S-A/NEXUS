@@ -1413,6 +1413,23 @@ _COLUMN_STATEMENTS = [
             id AS source_event_id
         FROM candidate_source_events
         ORDER BY candidate_id, captured_at ASC, id ASC""",
+    # 0175 (M4 PR-01): stage_notification_rules.specific_user_id — FK
+    # ON DELETE SET NULL kolidowało z CHECK ck_stage_notif_specific_user
+    # (wymaga non-NULL dla recipient_type='specific_user'), więc DELETE
+    # użytkownika wywalał się na CHECK. CASCADE usuwa regułę razem z userem
+    # (reguła wskazująca nieistniejącego odbiorcę jest bezprzedmiotowa).
+    # Para DROP+ADD jest rerun-safe (safety net wykonuje statementy 1:1).
+    "ALTER TABLE stage_notification_rules "
+    "DROP CONSTRAINT IF EXISTS stage_notification_rules_specific_user_id_fkey",
+    "ALTER TABLE stage_notification_rules "
+    "ADD CONSTRAINT stage_notification_rules_specific_user_id_fkey "
+    "FOREIGN KEY (specific_user_id) REFERENCES users(id) ON DELETE CASCADE",
+    "ALTER TABLE client_stage_notification_overrides "
+    "DROP CONSTRAINT IF EXISTS "
+    "client_stage_notification_overrides_specific_user_id_fkey",
+    "ALTER TABLE client_stage_notification_overrides "
+    "ADD CONSTRAINT client_stage_notification_overrides_specific_user_id_fkey "
+    "FOREIGN KEY (specific_user_id) REFERENCES users(id) ON DELETE CASCADE",
 ]
 
 _DATA_STATEMENTS = [

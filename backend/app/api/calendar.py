@@ -20,7 +20,10 @@ from app.models.job import Job
 from app.models.client import Client
 from app.models.notification import Notification, NotificationType
 from app.models.user import UserRole
-from app.api.deps import CurrentUser
+from app.api.recruitment_access import (
+    CalendarWriteAccess,
+    RecruitmentReadAccess,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +100,7 @@ class CalendarEventResponse(BaseModel):
 
 @router.get("/calendar/events", response_model=List[CalendarEventResponse])
 async def list_events(
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
     from_date: Optional[datetime] = Query(None),
     to_date: Optional[datetime] = Query(None),
@@ -182,7 +185,7 @@ async def list_events(
 @router.post("/calendar/events", response_model=CalendarEventResponse, status_code=201)
 async def create_event(
     body: CalendarEventCreate,
-    current_user: CurrentUser,
+    current_user: CalendarWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new calendar event."""
@@ -261,7 +264,7 @@ async def create_event(
 @router.get("/calendar/events/{event_id}", response_model=CalendarEventResponse)
 async def get_event(
     event_id: int,
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
@@ -323,7 +326,7 @@ async def get_event(
 async def update_event(
     event_id: int,
     body: CalendarEventUpdate,
-    current_user: CurrentUser,
+    current_user: CalendarWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
@@ -375,7 +378,7 @@ async def update_event(
 @router.delete("/calendar/events/{event_id}", status_code=204)
 async def delete_event(
     event_id: int,
-    current_user: CurrentUser,
+    current_user: CalendarWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
@@ -444,7 +447,7 @@ def _resolve_scope_user(requested_user_id: Optional[int], current_user) -> int:
 
 @router.get("/calendar/conflicts", response_model=CalendarConflictsResponse)
 async def list_conflicts(
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     start: datetime = Query(..., description="Window start (inclusive)"),
     end: datetime = Query(..., description="Window end (exclusive)"),
     exclude_event_id: Optional[int] = Query(
@@ -528,7 +531,7 @@ class CalendarConflictsSummaryResponse(BaseModel):
     "/calendar/conflicts-summary", response_model=CalendarConflictsSummaryResponse
 )
 async def conflicts_summary(
-    current_user: CurrentUser,
+    current_user: RecruitmentReadAccess,
     start: datetime = Query(...),
     end: datetime = Query(...),
     user_id: Optional[int] = Query(None),
@@ -603,7 +606,7 @@ class ICalImportRequest(BaseModel):
 @router.post("/calendar/import-ical")
 async def import_ical(
     body: ICalImportRequest,
-    current_user: CurrentUser,
+    current_user: CalendarWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Pull events from a public iCal feed URL (Outlook/Google publish-as-iCal)."""
@@ -648,7 +651,7 @@ class M365InviteRequest(BaseModel):
 )
 async def create_m365_invite(
     body: M365InviteRequest,
-    current_user: CurrentUser,
+    current_user: CalendarWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Create a Graph event in the user's Outlook calendar + auto-invite candidate.
