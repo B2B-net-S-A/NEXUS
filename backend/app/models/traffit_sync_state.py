@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import BigInteger, DateTime, String
+from sqlalchemy import BigInteger, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,6 +44,21 @@ class TraffitSyncState(Base, TimestampMixin):
     last_status: Mapped[Optional[str]] = mapped_column(String(20))
     # Last run's per-phase stats (PhaseProgress.as_dict() or aggregate).
     stats: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+
+    # ── Integracja dwukierunkowa: kursor per strumień/tryb ──────────────────
+    # Wiersz per strumień i tryb (`<stream>:shadow` / `<stream>:live`) —
+    # shadow nigdy nie przesuwa kursora live. Timestamp + external id jako
+    # deterministyczny tie-breaker; payload trzyma np. shard plikowy.
+    cursor_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cursor_external_id: Mapped[Optional[str]] = mapped_column(String(255))
+    cursor_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    next_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         return (

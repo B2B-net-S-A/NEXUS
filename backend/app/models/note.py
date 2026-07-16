@@ -1,7 +1,8 @@
 import enum
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -44,6 +45,24 @@ class Note(Base, TimestampMixin):
     # Zewnętrzne pochodzenie notatki (np. "fireflies:<transcript_id>") —
     # dedup przy re-syncu + lookup audio dla briefingu DL.
     source_ref: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    # Strukturalna tożsamość źródła (integracja dwukierunkowa Traffit).
+    # `source_ref` zostaje dla kompatybilności i czytelnych linków audytowych.
+    external_source: Mapped[Optional[str]] = mapped_column(String(50), index=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    source_created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    source_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    source_deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    # Notatki w Traffit są append-only — korekta tworzy nową notatkę wskazującą
+    # na zastąpioną lokalną, zamiast mutować zdalną historię.
+    supersedes_note_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("notes.id", ondelete="SET NULL"), nullable=True
+    )
     # Link do nagrania (Fireflies CDN). Może wygasać — briefing kopiuje
     # audio do Object Storage zamiast polegać na tym URL-u.
     audio_url: Mapped[Optional[str]] = mapped_column(Text)
@@ -61,6 +80,25 @@ class Note(Base, TimestampMixin):
         "NoteMention",
         back_populates="note",
         cascade="all, delete-orphan",
+    )
+    supersedes_note = relationship(
+        "Note", remote_side="Note.id", foreign_keys=[supersedes_note_id]
+    )
+
+    __table_args__ = (
+        Index(
+            "ux_notes_external_source_id",
+            "external_source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_notes_candidate_source_created",
+            "candidate_id",
+            "external_source",
+            "source_created_at",
+        ),
     )
 
     def __repr__(self) -> str:
