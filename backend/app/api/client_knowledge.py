@@ -1,3 +1,15 @@
+"""Wiedza operacyjna o kliencie (Moduł 1, PR 1/7 — containment RBAC).
+
+Wpisy konsumują m.in. ai_writer, prep_kit i question_suggestions — zapis
+kontroluje więc kontekst podawany AI. Wcześniej create/delete działały na
+samym ``CurrentUser``; teraz:
+
+- odczyt: admin/HoR, DL/TAC, recruiter/sourcer przypisany do Joba klienta
+  (wiedza operacyjna jest potrzebna do prowadzenia rekrutacji);
+- create/delete: admin/HoR + DL/TAC;
+- każda mutacja zostawia audit event (kategoria, id — bez treści wpisu).
+"""
+
 from typing import Optional
 from datetime import datetime
 
@@ -8,8 +20,14 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
-from app.models.client import Client
-from app.api.deps import CurrentUser
+from app.models.user import User
+from app.api.deps import CurrentUser, get_current_user
+from app.services.client_access import (
+    assert_client_exists,
+    deny,
+    record_client_audit,
+    resolve_client_access,
+)
 
 router = APIRouter()
 
@@ -37,13 +55,14 @@ class ClientKnowledgeResponse(BaseModel):
 )
 async def list_client_knowledge(
     client_id: int,
-    current_user: CurrentUser,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     category: Optional[KnowledgeCategory] = None,
 ):
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Client not found")
+    await assert_client_exists(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_knowledge:
+        raise deny("brak dostępu do wiedzy tego klienta")
 
     query = select(ClientKnowledge).where(ClientKnowledge.client_id == client_id)
     if category:
@@ -62,12 +81,13 @@ async def list_client_knowledge(
 async def create_client_knowledge(
     client_id: int,
     data: ClientKnowledgeCreate,
-    current_user: CurrentUser,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Client not found")
+    await assert_client_exists(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_edit_knowledge:
+        raise deny("dodawanie wiedzy klienta wymaga roli admin/HoR/DL/TAC")
 
     entry = ClientKnowledge(
         client_id=client_id,
@@ -77,6 +97,14 @@ async def create_client_knowledge(
         added_by=current_user.id,
     )
     db.add(entry)
+    await db.flush()
+    record_client_audit(
+        db,
+        client_id=client_id,
+        actor_id=current_user.id,
+        action="knowledge_created",
+        details={"knowledge_id": entry.id, "category": data.category.value},
+    )
     await db.flush()
     await db.refresh(entry)
     return entry
@@ -96,4 +124,16 @@ async def delete_client_knowledge(
     entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
+
+    access = await resolve_client_access(db, current_user, entry.client_id)
+    if not access.can_edit_knowledge:
+        raise deny("usuwanie wiedzy klienta wymaga roli admin/HoR/DL/TAC")
+
+    record_client_audit(
+        db,
+        client_id=entry.client_id,
+        actor_id=current_user.id,
+        action="knowledge_deleted",
+        details={"knowledge_id": entry.id, "category": entry.category.value},
+    )
     await db.delete(entry)

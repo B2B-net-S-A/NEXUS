@@ -66,7 +66,9 @@ async def _load_user_for_tac(db: AsyncSession, user_id: int) -> User:
             status.HTTP_400_BAD_REQUEST,
             detail="User is inactive; cannot assign as TAC",
         )
-    if user.role not in TAC_ASSIGNABLE_ROLES:
+    # Multi-role aware (M1-RBAC-02): hybryda np. recruiter+tac kwalifikuje
+    # się przez rolę dodatkową.
+    if not user.has_any_role(*TAC_ASSIGNABLE_ROLES):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=(

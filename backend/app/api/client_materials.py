@@ -4,14 +4,18 @@ Routes are declared without a prefix so the router can be registered with
 `prefix="/api"` in main.py — mirrors the client_knowledge pattern.
 
 One-pagers
-  GET    /clients/{client_id}/one-pagers
+  GET    /clients/{client_id}/one-pagers           (ClientAccess.can_view_materials)
   POST   /clients/{client_id}/one-pagers           (multipart, TacPlus)
-  GET    /clients/{client_id}/one-pagers/{id}/download
+  GET    /clients/{client_id}/one-pagers/{id}/download (can_view_materials)
   DELETE /clients/{client_id}/one-pagers/{id}      (TacPlus)
 
 Contract terms (singleton per client, upsert)
-  GET    /clients/{client_id}/contract-terms
+  GET    /clients/{client_id}/contract-terms       (can_view_legal_documents)
   PUT    /clients/{client_id}/contract-terms       (TacPlus)
+
+PR 1/7 (containment RBAC): ready przestały być dostępne dla każdego
+zalogowanego — one-pagery czytają role operacyjne (bez viewera `user`),
+warunki umów (kary, płatności, off-limits) tylko admin/HoR/DL/TAC.
 """
 
 from typing import List, Optional
@@ -34,6 +38,10 @@ from app.schemas.client_materials import (
     ClientOnePagerResponse,
 )
 from app.services import storage_service
+from app.services.client_access import (
+    deny,
+    resolve_client_access,
+)
 
 
 _tac_plus = require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)
@@ -129,6 +137,9 @@ async def list_one_pagers(
     current_user: User = Depends(get_current_user),
 ):
     await _assert_client(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_materials:
+        raise deny("brak dostępu do materiałów tego klienta")
     result = await db.execute(
         select(ClientOnePager)
         .where(ClientOnePager.client_id == client_id)
@@ -221,6 +232,9 @@ async def download_one_pager(
     current_user: User = Depends(get_current_user),
 ):
     await _assert_client(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_materials:
+        raise deny("brak dostępu do materiałów tego klienta")
     result = await db.execute(
         select(ClientOnePager).where(
             ClientOnePager.id == one_pager_id,
@@ -292,6 +306,9 @@ async def get_contract_terms(
     current_user: User = Depends(get_current_user),
 ) -> ClientContractTermsResponse | None:
     await _assert_client(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_legal_documents:
+        raise deny("warunki umów klienta wymagają roli admin/HoR/DL/TAC")
     result = await db.execute(
         select(ClientContractTerms).where(ClientContractTerms.client_id == client_id)
     )

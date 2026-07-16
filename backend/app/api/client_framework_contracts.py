@@ -1,6 +1,9 @@
 """Router `/api/clients/{client_id}/framework-contracts` — MSA per klient.
 
-Reads (GET) — `TacPlus` (R0 2026-07-16: stawki ramowe = finanse; wcześniej każdy zalogowany).
+Reads (GET) — `LegalDocsReader` (admin/HoR/DL/TAC przez `ClientAccess`).
+Containment: R0 2026-07-16 zrobił z tego TacPlus (stawki ramowe = finanse);
+PR 1/7 modułu klienta unifikuje przez ClientAccess.can_view_legal_documents
+(ten sam zbiór + head_of_recruitment). Wcześniej czytał każdy zalogowany.
 Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin/HoR globalnie albo
 DL przypisany do klienta).
 
@@ -28,8 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     DlAssignedOrAdmin,
-    TacPlus,
+    get_current_user,
 )
+from app.services.client_access import deny, resolve_client_access
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -65,6 +69,22 @@ async def _assert_client(db: AsyncSession, client_id: int) -> None:
     result = await db.execute(select(Client).where(Client.id == client_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Client not found")
+
+
+async def _require_legal_docs_reader(
+    client_id: int,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Odczyt umów ramowych (MSA) = dokumenty prawne klienta."""
+    await _assert_client(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_legal_documents:
+        raise deny("umowy ramowe klienta wymagają roli admin/HoR/DL/TAC")
+    return current_user
+
+
+LegalDocsReader = Depends(_require_legal_docs_reader)
 
 
 def _validate_upload(file: UploadFile) -> None:
@@ -128,11 +148,10 @@ async def _to_read(
 )
 async def list_framework_contracts(
     client_id: int,
-    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[FrameworkContractStatus] = None,
+    _user=LegalDocsReader,
 ):
-    await _assert_client(db, client_id)
     stmt = select(ClientFrameworkContract).where(
         ClientFrameworkContract.client_id == client_id
     )
@@ -151,10 +170,9 @@ async def list_framework_contracts(
 async def get_framework_contract(
     client_id: int,
     fc_id: int,
-    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
+    _user=LegalDocsReader,
 ):
-    await _assert_client(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
             ClientFrameworkContract.id == fc_id,
@@ -416,10 +434,9 @@ async def send_framework_contract_to_autenti(
 async def download_framework_contract(
     client_id: int,
     fc_id: int,
-    _user: TacPlus,
     db: AsyncSession = Depends(get_db),
+    _user=LegalDocsReader,
 ):
-    await _assert_client(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
             ClientFrameworkContract.id == fc_id,

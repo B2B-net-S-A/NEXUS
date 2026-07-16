@@ -34,7 +34,16 @@ class ClientUpdate(BaseModel):
     regon: Optional[str] = None
 
 
-class ClientResponse(BaseModel):
+class ClientSafeResponse(BaseModel):
+    """Bezpieczna projekcja klienta (PR 1/7, M1-SEC-02).
+
+    Dla ról bez wglądu w dane prawne (recruiter/sourcer/viewer). Pola
+    ``legal_name``/``nip``/``regon``/``notes`` celowo NIE istnieją w tym
+    modelu — użytkownik bez prawa nie dostaje ich nawet jako ``null``.
+    ``nda_signed`` zostaje: to operacyjny sygnał zgodności, potrzebny
+    rekruterom zanim udostępnią dane kandydata.
+    """
+
     id: int
     name: str
     industry: Optional[str]
@@ -43,18 +52,28 @@ class ClientResponse(BaseModel):
     status: ClientStatus
     nda_signed: bool
     contract_type: Optional[str]
-    notes: Optional[str]
-    legal_name: Optional[str] = None
-    nip: Optional[str] = None
-    regon: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
 
 
+class ClientResponse(ClientSafeResponse):
+    """Pełna projekcja — admin/HoR/DL/TAC (dane prawne + notatki)."""
+
+    notes: Optional[str]
+    legal_name: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
+
+
+# Zwracamy gotowe instancje modeli — brak atrybutów prawnych w wariancie
+# safe jednoznacznie wybiera właściwy człon unii przy serializacji.
+AnyClientResponse = ClientResponse | ClientSafeResponse
+
+
 class ClientList(BaseModel):
-    items: list[ClientResponse]
+    items: list[AnyClientResponse]
     total: int
     page: int
     page_size: int

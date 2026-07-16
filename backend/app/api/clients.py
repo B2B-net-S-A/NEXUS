@@ -14,7 +14,15 @@ from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
-from app.schemas.client import ClientCreate, ClientList, ClientResponse, ClientUpdate
+from app.schemas.client import (
+    AnyClientResponse,
+    ClientCreate,
+    ClientList,
+    ClientResponse,
+    ClientSafeResponse,
+    ClientUpdate,
+)
+from app.services.client_access import ADMIN_LIKE_ROLES, CLIENT_TEAM_ROLES
 from app.schemas.client_profile import (
     ActiveConsultantItem,
     CandidateBrief,
@@ -90,6 +98,18 @@ def _recruiter_brief(user: Optional[User]) -> Optional[RecruiterBrief]:
     return RecruiterBrief(id=user.id, name=name, email=user.email, avatar_url=avatar)
 
 
+def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResponse]:
+    """Pełna projekcja (dane prawne + notatki) dla admin/HoR/DL/TAC (PR 1/7).
+
+    Pozostałe role (recruiter/sourcer/viewer) dostają ``ClientSafeResponse``
+    bez ``legal_name``/``nip``/``regon``/``notes`` — pola nie występują
+    w odpowiedzi (nie są ``null``).
+    """
+    if user.has_any_role(*ADMIN_LIKE_ROLES, *CLIENT_TEAM_ROLES):
+        return ClientResponse
+    return ClientSafeResponse
+
+
 def _days_to(target: Optional[date]) -> Optional[int]:
     if target is None:
         return None
@@ -111,8 +131,12 @@ async def list_clients(
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
+    schema = _client_schema_for(current_user)
     return ClientList(
-        items=list(result.scalars().all()), total=total, page=page, page_size=page_size
+        items=[schema.model_validate(c) for c in result.scalars().all()],
+        total=total,
+        page=page,
+        page_size=page_size,
     )
 
 
@@ -135,7 +159,7 @@ async def create_client(
     return client
 
 
-@router.get("/{client_id}", response_model=ClientResponse)
+@router.get("/{client_id}", response_model=AnyClientResponse)
 async def get_client(
     client_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ):
@@ -143,7 +167,7 @@ async def get_client(
     client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    return client
+    return _client_schema_for(current_user).model_validate(client)
 
 
 @router.get("/{client_id}/profile", response_model=ClientProfileResponse)
@@ -397,7 +421,9 @@ async def update_client(
             entity_id=client_id,
             action="updated",
             user_id=current_user.id,
-            details=updates,
+            # Tylko NAZWY pól — wartości (np. notes) mogą być wrażliwe
+            # i nie należą do dziennika audytu (PR 1/7).
+            details={"fields": sorted(updates)},
         )
     )
     await db.flush()
