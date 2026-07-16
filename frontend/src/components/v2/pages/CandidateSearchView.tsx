@@ -36,6 +36,7 @@ import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-he
 import { JobShortlistPanel } from "@/components/v2/pages/JobShortlistPanel";
 import { CandidateCompareModal } from "@/components/v2/pages/CandidateCompareModal";
 import { shortlistApi } from "@/lib/candidate-search-api";
+import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import {
   formatReasonCounts,
   summarizeBulkResult,
@@ -194,6 +195,19 @@ export function CandidateSearchView({
   const clearSelection = () => setSelected(new Set());
 
   const loadSavedSearch = (ss: SavedSearchOut) => {
+    // SEARCH-P0-05 containment: saved searches from the GLOBAL candidates list
+    // use a different payload ({qs, api}); opening one here used to silently
+    // apply EMPTY filters. Detect and route instead — never open defaults.
+    const format = detectSavedSearchFormat(ss.filters);
+    if (format !== "search_request") {
+      setError(
+        format === "candidates_list"
+          ? `Zapis „${ss.name}" pochodzi z globalnej listy kandydatów — otwórz go na stronie Kandydaci.`
+          : `Zapis „${ss.name}" ma nieobsługiwany format — nie został otwarty.`,
+      );
+      return;
+    }
+    setError(null);
     // Filters were stored as a CandidateSearchRequest dump — restore but
     // never carry over paging or job-context exclusion (those are owned by
     // the current view).
