@@ -31,7 +31,19 @@ jobs:
           E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://nexus.dynaminds.pl' }}
           E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
-        run: npm run test:e2e
+        # 2026-07-16 (analytics plan PR 0): without E2E_USER_PASSWORD the auth
+        # setup project SKIPS, e2e/.auth/state.json is never written, and every
+        # `chromium` spec dies on ENOENT loading storageState — nightly has been
+        # red on that for weeks. Until the E2E_USER_* secrets are provisioned
+        # (operator action — needs a dedicated prod E2E account), run only the
+        # public `preview-chromium` project so nightly stays green and honest.
+        run: |
+          if [ -z "$E2E_USER_PASSWORD" ]; then
+            echo "::warning::E2E_USER_PASSWORD secret not set — running only public (preview) specs. Provision E2E_USER_EMAIL/E2E_USER_PASSWORD repo secrets to enable the authenticated suite."
+            npx playwright test --project=preview-chromium
+          else
+            npm run test:e2e
+          fi
       - name: Upload report on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
