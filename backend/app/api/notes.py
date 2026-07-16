@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,20 +66,33 @@ async def list_notes(
     db: AsyncSession = Depends(get_db),
     candidate_id: Optional[int] = None,
     job_id: Optional[int] = None,
+    note_type: Optional[str] = None,
+    limit: int = Query(1000, ge=1, le=2000),
 ):
-    """Wszystkie notatki kandydata/oferty — bez obcinania.
+    """Notatki jednego kandydata/oferty (albo jednej kategorii `note_type`).
 
-    Świadomie dedykowane źródło dla zakładki Notatki: feed `/timeline` miesza
-    notatki z etapami/aktywnościami i ucina do `limit`, przez co przy bogatej
-    historii (np. import Traffit) starsze notatki wypadały z widoku. Tu zwracamy
-    komplet, wzbogacony o `author_name` (User outerjoin) i `content_rendered`
-    (rozwinięte `$$user_NN$$` Traffit mention tokeny — jak w `/timeline`).
+    Dedykowane źródło dla zakładki Notatki: feed `/timeline` miesza notatki z
+    etapami/aktywnościami i ucina, przez co przy bogatej historii (import
+    Traffit) starsze notatki wypadały z widoku. Tu zwracamy komplet dla danego
+    zakresu, wzbogacony o `author_name` i `content_rendered`.
+
+    P0.6: wcześniej brak filtra zwracał WSZYSTKIE notatki firmy (globalna
+    enumeracja treści PII) bez limitu, a odpowiedź ujawniała e-mail autora.
+    Teraz wymagany jest zawężający filtr (subject albo `note_type`), zakres jest
+    ograniczony, a e-mail autora nie jest zwracany (bezpieczna tożsamość =
+    `author_name`). Rola i tak jest gated przez `CandidatePIIAccess`
+    (viewer wykluczony).
     """
+    if candidate_id is None and job_id is None and note_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Wymagany filtr: candidate_id, job_id albo note_type",
+        )
+
     query = (
         select(
             Note,
             User.name.label("author_name"),
-            User.email.label("author_email"),
             Job.title.label("job_title"),
         )
         .outerjoin(User, Note.author_id == User.id)
@@ -89,7 +102,9 @@ async def list_notes(
         query = query.where(Note.candidate_id == candidate_id)
     if job_id:
         query = query.where(Note.job_id == job_id)
-    query = query.order_by(Note.created_at.desc())
+    if note_type:
+        query = query.where(Note.note_type == note_type)
+    query = query.order_by(Note.created_at.desc()).limit(limit)
     rows = (await db.execute(query)).all()
 
     mention_label_map = await build_traffit_user_label_map(
@@ -106,11 +121,11 @@ async def list_notes(
             created_at=note.created_at,
             updated_at=note.updated_at,
             author_name=author_name,
-            author_email=author_email,
+            author_email=None,  # P0.6 — do not leak author email to note readers
             content_rendered=render_traffit_mentions(note.content, mention_label_map),
             job_title=job_title,
         )
-        for note, author_name, author_email, job_title in rows
+        for note, author_name, job_title in rows
     ]
     return EnrichedNoteList(items=items, total=len(items))
 
