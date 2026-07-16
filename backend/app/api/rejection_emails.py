@@ -115,6 +115,16 @@ async def get_rejection_email(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Scheduled rejection email not found",
         )
+    # M4 PR-04 (audyt P1.14): treść maila (recipient/subject/body/last_error)
+    # widzi właściciel wiersza albo oversight (admin/DL/HoR) — nie każdy
+    # zalogowany operacyjny.
+    if current_user.id != row.recruiter_id and not user_has_rejection_email_oversight(
+        current_user
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Podgląd treści maila ma właściciel lub admin/DL/HoR.",
+        )
     return _to_response(row)
 
 
@@ -222,4 +232,13 @@ async def list_for_candidate(
         .scalars()
         .all()
     )
-    return [_to_response(r) for r in rows]
+    # M4 PR-04: timeline pokazuje statusy każdemu operacyjnemu, ale treść
+    # (body_html) i diagnostykę (last_error) tylko ownerowi/oversight.
+    can_read_all = user_has_rejection_email_oversight(current_user)
+    out: List[RejectionEmailResponse] = []
+    for r in rows:
+        resp = _to_response(r)
+        if not can_read_all and current_user.id != r.recruiter_id:
+            resp = resp.model_copy(update={"body_html": "", "last_error": None})
+        out.append(resp)
+    return out

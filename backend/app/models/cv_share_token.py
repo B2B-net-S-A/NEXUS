@@ -48,7 +48,34 @@ class CVShareToken(Base):
         Boolean, nullable=False, server_default="false", default=False
     )
 
+    # ── Token v2 (M4 audyt P1.9, migracja 0176) ─────────────────────────────
+    # Nowe tokeny NIE przechowują sekretu: kolumna ``token`` (PK) dostaje
+    # nie-sekretny identyfikator ``v2$<hex>``, a sekret istnieje wyłącznie
+    # jako SHA-256 w ``token_sha256`` (raw pokazany użytkownikowi raz przy
+    # utworzeniu). Legacy wiersze (raw w ``token``) działają w dual-read do
+    # czasu wygaśnięcia/odwołania.
+    token_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    max_views: Mapped[Optional[int]] = mapped_column(nullable=True)
+    view_count: Mapped[int] = mapped_column(
+        nullable=False, server_default="0", default=0
+    )
+    last_viewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    revoke_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    purpose: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+
     candidate_stage_cv: Mapped["CandidateStageCV"] = relationship(
         "CandidateStageCV", lazy="joined"
     )
-    creator: Mapped[Optional["User"]] = relationship("User", lazy="select")
+    creator: Mapped[Optional["User"]] = relationship(
+        "User", lazy="select", foreign_keys=[created_by]
+    )

@@ -1479,6 +1479,20 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE client_stage_notification_overrides "
     "ADD CONSTRAINT client_stage_notification_overrides_specific_user_id_fkey "
     "FOREIGN KEY (specific_user_id) REFERENCES users(id) ON DELETE CASCADE",
+    # 0176 (M4 PR-04): CV share token v2 — hash zamiast sekretu, limity
+    # wyświetleń, audyt odwołań. Wszystko idempotentne (IF NOT EXISTS).
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS max_views INTEGER",
+    "ALTER TABLE cv_share_tokens "
+    "ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS revoked_by INTEGER "
+    "REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS revoke_reason VARCHAR(255)",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS purpose VARCHAR(120)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_cv_share_tokens_sha256 "
+    "ON cv_share_tokens (token_sha256) WHERE token_sha256 IS NOT NULL",
 ]
 
 _DATA_STATEMENTS = [

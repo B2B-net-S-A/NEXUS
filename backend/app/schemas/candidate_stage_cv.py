@@ -88,6 +88,31 @@ class CVShareTokenResponse(BaseModel):
         ..., description="np. '/cv/abc123' — FE skleja z window.location.origin"
     )
     candidate_stage_cv_id: int
+    # M4 PR-04 (token v2): nie-sekretny identyfikator do revoke-by-ID.
+    # Raw token jest zwracany TYLKO tutaj (raz); potem istnieje wyłącznie hash.
+    revoke_key: Optional[str] = None
+    max_views: Optional[int] = None
+
+
+class CVShareTokenListItem(BaseModel):
+    """Metadane aktywnego/odwołanego linku — bez sekretu (M4 PR-04, P1.9)."""
+
+    revoke_key: str
+    token_preview: str = Field(..., description="maskowany identyfikator do UI")
+    is_v2: bool
+    created_at: Optional[datetime] = None
+    created_by_name: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    revoked: bool
+    revoked_at: Optional[datetime] = None
+    revoke_reason: Optional[str] = None
+    view_count: int = 0
+    max_views: Optional[int] = None
+    last_viewed_at: Optional[datetime] = None
+    purpose: Optional[str] = None
+    # Dla legacy (raw w DB) FE może odtworzyć URL; dla v2 — None (sekret
+    # nie jest odtwarzalny).
+    share_url_suffix: Optional[str] = None
 
 
 class PublicCVView(BaseModel):

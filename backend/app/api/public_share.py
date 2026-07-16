@@ -9,6 +9,7 @@ exposed on these endpoints.
 import asyncio
 import logging
 import os
+import hashlib
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -22,11 +23,12 @@ from fastapi import (
     Form,
     HTTPException,
     Request,
+    Response,
     UploadFile,
     status,
 )
 from pydantic import EmailStr
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -40,6 +42,7 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.champion_share import ChampionCardShareToken
 from app.models.cv_share_token import CVShareToken
+from app.services.html_sanitizer import sanitize_cv_html
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -109,6 +112,7 @@ async def get_public_champion_card(
 async def get_public_cv(
     token: str,
     request: Request,  # required by slowapi limiter
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Klient otwiera token-link i widzi brandowane CV — bez logowania.
@@ -122,8 +126,14 @@ async def get_public_cv(
     * 410 gdy token wygasł
     * 404 gdy CV przestało być finalized (np. recruiter zresetował)
     """
+    # M4 PR-04 (audyt P1.9, token v2): dual-read — legacy wiersze trzymają raw
+    # token w PK, v2 wyłącznie SHA-256. Prezentowany sekret dopasowujemy do
+    # obu form.
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row: Optional[CVShareToken] = await db.scalar(
-        select(CVShareToken).where(CVShareToken.token == token)
+        select(CVShareToken).where(
+            (CVShareToken.token == token) | (CVShareToken.token_sha256 == digest)
+        )
     )
     if row is None or row.revoked:
         raise HTTPException(
@@ -131,6 +141,28 @@ async def get_public_cv(
         )
     if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Link wygasł.")
+
+    # Limit wyświetleń — atomowy UPDATE (bez race dwóch równoległych GET-ów):
+    # inkrementacja przechodzi tylko, gdy licznik wciąż mieści się w limicie.
+    claimed = (
+        await db.execute(
+            update(CVShareToken)
+            .where(
+                CVShareToken.token == row.token,
+                (CVShareToken.max_views.is_(None))
+                | (CVShareToken.view_count < CVShareToken.max_views),
+            )
+            .values(
+                view_count=CVShareToken.view_count + 1,
+                last_viewed_at=datetime.now(timezone.utc),
+            )
+            .returning(CVShareToken.view_count)
+        )
+    ).scalar_one_or_none()
+    if claimed is None:
+        raise HTTPException(
+            status_code=410, detail="Limit wyświetleń linku został wyczerpany."
+        )
 
     csv: Optional[CandidateStageCV] = await db.scalar(
         select(CandidateStageCV).where(CandidateStageCV.id == row.candidate_stage_cv_id)
@@ -146,10 +178,28 @@ async def get_public_cv(
     )
     job = await db.scalar(select(Job).where(Job.id == csv.job_id))
 
-    # Source of truth: zapisany draft HTML (immutable po finalize). Storage
-    # plik ma to samo, ale czytanie z DB jest szybsze i bezpieczniejsze
-    # (brak ryzyka stale path traversal).
-    cv_html = csv.branded_draft_html or ""
+    # Access audit (bez PII): kto NIE jest znany (public), ale wiemy który
+    # link, które CV i którym wyświetleniem to było.
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="cv_share_viewed",
+            user_id=None,
+            details={"revoke_key": row.token, "view_no": int(claimed)},
+        )
+    )
+    await db.commit()
+
+    # Source of truth: zapisany draft HTML (immutable po finalize) —
+    # M4 PR-04: na wyjściu przechodzi allowlist sanitizer (stored XSS w
+    # publicznym linku dla klienta).
+    cv_html = sanitize_cv_html(csv.branded_draft_html)
+
+    # no-store: publiczna treść z PII kandydata nie może lądować w cache'ach
+    # pośredników/przeglądarki po odwołaniu linku.
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
 
     return {
         "candidate_first_name": candidate.name if candidate else None,
