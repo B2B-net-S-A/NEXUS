@@ -180,6 +180,7 @@ jobs:
                  tests/test_candidate_job_eligibility.py \
                  tests/test_proposals_bulk.py \
                  tests/test_job_shortlist.py \
+                 tests/test_candidate_search_v3.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
