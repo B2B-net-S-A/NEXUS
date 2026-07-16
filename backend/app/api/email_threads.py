@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import CurrentUser, get_current_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -325,9 +326,11 @@ async def download_attachment(
 async def compose_email(
     candidate_id: int,
     payload: ComposeRequest,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> EmailOut:
+    # P0.9: sending real M365 mail requires an internal operational role
+    # (CandidatePIIAccess excludes the read-only viewer).
     conn = await _require_active_connection(db, current_user.id)
     row = await m365_sender.send_new(
         db,
@@ -425,9 +428,10 @@ async def search_emails(
 async def reply_email(
     candidate_id: int,
     payload: ReplyRequest,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> EmailOut:
+    # P0.9: viewer excluded from sending (reply is also owner+candidate scoped).
     conn = await _require_active_connection(db, current_user.id)
     original = await db.get(Email, payload.email_id)
     if original is None:
@@ -523,7 +527,7 @@ def _apply_bulk_action(
 @router.post("/microsoft365/emails/bulk", response_model=BulkEmailActionResponse)
 async def bulk_email_action(
     payload: BulkEmailActionRequest,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> BulkEmailActionResponse:
     """Apply a single action to many emails owned by the current user.
