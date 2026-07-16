@@ -19,7 +19,9 @@ class StageDefCreate(BaseModel):
     terminal_type: Optional[TerminalType] = None
     tracker_enabled: bool = False
     tracker_public_name: Optional[str] = Field(None, max_length=100)
-    sla_max_days: Optional[int] = Field(None, ge=0)
+    # M4 PR-02 (audyt P2.5): 0 było przyjmowane, a runtime interpretuje je
+    # jak brak SLA — teraz jawnie None=wyłączone, wartości od 1 w górę.
+    sla_max_days: Optional[int] = Field(None, ge=1)
 
 
 class StageDefUpdate(BaseModel):
@@ -30,7 +32,9 @@ class StageDefUpdate(BaseModel):
     terminal_type: Optional[TerminalType] = None
     tracker_enabled: Optional[bool] = None
     tracker_public_name: Optional[str] = Field(None, max_length=100)
-    sla_max_days: Optional[int] = Field(None, ge=0)
+    # M4 PR-02 (audyt P2.5): 0 było przyjmowane, a runtime interpretuje je
+    # jak brak SLA — teraz jawnie None=wyłączone, wartości od 1 w górę.
+    sla_max_days: Optional[int] = Field(None, ge=1)
 
 
 class StageDefResponse(BaseModel):

@@ -2606,7 +2606,7 @@ async def check_exists(
     latest_stage = await db.scalar(
         select(CandidateStage)
         .where(CandidateStage.candidate_id == candidate.id)
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
     current_stage = latest_stage.stage.value if latest_stage else None
@@ -2751,7 +2751,7 @@ async def get_candidate_timeline(
         .join(Job, CandidateStage.job_id == Job.id)
         .outerjoin(mover, mover.id == CandidateStage.moved_by)
         .where(CandidateStage.candidate_id == candidate_id)
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(limit)
     )
     for stage, job_title, moved_by_name in stages_result.all():
@@ -2884,7 +2884,7 @@ async def get_candidate_history(
             RejectionReason.id == CandidateStage.rejection_reason_id,
         )
         .where(CandidateStage.candidate_id == candidate_id)
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
 
     # Group by job
@@ -3039,7 +3039,7 @@ async def set_recruitment_client_rate(
             CandidateStage.candidate_id == candidate_id,
             CandidateStage.job_id == job_id,
         )
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
     if latest is None:
@@ -3106,7 +3106,7 @@ async def set_recruitment_expected_rate(
             CandidateStage.candidate_id == candidate_id,
             CandidateStage.job_id == job_id,
         )
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
     if latest is None:
@@ -3186,6 +3186,37 @@ async def remove_candidate_from_recruitment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Brak rekrutacji dla tego kandydata i tej oferty.",
         )
+
+    # ── M4 PR-02 (audyt P0.8): historia z hired / z kontraktem nie znika ────
+    # zwykłym API. Fizyczny DELETE kasuje audit trail zatrudnienia (baseline
+    # PR-00: 499 par hired-bez-kontraktu częściowo stąd), a kontrakt/zamówienie
+    # zostają osierocone. Admin może nadal (świadome korekty błędnych danych
+    # — decyzja Artura 2026-07-16); pozostałe role dostają 409.
+    if not current_user.has_any_role(UserRole.admin):
+        has_hired = any(s.stage == PipelineStage.hired for s in stage_rows)
+        from app.models.contract import Contract
+
+        has_contract = (
+            await db.scalar(
+                select(func.count(Contract.id)).where(
+                    Contract.candidate_id == candidate_id,
+                    Contract.job_id == job_id,
+                )
+            )
+        ) or 0
+        if has_hired or has_contract:
+            reason = (
+                "historię z etapem 'hired'"
+                if has_hired
+                else f"rekrutację powiązaną z kontraktem ({has_contract})"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Nie można usunąć — {reason}. Usunięcie dowodów "
+                    "zatrudnienia wymaga uprawnień administratora."
+                ),
+            )
 
     job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
     removed_stages = [s.stage.value for s in stage_rows]

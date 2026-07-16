@@ -1,5 +1,11 @@
 {
   "paths": {
+    "/api/analytics/v1/admin/backfill-board-snapshots": [
+      "post"
+    ],
+    "/api/analytics/v1/admin/cutover": [
+      "post"
+    ],
     "/api/analytics/v1/calls/aggregate": [
       "get"
     ],

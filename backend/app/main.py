@@ -309,8 +309,27 @@ _LEGACY_STATS_PREFIXES = (
 
 class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
         path = request.url.path
+
+        # Plan PR 7: telemetria ruchu legacy DynaReportera (sam path, bez PII)
+        # + tryb DYNAREPORTER_MODE=off ⇒ 410 na odczytach (writes są już
+        # admin-only; upload 410 od R0).
+        if path.startswith("/api/dynareporter"):
+            logger.info("legacy_dynareporter_hit path=%s", path)
+            if settings.DYNAREPORTER_MODE == "off":
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=410,
+                    content={
+                        "detail": (
+                            "DynaReporter został wygaszony — bieżące statystyki: "
+                            "/api/analytics/v1 (UI: /insights)"
+                        )
+                    },
+                )
+
+        response = await call_next(request)
         if path.startswith(_LEGACY_STATS_PREFIXES):
             response.headers.setdefault("Deprecation", "true")
             response.headers.setdefault("Sunset", "Wed, 30 Sep 2026 00:00:00 GMT")

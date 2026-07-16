@@ -46,6 +46,10 @@ from app.api.recruitment_access import (
     user_can_edit_rates,
     user_can_terminal_transition,
 )
+from app.services.rate_normalization import (
+    POLICY_VERSION as RATE_POLICY_VERSION,
+    normalize_rate_to_monthly,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -322,6 +326,70 @@ async def move_candidate(
         db, job, stage_def_id=data.stage_def_id, legacy_stage=data.stage
     )
 
+    # ── M4 PR-02: integrity walidacja TARGETU ruchu (audyt P1.1) ───────────
+    # Walidujemy WYŁĄCZNIE target — baseline PR-00 pokazał 79k istniejących
+    # latest rows ze stage_def spoza template'u joba (import Traffit); ruch
+    # Z takiego stanu musi pozostać legalny, ruch NA obcy etap — nie.
+    if data.stage_def_id and stage_def is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"stage_def_id={data.stage_def_id} nie istnieje",
+        )
+    effective_template_id = job.pipeline_template_id or await _default_template_id(db)
+    if (
+        stage_def is not None
+        and effective_template_id is not None
+        and stage_def.template_id != effective_template_id
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Etap '{stage_def.name}' należy do innego template'u niż "
+                "template tej oferty."
+            ),
+        )
+    if (
+        data.stage is not None
+        and stage_def is not None
+        and stage_def.legacy_enum_value
+        and stage_def.legacy_enum_value != data.stage.value
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Sprzeczne `stage`={data.stage.value} i `stage_def_id` "
+                f"(etap '{stage_def.name}' mapuje się na "
+                f"'{stage_def.legacy_enum_value}')."
+            ),
+        )
+
+    # Current row pary — kanoniczny tiebreaker (moved_at DESC, id DESC).
+    # Reużywany niżej: pending-block, cancel maili przy restore, notyfikacje.
+    previous_stage_row = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == data.candidate_id,
+            CandidateStage.job_id == data.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+
+    # M4 PR-02 (audyt P0.4): gdy current row czeka na akceptację stawki,
+    # kolejny move nie może ominąć gate'u — najpierw decyzja approvera.
+    if (
+        previous_stage_row is not None
+        and previous_stage_row.verification_status == VerificationStatus.pending
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Proces czeka na akceptację weryfikacji stawki "
+                "(pending verification). Zaakceptuj lub odrzuć weryfikację "
+                "zanim wykonasz kolejny ruch."
+            ),
+        )
+
     # Derive effective legacy-enum value for backward-compat column
     legacy_enum: PipelineStage = data.stage or PipelineStage.new
     if stage_def and stage_def.legacy_enum_value:
@@ -368,6 +436,23 @@ async def move_candidate(
     # `withdrawn`, bo to ma CHECK constraint na DB. Reszta legacy paths
     # zachowuje wcześniejsze zachowanie (BC-friendly).
     is_terminal_move_legacy_withdrawn = legacy_enum == PipelineStage.withdrawn
+    # M4 PR-02: withdrawn (stagedef LUB legacy) ZAWSZE wymaga powodu ze
+    # słownika — DB CHECK ck_candidate_stages_withdrawn_requires_reason i tak
+    # odrzuci NULL, więc free-text dawał 500 zamiast czytelnego 422.
+    is_withdrawn_target = is_terminal_move_legacy_withdrawn or bool(
+        stage_def
+        and stage_def.is_terminal
+        and stage_def.terminal_type
+        and stage_def.terminal_type.value == "withdrawn"
+    )
+    if is_withdrawn_target and not data.rejection_reason_id:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Etap 'withdrawn' wymaga powodu ze słownika "
+                "(rejection_reason_id) — sam opis tekstowy nie wystarcza."
+            ),
+        )
     if is_terminal_move_stagedef or is_terminal_move_legacy_withdrawn:
         if not data.rejection_reason_id and not data.rejection_reason:
             terminal_label = (
@@ -379,18 +464,62 @@ async def move_candidate(
                 status_code=422,
                 detail=f"Terminal stage ({terminal_label}) requires rejection_reason_id",
             )
-        # Validate the FK
-        if data.rejection_reason_id:
-            reason = await db.scalar(
-                select(RejectionReason).where(
-                    RejectionReason.id == data.rejection_reason_id
-                )
+    # M4 PR-02 (audyt P1.1): walidacja powodu ZAWSZE gdy podany — dotąd
+    # legacy `rejected` zapisywał dowolny FK bez sprawdzenia template'u,
+    # kategorii i stage-bindingu.
+    if data.rejection_reason_id:
+        reason = await db.scalar(
+            select(RejectionReason).where(
+                RejectionReason.id == data.rejection_reason_id
             )
-            if not reason or not reason.active:
-                raise HTTPException(
-                    status_code=422,
-                    detail="rejection_reason_id not found or inactive",
-                )
+        )
+        if not reason or not reason.active:
+            raise HTTPException(
+                status_code=422,
+                detail="rejection_reason_id not found or inactive",
+            )
+        if not (
+            is_terminal_move_stagedef
+            or legacy_enum
+            in (
+                PipelineStage.rejected,
+                PipelineStage.withdrawn,
+            )
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="rejection_reason_id dozwolony tylko dla ruchu terminalnego",
+            )
+        if (
+            effective_template_id is not None
+            and reason.template_id != effective_template_id
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Powód odrzucenia należy do innego template'u niż oferta.",
+            )
+        expected_category = (
+            stage_def.terminal_type.value
+            if is_terminal_move_stagedef
+            else legacy_enum.value
+        )
+        if reason.category.value != expected_category:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Powód ma kategorię '{reason.category.value}', "
+                    f"a ruch jest '{expected_category}'."
+                ),
+            )
+        if (
+            reason.stage_def_id is not None
+            and stage_def is not None
+            and reason.stage_def_id != stage_def.id
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Powód jest przypisany do innego etapu.",
+            )
 
     # ── Pending verification gate (migracja 0056) ────────────────────────
     # Tylko ruch na stage `verified` triggeruje sprawdzenie rate vs budget.
@@ -401,6 +530,7 @@ async def move_candidate(
     expected_rate_currency = data.expected_rate_currency or "PLN"
     budget_max_snapshot: Optional[int] = None
     needs_approval = False
+    normalization_note: Optional[str] = None
 
     if legacy_enum == PipelineStage.verified:
         if expected_rate_value is None or expected_rate_unit is None:
@@ -413,9 +543,28 @@ async def move_candidate(
             )
         if job.salary_max is not None:
             budget_max_snapshot = int(job.salary_max)
-            if Decimal(expected_rate_value) > Decimal(job.salary_max):
+            # M4 PR-02 (audyt P0.5): porównanie w JEDNEJ jednostce. Dotąd
+            # surowe 150 (PLN/h) < 25000 (PLN/mc) przechodziło jako "w
+            # budżecie". Normalizacja: hourly×168, daily×21; waluta ≠ PLN
+            # lub nieznana jednostka → fail-closed do manual review.
+            normalized_monthly, normalization_note = normalize_rate_to_monthly(
+                Decimal(expected_rate_value),
+                expected_rate_unit.value if expected_rate_unit else None,
+                expected_rate_currency,
+            )
+            if normalized_monthly is None or normalized_monthly > Decimal(
+                job.salary_max
+            ):
                 verification_status = VerificationStatus.pending
                 needs_approval = True
+
+    # M4 PR-02 (audyt P1.1): free-text reason był przyjmowany, "zaliczał"
+    # walidację terminalną i znikał (nie ma kolumny). Utrwalamy go w notes,
+    # żeby audyt widział podany powód.
+    effective_notes = data.notes
+    if data.rejection_reason and not data.rejection_reason_id:
+        prefix = f"Powód ({legacy_enum.value}): {data.rejection_reason.strip()}"
+        effective_notes = f"{prefix}\n{data.notes}" if data.notes else prefix
 
     stage = CandidateStage(
         candidate_id=data.candidate_id,
@@ -425,7 +574,7 @@ async def move_candidate(
         rejection_reason_id=data.rejection_reason_id,
         moved_at=datetime.now(timezone.utc),
         moved_by=current_user.id,
-        notes=data.notes,
+        notes=effective_notes,
         rating=data.rating,
         verification_status=verification_status,
         expected_rate_value=expected_rate_value,
@@ -456,21 +605,70 @@ async def move_candidate(
     )
 
     # Activity log
+    activity_details: dict = {
+        "candidate_id": data.candidate_id,
+        "job_id": data.job_id,
+        "stage": legacy_enum.value,
+        "stage_def_id": stage_def.id if stage_def else None,
+        "stage_name": stage_display_name,
+    }
+    if legacy_enum == PipelineStage.verified and budget_max_snapshot is not None:
+        # M4 PR-02: audyt decyzji gate'u — z jakiej normalizacji wynikła.
+        activity_details["rate_gate"] = {
+            "policy": RATE_POLICY_VERSION,
+            "note": normalization_note,
+            "pending": needs_approval,
+            "budget_max": budget_max_snapshot,
+        }
     db.add(
         Activity(
             entity_type="pipeline",
             entity_id=stage.id,
             action="stage_changed",
             user_id=current_user.id,
-            details={
-                "candidate_id": data.candidate_id,
-                "job_id": data.job_id,
-                "stage": legacy_enum.value,
-                "stage_def_id": stage_def.id if stage_def else None,
-                "stage_name": stage_display_name,
-            },
+            details=activity_details,
         )
     )
+
+    # M4 PR-02 (audyt P1.7): restore/ruch na etap NIEterminalny anuluje
+    # niewysłane maile odrzucenia tej pary — w TEJ SAMEJ transakcji co move.
+    # Dotąd przywrócony kandydat mógł dostać zaplanowane wcześniej odrzucenie.
+    if not is_terminal_target:
+        from app.models.rejection_email import (
+            RejectionEmailStatus,
+            ScheduledRejectionEmail,
+        )
+
+        pending_mails = (
+            (
+                await db.execute(
+                    select(ScheduledRejectionEmail).where(
+                        ScheduledRejectionEmail.candidate_id == data.candidate_id,
+                        ScheduledRejectionEmail.job_id == data.job_id,
+                        ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for mail_row in pending_mails:
+            mail_row.status = RejectionEmailStatus.cancelled
+            mail_row.cancelled_at = datetime.now(timezone.utc)
+            mail_row.cancelled_by = current_user.id
+            db.add(
+                Activity(
+                    entity_type="candidate",
+                    entity_id=data.candidate_id,
+                    action="rejection_email_cancelled_on_restore",
+                    user_id=current_user.id,
+                    details={
+                        "scheduled_rejection_email_id": mail_row.id,
+                        "job_id": data.job_id,
+                        "restored_to_stage": legacy_enum.value,
+                    },
+                )
+            )
 
     # UserActivity for leaderboard/performance tracking
     db.add(
@@ -488,74 +686,10 @@ async def move_candidate(
         )
     )
 
-    # Configurable stage-transition notifications (migracja 0066).
-    # Zastąpiło hardcoded recruiter-notify. Reguły wiszą na pipeline_stage_defs
-    # (baseline) z opcjonalnym override per klient. Resolver + emitter robią
-    # in-app + email (SMTP) per regułą. Best-effort: failure tu NIGDY nie
-    # blokuje ruchu stage'a.
-    try:
-        from app.services.stage_notification_emitter import notify_stage_change
-
-        # Najnowszy poprzedni stage tej pary candidate+job (do forward-only
-        # check w resolverze).
-        previous_stage = await db.scalar(
-            select(CandidateStage)
-            .where(
-                CandidateStage.candidate_id == data.candidate_id,
-                CandidateStage.job_id == data.job_id,
-                CandidateStage.id != stage.id,
-            )
-            .order_by(CandidateStage.moved_at.desc())
-            .limit(1)
-        )
-        candidate_obj = await db.scalar(
-            select(Candidate).where(Candidate.id == data.candidate_id)
-        )
-        if candidate_obj is not None:
-            await notify_stage_change(
-                db,
-                new_stage=stage,
-                previous_stage=previous_stage,
-                job=job,
-                candidate=candidate_obj,
-                mover=current_user,
-                stage_display_name=stage_display_name,
-            )
-    except Exception as _exc:  # noqa: BLE001
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "stage_notif top-level failure for stage=%s: %s", stage.id, _exc
-        )
-
-    # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to the
-    # client. The pool is resolved from the job title (classifier in
-    # services/job_to_pool.py) against the existing curated catalogue, with the
-    # candidate's skills disambiguating role variants. Best-effort — pool-add
-    # failure must NOT block the stage change, so errors are swallowed/logged.
-    if legacy_enum == PipelineStage.cv_sent:
-        import logging
-
-        from app.services.talent_pool_auto_add import auto_add_on_cv_sent
-
-        try:
-            pool_candidate = await db.scalar(
-                select(Candidate).where(Candidate.id == data.candidate_id)
-            )
-            await auto_add_on_cv_sent(
-                db=db,
-                candidate_id=data.candidate_id,
-                job=job,
-                user_id=current_user.id,
-                candidate=pool_candidate,
-            )
-        except Exception as e:  # noqa: BLE001
-            logging.getLogger(__name__).warning(
-                "auto_add_on_cv_sent failed for candidate=%s job=%s: %s",
-                data.candidate_id,
-                job.id,
-                e,
-            )
+    # M4 PR-02 (audyt P0.6): notify_stage_change (in-app + SMTP) oraz
+    # talent-pool auto-add przeniesione ZA commit — patrz sekcja post-commit
+    # niżej. Dotąd SMTP mógł wyjść przed commitem: mail o przejściu, którego
+    # DB ostatecznie nie zatwierdziła.
 
     # Phase 9 A2 + DL portal refactor 2026-05-11:
     # Auto-create a draft Contract + draft ClientOrder when the candidate is
@@ -671,13 +805,84 @@ async def move_candidate(
     await db.commit()
     await db.refresh(stage)
 
-    # Phase 17 (migracja 0068): event-driven recompute risk profile.
-    # Best-effort — błąd nie blokuje response. Wymaga dodatkowego commitu
-    # ponieważ poprzedni await db.commit() już zamknął transakcję.
-    from app.services.candidate_risk import on_candidate_stage_change
+    # ── Post-commit best-effort side effects (M4 PR-02, audyt P0.6) ────────
+    # Transition jest już trwały. Nic poniżej nie może zwrócić 500 ani
+    # cofnąć ruchu — każdy blok ma własny try/except + rollback, żeby błąd
+    # SQL nie zostawił sesji w failed transaction (PendingRollbackError
+    # → fałszywe 500 po zapisanym ruchu; scenariusz B audytu).
 
-    await on_candidate_stage_change(db, data.candidate_id)
-    await db.commit()
+    # Configurable stage-transition notifications (migracja 0066) —
+    # in-app + email (SMTP) per regułą; teraz wyłącznie PO commicie.
+    try:
+        from app.services.stage_notification_emitter import notify_stage_change
+
+        candidate_obj = await db.scalar(
+            select(Candidate).where(Candidate.id == data.candidate_id)
+        )
+        if candidate_obj is not None:
+            await notify_stage_change(
+                db,
+                new_stage=stage,
+                previous_stage=previous_stage_row,
+                job=job,
+                candidate=candidate_obj,
+                mover=current_user,
+                stage_display_name=stage_display_name,
+            )
+        await db.commit()
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("stage_notif top-level failure for stage=%s: %s", stage.id, _exc)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
+    # the client. Best-effort — po commicie ruchu.
+    if legacy_enum == PipelineStage.cv_sent:
+        from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+
+        try:
+            pool_candidate = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
+            await auto_add_on_cv_sent(
+                db=db,
+                candidate_id=data.candidate_id,
+                job=job,
+                user_id=current_user.id,
+                candidate=pool_candidate,
+            )
+            await db.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "auto_add_on_cv_sent failed for candidate=%s job=%s: %s",
+                data.candidate_id,
+                job.id,
+                e,
+            )
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+
+    # Phase 17 (migracja 0068): event-driven recompute risk profile.
+    # Best-effort — błąd NIE może wywołać 500 po zapisanym transition.
+    try:
+        from app.services.candidate_risk import on_candidate_stage_change
+
+        await on_candidate_stage_change(db, data.candidate_id)
+        await db.commit()
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning(
+            "risk recompute failed post-move candidate=%s: %s",
+            data.candidate_id,
+            _exc,
+        )
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
     resp = _stage_response(stage)
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
@@ -1196,7 +1401,7 @@ async def list_pending_verifications(
         .join(Job, Job.id == CandidateStage.job_id)
         .outerjoin(User, User.id == CandidateStage.moved_by)
         .where(CandidateStage.verification_status == VerificationStatus.pending)
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
     if job_id is not None:
         query = query.where(CandidateStage.job_id == job_id)
@@ -1207,6 +1412,15 @@ async def list_pending_verifications(
     items: list[PendingVerificationListItem] = []
     for cs, cand, job, mover in rows:
         full_name = f"{cand.name} {cand.lastname}".strip() or f"#{cand.id}"
+        # M4 PR-02: znormalizowane porównanie dla approvera (P0.5).
+        normalized_monthly = None
+        normalization_note = None
+        if cs.expected_rate_value is not None:
+            normalized_monthly, normalization_note = normalize_rate_to_monthly(
+                cs.expected_rate_value,
+                cs.expected_rate_unit,
+                cs.expected_rate_currency,
+            )
         items.append(
             PendingVerificationListItem(
                 candidate_stage_id=cs.id,
@@ -1218,6 +1432,8 @@ async def list_pending_verifications(
                 expected_rate_unit=cs.expected_rate_unit,
                 expected_rate_currency=cs.expected_rate_currency,
                 budget_max_at_move=cs.budget_max_at_move,
+                normalized_monthly_value=normalized_monthly,
+                normalization_note=normalization_note,
                 moved_at=cs.moved_at,
                 moved_by=cs.moved_by,
                 moved_by_name=mover.name if mover else None,
@@ -1255,6 +1471,27 @@ async def accept_verification(
         raise HTTPException(
             status_code=409,
             detail=f"Status nie jest 'pending' (obecny: {stage.verification_status.value})",
+        )
+
+    # M4 PR-02 (audyt P0.4): decyzja tylko na CURRENT row pary — historyczny
+    # pending nie może być zaakceptowany/odrzucony po tym, jak proces poszedł
+    # dalej inną ścieżką.
+    latest_id = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == stage.candidate_id,
+            CandidateStage.job_id == stage.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if latest_id != stage.id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ten rekord nie jest aktualnym stanem procesu — proces został "
+                "już przesunięty dalej. Odśwież listę weryfikacji."
+            ),
         )
 
     stage.verification_status = VerificationStatus.active
@@ -1351,6 +1588,27 @@ async def reject_verification(
             detail=f"Status nie jest 'pending' (obecny: {stage.verification_status.value})",
         )
 
+    # M4 PR-02 (audyt P0.4): decyzja tylko na CURRENT row pary — historyczny
+    # pending nie może być zaakceptowany/odrzucony po tym, jak proces poszedł
+    # dalej inną ścieżką.
+    latest_id = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == stage.candidate_id,
+            CandidateStage.job_id == stage.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if latest_id != stage.id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ten rekord nie jest aktualnym stanem procesu — proces został "
+                "już przesunięty dalej. Odśwież listę weryfikacji."
+            ),
+        )
+
     # Mark current as rejected (audit trail)
     now = datetime.now(timezone.utc)
     stage.verification_status = VerificationStatus.rejected
@@ -1369,7 +1627,7 @@ async def reject_verification(
                 CandidateStage.moved_at < stage.moved_at,
             )
         )
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
 
@@ -1488,29 +1746,47 @@ async def bulk_move_candidates(
             ),
         )
 
-    # M4 PR-01: bulk na `hired` = decyzja terminalna (sourcer nie zamyka
-    # rekrutacji), bulk na `verified` niesie semantykę stawki — te same
-    # capability co pojedynczy /move.
-    if data.stage == PipelineStage.hired and not user_can_terminal_transition(
-        current_user
-    ):
+    # M4 PR-02 (audyt P0.4/P0.7/P0.10): bulk nie robi terminal/gate shortcuts.
+    # `verified` z bulk omijał gate budżetowy (default verification_status=
+    # 'active', zero stawki), `hired` z bulk omijał hook Contract+ClientOrder
+    # (baseline PR-00: 499 par hired-bez-kontraktu). FE nie używa bulk-move —
+    # 422 z instrukcją zamiast cichej dziury. Nadrzędne wobec wcześniejszych
+    # guardów ról z PR-01 (blokada dotyczy wszystkich).
+    if data.stage in (PipelineStage.verified, PipelineStage.hired):
         raise HTTPException(
-            status_code=403,
+            status_code=422,
             detail=(
-                "Bulk-move na 'hired' wymaga roli recruiter/tac/delivery_lead/admin."
-            ),
-        )
-    if data.stage == PipelineStage.verified and not user_can_edit_rates(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Bulk-move na 'Zweryfikowany' wymaga roli "
-                "recruiter/tac/delivery_lead/admin."
+                f"Bulk-move na stage '{data.stage.value}' niedozwolony — "
+                "wymaga indywidualnego /move (gate stawki / artefakty "
+                "zatrudnienia)."
             ),
         )
 
+    # M4 PR-02 (audyt P0.7): limit, dedupe i walidacja wejścia.
+    unique_ids = list(dict.fromkeys(data.candidate_ids))
+    if len(unique_ids) > 100:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Bulk-move przyjmuje maksymalnie 100 kandydatów "
+            f"(otrzymano {len(unique_ids)} unikalnych).",
+        )
+    job = await db.scalar(select(Job).where(Job.id == data.job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    existing_ids = set(
+        (await db.execute(select(Candidate.id).where(Candidate.id.in_(unique_ids))))
+        .scalars()
+        .all()
+    )
+    missing = [cid for cid in unique_ids if cid not in existing_ids]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Nieistniejący kandydaci: {missing[:20]}",
+        )
+
     moved = 0
-    for cid in data.candidate_ids:
+    for cid in unique_ids:
         entry = CandidateStage(
             candidate_id=cid,
             job_id=data.job_id,
@@ -1527,12 +1803,20 @@ async def bulk_move_candidates(
     await db.commit()
 
     # Phase 17 (migracja 0068): recompute risk dla każdego kandydata.
-    # Best-effort — pojedynczy fail nie blokuje response.
+    # Best-effort — pojedynczy fail nie blokuje response ani nie zostawia
+    # sesji w failed transaction (M4 PR-02).
     from app.services.candidate_risk import on_candidate_stage_change
 
-    for cid in data.candidate_ids:
-        await on_candidate_stage_change(db, cid)
-    await db.commit()
+    try:
+        for cid in unique_ids:
+            await on_candidate_stage_change(db, cid)
+        await db.commit()
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("bulk risk recompute failed: %s", _exc)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
     # Auto-add to a talent pool when the bulk move is "CV → klient" (same
     # signal as the single /move path). Best-effort: a failure must not affect
@@ -1544,7 +1828,7 @@ async def bulk_move_candidates(
 
         pool_job = await db.scalar(select(Job).where(Job.id == data.job_id))
         if pool_job is not None:
-            for cid in data.candidate_ids:
+            for cid in unique_ids:
                 try:
                     pool_candidate = await db.scalar(
                         select(Candidate).where(Candidate.id == cid)

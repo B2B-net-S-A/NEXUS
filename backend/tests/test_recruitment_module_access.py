@@ -306,21 +306,21 @@ async def test_sourcer_can_still_do_nonterminal_move(
     assert r.status_code == 200, r.text
 
 
-async def test_sourcer_bulk_hired_blocked(m4_client: AsyncClient, headers_by_role):
+async def test_bulk_hired_verified_blocked_for_everyone(
+    m4_client: AsyncClient, headers_by_role
+):
+    """M4 PR-02: bulk terminal/gate shortcut zamknięty CAŁKOWICIE (422) —
+    hired omijał hook kontraktu, verified omijał gate stawki."""
     cand, job = await _seed_candidate(), await _seed_job()
     await _seed_stage(cand, job, "screening")
-    r = await m4_client.post(
-        "/api/pipeline/bulk-move",
-        json={"candidate_ids": [cand], "job_id": job, "stage": "hired"},
-        headers=headers_by_role[UserRole.sourcer],
-    )
-    assert r.status_code == 403, r.text
-    r = await m4_client.post(
-        "/api/pipeline/bulk-move",
-        json={"candidate_ids": [cand], "job_id": job, "stage": "verified"},
-        headers=headers_by_role[UserRole.sourcer],
-    )
-    assert r.status_code == 403, r.text
+    for role in (UserRole.sourcer, UserRole.admin):
+        for target in ("hired", "verified"):
+            r = await m4_client.post(
+                "/api/pipeline/bulk-move",
+                json={"candidate_ids": [cand], "job_id": job, "stage": target},
+                headers=headers_by_role[role],
+            )
+            assert r.status_code == 422, f"{role.value}/{target}: {r.text}"
 
 
 @pytest.mark.parametrize("role", sorted(TERMINAL_ROLES, key=lambda r: r.value))

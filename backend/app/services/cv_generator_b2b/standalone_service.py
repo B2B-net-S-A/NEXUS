@@ -1211,7 +1211,7 @@ async def list_recruitments_with_readiness(
         select(CandidateStage)
         .options(selectinload(CandidateStage.job))
         .where(CandidateStage.candidate_id == candidate_id)
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
     stages = (await db.scalars(stages_q)).all()
 

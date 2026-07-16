@@ -108,8 +108,11 @@ async def test_reorder_route_not_shadowed_by_stage_id_route(
         headers=app_auth_headers,
         json=[{"stage_id": 999_999_999, "order": 0}],
     )
-    assert resp.status_code == 404, resp.text
-    assert "not in template" in resp.json()["detail"]
+    # M4 PR-02: walidacja pełnej permutacji odpowiada 422 z WŁASNYM detail —
+    # nadal dowodzi, że request trafił do `reorder_stages` (int_parsing 422 z
+    # routu {stage_id} miałby detail o parsowaniu ścieżki, nie o template'ach).
+    assert resp.status_code == 422, resp.text
+    assert "spoza template" in resp.json()["detail"]
 
 
 async def test_update_stage_by_int_id_still_works(
