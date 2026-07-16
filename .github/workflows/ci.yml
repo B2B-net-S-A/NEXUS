@@ -152,6 +152,9 @@ jobs:
                  tests/test_dynareporter_admin.py \
                  tests/test_rbac.py \
                  tests/test_dashboard.py \
+                 tests/test_analytics_periods.py \
+                 tests/test_analytics_cache.py \
+                 tests/test_analytics_views.py \
                  tests/test_recommendation_status_filter.py \
                  tests/test_pipeline_templates_reorder.py \
                  tests/test_marketplace_api.py \
