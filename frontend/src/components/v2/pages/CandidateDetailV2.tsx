@@ -132,7 +132,6 @@ import {
  DialogTitle,
 } from"@/components/ui/dialog";
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
-import { ConfirmV2 } from"@/components/v2/modals/ConfirmV2";
 import { RiskBadge } from"@/components/v2/RiskBadge";
 import { CompetenceCategoryBadge } from"@/components/v2/CompetenceCategoryBadge";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
@@ -475,7 +474,6 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // w nagłówku — szybka korekta np. kandydatów zaimportowanych jako "?".
  const [editingIdentity, setEditingIdentity] = useState(false);
  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
- const [deleteOpen, setDeleteOpen] = useState(false);
  const [screeningStage, setScreeningStage] = useState<number | null>(null);
  const [noteText, setNoteText] = useState("");
  const [noteSaving, setNoteSaving] = useState(false);
@@ -665,23 +663,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  }
  };
 
- // Hard-delete the candidate from the DB. Backend cascades all related rows
- // (notes, contracts, pipeline, calls, …) and drops the Qdrant vector; guard is
- // admin/delivery_lead. After success leave the detail view — close the drawer
- // in embedded mode, otherwise navigate back to the candidate list.
- const deleteCandidate = useMutation({
- mutationFn: () => candidatesApi.delete(id),
- onSuccess: () => {
- showSuccess("Kandydat usunięty z bazy");
- queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
- queryClient.invalidateQueries({ queryKey: ["talent-pools"] });
- setDeleteOpen(false);
- if (embedded) onClose?.();
- else router.push("/candidates");
- },
- onError: (e) =>
- showError(extractErrorMsg(e) || "Nie udało się usunąć kandydata"),
- });
+ // Hard delete usunięty z UI (audyt M2 PR1, M2-PRIV-02): kaskada ON DELETE
+ // czyściła kontrakty/notatki/historię, a storage/Qdrant zostawały osierocone.
+ // Backend odpowiada 409 do czasu privacy executora (PR2 planu modułu).
 
  // Open a "Więcej" menu action on the next tick, after Radix finishes closing
  // the dropdown, so the opened overlay isn't disturbed by the menu's dismiss.
@@ -1048,18 +1032,8 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <Store className="h-4 w-4" />
  Wrzuć na targ
  </DropdownMenuItem>
- {hasRole(currentUser, "admin", "delivery_lead") && (
- <>
- <DropdownMenuSeparator />
- <DropdownMenuItem
- onSelect={() => openFromMenu(() => setDeleteOpen(true))}
- className="text-destructive focus:text-destructive"
- >
- <Trash2 className="h-4 w-4" />
- Usuń kandydata
- </DropdownMenuItem>
- </>
- )}
+ {/* „Usuń kandydata" usunięte (audyt M2 PR1) — hard delete wróci jako
+ audytowalny privacy workflow w PR2; do tego czasu użyj blacklisty. */}
  </DropdownMenuContent>
  </DropdownMenu>
  </div>
@@ -1423,19 +1397,6 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  />
  )}
 
- {/* Hard-delete confirmation. Destructive + explicit "cannot be undone" copy
- because the candidate and all related data are permanently removed. */}
- <ConfirmV2
- open={deleteOpen}
- onOpenChange={setDeleteOpen}
- variant="destructive"
- title="Usunąć kandydata z bazy?"
- description={`${candidate.name} ${candidate.lastname} oraz wszystkie powiązane dane (notatki, rozmowy, pipeline, kontrakty) zostaną trwale usunięte. Tej operacji nie można cofnąć.`}
- confirmLabel="Usuń trwale"
- cancelLabel="Anuluj"
- loading={deleteCandidate.isPending}
- onConfirm={() => deleteCandidate.mutate()}
- />
  </div>
  );
 }

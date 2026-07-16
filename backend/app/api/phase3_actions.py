@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.candidate_access import require_candidate_write
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
@@ -69,7 +69,7 @@ def _format_jobs_html(jobs: list[Job]) -> str:
 async def send_candidate_shortlist_email(
     request: Request,
     body: CandidateShortlistEmailRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_write),
     db: AsyncSession = Depends(get_db),
 ):
     cand = await db.scalar(select(Candidate).where(Candidate.id == body.candidate_id))
@@ -196,7 +196,7 @@ def _build_client_proposal_email(
 async def prepare_client_proposal(
     request: Request,
     body: ClientProposalRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_write),
     db: AsyncSession = Depends(get_db),
 ):
     cand = await db.scalar(select(Candidate).where(Candidate.id == body.candidate_id))

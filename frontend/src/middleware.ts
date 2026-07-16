@@ -46,12 +46,26 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
     prefix: "/cortex",
     roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
   },
+  // Moduł kandydatów (audyt M2 PR1): rola `user` = read-only viewer/klient
+  // NIE ma dostępu do bazy kandydatów, talentów ani targu — backend zwraca
+  // 403 (capability guards w candidate_access.py), middleware poprawia UX
+  // przekierowując na /403 zamiast pokazywać puste ekrany z błędami.
+  {
+    prefix: "/candidates",
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+  },
+  {
+    prefix: "/talents",
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+  },
+  {
+    prefix: "/sourcing",
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+  },
   // Wszystkie pozostałe chronione trasy — tylko „musisz być zalogowany":
-  { prefix: "/candidates", roles: null },
   { prefix: "/jobs", roles: null },
   { prefix: "/contracts", roles: null },
   { prefix: "/clients", roles: null },
-  { prefix: "/talents", roles: null },
   { prefix: "/calendar", roles: null },
   { prefix: "/profile", roles: null },
   { prefix: "/insights", roles: null },

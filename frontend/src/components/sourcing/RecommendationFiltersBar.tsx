@@ -164,14 +164,20 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
           />
         </label>
 
+        {/* Audyt M2 PR1 (M2-SEC-03): twarde konflikty NDA/blacklist/competitor
+            są ZAWSZE egzekwowane server-side — ten przełącznik steruje tylko
+            miękkimi ostrzeżeniami (np. „obecnie u tego klienta"). */}
         <label className="flex items-center gap-2 mt-5">
           <input
             type="checkbox"
             checked={industryBlocklist}
             onChange={(e) => setIndustryBlocklist(e.target.checked)}
           />
-          <span className="text-sm text-foreground dark:text-muted-foreground">
-            Respektuj NDA / blacklist klientów
+          <span
+            className="text-sm text-foreground dark:text-muted-foreground"
+            title="Twarde konflikty (NDA, blacklist, konkurencja) są zawsze wykluczane — niezależnie od tego ustawienia."
+          >
+            Pokaż miękkie ostrzeżenia (np. obecne zatrudnienie)
           </span>
         </label>
       </div>

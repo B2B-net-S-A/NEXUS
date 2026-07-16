@@ -6,9 +6,16 @@ inverse) ranks matches:
 - Hard filters on user-overridable criteria (location, salary ±tolerance,
   availability, competence_category)
 - Industry blocklist via `CandidateConflict`:
-    - `blacklist` + `competitor`           → hard drop
-    - `nda` (with active `expires_at`)     → hard drop
+    - `blacklist` + `competitor`           → hard drop (ALWAYS — fail-closed)
+    - `nda` (with active `expires_at`)     → hard drop (ALWAYS — fail-closed)
     - `current_employment`                  → soft warn (annotated, not removed)
+
+M2 audit PR 1 (M2-SEC-03): hard NDA/blacklist/competitor exclusions are
+enforced server-side regardless of caller input. `filters.industry_blocklist`
+used to skip loading conflicts entirely — any logged-in user could surface
+hard-blocked jobs by passing `industry_blocklist=false`. The flag now only
+toggles SOFT warnings (`current_employment` annotation); the hard set is
+always applied and there is no parameter that bypasses it.
 
 Separation of concerns: `scoring_service` stays untouched. This layer wraps
 the result list and works in either direction (candidate→jobs or job→candidates)
@@ -53,6 +60,9 @@ class RecommendationFilters:
     salary_tolerance: float = 0.20  # ±20%
     availability: Optional[Sequence[AvailabilityStatus]] = None
     competence_category: Optional[Sequence[str]] = None
+    # SOFT-warnings toggle only. Hard NDA/blacklist/competitor conflicts are
+    # enforced unconditionally in `apply_user_filters` — this flag cannot
+    # re-include a hard-blocked job (M2-SEC-03 fail-closed contract).
     industry_blocklist: bool = True
 
 
@@ -212,10 +222,16 @@ async def apply_user_filters(
     Returns `(kept, stats)`. The same job may carry a non-`None` `warning`
     when soft-flagged (e.g. `current_employment`). Hard drops never appear in
     `kept`.
+
+    Hard conflicts (blacklist/competitor/nda) are ALWAYS loaded and enforced —
+    `filters.industry_blocklist=False` only suppresses the soft
+    `current_employment` warning annotation, never the hard exclusion set.
     """
+    # Ephemeral candidates (CV-preview, no DB row) have id=None — nothing to
+    # look up. Every persisted candidate gets the full fail-closed hard set.
     conflicts = (
         await _load_active_conflicts(db, candidate.id)
-        if filters.industry_blocklist
+        if candidate.id is not None
         else {}
     )
     initial = 0
@@ -249,8 +265,12 @@ async def apply_user_filters(
         if conflicts:
             keep, warning = _conflict_decision(j, conflicts)
             if not keep:
+                # Hard drop — fail-closed, independent of any caller flag.
                 dropped_blocklist += 1
                 continue
+            if warning and not filters.industry_blocklist:
+                # Soft warnings are the only thing the user toggle controls.
+                warning = None
             if warning:
                 soft_warned += 1
 

@@ -19,11 +19,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    CurrentUser,
-    get_current_user,
-    require_roles,
+from app.api.candidate_access import (
+    CandidateWriteAccess,
+    require_candidate_read,
 )
+from app.api.deps import require_roles
 from app.core.config import settings
 from app.core.database import get_db
 from app.services.candidate_stage_cv_service import (
@@ -113,7 +113,7 @@ async def recommend_candidates_for_job(
             "filter (legacy behaviour preserved)."
         ),
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -298,7 +298,7 @@ async def recommend_candidates_for_job(
 async def pipeline_match_scores(
     request: Request,
     job_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
     """Hybrid AI match scores (0-100) for the candidates currently in a job's
@@ -435,7 +435,7 @@ async def candidates_from_similar_jobs(
         ),
     ),
     top_k_similar: int = Query(20, ge=1, le=50),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ) -> CandidatesFromSimilarOut:
     """Return candidates who were active in semantically similar past jobs.
@@ -602,7 +602,7 @@ async def recommend_jobs_for_candidate(
             "include closed jobs too. Published jobs are ranked above drafts."
         ),
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
     """Reverse recommendations: which open (draft/published) jobs fit this candidate?"""
@@ -922,7 +922,7 @@ async def recompute_scores(
 async def assign_candidate_to_job(
     candidate_id: int,
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1131,9 +1131,16 @@ async def seeking_contractors(
             "&competence_category=DevOps`). OR-combined (any match keeps the job)."
         ),
     ),
-    industry_blocklist: bool = Query(True),
+    industry_blocklist: bool = Query(
+        True,
+        description=(
+            "Soft-warnings toggle ONLY (e.g. „obecnie u tego klienta”). Hard "
+            "NDA/blacklist/competitor conflicts are enforced server-side "
+            "regardless of this flag (M2 audit PR 1, fail-closed)."
+        ),
+    ),
     page_size: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
     """Konsultanci szukający projektu — batch matcher.

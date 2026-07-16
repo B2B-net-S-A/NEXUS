@@ -37,7 +37,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.candidate_access import require_candidate_write
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -177,7 +177,7 @@ async def cv_upload_preview(
     salary_min: Annotated[Optional[int], Form()] = None,
     salary_max: Annotated[Optional[int], Form()] = None,
     competence_category: Annotated[Optional[str], Form()] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_candidate_write),
     db: AsyncSession = Depends(get_db),
 ):
     """Preview top jobs for a freshly uploaded CV — no Candidate is created."""
@@ -307,7 +307,10 @@ async def cv_upload_preview(
             salary_min=salary_min,
             salary_max=salary_max,
             competence_category=[competence_category] if competence_category else None,
-            industry_blocklist=False,  # no candidate row → nothing to block
+            # Ephemeral candidate (no DB row) → no conflicts to annotate;
+            # hard exclusions are candidate-bound and enforced in the filter
+            # service itself for persisted candidates (M2 PR1 fail-closed).
+            industry_blocklist=False,
         )
         filtered, _stats = await apply_user_filters(candidate, jobs, filters, db)
 

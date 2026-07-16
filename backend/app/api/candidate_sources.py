@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_source_event import (
@@ -62,7 +62,7 @@ def _serialize(row: CandidateSourceEvent) -> CandidateSourceEventOut:
 )
 async def list_candidate_sources(
     candidate_id: int,
-    _: CurrentUser,
+    _: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> List[CandidateSourceEventOut]:
     """Return source events for a candidate, newest first.
@@ -92,7 +92,7 @@ async def list_candidate_sources(
 async def add_candidate_source(
     candidate_id: int,
     payload: CandidateSourceEventCreate,
-    _: CurrentUser,
+    _: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateSourceEventOut:
     """Record a new source touch (recruiter manual or import script).
@@ -131,7 +131,7 @@ reports_router = APIRouter()
 
 @reports_router.get("/sources", response_model=SourceReportResponse)
 async def report_sources(
-    _: CurrentUser,
+    _: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     days: int = Query(30, ge=1, le=365),
     group_by_utm: bool = Query(

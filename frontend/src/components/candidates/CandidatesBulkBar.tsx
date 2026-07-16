@@ -5,7 +5,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Tag,
   Briefcase,
-  EyeOff,
   Users,
   X,
   Loader2,
@@ -53,14 +52,10 @@ const ACTIONS: ActionConfig[] = [
     description:
       "Otwiera picker rekrutacji — propose przebiega przez /jobs/{id}/proposals/bulk.",
   },
-  {
-    type: "anonymize_pii",
-    label: "Anonimizuj (RODO)",
-    icon: <EyeOff className="w-4 h-4" />,
-    destructive: true,
-    description:
-      "Czyści PII (imię/nazwisko/email/telefon/LinkedIn) i ustawia status=blacklisted. Operacja nieodwracalna.",
-  },
+  // "Anonimizuj (RODO)" usunięte (audyt M2 PR1, M2-PRIV-01): stara akcja
+  // czyściła tylko kilka pól kontaktowych zostawiając CV/dokumenty/notatki/
+  // wektory — fałszywe poczucie realizacji RODO. Backend odpowiada 409 do
+  // czasu prawdziwego privacy executora (PR2); akcja wróci wraz z nim.
 ];
 
 /**
@@ -109,17 +104,6 @@ export function CandidatesBulkBar({
     mutation.mutate({ action: "add_tags", params: { tags } });
   };
 
-  const confirmAndAnonymize = () => {
-    if (
-      !window.confirm(
-        `Anonimizować ${selectedIds.length} kandydat(ów)? Operacja jest nieodwracalna.`,
-      )
-    ) {
-      return;
-    }
-    mutation.mutate({ action: "anonymize_pii" });
-  };
-
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-3xl px-4">
       <div className="bg-card border border-border rounded-xl shadow-2xl p-3">
@@ -138,13 +122,7 @@ export function CandidatesBulkBar({
               <button
                 key={action.type}
                 type="button"
-                onClick={() => {
-                  if (action.type === "anonymize_pii") {
-                    confirmAndAnonymize();
-                  } else {
-                    setActiveAction(action.type);
-                  }
-                }}
+                onClick={() => setActiveAction(action.type)}
                 disabled={mutation.isPending}
                 className={cn(
                   "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors",

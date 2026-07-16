@@ -10,7 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, get_current_user
+from app.api.candidate_access import CandidateSearchAccess, CandidateWriteAccess
+from app.api.deps import get_db
 from app.models.user import User, UserRole
 from app.models.candidate import Candidate
 from app.models.talent_pool import TalentPool, TalentPoolMembership
@@ -126,8 +127,8 @@ def _assert_can_modify_pool(pool: TalentPool, user: User) -> None:
 
 @router.get("/talent-pools", response_model=list[TalentPoolOut])
 async def list_talent_pools(
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     # Count memberships with a grouped aggregate instead of loading every
     # membership row — after the cv_sent backfill there are thousands of them,
@@ -175,8 +176,8 @@ async def list_talent_pools(
 @router.post("/talent-pools", response_model=TalentPoolOut, status_code=201)
 async def create_talent_pool(
     data: TalentPoolCreate,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     # Derive the Competence Category from the pool name so the /talents category
     # filter works for manually-created pools too (the create form doesn't ask
@@ -223,8 +224,8 @@ async def create_talent_pool(
 async def add_candidate_to_pool(
     pool_id: int,
     data: AddCandidateRequest,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     # Verify pool exists + the user is allowed to modify it (osobiste = owner/admin)
     pool = await _get_pool_or_404(pool_id, db)
@@ -271,8 +272,8 @@ async def add_candidate_to_pool(
 async def bulk_add_candidates_to_pool(
     pool_id: int,
     data: BulkAddCandidatesRequest,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """Bulk-add wielu kandydatów do puli — idempotentne (skip already-in-pool).
 
@@ -329,8 +330,8 @@ async def bulk_add_candidates_to_pool(
 async def remove_candidate_from_pool(
     pool_id: int,
     candidate_id: int,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     # Pula osobista — tylko właściciel/admin może usuwać kandydatów.
     pool = await _get_pool_or_404(pool_id, db)
@@ -355,8 +356,8 @@ async def remove_candidate_from_pool(
 @router.delete("/talent-pools/{pool_id}", status_code=200)
 async def delete_talent_pool(
     pool_id: int,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """Usuń całą pulę talentów (kaskada usuwa memberships).
 
@@ -394,8 +395,8 @@ async def delete_talent_pool(
 @router.get("/talent-pools/{pool_id}/candidates")
 async def list_pool_candidates(
     pool_id: int,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
     limit: int = 500,
     offset: int = 0,
 ):
@@ -467,8 +468,8 @@ async def list_pool_candidates(
 @router.get("/talent-pools/for-candidate/{candidate_id}")
 async def get_pools_for_candidate(
     candidate_id: int,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """Zwraca listę pul, do których należy kandydat (do dropdownu)."""
     result = await db.execute(

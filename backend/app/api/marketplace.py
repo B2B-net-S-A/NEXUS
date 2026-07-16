@@ -8,7 +8,7 @@ Endpoints:
 - GET    /api/marketplace/candidates/{id}/matches    — top-K current matchów
 
 Auth:
-- Read (GET)        → CurrentUser (dowolna rola)
+- Read (GET)        → CandidateSearchAccess (role operacyjne; viewer 403 — M2 PR1)
 - Write (POST/DELETE) → RecruiterPlus (admin / delivery_lead / tac / recruiter /
   sourcer). Wrzut na targ to akcja sourcingowa — rekruter/sourcer, który ma
   wolnego kandydata, musi móc go wystawić (read-only `user`/klient/QC nie).
@@ -24,7 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus, get_db
+from app.api.candidate_access import CandidateSearchAccess
+from app.api.deps import RecruiterPlus, get_db
 from app.services.marketplace_service import (
     add_candidate_to_marketplace,
     ensure_marketplace_pool,
@@ -119,7 +120,7 @@ class MarketplacePoolOut(BaseModel):
 
 @router.get("/marketplace/pool", response_model=MarketplacePoolOut)
 async def get_marketplace_pool(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Metadata singletona targu (debug/admin)."""
@@ -146,7 +147,7 @@ async def get_marketplace_pool(
 
 @router.get("/marketplace/candidates", response_model=MarketplaceListResponse)
 async def list_candidates(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -259,7 +260,7 @@ async def remove_from_marketplace(
 )
 async def get_candidate_matches(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Top-K aktualnych matchów dla kandydata w targu (UI expansion row)."""
