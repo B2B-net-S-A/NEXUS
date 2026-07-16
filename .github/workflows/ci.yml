@@ -173,6 +173,7 @@ jobs:
                  tests/test_marketplace_api.py \
                  tests/test_b2b_contract_generator.py \
                  tests/test_contract_legal_access.py \
+                 tests/test_client_amendment_access.py \
                  tests/test_cv_generator_b2b_headers.py \
                  tests/test_cv_generator_b2b_pipeline.py \
                  tests/test_cv_generator_b2b_ai_client.py \
