@@ -122,6 +122,9 @@ GET_ENDPOINTS_ALL = [
 
 # R0: odczyty operacyjne (wszyscy POZA read-only viewerem `user`):
 OPERATIONAL_ENDPOINTS = [
+    # Audyt M2 PR1: cały moduł kandydatów odcięty od roli `user` — pełna
+    # macierz w tests/test_candidate_module_access.py.
+    ("GET", "/api/candidates"),
     ("GET", "/api/clients"),
     # Celowo operacyjny (nie TacPlus): team-wide agregat dla dashboardu —
     # patrz komentarz nad reports.py::report_recruitment.
