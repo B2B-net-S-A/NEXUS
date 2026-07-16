@@ -15,6 +15,7 @@ waluty ≠ PLN bez kursu ⇒ finanse partial z warningiem (pełny FX = PR 6).
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from datetime import date as date_type
 from typing import Any
@@ -55,6 +56,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _CACHE_TTL_SECONDS = 120
@@ -550,8 +552,30 @@ async def admin_set_cutover(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    """Ustaw/zmień datę cutoveru modułu. Wymusza 1. dzień miesiąca."""
+    """Ustaw/zmień datę cutoveru modułu. Wymusza 1. dzień miesiąca.
+
+    Audyt M7 PR-05 (P1.7): endpoint jest ZAMROŻONY (412) do czasu readiness
+    manifestu / state machine z PR-39 — dziś nadpisuje boundary bez dowodu
+    parity i bez audytu rewizji. Break-glass (`ANALYTICS_CUTOVER_BREAKGLASS`)
+    pozwala na awaryjne ustawienie w shadow-prep; każde użycie jest logowane
+    z operatorem.
+    """
     from app.models.analytics_snapshot import AnalyticsCutover
+
+    if not settings.ANALYTICS_CUTOVER_BREAKGLASS:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail=(
+                "Cutover zamrożony: brak readiness manifestu (M7 PR-39). "
+                "Awaryjne ustawienie wymaga ANALYTICS_CUTOVER_BREAKGLASS=true."
+            ),
+        )
+    logger.warning(
+        "analytics cutover set via break-glass: module=%s cutover_date=%s user_id=%s",
+        payload.module,
+        payload.cutover_date.isoformat(),
+        current_user.id,
+    )
 
     if payload.cutover_date.day != 1:
         raise HTTPException(

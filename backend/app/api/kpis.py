@@ -10,6 +10,7 @@ delivery_leada) dodawane w kolejnych fazach.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,8 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser, RecruiterPlus, require_roles
 from app.core.cache import cache_get, cache_set
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType
+from app.models.kpi_nudge_log import KpiNudgeType
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import KpiPeriod, get_kpi
 from app.services.kpi_coach_service import run_scheduled_sweep
@@ -28,6 +30,7 @@ from app.services.kpi_engine import KpiResult, evaluate_user_kpis, period_bucket
 from app.services.kpi_panel import PanelResult, compute_my_panel
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -377,9 +380,11 @@ async def admin_debug_fire_nudge(
     """**SMOKE TEST ONLY** — wymusza emisję jednego nudge'a end-to-end
     (kpi_nudge_log + Notification + WS event) dla `target_user_id`.
 
-    Pomija normalną ewaluację KPI (żeby działało po 17:30 gdy stan==missed)
-    i czyści istniejący log dedup'u dla (user, kpi, type, bucket) aby
-    pozwolić re-fire w tym samym dniu.
+    Audyt M7 PR-05 (P1.15): w produkcji dostępne WYŁĄCZNIE przez break-glass
+    (`KPI_COACH_DEBUG_BREAKGLASS`), NIE kasuje logu dedupe (wcześniej DELETE
+    niszczyło historię) i NIE zwraca tracebacku (sanitized 500). Jeśli nudge
+    dla (user, kpi, type, bucket) już istnieje, dedup zwróci emitted=False —
+    użyj innego usera/kpi zamiast czyścić historię.
 
     Args:
       target_user_id: komu emitować.
@@ -388,9 +393,14 @@ async def admin_debug_fire_nudge(
       current, target: wartości do renderowania szablonu (body będzie mieć "{current}/{target}").
     """
     from datetime import datetime
-    from sqlalchemy import and_, delete, select
+    from sqlalchemy import select
 
     from app.services.kpi_coach_service import WARSAW
+
+    # Break-glass: smoke-test emituje realne powiadomienie — w prod tylko za
+    # jawną flagą (DEBUG w dev). Bez niej udajemy, że endpoint nie istnieje.
+    if not settings.DEBUG and not settings.KPI_COACH_DEBUG_BREAKGLASS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     user = await db.scalar(select(User).where(User.id == target_user_id))
     if user is None:
@@ -416,18 +426,10 @@ async def admin_debug_fire_nudge(
     now = datetime.now(WARSAW)
     bucket = period_bucket_label(kpi_def.period, now)
 
-    # Purge prior log entry to sidestep the dedup UniqueConstraint.
-    await db.execute(
-        delete(KpiNudgeLog).where(
-            and_(
-                KpiNudgeLog.user_id == user.id,
-                KpiNudgeLog.kpi_id == kpi_id,
-                KpiNudgeLog.nudge_type == nudge_enum,
-                KpiNudgeLog.period_bucket == bucket,
-            )
-        )
-    )
-    await db.flush()
+    # Audyt M7 PR-05 (P1.15): historii nudge'y NIE kasujemy — wcześniejszy
+    # DELETE "sidestep the dedup UniqueConstraint" niszczył audit trail i
+    # pozwalał smoke-testowi dublować realne powiadomienia. Jeśli wpis
+    # (user, kpi, type, bucket) już istnieje, emit zwróci emitted=False.
 
     fake_result = KpiResult(
         kpi_id=kpi_id,
@@ -450,18 +452,19 @@ async def admin_debug_fire_nudge(
             now=now,
         )
         await db.commit()
-    except Exception as exc:
-        import traceback
-
+    except Exception:
         await db.rollback()
+        # Audyt M7 PR-05 (P1.15): traceback/exc_repr NIE wychodzi w response —
+        # szczegóły tylko do logów serwera (Sentry i tak złapie exception).
+        logger.exception(
+            "debug-fire-nudge failed (user_id=%s kpi_id=%s nudge_type=%s)",
+            user.id,
+            kpi_id,
+            nudge_type,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "step": "_try_emit_nudge",
-                "exc_type": type(exc).__name__,
-                "exc_repr": repr(exc),
-                "traceback": traceback.format_exc().splitlines()[-10:],
-            },
+            detail="debug-fire-nudge failed — szczegóły w logach serwera",
         )
 
     return DebugFireNudgeResponse(
@@ -470,5 +473,5 @@ async def admin_debug_fire_nudge(
         kpi_id=kpi_id,
         nudge_type=nudge_type,
         period_bucket=bucket,
-        notice="SMOKE TEST — forged KpiResult, dedup row purged before emit.",
+        notice="SMOKE TEST — forged KpiResult; dedup log NIE jest czyszczony.",
     )

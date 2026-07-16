@@ -289,6 +289,18 @@ class Settings(BaseSettings):
     # danych ATS. Historia notyfikacji w DB pozostaje nietknięta.
     KPI_COACH_NUDGER_ENABLED: bool = False
 
+    # ── Audyt M7 PR-05: freeze niebezpiecznych aktywacji (break-glass) ────────
+    # Oba domyślnie False (fail-closed). Odblokowują ryzykowne operacje, których
+    # pełne zabezpieczenie przyjdzie w kolejnych falach:
+    #   • debug-fire-nudge (P1.15) — smoke-test wymuszający emisję nudge'a; w
+    #     produkcji dostępny WYŁĄCZNIE przez tę flagę (a i tak nie kasuje logu
+    #     dedupe ani nie zwraca tracebacku),
+    #   • cutover analytics (P1.7) — ustawienie legacy/live boundary jest
+    #     zamrożone do czasu readiness manifestu (PR-39); break-glass służy do
+    #     awaryjnego ustawienia w shadow-prep, z audytem.
+    KPI_COACH_DEBUG_BREAKGLASS: bool = False
+    ANALYTICS_CUTOVER_BREAKGLASS: bool = False
+
     # ── Analytics v1 (plan 2026-07-16, PR 2) ──────────────────────────────────
     # Tryb rolloutu:
     #   off    — router /api/analytics/v1 zwraca 503, zero zmian zachowania,
