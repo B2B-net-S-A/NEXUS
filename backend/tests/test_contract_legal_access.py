@@ -96,7 +96,10 @@ async def test_legal_team_roles_pass_auth(app_client: AsyncClient, role_value: s
     )
 
 
-async def test_unauthenticated_is_401(app_client: AsyncClient):
+async def test_unauthenticated_is_rejected(app_client: AsyncClient):
+    # No Authorization header → FastAPI's HTTPBearer rejects before the role
+    # check runs. NEXUS returns 403 there (Bearer auto_error), so accept both
+    # "not authenticated" codes — the point is the anon caller gets no data.
     for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
         r = await app_client.get(url)
-        assert r.status_code == 401, f"anon GET {url} → {r.status_code}"
+        assert r.status_code in (401, 403), f"anon GET {url} → {r.status_code}"
