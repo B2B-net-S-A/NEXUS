@@ -2,8 +2,8 @@
 
 import * as React from"react";
 import { useState, useEffect } from"react";
-import { useMutation, useQuery } from"@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Mail, Send } from"lucide-react";
+import { useQuery } from"@tanstack/react-query";
+import { AlertCircle, Mail } from"lucide-react";
 import api from"@/lib/api";
 import {
  Dialog,
@@ -74,13 +74,17 @@ export function SendEmailV2({
  const [subject, setSubject] = useState("");
  const [body, setBody] = useState("");
  const [error, setError] = useState("");
- const [sent, setSent] = useState(false);
+ const [opened, setOpened] = useState(false);
 
- // Reset on open
+ // Reset on open — clear ALL fields so Candidate A's draft never leaks into
+ // Candidate B's dialog.
  useEffect(() => {
  if (open) {
  setToEmail(candidateEmail);
- setSent(false);
+ setSelectedTemplateId("");
+ setSubject("");
+ setBody("");
+ setOpened(false);
  setError("");
  }
  }, [open, candidateEmail]);
@@ -110,43 +114,45 @@ export function SendEmailV2({
  }
  }, [preview]);
 
- const sendMut = useMutation({
- mutationFn: () =>
- api.post("/api/emails/send", {
- to_email: toEmail,
- subject,
- body,
- candidate_id: candidateId,
- template_id: selectedTemplateId ? Number(selectedTemplateId) : undefined,
- }),
- onSuccess: () => {
- setSent(true);
- onSent?.();
- },
- onError: () => setError("Błąd podczas wysyłania emaila. Spróbuj ponownie."),
- });
+ // The composer no longer fabricates business data, so any remaining
+ // {{token}} is a blank the author must fill before sending.
+ const unresolved = Array.from(
+ new Set(`${subject}\n${body}`.match(/\{\{[a-z_]+\}\}/g) ?? []),
+ );
 
- const handleSend = () => {
+ const handleOpenInMailClient = () => {
  setError("");
  if (!toEmail.trim() || !subject.trim() || !body.trim()) {
  setError("Uzupełnij adres, temat i treść wiadomości.");
  return;
  }
- sendMut.mutate();
+ // NEXUS does not send the message. It hands a prefilled draft to the
+ // recruiter's own mail client — we never claim a delivery we can't verify.
+ // The address goes in the mailto path verbatim (a type=email value) —
+ // encodeURIComponent would turn "@" into "%40" and several clients then
+ // blank the To field. Only the hfields (subject/body) are encoded.
+ const mailto = `mailto:${toEmail.trim()}?subject=${encodeURIComponent(
+ subject,
+ )}&body=${encodeURIComponent(body)}`;
+ window.location.href = mailto;
+ setOpened(true);
+ onSent?.();
  };
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
  <DialogContent size="lg">
- {sent ? (
+ {opened ? (
  <>
  <DialogHeader>
  <div className="flex items-center gap-2">
- <CheckCircle2 className="h-5 w-5 text-[#1d5e31]" />
- <DialogTitle>Email wysłany</DialogTitle>
+ <Mail className="h-5 w-5 text-primary" />
+ <DialogTitle>Otwarto w aplikacji pocztowej</DialogTitle>
  </div>
  <DialogDescription>
- Wiadomość została wysłana do {candidateName} ({toEmail}).
+ Przygotowana wiadomość do {candidateName} ({toEmail}) została otwarta
+ w Twojej domyślnej aplikacji pocztowej. Wyślij ją stamtąd — NEXUS nie
+ wysyła jej za Ciebie.
  </DialogDescription>
  </DialogHeader>
  <DialogFooter>
@@ -160,10 +166,11 @@ export function SendEmailV2({
  <DialogHeader>
  <div className="flex items-center gap-2">
  <Mail className="h-4 w-4 text-primary" />
- <DialogTitle>Wyślij email do {candidateName}</DialogTitle>
+ <DialogTitle>Napisz email do {candidateName}</DialogTitle>
  </div>
  <DialogDescription>
- Wybierz szablon lub napisz wiadomość od zera.
+ Wybierz szablon lub napisz wiadomość od zera. NEXUS otworzy gotową
+ treść w Twojej aplikacji pocztowej — wyślesz ją stamtąd.
  </DialogDescription>
  </DialogHeader>
 
@@ -176,6 +183,16 @@ export function SendEmailV2({
  >
  <AlertCircle className="h-4 w-4 shrink-0" />
  <span>{error}</span>
+ </div>
+ )}
+
+ {unresolved.length > 0 && (
+ <div
+ role="status"
+ className="inline-flex items-center gap-2 text-sm text-muted-foreground bg-muted px-3 py-2 rounded-md w-full"
+ >
+ <AlertCircle className="h-4 w-4 shrink-0" />
+ <span>Uzupełnij pola szablonu przed wysłaniem: {unresolved.join(", ")}</span>
  </div>
  )}
 
@@ -234,9 +251,9 @@ export function SendEmailV2({
  <Button variant="ghost" onClick={() => onOpenChange(false)}>
  Anuluj
  </Button>
- <Button variant="primary" onClick={handleSend} loading={sendMut.isPending}>
- <Send className="h-4 w-4" />
- Wyślij email
+ <Button variant="primary" onClick={handleOpenInMailClient}>
+ <Mail className="h-4 w-4" />
+ Otwórz w aplikacji pocztowej
  </Button>
  </DialogFooter>
  </>

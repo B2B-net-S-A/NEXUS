@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.email_template import EmailCategory, EmailTemplate
 from app.api.deps import AdminUser, CurrentUser, TacPlus
@@ -61,10 +60,6 @@ class SendEmailRequest(BaseModel):
     body: str
     candidate_id: Optional[int] = None
     template_id: Optional[int] = None
-
-
-class SendTestRequest(BaseModel):
-    template_id: int
 
 
 class PreviewRequest(BaseModel):
@@ -248,19 +243,21 @@ AVAILABLE_PLACEHOLDERS = [
 def _render_template(
     subject: str, body: str, candidate: Optional[Candidate] = None
 ) -> tuple[str, str]:
-    """Zastępuje placeholdery danymi kandydata."""
-    placeholders = {
-        "{{candidate_name}}": f"{candidate.name} {candidate.lastname}".strip()
-        if candidate
-        else "Jan Kowalski",
-        "{{job_title}}": "Senior Java Developer",
-        "{{company_name}}": "B2B.net S.A.",
-        "{{interview_date}}": "2025-02-15 10:00",
-        "{{salary}}": "20 000 – 25 000 PLN netto",
-        "{{recruiter_name}}": "Rekruter",
-        "{{recruiter_email}}": "rekrutacja@b2bnet.pl",
-        "{{application_date}}": "2025-02-01",
-    }
+    """Substitute only placeholders we can resolve from real data.
+
+    P0.2: the previous version substituted hardcoded business values
+    ("Senior Java Developer", a 2025 date, a fixed salary band, a fake
+    recruiter) regardless of the selected recruitment — the recruiter could
+    copy or send false terms. We now substitute only values we actually have
+    (the candidate's own name) and leave every other ``{{token}}`` unresolved
+    so it is visibly a blank the author must fill before sending.
+    """
+    placeholders = {}
+    if candidate is not None:
+        full_name = f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+        if full_name:
+            placeholders["{{candidate_name}}"] = full_name
+
     rendered_subject = subject
     rendered_body = body
     for key, value in placeholders.items():
@@ -456,38 +453,20 @@ async def preview_template_by_id(
 async def send_test_email(
     template_id: int,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
 ):
+    """Legacy simulated test-send — permanently disabled (Module 6, P0.1).
+
+    This stub never sent anything: it logged the full rendered body to stdout
+    (shipped to Loki) and reported the message as "wysłany". It now returns
+    ``410 Gone`` and does no logging. No frontend uses it.
     """
-    Stub: simulates sending a test email to the current user.
-    Logs to console; real SMTP is a TODO.
-    """
-    result = await db.execute(
-        select(EmailTemplate).where(EmailTemplate.id == template_id)
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "code": "LEGACY_EMAIL_SIMULATION_DISABLED",
+            "message": "Symulowana wysyłka testowa została wyłączona.",
+        },
     )
-    template = result.scalar_one_or_none()
-    if not template:
-        raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
-
-    rendered_subject, rendered_body = _render_template(template.subject, template.body)
-
-    to_email = (
-        current_user.email if hasattr(current_user, "email") else "user@example.com"
-    )
-
-    logger.info("=" * 60)
-    logger.info("[TEST EMAIL SIMULATION] — Email NIE został fizycznie wysłany")
-    logger.info(f"  Do:      {to_email}")
-    logger.info(f"  Temat:   {rendered_subject}")
-    logger.info(f"  Treść:\n{rendered_body}")
-    logger.info("=" * 60)
-
-    return {
-        "status": "simulated",
-        "message": f"Testowy email został zasymulowany i wysłany na {to_email}",
-        "to_email": to_email,
-        "subject": rendered_subject,
-    }
 
 
 @router.post("/email-templates/seed")
@@ -528,57 +507,36 @@ async def seed_default_templates(
     return {"status": "seeded", "message": f"Dodano {created} domyślnych szablonów"}
 
 
-# ── Send Email (Simulated) ─────────────────────────────────────────────────
+# ── Send Email (legacy simulation — DISABLED) ──────────────────────────────
 
 
 @router.post("/emails/send")
 async def send_email(
     data: SendEmailRequest,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
 ):
+    """Legacy simulated send — permanently disabled (Module 6, finding P0.1).
+
+    This endpoint never talked to SMTP or Graph; it logged the message and
+    wrote ``Activity(action="email_sent")``, so the UI reported a delivery
+    that never happened and the candidate history recorded a fake send.
+
+    It now returns ``410 Gone`` and writes nothing. Real outbound mail goes
+    through the Microsoft 365 composer (``/api/candidates/{id}/emails/compose``).
+    A temporarily-unavailable real integration must return ``503`` from its own
+    endpoint — never a fake success here.
     """
-    Symulacja wysyłki emaila (console log).
-    SMTP integration — TODO.
-    Tworzy wpis Activity dla kandydata (jeśli podano candidate_id).
-    """
-    # ⚠️ EMAIL SIMULATION — wypisuje do konsoli, nie wysyła przez SMTP
-    # Security/RODO: candidate emails + bodies must NOT land in stdout (Alloy
-    # ships stdout to Loki, where it's indexed and searchable). Log only the
-    # bare minimum needed for debugging — body length + recipient domain (not
-    # local-part).
-    _to_domain = (data.to_email or "").split("@", 1)[-1] or "?"
-    logger.info(
-        "[EMAIL SIMULATION] subject=%r to_domain=%s body_len=%d candidate_id=%s",
-        data.subject,
-        _to_domain,
-        len(data.body or ""),
-        data.candidate_id,
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "code": "LEGACY_EMAIL_SIMULATION_DISABLED",
+            "message": (
+                "Symulowana wysyłka została wyłączona. Użyj kompozytora "
+                "Microsoft 365, aby wysłać wiadomość, albo skopiuj treść do "
+                "swojej aplikacji pocztowej."
+            ),
+        },
     )
-
-    # Create Activity record if candidate_id provided
-    if data.candidate_id:
-        activity = Activity(
-            entity_type="candidate",
-            entity_id=data.candidate_id,
-            action="email_sent",
-            user_id=current_user.id,
-            details={
-                "to_email": data.to_email,
-                "subject": data.subject,
-                "template_id": data.template_id,
-                "simulated": True,
-            },
-        )
-        db.add(activity)
-        await db.flush()
-
-    return {
-        "status": "simulated",
-        "message": "Email zostanie wysłany (tryb symulacji — SMTP w przygotowaniu)",
-        "to_email": data.to_email,
-        "subject": data.subject,
-    }
 
 
 # ── Preview ────────────────────────────────────────────────────────────────
