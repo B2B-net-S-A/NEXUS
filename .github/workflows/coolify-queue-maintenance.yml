@@ -1,0 +1,79 @@
+# One-off / on-demand maintenance: inspect and unstick the Coolify deployment
+# queue. Created 2026-07-16 when the queue jammed ("Deployment queue is full",
+# HTTP 429 on every deploy webhook since ~23:00 2026-07-15) and prod froze on
+# an old SHA while ~10 merges piled up.
+#
+# Modes (workflow_dispatch input):
+#   inspect  — list running/queued deployments (default; read-only)
+#   cancel   — inspect + cancel every listed running/queued deployment
+#   redeploy — inspect + cancel + trigger a fresh force deploy
+name: Coolify queue maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "inspect | cancel | redeploy"
+        required: true
+        default: "inspect"
+
+permissions:
+  contents: read
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect deployment queue
+        id: inspect
+        run: |
+          echo "== GET /api/v1/deployments (currently running/queued) =="
+          curl -sS -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            -H "Accept: application/json" \
+            "${{ secrets.COOLIFY_URL }}/api/v1/deployments" | tee /tmp/deployments.json | head -c 4000
+          echo ""
+          echo "== parsed =="
+          python3 - <<'PY'
+          import json
+          try:
+              data = json.load(open("/tmp/deployments.json"))
+          except Exception as e:
+              print("unparseable:", e); raise SystemExit(0)
+          rows = data if isinstance(data, list) else data.get("deployments") or data.get("data") or []
+          print(f"count: {len(rows)}")
+          uuids = []
+          for r in rows:
+              uuid = r.get("deployment_uuid") or r.get("uuid")
+              print(f"- {uuid} status={r.get('status')} app={r.get('application_name') or r.get('application_id')} created={r.get('created_at')}")
+              if uuid:
+                  uuids.append(uuid)
+          open("/tmp/uuids.txt", "w").write("\n".join(uuids))
+          PY
+          cp /tmp/uuids.txt uuids.txt 2>/dev/null || touch uuids.txt
+
+      - name: Cancel stuck deployments
+        if: ${{ inputs.mode == 'cancel' || inputs.mode == 'redeploy' }}
+        run: |
+          if [ ! -s /tmp/uuids.txt ]; then echo "nothing to cancel"; exit 0; fi
+          while read -r uuid; do
+            [ -z "$uuid" ] && continue
+            echo "== cancel $uuid =="
+            code=$(curl -sS -o /tmp/cancel_body -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+              -H "Accept: application/json" \
+              "${{ secrets.COOLIFY_URL }}/api/v1/deployments/$uuid/cancel" || true)
+            echo "HTTP $code: $(cat /tmp/cancel_body | head -c 300)"
+          done < /tmp/uuids.txt
+
+      - name: Trigger fresh deploy (force)
+        if: ${{ inputs.mode == 'redeploy' }}
+        run: |
+          sleep 10
+          code=$(curl -sS -o /tmp/deploy_body -w '%{http_code}' -X GET \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            -H "Accept: application/json" \
+            "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=true" || true)
+          echo "HTTP $code: $(cat /tmp/deploy_body | head -c 500)"
+          if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+            echo "::error::redeploy trigger failed (HTTP $code)"; exit 1
+          fi
