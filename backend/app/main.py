@@ -43,6 +43,7 @@ from app.api import (
 )
 from app.api import activities
 from app.api import admin
+from app.api import analytics_v1 as analytics_v1_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import postings
@@ -293,6 +294,30 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# Legacy powierzchnie statystyk (plan analytics PR 3): nagłówki deprecation
+# na odpowiedziach — BEZ zmiany body (shadow mode nie dotyka legacy).
+# Sunset = data orientacyjna cutoveru; Link wskazuje następcę per RFC 8594.
+_LEGACY_STATS_PREFIXES = (
+    "/api/dashboard",
+    "/api/reports",
+    "/api/kpis",
+    "/api/competitions",
+)
+
+
+class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith(_LEGACY_STATS_PREFIXES):
+            response.headers.setdefault("Deprecation", "true")
+            response.headers.setdefault("Sunset", "Wed, 30 Sep 2026 00:00:00 GMT")
+            response.headers.setdefault(
+                "Link", '</api/analytics/v1>; rel="successor-version"'
+            )
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Install JSON log formatter (no-op in DEBUG mode). Must happen early
@@ -455,6 +480,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(LegacyStatsDeprecationMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -770,6 +796,11 @@ app.include_router(phase4.router, prefix="/api", tags=["phase4"])
 app.include_router(phase5.router, prefix="/api", tags=["phase5"])
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
+# Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
+# Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
+app.include_router(
+    analytics_v1_api.router, prefix="/api/analytics/v1", tags=["analytics-v1"]
+)
 app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
