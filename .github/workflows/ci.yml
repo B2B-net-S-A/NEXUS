@@ -149,6 +149,7 @@ jobs:
                  tests/test_pipeline_integrity.py \
                  tests/test_cv_share_security.py \
                  tests/test_workflow_registry.py \
+                 tests/test_process_backfill.py \
                  tests/test_candidate_delete.py \
                  tests/test_candidate_module_access.py \
                  tests/test_candidate_pins.py \
