@@ -203,6 +203,33 @@ async def update_template(
 
     update_data = data.model_dump(exclude_unset=True)
 
+    # ── M4 PR-02 (audyt P2.5): PATCH nie może ominąć ochron DELETE ─────────
+    # `archived=true` przez PATCH omijał guardy endpointu DELETE (default /
+    # in-use), a `is_default=false` na jedynym defaulcie zostawiał system bez
+    # żadnego domyślnego template'u (resolver legacy stage'ów przestaje
+    # działać).
+    if update_data.get("archived") is True and not template.archived:
+        if template.is_default:
+            raise HTTPException(
+                status_code=409, detail="Cannot archive the default template"
+            )
+        jobs_using = await db.scalar(
+            select(func.count(Job.id)).where(Job.pipeline_template_id == template_id)
+        )
+        if jobs_using and jobs_using > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot archive: {jobs_using} job(s) still use this template",
+            )
+    if update_data.get("is_default") is False and template.is_default:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Nie można odebrać statusu default jedynemu domyślnemu "
+                "template'owi — ustaw najpierw inny jako default."
+            ),
+        )
+
     # Handle is_default exclusivity
     if update_data.get("is_default"):
         from sqlalchemy import update
@@ -368,6 +395,13 @@ async def add_stage(
             status_code=422,
             detail="is_terminal=True requires terminal_type",
         )
+    # M4 PR-02 (audyt P2.5): symetryczny check — terminal_type na
+    # NIEterminalnym etapie mylił reguły raportów/maili.
+    if not data.is_terminal and data.terminal_type is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="terminal_type dozwolony tylko dla etapu terminalnego.",
+        )
 
     stage = PipelineStageDef(template_id=template_id, **data.model_dump())
     db.add(stage)
@@ -400,6 +434,31 @@ async def reorder_stages(
         select(PipelineStageDef).where(PipelineStageDef.template_id == template_id)
     )
     stages = {s.id: s for s in res.scalars().all()}
+
+    # M4 PR-02 (audyt P2.5): reorder wymaga PEŁNEJ permutacji etapów
+    # template'u z unikalnymi orderami. Częściowa lista kolidowała orderami z
+    # niedotkniętymi etapami (IntegrityError 500) albo zostawiała
+    # niejednoznaczną kolejność.
+    provided_ids = [item.stage_id for item in items]
+    if len(set(provided_ids)) != len(provided_ids):
+        raise HTTPException(
+            status_code=422, detail="Zduplikowane stage_id w reorderze."
+        )
+    if set(provided_ids) != set(stages.keys()):
+        missing = sorted(set(stages.keys()) - set(provided_ids))
+        extra = sorted(set(provided_ids) - set(stages.keys()))
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Reorder wymaga pełnej listy etapów template'u. "
+                f"Brakujące: {missing}, spoza template'u: {extra}."
+            ),
+        )
+    provided_orders = [item.order for item in items]
+    if len(set(provided_orders)) != len(provided_orders):
+        raise HTTPException(
+            status_code=422, detail="Zduplikowane wartości order w reorderze."
+        )
 
     # Two-phase update to avoid violating unique (template_id, order)
     # Phase 1: assign temporary negative orders to items we are reordering
@@ -439,7 +498,25 @@ async def update_stage(
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
 
-    for key, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+
+    # M4 PR-02 (audyt P2.5): spójność terminalności PO zastosowaniu patcha —
+    # is_terminal bez terminal_type (i odwrotnie) tworzyło etapy, których
+    # reguły hired/rejected/withdrawn nie umiały obsłużyć.
+    resulting_is_terminal = update_data.get("is_terminal", stage.is_terminal)
+    resulting_terminal_type = update_data.get("terminal_type", stage.terminal_type)
+    if resulting_is_terminal and resulting_terminal_type is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Etap terminalny wymaga terminal_type (hired/rejected/withdrawn).",
+        )
+    if not resulting_is_terminal and resulting_terminal_type is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="terminal_type dozwolony tylko dla etapu terminalnego.",
+        )
+
+    for key, value in update_data.items():
         setattr(stage, key, value)
 
     try:

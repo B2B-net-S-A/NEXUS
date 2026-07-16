@@ -1470,7 +1470,7 @@ async def champion_consultant_suggestions(
                 CandidateStage.stage == PipelineStage.hired,
                 no_later_move,
             )
-            .order_by(CandidateStage.moved_at.desc())
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
             .limit(30)
         )
     ).all()

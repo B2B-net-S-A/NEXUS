@@ -116,7 +116,7 @@ async def _previous_stage_for(
             CandidateStage.id != withdrawal.id,
             CandidateStage.moved_at < withdrawal.moved_at,
         )
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
     return await db.scalar(stmt)
@@ -165,7 +165,7 @@ async def _gather_events(
                 CandidateStage.moved_at >= cutoff,
             )
         )
-        .order_by(CandidateStage.moved_at.desc())
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
     rows = (await db.execute(stmt)).all()
 
