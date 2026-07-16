@@ -25,7 +25,7 @@ from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
-from app.services.kpi_panel import _ANCHOR_LOOKBACK_DAYS
+from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
 router = APIRouter()
 
@@ -124,18 +124,15 @@ async def report_recruitment(
 
     start = _period_start(period)
 
-    # Base subquery: candidate stages joined to jobs (filtered by period & recruitment_type)
-    job_filter = []
+    rtype_clause = ""
+    base_params: dict = {"period_start": start}
     if recruitment_type and recruitment_type != "all":
         try:
-            rtype = RecruitmentType(recruitment_type)
-            job_filter.append(Job.recruitment_type == rtype)
+            RecruitmentType(recruitment_type)
+            rtype_clause = "AND j.recruitment_type::text = :rtype"
+            base_params["rtype"] = recruitment_type
         except ValueError:
             pass
-
-    # We look at the LATEST stage per candidate+job within the period
-    # (moved_at >= start means the stage move happened in this period)
-    stage_filter = [CandidateStage.moved_at >= start]
 
     # Global funnel counts (across all recruiters). Definicje KPI Artura
     # (spójne z panelem „Moje KPI" / app/services/kpi_panel.py):
@@ -144,19 +141,26 @@ async def report_recruitment(
     # Interviews     = interview   (zaproszenie na interview; client_interview
     #                               jest w praktyce nieużywany)
     # Placements     = hired       (kontrakt aktywny)
-
-    async def count_stage(stages: list) -> int:
-        q = (
-            select(func.count(CandidateStage.id))
-            .join(Job, CandidateStage.job_id == Job.id)
-            .where(CandidateStage.stage.in_(stages), *stage_filter, *job_filter)
-        )
-        return (await db.execute(q)).scalar() or 0
-
-    weryfikacje = await count_stage([PipelineStage.verified])
-    rekomendacje = await count_stage([PipelineStage.cv_sent])
-    interviews = await count_stage([PipelineStage.interview])
-    placements = await count_stage([PipelineStage.hired])
+    #
+    # PR 4 (plan analytics 2026-07-16): liczymy PIERWSZE osiągnięcia
+    # milestone'ów z kanonicznego view — koniec multi-countu tego samego
+    # kandydata przy cofnięciu i ponownym przejściu przez etap (§3.2).
+    totals_sql = text(
+        f"""
+        SELECT fm.stage, count(*) AS cnt
+        FROM analytics_first_milestones fm
+        JOIN jobs j ON j.id = fm.job_id
+        WHERE fm.first_reached_at >= :period_start
+          {rtype_clause}
+        GROUP BY fm.stage
+        """
+    )
+    totals_rows = (await db.execute(totals_sql, base_params)).mappings().all()
+    totals_by_stage = {r["stage"]: int(r["cnt"]) for r in totals_rows}
+    weryfikacje = totals_by_stage.get("verified", 0)
+    rekomendacje = totals_by_stage.get("cv_sent", 0)
+    interviews = totals_by_stage.get("interview", 0)
+    placements = totals_by_stage.get("hired", 0)
 
     funnel_efficiency = {
         "weryfikacje_to_rekomendacje": _safe_pct(rekomendacje, weryfikacje),
@@ -173,56 +177,24 @@ async def report_recruitment(
     # „CV wysłane" trafiała do osoby klikającej wysyłkę zamiast do weryfikatora —
     # zasługa dublowała się między dwie osoby (weryfikatora i wysyłającego).
     #
-    # Funnel TOTALS powyżej (count_stage) pozostają sumą zespołu (nie per-user),
-    # więc nie wymagają kotwicy; tu kotwiczymy tylko podział per osoba + Liga
-    # Mistrzów (top3), które są jedynym miejscem z dublowaniem zasługi.
-    anchor_lookback = start - timedelta(days=_ANCHOR_LOOKBACK_DAYS)
-    rtype_clause = ""
-    anchored_params: dict = {"lookback": anchor_lookback, "period_start": start}
-    if recruitment_type and recruitment_type != "all":
-        try:
-            RecruitmentType(recruitment_type)
-            rtype_clause = "AND j.recruitment_type::text = :rtype"
-            anchored_params["rtype"] = recruitment_type
-        except ValueError:
-            pass
-
+    # Funnel TOTALS powyżej pozostają sumą zespołu (nie per-user); tu
+    # kotwiczymy podział per osoba + Ligę Mistrzów (top3). PR 4: wspólne
+    # VERIFIER_ANCHORED_CTE z kpi_panel (jedna implementacja atrybucji,
+    # kanoniczny view, bez lookbacku) zamiast zdublowanej kopii SQL-a.
     per_recruiter_sql = text(
-        f"""
-        WITH cs AS (
-            SELECT cst.candidate_id, cst.job_id, cst.stage::text AS stage,
-                   cst.moved_at, cst.moved_by, cst.id
-            FROM candidate_stages cst
-            JOIN jobs j ON j.id = cst.job_id
-            WHERE cst.stage IN ('verified', 'cv_sent', 'interview', 'hired')
-              AND cst.moved_at >= :lookback
-              {rtype_clause}
-        ),
-        mf AS (
-            SELECT DISTINCT ON (candidate_id, job_id, stage)
-                   candidate_id, job_id, stage,
-                   moved_by AS first_mover, moved_at AS reached_at
-            FROM cs
-            ORDER BY candidate_id, job_id, stage, moved_at ASC, id ASC
-        ),
-        anchor AS (
-            SELECT candidate_id, job_id, first_mover AS verifier
-            FROM mf WHERE stage = 'verified'
-        ),
-        credited AS (
-            SELECT mf.stage, mf.reached_at,
-                   COALESCE(a.verifier, mf.first_mover) AS credit_user
-            FROM mf LEFT JOIN anchor a USING (candidate_id, job_id)
-        )
-        SELECT credit_user, stage, count(*) AS cnt
-        FROM credited
-        WHERE reached_at >= :period_start AND credit_user IS NOT NULL
-        GROUP BY credit_user, stage
+        VERIFIER_ANCHORED_CTE
+        + f"""
+        SELECT c.credit_user, c.stage, count(*) AS cnt
+        FROM credited c
+        JOIN jobs j ON j.id = c.job_id
+        WHERE c.reached_at >= :period_start
+          AND c.credit_user IS NOT NULL
+          AND c.stage IN ('verified', 'cv_sent', 'interview', 'hired')
+          {rtype_clause}
+        GROUP BY c.credit_user, c.stage
         """
     )
-    anchored_rows = (
-        (await db.execute(per_recruiter_sql, anchored_params)).mappings().all()
-    )
+    anchored_rows = (await db.execute(per_recruiter_sql, base_params)).mappings().all()
 
     # credit_user × stage → bucket per osoba.
     _STAGE_TO_KEY = {
@@ -1320,17 +1292,14 @@ async def report_tenders(
     tenders_rows = (await db.execute(tenders_q)).all()
 
     total = len(tenders_rows)
-    sum(
-        1
-        for r in tenders_rows
-        if r.Job.status.value == "closed"
-        and (r.Job.priority.value in ("high", "urgent"))
-    )
-    # Simplification: closed + high/urgent = won; closed + low/medium = lost; rest = pending
-    # A more robust way: use a dedicated field. For now:
+
+    # PR 4 (plan analytics §3.2/§4.2): wynik przetargu z Job.close_reason
+    # (filled_by_us = wygrana; inny powód = przegrana; zamknięty BEZ powodu
+    # = nieznany), nie z heurystyki po priority. Otwarte = w_toku.
     lost_list = []
     won_list = []
     pending_list = []
+    unknown_list = []
 
     for r in tenders_rows:
         j = r.Job
@@ -1342,9 +1311,13 @@ async def report_tenders(
             "status": j.status.value,
             "value": value,
             "deadline": str(j.deadline) if j.deadline else None,
+            "close_reason": j.close_reason.value if j.close_reason else None,
         }
         if j.status.value == "closed":
-            if j.priority.value in ("high", "urgent"):
+            if j.close_reason is None:
+                entry["result"] = "nieznana"
+                unknown_list.append(entry)
+            elif j.close_reason.value == "filled_by_us":
                 entry["result"] = "wygrana"
                 won_list.append(entry)
             else:
@@ -1357,9 +1330,10 @@ async def report_tenders(
     won_count = len(won_list)
     lost_count = len(lost_list)
     pending_count = len(pending_list)
+    unknown_count = len(unknown_list)
     win_rate = _safe_pct(won_count, won_count + lost_count)
 
-    per_tender = won_list + lost_list + pending_list
+    per_tender = won_list + lost_list + unknown_list + pending_list
 
     result_data = {
         "period": period,
@@ -1367,6 +1341,7 @@ async def report_tenders(
         "won": won_count,
         "lost": lost_count,
         "pending": pending_count,
+        "unknown": unknown_count,
         "win_rate": win_rate,
         "per_tender": per_tender,
     }

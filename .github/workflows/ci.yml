@@ -157,6 +157,7 @@ jobs:
                  tests/test_analytics_cache.py \
                  tests/test_analytics_views.py \
                  tests/test_analytics_v1_api.py \
+                 tests/test_kpi_canonical.py \
                  tests/test_recommendation_status_filter.py \
                  tests/test_pipeline_templates_reorder.py \
                  tests/test_marketplace_api.py \

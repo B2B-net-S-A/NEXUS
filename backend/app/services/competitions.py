@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competition_winner import CompetitionType, CompetitionWinner
@@ -194,27 +194,35 @@ async def _rank_recruiters_by_points(
 ) -> list[RankedUser]:
     """Ranking po systemie punktowym (placement=150, interview=15, rekomendacja=5).
 
+    PR 4 (plan analytics §3.2): konkursy używają TEJ SAMEJ funkcji milestone
+    i atrybucji co KPI — pierwsze osiągnięcie stage'a per (kandydat, job)
+    z atrybucją verifier-anchored (VERIFIER_ANCHORED_CTE), zamiast surowego
+    `moved_by` liczonego per KAŻDY ruch. „Weryfikacje" = stage `verified`
+    (wcześniej: new/screening — inna definicja niż wszędzie indziej).
+
     Zwraca RankedUser z metric_value=points i extras={placements, interviews,
     recommendations, verifications, role}."""
-    # Liczymy count per stage per user w okresie.
-    q = (
-        select(
-            User.id,
-            User.name,
-            User.role,
-            CandidateStage.stage,
-            func.count(CandidateStage.id).label("cnt"),
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    rows = (
+        await db.execute(
+            text(
+                VERIFIER_ANCHORED_CTE
+                + """
+                SELECT u.id, u.name, u.role::text AS role, c.stage,
+                       count(*) AS cnt
+                FROM credited c
+                JOIN users u ON u.id = c.credit_user
+                WHERE c.reached_at >= :start
+                  AND c.reached_at < :end
+                  AND u.role IN ('sourcer', 'tac', 'recruiter')
+                  AND u.is_active IS TRUE
+                GROUP BY u.id, u.name, u.role, c.stage
+                """
+            ),
+            {"start": start, "end": end},
         )
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .where(
-            CandidateStage.moved_at >= start,
-            CandidateStage.moved_at < end,
-            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
-            User.is_active == True,  # noqa: E712
-        )
-        .group_by(User.id, User.name, User.role, CandidateStage.stage)
-    )
-    rows = (await db.execute(q)).all()
+    ).all()
 
     per_user: dict[int, dict] = {}
     for r in rows:
@@ -222,7 +230,7 @@ async def _rank_recruiters_by_points(
             r.id,
             {
                 "name": r.name,
-                "role": r.role.value if hasattr(r.role, "value") else str(r.role),
+                "role": r.role,
                 "placements": 0,
                 "interviews": 0,
                 "client_interviews": 0,
@@ -231,14 +239,14 @@ async def _rank_recruiters_by_points(
             },
         )
         cnt = int(r.cnt)
-        if r.stage == PipelineStage.hired:
+        if r.stage == "hired":
             bucket["placements"] += cnt
-        elif r.stage == PipelineStage.client_interview:
+        elif r.stage == "client_interview":
             bucket["client_interviews"] += cnt
-        elif r.stage == PipelineStage.interview:
+        elif r.stage == "interview":
             # Nexus stage "interview" = rekomendacja w słowniku InfraReporter.
             bucket["recommendations"] += cnt
-        elif r.stage in (PipelineStage.new, PipelineStage.screening):
+        elif r.stage == "verified":
             bucket["verifications"] += cnt
 
     ranked: list[RankedUser] = []

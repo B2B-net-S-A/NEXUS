@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select
+from sqlalchemy import Integer, case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
@@ -27,7 +27,6 @@ from app.models.candidate_source_event import (
     CHANNEL_LABELS,
     CandidateSourceEvent,
 )
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.schemas.candidate_source_event import (
     CandidateSourceEventCreate,
     CandidateSourceEventOut,
@@ -151,18 +150,27 @@ async def report_sources(
     period_end = datetime.now(timezone.utc)
     period_start = period_end - timedelta(days=days)
 
-    # Latest stage per candidate, computed via subquery — used to flag hires.
+    # PR 4 (plan analytics §3.2): hired liczony jako DISTINCT kandydaci —
+    # wcześniej flaga sumowana per EVENT (kandydat z 3 eventami w kanale
+    # wnosił 3 do licznika przy 1 w mianowniku → hire rate > 100%).
+    # Hired = pierwsze osiągnięcie `hired` (kanoniczny view) w oknie —
+    # po `first_reached_at` (moved_at), nie po created_at wiersza.
     hired_subq = (
-        select(CandidateStage.candidate_id)
-        .where(CandidateStage.stage == PipelineStage.hired)
-        .where(CandidateStage.created_at >= period_start)
-        .distinct()
+        text(
+            "SELECT candidate_id FROM analytics_first_milestones "
+            "WHERE stage = 'hired' AND first_reached_at >= :period_start"
+        )
+        .bindparams(period_start=period_start)
+        .columns(candidate_id=Integer)
         .subquery()
     )
 
-    hired_flag = case(
-        (CandidateSourceEvent.candidate_id.in_(select(hired_subq)), 1),
-        else_=0,
+    hired_candidate = case(
+        (
+            CandidateSourceEvent.candidate_id.in_(select(hired_subq.c.candidate_id)),
+            CandidateSourceEvent.candidate_id,
+        ),
+        else_=None,
     )
 
     if group_by_utm:
@@ -180,7 +188,7 @@ async def report_sources(
             func.count(func.distinct(CandidateSourceEvent.candidate_id)).label(
                 "candidates_total"
             ),
-            func.sum(hired_flag).label("hired"),
+            func.count(func.distinct(hired_candidate)).label("hired"),
         )
         .where(CandidateSourceEvent.captured_at >= period_start)
         .where(CandidateSourceEvent.captured_at <= period_end)
