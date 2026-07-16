@@ -167,6 +167,7 @@ jobs:
                  tests/test_analytics_v1_api.py \
                  tests/test_kpi_canonical.py \
                  tests/test_analytics_finance.py \
+                 tests/test_invoice_finance_access.py \
                  tests/test_analytics_snapshots.py \
                  tests/test_analytics_release_gates.py \
                  tests/test_recommendation_status_filter.py \
