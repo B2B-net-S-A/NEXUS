@@ -96,3 +96,135 @@ async def ai_matching_diagnostics(
         "telemetry": await _telemetry(db),
         "score_cache": await _score_cache(db),
     }
+
+
+# ── PR0 audit — read-only prod schema/state inventory ────────────────────────
+#
+# Prod has no SSH/DB path, but the backend itself CAN read its own Postgres and
+# Qdrant. This endpoint runs the plan's PR0 read-only inventory from inside the
+# app so the baseline can be captured over the authed API. STRICTLY read-only —
+# no DDL, no DML.
+
+
+async def _alembic_state(db: AsyncSession) -> dict:
+    try:
+        rows = (await db.execute(text("SELECT version_num FROM alembic_version"))).all()
+        return {"bookmarks": [r[0] for r in rows]}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)[:200]}
+
+
+async def _schema_inventory(db: AsyncSession) -> dict:
+    """Tables/triggers in prod vs tables the current ORM knows about.
+
+    ``unknown_tables`` are the prime suspects for orphaned 0162–0170 remnants
+    from the reverted Codex package — the plan's reuse/migrate/ignore list.
+    """
+    try:
+        from app.core.database import Base
+
+        db_tables = {
+            r[0]
+            for r in (
+                await db.execute(
+                    text("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+                )
+            ).all()
+        }
+        orm_tables = set(Base.metadata.tables.keys()) | {"alembic_version"}
+        triggers = (
+            await db.execute(
+                text(
+                    "SELECT DISTINCT event_object_table, trigger_name "
+                    "FROM information_schema.triggers "
+                    "WHERE trigger_schema='public' ORDER BY 1, 2"
+                )
+            )
+        ).all()
+        return {
+            "table_count": len(db_tables),
+            "unknown_tables": sorted(db_tables - orm_tables),
+            "missing_tables": sorted(orm_tables - db_tables),
+            "triggers": [f"{t}.{n}" for t, n in triggers],
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)[:200]}
+
+
+async def _profile_budgets(db: AsyncSession) -> dict:
+    """Every stored weight profile with its EFFECTIVE budget (110-bug detector)."""
+    try:
+        from app.services.scoring_service import WeightProfile
+
+        rows = (
+            await db.execute(
+                text("SELECT id, name, weights, active FROM scoring_weight_profiles")
+            )
+        ).all()
+        out = []
+        for pid, name, weights, active in rows:
+            rec = type("R", (), {"id": pid, "name": name, "weights": weights})()
+            p = WeightProfile.from_record(rec)
+            budget = (
+                p.semantic + p.skills + p.salary + p.location + p.availability
+            ) + p.champion_fit
+            out.append({"id": pid, "name": name, "active": active, "budget": budget})
+        return {"profiles": out, "over_budget": [p for p in out if p["budget"] > 100]}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)[:200]}
+
+
+async def _coverage(db: AsyncSession) -> dict:
+    """Eligible DB records vs Qdrant point counts — the plan's first measurement."""
+    import asyncio
+
+    result: dict = {}
+    try:
+        result["db_candidates"] = int(
+            await db.scalar(text("SELECT count(*) FROM candidates")) or 0
+        )
+        result["db_jobs"] = int(await db.scalar(text("SELECT count(*) FROM jobs")) or 0)
+    except Exception as exc:  # noqa: BLE001
+        result["db_error"] = str(exc)[:200]
+
+    def _qdrant_counts() -> dict:
+        from app.services.embedding_service import (
+            _collection,
+            _get_qdrant_client,
+            _jobs_collection,
+        )
+
+        client = _get_qdrant_client()
+        if client is None:
+            return {"qdrant_error": "client unavailable"}
+        out: dict = {}
+        for label, coll in (
+            ("qdrant_candidates", _collection()),
+            ("qdrant_jobs", _jobs_collection()),
+        ):
+            try:
+                out[label] = int(client.count(coll, exact=True).count)
+            except Exception as exc:  # noqa: BLE001
+                out[f"{label}_error"] = str(exc)[:200]
+        return out
+
+    try:
+        result.update(await asyncio.to_thread(_qdrant_counts))
+    except Exception as exc:  # noqa: BLE001
+        result["qdrant_error"] = str(exc)[:200]
+    return result
+
+
+@router.get("/ai-matching/audit")
+async def ai_matching_audit(
+    current_user: User = Depends(require_roles(UserRole.admin)),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Plan PR0: read-only prod inventory (alembic bookmark, schema remnants,
+    profile budgets, DB↔Qdrant coverage). Run once, save as the frozen baseline."""
+    return {
+        "alembic": await _alembic_state(db),
+        "schema": await _schema_inventory(db),
+        "profile_budgets": await _profile_budgets(db),
+        "coverage": await _coverage(db),
+    }

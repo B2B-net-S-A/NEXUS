@@ -37,3 +37,32 @@ async def test_diagnostics_shape(app_client: AsyncClient, app_auth_headers: dict
 async def test_diagnostics_requires_auth(app_client: AsyncClient):
     resp = await app_client.get("/api/admin/ai-matching/diagnostics")
     assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_audit_shape(app_client: AsyncClient, app_auth_headers: dict):
+    resp = await app_client.get(
+        "/api/admin/ai-matching/audit", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    for key in ("alembic", "schema", "profile_budgets", "coverage"):
+        assert key in body, f"missing section {key}"
+
+    # CI DB was built by `alembic upgrade heads` → bookmark(s) exist.
+    assert body["alembic"].get("bookmarks"), body["alembic"]
+    # Schema inventory resolved (real pg_tables query).
+    assert body["schema"].get("table_count", 0) > 0
+    assert isinstance(body["schema"].get("unknown_tables"), list)
+    # Profile budget detector returns the (possibly empty) lists.
+    assert "profiles" in body["profile_budgets"]
+    assert "over_budget" in body["profile_budgets"]
+    # DB-side coverage counts resolved (Qdrant absent in CI → guarded keys).
+    assert body["coverage"].get("db_candidates", -1) >= 0
+
+
+@pytest.mark.asyncio
+async def test_audit_requires_auth(app_client: AsyncClient):
+    resp = await app_client.get("/api/admin/ai-matching/audit")
+    assert resp.status_code in (401, 403)
