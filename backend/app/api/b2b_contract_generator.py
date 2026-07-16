@@ -20,9 +20,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.contract_access import ContractLegalAccess
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
@@ -87,7 +88,7 @@ def _ascii_filename(name: str) -> str:
 
 @router.get("/roles", response_model=list[B2BRoleResponse])
 async def list_roles(
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
     include_inactive: bool = Query(False),
 ):
@@ -143,7 +144,7 @@ async def create_role(
 @router.get("/roles/{role_id}", response_model=B2BRoleResponse)
 async def get_role(
     role_id: int,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
     role = await db.get(B2BContractRole, role_id)
@@ -216,7 +217,7 @@ async def _b2b_template_for(db: AsyncSession, lang: str) -> ContractTemplate:
 @router.post("/generate", response_model=B2BGenerateResponse)
 async def generate(
     payload: B2BGenerateRequest,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
     role = await db.get(B2BContractRole, payload.role_id)
@@ -332,7 +333,7 @@ async def generate(
 @router.get("/contracts/{contract_id}/detail", response_model=B2BContractDetailResponse)
 async def get_detail(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _load_contract_with_relations(db, contract_id)
@@ -360,7 +361,7 @@ async def get_detail(
 @router.get("/contracts/{contract_id}/docx")
 async def download_docx(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
     language: str | None = Query(None),
 ):
@@ -437,7 +438,7 @@ async def _next_seq(db: AsyncSession, year: int) -> int:
 
 @router.get("/next-number", response_model=B2BNextNumberResponse)
 async def next_number(
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Sugerowany kolejny WOLNY numer umowy `<seq>/<rok>` (edytowalny w UI)."""
@@ -451,7 +452,7 @@ async def next_number(
 
 @router.get("/company-lookup", response_model=B2BCompanyLookupResponse)
 async def company_lookup(
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     nip: str | None = Query(None),
     krs: str | None = Query(None),
 ):
@@ -471,7 +472,7 @@ async def company_lookup(
 @router.post("/render")
 async def render_standalone(
     payload: B2BRenderRequest,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
     fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
 ):
@@ -572,7 +573,7 @@ async def render_standalone(
 
 @router.get("/generated", response_model=list[B2BGeneratedContractItem])
 async def list_generated_contracts(
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -611,7 +612,7 @@ async def list_generated_contracts(
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_contract(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
@@ -651,7 +652,7 @@ async def download_generated_contract(
 async def update_generated_contract(
     generated_id: int,
     payload: B2BGeneratedContractUpdate,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Popraw wpis na liście „Wygenerowane umowy" — obecnie tylko nazwę Klienta.
@@ -720,7 +721,7 @@ async def update_generated_contract(
 @router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_generated_contract(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń wpis z listy „Wygenerowane umowy".
@@ -754,7 +755,7 @@ async def delete_generated_contract(
 @router.post("/check-uop", response_model=B2BUopCheckResponse)
 async def check_uop(
     payload: B2BUopCheckRequest,
-    current_user: CurrentUser,
+    current_user: ContractLegalAccess,
 ):
     """AI-sprawdzenie opisu/zakresu pod kątem znamion umowy o pracę (art. 22 §1 KP).
 
