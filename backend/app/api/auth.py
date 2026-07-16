@@ -393,6 +393,7 @@ async def me(current_user: CurrentUser):
     response.analytics_capabilities = sorted(
         cap.value for cap in capabilities_for(current_user)
     )
+    response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
     return response
 
 

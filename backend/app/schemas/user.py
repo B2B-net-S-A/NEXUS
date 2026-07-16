@@ -61,6 +61,10 @@ class UserResponse(BaseModel):
     # Wypełniane w GET /api/auth/me; frontend używa WYŁĄCZNIE do routingu
     # i gate'owania zapytań — twarde guardy siedzą na backendzie.
     analytics_capabilities: list[str] = []
+    # Tryb rolloutu Analytics v1 (off|shadow|live) — frontend NIE wykonuje
+    # requestów do /api/analytics/v1 dopóki tryb != live (fail-closed;
+    # w shadow legacy UI pozostaje nietknięte — plan §8).
+    analytics_v1_mode: str = "off"
     created_at: datetime
     updated_at: datetime
 
