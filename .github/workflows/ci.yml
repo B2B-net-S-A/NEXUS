@@ -112,6 +112,7 @@ jobs:
                  tests/test_api_integration.py \
                  tests/test_health_v2.py \
                  tests/test_password_reset.py \
+                 tests/test_smtp_tls.py \
                  tests/test_auth_register.py \
                  tests/test_autenti_client.py \
                  tests/test_autenti_pdf_renderer.py \
@@ -133,6 +134,7 @@ jobs:
                  tests/test_email_bulk_actions.py \
                  tests/test_auth_microsoft.py \
                  tests/test_calendar_conflicts.py \
+                 tests/test_ical_ssrf.py \
                  tests/test_user_email_templates.py \
                  tests/test_actionable_messages.py \
                  tests/test_aad_groups.py \
@@ -153,6 +155,7 @@ jobs:
                  tests/test_candidate_module_access.py \
                  tests/test_candidate_pins.py \
                  tests/test_note_crud.py \
+                 tests/test_compose_calls_access.py \
                  tests/test_note_mention_render.py \
                  tests/test_job_reference.py \
                  tests/test_jobs_deadline_serialization.py \
@@ -160,6 +163,7 @@ jobs:
                  tests/test_dynareporter_admin.py \
                  tests/test_dynareporter_readonly.py \
                  tests/test_rbac.py \
+                 tests/test_presence_access.py \
                  tests/test_dashboard.py \
                  tests/test_analytics_periods.py \
                  tests/test_analytics_cache.py \
