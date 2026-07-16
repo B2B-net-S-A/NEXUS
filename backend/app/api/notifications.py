@@ -5,7 +5,7 @@ User notification system with unread badge support.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +43,19 @@ class UnreadCountResponse(BaseModel):
     count: int
 
 
+class MarkAllReadResponse(BaseModel):
+    success: bool
+    updated: int
+    message: str
+
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+# Bounded page size — keep the bell/list responsive and avoid unbounded scans.
+_MAX_LIMIT = 200
+_DEFAULT_LIMIT = 50
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -50,7 +63,7 @@ class UnreadCountResponse(BaseModel):
 async def list_notifications(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    limit: int = 50,
+    limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
 ):
     """List notifications for current user — unread first."""
     result = await db.execute(
@@ -64,7 +77,7 @@ async def list_notifications(
     unread_result = await db.execute(
         select(func.count())
         .select_from(Notification)
-        .where(Notification.user_id == current_user.id, not Notification.is_read)
+        .where(Notification.user_id == current_user.id, Notification.is_read.is_(False))
     )
     unread_count = unread_result.scalar() or 0
 
@@ -94,7 +107,7 @@ async def get_unread_count(
     result = await db.execute(
         select(func.count())
         .select_from(Notification)
-        .where(Notification.user_id == current_user.id, not Notification.is_read)
+        .where(Notification.user_id == current_user.id, Notification.is_read.is_(False))
     )
     count = result.scalar() or 0
     return UnreadCountResponse(count=count)
@@ -138,23 +151,24 @@ async def mark_as_read(
     )
 
 
-@router.put("/notifications/read-all")
-@router.patch("/notifications/read-all")
+@router.put("/notifications/read-all", response_model=MarkAllReadResponse)
+@router.patch("/notifications/read-all", response_model=MarkAllReadResponse)
 async def mark_all_read(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Mark all notifications as read for current user (supports both PUT and PATCH)."""
-    await db.execute(
+    result = await db.execute(
         update(Notification)
-        .where(Notification.user_id == current_user.id, not Notification.is_read)
+        .where(Notification.user_id == current_user.id, Notification.is_read.is_(False))
         .values(is_read=True)
     )
     await db.commit()
-    return {
-        "success": True,
-        "message": "Wszystkie powiadomienia oznaczone jako przeczytane",
-    }
+    return MarkAllReadResponse(
+        success=True,
+        updated=result.rowcount or 0,
+        message="Wszystkie powiadomienia oznaczone jako przeczytane",
+    )
 
 
 # ── Helper — create notifications from other endpoints ────────────────────────
