@@ -130,6 +130,11 @@ class PendingVerificationListItem(BaseModel):
     expected_rate_unit: Optional[RateUnit] = None
     expected_rate_currency: Optional[str] = None
     budget_max_at_move: Optional[int] = None
+    # M4 PR-02 (audyt P0.5): approver widzi porównanie w JEDNEJ jednostce —
+    # stawka znormalizowana do PLN/mc (168h/21d) albo None + nota, czemu
+    # wymagany jest manual review (waluta ≠ PLN / nieznana jednostka).
+    normalized_monthly_value: Optional[Decimal] = None
+    normalization_note: Optional[str] = None
     moved_at: datetime
     moved_by: Optional[int] = None
     moved_by_name: Optional[str] = None
