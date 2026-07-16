@@ -30,6 +30,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
@@ -343,7 +344,7 @@ async def delete_template(
 async def render_template(
     template_id: int,
     payload: RenderRequest,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Render the template with the provided candidate/job context.
@@ -351,6 +352,12 @@ async def render_template(
     Missing entities produce empty namespaces (e.g. no candidate_id →
     `candidate.first_name` resolves to undefined). The response lists
     unresolved top-level vars so the UI can warn the user.
+
+    P0.5: the render context exposes candidate email/phone/location/linkedin.
+    Previously this endpoint took a bare ``CurrentUser``, so a read-only viewer
+    could author ``{{ candidate.email }}`` and enumerate PII across candidate
+    IDs. It now requires ``CandidatePIIAccess`` (the same internal-operational
+    roles allowed to read candidate PII elsewhere), which excludes the viewer.
     """
     t = await _load_template_for_read(template_id, current_user.id, db)
 
