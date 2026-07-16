@@ -1960,7 +1960,13 @@ async def create_contract_amendment(
     elif data.amendment_type == ContractAmendmentType.early_termination:
         end = data.new_end_date or data.effective_date
         contract.end_date = end
-        contract.status = ContractStatus.ended
+        # An early-termination amendment can be recorded ahead of its effective
+        # date. Until that date arrives, the contract is still running and must
+        # remain visible as active; the daily status job progresses it according
+        # to the end-date lifecycle (P0.7 — future termination must not end now).
+        contract.status = _status_after_end_date_change(
+            ContractStatus.ended, end, date.today()
+        )
         new_values["end_date"] = end.isoformat()
         new_values["status"] = contract.status.value
 
@@ -2259,13 +2265,19 @@ async def terminate_contract(
     when = data.terminated_at or date.today()
     previous_end_date = contract.end_date
 
-    contract.status = ContractStatus.ended
     contract.terminated_at = when
     contract.termination_reason = data.termination_reason
     contract.termination_lessons = data.termination_lessons
     # Keep end_date coherent — never let it lag the termination date.
     if contract.end_date is None or contract.end_date > when:
         contract.end_date = when
+    # P0.7: a future-dated termination must NOT flip the contract to `ended`
+    # today. It stays active/ending until the effective end date; the daily
+    # status job materializes `ended` on/after that date. Derived from the
+    # (already coherent) end_date, not from raw ContractStatus.ended.
+    contract.status = _status_after_end_date_change(
+        ContractStatus.ended, contract.end_date, date.today()
+    )
 
     # Audit amendment if the contract was cut short.
     if previous_end_date is not None and when < previous_end_date:
@@ -2277,7 +2289,10 @@ async def terminate_contract(
                     "end_date": previous_end_date.isoformat(),
                     "status": "active",
                 },
-                new_values={"end_date": when.isoformat(), "status": "ended"},
+                new_values={
+                    "end_date": when.isoformat(),
+                    "status": contract.status.value,
+                },
                 effective_date=when,
                 reason=(
                     f"{data.termination_reason.value}: {data.termination_lessons}"
