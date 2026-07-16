@@ -612,11 +612,14 @@ async def import_ical(
     """Pull events from a public iCal feed URL (Outlook/Google publish-as-iCal)."""
     from app.services.ical_import import import_ical_url
 
-    if not body.url or not body.url.startswith(("http://", "https://", "webcal://")):
+    # P0.8: https only (webcal is https under the hood). Plain http is rejected
+    # so a feed cannot be pointed at an internal http service.
+    raw_url = (body.url or "").strip()
+    if not raw_url.startswith(("https://", "webcal://")):
         raise HTTPException(
-            status_code=422, detail="URL must start with http/https/webcal"
+            status_code=422, detail="URL musi zaczynać się od https:// lub webcal://"
         )
-    url = body.url.replace("webcal://", "https://", 1)
+    url = raw_url.replace("webcal://", "https://", 1)
     res = await import_ical_url(
         db,
         url,
