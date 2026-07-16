@@ -275,6 +275,9 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = "nexus@b2bnet.pl"
     SMTP_USE_TLS: bool = True
+    # P1.18: refuse to send over plaintext. When True (default), STARTTLS with
+    # verified CA/hostname is mandatory — no silent fallback to cleartext.
+    SMTP_REQUIRE_TLS: bool = True
 
     # ── KPI Coach (dynamiczna analiza KPI rekruterów) ─────────────────────────
     # Interwał pętli `app/tasks/kpi_coach_nudger.py`. 300s (5min) to dobry

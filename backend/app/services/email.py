@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import logging
 import smtplib
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -60,18 +61,36 @@ def send_email(
         )
         return False
 
+    # P1.18: fail closed on TLS. With SMTP_REQUIRE_TLS (default True) we refuse
+    # to send over plaintext, and STARTTLS uses a default SSL context that
+    # verifies the server CA + hostname — no MITM, no silent cleartext fallback.
+    if settings.SMTP_REQUIRE_TLS and not settings.SMTP_USE_TLS:
+        logger.error(
+            "email: SMTP_REQUIRE_TLS=true but SMTP_USE_TLS=false — refusing to "
+            "send over plaintext to=%s",
+            to,
+        )
+        return False
+
     msg = _build_message(to, subject, text_body, html_body)
     try:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as client:
             if settings.SMTP_USE_TLS:
-                client.starttls()
+                client.starttls(context=ssl.create_default_context())
             if settings.SMTP_USER and settings.SMTP_PASSWORD:
                 client.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             client.send_message(msg)
         logger.info("email sent to=%s subject=%r", to, subject)
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("email send failed to=%s subject=%r error=%s", to, subject, exc)
+        # Redact: never log credentials or message body; the exception repr can
+        # contain the server banner but not our secrets.
+        logger.warning(
+            "email send failed to=%s subject=%r error=%s",
+            to,
+            subject,
+            type(exc).__name__,
+        )
         return False
 
 
