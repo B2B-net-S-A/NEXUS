@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from"react";
-import { useMutation } from"@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import { Check, Copy, Link2, Loader2, AlertCircle, X } from"lucide-react";
 
 import { Dialog, DialogContent } from"@/components/ui/dialog";
@@ -19,6 +19,7 @@ import { Input } from"@/components/ui/input";
 import { useToast } from"@/components/Toast";
 import {
  candidateStageCvApi,
+ type CVShareTokenListItem,
  type CVShareTokenResp,
 } from"@/lib/api";
 
@@ -43,7 +44,8 @@ export function CVShareLinkModal({
  candidateName,
 }: Props) {
  const { showSuccess, showError } = useToast();
- const [days, setDays] = useState<number>(30);
+ const queryClient = useQueryClient();
+ const [days, setDays] = useState<number>(14);
  const [token, setToken] = useState<CVShareTokenResp | null>(null);
  const [errorMsg, setErrorMsg] = useState<string | null>(null);
  const [copied, setCopied] = useState(false);
@@ -54,15 +56,32 @@ export function CVShareLinkModal({
  setToken(null);
  setErrorMsg(null);
  setCopied(false);
- setDays(30);
+ setDays(14);
  }
  }, [open]);
+
+ const linksQuery = useQuery({
+ queryKey: ["cv-share-tokens", stageId],
+ queryFn: async () => (await candidateStageCvApi.share.list(stageId)).data,
+ enabled: open,
+ });
+ const activeLinks = (linksQuery.data ?? []).filter((l) => !l.revoked);
+
+ const revokeByKeyMut = useMutation({
+ mutationFn: (key: string) => candidateStageCvApi.share.revoke(key),
+ onSuccess: () => {
+ showSuccess("Link odwołany");
+ queryClient.invalidateQueries({ queryKey: ["cv-share-tokens", stageId] });
+ },
+ onError: (e) => showError(getErrorMessage(e)),
+ });
 
  const createMut = useMutation({
  mutationFn: () => candidateStageCvApi.share.create(stageId, days),
  onSuccess: (res) => {
  setToken(res.data);
  setErrorMsg(null);
+ queryClient.invalidateQueries({ queryKey: ["cv-share-tokens", stageId] });
  },
  onError: (e) => {
  const msg = getErrorMessage(e);
@@ -76,6 +95,7 @@ export function CVShareLinkModal({
  onSuccess: () => {
  showSuccess("Link odwołany");
  setToken(null);
+ queryClient.invalidateQueries({ queryKey: ["cv-share-tokens", stageId] });
  },
  onError: (e) => showError(getErrorMessage(e)),
  });
@@ -130,9 +150,9 @@ export function CVShareLinkModal({
  id="cv-share-days"
  type="number"
  value={days}
- onChange={(e) => setDays(parseInt(e.target.value) || 30)}
+ onChange={(e) => setDays(parseInt(e.target.value) || 14)}
  min={1}
- max={365}
+ max={90}
  className="w-24"
  />
  <span className="text-sm text-muted-foreground">
@@ -182,7 +202,9 @@ export function CVShareLinkModal({
  </div>
  {expiresLabel ? (
  <p className="text-[11px] text-muted-foreground mt-1.5">
- Aktywny do {expiresLabel}
+ Aktywny do {expiresLabel}. Skopiuj teraz — ze względów
+ bezpieczeństwa link nie jest przechowywany i nie da się go
+ ponownie wyświetlić (można go tylko odwołać).
  </p>
  ) : null}
  </div>
@@ -208,8 +230,79 @@ export function CVShareLinkModal({
  </div>
  </>
  )}
+ <ActiveLinksSection
+ links={activeLinks}
+ loading={linksQuery.isLoading}
+ error={linksQuery.isError}
+ onRevoke={(key) => revokeByKeyMut.mutate(key)}
+ revoking={revokeByKeyMut.isPending}
+ />
  </div>
  </DialogContent>
  </Dialog>
+ );
+}
+
+function ActiveLinksSection({
+ links,
+ loading,
+ error,
+ onRevoke,
+ revoking,
+}: {
+ links: CVShareTokenListItem[];
+ loading: boolean;
+ error: boolean;
+ onRevoke: (key: string) => void;
+ revoking: boolean;
+}) {
+ if (loading) {
+ return (
+ <div className="pt-3 border-t border-border text-xs text-muted-foreground">
+ Ładowanie listy linków…
+ </div>
+ );
+ }
+ if (error) {
+ return (
+ <div className="pt-3 border-t border-border text-xs text-destructive">
+ Nie udało się pobrać listy linków.
+ </div>
+ );
+ }
+ if (links.length === 0) return null;
+ return (
+ <div className="pt-3 border-t border-border space-y-2">
+ <div className="text-xs uppercase tracking-wider text-muted-foreground">
+ Aktywne linki ({links.length})
+ </div>
+ {links.map((l) => (
+ <div
+ key={l.revoke_key}
+ className="flex items-center justify-between gap-2 text-xs"
+ >
+ <div className="min-w-0">
+ <span className="font-mono">{l.token_preview}</span>
+ <span className="text-muted-foreground">
+ {" "}· {l.view_count}
+ {l.max_views ? `/${l.max_views}` : ""} wyśw.
+ {l.expires_at
+ ? ` · do ${new Date(l.expires_at).toLocaleDateString("pl-PL")}`
+ : ""}
+ </span>
+ </div>
+ <Button
+ variant="ghost"
+ size="sm"
+ disabled={revoking}
+ onClick={() => onRevoke(l.revoke_key)}
+ className="h-6 px-2 text-destructive hover:text-destructive"
+ >
+ <X className="h-3 w-3 mr-1" />
+ Odwołaj
+ </Button>
+ </div>
+ ))}
+ </div>
  );
 }

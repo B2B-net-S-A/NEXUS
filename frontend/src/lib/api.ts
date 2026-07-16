@@ -3878,6 +3878,26 @@ export interface CVShareTokenResp {
   expires_at: string | null;
   share_url_suffix: string;
   candidate_stage_cv_id: number;
+  // M4 PR-04 (token v2)
+  revoke_key?: string | null;
+  max_views?: number | null;
+}
+
+export interface CVShareTokenListItem {
+  revoke_key: string;
+  token_preview: string;
+  is_v2: boolean;
+  created_at?: string | null;
+  created_by_name?: string | null;
+  expires_at?: string | null;
+  revoked: boolean;
+  revoked_at?: string | null;
+  revoke_reason?: string | null;
+  view_count: number;
+  max_views?: number | null;
+  last_viewed_at?: string | null;
+  purpose?: string | null;
+  share_url_suffix?: string | null;
 }
 
 export const candidateStageCvApi = {
@@ -3910,15 +3930,31 @@ export const candidateStageCvApi = {
       ),
   },
   share: {
-    create: (stageId: number, expiresInDays = 30) =>
+    // M4 PR-04: default TTL 14 dni (backend max 90), opcjonalny limit wyświetleń.
+    create: (stageId: number, expiresInDays = 14, maxViews?: number) =>
       api.post<CVShareTokenResp>(
         `/api/candidates/stages/${stageId}/cv/share-token`,
         null,
-        { params: { expires_in_days: expiresInDays } },
+        {
+          params: {
+            expires_in_days: expiresInDays,
+            ...(maxViews ? { max_views: maxViews } : {}),
+          },
+        },
       ),
-    revoke: (token: string) =>
+    list: (stageId: number) =>
+      api.get<CVShareTokenListItem[]>(
+        `/api/candidates/stages/${stageId}/cv/share-tokens`,
+      ),
+    revoke: (tokenOrKey: string, reason?: string) =>
       api.delete<{ status: string; token: string }>(
-        `/api/candidates/stages/cv/share-token/${token}`,
+        `/api/candidates/stages/cv/share-token/${tokenOrKey}`,
+        reason ? { params: { reason } } : undefined,
+      ),
+    revokeAll: (stageId: number, reason?: string) =>
+      api.delete<{ status: string; count: number }>(
+        `/api/candidates/stages/${stageId}/cv/share-tokens`,
+        reason ? { params: { reason } } : undefined,
       ),
   },
 };

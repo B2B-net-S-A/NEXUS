@@ -19,6 +19,7 @@ Faza 4 (PR2) — public share:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import mimetypes
 import secrets
@@ -32,8 +33,10 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from app.core.http_headers import content_disposition_attachment
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.services.cv_html_renderer import _generate_cv_html
+from app.services.html_sanitizer import sanitize_cv_html
 from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -48,6 +51,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedResponse,
     CVBrandedUpdate,
     CVOriginalSnapshotResponse,
+    CVShareTokenListItem,
     CVShareTokenResponse,
 )
 from app.services import storage_service
@@ -380,8 +384,12 @@ async def render_branded_cv_for_print(
     label = (
         f"{candidate.name} {candidate.lastname}" if candidate else f"stage_{stage_id}"
     )
+    # M4 PR-04 (audyt P1.9): printable HTML przechodzi allowlist sanitizer —
+    # authenticated flow otwiera blob text/html w nowej karcie.
     return HTMLResponse(
-        content=_wrap_printable_cv(csv.branded_draft_html, stage_id, label)
+        content=_wrap_printable_cv(
+            sanitize_cv_html(csv.branded_draft_html), stage_id, label
+        )
     )
 
 
@@ -482,10 +490,18 @@ _SHARE_PATH_PREFIX = "/cv/"
 async def create_cv_share_token(
     stage_id: int,
     current_user: RecruiterPlus,
-    expires_in_days: int = Query(30, ge=1, le=365),
+    expires_in_days: int = Query(14, ge=1, le=90),
+    max_views: Optional[int] = Query(None, ge=1, le=1000),
+    purpose: Optional[str] = Query(None, max_length=120),
     db: AsyncSession = Depends(get_db),
 ) -> CVShareTokenResponse:
-    """Generuje token-link do brandowanego CV. Wymaga statusu `finalized`."""
+    """Generuje token-link do brandowanego CV. Wymaga statusu `finalized`.
+
+    M4 PR-04 (audyt P1.9, token v2): sekret NIE jest zapisywany — w DB ląduje
+    wyłącznie SHA-256 (`token_sha256`), a PK dostaje nie-sekretny identyfikator
+    `v2$<hex>` (revoke-key). Raw token zwracamy jeden raz. Domyślny TTL
+    skrócony 30 → 14 dni (max 90); opcjonalny limit wyświetleń i purpose.
+    """
     csv = await _load_csv_for_stage(db, stage_id)
     if csv.branded_status != "finalized":
         raise HTTPException(
@@ -493,14 +509,19 @@ async def create_cv_share_token(
             detail=("Nie można udostępnić draftu — najpierw zfinalizuj brandowane CV."),
         )
 
-    token = secrets.token_urlsafe(36)
+    raw_token = secrets.token_urlsafe(36)
+    revoke_key = f"v2${secrets.token_hex(16)}"
+    token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
     db.add(
         CVShareToken(
-            token=token,
+            token=revoke_key,
+            token_sha256=token_digest,
             candidate_stage_cv_id=csv.id,
             created_by=current_user.id,
             expires_at=expires_at,
+            max_views=max_views,
+            purpose=purpose,
         )
     )
     db.add(
@@ -512,35 +533,108 @@ async def create_cv_share_token(
             details={
                 "candidate_stage_id": stage_id,
                 "expires_at": expires_at.isoformat(),
-                "token_prefix": token[:8],
+                "revoke_key": revoke_key,
+                "max_views": max_views,
+                "purpose": purpose,
             },
         )
     )
     await db.commit()
 
     return CVShareTokenResponse(
-        token=token,
+        token=raw_token,
         expires_at=expires_at,
-        share_url_suffix=f"{_SHARE_PATH_PREFIX}{token}",
+        share_url_suffix=f"{_SHARE_PATH_PREFIX}{raw_token}",
         candidate_stage_cv_id=csv.id,
+        revoke_key=revoke_key,
+        max_views=max_views,
     )
+
+
+def _token_list_item(row: CVShareToken) -> CVShareTokenListItem:
+    is_v2 = row.token_sha256 is not None
+    return CVShareTokenListItem(
+        revoke_key=row.token,
+        token_preview=(
+            f"v2 · {row.token_sha256[:6]}…" if is_v2 else f"{row.token[:8]}…"
+        ),
+        is_v2=is_v2,
+        created_at=row.created_at,
+        created_by_name=(row.creator.name if row.creator else None),
+        expires_at=row.expires_at,
+        revoked=row.revoked,
+        revoked_at=row.revoked_at,
+        revoke_reason=row.revoke_reason,
+        view_count=row.view_count or 0,
+        max_views=row.max_views,
+        last_viewed_at=row.last_viewed_at,
+        purpose=row.purpose,
+        # Legacy: raw w DB — URL odtwarzalny (i tak jest w obiegu).
+        # v2: sekret nieodtwarzalny — None.
+        share_url_suffix=(None if is_v2 else f"{_SHARE_PATH_PREFIX}{row.token}"),
+    )
+
+
+@router.get(
+    "/candidates/stages/{stage_id}/cv/share-tokens",
+    response_model=list[CVShareTokenListItem],
+)
+async def list_cv_share_tokens(
+    stage_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> list[CVShareTokenListItem]:
+    """Lista linków (aktywnych i odwołanych) dla CV tego stage'a — bez
+    sekretów. M4 PR-04: dotąd modal gubił token po zamknięciu i nie dało się
+    odwołać wcześniejszych linków (audyt P1.9 dead-end)."""
+    csv = await _load_csv_for_stage(db, stage_id)
+    rows = (
+        (
+            await db.execute(
+                select(CVShareToken)
+                .options(selectinload(CVShareToken.creator))
+                .where(CVShareToken.candidate_stage_cv_id == csv.id)
+                .order_by(CVShareToken.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [_token_list_item(r) for r in rows]
 
 
 @router.delete("/candidates/stages/cv/share-token/{token}")
 async def revoke_cv_share_token(
     token: str,
     current_user: RecruiterPlus,
+    reason: Optional[str] = Query(None, max_length=255),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Odwołaj share token (`revoked=true`). Idempotent."""
-    row = await db.scalar(select(CVShareToken).where(CVShareToken.token == token))
+    """Odwołaj share token. Idempotent.
+
+    Przyjmuje revoke-key (`v2$...`), legacy raw token (BC) albo raw token v2
+    (lookup po hashu — okładka na wypadek, gdy caller ma tylko link).
+    """
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    row = await db.scalar(
+        select(CVShareToken).where(
+            (CVShareToken.token == token) | (CVShareToken.token_sha256 == digest)
+        )
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="Token nie znaleziony")
     if row.revoked:
-        return {"status": "already_revoked", "token": token}
+        return {"status": "already_revoked", "token": row.token}
 
     await db.execute(
-        update(CVShareToken).where(CVShareToken.token == token).values(revoked=True)
+        update(CVShareToken)
+        .where(CVShareToken.token == row.token)
+        .values(
+            revoked=True,
+            revoked_at=datetime.now(timezone.utc),
+            revoked_by=current_user.id,
+            revoke_reason=reason,
+        )
     )
     db.add(
         Activity(
@@ -548,8 +642,43 @@ async def revoke_cv_share_token(
             entity_id=row.candidate_stage_cv_id,
             action="cv_share_revoked",
             user_id=current_user.id,
-            details={"token_prefix": token[:8]},
+            details={"revoke_key": row.token, "reason": reason},
         )
     )
     await db.commit()
-    return {"status": "revoked", "token": token}
+    return {"status": "revoked", "token": row.token}
+
+
+@router.delete("/candidates/stages/{stage_id}/cv/share-tokens")
+async def revoke_all_cv_share_tokens(
+    stage_id: int,
+    current_user: RecruiterPlus,
+    reason: Optional[str] = Query(None, max_length=255),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Odwołaj WSZYSTKIE aktywne linki CV tego stage'a (M4 PR-04)."""
+    csv = await _load_csv_for_stage(db, stage_id)
+    result = await db.execute(
+        update(CVShareToken)
+        .where(
+            CVShareToken.candidate_stage_cv_id == csv.id,
+            CVShareToken.revoked.is_(False),
+        )
+        .values(
+            revoked=True,
+            revoked_at=datetime.now(timezone.utc),
+            revoked_by=current_user.id,
+            revoke_reason=reason,
+        )
+    )
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="cv_share_revoked_all",
+            user_id=current_user.id,
+            details={"count": result.rowcount or 0, "reason": reason},
+        )
+    )
+    await db.commit()
+    return {"status": "revoked_all", "count": result.rowcount or 0}

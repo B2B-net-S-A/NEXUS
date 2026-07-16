@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
+from html import escape as html_escape
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -420,7 +421,18 @@ async def _resolve_template(
       5. None — renderer falls back to the hard-coded Polish body.
     """
     if override_id:
-        return await db.get(EmailTemplate, override_id)
+        override = await db.get(EmailTemplate, override_id)
+        # M4 PR-04 (audyt P1.14): override MUSI być templatem kategorii
+        # rejection — dotąd dało się podstawić dowolny template (offer,
+        # follow-up...) jako "mail odrzucenia". Zły override → fallback na
+        # standardową ścieżkę wyboru + warning, nie cichy send.
+        if override is not None and override.category == EmailCategory.rejection:
+            return override
+        logger.warning(
+            "rejection template override %s odrzucony (brak/kategoria %s) — fallback",
+            override_id,
+            getattr(override, "category", None),
+        )
 
     # Deferred import: emails.py pulls fastapi + auth deps; keeps the
     # scheduler importable in lean test contexts.
@@ -485,9 +497,13 @@ def _render(
             p["title"] for p in other_processes if p.get("title")
         ),
     }
+    # M4 PR-04 (audyt P1.14): body jest HTML-em — wartości placeholderów są
+    # escapowane (nazwisko kandydata z "<script>" nie może stać się kodem).
+    # Subject to plain text (RFC nagłówek) — encje HTML byłyby tam widoczne.
+    body_ctx = {k: html_escape(v) for k, v in ctx.items()}
 
     return _apply(subject_tmpl, ctx, has_others=bool(other_processes)), _apply(
-        body_tmpl, ctx, has_others=bool(other_processes)
+        body_tmpl, body_ctx, has_others=bool(other_processes)
     )
 
 
