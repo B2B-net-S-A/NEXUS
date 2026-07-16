@@ -164,6 +164,7 @@ async def backfill_candidate_ccs(
     only_missing: bool = True,
     dry_run: bool = False,
     progress: Optional[dict[str, Any]] = None,
+    start_after_id: int = 0,
 ) -> dict[str, Any]:
     """Classify candidates into competence categories in bulk.
 
@@ -173,13 +174,28 @@ async def backfill_candidate_ccs(
     False`` re-classifies **every** candidate (still skips manual rows); use it
     deliberately to refresh the whole corpus after a classifier change.
 
+    ``start_after_id`` is a resume cursor: only candidates with ``id >`` this
+    value are scanned. Low-signal candidates below the classification floor are
+    *skipped* but stay NULL, so a plain restart would rescan that ever-growing
+    convoy from id 0. The caller (admin keeper / CLI) tracks the ``last_id``
+    watermark this function maintains in ``progress`` and re-kicks with it, so
+    one pass over the id range completes even across container restarts.
+
     Commits per candidate so a long run is resumable and partial progress
     survives a container restart. Returns aggregate stats; ``progress`` (an
     in-memory dict, e.g. from the admin endpoint) is updated live if given.
     """
-    where = "WHERE competence_category_id IS NULL" if only_missing else ""
+    conditions: list[str] = []
+    params: dict[str, Any] = {}
+    if only_missing:
+        conditions.append("competence_category_id IS NULL")
+    if start_after_id:
+        conditions.append("id > :start_after_id")
+        params["start_after_id"] = start_after_id
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     limit_clause = "LIMIT :limit" if limit is not None else ""
-    params: dict[str, Any] = {"limit": limit} if limit is not None else {}
+    if limit is not None:
+        params["limit"] = limit
 
     rows = await db.execute(
         text(f"SELECT id FROM candidates {where} ORDER BY id {limit_clause}"),
@@ -195,6 +211,8 @@ async def backfill_candidate_ccs(
         "errors": 0,
         "by_primary": {},
         "dry_run": dry_run,
+        "start_after_id": start_after_id,
+        "last_id": start_after_id,
     }
     if progress is not None:
         progress.update(stats)
@@ -230,6 +248,7 @@ async def backfill_candidate_ccs(
             stats["errors"] += 1
             logger.warning("[cc_backfill] candidate %s failed: %s", cand_id, e)
         stats["processed"] += 1
+        stats["last_id"] = cand_id
         if progress is not None:
             progress.update(stats)
         if stats["processed"] % 50 == 0:

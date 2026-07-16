@@ -38,13 +38,16 @@ from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.services.candidate_cc_assignment import backfill_candidate_ccs  # noqa: E402
 
 
-async def run(commit: bool, only_missing: bool, limit: Optional[int]) -> None:
+async def run(
+    commit: bool, only_missing: bool, limit: Optional[int], start_after_id: int
+) -> None:
     async with AsyncSessionLocal() as db:
         stats = await backfill_candidate_ccs(
             db,
             limit=limit,
             only_missing=only_missing,
             dry_run=not commit,
+            start_after_id=start_after_id,
         )
 
     prefix = "Assigned" if commit else "[DRY-RUN] Would assign"
@@ -84,11 +87,23 @@ def main() -> None:
     parser.add_argument(
         "--limit", type=int, default=None, help="max candidates to process"
     )
+    parser.add_argument(
+        "--start-after-id",
+        type=int,
+        default=0,
+        help="resume cursor — scan only candidates with id > this value "
+        "(use the last_id from an interrupted run)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     asyncio.run(
-        run(commit=args.commit, only_missing=args.only_missing, limit=args.limit)
+        run(
+            commit=args.commit,
+            only_missing=args.only_missing,
+            limit=args.limit,
+            start_after_id=args.start_after_id,
+        )
     )
 
 
