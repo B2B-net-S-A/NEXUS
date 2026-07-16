@@ -3,8 +3,20 @@ name: Deploy
 # Unified deployment workflow per ~/.claude/rules/deployment.md.
 # Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
 #
-# Push do main → trigger Coolify deploy via API → wait → smoke test /api/health.
-# Coolify samo buduje + restart kontenerów (z compose `build:` block lub GHCR pull).
+# Push do main → trigger Coolify deploy via API → poll deployment status by
+# UUID → smoke test /api/health. Coolify samo buduje + restart kontenerów.
+#
+# 2026-07-16 (analytics plan PR 0): the old flow fired the webhook and then
+# blind-slept 180s before polling /api/health. Two real failure modes slipped
+# through or wedged it:
+#   1. Coolify HTTP 429 "Deployment queue is full" — 3 fast retries (5/15/45s)
+#      could never outlast a queue backed up by a slow ARM build, so every
+#      main push after the first went red (2026-07-16 morning).
+#   2. A deployment that FAILED server-side was invisible: the webhook said
+#      "queued", the smoke test then burned 6 minutes polling a stale version
+#      and reported a generic timeout with zero diagnostics (2026-07-15 evening).
+# Now we save the deployment UUID, poll its status, fail fast on
+# failed/cancelled with the server-side log tail, and only then health-check.
 #
 # Required GH secrets:
 #   COOLIFY_URL       e.g. https://coolify-compass.dynaminds.pl
@@ -26,24 +38,32 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # NEXUS is DNS-only (gray cloud) today, but the UA contract from
+  # ~/.claude/rules/observability.md applies to every dynaminds smoke curl so
+  # the workflow keeps working if the domain ever goes behind the CF proxy.
+  SMOKE_UA: "dynaminds-smoke-test/1.0 (+github-actions; nexus)"
+
 jobs:
   deploy:
     name: Trigger Coolify deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - name: Trigger deployment
         id: trigger
         run: |
-          # Retry: Coolify webhook bywa flaky (HTTP 500 przejściowe — patrz audit-2026-05-07
-          # — 2× failed deploy 2026-05-07 07:11+07:20 z dokładnie tego powodu, każdy
-          # następny retry przeszedł). Exponential backoff: 5s, 15s, 45s. 3 próby.
-          backoffs=(5 15 45)
-          response=""
+          # One unified retry loop, 20 attempts × 30s ≈ 10 min ceiling:
+          #  - HTTP 429 (queue full) needs to outlast an in-flight ARM build
+          #    (4-6 min cold), not 3 quick retries.
+          #  - HTTP 5xx (flaky webhook — audit-2026-05-07) heals within one or
+          #    two 30s waits.
           http_code=""
-          for attempt in 1 2 3; do
+          response=""
+          for attempt in $(seq 1 20); do
             raw=$(curl -sS -X GET \
               -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+              -H "Accept: application/json" \
               -w $'\nHTTP_CODE:%{http_code}' \
               "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=false" \
               2>&1 || true)
@@ -53,13 +73,13 @@ jobs:
               echo "Coolify responded $http_code on attempt $attempt"
               break
             fi
-            echo "::warning::Attempt $attempt — Coolify HTTP $http_code, body: $response"
-            if [ $attempt -lt 3 ]; then
-              sleep "${backoffs[$((attempt - 1))]}"
+            echo "::warning::Attempt $attempt/20 — Coolify HTTP $http_code, body: $response"
+            if [ $attempt -lt 20 ]; then
+              sleep 30
             fi
           done
           if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
-            echo "::error::Coolify deploy webhook failed after 3 attempts (last HTTP $http_code)"
+            echo "::error::Coolify deploy webhook failed after 20 attempts (last HTTP $http_code). If it was 429 the queue is stuck — run the 'Coolify Ops' workflow (action=list, then cancel the wedged deployment UUIDs) and re-dispatch Deploy."
             exit 1
           fi
           echo "Response: $response"
@@ -71,18 +91,53 @@ jobs:
           echo "Deployment queued: $deployment_uuid"
           echo "deployment_uuid=$deployment_uuid" >> $GITHUB_OUTPUT
 
+      - name: Wait for deployment to finish (fail fast on server-side failure)
+        run: |
+          # Poll the exact deployment we queued instead of blind-sleeping.
+          # Statuses: queued | in_progress | finished | failed | cancelled-by-user.
+          # 60 × 15s = 15 min ceiling (cold ARM build with heavy native deps).
+          DEPLOYMENT_UUID="${{ steps.trigger.outputs.deployment_uuid }}"
+          status=""
+          for i in $(seq 1 60); do
+            resp=$(curl -sS \
+              -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+              -H "Accept: application/json" \
+              "${{ secrets.COOLIFY_URL }}/api/v1/deployments/$DEPLOYMENT_UUID" 2>/dev/null || echo '')
+            status=$(echo "$resp" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+            case "$status" in
+              finished)
+                echo "✅ Deployment $DEPLOYMENT_UUID finished after ~$((i * 15))s"
+                exit 0
+                ;;
+              failed|cancelled*|cancelled-by-user)
+                echo "::error::Deployment $DEPLOYMENT_UUID ended with status=$status — server-side log tail below"
+                # .logs is a JSON-encoded array of {output,type,hidden,...}.
+                # Print the last non-hidden entries; fall back to a raw tail if
+                # the shape ever changes. Build logs carry no secret values.
+                logs=$(echo "$resp" | jq -r '.logs // ""' 2>/dev/null || echo '')
+                if [ -n "$logs" ]; then
+                  echo "$logs" | jq -r '.[-30:][] | select(.hidden != true) | "[\(.type // "out")] \((.output // "") | .[0:400])"' 2>/dev/null \
+                    || echo "$logs" | tail -c 3000
+                else
+                  echo "(no logs returned by API)"
+                fi
+                exit 1
+                ;;
+              *)
+                echo "Attempt $i/60: status=$status, retrying in 15s..."
+                sleep 15
+                ;;
+            esac
+          done
+          echo "::error::Deployment $DEPLOYMENT_UUID still '$status' after 15 min — treating as failed. Run the 'Coolify Ops' workflow to inspect/cancel it."
+          exit 1
+
   smoke-test:
     name: Smoke test /api/health
     needs: deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Wait for Coolify build + restart
-        # Bumped from 90s → 180s. Pierwszy build z WeasyPrint apt deps na
-        # ARM CAX21 może trwać 4-6 min (libpango+cairo+gdk-pixbuf+fonts).
-        # Subsequent builds są szybsze przez Docker layer cache.
-        run: sleep 180
-
       - name: Healthcheck (standard shape + version match)
         env:
           APP_URL: ${{ vars.APP_URL }}
@@ -92,11 +147,11 @@ jobs:
             exit 1
           fi
           EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          # 24 attempts × 15s = 6 min total polling window. Combined with
-          # the 180s pre-sleep this gives Coolify up to 9 min to finish
-          # build+restart on ARM with new heavy native deps.
-          for i in $(seq 1 24); do
-            response=$(curl -fsSL "$APP_URL/api/health" 2>/tmp/curl_err || echo '')
+          # The deploy job already confirmed the deployment FINISHED server-side,
+          # so this only needs to absorb the container swap + app boot —
+          # 20 × 15s = 5 min is plenty (was: blind sleep 180 + 6 min).
+          for i in $(seq 1 20); do
+            response=$(curl -fsSL -A "$SMOKE_UA" "$APP_URL/api/health" 2>/tmp/curl_err || echo '')
             if [ -n "$response" ]; then
               status=$(echo "$response" | jq -r '.status // "missing"')
               version=$(echo "$response" | jq -r '.version // "missing"')
@@ -112,13 +167,13 @@ jobs:
               fi
             else
               # Surface curl's actual error so future silent failures are
-              # diagnosable in 1 attempt instead of 24 (e.g. Cloudflare WAF
+              # diagnosable in 1 attempt instead of 20 (e.g. Cloudflare WAF
               # 403 on the runner IP, like Atlas hit — see Atlas PR #96).
               echo "Attempt $i: no response — $(cat /tmp/curl_err 2>/dev/null | head -1), retrying in 15s..."
             fi
             sleep 15
           done
-          echo "::error::Smoke test failed after 24 attempts (6 min)"
+          echo "::error::Smoke test failed after 20 attempts (5 min) — deployment finished server-side but the app never served the new SHA"
           exit 1
 
       - name: Deep healthcheck (core modules not 503)
@@ -149,7 +204,7 @@ jobs:
           fi
           EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           for i in $(seq 1 6); do
-            response=$(curl -sSL --max-time 25 "$APP_URL/api/health/deep" 2>/tmp/curl_err || echo '')
+            response=$(curl -sSL --max-time 25 -A "$SMOKE_UA" "$APP_URL/api/health/deep" 2>/tmp/curl_err || echo '')
             if [ -n "$response" ]; then
               status=$(echo "$response" | jq -r '.status // "missing"')
               version=$(echo "$response" | jq -r '.version // "missing"')

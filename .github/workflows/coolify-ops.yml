@@ -1,0 +1,83 @@
+name: Coolify Ops
+
+# Operational escape hatch for the Coolify deployment queue (analytics plan PR 0).
+#
+# Why this exists: on 2026-07-16 the deployment queue on the NEXUS Coolify
+# instance wedged — every `/api/v1/deploy` call returned HTTP 429 "Deployment
+# queue is full" for 12+ hours while prod silently stayed on a stale SHA.
+# There is no SSH access to the server and the panel needs an interactive
+# login, but GH Actions already holds a Coolify API token — so queue
+# inspection and cancellation live here, next to the Deploy workflow that
+# depends on them.
+#
+# Usage:
+#   1. action=list                 → dump currently running/queued deployments
+#                                    + the application's own status.
+#   2. action=cancel, uuids="a b"  → POST /deployments/{uuid}/cancel for each.
+#
+# The list output contains only build metadata (UUIDs, SHAs, statuses,
+# timestamps) — no env values or secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        type: choice
+        options: [list, cancel]
+        default: list
+      deployment_uuids:
+        description: "Space-separated deployment UUIDs to cancel (action=cancel)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  ops:
+    name: Coolify queue ops
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: List deployments + application status
+        if: inputs.action == 'list'
+        run: |
+          echo "=== Currently running/queued deployments (instance-wide) ==="
+          curl -sS \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            -H "Accept: application/json" \
+            "${{ secrets.COOLIFY_URL }}/api/v1/deployments" \
+            | jq 'if type == "array" then map({deployment_uuid, application_name, status, commit: (.commit // "" | .[0:10]), created_at, application_id}) else . end' \
+            || echo "(request failed)"
+          echo ""
+          echo "=== Application status ==="
+          curl -sS \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            -H "Accept: application/json" \
+            "${{ secrets.COOLIFY_URL }}/api/v1/applications/${{ secrets.COOLIFY_APP_UUID }}" \
+            | jq '{name, uuid, status, last_online_at, git_branch, git_commit_sha}' \
+            || echo "(request failed)"
+
+      - name: Cancel deployments
+        if: inputs.action == 'cancel'
+        run: |
+          UUIDS="${{ inputs.deployment_uuids }}"
+          if [ -z "$UUIDS" ]; then
+            echo "::error::action=cancel requires deployment_uuids"
+            exit 1
+          fi
+          rc=0
+          for uuid in $UUIDS; do
+            echo "Cancelling deployment $uuid ..."
+            code=$(curl -sS -o /tmp/cancel_body -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+              -H "Accept: application/json" \
+              "${{ secrets.COOLIFY_URL }}/api/v1/deployments/$uuid/cancel" || echo "000")
+            echo "HTTP $code — $(cat /tmp/cancel_body 2>/dev/null | head -c 500)"
+            if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "204" ]; then
+              echo "::warning::Cancel of $uuid returned HTTP $code"
+              rc=1
+            fi
+          done
+          exit $rc
