@@ -146,6 +146,61 @@ const colId = (col: KanbanColumn) =>
 
 const columnLabel = (col: KanbanColumn) => col.name ?? col.stage;
 
+// ── Stage summary strip ──────────────────────────────────────────────
+// Przy długich pipeline'ach (10+ etapów) liczników w nagłówkach kolumn nie
+// widać bez poziomego scrollowania. Ten pasek pokazuje WSZYSTKIE etapy
+// z licznikami w jednym zawijanym wierszu nad boardem; klik w pigułkę
+// przewija board do danej kolumny.
+
+const StageSummaryStrip = memo(function StageSummaryStrip({
+ cols,
+ onJump,
+}: {
+ cols: KanbanColumn[];
+ onJump: (id: string) => void;
+}) {
+ const total = cols.reduce(
+ (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
+ 0
+ );
+ return (
+ <div className="flex flex-wrap items-center gap-1.5" role="navigation" aria-label="Podsumowanie etapów">
+ <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary border border-primary/20 px-2.5 py-1 text-xs font-semibold">
+ W procesie: <span className="tabular-nums">{total}</span>
+ </span>
+ {cols.map((col) => (
+ <button
+ key={colId(col)}
+ type="button"
+ onClick={() => onJump(colId(col))}
+ title={`Przewiń do kolumny „${columnLabel(col)}”`}
+ className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+ col.count > 0
+ ?"border-border bg-card text-foreground hover:border-primary/40 hover:bg-primary/5" :"border-border/60 bg-transparent text-muted-foreground/60 hover:text-muted-foreground hover:bg-card/60"
+ )}
+ >
+ {col.category && (
+ <span
+ className={cn("h-1.5 w-1.5 rounded-full shrink-0 ring-1 ring-border",
+ CATEGORY_COLOR[col.category]
+ )}
+ aria-hidden
+ />
+ )}
+ <span className="truncate max-w-[160px]">{columnLabel(col)}</span>
+ <span
+ className={cn("font-semibold tabular-nums",
+ col.count > 0 &&"text-primary"
+ )}
+ >
+ {col.count}
+ </span>
+ </button>
+ ))}
+ </div>
+ );
+});
+
 // ── AI match score ring ──────────────────────────────────────────────
 // Circular badge mirroring the hybrid AI match score (0-100): colored arc +
 // number. Tiers use FIXED hues (not --primary) so the traffic-light reading
@@ -484,6 +539,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  const dropId = colId(col);
  return (
  <div
+ data-colid={dropId}
  className={cn("flex flex-col flex-shrink-0 rounded-lg bg-background/60 border border-border",
  density === "compact" ?"w-60" :"w-96"
  )}
@@ -749,6 +805,15 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  }, [jobId]);
 
  const filtered = cols;
+
+ // Klik w pigułkę paska podsumowania → poziomy scroll boardu do kolumny.
+ // block:"nearest" nie rusza pionowego scrolla strony.
+ const scrollToColumn = useCallback((id: string) => {
+ const el = boardRef.current?.querySelector<HTMLElement>(
+ `[data-colid="${CSS.escape(id)}"]`
+ );
+ el?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+ }, []);
 
  const applyOptimistic = useCallback(
  (item: KanbanItem, srcId: string, dst: KanbanColumn) => {
@@ -1294,6 +1359,9 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  </TooltipContent>
  </Tooltip>
  </div>
+
+ {/* Podsumowanie etapów — wszystkie liczniki widoczne bez scrollowania */}
+ {cols.length > 0 && <StageSummaryStrip cols={cols} onJump={scrollToColumn} />}
 
  {/* Bulk action bar */}
  {selected.size > 0 && (
