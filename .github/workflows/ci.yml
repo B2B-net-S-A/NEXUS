@@ -144,6 +144,7 @@ jobs:
                  tests/test_candidates_filters.py \
                  tests/test_candidate_remove_from_recruitment.py \
                  tests/test_pipeline_inventory.py \
+                 tests/test_engagement_inventory.py \
                  tests/test_recruitment_module_access.py \
                  tests/test_candidate_delete.py \
                  tests/test_candidate_module_access.py \
