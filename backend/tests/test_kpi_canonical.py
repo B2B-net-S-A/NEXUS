@@ -61,7 +61,12 @@ async def seeded():
 
         job = Job(title=f"KPI Job {unique}", client_id=client.id)
         candidate = Candidate(
-            name="Kai", lastname=f"Piae-{unique}", created_by=user_a.id
+            name="Kai",
+            lastname=f"Piae-{unique}",
+            created_by=user_a.id,
+            # Jawnie w oknie T0 — server_default now() wypadałby poza
+            # deterministyczne okna testów.
+            created_at=T0,
         )
         db.add_all([job, candidate])
         await db.flush()
