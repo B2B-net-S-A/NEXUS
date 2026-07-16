@@ -35,7 +35,6 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -96,8 +95,18 @@ from app.services.note_mention_render import (
     collect_traffit_user_ids,
     render_traffit_mentions,
 )
-from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
+from app.api.deps import RecruiterPlus, DeliveryLeadPlus
+from app.api.candidate_access import (
+    CandidateDocumentAccess,
+    CandidateExportAccess,
+    CandidateFinanceAccess,
+    CandidatePIIAccess,
+    CandidateSearchAccess,
+    CandidateWriteAccess,
+    privacy_workflow_unavailable,
+)
 from app.api.financial_access import has_financial_access, redact_financial_fields
+from app.services import candidate_audit
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -1015,7 +1024,7 @@ def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
 
 @router.get("", response_model=CandidateList)
 async def list_candidates(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -1744,7 +1753,7 @@ class CompanySuggestion(BaseModel):
 
 @router.get("/companies/suggest", response_model=list[CompanySuggestion])
 async def suggest_companies(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
     q: str = Query(
         "",
@@ -1791,7 +1800,7 @@ class TitleSuggestion(BaseModel):
 
 @router.get("/titles/suggest", response_model=list[TitleSuggestion])
 async def suggest_titles(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
     q: str = Query(
         "",
@@ -1894,7 +1903,7 @@ def _row_for_export(c: Candidate) -> list:
 
 @router.get("/export")
 async def export_candidates(
-    current_user: CurrentUser,
+    current_user: CandidateExportAccess,
     db: AsyncSession = Depends(get_db),
     format: str = Query("csv", regex="^(csv|xlsx)$"),
     status_: Optional[CandidateStatus] = Query(None, alias="status"),
@@ -1919,6 +1928,23 @@ async def export_candidates(
     query = query.order_by(Candidate.id).limit(limit)
     result = await db.execute(query)
     rows = list(result.scalars().all())
+
+    # Immutable audit — no PII (filters carried as booleans, not values).
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.EXPORT_REQUESTED,
+        user_id=current_user.id,
+        details={
+            "endpoint": "GET /api/candidates/export",
+            "format": format,
+            "row_count": len(rows),
+            "limit": limit,
+            "filtered_by_status": status_ is not None,
+            "filtered_by_query": bool(q),
+            "filtered_by_location": bool(location),
+        },
+    )
+    await db.commit()
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -2000,7 +2026,7 @@ async def _candidate_xlsx(db: AsyncSession, query) -> io.BytesIO:
 @router.post("/export")
 async def export_candidates_v2(
     payload: CandidateExportRequest,
-    current_user: CurrentUser,
+    current_user: CandidateExportAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Export an exact selection or the canonical filtered candidate set."""
@@ -2051,6 +2077,21 @@ async def export_candidates_v2(
                 ),
             )
         query = _apply_candidate_sort(query, payload.filters, q_any_groups)
+
+    # Immutable audit — scope + format only, no PII / filter values.
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.EXPORT_REQUESTED,
+        user_id=current_user.id,
+        details={
+            "endpoint": "POST /api/candidates/export",
+            "format": payload.format,
+            "scope": payload.scope,
+            "selected_count": len(unique_ids),
+            "limit": payload.limit,
+        },
+    )
+    await db.commit()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     extension = payload.format
@@ -2541,7 +2582,7 @@ class CheckExistsResponse(BaseModel):
 @limiter.limit("60/minute")
 async def check_exists(
     request: Request,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     email: EmailStr = Query(..., description="Email do wyszukania (case-insensitive)"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2600,7 +2641,9 @@ async def check_exists(
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
 async def get_candidate(
-    candidate_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    candidate_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Candidate)
@@ -2637,7 +2680,7 @@ _HIDDEN_TIMELINE_ACTIONS = ("traffit:Zmiana etapu", "traffit:Notatka")
 @router.get("/{candidate_id}/timeline")
 async def get_candidate_timeline(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -2816,7 +2859,7 @@ async def get_candidate_timeline(
 @router.get("/{candidate_id}/history")
 async def get_candidate_history(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -2977,7 +3020,7 @@ async def set_recruitment_client_rate(
     candidate_id: int,
     job_id: int,
     payload: ClientRateUpdate,
-    current_user: CurrentUser,
+    current_user: CandidateFinanceAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Ustaw/wyczyść „Stawkę do klienta" (cena wysłania kandydata do klienta)
@@ -3037,7 +3080,7 @@ async def set_recruitment_expected_rate(
     candidate_id: int,
     job_id: int,
     payload: ClientRateUpdate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Ustaw/wyczyść „Stawkę kandydata" (oczekiwania kandydata, expected_rate)
@@ -3184,7 +3227,7 @@ async def remove_candidate_from_recruitment(
 )
 async def list_candidate_documents(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """List wszystkich plików kandydata (multi-file CV, Faza A migracji
@@ -3216,7 +3259,7 @@ async def list_candidate_documents(
 async def download_candidate_document(
     candidate_id: int,
     doc_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
         "attachment",
@@ -3241,6 +3284,15 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.DOCUMENT_DOWNLOADED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={"doc_id": doc_id, "disposition": disposition},
+    )
+    await db.commit()
 
     # Po migracji do Hetzner Object Storage (audit-2026-05-07 Faza 3): plik
     # leży w buckecie pod `storage_key`. PROXY MODE — backend pobiera bytes
@@ -3291,7 +3343,7 @@ async def download_candidate_document(
 async def get_candidate_document_url(
     candidate_id: int,
     doc_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
         "attachment",
@@ -3326,6 +3378,15 @@ async def get_candidate_document_url(
 
     filename = doc.filename or f"document-{doc.id}"
 
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.DOCUMENT_URL_ISSUED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={"doc_id": doc_id, "disposition": disposition},
+    )
+    await db.commit()
+
     if doc.storage_key:
         from app.services.object_storage import (
             get_presigned_download_url,
@@ -3357,7 +3418,7 @@ async def get_candidate_document_url(
 @router.get("/{candidate_id}/risk")
 async def get_candidate_risk(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Risk profile dla kandydata (Phase 17 — read-only, migracja 0068).
@@ -3461,48 +3522,21 @@ async def delete_candidate(
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    had_embedding = candidate.embedding_id is not None
-    activity = Activity(
-        entity_type="candidate",
-        entity_id=candidate_id,
-        action="deleted",
+    # M2 audit PR 1 (M2-PRIV-02): operational hard delete is DISABLED. The
+    # ON DELETE CASCADE sweep (migrations 0141+0146) silently removes
+    # contracts, notes, stages and audit history, while local CV files,
+    # object-storage keys and integration payloads are NOT reliably cleaned
+    # up. Erasure returns as an auditable privacy-executor workflow in PR 2
+    # of the module plan (preview → approval → artifact manifest → retry).
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.SENSITIVE_OPERATION_BLOCKED,
         user_id=current_user.id,
+        entity_id=candidate_id,
+        details={"operation": "hard_delete", "reason": "privacy_workflow_required"},
     )
-    db.add(activity)
-    await db.delete(candidate)
-    # Flush now so FK/integrity errors surface here (rollback via get_db) instead
-    # of a late commit error. Related rows are removed by DB-level ON DELETE
-    # CASCADE/SET NULL (migrations 0141 + 0146 sweep) plus ORM cascades on
-    # Candidate. Migration 0146 makes the DB authoritative for EVERY candidate
-    # FK; this try/except is defense-in-depth so a future uncovered FK surfaces
-    # as an actionable 409 (which carries CORS headers) rather than an unhandled
-    # 500 — which Starlette emits ABOVE the CORS middleware, so the browser only
-    # sees an opaque "Network Error".
-    try:
-        await db.flush()
-    except IntegrityError as exc:
-        logger.warning(
-            "[delete_candidate] FK violation deleting candidate %s: %s",
-            candidate_id,
-            exc.orig,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Nie można usunąć kandydata — istnieją powiązane dane bez reguły "
-                "kaskadowego usuwania. Zgłoś to administratorowi (brakująca "
-                "kaskada ON DELETE na kluczu obcym do candidates)."
-            ),
-        ) from exc
-    # Best-effort: drop the orphaned vector from Qdrant. Never blocks the delete.
-    if had_embedding:
-        from app.services.embedding_service import delete_candidate_embedding
-
-        await delete_candidate_embedding(candidate_id)
+    await db.commit()
+    raise privacy_workflow_unavailable("trwałe usunięcie kandydata")
 
 
 # CV-enrichment helpers live in app.services.cv_enrichment so the Traffit
@@ -3923,7 +3957,7 @@ async def upload_cv(
 @router.get("/{candidate_id}/cv-download")
 async def download_cv(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Download CV file for a candidate."""
@@ -3938,6 +3972,14 @@ async def download_cv(
     )
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.CV_DOWNLOADED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={"endpoint": "cv-download"},
+    )
+    await db.commit()
     return FileResponse(
         path=file_path,
         filename=candidate.cv_filename,
@@ -3961,7 +4003,7 @@ def _sanitize_zip_component(value: str) -> str:
 @router.post("/bulk-cv-download")
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download multiple candidate CVs as a single ZIP archive.
@@ -4056,6 +4098,18 @@ async def bulk_cv_download(
 
         zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
 
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.BULK_CV_DOWNLOADED,
+        user_id=current_user.id,
+        details={
+            "requested_count": len(requested_ids),
+            "included_count": included,
+            "skipped_count": skipped,
+        },
+    )
+    await db.commit()
+
     archive_name = f"nexus-cvs-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.zip"
     headers = {
         "Content-Disposition": f'attachment; filename="{archive_name}"',
@@ -4106,7 +4160,7 @@ async def bulk_import_candidates(
 @router.post("/check-duplicates")
 async def check_duplicates(
     payload: DuplicateCheckPayload,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -4301,7 +4355,7 @@ class CandidateCcAssign(BaseModel):
 )
 async def get_suggested_pools(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Return talent pools ranked by centroid similarity to this candidate."""
@@ -4326,7 +4380,7 @@ async def get_suggested_pools(
 )
 async def list_candidate_ccs(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Return all CC assignments (primary + secondary) for a candidate."""

@@ -12,7 +12,9 @@ NEXUS data without reaching for new tables):
 - assign_talent_pool   — entry point + delegate flag for the existing
                          talent_pools API (UI batches via the floating bar)
 - assign_to_job        — entry point + delegate flag for proposals_bulk
-- anonymize_pii        — RODO-style erasure: clear PII, mark blacklisted
+- anonymize_pii        — DISABLED (M2 audit PR 1): answers 409 until the
+                         PR 2 privacy executor lands; the old handler only
+                         blanked contact fields (false RODO erasure)
 
 Skipped / deferred:
 - bulk send_email / send_sms — needs an outbound queue + opt-in audit;
@@ -36,9 +38,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.candidate_access import CandidateWriteAccess, privacy_workflow_unavailable
 from app.core.database import get_db
-from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate import Candidate
+from app.services import candidate_audit
 
 router = APIRouter()
 
@@ -114,28 +117,13 @@ async def _handle_add_tags(
     return results
 
 
-async def _handle_anonymize_pii(
-    candidates: List[Candidate],
-) -> List[BulkActionItemResult]:
-    """RODO-style erasure: blank PII while keeping pipeline + skill history.
-
-    Sets ``status = blacklisted`` so the candidate stops surfacing in
-    sourcing flows. NEXUS doesn't have an explicit ``archived`` value;
-    blacklisted is the closest stable terminal state.
-
-    Note: this is a one-way transform. We don't keep a backup elsewhere.
-    Recruiter is expected to confirm via UI dialog before calling.
-    """
-    results: List[BulkActionItemResult] = []
-    for candidate in candidates:
-        candidate.name = "[anonymized]"
-        candidate.lastname = ""
-        candidate.email = None
-        candidate.phone = None
-        candidate.linkedin = None
-        candidate.status = CandidateStatus.blacklisted
-        results.append(BulkActionItemResult(candidate_id=candidate.id, ok=True))
-    return results
+# M2 audit PR 1 (M2-SEC-02 + M2-PRIV-01): the previous `_handle_anonymize_pii`
+# blanked only a handful of contact fields (name/email/phone/linkedin) while
+# leaving raw CV text, documents, notes, calls, vectors and integration
+# payloads untouched — a false sense of RODO erasure — and was callable by ANY
+# logged-in user for up to 500 candidates at once. The action is disabled until
+# the PR 2 privacy executor (preview → approval → artifact manifest → retry)
+# replaces it. Do not re-enable a partial-erasure shortcut here.
 
 
 # ── Public endpoint ──────────────────────────────────────────────────────────
@@ -144,7 +132,7 @@ async def _handle_anonymize_pii(
 @router.post("/candidates/bulk", response_model=BulkActionResponse)
 async def bulk_action(
     payload: BulkActionRequest,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> BulkActionResponse:
     """Dispatch a bulk action across candidate_ids.
@@ -162,6 +150,23 @@ async def bulk_action(
     The dispatcher reports OK for every loaded row so the UI can chain
     the next call deterministically.
     """
+    # Escalation-by-body guard (M2-SEC-02): the destructive action is checked
+    # BEFORE any candidate row is loaded or touched, so switching `action` in
+    # the payload cannot smuggle a pseudonymisation past the role guard.
+    if payload.action is BulkAction.anonymize_pii:
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.SENSITIVE_OPERATION_BLOCKED,
+            user_id=current_user.id,
+            details={
+                "operation": "bulk_anonymize_pii",
+                "reason": "privacy_workflow_required",
+                "requested_count": len(set(payload.candidate_ids)),
+            },
+        )
+        await db.commit()
+        raise privacy_workflow_unavailable("masowa pseudonimizacja (anonymize_pii)")
+
     # Dedupe + load.
     requested = sorted(set(payload.candidate_ids))
     if len(requested) > 500:
@@ -179,8 +184,6 @@ async def bulk_action(
 
     if payload.action is BulkAction.add_tags:
         items = await _handle_add_tags(candidates, payload.params)
-    elif payload.action is BulkAction.anonymize_pii:
-        items = await _handle_anonymize_pii(candidates)
     elif payload.action in (
         BulkAction.assign_talent_pool,
         BulkAction.assign_to_job,
@@ -198,6 +201,17 @@ async def bulk_action(
     succeeded = sum(1 for it in items if it.ok)
     skipped = sum(1 for it in items if not it.ok)
 
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.BULK_ACTION_EXECUTED,
+        user_id=current_user.id,
+        details={
+            "bulk_action": payload.action.value,
+            "requested": len(requested),
+            "succeeded": succeeded,
+            "skipped": skipped,
+        },
+    )
     await db.commit()
 
     return BulkActionResponse(

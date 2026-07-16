@@ -1,13 +1,17 @@
-"""Tests for `DELETE /api/candidates/{candidate_id}` — hard delete from the DB.
+"""Tests for `DELETE /api/candidates/{candidate_id}` — BLOCKED endpoint.
 
-Removing a candidate is a permanent hard delete (no soft-delete column). It must
-succeed atomically even when the candidate has related rows in tables whose FK to
-``candidates.id`` previously lacked an ``ON DELETE`` rule (contracts, screening
-notes, talent-pool memberships, match history) — migration ``0141`` added the
-cascade so the delete no longer fails with a foreign-key violation. Notes and
-other ORM-cascade children are removed too.
+M2 audit PR 1 (M2-PRIV-02): operational hard delete is disabled. The ON
+DELETE CASCADE sweep (migrations 0141+0146) silently removed contracts,
+notes, stages and audit history while storage/Qdrant artifacts stayed
+orphaned. Until the PR 2 privacy executor lands, the endpoint answers 409
+(„privacy workflow required”) and the candidate + all related rows survive
+byte-identical.
 
-Guard: only ``admin`` / ``delivery_lead`` (``DeliveryLeadPlus``).
+Guard order: ``DeliveryLeadPlus`` still runs first, so roles below
+admin/delivery_lead get 403 and never reach the 409 block.
+
+The schema invariant test (every candidate FK has an ON DELETE rule) stays —
+the future privacy executor relies on the same DB rules.
 
 Uses the in-process ``app_client`` / ``app_auth_headers`` fixtures from conftest
 (real postgres in CI).
@@ -16,7 +20,7 @@ Uses the in-process ``app_client`` / ``app_auth_headers`` fixtures from conftest
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 
 from httpx import AsyncClient
 from sqlalchemy import func, select, text
@@ -88,16 +92,10 @@ async def test_delete_candidate_requires_auth(app_client: AsyncClient):
     assert r.status_code in (401, 403)
 
 
-async def test_delete_candidate_404_when_missing(
+async def test_delete_candidate_blocked_even_for_admin(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    r = await app_client.delete("/api/candidates/999000111", headers=app_auth_headers)
-    assert r.status_code == 404
-
-
-async def test_delete_candidate_hard_deletes_with_related_rows(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+    """Admin gets an explicit 409 — the endpoint must not run a cascade."""
     from app.models.candidate import Candidate
     from app.models.contract import Contract
     from app.models.note import Note
@@ -114,24 +112,49 @@ async def test_delete_candidate_hard_deletes_with_related_rows(
     r = await app_client.delete(
         f"/api/candidates/{candidate_id}", headers=app_auth_headers
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 409, r.text
+    assert "workflow" in r.json()["detail"].lower()
 
-    # Candidate and ALL related rows are gone (DB cascade + ORM cascade).
-    assert await _count(Candidate, id=candidate_id) == 0
-    assert await _count(Note, candidate_id=candidate_id) == 0
-    assert await _count(Contract, candidate_id=candidate_id) == 0
+    # Candidate and ALL related rows SURVIVE — nothing was cascaded.
+    assert await _count(Candidate, id=candidate_id) == 1
+    assert await _count(Note, candidate_id=candidate_id) == 1
+    assert await _count(Contract, candidate_id=candidate_id) == 1
 
-    # GET now 404s.
+    # GET still works.
     r2 = await app_client.get(
         f"/api/candidates/{candidate_id}", headers=app_auth_headers
     )
-    assert r2.status_code == 404
+    assert r2.status_code == 200
 
-    # A second delete is also a 404 (nothing left).
-    r3 = await app_client.delete(
+
+async def test_delete_blocked_emits_audit_event(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """The blocked attempt leaves an immutable audit row without PII."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+
+    candidate_id = await _seed_candidate()
+    r = await app_client.delete(
         f"/api/candidates/{candidate_id}", headers=app_auth_headers
     )
-    assert r3.status_code == 404
+    assert r.status_code == 409
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(Activity)
+            .where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == candidate_id,
+                Activity.action == "sensitive_operation_blocked",
+            )
+            .order_by(Activity.id.desc())
+            .limit(1)
+        )
+    assert row is not None
+    assert row.details.get("operation") == "hard_delete"
+    # No PII in the audit payload.
+    assert "@" not in str(row.details)
 
 
 async def test_every_candidate_fk_has_on_delete_rule():
@@ -173,64 +196,6 @@ async def test_every_candidate_fk_has_on_delete_rule():
         "FK(s) to candidates without ON DELETE CASCADE/SET NULL — these block "
         f"hard delete and surface as a browser 'Network Error': {offenders}"
     )
-
-
-async def test_delete_candidate_cascades_membership_and_unlinks_calendar(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    """End-to-end: a candidate with a talent-pool membership (the confirmed
-    prod culprit — that table has NO ORM relationship on ``Candidate``, so it
-    relies SOLELY on the DB-level ON DELETE rule) plus a calendar event.
-
-    Delete must 204; the membership is gone (CASCADE), the calendar event
-    survives but is unlinked (SET NULL).
-    """
-    from app.core.database import AsyncSessionLocal
-    from app.models.calendar_event import CalendarEvent
-    from app.models.candidate import Candidate
-    from app.models.talent_pool import TalentPool, TalentPoolMembership
-
-    candidate_id = await _seed_candidate()
-    async with AsyncSessionLocal() as db:
-        pool = TalentPool(name=f"DelPool-{uuid.uuid4().hex[:6]}")
-        db.add(pool)
-        await db.commit()
-        await db.refresh(pool)
-        pool_id = pool.id
-        db.add(
-            TalentPoolMembership(talent_pool_id=pool_id, candidate_id=candidate_id)
-        )
-        ev = CalendarEvent(
-            title="survives the candidate delete",
-            start_time=datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc),
-            candidate_id=candidate_id,
-        )
-        db.add(ev)
-        await db.commit()
-        await db.refresh(ev)
-        event_id = ev.id
-
-    assert await _count(TalentPoolMembership, candidate_id=candidate_id) == 1
-
-    r = await app_client.delete(
-        f"/api/candidates/{candidate_id}", headers=app_auth_headers
-    )
-    assert r.status_code == 204, r.text
-
-    assert await _count(Candidate, id=candidate_id) == 0
-    # CASCADE — membership row removed with the candidate.
-    assert await _count(TalentPoolMembership, candidate_id=candidate_id) == 0
-    # SET NULL — calendar event survives, just unlinked.
-    assert await _count(CalendarEvent, id=event_id) == 1
-    async with AsyncSessionLocal() as db:
-        ev2 = await db.get(CalendarEvent, event_id)
-        assert ev2 is not None and ev2.candidate_id is None
-        # cleanup
-        await db.delete(ev2)
-        pool = await db.get(TalentPool, pool_id)
-        if pool is not None:
-            await db.delete(pool)
-        await db.commit()
 
 
 async def test_delete_candidate_forbidden_for_recruiter(app_client: AsyncClient):

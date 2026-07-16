@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
@@ -129,7 +130,7 @@ async def _competence_facets(
 @router.post("/candidates/scores", response_model=MatchScoresResponse)
 async def candidate_match_scores(
     body: MatchScoresRequest,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ) -> MatchScoresResponse:
     """Read-only cached hybrid match scores (0-100) for candidates against a
@@ -174,7 +175,7 @@ async def _diagnostics_count(db: AsyncSession, clauses: list[Any]) -> int:
 @router.post("/candidates/diagnostics", response_model=SearchDiagnosticsResponse)
 async def candidate_search_diagnostics(
     body: CandidateSearchRequest,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ) -> SearchDiagnosticsResponse:
     """Zero-result exclusion waterfall (SEARCH-P1-04).
@@ -244,7 +245,7 @@ async def candidate_search_diagnostics(
 @router.post("/candidates", response_model=CandidateSearchResponse)
 async def advanced_candidate_search(
     body: CandidateSearchRequest,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateSearchResponse:
     """Hybrid candidate search.
@@ -389,7 +390,10 @@ async def unified_search(
     """
     results: dict[str, List[Any]] = {}
 
-    if not entity or entity == "candidates":
+    # M2 audit PR 1: candidates section only for roles with candidate read
+    # capability — the viewer/client role keeps jobs/clients search but must
+    # not enumerate the candidate base through the unified search bar.
+    if (not entity or entity == "candidates") and user_has_candidate_read(current_user):
         result = await db.execute(
             select(Candidate)
             .where(
@@ -461,26 +465,30 @@ async def global_search(
     LIMIT = 5
 
     # Candidates
-    cand_result = await db.execute(
-        select(Candidate)
-        .where(
-            or_(
-                Candidate.name.ilike(f"%{q}%"),
-                Candidate.lastname.ilike(f"%{q}%"),
-                Candidate.email.ilike(f"%{q}%"),
+    # M2 audit PR 1: viewer/client role must not enumerate candidates from
+    # the top search bar — the section is skipped, jobs/clients stay.
+    candidates: list[dict[str, Any]] = []
+    if user_has_candidate_read(current_user):
+        cand_result = await db.execute(
+            select(Candidate)
+            .where(
+                or_(
+                    Candidate.name.ilike(f"%{q}%"),
+                    Candidate.lastname.ilike(f"%{q}%"),
+                    Candidate.email.ilike(f"%{q}%"),
+                )
             )
+            .limit(LIMIT)
         )
-        .limit(LIMIT)
-    )
-    candidates = [
-        {
-            "id": c.id,
-            "name": f"{c.name} {c.lastname}",
-            "subtitle": c.email or c.competence_category or "",
-            "url": f"/candidates/{c.id}",
-        }
-        for c in cand_result.scalars().all()
-    ]
+        candidates = [
+            {
+                "id": c.id,
+                "name": f"{c.name} {c.lastname}",
+                "subtitle": c.email or c.competence_category or "",
+                "url": f"/candidates/{c.id}",
+            }
+            for c in cand_result.scalars().all()
+        ]
 
     # Jobs
     jobs_result = await db.execute(
@@ -570,7 +578,7 @@ class SemanticSearchRequest(BaseModel):
 @router.post("/semantic")
 async def semantic_search(
     body: SemanticSearchRequest,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """

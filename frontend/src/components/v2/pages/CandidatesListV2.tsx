@@ -2186,6 +2186,8 @@ export function CandidatesListV2() {
  <Button size="sm" variant="outline">Więcej</Button>
  </PopoverTrigger>
  <PopoverContent align="end" className="w-56 p-1">
+ {/* Eksport: capability TAC+ (audyt M2 PR1) — backend zwraca 403 poniżej. */}
+ <RequireRole minRole="tac">
  <button
  onClick={() => doExport("csv", "filtered")}
  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
@@ -2198,6 +2200,7 @@ export function CandidatesListV2() {
  >
  <FileText className="h-4 w-4 text-muted-foreground" /> Eksportuj wyniki XLSX
  </button>
+ </RequireRole>
  <button
  onClick={() => setShowInvite(true)}
  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
@@ -3331,6 +3334,7 @@ export function CandidatesListV2() {
  >
  <GitCompare className="h-3.5 w-3.5" /> Porównaj (max 3)
  </Button>
+ <RequireRole minRole="tac">
  <Button
  size="sm"
  variant="ghost"
@@ -3338,6 +3342,7 @@ export function CandidatesListV2() {
  >
  <Download className="h-3.5 w-3.5" /> Eksportuj zaznaczone ({selectedIds.size})
  </Button>
+ </RequireRole>
  <Button
  size="sm"
  variant="ghost"

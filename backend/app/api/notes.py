@@ -23,7 +23,8 @@ from app.services.note_mention_render import (
     collect_traffit_user_ids,
     render_traffit_mentions,
 )
-from app.api.deps import CurrentUser, DeliveryLeadPlus
+from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
+from app.api.deps import DeliveryLeadPlus
 from app.services.mention_dispatch import (
     build_note_context_label,
     build_note_deep_link,
@@ -61,7 +62,7 @@ def _can_modify_note(user: User, note: Note) -> bool:
 
 @router.get("", response_model=EnrichedNoteList)
 async def list_notes(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     candidate_id: Optional[int] = None,
     job_id: Optional[int] = None,
@@ -116,7 +117,9 @@ async def list_notes(
 
 @router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
 async def create_note(
-    data: NoteCreate, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    data: NoteCreate,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
 ):
     note = Note(**data.model_dump(), author_id=current_user.id)
     db.add(note)
@@ -194,7 +197,9 @@ async def create_note(
 
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
-    note_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    note_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Note).where(Note.id == note_id))
     note = result.scalar_one_or_none()
@@ -207,7 +212,7 @@ async def get_note(
 async def update_note(
     note_id: int,
     data: NoteUpdate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Note).where(Note.id == note_id))
@@ -282,7 +287,9 @@ async def update_note(
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(
-    note_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    note_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Note).where(Note.id == note_id))
     note = result.scalar_one_or_none()

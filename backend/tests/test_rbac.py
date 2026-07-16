@@ -110,8 +110,10 @@ async def role_headers(
 # więc asercja jest asymetryczna: „role not in allowed → status == 403".
 
 # Endpointy GET — dostępne dla wszystkich zalogowanych:
+# UWAGA (audyt M2 PR1): /api/candidates NIE jest już all-roles — rola `user`
+# (read-only viewer/klient) dostaje 403 na całym module kandydatów. Pełna
+# macierz modułu: tests/test_candidate_module_access.py.
 GET_ENDPOINTS_ALL = [
-    "/api/candidates",
     "/api/jobs",
     "/api/dashboard/stats",
     "/api/dashboard/kpis",
