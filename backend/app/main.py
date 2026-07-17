@@ -1254,6 +1254,27 @@ async def api_health_check():
             "down": "unhealthy",
         }[provider_status("claude")]
 
+    # Disk usage — informational only (never flips `overall` → no false outages).
+    # `shutil.disk_usage("/")` inside the container reflects the host's backing
+    # filesystem (overlay2 upperdir lives on the host disk), so this surfaces the
+    # host disk filling up — the root cause of the 2026-07-17 outage (Coolify build
+    # churn → 98.8% disk → Postgres/Coolify crash-loop). The `disk-alert.yml` cron
+    # reads `diskPercent` and warns at 75%, days before it becomes an outage.
+    disk_percent: int | None = None
+    try:
+        import shutil
+
+        usage = shutil.disk_usage("/")
+        disk_percent = round(usage.used / usage.total * 100)
+        if disk_percent >= 90:
+            checks["disk"] = "critical"
+        elif disk_percent >= 80:
+            checks["disk"] = "warning"
+        else:
+            checks["disk"] = "healthy"
+    except Exception:
+        checks["disk"] = "unknown"
+
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
 
@@ -1262,6 +1283,7 @@ async def api_health_check():
             "status": overall,
             "version": os.environ.get("GIT_SHA", "unknown"),
             "deployedAt": _resolve_deployed_at(),
+            "diskPercent": disk_percent,
             "checks": checks,
         },
         status_code=http_status.HTTP_200_OK
