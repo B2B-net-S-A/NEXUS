@@ -114,6 +114,7 @@ jobs:
                  tests/test_password_reset.py \
                  tests/test_smtp_tls.py \
                  tests/test_auth_register.py \
+                 tests/test_auth_missing_credentials.py \
                  tests/test_autenti_client.py \
                  tests/test_autenti_pdf_renderer.py \
                  tests/test_autenti_send.py \

@@ -39,5 +39,11 @@ async def test_me_authenticated(client: AsyncClient, auth_headers: dict):
 
 
 async def test_me_unauthenticated(client: AsyncClient):
+    # MUSI być dokładnie 401, nie „401 albo 403".
+    # Frontend wylogowuje i przekierowuje na /login wyłącznie na 401
+    # (frontend/src/lib/api.ts); 403 znaczy „jesteś zalogowany, ale nie wolno ci"
+    # i celowo NIE wylogowuje. Gdy brak nagłówka Authorization zwracał 403,
+    # wygasła sesja zostawiała użytkownika w powłoce aplikacji z widgetami
+    # „Brak uprawnień do tego widoku" zamiast na ekranie logowania.
     resp = await client.get("/api/auth/me")
-    assert resp.status_code in (401, 403)
+    assert resp.status_code == 401
