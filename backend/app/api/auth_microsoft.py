@@ -154,8 +154,14 @@ def is_sso_configured() -> bool:
     """
     try:
         _require_sso_configured()
-    except HTTPException:
-        return False
+    except HTTPException as exc:
+        # Tylko 503 = „nie skonfigurowane". Każdy inny status oznacza, że
+        # _require_sso_configured() zaczęło zgłaszać coś innego niż brak
+        # konfiguracji — wtedy lepiej, żeby błąd wypłynął, niż żeby ekran
+        # logowania po cichu ukrył przycisk Microsoft.
+        if exc.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+            return False
+        raise
     return True
 
 

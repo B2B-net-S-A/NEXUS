@@ -92,3 +92,33 @@ async def test_methods_is_public(app_client: AsyncClient):
     resp = await app_client.get("/api/auth/methods")
     assert resp.status_code == 200
     assert set(resp.json()) == {"password", "microsoft", "self_registration"}
+
+
+async def test_methods_reports_microsoft_off_when_sso_unconfigured(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Pole ``microsoft`` musi odzwierciedlać REALNY stan konfiguracji SSO.
+
+    Wcześniejsze testy sprawdzały tylko, że klucz istnieje — regresja, w której
+    ``is_sso_configured()`` zawsze zwraca tę samą wartość, przeszłaby je bez
+    mrugnięcia. To nie jest hipotetyczne: pierwsza wersja tego endpointu miała
+    warunek zbudowany z niewłaściwych ustawień i zgłaszała SSO jako dostępne
+    także tam, gdzie ``/authorize`` zwróciłoby 503.
+    """
+    monkeypatch.setattr(settings, "M365_INTEGRATION_ENABLED", False)
+    body = (await app_client.get("/api/auth/methods")).json()
+    assert body["microsoft"] is False
+
+
+async def test_methods_reports_microsoft_on_when_sso_configured(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Druga strona kontraktu — komplet ustawień = przycisk widoczny."""
+    monkeypatch.setattr(settings, "M365_INTEGRATION_ENABLED", True)
+    monkeypatch.setattr(settings, "M365_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr(settings, "M365_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setattr(
+        settings, "MICROSOFT_LOGIN_REDIRECT_URI", "https://example.test/cb"
+    )
+    body = (await app_client.get("/api/auth/methods")).json()
+    assert body["microsoft"] is True

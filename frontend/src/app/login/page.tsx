@@ -58,6 +58,12 @@ interface AuthMethods {
 // wewnętrznym: tylko Microsoft). Dzięki temu formularz hasła nie mignie przed
 // odpowiedzią backendu, a gdy /methods jest nieosiągalne, ekran zostaje w
 // wersji zamkniętej zamiast pokazywać drogę, której i tak nie ma.
+//
+// ``microsoft: true`` jest tu świadomym założeniem NEXUS-owym — na produkcji
+// SSO jest zawsze skonfigurowane. Na środowisku bez SSO
+// (M365_INTEGRATION_ENABLED=false) przycisk mignie i zniknie po odpowiedzi
+// /methods. Zamiana na ``false`` dałaby gorszy kompromis: ekran bez ŻADNEJ
+// drogi wejścia przez pierwszy render — tam, gdzie to boli najbardziej.
 const LOCKED_DOWN: AuthMethods = {
   password: false,
   microsoft: true,

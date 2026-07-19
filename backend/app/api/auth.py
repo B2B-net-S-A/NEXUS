@@ -121,7 +121,8 @@ class AuthMethodsResponse(BaseModel):
 
 
 @router.get("/methods", response_model=AuthMethodsResponse)
-async def auth_methods() -> AuthMethodsResponse:
+@limiter.limit("30/minute")
+async def auth_methods(request: Request) -> AuthMethodsResponse:
     """Publiczna lista włączonych metod logowania — steruje ekranem /login.
 
     Istnieje po to, żeby frontend NIE dublował flag we własnych zmiennych
@@ -130,7 +131,9 @@ async def auth_methods() -> AuthMethodsResponse:
     env wymagałby przebudowy obrazu przy każdym przestawieniu killswitcha.
 
     Celowo bez uwierzytelnienia i bez sekretów: zwraca wyłącznie trzy
-    booleany, które i tak widać po zachowaniu ekranu logowania.
+    booleany, które i tak widać po zachowaniu ekranu logowania. Limit 30/min
+    (luźniejszy niż 5/min na /login — ekran odpytuje to przy każdym wejściu)
+    dla spójności z resztą pliku; endpoint nie dotyka bazy.
     """
     return AuthMethodsResponse(
         password=settings.PASSWORD_LOGIN_ENABLED,
@@ -154,6 +157,10 @@ async def login(
     żeby nie wysadzić testów (``tests/conftest.py`` loguje się hasłem) — patrz
     komentarz przy fladze w ``app/core/config.py``.
     """
+    # NB: /change-password NIE jest objęte tą bramką i tak ma zostać — to
+    # mechanizm utrzymania poświadczenia awaryjnego (rotacja hasła admina,
+    # gdy logowanie hasłem jest wyłączone). Konta SSO-only mają
+    # ``password_hash IS NULL``, więc i tak go nie użyją.
     if not settings.PASSWORD_LOGIN_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
