@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -10,7 +10,19 @@ from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User, UserRole
 
-security = HTTPBearer()
+# ``auto_error=False`` — świadomie, NIE domyślne zachowanie.
+#
+# ``HTTPBearer(auto_error=True)`` (default) na BRAK nagłówka ``Authorization``
+# rzuca **403 Not authenticated**, nie 401. To myli dwa różne stany:
+#   401 = nie wiemy kim jesteś (sesja martwa)  → frontend ma wylogować,
+#   403 = wiemy kim jesteś, ale nie wolno ci   → frontend ma zostać na miejscu.
+# Skutek buga: po wygaśnięciu sesji localStorage tracił token, requesty szły
+# bez nagłówka, backend zwracał 403, a interceptor (który reaguje wyłącznie na
+# 401 — patrz frontend/src/lib/api.ts) NIE przekierowywał na /login. Użytkownik
+# zostawał w powłoce aplikacji z widgetami „Brak uprawnień do tego widoku"
+# zamiast wylądować na ekranie logowania.
+# Dlatego walidujemy obecność poświadczeń sami i zwracamy 401.
+security = HTTPBearer(auto_error=False)
 
 # ── Admin "podgląd jako użytkownik" (impersonation) ──────────────────────────
 #
@@ -86,7 +98,7 @@ async def _resolve_impersonation(
 
 async def get_current_user(
     request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Validate JWT token and return current user.
@@ -100,6 +112,13 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    # Brak / pusty nagłówek Authorization to ten sam stan co token nie do
+    # zweryfikowania: sesji nie ma. Zwracamy 401 (nie 403), żeby frontend
+    # jednoznacznie wylogował — patrz komentarz przy ``security`` wyżej.
+    if credentials is None or not credentials.credentials:
+        raise credentials_exception
+
     try:
         payload = decode_token(credentials.credentials)
         user_id: str = payload.get("sub")

@@ -7,7 +7,19 @@ import { NextRequest, NextResponse } from "next/server"
  * Middleware dekoduje claim `role` z JWT i porównuje z wymaganiami route'u.
  *
  * Niepowodzenie walidacji (brak tokena/zły format/wygasły) → redirect /login?next=<pathname>.
- * Zły rola → redirect /403.
+ * Zła rola → redirect /403.
+ *
+ * MODEL: **deny by default**. Wszystko, co nie jest jawnie na liście
+ * `PUBLIC_PATHS`, wymaga ważnego, niewygasłego tokenu. Wcześniej działało to
+ * odwrotnie — chronione były tylko trasy wymienione w `PROTECTED_ROUTES`, więc
+ * `/`, `/dashboard`, `/contractors`, `/marketplace`, `/my-clients`,
+ * `/cv-generator` i kilkanaście innych ekranów renderowało powłokę aplikacji
+ * BEZ jakiejkolwiek kontroli tokenu. Po wygaśnięciu sesji użytkownik nadal
+ * widział pulpit (widgety puste, bo API odrzucało requesty) zamiast ekranu
+ * logowania. Nowa trasa dodana do `app/` jest teraz chroniona automatycznie —
+ * nikt nie musi pamiętać o dopisaniu jej do listy.
+ *
+ * `ROLE_ROUTES` zawęża dostęp tam, gdzie sam login nie wystarcza.
  *
  * Uwaga: to *defense in depth*. Guardy backendu (deps.py) pozostają ostatecznym
  * arbitrem — middleware blokuje tylko nawigację do UI, nie chroni API.
@@ -24,10 +36,11 @@ type UserRole =
 
 const COOKIE_NAME = "nexus_access"
 
-// Route → dozwolone role. `null` = każda zalogowana rola (także `user`).
-// Kolejność prefixów nie ma znaczenia — dopasowywany jest pierwszy prefix
-// który pasuje do pathname (sprawdzane od najdłuższego, patrz resolveAllowedRoles).
-const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
+// Trasy wymagające KONKRETNYCH ról. Każda inna (niepubliczna) trasa wymaga
+// wyłącznie ważnego tokenu — patrz deny-by-default w nagłówku pliku.
+// Kolejność prefixów nie ma znaczenia — dopasowywany jest najdłuższy pasujący
+// prefix (patrz resolveAllowedRoles).
+const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
   // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
@@ -65,22 +78,35 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
     prefix: "/sourcing",
     roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
   },
-  // Wszystkie pozostałe chronione trasy — tylko „musisz być zalogowany":
-  { prefix: "/jobs", roles: null },
-  { prefix: "/contracts", roles: null },
-  { prefix: "/clients", roles: null },
-  { prefix: "/calendar", roles: null },
-  { prefix: "/profile", roles: null },
-  { prefix: "/insights", roles: null },
-  { prefix: "/settings", roles: null },
+  // `/jobs`, `/contracts`, `/clients`, `/calendar`, `/profile`, `/insights`,
+  // `/settings` (i każda inna trasa) nie muszą tu być — deny-by-default już
+  // wymaga od nich zalogowania. Dopisuj tutaj WYŁĄCZNIE zawężenia ról.
 ]
 
-// Ścieżki nigdy nieobjęte middleware (publiczne, assety, API).
-// `/login` pokrywa też `/login/forgot-password` i `/login/reset` (forgot
-// password flow działa dla niezalogowanych). `/register` pokrywa też
-// `/register/verify` (self-service rejestracja + aktywacja email — flow dla
-// niezalogowanych).
-const PUBLIC_PATHS = ["/login", "/register", "/403", "/_next", "/favicon", "/public", "/share", "/apply", "/sign"]
+// Ścieżki jawnie publiczne — jedyne, które przechodzą bez tokenu.
+// Dopisanie czegokolwiek tutaj otwiera trasę na świat, więc każdy wpis musi być
+// świadomą decyzją.
+//   `/login`     — pokrywa /login/forgot-password, /login/reset, /login/microsoft/callback
+//   `/register`  — pokrywa /register/verify (self-service rejestracja + aktywacja email)
+//   `/apply/`, `/share/`, `/sign/`, `/cv/`, `/engagement/`
+//                — linki tokenowe dla osób z zewnątrz (kandydat aplikuje,
+//                  klient ogląda brandowane CV, podpis umowy, potwierdzenie
+//                  engagementu). Ukośnik na końcu jest obowiązkowy: samo "/cv"
+//                  łapałoby przez `startsWith` także wewnętrzny `/cv-generator`
+//                  i wystawiło go publicznie.
+const PUBLIC_PATHS = [
+  "/login",
+  "/register",
+  "/403",
+  "/_next",
+  "/favicon",
+  "/public",
+  "/share/",
+  "/apply/",
+  "/sign/",
+  "/cv/",
+  "/engagement/",
+]
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p))
@@ -89,7 +115,7 @@ function isPublicPath(pathname: string): boolean {
 function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
   // Sortuj po długości prefiksu malejąco — /candidates/123/edit pasuje do /candidates,
   // ale /admin/users pasuje do /admin (a nie do /, gdyby taki był).
-  const sorted = [...PROTECTED_ROUTES].sort(
+  const sorted = [...ROLE_ROUTES].sort(
     (a, b) => b.prefix.length - a.prefix.length
   )
   const match = sorted.find((r) => pathname.startsWith(r.prefix))
@@ -135,14 +161,9 @@ export function middleware(request: NextRequest) {
 
   const token = request.cookies.get(COOKIE_NAME)?.value
 
-  // Route chroniony? Sprawdź listę.
+  // Deny by default: wszystko poza PUBLIC_PATHS wymaga tokenu. `undefined`
+  // oznacza tu tylko „brak zawężenia ról", a NIE „trasa niechroniona".
   const allowedRoles = resolveAllowedRoles(pathname)
-  const isProtected = allowedRoles !== undefined
-
-  if (!isProtected) {
-    // Trasy root (np. /), not-found, itp. — zostaw Next.js
-    return NextResponse.next()
-  }
 
   // Brak tokena na chronionej trasie → login.
   if (!token) {

@@ -149,11 +149,25 @@ function triggerSessionExpiredRedirect(): void {
   window.location.href = `/login?reason=session_expired&next=${next}`;
 }
 
+// Defense in depth: a 403 whose detail is exactly "Not authenticated" is
+// FastAPI's `HTTPBearer` reporting a **missing** Authorization header, i.e. a
+// dead session wearing a 403 costume. Backend now returns 401 for that case
+// (backend/app/api/deps.py — `HTTPBearer(auto_error=False)`), but this guard
+// stays so a stale backend, a cached response, or any future dependency that
+// re-enables `auto_error` can't strand the user inside the app shell again.
+// Every *real* 403 ("Requires one of roles: …", capability guards) is
+// untouched and still handled in place by the component.
+function isMissingCredentials403(err: AxiosError): boolean {
+  if (err.response?.status !== 403) return false;
+  const detail = (err.response.data as { detail?: unknown } | undefined)?.detail;
+  return typeof detail === "string" && detail.trim() === "Not authenticated";
+}
+
 api.interceptors.response.use(
   (res) => res,
   (err: AxiosError) => {
     if (typeof window === "undefined") return Promise.reject(err);
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 || isMissingCredentials403(err)) {
       triggerSessionExpiredRedirect();
     }
     return Promise.reject(err);
