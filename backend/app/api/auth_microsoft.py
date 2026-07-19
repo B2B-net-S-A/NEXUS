@@ -141,6 +141,30 @@ def _verify_login_state(token: str) -> str:
     return str(payload["pkce"])
 
 
+def is_sso_configured() -> bool:
+    """Czy logowanie przez Microsoft jest w ogóle skonfigurowane.
+
+    Używa tego publiczne ``GET /api/auth/methods``, żeby ekran logowania nie
+    pokazywał przycisku, który i tak zwróci 503.
+
+    Celowo pochodna :func:`_require_sso_configured`, a nie druga kopia tych
+    samych warunków — dwie listy warunków rozjechałyby się przy pierwszej
+    zmianie i ekran logowania zacząłby kłamać. Tamta funkcja zostaje przy
+    rzucaniu wyjątków, bo jej komunikaty mówią KTÓREGO ustawienia brakuje.
+    """
+    try:
+        _require_sso_configured()
+    except HTTPException as exc:
+        # Tylko 503 = „nie skonfigurowane". Każdy inny status oznacza, że
+        # _require_sso_configured() zaczęło zgłaszać coś innego niż brak
+        # konfiguracji — wtedy lepiej, żeby błąd wypłynął, niż żeby ekran
+        # logowania po cichu ukrył przycisk Microsoft.
+        if exc.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+            return False
+        raise
+    return True
+
+
 def _require_sso_configured() -> None:
     if not settings.M365_INTEGRATION_ENABLED:
         raise HTTPException(

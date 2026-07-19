@@ -47,12 +47,36 @@ function sessionReasonMessage(rawReason: string | null): string | null {
   return null;
 }
 
+/** Które drogi wejścia pokazać — źródłem prawdy jest GET /api/auth/methods. */
+interface AuthMethods {
+  password: boolean
+  microsoft: boolean
+  self_registration: boolean
+}
+
+// Stan początkowy = docelowy stan produkcyjny (NEXUS jest narzędziem
+// wewnętrznym: tylko Microsoft). Dzięki temu formularz hasła nie mignie przed
+// odpowiedzią backendu, a gdy /methods jest nieosiągalne, ekran zostaje w
+// wersji zamkniętej zamiast pokazywać drogę, której i tak nie ma.
+//
+// ``microsoft: true`` jest tu świadomym założeniem NEXUS-owym — na produkcji
+// SSO jest zawsze skonfigurowane. Na środowisku bez SSO
+// (M365_INTEGRATION_ENABLED=false) przycisk mignie i zniknie po odpowiedzi
+// /methods. Zamiana na ``false`` dałaby gorszy kompromis: ekran bez ŻADNEJ
+// drogi wejścia przez pierwszy render — tam, gdzie to boli najbardziej.
+const LOCKED_DOWN: AuthMethods = {
+  password: false,
+  microsoft: true,
+  self_registration: false,
+}
+
 function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
+  const [methods, setMethods] = useState<AuthMethods>(LOCKED_DOWN);
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
@@ -72,6 +96,22 @@ function LoginForm() {
     const msg = ssoErrorMessage(ssoErrorRaw);
     if (msg) setError(msg);
   }, [ssoErrorRaw]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<AuthMethods>("/api/auth/methods")
+      .then(({ data }) => {
+        if (!cancelled && data) setMethods(data);
+      })
+      .catch(() => {
+        // Zostaw LOCKED_DOWN — bez odpowiedzi backendu nie zgadujemy, że
+        // logowanie hasłem jest dostępne.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleMicrosoftLogin = async () => {
     setSsoLoading(true);
@@ -118,7 +158,11 @@ function LoginForm() {
       heading="Zaloguj się do Nexus"
       subtitle="Twój pipeline rekrutacyjny w jednym miejscu."
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      {/*
+        Banery (wygasła sesja / błąd SSO) są POZA formularzem — muszą być
+        widoczne także gdy logowanie hasłem jest wyłączone i formularza nie ma.
+      */}
+      <div className="space-y-4">
             {sessionReason && !error && (
               <div
                 role="status"
@@ -137,7 +181,10 @@ function LoginForm() {
                 <span>{error}</span>
               </div>
             )}
+      </div>
 
+      {methods.password && (
+          <form onSubmit={handleSubmit} className="space-y-4 pt-4">
             <FormField label="Email" htmlFor="login-email" required>
               <Input
                 id="login-email"
@@ -177,7 +224,10 @@ function LoginForm() {
               </Link>
             </div>
           </form>
+      )}
 
+      {/* Separator ma sens tylko gdy realnie są dwie drogi do wyboru. */}
+      {methods.password && methods.microsoft && (
           <div className="relative my-5">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-border" />
@@ -186,12 +236,20 @@ function LoginForm() {
               <span className="bg-card px-2 text-muted-foreground">lub</span>
             </div>
           </div>
+      )}
 
+      {methods.microsoft && (
           <button
             type="button"
             onClick={handleMicrosoftLogin}
             disabled={ssoLoading}
-            className="w-full flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            // Gdy SSO jest jedyną drogą, przycisk przestaje być alternatywą
+            // i dostaje wygląd akcji głównej.
+            className={
+              methods.password
+                ? "w-full flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                : "mt-6 w-full flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            }
           >
             <svg
               aria-hidden="true"
@@ -206,7 +264,9 @@ function LoginForm() {
             </svg>
             {ssoLoading ? "Przekierowanie…" : "Zaloguj się przez Microsoft"}
           </button>
+      )}
 
+      {methods.self_registration ? (
           <p className="text-center text-sm text-muted-foreground pt-5">
             Nie masz konta?{" "}
             <Link
@@ -216,6 +276,12 @@ function LoginForm() {
               Zarejestruj się
             </Link>
           </p>
+      ) : (
+          // Narzędzie wewnętrzne — kont nie zakłada się samodzielnie.
+          <p className="text-center text-xs text-muted-foreground pt-5">
+            Dostęp wyłącznie dla pracowników B2B.net. Konta zakłada administrator.
+          </p>
+      )}
     </AuthShell>
   );
 }

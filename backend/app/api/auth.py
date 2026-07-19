@@ -38,6 +38,7 @@ from app.services.email_verification import (
     verify_and_consume_token as verify_and_consume_verification_token,
 )
 from app.api.deps import CurrentUser
+from app.api.auth_microsoft import is_sso_configured
 
 # Roles that must complete first-login onboarding before the frontend unlocks
 # the shell. Keep in sync with backend/app/api/onboarding.py.
@@ -74,6 +75,13 @@ _EMAIL_NOT_VERIFIED_DETAIL = (
     "(oraz folder spam) — wysłaliśmy tam link aktywacyjny."
 )
 
+# 503 detail gdy logowanie hasłem jest wyłączone (PASSWORD_LOGIN_ENABLED=False).
+# Dotyczy /login, /forgot-password i /reset-password — resetowanie hasła, którym
+# i tak nie da się zalogować, tylko myli i generuje niepotrzebne maile.
+_PASSWORD_LOGIN_DISABLED_DETAIL = (
+    "Logowanie hasłem jest wyłączone. Zaloguj się przez Microsoft."
+)
+
 
 router = APIRouter()
 
@@ -104,12 +112,60 @@ class MessageResponse(BaseModel):
     detail: str
 
 
+class AuthMethodsResponse(BaseModel):
+    """Które drogi wejścia są włączone na tym środowisku."""
+
+    password: bool
+    microsoft: bool
+    self_registration: bool
+
+
+@router.get("/methods", response_model=AuthMethodsResponse)
+@limiter.limit("30/minute")
+async def auth_methods(request: Request) -> AuthMethodsResponse:
+    """Publiczna lista włączonych metod logowania — steruje ekranem /login.
+
+    Istnieje po to, żeby frontend NIE dublował flag we własnych zmiennych
+    ``NEXT_PUBLIC_*``. Dwie kopie tej samej flagi nieuchronnie się rozjeżdżają
+    (formularz widoczny, a backend zwraca 503 — albo odwrotnie), a build-time
+    env wymagałby przebudowy obrazu przy każdym przestawieniu killswitcha.
+
+    Celowo bez uwierzytelnienia i bez sekretów: zwraca wyłącznie trzy
+    booleany, które i tak widać po zachowaniu ekranu logowania. Limit 30/min
+    (luźniejszy niż 5/min na /login — ekran odpytuje to przy każdym wejściu)
+    dla spójności z resztą pliku; endpoint nie dotyka bazy.
+    """
+    return AuthMethodsResponse(
+        password=settings.PASSWORD_LOGIN_ENABLED,
+        # Ten sam predykat co gate w /api/auth/microsoft/authorize — nie
+        # pokazujemy przycisku, który zwróciłby 503.
+        microsoft=is_sso_configured(),
+        self_registration=settings.SELF_REGISTRATION_ENABLED,
+    )
+
+
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def login(
     request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Authenticate user and return JWT tokens. Rate-limited: 5 req/min per IP."""
+    """Authenticate user and return JWT tokens. Rate-limited: 5 req/min per IP.
+
+    Bramka ``PASSWORD_LOGIN_ENABLED``: NEXUS to narzędzie wewnętrzne i na
+    produkcji jedyną drogą wejścia jest Microsoft SSO (ograniczony do
+    ``SSO_ALLOWED_DOMAINS``). Flaga stoi tam na False → 503. Domyślnie True,
+    żeby nie wysadzić testów (``tests/conftest.py`` loguje się hasłem) — patrz
+    komentarz przy fladze w ``app/core/config.py``.
+    """
+    # NB: /change-password NIE jest objęte tą bramką i tak ma zostać — to
+    # mechanizm utrzymania poświadczenia awaryjnego (rotacja hasła admina,
+    # gdy logowanie hasłem jest wyłączone). Konta SSO-only mają
+    # ``password_hash IS NULL``, więc i tak go nie użyją.
+    if not settings.PASSWORD_LOGIN_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
+        )
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
     # Guard SSO-only userów: ``password_hash IS NULL`` po migracji 0081 oznacza
@@ -457,6 +513,9 @@ async def forgot_password(
 ):
     """Request a password reset link via email.
 
+    Wyłączone razem z logowaniem hasłem (``PASSWORD_LOGIN_ENABLED``) — reset
+    hasła, którym i tak nie da się zalogować, tylko myli użytkownika.
+
     Anti-enumeration: zawsze zwraca 200 OK z tym samym komunikatem,
     niezależnie czy email istnieje w DB. Jeśli istnieje — generujemy token
     i wysyłamy mail. Jeśli nie — silent no-op.
@@ -464,6 +523,11 @@ async def forgot_password(
     Rate-limited 3/min per IP. Activity audit log dla każdego requestu
     (nawet nieznany email — ślad dla analizy bezpieczeństwa).
     """
+    if not settings.PASSWORD_LOGIN_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
+        )
     requester_ip = request.client.host if request.client else None
 
     # Lookup user (case-insensitive nie jest istotny — backend wymusza
@@ -524,7 +588,15 @@ async def reset_password_with_token(
     ``verify_and_consume_token`` zapobiega replay attack. Po sukcesie
     czyścimy ``force_password_change`` flag (gdy była ustawiona przez
     admin-reset) + audit log + email notification.
+
+    Wyłączone razem z logowaniem hasłem (``PASSWORD_LOGIN_ENABLED``) — domyka
+    ścieżkę także dla linków resetowych wysłanych zanim flagę wyłączono.
     """
+    if not settings.PASSWORD_LOGIN_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
+        )
     user = await verify_and_consume_token(db, data.token)
     if user is None:
         raise HTTPException(
