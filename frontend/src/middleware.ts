@@ -88,6 +88,14 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 // świadomą decyzją.
 //   `/login`     — pokrywa /login/forgot-password, /login/reset, /login/microsoft/callback
 //   `/register`  — pokrywa /register/verify (self-service rejestracja + aktywacja email)
+//   `/auth/microsoft/callback`
+//                — cel `redirect_uri` logowania przez Microsoft (route handler,
+//                  NIE page.tsx — patrz src/app/auth/microsoft/callback/route.ts).
+//                  Azure przekierowuje tu przeglądarkę PRZED wydaniem tokenu,
+//                  więc cookie jeszcze nie istnieje. Objęcie tej ścieżki bramką
+//                  daje pętlę: callback → /login → logowanie → callback → …
+//                  Ścieżka dokładna, nie prefix `/auth/` — nie otwieramy całej
+//                  przestrzeni nazw.
 //   `/apply/`, `/share/`, `/sign/`, `/cv/`, `/engagement/`
 //                — linki tokenowe dla osób z zewnątrz (kandydat aplikuje,
 //                  klient ogląda brandowane CV, podpis umowy, potwierdzenie
@@ -97,6 +105,7 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 const PUBLIC_PATHS = [
   "/login",
   "/register",
+  "/auth/microsoft/callback",
   "/403",
   "/_next",
   "/favicon",

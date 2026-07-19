@@ -127,6 +127,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/login",
     "/login/forgot-password",
     "/login/microsoft/callback",
+    "/auth/microsoft/callback",
     "/register",
     "/register/verify",
     "/403",
@@ -137,6 +138,21 @@ describe("linki publiczne działają bez tokenu", () => {
     "/engagement/abc123",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
+  })
+
+  it("callback Microsoft SSO przechodzi z parametrami OAuth", () => {
+    // Regresja z 2026-07-19: deny-by-default objął `/auth/microsoft/callback`
+    // (route handler, nie page.tsx — dlatego umknął przy inwentaryzacji tras).
+    // Azure przekierowuje tu PRZED wydaniem tokenu, więc cookie nie istnieje;
+    // bramka robiła z tego pętlę callback → /login → logowanie → callback.
+    expect(destination("/auth/microsoft/callback?code=abc&state=xyz")).toBe("pass")
+    expect(destination("/auth/microsoft/callback?error=access_denied")).toBe("pass")
+  })
+
+  it("otwarty jest tylko callback, nie cała przestrzeń /auth/", () => {
+    expect(destination("/auth")).toBe("/login")
+    expect(destination("/auth/cokolwiek")).toBe("/login")
+    expect(destination("/auth/microsoft")).toBe("/login")
   })
 
   it("/cv-generator NIE jest publiczny mimo prefiksu /cv", () => {
