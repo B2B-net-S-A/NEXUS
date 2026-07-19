@@ -483,6 +483,24 @@ class Settings(BaseSettings):
     # verification link; an admin elevates the role afterwards in the panel.
     SELF_REGISTRATION_ENABLED: bool = False
 
+    # ── Logowanie email+hasło (POST /api/auth/login) ─────────────────────────
+    # Kill-switch. NEXUS to narzędzie wewnętrzne — na produkcji jedyną drogą
+    # wejścia ma być Microsoft SSO (ograniczone do SSO_ALLOWED_DOMAINS), więc
+    # w Coolify ta flaga stoi na False i /api/auth/login, /forgot-password
+    # oraz /reset-password zwracają 503.
+    #
+    # Default **True**, celowo — inaczej cały zestaw testów przestałby działać:
+    # ``tests/conftest.py`` uwierzytelnia się przez POST /api/auth/login i
+    # zależy od tego kilkadziesiąt plików testowych plus suite E2E
+    # (E2E_USER_EMAIL/PASSWORD). Ochronę daje ustawienie flagi na produkcji,
+    # nie usunięcie kodu.
+    #
+    # To jest zarazem **droga awaryjna**: gdy Azure/SSO padnie, przestawienie
+    # tej flagi na True w Coolify przywraca logowanie hasłem bez deployu.
+    # Konta SSO-only mają ``password_hash IS NULL`` (migracja 0081) i tak czy
+    # owak nie zalogują się hasłem — break-glass wymaga konta z hasłem.
+    PASSWORD_LOGIN_ENABLED: bool = True
+
     # ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────
     # Kill-switch. When False the SSO callback skips Graph /me/memberOf entirely
     # and falls back to legacy behaviour (new SSO users land as ``recruiter``,
