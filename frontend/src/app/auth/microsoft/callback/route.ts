@@ -35,13 +35,25 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const search = req.nextUrl.search;
   const upstream = `${BACKEND}/api/auth/microsoft/callback${search}`;
 
+  // Forward the caller's IP. This hop is server-to-server (this container →
+  // backend container), so without it the backend sees THIS container's address
+  // for every user and its rate limiter buckets the whole company together —
+  // one person logging in could 429 everyone else. Pass `X-Forwarded-For`
+  // through verbatim: Traefik appends the address it actually saw, and the
+  // backend's limiter keys on the RIGHTMOST entry (backend/app/core/rate_limit.py),
+  // so re-appending anything here would mask the real client.
+  const forwardedFor = req.headers.get("x-forwarded-for");
+
   let location: string | null = null;
   try {
     const res = await fetch(upstream, {
       method: "GET",
       redirect: "manual", // forward the backend's 302; don't follow it
       cache: "no-store",
-      headers: { accept: "*/*" },
+      headers: {
+        accept: "*/*",
+        ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+      },
     });
     location = res.headers.get("location");
   } catch {
