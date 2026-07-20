@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, HeadOfRecruitmentPlus
+from app.api.deps import OperationalUser, CurrentUser, HeadOfRecruitmentPlus
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.competence_category import (
@@ -65,7 +65,7 @@ def _category_brief(c: CompetenceCategory) -> CategoryBrief:
 
 @router.get("/sourcer-categories", response_model=list[SourcerCategoryRow])
 async def list_sourcer_categories(
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę: [kategoria → {1st priority sourcers, 2nd priority sourcers}]."""
@@ -195,7 +195,7 @@ async def remove_sourcer_from_category(
 
 @router.get("/tac-delivery-leads", response_model=list[DlWithTacsRow])
 async def list_tac_delivery_leads(
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca DL-i z listą przypisanych TAC-ów + ich LinkedIn farming kategorie."""
@@ -378,7 +378,7 @@ async def remove_tac_linkedin_farming(
 
 @router.get("/dl-clients", response_model=list[DlClientsRow])
 async def list_dl_clients(
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return active DLs with their client assignments.
@@ -579,7 +579,7 @@ async def remove_dl_client(
 
 @router.get("/summary", response_model=TeamStructureSummary)
 async def team_structure_summary(
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     categories = await list_sourcer_categories(_user, db)

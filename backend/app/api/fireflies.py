@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.note import Note, NoteType
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, OperationalUser
 from app.services.fireflies_sync import sync_fireflies_transcripts, get_sync_status
 
 router = APIRouter()
@@ -34,7 +34,7 @@ async def trigger_fireflies_sync(
 
 @router.get("/fireflies/transcripts")
 async def list_fireflies_transcripts(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     candidate_id: Optional[int] = Query(None),
     limit: int = Query(20, ge=1, le=100),
