@@ -20,6 +20,9 @@ import docx as _docx_lib
 import pytest
 
 from app.services.cv_generator_b2b.champion_builder import (
+    ChampionParseDiagnostics,
+    ChampionProfileForPrompt,
+    _guard_skill_lists,
     _split_skills,
     from_nexus_job,
     parse_champion_from_docx_bytes,
@@ -33,6 +36,7 @@ from app.services.skill_normalize import set_tech_taxonomy
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     _build_download_filename,
+    _champion_parse_warnings,
     _close_truncated_json,
     _drop_empty_commas,
     _escape_stray_quotes,
@@ -1521,6 +1525,255 @@ def test_parse_champion_from_docx_keeps_parenthesized_skills():
     assert "Java (Spring, Hibernate)" in cp.must_have
     assert "Python" in cp.must_have
     assert "Docker" in cp.nice_to_have
+
+
+# ── Champion DOCX section bounding (prod overrun, 2026-07-20) ──────────────
+#
+# 738 of 739 champion-backed generations pushed the WHOLE document tail into
+# MUST-HAVE, because every section regex ended its lookahead with "|$": one
+# heading spelled differently than expected and the section ran to EOF. The
+# recovered prod artefact had 256 "skills", the longest 200 chars, ending with
+# internal recruiter notes ("Nie blokujemy kandydatów!", "OFFLIMIT - TAK").
+
+
+def _champion_docx(*paragraphs: str) -> bytes:
+    d = _docx_lib.Document()
+    for para in paragraphs:
+        d.add_paragraph(para)
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+# The section tail every real Delivery-Lead champion carries, verbatim in shape.
+_PROD_TAIL = (
+    "Strategia Delivery Leada - jak znajdziemy idealnego kandydata?",
+    "Kluczowe słowa do wyszukiwania:",
+    "PMO, Project Coordinator",
+    "INSIGHT OD KONSULTANTA WEWNĘTRZNEGO",
+    "Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań i notatek "
+    "każdy inny może ich procesować dalej.",
+    "Sprawdzajcie, czy AI nie namieszało przy tworzeniu pliku.",
+    "OFFLIMIT - TAK",
+)
+
+
+def _all_skill_text(cp) -> str:
+    return " ".join(cp.must_have + cp.nice_to_have)
+
+
+def test_champion_must_have_bounded_when_nice_heading_misspelled():
+    # "NICE TO HAVE" without hyphens: the old _MUST_HAVE_RE terminator missed it
+    # and swallowed the rest of the file, and nice_to_have came back EMPTY.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "MUST-HAVE:",
+            "Java",
+            "NICE TO HAVE",
+            "Kotlin",
+            "KONTEKST PROJEKTU",
+            *_PROD_TAIL,
+        ),
+        "champion.docx",
+    )
+    assert cp.must_have == ["Java"]
+    assert cp.nice_to_have == ["Kotlin"]
+
+
+def test_champion_recruiter_notes_never_reach_skills():
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "MUST-HAVE:",
+            "Wykształcenie wyższe (preferowane: zarządzanie, informatyka, "
+            "ekonomia lub pokrewne).",
+            "4-5 lat doświadczenia na stanowisku PMO, Project Coordinator lub "
+            "w zarządzaniu projektami.",
+            "Jira",
+            "Confluence",
+            "Co przekona kandydata do oferty?",
+            "Stabilny projekt i praca zdalna.",
+            *_PROD_TAIL,
+        ),
+        "champion.docx",
+    )
+    blob = _all_skill_text(cp)
+    for sentinel in ("OFFLIMIT", "Nie blokujemy", "Sprawdzajcie", "Kluczowe słowa"):
+        assert sentinel not in blob, f"{sentinel!r} leaked into the skill lists"
+    # The genuine chips survive; the requirement prose above them does not.
+    assert "Jira" in cp.must_have and "Confluence" in cp.must_have
+    assert len(cp.must_have) + len(cp.nice_to_have) <= 40
+    assert cp.diagnostics.dropped_prose == 2
+    # Not "implausible": the ratio check needs >= 12 raw entries, so a short
+    # champion with a couple of prose lines does not cry wolf at the recruiter.
+    assert cp.diagnostics.implausible is False
+
+
+def test_champion_headings_match_without_polish_diacritics():
+    # Recruiters' files appear in prod both with and without diacritics
+    # ("Główne źródła" / "Glowne zrodla"), and Word autocorrects the hyphen in
+    # "OFFLIMIT - TAK" to an en dash. Neither may break section bounding.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "MUST-HAVE:",
+            "Python",
+            "Glowne zrodla kandydatow:",
+            "LinkedIn Recruiter",
+            "OFFLIMIT – TAK",
+        ),
+        "champion.docx",
+    )
+    assert cp.must_have == ["Python"]
+    assert "OFFLIMIT" not in _all_skill_text(cp)
+
+
+def test_champion_screening_not_truncated_by_inline_insight():
+    # Terminators are line-anchored: a lowercase "insight" inside a sentence
+    # must NOT end the screening section (the symmetric failure to the overrun).
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "Pytania od Delivery Lead:",
+            "Pytanie 1: Jak podchodzisz do eskalacji?",
+            "Daj nam insight na temat eskalacji.",
+            "INSIGHT OD KONSULTANTA WEWNĘTRZNEGO",
+            "Klient ceni samodzielność.",
+        ),
+        "champion.docx",
+    )
+    assert "Daj nam insight na temat eskalacji." in cp.screening_questions
+    assert "Klient ceni samodzielność." not in cp.screening_questions
+    assert cp.consultant_insight == "Klient ceni samodzielność."
+    # Sub-structure of the screening block must not act as a section boundary.
+    assert "Pytanie 1" in cp.screening_questions
+
+
+def test_champion_screening_keeps_its_heading():
+    # Prompt parity: screening is the one section that carries its own heading.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx("Pytania od Delivery Lead:", "Pytanie 1: Czemu Java?"),
+        "champion.docx",
+    )
+    assert cp.screening_questions.lower().startswith("pytania od delivery lead")
+
+
+def test_champion_project_context_not_swallowed_by_next_colon():
+    # The old _PROJECT_RE used a greedy, newline-crossing [^:]* that scanned to
+    # the next colon ANYWHERE in the file and discarded the real body.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "O projekcie",
+            "Duży program migracyjny dla banku.",
+            "Pytania od Delivery Lead:",
+            "Pytanie 1: Czemu Java?",
+        ),
+        "champion.docx",
+    )
+    assert cp.project_context == "Duży program migracyjny dla banku."
+
+
+def test_champion_last_section_running_to_eof_is_not_an_error():
+    # A section that legitimately ends the document must still be captured.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx("INSIGHT OD KONSULTANTA:", "Klient ceni samodzielność."),
+        "champion.docx",
+    )
+    assert cp.consultant_insight == "Klient ceni samodzielność."
+    assert cp.diagnostics.implausible is False
+
+
+def test_champion_no_known_heading_yields_empty_not_swallow():
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx("Notatka ze spotkania", "Rozmawialiśmy o projekcie."),
+        "champion.docx",
+    )
+    assert cp.is_empty()
+    assert cp.diagnostics.headings_found == 0
+
+
+def test_guard_drops_prose_keeps_real_chips():
+    diag = ChampionParseDiagnostics(from_docx=True)
+    must, nice = _guard_skill_lists(
+        "\n".join(
+            [
+                "Java (Spring, Hibernate)",
+                "WCAG 2.1/2.2 (AA, AAA)",
+                "Microsoft Dynamics 365 Business Central",
+                "Wykształcenie wyższe (preferowane: zarządzanie, informatyka, "
+                "ekonomia lub pokrewne).",
+                "Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań "
+                "każdy inny może ich procesować dalej.",
+            ]
+        ),
+        "Docker",
+        diag,
+    )
+    assert must == [
+        "Java (Spring, Hibernate)",
+        "WCAG 2.1/2.2 (AA, AAA)",
+        "Microsoft Dynamics 365 Business Central",
+    ]
+    assert nice == ["Docker"]
+    assert diag.dropped_prose == 2
+
+
+def test_guard_caps_entry_count_and_flags_implausible():
+    diag = ChampionParseDiagnostics(from_docx=True)
+    must, nice = _guard_skill_lists(
+        "\n".join(f"Tech{i}" for i in range(300)), "Docker", diag
+    )
+    assert len(must) + len(nice) == 40
+    assert diag.dropped_overflow == 261
+    assert diag.implausible is True
+
+
+def test_from_nexus_job_never_flags_implausible():
+    # New mode reads structured JSONB — it must never raise a parse warning.
+    cp = from_nexus_job(
+        must_skills=[{"name": f"Tech{i}"} for i in range(60)],
+        nice_skills=None,
+        champion_profile=None,
+    )
+    assert cp.diagnostics.implausible is False
+    assert cp.diagnostics.from_docx is False
+
+
+def test_implausible_champion_emits_recruiter_warning():
+    dto = ChampionProfileForPrompt(must_have=["Java"])
+    dto.diagnostics = ChampionParseDiagnostics(
+        from_docx=True, headings_found=3, raw_entry_count=256, dropped_overflow=216
+    )
+    warnings = _champion_parse_warnings(dto)
+    assert len(warnings) == 1 and "nietypowy układ" in warnings[0]
+
+    unrecognised = ChampionProfileForPrompt()
+    unrecognised.diagnostics = ChampionParseDiagnostics(
+        from_docx=True, headings_found=0
+    )
+    assert "nie rozpoznano żadnej sekcji" in _champion_parse_warnings(unrecognised)[0]
+
+    assert _champion_parse_warnings(None) == []
+    assert _champion_parse_warnings(ChampionProfileForPrompt()) == []
+
+
+def test_sentence_final_polish_word_does_not_bold(tech_taxonomy):
+    # Swallowed prose reached the renderer as single tokens; every sentence-final
+    # Polish word carries a period, which _is_strong_tech_token read as a
+    # "technology" signal and bolded in the delivered DOCX.
+    patterns = compile_keyword_patterns(
+        ["kandydata.", "projektami.", "dalej.", "działań"]
+    )
+    text = "Prowadził zespół i rozwijał projekt dla kandydata."
+    assert highlight_spans(text, patterns) == []
+
+
+def test_real_tech_with_internal_punctuation_still_bolds(tech_taxonomy):
+    # The narrow rstrip must not over-strip: internal separators are untouched.
+    for term, sample in (
+        ("Node.js", "Backend w Node.js i Express"),
+        ("CI/CD", "Zbudował CI/CD w GitLabie"),
+        ("C++", "Programował w C++ przez 5 lat"),
+        ("WCAG 2.1/2.2", "Audyty WCAG 2.1/2.2 dla klienta"),
+    ):
+        assert highlight_spans(sample, compile_keyword_patterns([term])), term
 
 
 def test_classify_technologies_matches_render_bolding(tech_taxonomy):
