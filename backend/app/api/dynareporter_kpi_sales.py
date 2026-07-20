@@ -1,24 +1,25 @@
-"""DynaReporter B.2.2 — KPI Sales endpoints (analogiczny do body-leasing)."""
+"""DynaReporter B.2.2 — KPI Sales endpoints (analogiczny do body-leasing).
+
+2026-07-20: usunięte trasy zapisu (POST upsert, DELETE) — ręczne wprowadzanie
+statystyk wygaszone, NEXUS liczy te liczby sam (patrz /insights). UI do tego
+(SalesDataEntry.tsx) zniknął wcześniej, więc trasy były już martwe.
+GET-y zostają dla widoków historycznych.
+"""
 
 from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
+from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_kpi_sales import DrKpiSales
 from app.models.user import User, UserRole
-from app.schemas.dr_kpi_sales import (
-    DrKpiSalesCreate,
-    DrKpiSalesResponse,
-    DrKpiSalesSummary,
-)
+from app.schemas.dr_kpi_sales import DrKpiSalesResponse, DrKpiSalesSummary
 
 router = APIRouter()
 
@@ -138,46 +139,3 @@ async def get_summary(
         entries_count=row[5] or 0,
         win_rate=round(win_rate, 3),
     )
-
-
-@router.post("", response_model=DrKpiSalesResponse, status_code=status.HTTP_201_CREATED)
-async def upsert_entry(
-    payload: DrKpiSalesCreate,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-    user_id: Optional[int] = Query(default=None),
-) -> DrKpiSalesResponse:
-    target_uid = user_id if user_id is not None else current_user.id
-    _check_admin_or_self(current_user, target_uid)
-
-    stmt = (
-        pg_insert(DrKpiSales)
-        .values(user_id=target_uid, **payload.model_dump())
-        .on_conflict_do_update(
-            index_elements=["user_id", "report_date"],
-            set_={k: v for k, v in payload.model_dump().items() if k != "report_date"},
-        )
-        .returning(DrKpiSales)
-    )
-    row = (await db.execute(stmt)).scalar_one()
-    await db.commit()
-    tgt = (await db.execute(select(User).where(User.id == target_uid))).scalar_one()
-    return DrKpiSalesResponse.model_validate(
-        {**row.__dict__, "user_name": tgt.name, "user_email": tgt.email}
-    )
-
-
-@router.delete(
-    "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
-)
-async def delete_entry(
-    entry_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
-) -> None:
-    row = (
-        await db.execute(select(DrKpiSales).where(DrKpiSales.id == entry_id))
-    ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Wpis nie znaleziony")
-    _check_admin_or_self(current_user, row.user_id)
-    await db.delete(row)
-    await db.commit()

@@ -1,4 +1,8 @@
-"""Pydantic schemas dla DynaReporter KPI Delivery Lead (B.2.3)."""
+"""Pydantic schemas dla DynaReporter KPI Delivery Lead (B.2.3).
+
+2026-07-20: usunięty `DrKpiDeliveryLeadCreate` — był payloadem wyłącznie
+usuniętej trasy POST (ręczne wprowadzanie statystyk wygaszone).
+"""
 
 from __future__ import annotations
 
@@ -15,10 +19,6 @@ class DrKpiDeliveryLeadBase(BaseModel):
     vacancies: int = Field(default=0, ge=0)
     open_requests: int = Field(default=0, ge=0)
     open_vacancies: int = Field(default=0, ge=0)
-
-
-class DrKpiDeliveryLeadCreate(DrKpiDeliveryLeadBase):
-    pass
 
 
 class DrKpiDeliveryLeadResponse(DrKpiDeliveryLeadBase):

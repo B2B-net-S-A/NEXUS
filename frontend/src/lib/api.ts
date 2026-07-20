@@ -4635,12 +4635,8 @@ export const dynareporterSalesApi = {
     api
       .get<DrKpiSalesSummary>("/api/dynareporter/kpi/sales/summary", { params })
       .then((r) => r.data),
-  upsert: (payload: Partial<DrKpiSalesEntry>) =>
-    api
-      .post<DrKpiSalesEntry>("/api/dynareporter/kpi/sales", payload)
-      .then((r) => r.data),
-  delete: (entryId: number) =>
-    api.delete(`/api/dynareporter/kpi/sales/${entryId}`),
+  // upsert/delete usunięte 2026-07-20 — endpointy zapisu KPI Sales nie istnieją
+  // już po stronie backendu (ręczne wprowadzanie statystyk wygaszone).
 };
 
 // ============================================================
@@ -4884,15 +4880,9 @@ export const dynareporterBoardApi = {
       .then((r) => r.data),
 };
 
-export type DrDLUpsertPayload = {
-  user_id: number;
-  report_month: string; // YYYY-MM
-  requests: number;
-  placements: number;
-  vacancies: number;
-  open_requests: number;
-  open_vacancies: number;
-};
+// `DrDLUpsertPayload` usunięty 2026-07-20 — był bodym jedynej trasy zapisu
+// (POST /delivery-lead-dashboard/entry), która zniknęła razem z ręcznym
+// wprowadzaniem statystyk.
 
 export const dynareporterDeliveryLeadApi = {
   dashboard: (params?: { start_date?: string; end_date?: string }) =>
@@ -4905,41 +4895,16 @@ export const dynareporterDeliveryLeadApi = {
         params: { months },
       })
       .then((r) => r.data),
-  upsert: (payload: DrDLUpsertPayload) =>
-    api
-      .post<{ id: number; ok: boolean }>(
-        "/api/dynareporter/delivery-lead-dashboard/entry",
-        payload,
-      )
-      .then((r) => r.data),
+  // upsert usunięty 2026-07-20 — POST /delivery-lead-dashboard/entry robił adminowy
+  // upsert miesięcznego KPI DL do dr_kpi_delivery_lead. Trasa nie istnieje.
 };
 
-// === Board Admin (Session 2) ============================================
-export type DrBoardUpsertPayload = {
-  report_month: string; // YYYY-MM
-  revenue: number;
-  consultant_costs: number;
-  other_costs: number;
-  active_consultants: number;
-  departures: number;
-  placements: number;
-  avg_margin_per_hour: number;
-  hit_ratio: number;
-  placement_clients: DrBoardPlacementClient[];
-};
-
-export const dynareporterBoardAdminApi = {
-  upsert: (payload: DrBoardUpsertPayload) =>
-    api
-      .post<DrBoardMonthlyRow>("/api/dynareporter/board-dashboard/monthly", payload)
-      .then((r) => r.data),
-  deleteMonthly: (reportMonth: string) =>
-    api
-      .delete<void>(
-        `/api/dynareporter/board-dashboard/monthly/${encodeURIComponent(reportMonth)}`,
-      )
-      .then((r) => r.data),
-};
+// === Board Admin — USUNIĘTE 2026-07-20 =================================
+// `dynareporterBoardAdminApi` (upsert + deleteMonthly) i typ `DrBoardUpsertPayload`
+// znikły razem z ręcznym wprowadzaniem statystyk — endpointy zapisu nie istnieją
+// już po stronie backendu. Odczyt (`GET /board-dashboard/monthly`) zostaje wyżej,
+// bo karmi widoki historyczne. Typy `DrBoardMonthlyRow` i `DrBoardPlacementClient`
+// ZOSTAJĄ — używa ich odczyt (7 miejsc poza tym plikiem).
 
 // === Admin Config (Session 2) — Liga Mistrzów scoring ====================
 export type DrScoringConfig = {
@@ -5492,35 +5457,13 @@ export const dynareporterBodyLeasingApi = {
       .get<DrKpiBodyLeasingRankingEntry[]>("/api/dynareporter/kpi/body-leasing/ranking", { params })
       .then((r) => r.data),
 
-  // Backend bierze docelowego usera z `?user_id=` (admin) lub JWT. `user_id`
-  // w bodzie jest ignorowane przez schemat, więc wyłuskujemy je do query —
-  // inaczej admin zapisywałby wszystkie wiersze pod własnym kontem.
-  upsert: (payload: Partial<DrKpiBodyLeasingEntry>) => {
-    const { user_id, ...body } = payload;
-    return api
-      .post<DrKpiBodyLeasingEntry>("/api/dynareporter/kpi/body-leasing", body, {
-        params: user_id != null ? { user_id } : undefined,
-      })
-      .then((r) => r.data);
-  },
-
-  delete: (entryId: number) =>
-    api.delete(`/api/dynareporter/kpi/body-leasing/${entryId}`),
+  // upsert/delete usunięte 2026-07-20 razem z ręcznym wprowadzaniem statystyk.
 };
 
-export interface DrPlacementWithDlPayload {
-  sourcer_user_id: number;
-  delivery_lead_user_id: number;
-  client_id: number;
-  placement_date: string;
-}
-
-export const dynareporterPlacementsApi = {
-  /** Tworzy placement i dolicza +1 do panelu Delivery Lead w danym miesiącu. */
-  createWithDl: (payload: DrPlacementWithDlPayload) =>
-    api
-      .post("/api/dynareporter/placements/with-delivery-lead", payload)
-      .then((r) => r.data),
-};
+// `dynareporterPlacementsApi.createWithDl` i typ `DrPlacementWithDlPayload`
+// usunięte 2026-07-20. Modal „Dodaj placement" zapisywał zdarzenie biznesowe
+// (sourcer + DL + klient + data umowy) do dr_placement_details i doliczał +1
+// do panelu DL. Źródłem prawdy o placementach jest teraz model Contract
+// w NEXUS-ie (481 kontraktów od 2022), a liczby pokazuje /insights.
 
 export default api;
