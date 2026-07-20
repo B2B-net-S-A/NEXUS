@@ -40,7 +40,13 @@ from app.schemas.job import (
     UserBrief,
 )
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
-from app.api.deps import CurrentUser, DeliveryLeadPlus, RecruiterPlus, TacPlus
+from app.api.deps import (
+    CurrentUser,
+    DeliveryLeadPlus,
+    OperationalUser,
+    RecruiterPlus,
+    TacPlus,
+)
 from app.services.auto_assign_owners import resolve_default_owners
 from app.api.notifications import create_notification
 from app.api.ws import manager as ws_manager
@@ -1424,7 +1430,7 @@ async def update_champion_verification(
 @router.get("/{job_id}/champion-profile/consultant-suggestions")
 async def champion_consultant_suggestions(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     """Our consultants currently working at this job's client.
@@ -2514,7 +2520,7 @@ async def claim_job(
 @router.get("/{job_id}/collaborators", response_model=list[UserBrief])
 async def list_collaborators(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """List collaborators (read-only participants) on a job."""

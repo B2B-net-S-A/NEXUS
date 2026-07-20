@@ -41,6 +41,7 @@ from app.schemas.pipeline import (
     StageInfo,
     STAGE_LABELS,
 )
+from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
 from app.api.recruitment_access import (
     user_can_edit_rates,
@@ -1059,7 +1060,7 @@ async def get_kanban(
 async def get_stage_history(
     candidate_id: int,
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Full stage history for a candidate in a specific job."""
@@ -1080,7 +1081,7 @@ async def get_stage_history(
 @router.get("/stages/{stage_id}/screening")
 async def get_stage_screening(
     stage_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Return recruiter screening answers + the job's Champion Profile."""
