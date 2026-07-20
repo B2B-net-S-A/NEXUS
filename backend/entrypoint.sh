@@ -426,6 +426,32 @@ _ENUM_STATEMENTS = [
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
     # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
+    # ── Rozjazd zmierzony na produkcji 2026-07-20 przez /api/admin/schema-drift ──
+    # Wszystkie cztery: ORM deklaruje etykietę, której typ w bazie nie ma, więc
+    # SQLAlchemy wysyła wartość, a Postgres odrzuca ją jako invalid input value.
+    #
+    # rejection_email_*: migracja 0045 je dodaje, ale zakładka alembica prod stoi
+    # na 0152 i te ALTER-y nigdy się nie wykonały. rejection_email_scheduler.py
+    # zapisuje je w liniach 171/296/332 — to ŻYWY błąd, cicho psujący
+    # powiadomienia o mailach odmownych.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_scheduled'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_sent'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_failed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_cancelled'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_skipped'",
+    # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
+    # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
+    "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
+    # contracttype: typ powstał z literówką 'uzlecenie' (0001_initial), a ORM
+    # wysyła 'zlecenie'. Dodajemy poprawną; literówki NIE ruszamy, bo mogą na
+    # niej wisieć istniejące wiersze, a DROP wartości enuma w Postgresie nie
+    # istnieje. Przeniesienie wierszy to osobna, świadoma decyzja.
+    "ALTER TYPE contracttype ADD VALUE IF NOT EXISTS 'zlecenie'",
+    # nextsteppreference: baza ma 'pass' (poprawnie), ORM wysyła 'pass_', bo
+    # pass to keyword Pythona. Dokładamy 'pass_' jako natychmiastowe rozbrojenie;
+    # docelowo właściwą naprawą jest values_callable na kolumnie, żeby ORM
+    # wysyłał wartość zamiast nazwy — ale to zmiana kodu, nie schematu.
+    "ALTER TYPE nextsteppreference ADD VALUE IF NOT EXISTS 'pass_'",
 ]
 
 _COLUMN_STATEMENTS = [
@@ -1722,6 +1748,76 @@ _DATA_STATEMENTS = [
 ]
 
 
+# ── Klucze obce zmierzone jako brakujące na produkcji (2026-07-20) ───────────
+# Safety-net dodaje KOLUMNY, ale nigdy ich OGRANICZEŃ — dlatego competence_
+# category_id istnieje na candidates i jobs, a więzy referencyjne nie. Skutek:
+# nic nie broni przed osieroconym id kategorii.
+#
+# NOT VALID świadomie: egzekwuje więz dla NOWYCH zapisów, nie skanując przy tym
+# całej tabeli i nie wywracając się na ewentualnych sierotach z przeszłości.
+# Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
+# CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
+_CONSTRAINT_STATEMENTS = [
+    """DO $$ BEGIN
+        ALTER TABLE candidates
+            ADD CONSTRAINT fk_candidates_competence_category
+            FOREIGN KEY (competence_category_id)
+            REFERENCES competence_categories (id) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE jobs
+            ADD CONSTRAINT fk_jobs_competence_category
+            FOREIGN KEY (competence_category_id)
+            REFERENCES competence_categories (id) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+]
+
+# ── Indeksy zadeklarowane w ORM (index=True), których nie tworzy żadna migracja ──
+# Zmierzone na produkcji 2026-07-20. Wszystkie NIEUNIKALNE, więc to strata
+# wydajności, nie integralności (brakujących UNIQUE jest zero).
+#
+# Najlepiej udokumentowany koszt: calendar_events.external_id odpytywane przez
+# ical_import.py:255,281 RAZ NA KAŻDE wydarzenie — bez indeksu każdy import
+# kalendarza skanuje tabelę tyle razy, ile ma VEVENT-ów. Dziesięć pozycji to
+# kolumny external_id, czyli klucze, po których integracje odnajdują rekordy.
+#
+# CONCURRENTLY, bo stary kontener może jeszcze obsługiwać ruch podczas startu
+# nowego — zwykły CREATE INDEX brałby ACCESS EXCLUSIVE i blokował zapisy.
+# IF NOT EXISTS sprawia, że kolejne starty są natychmiastowe.
+_INDEX_STATEMENTS = [
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_activities_external_id ON activities (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_analytics_metric_snapshots_module ON analytics_metric_snapshots (module)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_analytics_metric_snapshots_period_label ON analytics_metric_snapshots (period_label)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calendar_events_external_id ON calendar_events (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calendar_events_external_source ON calendar_events (external_source)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_contract_id ON calls (contract_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_external_id ON candidate_stages (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_availability_status ON candidates (availability_status)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_competence_category_id ON candidates (competence_category_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_created_by ON candidates (created_by)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_external_id ON candidates (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_clients_external_id ON clients (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_contacts_external_id ON contacts (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_contracts_client_order_end_date ON contracts (client_order_end_date)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_contracts_termination_reason ON contracts (termination_reason)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dr_client_mrr_client_id ON dr_client_mrr (client_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dr_sales_leads_user_id ON dr_sales_leads (user_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dr_sales_offers_user_id ON dr_sales_offers (user_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_competence_category_id ON jobs (competence_category_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_delivery_lead_id ON jobs (delivery_lead_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_external_id ON jobs (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_needs_sourcing ON jobs (needs_sourcing)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_train_name ON jobs (train_name)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_contract_id ON notes (contract_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notifications_related_entity_id ON notifications (related_entity_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_stage_defs_external_id ON pipeline_stage_defs (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_templates_external_id ON pipeline_templates (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_competence_category_id ON talent_pools (competence_category_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_external_id ON talent_pools (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_is_personal ON talent_pools (is_personal)",
+]
+
+
 async def backfill():
     url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://nexus:nexus@postgres:5432/nexus")
     url = url.replace("postgresql+asyncpg://", "postgresql://")
@@ -1743,6 +1839,28 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
+        for stmt in _CONSTRAINT_STATEMENTS:
+            try:
+                await conn.execute(stmt)
+            except Exception as e:
+                print(f"backfill constraint skip: {stmt!r} -> {e!r}")
+        # Indeksy na końcu: najwolniejsze i najmniej krytyczne. Limit czasu na
+        # instrukcję, żeby jeden wolny CREATE INDEX nie zawiesił startu
+        # kontenera — nieudany indeks powtórzy się przy następnym starcie,
+        # zablokowany deploy trzeba ratować ręcznie.
+        try:
+            await conn.execute("SET statement_timeout = '120s'")
+        except Exception as e:
+            print(f"backfill: nie udało się ustawić statement_timeout -> {e!r}")
+        for stmt in _INDEX_STATEMENTS:
+            try:
+                await conn.execute(stmt)
+            except Exception as e:
+                print(f"backfill index skip: {stmt!r} -> {e!r}")
+        try:
+            await conn.execute("SET statement_timeout = 0")
+        except Exception:
+            pass
         print("backfill: ok")
     finally:
         await conn.close()
