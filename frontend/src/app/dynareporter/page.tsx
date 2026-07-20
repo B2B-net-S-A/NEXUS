@@ -20,69 +20,74 @@ interface ModuleCard {
   enabled: boolean;
 }
 
+// 2026-07-20: kafelki raportowe kierują teraz WPROST do modułu Insights.
+// Wcześniej wskazywały na /dynareporter/*, których katalogi zostały usunięte —
+// działałyby przez przekierowanie 308, ale to zbędny przeskok i mylący adres
+// w pasku. MINDY zostaje na własnej ścieżce: to czat AI, nie raport, i Insights
+// nie ma dla niego następcy.
 const MODULES: ModuleCard[] = [
   {
     section: "body-leasing",
     label: "KPI Body Leasing",
     description:
       "Weryfikacje, rekomendacje, interview, placementy tygodniowo per rekruter",
-    href: "/dynareporter/body-leasing",
+    href: "/insights?tab=rekrutacja",
     enabled: true, // B.2.1 deployed
   },
   {
     section: "sales",
     label: "KPI Sales",
     description: "Leady, oferty, wygrane / przegrane per sprzedawca",
-    href: "/dynareporter/sales",
+    href: "/insights?tab=klienci",
     enabled: true, // B.2.2 deployed
   },
   {
     section: "delivery-lead",
     label: "KPI Delivery Lead",
     description: "Requesty, placementy, vacancy per DL miesięcznie",
-    href: "/dynareporter/delivery-lead-dashboard",
+    href: "/insights?tab=klienci",
     enabled: true, // B.2.3 deployed
   },
   {
     section: "placements",
     label: "Placementy",
     description: "Szczegółowe placementy per user × klient",
-    href: "/dynareporter/placements",
+    href: "/insights?tab=rekrutacja",
     enabled: true, // B.2.4 deployed
   },
   {
     section: "clients-mrr",
     label: "Klienci + MRR",
     description: "Konsultanci u klientów + miesięczny MRR + finanse",
-    href: "/dynareporter/clients-mrr",
+    href: "/insights?tab=klienci",
     enabled: true, // B.2.5 deployed
   },
   {
     section: "competitions",
     label: "Liga Mistrzów",
     description: "Kwartalny ranking + nagrody miesięczne",
-    href: "/dynareporter/competitions",
+    href: "/insights?tab=rekrutacja",
     enabled: true, // B.2.6 deployed
   },
   {
     section: "przetargi",
     label: "Przetargi",
     description: "Projekty publiczne — allocations, koszty, margin",
-    href: "/dynareporter/przetargi",
+    href: "/insights?tab=zarzad",
     enabled: true, // B.2.7 deployed
   },
   {
     section: "board",
     label: "Rada Nadzorcza",
     description: "Miesięczny raport — placementy, MRR, P&L",
-    href: "/dynareporter/board-dashboard",
+    href: "/insights?tab=zarzad",
     enabled: true, // B.2.8 deployed
   },
   {
     section: "sales-mgmt",
     label: "Sales — Zarządzanie",
     description: "Projekty, leady, oferty, aktywność tygodniowa",
-    href: "/dynareporter/sales-mgmt",
+    href: "/insights?tab=klienci",
     enabled: true, // B.2.9 deployed
   },
   {
@@ -125,8 +130,8 @@ export default function DynaReporterLandingPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Raporty KPI</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          DynaReporter — system raportowania KPI DynaMinds. Migracja
-          z reports.dynaminds.pl (Faza B w toku).
+          DynaReporter — archiwum. Raporty KPI są liczone automatycznie
+          i dostępne w module Insights.
         </p>
       </header>
 
@@ -165,10 +170,17 @@ export default function DynaReporterLandingPage() {
         })}
       </div>
 
+      {/* Link do reports.dynaminds.pl usunięty 2026-07-20 — domena zwraca 503
+          (samodzielny DynaReporter padł przy awarii dysku 2026-07-17 i nie jest
+          wskrzeszany, bo jego funkcje przejął NEXUS). Zostawienie odnośnika
+          prowadziło zalogowanego użytkownika prosto w błąd. */}
       <p className="mt-6 text-xs text-muted-foreground">
-        Moduły wyszarzone = jeszcze nie zmigrowane (B.2 w toku) lub brak
-        uprawnień. Admin nadaje dostęp do sekcji w panelu administracyjnym.
-        Stara wersja: <a className="underline" href="https://reports.dynaminds.pl" target="_blank" rel="noreferrer">reports.dynaminds.pl</a> (live podczas migracji).
+        Moduły wyszarzone = brak uprawnień do sekcji. Admin nadaje dostęp
+        w panelu administracyjnym. Bieżące raporty znajdziesz w{" "}
+        <Link className="underline" href="/insights">
+          Insights
+        </Link>
+        .
       </p>
     </div>
   );

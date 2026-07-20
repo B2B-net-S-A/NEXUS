@@ -181,10 +181,16 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   // ── HIDDEN 2026-05-22: cała sekcja "Raporty KPI" schowana z sidebara
-  //    na prośbę usera ("zajmiemy się tym później"). Routy /dynareporter/*
-  //    (rekrutacja / delivery-lead-dashboard / board-dashboard / admin-dashboard)
-  //    nadal działają — tylko nawigacja w sidebarze ukryta. Żeby przywrócić,
-  //    odkomentuj poniższy obiekt grupy.
+  //    na prośbę usera ("zajmiemy się tym później").
+  //
+  // ── NIEAKTUALNE 2026-07-20: NIE ODKOMENTOWUJ tego bloku. Strony
+  //    /dynareporter/{rekrutacja,delivery-lead-dashboard,board-dashboard,...}
+  //    zostały USUNIĘTE — te ścieżki tylko przekierowują (308) do /insights.
+  //    Odkomentowanie dałoby pozycje w nawigacji, które odbijają użytkownika
+  //    gdzie indziej. Następcą jest moduł Insights; przy przywracaniu grupy
+  //    linkuj wprost do /insights?tab=…, a nie do /dynareporter/*.
+  //    Nadal istnieją (i nie przekierowują): /dynareporter/admin-dashboard,
+  //    /dynareporter/profile, /dynareporter/mindy.
   /*
   {
     title: "Raporty KPI",
