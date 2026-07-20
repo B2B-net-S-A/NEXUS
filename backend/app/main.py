@@ -63,6 +63,7 @@ from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
 from app.api import admin_pipeline_inventory
 from app.api import admin_engagement_inventory
+from app.api import admin_schema_drift
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
@@ -650,6 +651,11 @@ app.include_router(
     admin_engagement_inventory.router,
     prefix="/api/admin",
     tags=["admin-engagement-inventory"],
+)
+app.include_router(
+    admin_schema_drift.router,
+    prefix="/api/admin",
+    tags=["admin-schema-drift"],
 )
 app.include_router(
     admin_workflows.router,
