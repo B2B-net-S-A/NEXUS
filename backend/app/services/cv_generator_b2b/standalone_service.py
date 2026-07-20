@@ -1019,6 +1019,14 @@ def _champion_parse_warnings(
             "profil został zignorowany przy generowaniu. Upewnij się, że plik "
             "zawiera nagłówki MUST-HAVE / NICE-TO-HAVE w osobnych wierszach."
         ]
+    if diag.wiped_out:
+        return [
+            "Profil Championa: żadna pozycja z MUST-HAVE / NICE-TO-HAVE nie "
+            f"wyglądała na technologię (odrzucono wszystkie {diag.raw_entry_count}) "
+            "— CV powstało bez wytłuszczeń i bez listy brakujących wymagań. "
+            "Najczęstsza przyczyna: wymagania opisane zdaniami zamiast listą "
+            "technologii."
+        ]
     if diag.implausible:
         return [
             "Profil Championa: nietypowy układ dokumentu — pominięto "

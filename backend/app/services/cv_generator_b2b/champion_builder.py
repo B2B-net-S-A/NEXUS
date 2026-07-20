@@ -41,10 +41,24 @@ class ChampionParseDiagnostics:
         return self.dropped_prose + self.dropped_overflow
 
     @property
+    def wiped_out(self) -> bool:
+        """The skill lists had content and the guard rejected ALL of it.
+
+        Distinct from :attr:`implausible`: nothing at all reaches the prompt,
+        so the champion is effectively absent and the recruiter needs a
+        different message than "some entries were skipped".
+        """
+        return bool(
+            self.from_docx and self.raw_entry_count and not self.kept_entry_count
+        )
+
+    @property
     def implausible(self) -> bool:
         """True when the document layout was probably not recognised."""
         if not self.from_docx:
             return False
+        if self.wiped_out:
+            return True
         if self.dropped_overflow:
             return True
         if self.raw_entry_count >= _MIN_ENTRIES_FOR_RATIO_CHECK:
@@ -223,13 +237,22 @@ _NUM = r"(?:\d+\s*[.)]\s*|[IVX]+\s*[.)]\s*)?"  # optional MANUAL numbering.
 
 _HEADINGS: tuple[tuple[str, str | None], ...] = (
     # ── content-bearing ──────────────────────────────────────────────────
-    (rf"{_NUM}MUST[\s\-]?HAVE\b\s*:?", "must_have"),
-    (rf"{_NUM}NICE[\s\-]?TO[\s\-]?HAVE\b\s*:?", "nice_to_have"),
-    (rf"{_NUM}O\s+projekcie\b[^\n]*", "project_context"),
-    (rf"{_NUM}Obowiazk\w*\s+na\s+stanowisku\b[^\n]*", "responsibilities"),
-    (rf"{_NUM}Pytani[ae]\s+od\s+Delivery\s+Lead\b[^\n]*", "screening_questions"),
-    (rf"{_NUM}Historyczne\s+pytania\b[^\n]*", "historical_questions"),
-    (rf"{_NUM}INSIGHT\s+OD\s+KONSULTANTA\b[^\n]*", "consultant_insight"),
+    #
+    # A content-bearing heading must stop at its colon, NEVER at end-of-line:
+    # the body is `text[match.end():…]`, so a heading that ate its own line
+    # would silently swallow "O projekcie: <cały opis>" written as one Word
+    # paragraph — the whole field would come back empty. `[ \t]*` (not `\s*`)
+    # for the same reason in reverse: greedy `\s*` with a nullable `:?` after it
+    # crosses the newline, the non-overlapping scan then resumes mid-line and
+    # `(?m)^` can never match again, so the NEXT heading is skipped entirely.
+    (rf"{_NUM}MUST[\s\-]?HAVE\b[ \t]*:?", "must_have"),
+    (rf"{_NUM}NICE[\s\-]?TO[\s\-]?HAVE\b[ \t]*:?", "nice_to_have"),
+    (rf"{_NUM}O\s+projekcie\b[^\n:]*:?", "project_context"),
+    (rf"{_NUM}Obowiazk\w*\s+na\s+stanowisku\b[^\n:]*:?", "responsibilities"),
+    # `Lead\w*`, not `Lead\b` — Polish inflects it ("Pytania od Delivery Leada").
+    (rf"{_NUM}Pytani[ae]\s+od\s+Delivery\s+Lead\w*[^\n:]*:?", "screening_questions"),
+    (rf"{_NUM}Historyczne\s+pytania\b[^\n:]*:?", "historical_questions"),
+    (rf"{_NUM}INSIGHT\s+OD\s+KONSULTANTA\b[^\n:]*:?", "consultant_insight"),
     # ── boundary-only: original external template ────────────────────────
     (rf"{_NUM}PODSTAWY\b[^\n]*", None),
     (rf"{_NUM}PROFIL\s+KANDYDATA\b[^\n]*", None),
@@ -239,7 +262,10 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
     (rf"{_NUM}Zakres\s+obowiazk\w*\b[^\n]*", None),
     # ── boundary-only: Delivery-Lead template (counts = prod occurrences) ─
     (rf"{_NUM}Co\s+przekona\b[^\n]*", None),  # 637 — first heading after MUST-HAVE
-    (rf"{_NUM}Szukamy\b[^\n]*", None),  # 162
+    # Single common verbs need a colon to count as a heading, otherwise an
+    # ordinary sentence ("Szukamy osoby, która…", "- Szukamy min. 5 lat")
+    # truncates whatever section it sits in.
+    (rf"{_NUM}Szukamy[ \t]*:", None),  # 162
     (rf"{_NUM}Strategia\s+Delivery\s+Lead\w*\b[^\n]*", None),  # 639 + 99
     (rf"{_NUM}Kluczowe\s+slowa\b[^\n]*", None),  # 611 + 103
     (rf"{_NUM}Firmy\s+docelowe\b[^\n]*", None),  # 612 + 119
@@ -250,7 +276,7 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
     (rf"{_NUM}Co\s+powiedziec\s+o\s+Kliencie\b[^\n]*", None),  # 593
     (rf"{_NUM}Dlaczego\s+to\s+wazne\b[^\n]*", None),  # 350
     (rf"{_NUM}(?:Lokalizacja|Adresy)\s+biur\b[^\n]*", None),  # 350 + 104
-    (rf"{_NUM}UWAGI\b[^\n]*", None),  # "Uwagi / plan działania:" 389+217+111
+    (rf"{_NUM}UWAGI[^\n:]*:", None),  # "Uwagi / plan działania:" 389+217+111
     (rf"{_NUM}OFFLIMIT\b[^\n]*", None),  # 372 + 108
 )
 #
@@ -356,29 +382,49 @@ _MAX_SKILL_ENTRIES = 40
 _MIN_ENTRIES_FOR_RATIO_CHECK = 12
 _MAX_PROSE_RATIO = 0.25
 
-# A sentence break INSIDE one entry — prose, never a technology chip. No real
-# chip contains ". " ("Node.js", "2.1/2.2", "C++" have no period-space).
+# A sentence break INSIDE one entry — prose, never a technology chip.
 _SENTENCE_BREAK_RE = re.compile(r"[.!?…]\s")
 _PROSE_TAIL_RE = re.compile(r"[.!?…:;]$")
+# Abbreviations whose period is NOT a sentence break. Polish requirement chips
+# are full of them ("specjalista ds. compliance" is a canonical skill name in
+# seed_skill_aliases.py; "j. angielski B2", "min. 3 lata"), and treating their
+# period as end-of-sentence dropped legitimate entries.
+_ABBREV_RE = re.compile(
+    r"\b(?:ds|j|ang|min|max|ok|np|tj|itp|itd|nt|ew|zł|inz|mgr|dr|hab|"
+    r"m\.in|B\.Sc|M\.Sc|Ph\.D)\.",
+    re.IGNORECASE,
+)
+# A phrase this long that also ends in a full stop is a sentence, not a chip.
+# 5 (not 3) so "Spring Boot / Spring Cloud." survives while "Project Coordinator
+# lub w zarządzaniu projektami." does not.
+_PROSE_TAIL_MIN_WORDS = 5
 
 
 def _is_prose_entry(entry: str) -> bool:
     """True when a :func:`_split_skills` fragment is requirement prose.
 
-    Four independent axes, any one of which disqualifies. Calibrated against the
-    production artefact (256 entries, longest 200 chars, 49 over 60 chars) and
-    against real chips that MUST survive: "Java (Spring, Hibernate)" (24 chars,
-    3 words), "WCAG 2.1/2.2 (AA, AAA)" (22, 3), "Microsoft Dynamics 365 Business
-    Central" (39, 5).
+    Three independent axes, any one of which disqualifies. Calibrated against
+    the production artefact (256 entries, longest 200 chars, 49 over 60 chars)
+    and against real chips that MUST survive: "Java (Spring, Hibernate)"
+    (24 chars, 3 words), "WCAG 2.1/2.2 (AA, AAA)" (22, 3), "Microsoft Dynamics
+    365 Business Central" (39, 5), "specjalista ds. compliance".
+
+    Length and word count are measured on the entry with terminal punctuation
+    stripped, and standalone separators ("/") are not counted as words — both
+    made the verdict depend on typography rather than on content.
     """
     s = entry.strip()
-    if len(s) > _MAX_SKILL_ENTRY_CHARS:
+    core = s.rstrip(".,:;!?…").strip()
+    if not core:
+        return True  # punctuation-only fragment
+    if len(core) > _MAX_SKILL_ENTRY_CHARS:
         return True
-    if len(s.split()) > _MAX_SKILL_ENTRY_WORDS:
+    words = [w for w in core.split() if any(ch.isalnum() for ch in w)]
+    if len(words) > _MAX_SKILL_ENTRY_WORDS:
         return True
-    if _SENTENCE_BREAK_RE.search(s):
+    if _SENTENCE_BREAK_RE.search(_ABBREV_RE.sub("", s)):
         return True
-    if _PROSE_TAIL_RE.search(s) and len(s.split()) > 3:
+    if _PROSE_TAIL_RE.search(s) and len(words) >= _PROSE_TAIL_MIN_WORDS:
         return True
     return False
 

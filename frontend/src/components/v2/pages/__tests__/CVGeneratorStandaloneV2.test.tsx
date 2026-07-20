@@ -37,16 +37,19 @@ async function openUploadMode() {
   fireEvent.click(await screen.findByText("Old (upload plików)"));
 }
 
-function championInput(): HTMLInputElement {
-  // Both dropzones render a visually-hidden file input; the champion one is the
-  // only input restricted to .docx.
+function fileInput(accept: string): HTMLInputElement {
   const inputs = Array.from(
     document.querySelectorAll<HTMLInputElement>('input[type="file"]'),
   );
-  const champion = inputs.find((i) => i.accept === ".docx");
-  if (!champion) throw new Error("champion file input not found");
-  return champion;
+  const found = inputs.find((i) => i.accept === accept);
+  if (!found) throw new Error(`file input with accept="${accept}" not found`);
+  return found;
 }
+
+/** The champion dropzone is the only input restricted to .docx. */
+const championInput = () => fileInput(".docx");
+/** The CV dropzone — required, gates the Generate button. */
+const cvInput = () => fileInput(".pdf,.docx");
 
 function drop(input: HTMLInputElement, file: File) {
   Object.defineProperty(input, "files", { value: [file], configurable: true });
@@ -91,12 +94,14 @@ describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
     renderPage();
     await openUploadMode();
 
+    // The CV file is what gates the button, so it MUST be attached for this
+    // assertion to mean anything: without it the button is disabled anyway and
+    // the test would pass even if a champion rejection started blocking submit.
+    drop(cvInput(), new File(["x"], "kandydat.pdf"));
     drop(championInput(), new File(["x"], "ProfilChampiona.pdf"));
     await screen.findByText("Profil Championa nie został wczytany");
 
-    const generate = screen.getByRole("button", { name: /Generuj CV/i });
-    // Still gated on the CV file only, exactly as before this change.
-    expect(generate).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Generuj CV/i })).toBeEnabled();
   });
 
   it("clears both alerts once a valid .docx is picked", async () => {

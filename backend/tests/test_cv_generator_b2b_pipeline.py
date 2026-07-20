@@ -1624,6 +1624,121 @@ def test_champion_skills_on_the_same_line_as_the_heading():
     assert cp.nice_to_have == ["Docker"]
 
 
+def test_champion_prose_sections_written_on_the_heading_line():
+    # Word's ordinary layout puts the whole section in ONE paragraph:
+    # "O projekcie: <opis>". A heading that consumed to end-of-line would put
+    # that text inside the match and return an empty field — silently, because
+    # the skill lists still look fine and no diagnostic fires.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "MUST-HAVE: Java, Kafka",
+            "O projekcie: Klient buduje platformę fintech dla rynku DACH.",
+            "Obowiązki na stanowisku: Rozwój i utrzymanie mikroserwisów.",
+            "Historyczne pytania: Czemu odchodzisz z obecnej firmy?",
+            "INSIGHT OD KONSULTANTA: Klient ceni samodzielność.",
+        ),
+        "champion.docx",
+    )
+    assert cp.project_context == "Klient buduje platformę fintech dla rynku DACH."
+    assert cp.responsibilities == "Rozwój i utrzymanie mikroserwisów."
+    assert cp.historical_questions == "Czemu odchodzisz z obecnej firmy?"
+    assert cp.consultant_insight == "Klient ceni samodzielność."
+
+
+def test_champion_screening_heading_accepts_polish_inflection():
+    # "Pytania od Delivery Leada" (dopełniacz) must still be a section boundary;
+    # a `\b` after the literal "Lead" rejected it and let responsibilities
+    # absorb the whole screening block.
+    for heading in (
+        "Pytania od Delivery Lead:",
+        "Pytania od Delivery Leada:",
+        "Pytania od Delivery Leadów:",
+    ):
+        cp = parse_champion_from_docx_bytes(
+            _champion_docx(
+                "Obowiązki na stanowisku:",
+                "Rozwój mikroserwisów.",
+                heading,
+                "Pytanie 1: Czemu Java?",
+            ),
+            "champion.docx",
+        )
+        assert "Czemu Java?" in cp.screening_questions, heading
+        assert "Czemu Java?" not in cp.responsibilities, heading
+
+
+def test_champion_indented_heading_is_not_skipped():
+    # A greedy `\s*` after MUST-HAVE crossed the newline, so the scan resumed
+    # mid-line and the next (indented) heading could never match `^`.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx("MUST-HAVE", "Java", "  NICE-TO-HAVE:", "AWS"),
+        "champion.docx",
+    )
+    assert cp.must_have == ["Java"]
+    assert cp.nice_to_have == ["AWS"]
+
+
+def test_champion_common_verb_needs_a_colon_to_be_a_heading():
+    # "Szukamy osoby…" as ordinary prose must not truncate the section it is in.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "O projekcie:",
+            "Szukamy osoby do zespołu płatności.",
+            "Projekt trwa 24 miesiące.",
+        ),
+        "champion.docx",
+    )
+    assert "Projekt trwa 24 miesiące." in cp.project_context
+
+
+def test_guard_keeps_polish_abbreviations_and_slash_chips():
+    diag = ChampionParseDiagnostics(from_docx=True)
+    must, _ = _guard_skill_lists(
+        "\n".join(
+            [
+                "specjalista ds. compliance",
+                "j. angielski B2",
+                "min. 3 lata Kubernetes",
+                "Spring Boot / Spring Cloud.",
+                "Project Coordinator lub w zarządzaniu projektami.",
+            ]
+        ),
+        "",
+        diag,
+    )
+    assert must == [
+        "specjalista ds. compliance",
+        "j. angielski B2",
+        "min. 3 lata Kubernetes",
+        "Spring Boot / Spring Cloud.",
+    ]
+    assert diag.dropped_prose == 1
+
+
+def test_total_skill_loss_is_flagged_and_warned():
+    diag = ChampionParseDiagnostics(from_docx=True)
+    must, nice = _guard_skill_lists(
+        "\n".join(
+            [
+                "Bardzo dobra znajomość zagadnień sieciowych. Mile widziane certyfikaty.",
+                "Umiejętność pracy w zespole rozproszonym oraz gotowość do podróży.",
+            ]
+        ),
+        "",
+        diag,
+    )
+    assert must == [] and nice == []
+    assert diag.wiped_out is True and diag.implausible is True
+
+    dto = ChampionProfileForPrompt()
+    # Sections WERE recognised — the guard is what emptied the lists, so the
+    # recruiter must get the "everything was rejected" message, not the
+    # "no section recognised" one.
+    diag.headings_found = 2
+    dto.diagnostics = diag
+    assert "żadna pozycja" in _champion_parse_warnings(dto)[0]
+
+
 def test_champion_headings_match_without_polish_diacritics():
     # Recruiters' files appear in prod both with and without diacritics
     # ("Główne źródła" / "Glowne zrodla"), and Word autocorrects the hyphen in
@@ -1755,7 +1870,11 @@ def test_from_nexus_job_never_flags_implausible():
 def test_implausible_champion_emits_recruiter_warning():
     dto = ChampionProfileForPrompt(must_have=["Java"])
     dto.diagnostics = ChampionParseDiagnostics(
-        from_docx=True, headings_found=3, raw_entry_count=256, dropped_overflow=216
+        from_docx=True,
+        headings_found=3,
+        raw_entry_count=256,
+        kept_entry_count=40,
+        dropped_overflow=216,
     )
     warnings = _champion_parse_warnings(dto)
     assert len(warnings) == 1 and "nietypowy układ" in warnings[0]
