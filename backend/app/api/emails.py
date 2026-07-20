@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.email_template import EmailCategory, EmailTemplate
+from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import AdminUser, CurrentUser, TacPlus
 
 logger = logging.getLogger(__name__)
@@ -424,7 +425,7 @@ async def delete_email_template(
 @router.post("/email-templates/{template_id}/preview", response_model=PreviewResponse)
 async def preview_template_by_id(
     template_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     candidate_id: Optional[int] = None,
 ):
@@ -545,7 +546,7 @@ async def send_email(
 @router.post("/emails/preview", response_model=PreviewResponse)
 async def preview_email(
     data: PreviewRequest,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Podgląd wyrenderowanego szablonu z podstawionymi placeholderami."""
