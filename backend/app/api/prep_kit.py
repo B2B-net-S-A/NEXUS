@@ -9,8 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, get_current_user
-from app.models.user import User
+from app.api.candidate_access import CandidatePIIAccess
+from app.api.deps import get_db
 from app.models.job import Job
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -56,8 +56,8 @@ def _parse_list_content(content: str) -> list[str]:
 @router.post("/prep-kit/generate", response_model=PrepKitResponse)
 async def generate_prep_kit(
     request: PrepKitRequest,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     # ── Fetch Job ────────────────────────────────────────────────────────────
     job_result = await db.execute(select(Job).where(Job.id == request.job_id))

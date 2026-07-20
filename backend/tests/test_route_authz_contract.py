@@ -178,7 +178,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("DELETE", "/api/candidates/{candidate_id}/chat/messages/{msg_id}"),
     ("DELETE", "/api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions/{emoji}"),
     ("DELETE", "/api/client-knowledge/{knowledge_id}"),
-    ("DELETE", "/api/cloudtalk/agents/{agent_id}/assign"),
     ("DELETE", "/api/contacts/{contact_id}"),
     ("DELETE", "/api/dynareporter/admin-hof/winner/{winner_id}"),
     ("DELETE", "/api/dynareporter/admin-master-data/clients/{client_id}"),
@@ -229,7 +228,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/clients/{client_id}/required-documents"),
     ("GET", "/api/clients/{client_id}/required-documents/{doc_id}/download"),
     ("GET", "/api/clients/{client_id}/team"),
-    ("GET", "/api/cloudtalk/agents"),
     ("GET", "/api/competence-categories"),
     ("GET", "/api/competence-categories/{cc_id}/recruiters"),
     ("GET", "/api/competitions/current"),
@@ -239,7 +237,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/contacts"),
     ("GET", "/api/contractors"),
     ("GET", "/api/contractors/stats"),
-    ("GET", "/api/cv-generator/candidates/{candidate_id}/recruitments"),
     ("GET", "/api/dashboard/kpis"),
     ("GET", "/api/dashboard/pipeline-funnel"),
     ("GET", "/api/dashboard/stats"),
@@ -359,13 +356,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/candidates/{candidate_id}/chat/messages"),
     ("POST", "/api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions"),
     ("POST", "/api/clients/{client_id}/knowledge"),
-    ("POST", "/api/cloudtalk/agents/{agent_id}/assign"),
-    ("POST", "/api/cloudtalk/initiate-call"),
-    ("POST", "/api/cloudtalk/sync-agents"),
     ("POST", "/api/contacts"),
-    ("POST", "/api/cv-generator/classify-technologies"),
-    ("POST", "/api/cv-generator/generate"),
-    ("POST", "/api/cv-generator/generate-upload"),
     ("POST", "/api/dynareporter/admin-config/scoring"),
     ("POST", "/api/dynareporter/admin-hof/winner"),
     ("POST", "/api/dynareporter/admin-master-data/clients"),
@@ -376,9 +367,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/dynareporter/admin-users/employees/{user_id}/seniority"),
     ("POST", "/api/dynareporter/admin-users/team/sourcer-categories"),
     ("POST", "/api/dynareporter/admin-users/team/tac-dl"),
-    ("POST", "/api/email-templates/{template_id}/preview"),
     ("POST", "/api/email-templates/{template_id}/send"),
-    ("POST", "/api/emails/preview"),
     ("POST", "/api/emails/send"),
     ("POST", "/api/interview-questions"),
     ("POST", "/api/interview-questions/{question_id}/rate"),
@@ -395,7 +384,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/match-history"),
     ("POST", "/api/microsoft365/free-busy"),
     ("POST", "/api/microsoft365/sync/trigger"),
-    ("POST", "/api/prep-kit/generate"),
     ("POST", "/api/saved-searches"),
     ("POST", "/api/saved-searches/{search_id}/viewed"),
     ("POST", "/api/user-email-templates"),
@@ -445,6 +433,23 @@ def test_no_new_bare_authenticated_routes() -> None:
         "are not in the baseline. Give each a resource gate (CandidatePIIAccess / "
         "ClientAccess / require_financial_access / AdminUser / require_capability), "
         "or add it to _BARE_BASELINE with a justification:\n" + "\n".join(lines)
+    )
+
+
+
+def test_baseline_has_no_stale_entries() -> None:
+    """A route that gained a gate must leave the baseline.
+
+    Without this the list only ever grows stale: entries stay long after the
+    route was fixed, the number stops meaning anything, and the burn-down
+    cannot be measured. Failing here is good news — it means work landed.
+    """
+    bare = {(m, p) for m, p, c in _routes() if c.startswith("bare")}
+    stale = _BARE_BASELINE - bare
+    assert not stale, (
+        f"{len(stale)} baseline entry/entries no longer need to be there — the "
+        "route is gated now. Delete them from _BARE_BASELINE:\n"
+        + "\n".join(f"    (\"{m}\", \"{p}\")," for m, p in sorted(stale))
     )
 
 
