@@ -67,8 +67,20 @@ async def get_public_champion_card(
     shape is slimmed down — no internal fields (scores, stage ids) — so that
     the client only sees what the recruiter meant to share.
     """
+    # Dual-read (same pattern as CVShareToken): v2 rows match the SHA-256 digest
+    # of the incoming secret; legacy rows kept the raw secret in the PK and are
+    # matched directly, scoped to token_sha256 IS NULL so they age out on expiry.
+    import hashlib
+
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row: Optional[ChampionCardShareToken] = await db.scalar(
-        select(ChampionCardShareToken).where(ChampionCardShareToken.token == token)
+        select(ChampionCardShareToken).where(
+            (ChampionCardShareToken.token_sha256 == digest)
+            | (
+                (ChampionCardShareToken.token == token)
+                & (ChampionCardShareToken.token_sha256.is_(None))
+            )
+        )
     )
     if row is None or row.revoked:
         raise HTTPException(status_code=404, detail="Share link not found or revoked")

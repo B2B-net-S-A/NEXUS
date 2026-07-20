@@ -1163,6 +1163,7 @@ async def create_share_token(
     expires_in_days: int = Query(30, ge=1, le=365),
 ):
     """Generate a shareable token for this CandidateStage's Champion card."""
+    import hashlib
     import secrets
     from datetime import timedelta
 
@@ -1172,10 +1173,16 @@ async def create_share_token(
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
 
-    token = secrets.token_urlsafe(36)
+    # v2: the secret lives only in the URL and as a SHA-256 digest in the DB.
+    # The PK holds a non-secret revoke key, so a DB leak yields no working link.
+    raw_token = secrets.token_urlsafe(36)
+    revoke_key = f"v2${secrets.token_hex(16)}"
+    token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    token = raw_token  # goes into the share URL
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
     row = ChampionCardShareToken(
-        token=token,
+        token=revoke_key,
+        token_sha256=token_digest,
         candidate_stage_id=stage_id,
         created_by=current_user.id,
         expires_at=expires_at,
@@ -1205,10 +1212,22 @@ async def revoke_share_token(
     db: AsyncSession = Depends(get_db),
 ):
     """Revoke (soft-delete) a previously issued share token."""
+    import hashlib
+
     from app.models.champion_share import ChampionCardShareToken
 
+    # The caller holds the raw secret from the share URL, not the v2 PK
+    # (revoke_key), so match the same dual-read way the public lookup does —
+    # otherwise v2 tokens would be unrevocable.
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row = await db.scalar(
-        select(ChampionCardShareToken).where(ChampionCardShareToken.token == token)
+        select(ChampionCardShareToken).where(
+            (ChampionCardShareToken.token_sha256 == digest)
+            | (
+                (ChampionCardShareToken.token == token)
+                & (ChampionCardShareToken.token_sha256.is_(None))
+            )
+        )
     )
     if not row:
         raise HTTPException(status_code=404, detail="Token not found")
