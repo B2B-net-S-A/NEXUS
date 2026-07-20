@@ -46,6 +46,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Re-audyt M2 (PR1c): kolejna rownolegla powierzchnia danych kandydata.
+# Panel generatora B2B jest w sidebarze dostepny dla WSZYSTKICH rol, a jego
+# trasy stały na golym CurrentUser: typeahead przeszukiwal cala baze po
+# imieniu/nazwisku/emailu (puste q = ostatnio modyfikowani), lista pokazywala
+# candidate_name cudzych CV, a /generated/{id}/docx NIE MIAL zadnej kontroli
+# wlasnosci (403 przy 755 dotyczy DELETE) -> viewer pobieral dowolne
+# wygenerowane CV kandydata chodzac po sekwencyjnym ID.
+from app.api.candidate_access import (
+    CandidateDocumentAccess,
+    CandidateSearchAccess,
+    CandidateWriteAccess,
+)
 from app.api.deps import CurrentUser
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import limiter
@@ -406,7 +418,7 @@ async def classify_technologies(
 
 @router.get("/candidates", response_model=list[CandidateOption])
 async def search_candidates(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
     q: str = Query(
         "",
@@ -652,7 +664,7 @@ async def generate_from_upload(
 
 @router.get("/generated", response_model=list[GeneratedCvItem])
 async def list_generated_cvs(
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(60, ge=1, le=200),
 ):
@@ -699,7 +711,7 @@ async def list_generated_cvs(
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_cv(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Re-render a previously generated CV from its saved payload and return it.
@@ -741,7 +753,7 @@ async def download_generated_cv(
 @router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_generated_cv(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Remove a row from the „Wygenerowane CV" list (author or admin only).

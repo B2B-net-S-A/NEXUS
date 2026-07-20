@@ -178,6 +178,14 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/pins", None),
     ("GET", "/api/candidates/999999/pin", None),
     ("POST", "/api/candidates/999999/pin", None),
+    # ── PR1c: panel generatora B2B (w sidebarze dostępny dla WSZYSTKICH ról) ──
+    # typeahead przeszukiwał całą bazę po imieniu/nazwisku/emailu (puste q =
+    # ostatnio modyfikowani), lista pokazywała candidate_name cudzych CV,
+    # a /generated/{id}/docx nie miał ŻADNEJ kontroli własności → viewer
+    # pobierał dowolne wygenerowane CV kandydata po sekwencyjnym ID.
+    ("GET", "/api/cv-generator/candidates", None),
+    ("GET", "/api/cv-generator/generated", None),
+    ("GET", "/api/cv-generator/generated/999999/docx", None),
 ]
 
 # Druga, równoległa powierzchnia eksportu/importu kandydatów (import_export.py).
