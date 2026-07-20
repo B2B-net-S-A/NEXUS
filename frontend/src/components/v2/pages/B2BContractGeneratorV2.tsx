@@ -68,6 +68,25 @@ import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
+// Cały router generatora (13 endpointów) jest zabramkowany jedną rolą —
+// `ContractLegalAccess` = admin/head_of_recruitment/delivery_lead/tac (PR #791,
+// containment M5 PR-01). Dla osoby spoza tego grona KAŻDY request tej strony
+// wraca 403, więc listy renderowały się jako puste: brak pozycji w „Obszar
+// usług" i „Brak wygenerowanych umów" — co czyta się jak skasowanie danych
+// (tak zostało zgłoszone). 403 musi być nazwany wprost, nie udawać pustki.
+function isForbidden(error: unknown): boolean {
+  return (
+    (error as { response?: { status?: number } } | null)?.response?.status === 403
+  );
+}
+
+const NO_ACCESS_TITLE = "Brak uprawnień do Generatora Umów B2B";
+const NO_ACCESS_DESC =
+  "Generator jest dostępny dla ról: administrator, head of recruitment, " +
+  "delivery lead, TAC. Poproś administratora o nadanie dostępu — " +
+  "wygenerowane wcześniej umowy nie zostały usunięte, są tylko niewidoczne " +
+  "bez uprawnień.";
+
 type CandidateOption = {
   id: number;
   name: string;
@@ -387,6 +406,12 @@ function GeneratedContractsTab() {
       <CardContent>
         {q.isLoading ? (
           <p className="text-sm text-muted-foreground">Ładowanie…</p>
+        ) : isForbidden(q.error) ? (
+          <Alert
+            variant="warning"
+            title={NO_ACCESS_TITLE}
+            description={NO_ACCESS_DESC}
+          />
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Brak wygenerowanych umów.
@@ -1118,6 +1143,21 @@ function GeneratorForm() {
     setUploadVerdict(null);
     uploadSignedMut.mutate(file);
   };
+
+  // Bez roli legal-team każdy endpoint generatora zwraca 403: lista obszarów
+  // jest pusta, numer się nie nadaje, DOCX się nie wygeneruje. Pokazanie
+  // formularza sugerowałoby, że brakuje tylko słownika obszarów — stąd jeden
+  // jawny komunikat zamiast rozsypanych pustych pól. Guard po wszystkich
+  // hookach (rules of hooks).
+  if (isForbidden(rolesQuery.error)) {
+    return (
+      <Alert
+        variant="warning"
+        title={NO_ACCESS_TITLE}
+        description={NO_ACCESS_DESC}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
