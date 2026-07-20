@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -138,12 +138,32 @@ async def submit_signed_pdf(
     if not pdf_bytes.startswith(b"%PDF"):
         raise HTTPException(status_code=422, detail="To nie jest plik PDF")
 
-    verdict = await finalize_signed_pdf(db, sig, pdf_bytes, moved_by=sig.sender_user_id)
-
+    # Atomic single-use claim BEFORE finalize. finalize_signed_pdf attaches the
+    # PDF and advances the pipeline stage — running it twice (two concurrent
+    # submits that both passed the require_unused read in _load_valid_link)
+    # would double-attach and double-advance. The guarded UPDATE lets one win;
+    # the loser gets 410 before any effect. Same transaction → rolls back on a
+    # later failure.
     now = datetime.now(timezone.utc)
-    link.used_at = now
-    link.use_count = (link.use_count or 0) + 1
-    link.last_used_at = now
+    claimed = (
+        await db.execute(
+            update(SignatureLink)
+            .where(
+                SignatureLink.token == link.token,
+                SignatureLink.used_at.is_(None),
+            )
+            .values(
+                used_at=now,
+                use_count=(link.use_count or 0) + 1,
+                last_used_at=now,
+            )
+            .returning(SignatureLink.token)
+        )
+    ).first()
+    if claimed is None:
+        raise HTTPException(status_code=410, detail="Link już został użyty.")
+
+    verdict = await finalize_signed_pdf(db, sig, pdf_bytes, moved_by=sig.sender_user_id)
 
     await db.commit()
     return verdict
