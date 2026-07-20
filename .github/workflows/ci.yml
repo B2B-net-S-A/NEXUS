@@ -141,6 +141,7 @@ jobs:
                  tests/test_ical_uid_collision.py \
                  tests/test_schema_drift_report.py \
                  tests/test_backup_service_contract.py \
+                 tests/test_route_authz_contract.py \
                  tests/test_user_email_templates.py \
                  tests/test_actionable_messages.py \
                  tests/test_aad_groups.py \
