@@ -280,7 +280,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/pipeline-templates"),
     ("GET", "/api/pipeline-templates/{template_id}"),
     ("GET", "/api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules"),
-    ("GET", "/api/pipeline/kanban/{job_id}"),
     ("GET", "/api/pipeline/overview"),
     ("GET", "/api/pipeline/stages"),
     ("GET", "/api/postings/stats"),
