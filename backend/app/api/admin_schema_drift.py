@@ -132,16 +132,38 @@ def _expected_enums() -> dict[str, set[str]]:
     return out
 
 
-async def _actual_indexes(db: AsyncSession) -> set[tuple[str, str]]:
-    """-> {(table, index_name)} for every index in the public schema."""
+async def _actual_indexes(db: AsyncSession) -> set[tuple[str, tuple[str, ...], bool]]:
+    """-> {(table, (column, ...), is_unique)} for indexes in the public schema.
+
+    Compared by SHAPE, never by name. Most of this schema was created by
+    hand-written ``CREATE TABLE`` SQL in the early migrations, which named its
+    indexes independently of SQLAlchemy's ``ix_<table>_<column>`` convention.
+    Matching on names reported almost every ORM index as missing — a wall of
+    false positives that would have made the whole report worthless.
+
+    Known limitation: expression indexes (``indkey`` entry 0) have no matching
+    ``pg_attribute`` row, so their column list comes back short. That can only
+    cause a *missed* report, never a false one.
+    """
     rows = (
         await db.execute(
-            text(
-                "SELECT tablename, indexname FROM pg_indexes WHERE schemaname = 'public'"
-            )
+            text("""
+                SELECT t.relname AS table_name,
+                       array_agg(a.attname ORDER BY k.ord) AS columns,
+                       ix.indisunique AS is_unique
+                FROM pg_index ix
+                JOIN pg_class i ON i.oid = ix.indexrelid
+                JOIN pg_class t ON t.oid = ix.indrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord)
+                  ON TRUE
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                WHERE n.nspname = 'public'
+                GROUP BY t.relname, ix.indexrelid, ix.indisunique
+            """)
         )
     ).all()
-    return {(t, i) for t, i in rows}
+    return {(t, tuple(cols), bool(uniq)) for t, cols, uniq in rows}
 
 
 async def _actual_foreign_keys(db: AsyncSession) -> set[tuple[str, str, str]]:
@@ -168,16 +190,6 @@ async def _actual_foreign_keys(db: AsyncSession) -> set[tuple[str, str, str]]:
         )
     ).all()
     return {(t, c, r) for t, c, r in rows}
-
-
-def _truncate_identifier(name: str) -> str:
-    """Postgres silently truncates identifiers at 63 bytes.
-
-    Without mirroring that, every ORM index whose generated name is longer
-    would be reported as missing forever — a permanent false positive that
-    would teach people to ignore this report.
-    """
-    return name[:63]
 
 
 async def _run_checks(db: AsyncSession) -> dict[str, Any]:
@@ -249,21 +261,34 @@ async def _run_checks(db: AsyncSession) -> dict[str, Any]:
     # index that a migration declared but never landed looks exactly like that
     # and nothing else in the stack notices.
     actual_indexes = await _actual_indexes(db)
-    actual_index_names = {name for _, name in actual_indexes}
+    # An index on the same columns satisfies the ORM regardless of its name, and
+    # a UNIQUE index also serves every non-unique need — so only a *unique*
+    # requirement demands a unique index.
+    shapes_any = {(t, cols) for t, cols, _ in actual_indexes}
+    shapes_unique = {(t, cols) for t, cols, uniq in actual_indexes if uniq}
     missing_indexes: list[dict[str, Any]] = []
     for table_name, table in Base.metadata.tables.items():
         if table_name not in actual_tables:
             continue
         for index in table.indexes:
-            if not index.name:
-                continue
-            if _truncate_identifier(index.name) not in actual_index_names:
+            columns = tuple(c.name for c in index.columns)
+            wants_unique = bool(index.unique)
+            satisfied = (
+                (table_name, columns) in shapes_unique
+                if wants_unique
+                else (table_name, columns) in shapes_any
+            )
+            if not satisfied:
                 missing_indexes.append(
                     {
                         "table": table_name,
                         "index": index.name,
-                        "columns": [c.name for c in index.columns],
-                        "unique": bool(index.unique),
+                        "columns": list(columns),
+                        "unique": wants_unique,
+                        # A missing UNIQUE index is an integrity gap (duplicates
+                        # can already exist); a missing plain index is a
+                        # performance gap. Very different urgency.
+                        "severity": "high" if wants_unique else "medium",
                     }
                 )
 

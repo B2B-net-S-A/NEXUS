@@ -130,16 +130,32 @@ async def test_schema_drift_reports_only_known_drift(
 async def test_schema_drift_emits_no_row_data(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
-    """Zero-PII contract: the report may name schema objects, never rows."""
+    """Zero-PII contract: the report may name schema objects, never rows.
+
+    The canary is the seeded admin's *actual* credentials rather than generic
+    words. An earlier version searched for the substring "password" and failed
+    immediately — on the perfectly legitimate column name `hashed_password`.
+    Schema reports are supposed to contain words like that; what they must
+    never contain is a value that could only have come from a row.
+    """
     resp = await app_client.get("/api/admin/schema-drift", headers=app_auth_headers)
     assert resp.status_code == 200
-    payload = resp.text.lower()
+    payload = resp.text
 
-    # The report reads information_schema/pg_catalog only, so no value that
-    # could have come out of a data row may appear. These are the seeded
-    # admin's own identifiers — the cheapest canary for an accidental join.
-    for leaked in ("@example.com", "password", "access_token", "bearer "):
-        assert leaked not in payload, f"schema report leaked {leaked!r}"
+    seeded_email = app_client.headers.get("X-Test-Admin-Email")
+    seeded_password = app_client.headers.get("X-Test-Admin-Password")
+    bearer = app_auth_headers["Authorization"].split(" ", 1)[1]
+
+    for label, leaked in (
+        ("seeded admin e-mail", seeded_email),
+        ("seeded admin password", seeded_password),
+        ("caller's JWT", bearer),
+    ):
+        if leaked:
+            assert leaked not in payload, (
+                f"schema report leaked the {label} — it must read "
+                "information_schema/pg_catalog only, never data rows"
+            )
 
 
 async def test_alembic_singular_head_resolves(
