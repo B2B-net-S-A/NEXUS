@@ -48,82 +48,25 @@ async def test_schema_drift_requires_auth(app_client: AsyncClient) -> None:
     assert resp.status_code == 401, resp.text
 
 
-# Enum labels the ORM declares that `alembic upgrade heads` does NOT create.
-# Every one was verified as a genuine mismatch (not a name-vs-value artifact):
-# each column uses a bare `Enum(PyEnum)` with no `values_callable` and no
-# `native_enum=False`, so SQLAlchemy sends the member NAME, and no migration
-# anywhere adds that label.
+# Migration 0180 adds every enum label the ORM sends, so a migrated database
+# must now have all of them. Four genuine bugs used to live here — writes that
+# raised `invalid input value for enum` on real paths (rejection-email
+# notifications, CloudTalk outbound calls, contract rate history, interview
+# feedback). They were found by this very report on its first run; see 0180 for
+# the full account.
 #
-#   callstatus/initiated              — written by POST /api/cloudtalk/
-#                                       initiate-call. Dormant only because the
-#                                       CloudTalk kill-switch is off; it fires
-#                                       the moment that flag flips.
-#   contracttype/zlecenie             — the type was created with the typo
-#                                       'uzlecenie'; written by POST
-#                                       /api/candidates/{id}/rate-history.
-#   nextsteppreference/pass_          — DB has 'pass' (correct); the ORM member
-#                                       is `pass_` because `pass` is a Python
-#                                       keyword. The right fix is
-#                                       `values_callable` on the column, NOT
-#                                       adding a second label.
-#   notificationtype/similar_job_     — mirrored by entrypoint.sh (2 hits), so
-#   candidates                          production has it while a migrations-only
-#                                       database does not. Migrations and the
-#                                       safety-net have silently diverged.
-#
-# This is recorded rather than asserted-to-zero because it is the measured
-# truth of a database built from migrations alone, and pretending otherwise
-# would make the test lie. The assertion is exact-match: any NEW drift fails,
-# and fixing one of these fails too, forcing this list to be updated with it.
-# Indexes the ORM declares with `index=True` that no migration ever creates.
-# All 24 are non-unique, so this is silent performance loss rather than an
-# integrity gap — but it is real loss, not a comparison artifact: indexes are
-# matched by SHAPE (table + columns + uniqueness), so an equivalent index under
-# a different name counts as present.
-#
-# The clearest verified case is `calendar_events.external_id`
-# (app/models/... `index=True`, created by no migration) which
-# `app/services/ical_import.py:255,281` queries once per VEVENT — every
-# calendar import sequentially scans the table for every single event. Ten of
-# the 24 are `external_id` columns, i.e. exactly the lookup keys the Traffit
-# and M365 integrations join on.
-#
-# Recorded rather than fixed here: creating them on production needs an
-# entrypoint mirror (prod's alembic bookmark is far behind, so a migration
-# alone would be a no-op) and the agreed sequence is measure-then-fix.
-_KNOWN_MISSING_INDEXES = {
-    ("activities", ("external_id",)),
-    ("analytics_metric_snapshots", ("module",)),
-    ("analytics_metric_snapshots", ("period_label",)),
-    ("calendar_events", ("external_id",)),
-    ("calendar_events", ("external_source",)),
-    ("candidate_stages", ("external_id",)),
-    ("candidates", ("external_id",)),
-    ("champion_profile_suggestions", ("job_id",)),
-    ("clients", ("external_id",)),
-    ("contacts", ("external_id",)),
-    ("delivery_lead_client_assignments", ("delivery_lead_user_id",)),
-    ("dr_client_mrr", ("client_id",)),
-    ("dr_sales_leads", ("user_id",)),
-    ("dr_sales_offers", ("user_id",)),
-    ("jobs", ("external_id",)),
-    ("jobs", ("train_name",)),
-    ("pipeline_stage_defs", ("external_id",)),
-    ("pipeline_templates", ("external_id",)),
-    ("proposal_snapshots", ("job_id",)),
-    ("rate_benchmarks", ("role",)),
-    ("rate_benchmarks", ("seniority",)),
-    ("talent_pools", ("external_id",)),
-    ("talent_pools", ("is_marketplace",)),
-    ("talent_pools", ("is_personal",)),
-}
+# Production is patched separately through entrypoint.sh, because its alembic
+# bookmark predates these revisions and this migration will not run there.
+_KNOWN_ENUM_DRIFT: set[tuple[str, str]] = set()
 
-_KNOWN_ENUM_DRIFT = {
-    ("callstatus", "initiated"),
-    ("contracttype", "zlecenie"),
-    ("nextsteppreference", "pass_"),
-    ("notificationtype", "similar_job_candidates"),
-}
+# Migration 0180 also creates every index the ORM declares with `index=True`.
+# 36 of them existed in no migration at all; the costliest was
+# `calendar_events.external_id`, which `ical_import.py` queries once per VEVENT
+# — so each calendar import scanned the table once per event.
+#
+# Kept as an explicit (empty) baseline rather than a bare `== 0` so the failure
+# message names exactly which index regressed.
+_KNOWN_MISSING_INDEXES: set[tuple[str, tuple[str, ...]]] = set()
 
 
 async def test_schema_drift_reports_only_known_drift(

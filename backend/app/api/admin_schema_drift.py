@@ -264,8 +264,21 @@ async def _run_checks(db: AsyncSession) -> dict[str, Any]:
     # An index on the same columns satisfies the ORM regardless of its name, and
     # a UNIQUE index also serves every non-unique need — so only a *unique*
     # requirement demands a unique index.
-    shapes_any = {(t, cols) for t, cols, _ in actual_indexes}
+    # A B-tree index on (a, b, c) also serves lookups on (a) and (a, b), so a
+    # composite index satisfies an ORM index over any leading subset of its
+    # columns. Requiring an exact column match reported
+    # `talent_pools.is_personal` as missing when migration 0137 had already
+    # created `(is_personal, created_by)` — an index that answers the query
+    # perfectly well.
+    #
+    # Uniqueness is the exception: UNIQUE on (a, b) does NOT make (a) unique, so
+    # a unique requirement demands an exact match on a unique index.
     shapes_unique = {(t, cols) for t, cols, uniq in actual_indexes if uniq}
+    prefixes_any: set[tuple[str, tuple[str, ...]]] = set()
+    for table_name_, cols, _uniq in actual_indexes:
+        for length in range(1, len(cols) + 1):
+            prefixes_any.add((table_name_, cols[:length]))
+
     missing_indexes: list[dict[str, Any]] = []
     for table_name, table in Base.metadata.tables.items():
         if table_name not in actual_tables:
@@ -276,7 +289,7 @@ async def _run_checks(db: AsyncSession) -> dict[str, Any]:
             satisfied = (
                 (table_name, columns) in shapes_unique
                 if wants_unique
-                else (table_name, columns) in shapes_any
+                else (table_name, columns) in prefixes_any
             )
             if not satisfied:
                 missing_indexes.append(
