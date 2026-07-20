@@ -37,6 +37,14 @@ export const api = axios.create({
  */
 export function extractErrorMsg(error: unknown): string {
   if (error instanceof AxiosError && error.response) {
+    // 429 = limit zapytań. slowapi odpowiada ciałem {"error": "Rate limit
+    // exceeded: N per 1 minute"} — BEZ klucza `detail`, więc bez tej gałęzi
+    // wołający spadał na surowe `error.message` i użytkownik dostawał
+    // „Request failed with status code 429" (zgłoszenie: Wiktoria Denka).
+    if (error.response.status === 429) {
+      console.error("[api] rate limited:", error.response.data);
+      return "Zbyt wiele prób w krótkim czasie — odczekaj minutę i spróbuj ponownie.";
+    }
     const data = error.response.data;
     if (data && typeof data === "object") {
       // `require_roles` (backend/app/api/deps.py) zwraca detail w formie

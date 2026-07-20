@@ -289,7 +289,11 @@ def _frontend_login_error_url(reason: str) -> str:
 
 
 @router.get("/authorize", response_model=AuthorizeResponse)
-@limiter.limit("10/minute")
+# 60/min per IP (było 10). To endpoint klikany przyciskiem „Zaloguj się przez
+# Microsoft" — buduje tylko URL, bez skutków ubocznych. Przy wspólnym kluczu
+# limitu 10/min wystarczyło, że w tej samej minucie logowało się kilka osób,
+# żeby reszta dostała 429 (zgłoszenie: Wiktoria Denka).
+@limiter.limit("60/minute")
 async def authorize(request: Request) -> AuthorizeResponse:
     """Build the Microsoft login URL. Frontend does ``window.location = url``."""
     _require_sso_configured()
@@ -299,7 +303,11 @@ async def authorize(request: Request) -> AuthorizeResponse:
 
 
 @router.get("/callback", response_class=RedirectResponse)
-@limiter.limit("20/minute")
+# 60/min (było 20). Uwaga: tu NIE trafia przeglądarka, tylko serwerowy proxy
+# z kontenera frontendu (app/auth/microsoft/callback/route.ts), więc bez
+# przekazanego X-Forwarded-For wszyscy lądowaliby w jednym kubełku. Route
+# handler forwarduje nagłówek — patrz komentarz tam.
+@limiter.limit("60/minute")
 async def callback(
     request: Request,
     code: Optional[str] = Query(None),
@@ -593,7 +601,10 @@ async def callback(
 
 
 @router.post("/exchange", response_model=ExchangeResponse)
-@limiter.limit("5/minute")
+# 60/min per IP (było 5). Wymiana jest sama w sobie ograniczona: kod jest
+# jednorazowy i żyje 60 s, więc limit chroni tu przed zgadywaniem UUID-a, a nie
+# przed wolumenem. 5/min przy wspólnym kluczu ucinało logowanie całemu biuru.
+@limiter.limit("60/minute")
 async def exchange(
     request: Request,
     payload: ExchangeRequest = Body(...),
