@@ -39,6 +39,19 @@ export function extractErrorMsg(error: unknown): string {
   if (error instanceof AxiosError && error.response) {
     const data = error.response.data;
     if (data && typeof data === "object") {
+      // `require_roles` (backend/app/api/deps.py) zwraca detail w formie
+      // "Requires one of roles: ['admin', 'tac', ...]" — to nazwy ról z modelu
+      // danych, nie komunikat dla użytkownika. Wyciekał wprost do toasta
+      // (zgłoszenie generatora umów: użytkownik zobaczył surową listę ról).
+      // Tłumimy jak surowe `loc` niżej: raw do konsoli, człowiekowi zdanie.
+      if (
+        error.response.status === 403 &&
+        typeof data.detail === "string" &&
+        data.detail.startsWith("Requires one of roles:")
+      ) {
+        console.error("[api] role gate:", data.detail);
+        return "Nie masz uprawnień do tej operacji — poproś administratora o dostęp.";
+      }
       // FastAPI HTTPException(detail="...") → string detail
       if (typeof data.detail === "string") return data.detail;
       // FastAPI Pydantic ValidationError → list of { msg, loc, ... }
