@@ -55,10 +55,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # wygenerowane CV kandydata chodzac po sekwencyjnym ID.
 from app.api.candidate_access import (
     CandidateDocumentAccess,
+    CandidatePIIAccess,
     CandidateSearchAccess,
     CandidateWriteAccess,
 )
-from app.api.deps import CurrentUser
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import limiter
 from app.models.activity import Activity
@@ -400,7 +400,7 @@ class ClassifyTechResponse(BaseModel):
 @router.post("/classify-technologies", response_model=ClassifyTechResponse)
 async def classify_technologies(
     payload: ClassifyTechRequest,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
 ) -> ClassifyTechResponse:
     """Tell the UI which criteria chips will be bolded as technologies in the
     generated CV — using the SAME classifier as the renderer (taxonomy + the
@@ -499,7 +499,7 @@ async def search_candidates(
 )
 async def list_candidate_recruitments(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[RecruitmentOption]:
     """Return all recruitment processes the candidate participates in, with
@@ -538,7 +538,7 @@ async def list_candidate_recruitments(
 async def generate(
     request: Request,
     payload: GenerateRequest,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> GenerateEnqueuedResponse:
@@ -593,7 +593,7 @@ async def generate(
 @limiter.limit("10/minute")
 async def generate_from_upload(
     request: Request,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     background_tasks: BackgroundTasks,
     # No `from __future__ import annotations` in this module (see module docstring),
     # so this multipart marker resolves correctly even under the slowapi
