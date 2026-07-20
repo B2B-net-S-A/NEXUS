@@ -1,4 +1,8 @@
-"""Pydantic schemas for DynaReporter Sales KPI (B.2.2)."""
+"""Pydantic schemas for DynaReporter Sales KPI (B.2.2).
+
+2026-07-20: usunięty `DrKpiSalesCreate` — był payloadem wyłącznie usuniętej
+trasy POST (ręczne wprowadzanie statystyk wygaszone).
+"""
 
 from __future__ import annotations
 
@@ -16,10 +20,6 @@ class DrKpiSalesBase(BaseModel):
     offers_won: int = Field(default=0, ge=0)
     offers_lost: int = Field(default=0, ge=0)
     days_worked: int = Field(default=5, ge=0, le=7)
-
-
-class DrKpiSalesCreate(DrKpiSalesBase):
-    pass
 
 
 class DrKpiSalesResponse(DrKpiSalesBase):

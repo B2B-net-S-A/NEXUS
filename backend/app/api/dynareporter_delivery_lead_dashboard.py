@@ -10,16 +10,13 @@ Filter `role = 'delivery_lead'` + aktywni LUB którzy mieli wpisy w okresie.
 
 from __future__ import annotations
 
-import logging
-
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser
 from app.models.user import User
 from app.analytics.capabilities import (
     AnalyticsCapability,
@@ -32,10 +29,7 @@ from app.schemas.dr_delivery_lead_dashboard import (
     DLTeamHistoryRow,
     DLTeamStats,
     DLTrendRow,
-    DLUpsert,
 )
-
-logger = logging.getLogger("dynareporter.delivery_lead_dashboard")
 
 router = APIRouter()
 
@@ -321,73 +315,8 @@ async def get_trend(
     ]
 
 
-@router.post(
-    "/entry",
-    summary="Admin upsert miesięcznego KPI DL (admin only)",
-)
-async def upsert_dl_entry(
-    payload: DLUpsert,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Admin upsert wpisu DL KPI. ON CONFLICT (user_id, report_month)."""
-    from app.models.user import UserRole
-
-    if not current_user.has_role(UserRole.admin):
-        raise HTTPException(
-            status_code=403,
-            detail="Tylko admin może modyfikować KPI DL",
-        )
-
-    # YYYY-MM → date(YYYY, MM, 1) — asyncpg wymaga `datetime.date` dla `date` column
-    # (string "YYYY-MM-01" daje DataError: 'str' has no attribute 'toordinal').
-    try:
-        month_date = datetime.strptime(f"{payload.report_month}-01", "%Y-%m-%d").date()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"report_month must be YYYY-MM (got '{payload.report_month}')",
-        ) from exc
-    sql = text(
-        """
-        INSERT INTO dr_kpi_delivery_lead (
-            user_id, report_month, requests, placements, vacancies,
-            open_requests, open_vacancies, created_at, updated_at
-        ) VALUES (
-            :user_id, :report_month, :requests, :placements, :vacancies,
-            :open_requests, :open_vacancies, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-        )
-        ON CONFLICT (user_id, report_month) DO UPDATE SET
-            requests = EXCLUDED.requests,
-            placements = EXCLUDED.placements,
-            vacancies = EXCLUDED.vacancies,
-            open_requests = EXCLUDED.open_requests,
-            open_vacancies = EXCLUDED.open_vacancies,
-            updated_at = CURRENT_TIMESTAMP
-        RETURNING id
-        """
-    )
-    result = await db.execute(
-        sql,
-        {
-            "user_id": payload.user_id,
-            "report_month": month_date,
-            "requests": payload.requests,
-            "placements": payload.placements,
-            "vacancies": payload.vacancies,
-            "open_requests": payload.open_requests,
-            "open_vacancies": payload.open_vacancies,
-        },
-    )
-    await db.commit()
-    row = result.first()
-    entry_id = row.id if row else None
-    logger.info(
-        "DL KPI entry upserted: id=%s user=%s month=%s placements=%s by admin=%s",
-        entry_id,
-        payload.user_id,
-        payload.report_month,
-        payload.placements,
-        current_user.id,
-    )
-    return {"id": entry_id, "ok": True}
+# 2026-07-20: usunięta trasa POST /entry (adminowy upsert miesięcznego KPI
+# Delivery Leada do dr_kpi_delivery_lead). Ręczne wprowadzanie statystyk
+# wygaszone — NEXUS liczy te liczby sam z kontraktów i etapów kandydatów,
+# a wynik pokazuje /insights. GET-y poniżej/powyżej zostają: karmią widoki
+# historyczne, które nadal czytają zamrożone dane.

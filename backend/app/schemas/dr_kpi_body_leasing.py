@@ -1,4 +1,8 @@
-"""Pydantic schemas for DynaReporter Body Leasing KPI (B.2.1)."""
+"""Pydantic schemas for DynaReporter Body Leasing KPI (B.2.1).
+
+2026-07-20: usunięty `DrKpiBodyLeasingCreate` — był payloadem wyłącznie
+usuniętej trasy POST (ręczne wprowadzanie statystyk wygaszone).
+"""
 
 from __future__ import annotations
 
@@ -23,14 +27,6 @@ class DrKpiBodyLeasingBase(BaseModel):
     linkedin_cv_added: int = Field(default=0, ge=0)
     linkedin_messages_sent: int = Field(default=0, ge=0)
     linkedin_responses_received: int = Field(default=0, ge=0)
-
-
-class DrKpiBodyLeasingCreate(DrKpiBodyLeasingBase):
-    """Body wejściowe dla POST /api/dynareporter/kpi/body-leasing.
-
-    user_id wnoszony z JWT (current_user.id) — user może zapisywać tylko
-    swoje wpisy (admin może zapisywać dowolne via ?user_id=X query).
-    """
 
 
 class DrKpiBodyLeasingUpdate(BaseModel):

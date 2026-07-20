@@ -2,6 +2,9 @@
 
 Port `/board` z artur-t-96/InfraReporter
 (`server/src/routes/boardMonthly.ts` + `client/src/pages/Board.tsx`).
+
+2026-07-20: usunięty `BoardMonthlyUpsert` — był payloadem wyłącznie usuniętej
+trasy POST /monthly (ręczne wprowadzanie statystyk wygaszone).
 """
 
 from __future__ import annotations
@@ -34,28 +37,4 @@ class BoardMonthlyRow(BaseModel):
     placements: int = 0
     avg_margin_per_hour: float = 0.0
     hit_ratio: float = 0.0
-    placement_clients: list[BoardPlacementClient] = Field(default_factory=list)
-
-
-class BoardMonthlyUpsert(BaseModel):
-    """Payload POST /monthly — admin upsert miesięcznego raportu."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    # Format enforced — bez `pattern=` admin może wpisać "2026-13" lub "abc"
-    # i dostanie raw PostgreSQL 500 (DataError on date cast).
-    report_month: str = Field(
-        description="YYYY-MM",
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
-    )
-    # `ge=0` na wszystkich liczbach — admin nie powinien wpisać ujemnego revenue.
-    # `le=100.0` na hit_ratio bo to procent.
-    revenue: float = Field(default=0.0, ge=0)
-    consultant_costs: float = Field(default=0.0, ge=0)
-    other_costs: float = Field(default=0.0, ge=0)
-    active_consultants: int = Field(default=0, ge=0)
-    departures: int = Field(default=0, ge=0)
-    placements: int = Field(default=0, ge=0)
-    avg_margin_per_hour: float = Field(default=0.0, ge=0)
-    hit_ratio: float = Field(default=0.0, ge=0, le=100.0)
     placement_clients: list[BoardPlacementClient] = Field(default_factory=list)
