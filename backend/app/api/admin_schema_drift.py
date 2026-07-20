@@ -200,7 +200,8 @@ async def _run_checks(db: AsyncSession) -> dict[str, Any]:
         "missing_tables": missing_tables,
         "extra_tables": extra_tables,
         "missing_columns": sorted(
-            missing_columns, key=lambda r: (r["severity"] != "high", r["table"], r["column"])
+            missing_columns,
+            key=lambda r: (r["severity"] != "high", r["table"], r["column"]),
         ),
         "nullability_mismatch": sorted(
             nullability_mismatch, key=lambda r: (r["table"], r["column"])
@@ -282,8 +283,10 @@ async def schema_drift(
     alembic: dict[str, Any] = _alembic_state_from_code()
     try:
         rows = (
-            await db.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalars().all()
+            (await db.execute(text("SELECT version_num FROM alembic_version")))
+            .scalars()
+            .all()
+        )
         alembic["db_versions"] = list(rows)
     except Exception as exc:  # noqa: BLE001
         alembic["db_error"] = type(exc).__name__
