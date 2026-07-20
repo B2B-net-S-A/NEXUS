@@ -22,6 +22,53 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Strojenie pod hosta prod (CCX33: 8 vCPU / 32 GB RAM, NVMe). Zmierzone 2026-07-20:
+    # baza 2583 MB, shared_buffers 128 MB (fabryczne) => mieściło się w nim ~5% bazy,
+    # cache hit ratio 83.16% (zdrowy OLTP to 99%+), kontener PG zużywał 208 MiB.
+    #
+    # Uczciwie o dowodach (po weryfikacji adwersarialnej — nie przeceniaj ich):
+    #  - 299 GB zrzutów tymczasowych pochodzi z liczników o NIEZNANYM oknie
+    #    (pg_stat_database.stats_reset = NULL, czyli nigdy nie resetowane). Okno
+    #    obejmuje jednorazowe operacje masowe (import 49k z Traffit, backfille CV i CC),
+    #    więc NIE jest to charakterystyka stanu ustalonego OLTP.
+    #  - "host marnuje 25 GB RAM" jest mylące: to page cache systemu, który obsłużył
+    #    ~12,8 TB odczytów. Ta pamięć pracuje. Przenosimy jej część bliżej Postgresa,
+    #    a nie zagospodarowujemy coś bezczynnego.
+    #  - NIE uruchamiaj pg_stat_reset() żeby "zmierzyć efekt" — skasujesz jedyny
+    #    istniejący baseline. Zrzuć liczniki do pliku przed jakimkolwiek resetem.
+    #
+    # UWAGA przy zmianie: to NIE jest zaproszenie do dokładania workerów uvicorna.
+    # Backend odpala 24 pętle w tle bezwarunkowo i 22 z nich nie mają leader-election,
+    # więc drugi worker = zdublowane maile, alerty i importy. Patrz `entrypoint.sh`
+    # (uvicorn bez --workers) oraz `backend/app/main.py` (rejestr background_tasks).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=8GB              # było 128MB — cała baza mieści się z zapasem
+      - -c
+      - effective_cache_size=24GB       # było 4GB — podpowiedź dla planisty, nie alokacja
+      - -c
+      # było 4MB. UWAGA na arytmetykę: work_mem przydzielany jest PER WĘZEŁ PLANU
+      # (każde sortowanie / hash join z osobna), NIE per połączenie — więc "100 połączeń
+      # x work_mem" to PODŁOGA zużycia, nie sufit. Przy braku swapu na tym hoście
+      # trzymamy się konserwatywnych 16MB zamiast kuszących 32-64MB.
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=1GB        # było 64MB — szybszy VACUUM i budowa indeksów
+      - -c
+      # Bez tego strojenie jest zgadywaniem: pg_stat_statements pokazuje, KTÓRE zapytania
+      # zrzucają na dysk. Rozszerzenie jest dostępne w obrazie, ale nie było ładowane.
+      # Po deployu jednorazowo: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - random_page_cost=1.1            # było 4 (ustawienie dla dysków talerzowych, host ma NVMe)
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - max_connections=100             # bez zmian, jawnie — pula aplikacji to 20+40 na proces
+    # Domyślne /dev/shm w Dockerze to 64MB; przy równoległych zapytaniach Postgres
+    # potrafi się o to rozbić ("could not resize shared memory segment").
+    shm_size: 1gb
     env_file:
       - .env
     environment:
