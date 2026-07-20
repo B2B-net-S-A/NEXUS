@@ -74,7 +74,9 @@ FINANCE_ROLES = {UserRole.admin, UserRole.delivery_lead, UserRole.tac}
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 
-async def _seed_user(role: UserRole, secondary: list[str] | None = None) -> tuple[str, str]:
+async def _seed_user(
+    role: UserRole, secondary: list[str] | None = None
+) -> tuple[str, str]:
     unique = uuid.uuid4().hex[:8]
     email = f"m2acc-{role.value}-{unique}@example.com"
     password = f"T3st_{unique}!M2"
@@ -205,8 +207,7 @@ async def test_read_surface_role_matrix(
             )
         else:
             assert resp.status_code == 403, (
-                f"[{role.value}] {method} {path} expected 403, "
-                f"got {resp.status_code}"
+                f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
             )
 
 
@@ -218,9 +219,7 @@ async def test_viewer_gets_403_not_404_for_existing_and_missing_ids(
     candidate_id = await _seed_candidate()
     viewer = headers_by_role[UserRole.user]
 
-    r_existing = await m2_client.get(
-        f"/api/candidates/{candidate_id}", headers=viewer
-    )
+    r_existing = await m2_client.get(f"/api/candidates/{candidate_id}", headers=viewer)
     r_missing = await m2_client.get("/api/candidates/999999", headers=viewer)
     assert r_existing.status_code == 403
     assert r_missing.status_code == 403
@@ -291,8 +290,7 @@ async def test_write_surface_role_matrix(
             )
         else:
             assert resp.status_code == 403, (
-                f"[{role.value}] {method} {path} expected 403, "
-                f"got {resp.status_code}"
+                f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
             )
 
 
@@ -555,9 +553,7 @@ async def test_seeking_contractors_rejects_viewer(
 async def test_secondary_role_grants_candidate_access(m2_client: AsyncClient):
     """A user whose PRIMARY role is `user` but who holds a secondary
     `recruiter` role passes the capability check (union semantics)."""
-    email, password = await _seed_user(
-        UserRole.user, secondary=["user", "recruiter"]
-    )
+    email, password = await _seed_user(UserRole.user, secondary=["user", "recruiter"])
     headers = await _login(m2_client, email, password)
 
     resp = await m2_client.get("/api/candidates?page_size=1", headers=headers)
