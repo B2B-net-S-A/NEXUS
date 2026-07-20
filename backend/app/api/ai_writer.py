@@ -15,8 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, get_current_user
-from app.models.user import User
+from app.api.deps import OperationalUser, get_db
 from app.models.client import Client
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 
@@ -75,8 +74,8 @@ def _parse_selling_points(content: str) -> list[str]:
 @router.post("/ai/generate-job-description", response_model=JobDescriptionResponse)
 async def generate_job_description(
     request: JobDescriptionRequest,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     title = request.title.strip()
     client_name = (request.client_name or "nasz klient").strip()
@@ -369,8 +368,8 @@ def _generate_mock(request: GenerateJobRequest) -> GenerateJobResponse:
 @router.post("/ai/generate-job", response_model=GenerateJobResponse)
 async def generate_job(
     request: GenerateJobRequest,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """
     POST /api/ai/generate-job

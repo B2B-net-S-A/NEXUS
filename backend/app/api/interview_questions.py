@@ -22,7 +22,7 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user
+from app.api.deps import OperationalUser, get_current_user
 from app.core.database import get_db
 from app.models.interview_question import (
     InterviewQuestion,
@@ -185,8 +185,8 @@ async def _count_votes(
 )
 async def create_question(
     payload: InterviewQuestionCreate,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> InterviewQuestionOut:
     # Dedup — jeśli hash już istnieje w tym samym scope, zwróć istniejące
     norm_hash = _normalize_hash(payload.text)
@@ -422,8 +422,8 @@ async def _pin_to_job_impl(
 async def pin_question_to_job(
     job_id: int,
     payload: PinRequest,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> JobQuestionOut:
     job = await db.get(Job, job_id)
     if not job:
@@ -468,8 +468,8 @@ async def pin_question_to_job(
 async def unpin_question_from_job(
     job_id: int,
     question_id: int,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
         select(JobQuestion).where(
@@ -487,8 +487,8 @@ async def unpin_question_from_job(
 async def reorder_job_questions(
     job_id: int,
     payload: ReorderRequest,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> list[JobQuestionOut]:
     job = await db.get(Job, job_id)
     if not job:
@@ -547,8 +547,8 @@ async def reorder_job_questions(
 async def rate_question(
     question_id: int,
     payload: RateRequest,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> dict:
     iq = await db.get(InterviewQuestion, question_id)
     if not iq:
