@@ -259,16 +259,23 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
 # block — promoting them to section boundaries would truncate
 # ``screening_questions`` after the first question and drop the rest.
 
-# One alternation, MULTILINE and anchored to a whole line. The anchor is
-# load-bearing: unanchored terminators fire mid-sentence (a lowercase "insight"
-# inside prose would cut the screening section short), which is the symmetric
-# failure to the one being fixed here.
+# One alternation, MULTILINE and anchored to the START of a line. The start
+# anchor is load-bearing: unanchored terminators fire mid-sentence (a lowercase
+# "insight" inside prose would cut the screening section short), which is the
+# symmetric failure to the one being fixed here.
+#
+# There is deliberately NO end-of-line anchor. Every prose heading above already
+# consumes to end-of-line via `[^\n]*`, so an end anchor would only ever
+# constrain MUST-HAVE / NICE-TO-HAVE — and it would break the common layout
+# where the chips sit on the SAME line as the heading ("MUST-HAVE: Java,
+# Python"), which would silently produce an empty skill list.
+_HEADING_PREFIX = r"[ \t\-•·*]*"
 _HEADING_SCAN_RE = re.compile(
-    r"(?m)^[\s\-•·*]*(?:" + "|".join(src for src, _ in _HEADINGS) + r")[ \t]*$",
+    r"(?m)^" + _HEADING_PREFIX + r"(?:" + "|".join(src for src, _ in _HEADINGS) + r")",
     re.IGNORECASE,
 )
 _HEADING_FIELD_RES: tuple[tuple[re.Pattern[str], str | None], ...] = tuple(
-    (re.compile(r"^[\s\-•·*]*(?:" + src + r")[ \t]*$", re.IGNORECASE), fld)
+    (re.compile(r"^" + _HEADING_PREFIX + r"(?:" + src + r")", re.IGNORECASE), fld)
     for src, fld in _HEADINGS
 )
 

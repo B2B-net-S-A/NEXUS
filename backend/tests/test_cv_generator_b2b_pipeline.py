@@ -1608,6 +1608,22 @@ def test_champion_recruiter_notes_never_reach_skills():
     assert cp.diagnostics.implausible is False
 
 
+def test_champion_skills_on_the_same_line_as_the_heading():
+    # The chips often sit on the heading's own line. A whole-line anchor would
+    # make the heading not match at all and silently empty the skill list.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "MUST-HAVE: Java, Python",
+            "NICE-TO-HAVE: Docker",
+            "KONTEKST PROJEKTU",
+            *_PROD_TAIL,
+        ),
+        "champion.docx",
+    )
+    assert cp.must_have == ["Java", "Python"]
+    assert cp.nice_to_have == ["Docker"]
+
+
 def test_champion_headings_match_without_polish_diacritics():
     # Recruiters' files appear in prod both with and without diacritics
     # ("Główne źródła" / "Glowne zrodla"), and Word autocorrects the hyphen in
