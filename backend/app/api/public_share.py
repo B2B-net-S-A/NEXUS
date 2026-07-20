@@ -193,7 +193,14 @@ async def get_public_cv(
             entity_id=csv.id,
             action="cv_share_viewed",
             user_id=None,
-            details={"revoke_key": row.token, "view_no": int(claimed)},
+            # Never write the raw token here: for legacy rows row.token IS the
+            # secret, so this used to copy a live capability secret into the
+            # audit trail (widening its DB footprint). The SHA-256 digest is a
+            # safe stable reference; legacy rows without one fall back to the id.
+            details={
+                "revoke_key": row.token_sha256 or f"legacy-cv-share:{csv.id}",
+                "view_no": int(claimed),
+            },
         )
     )
     await db.commit()
