@@ -75,6 +75,49 @@ async def test_schema_drift_requires_auth(app_client: AsyncClient) -> None:
 # truth of a database built from migrations alone, and pretending otherwise
 # would make the test lie. The assertion is exact-match: any NEW drift fails,
 # and fixing one of these fails too, forcing this list to be updated with it.
+# Indexes the ORM declares with `index=True` that no migration ever creates.
+# All 24 are non-unique, so this is silent performance loss rather than an
+# integrity gap — but it is real loss, not a comparison artifact: indexes are
+# matched by SHAPE (table + columns + uniqueness), so an equivalent index under
+# a different name counts as present.
+#
+# The clearest verified case is `calendar_events.external_id`
+# (app/models/... `index=True`, created by no migration) which
+# `app/services/ical_import.py:255,281` queries once per VEVENT — every
+# calendar import sequentially scans the table for every single event. Ten of
+# the 24 are `external_id` columns, i.e. exactly the lookup keys the Traffit
+# and M365 integrations join on.
+#
+# Recorded rather than fixed here: creating them on production needs an
+# entrypoint mirror (prod's alembic bookmark is far behind, so a migration
+# alone would be a no-op) and the agreed sequence is measure-then-fix.
+_KNOWN_MISSING_INDEXES = {
+    ("activities", ("external_id",)),
+    ("analytics_metric_snapshots", ("module",)),
+    ("analytics_metric_snapshots", ("period_label",)),
+    ("calendar_events", ("external_id",)),
+    ("calendar_events", ("external_source",)),
+    ("candidate_stages", ("external_id",)),
+    ("candidates", ("external_id",)),
+    ("champion_profile_suggestions", ("job_id",)),
+    ("clients", ("external_id",)),
+    ("contacts", ("external_id",)),
+    ("delivery_lead_client_assignments", ("delivery_lead_user_id",)),
+    ("dr_client_mrr", ("client_id",)),
+    ("dr_sales_leads", ("user_id",)),
+    ("dr_sales_offers", ("user_id",)),
+    ("jobs", ("external_id",)),
+    ("jobs", ("train_name",)),
+    ("pipeline_stage_defs", ("external_id",)),
+    ("pipeline_templates", ("external_id",)),
+    ("proposal_snapshots", ("job_id",)),
+    ("rate_benchmarks", ("role",)),
+    ("rate_benchmarks", ("seniority",)),
+    ("talent_pools", ("external_id",)),
+    ("talent_pools", ("is_marketplace",)),
+    ("talent_pools", ("is_personal",)),
+}
+
 _KNOWN_ENUM_DRIFT = {
     ("callstatus", "initiated"),
     ("contracttype", "zlecenie"),
@@ -102,17 +145,22 @@ async def test_schema_drift_reports_only_known_drift(
     assert summary["missing_columns"] == 0, f"columns missing: {body['missing_columns'][:5]}"
     assert summary["missing_enum_types"] == 0, body["missing_enum_types"]
 
-    # Indexes and foreign keys are asserted at zero deliberately. If a
-    # migrated database is missing either, the failure message below is the
-    # measurement — cheaper and more exact than guessing a baseline. A missing
-    # index is silent performance loss; a missing foreign key is silent
-    # integrity loss. Neither is caught by anything else in the stack.
-    assert summary["missing_indexes"] == 0, (
-        f"indexes declared by the ORM but absent from the database: {body['missing_indexes']}"
-    )
+    # Foreign keys must be perfect — a missing one is silent integrity loss.
     assert summary["missing_foreign_keys"] == 0, (
         "foreign keys declared by the ORM but absent from the database: "
         f"{body['missing_foreign_keys']}"
+    )
+
+    # No UNIQUE index may be missing: that is an integrity gap, not a
+    # performance one, and duplicates may already have been written.
+    missing_unique = [i for i in body["missing_indexes"] if i["unique"]]
+    assert missing_unique == [], f"UNIQUE indexes missing — duplicates possible: {missing_unique}"
+
+    observed_indexes = {(i["table"], tuple(i["columns"])) for i in body["missing_indexes"]}
+    assert observed_indexes == _KNOWN_MISSING_INDEXES, (
+        "index drift changed.\n"
+        f"  new:   {sorted(observed_indexes - _KNOWN_MISSING_INDEXES)}\n"
+        f"  fixed: {sorted(_KNOWN_MISSING_INDEXES - observed_indexes)}"
     )
 
     observed = {
