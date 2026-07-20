@@ -415,13 +415,23 @@ def _is_strong_tech_token(token: str) -> bool:
     """
     if _is_filler_word(token):
         return False
-    if token.lower() in _NEVER_TECH_TOKENS:
+    # Probe with terminal sentence punctuation stripped. Without this, the
+    # special-char test below fires on EVERY sentence-final Polish word
+    # ("kandydata.", "dalej.", "projektami.") because of the trailing period,
+    # which is how requirement prose ended up bolded in delivered CVs. Internal
+    # separators are untouched — "Node.js", "CI/CD", "C++", "2.1/2.2" all keep
+    # their special char because it is not terminal.
+    probe = token.rstrip(".,:;!?…")
+    if probe.lower() in _NEVER_TECH_TOKENS:
         return False
-    if any(ch in token for ch in "+#/."):
+    if any(ch in probe for ch in "+#/."):
         return True
-    if any(ch.isdigit() for ch in token):
+    # `probe`, not `token`, for all branches below the strip. Behaviourally a
+    # no-op (the stripped characters carry neither digits nor letters) — kept
+    # uniform so a future edit to the strip set stays correct everywhere.
+    if any(ch.isdigit() for ch in probe):
         return True
-    letters = [ch for ch in token if ch.isalpha()]
+    letters = [ch for ch in probe if ch.isalpha()]
     if len(letters) < 2:
         return False
     if all(ch.isupper() for ch in letters):

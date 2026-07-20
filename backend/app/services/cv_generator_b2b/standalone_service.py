@@ -997,6 +997,46 @@ def _fabrication_warnings(
     return issues
 
 
+def _champion_parse_warnings(
+    champion_dto: ChampionProfileForPrompt | None,
+) -> list[str]:
+    """Surface an implausible Champion DOCX parse to the recruiter.
+
+    The parser cannot fail loudly — a heading spelled differently than expected
+    is indistinguishable from a section that simply isn't there — so the only
+    honest signal is the *shape* of what came out. Both warnings are gated on
+    ``from_docx``: the New-mode path builds its profile from structured JSONB
+    (:func:`from_nexus_job`) and can never hit a heading-recognition failure.
+    """
+    if champion_dto is None:
+        return []
+    diag = champion_dto.diagnostics
+    if not diag.from_docx:
+        return []
+    if diag.nothing_recognised:
+        return [
+            "Profil Championa: nie rozpoznano żadnej sekcji z treścią — "
+            "profil został zignorowany przy generowaniu. Upewnij się, że plik "
+            "zawiera nagłówki MUST-HAVE / NICE-TO-HAVE w osobnych wierszach."
+        ]
+    if diag.wiped_out:
+        return [
+            "Profil Championa: żadna pozycja z MUST-HAVE / NICE-TO-HAVE nie "
+            f"wyglądała na technologię (odrzucono wszystkie {diag.raw_entry_count}) "
+            "— CV powstało bez wytłuszczeń i bez listy brakujących wymagań. "
+            "Najczęstsza przyczyna: wymagania opisane zdaniami zamiast listą "
+            "technologii."
+        ]
+    if diag.implausible:
+        return [
+            "Profil Championa: nietypowy układ dokumentu — pominięto "
+            f"{diag.dropped_total} pozycji, które wyglądały na opis wymagań, "
+            "a nie na technologie. Sprawdź nagłówki sekcji w pliku championa; "
+            "wytłuszczenia technologii w CV mogą być niepełne."
+        ]
+    return []
+
+
 # ── Shared Claude → DOCX pipeline (sync; run via threadpool) ───────────────
 
 
@@ -1128,6 +1168,7 @@ def _run_generation_pipeline(
     source_text = f"{cv_text}\n{screening_notes_text}"
     guard_warnings = _fabrication_warnings(candidate_data, source_text, language)
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
+    guard_warnings.extend(_champion_parse_warnings(champion_dto))
 
     # Snapshot for the saved-CV log BEFORE render mutates candidate_data
     # (blind mode rewrites name/company in place). Re-rendering this payload
