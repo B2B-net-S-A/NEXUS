@@ -318,9 +318,8 @@ async def update_question(
         raise HTTPException(status_code=404, detail="Nie znaleziono pytania")
 
     # Autoryzacja: tylko autor lub admin edytuje
-    if (
-        iq.created_by not in (None, current_user.id)
-        and current_user.role != UserRole.admin
+    if iq.created_by not in (None, current_user.id) and not current_user.has_role(
+        UserRole.admin
     ):
         raise HTTPException(
             status_code=403,
@@ -361,9 +360,8 @@ async def delete_question(
     iq = await db.get(InterviewQuestion, question_id)
     if not iq:
         raise HTTPException(status_code=404, detail="Nie znaleziono pytania")
-    if (
-        iq.created_by not in (None, current_user.id)
-        and current_user.role != UserRole.admin
+    if iq.created_by not in (None, current_user.id) and not current_user.has_role(
+        UserRole.admin
     ):
         raise HTTPException(status_code=403, detail="Tylko autor lub admin może usunąć")
     await db.delete(iq)

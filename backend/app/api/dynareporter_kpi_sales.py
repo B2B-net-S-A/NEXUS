@@ -25,7 +25,7 @@ router = APIRouter()
 
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:
-    is_admin = current_user.role in (
+    is_admin = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -69,7 +69,7 @@ async def list_all_entries(
     from_date: Optional[date] = Query(default=None),
     to_date: Optional[date] = Query(default=None),
 ) -> list[DrKpiSalesResponse]:
-    is_priv = current_user.role in (
+    is_priv = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,

@@ -85,7 +85,7 @@ async def list_all_placements(
     from_date: Optional[date] = Query(default=None),
     to_date: Optional[date] = Query(default=None),
 ) -> list[PlacementResponse]:
-    is_priv = current_user.role in (
+    is_priv = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,

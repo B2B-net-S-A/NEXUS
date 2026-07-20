@@ -43,7 +43,7 @@ router = APIRouter()
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:
     """403 jeśli user nie jest adminem ani properem nie operuje na swoich danych."""
-    is_admin = current_user.role in (
+    is_admin = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -102,7 +102,7 @@ async def list_all_entries(
 ) -> list[DrKpiBodyLeasingResponse]:
     """Endpoint dla widoków Liga Mistrzów / Board — wszystkie wpisy."""
     # Tylko admin / DL / HoR mogą widzieć cudze
-    is_privileged = current_user.role in (
+    is_privileged = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,

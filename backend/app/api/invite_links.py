@@ -123,7 +123,7 @@ async def list_invite_links(
 
     Admins and delivery_leads may pass `mine=false` to view all links in the org.
     """
-    is_privileged = current_user.role in (UserRole.admin, UserRole.delivery_lead)
+    is_privileged = current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
     query = (
         select(CandidateInviteLink)
         .options(
@@ -159,7 +159,7 @@ async def revoke_invite_link(
     if row is None:
         raise HTTPException(status_code=404, detail="Link not found")
     is_owner = row.created_by == current_user.id
-    is_privileged = current_user.role in (UserRole.admin, UserRole.delivery_lead)
+    is_privileged = current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
     if not (is_owner or is_privileged):
         raise HTTPException(status_code=403, detail="Not allowed to revoke this link")
     row.revoked = True
