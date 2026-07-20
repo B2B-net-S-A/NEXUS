@@ -13,9 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser
 from app.core.database import get_db
-from app.models.user import UserRole
 
 logger = logging.getLogger("dynareporter.admin_master_data")
 
@@ -73,13 +72,6 @@ class DrConsultantUpdate(BaseModel):
     default_revenue_rate: float | None = Field(default=None, ge=0)
 
 
-def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    if not current_user.has_role(UserRole.admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Wymagana rola admin"
-        )
-
-
 # ============================================================
 # CLIENTS
 # ============================================================
@@ -127,10 +119,9 @@ async def list_clients(
 )
 async def create_client(
     payload: DrClientCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> DrClientRow:
-    _require_admin(current_user)
     name_trim = payload.name.strip()
     if not name_trim:
         raise HTTPException(
@@ -180,10 +171,9 @@ async def create_client(
 async def update_client(
     client_id: int,
     payload: DrClientUpdate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> DrClientRow:
-    _require_admin(current_user)
     # Build dynamic update
     fields: dict[str, object] = {}
     if payload.name is not None:
@@ -247,12 +237,11 @@ async def update_client(
 )
 async def delete_client(
     client_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Soft-delete — sets is_active=false. Klient z placementami nie jest
     fizycznie usuwany żeby zachować integralność dr_placement_details."""
-    _require_admin(current_user)
     result = await db.execute(
         text("UPDATE dr_clients SET is_active = false WHERE id = :id RETURNING id"),
         {"id": client_id},
@@ -314,10 +303,9 @@ async def list_consultants(
 )
 async def create_consultant(
     payload: DrConsultantCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> DrConsultantRow:
-    _require_admin(current_user)
     name_trim = payload.name.strip()
     if not name_trim:
         raise HTTPException(
@@ -379,10 +367,9 @@ async def create_consultant(
 async def update_consultant(
     consultant_id: int,
     payload: DrConsultantUpdate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> DrConsultantRow:
-    _require_admin(current_user)
     fields: dict[str, object] = {}
     if payload.name is not None:
         n = payload.name.strip()
@@ -441,11 +428,10 @@ async def update_consultant(
 )
 async def delete_consultant(
     consultant_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Soft-delete — sets is_active=false."""
-    _require_admin(current_user)
     result = await db.execute(
         text("UPDATE dr_consultants SET is_active = false WHERE id = :id RETURNING id"),
         {"id": consultant_id},
