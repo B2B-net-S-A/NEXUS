@@ -40,7 +40,7 @@ from app.schemas.job import (
     UserBrief,
 )
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
-from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus
+from app.api.deps import CurrentUser, DeliveryLeadPlus, RecruiterPlus, TacPlus
 from app.services.auto_assign_owners import resolve_default_owners
 from app.api.notifications import create_notification
 from app.api.ws import manager as ws_manager
@@ -2668,7 +2668,7 @@ def _cc_score_to_schema(score) -> CcSuggestion:
 @router.post("/{job_id}/classify-cc", response_model=CcSuggestionsResponse)
 async def classify_job_cc(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> CcSuggestionsResponse:
     """Return top-3 CC suggestions for a job (current state, no DB write)."""
@@ -2690,7 +2690,7 @@ async def classify_job_cc(
 async def log_cc_override(
     job_id: int,
     body: CcOverrideRequest,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Log that a DL changed the AI-suggested CC. Used for feedback loop."""
