@@ -121,7 +121,11 @@ class AuthMethodsResponse(BaseModel):
 
 
 @router.get("/methods", response_model=AuthMethodsResponse)
-@limiter.limit("30/minute")
+# 120/min: publiczny, read-only odczyt konfiguracji, wołany przy KAŻDYM wejściu
+# na /login. Całe biuro zwykle wychodzi jednym publicznym IP (NAT), więc limit
+# jest wspólny dla wszystkich przy biurku — 30/min potrafiło paść na samym
+# odświeżaniu ekranu logowania.
+@limiter.limit("120/minute")
 async def auth_methods(request: Request) -> AuthMethodsResponse:
     """Publiczna lista włączonych metod logowania — steruje ekranem /login.
 
@@ -145,11 +149,15 @@ async def auth_methods(request: Request) -> AuthMethodsResponse:
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("5/minute")
+# 30/min per IP. Podniesione z 5/min: biuro za NAT-em dzieli jeden publiczny
+# adres, więc 5/min oznaczało 5 logowań na minutę dla WSZYSTKICH przy biurku.
+# 30 prób/min przeciw bcryptowi to nadal brak realnej ścieżki brute-force, a
+# konta firmowe i tak wchodzą przez SSO.
+@limiter.limit("30/minute")
 async def login(
     request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Authenticate user and return JWT tokens. Rate-limited: 5 req/min per IP.
+    """Authenticate user and return JWT tokens. Rate-limited: 30 req/min per IP.
 
     Bramka ``PASSWORD_LOGIN_ENABLED``: NEXUS to narzędzie wewnętrzne i na
     produkcji jedyną drogą wejścia jest Microsoft SSO (ograniczony do

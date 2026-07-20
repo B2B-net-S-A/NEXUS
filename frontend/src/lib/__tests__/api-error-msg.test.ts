@@ -55,3 +55,36 @@ describe("extractErrorMsg — bramka ról (403)", () => {
     expect(msg).toBe("nip: Field required");
   });
 });
+
+/**
+ * Regresja: zgłoszenie Wiktorii Denki — „Pokazuje ten błąd - Request failed
+ * with status code 429".
+ *
+ * slowapi odpowiada ciałem {"error": "Rate limit exceeded: N per 1 minute"} —
+ * BEZ klucza `detail`, więc wołający spadali na surowe `error.message` axiosa
+ * i użytkownik dostawał techniczny angielski string zamiast informacji, co
+ * właściwie ma zrobić.
+ */
+describe("extractErrorMsg — limit zapytań (429)", () => {
+  it("zamienia 429 na zrozumiałą instrukcję zamiast surowego komunikatu axiosa", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const msg = extractErrorMsg(
+      axiosErrorWith(429, { error: "Rate limit exceeded: 10 per 1 minute" }),
+    );
+
+    expect(msg).not.toContain("Request failed with status code");
+    expect(msg).not.toContain("Rate limit exceeded");
+    expect(msg).toBe(
+      "Zbyt wiele prób w krótkim czasie — odczekaj minutę i spróbuj ponownie.",
+    );
+    spy.mockRestore();
+  });
+
+  it("działa też gdy 429 przyjdzie bez ciała (np. z warstwy proxy)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const msg = extractErrorMsg(axiosErrorWith(429, ""));
+    expect(msg).toContain("Zbyt wiele prób");
+    spy.mockRestore();
+  });
+});

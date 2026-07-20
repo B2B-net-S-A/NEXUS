@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import api from "@/lib/api";
+import api, { extractErrorMsg } from "@/lib/api";
 import { requiresOnboarding, useAuthStore } from "@/store/auth";
 import { AlertCircle } from "lucide-react";
 
@@ -61,14 +61,10 @@ function CallbackBody() {
           router.replace("/");
         }
       } catch (err: unknown) {
-        const e = err as {
-          response?: { status?: number; data?: { detail?: string } };
-          message?: string;
-        };
-        const detail =
-          e.response?.data?.detail ||
-          e.message ||
-          "Nie udało się dokończyć logowania";
+        // extractErrorMsg, nie surowe `e.message`: 429 z limitera (ciało
+        // slowapi bez klucza `detail`) trafiał na /login jako techniczne
+        // „Request failed with status code 429".
+        const detail = extractErrorMsg(err) || "Nie udało się dokończyć logowania";
         router.replace(`/login?error=${encodeURIComponent(detail)}`);
       }
     })();
