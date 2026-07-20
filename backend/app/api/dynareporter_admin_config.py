@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser
 from app.core.database import get_db
-from app.models.user import UserRole
 
 logger = logging.getLogger("dynareporter.admin_config")
 
@@ -62,15 +61,6 @@ class ChampionsLeagueScoring(BaseModel):
     )
 
 
-def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    # has_role() — primary + secondary roles (multi-role schema, PR #207).
-    if not current_user.has_role(UserRole.admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Wymagana rola admin",
-        )
-
-
 @router.get(
     "/scoring",
     response_model=ChampionsLeagueScoring,
@@ -101,7 +91,7 @@ async def get_scoring(
 )
 async def update_scoring(
     payload: ChampionsLeagueScoring,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionsLeagueScoring:
     """Admin upsert do `dr_system_config.champions_league_scoring`.
@@ -112,7 +102,6 @@ async def update_scoring(
     """
     import json
 
-    _require_admin(current_user)
     value_json = payload.model_dump()
     await db.execute(
         text(

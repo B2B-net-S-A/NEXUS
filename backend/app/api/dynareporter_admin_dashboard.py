@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser
 from app.core.database import get_db
-from app.models.user import User, UserRole
 from app.schemas.dr_admin_dashboard import (
     AdminUserRow,
     AuditLogRow,
@@ -30,27 +29,16 @@ logger = logging.getLogger("dynareporter.admin_dashboard")
 router = APIRouter()
 
 
-def _require_admin(current_user: User) -> None:
-    """Multi-role aware — `has_role(admin)` sprawdza primary i secondary
-    (users.roles JSONB). Quality check fixup LOW #10."""
-    if not current_user.has_role(UserRole.admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Wymagana rola admin",
-        )
-
-
 @router.get(
     "/users",
     response_model=list[AdminUserRow],
     summary="Lista wszystkich nexus users z DR legacy mapping + KPI completeness",
 )
 async def list_users(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[AdminUserRow]:
     """Zwraca wszystkich userów (admin tylko)."""
-    _require_admin(current_user)
 
     # Single LEFT JOIN z pre-aggregated KPI count zamiast correlated subquery
     # per user (quality check MEDIUM #7).
@@ -96,12 +84,11 @@ async def list_users(
     summary="Historia uploads (dr_upload_history) — ostatnie N rekordów",
 )
 async def list_upload_history(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[UploadHistoryRow]:
     """Lista uploadów Excel (admin tylko)."""
-    _require_admin(current_user)
 
     sql = text(
         """
@@ -144,12 +131,11 @@ async def list_upload_history(
     summary="Audit log (dr_data_audit_log) — ostatnie N zmian",
 )
 async def list_audit_log(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[AuditLogRow]:
     """Last N audit entries (admin tylko)."""
-    _require_admin(current_user)
 
     sql = text(
         """

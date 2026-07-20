@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser
 from app.core.database import get_db
-from app.models.user import UserRole
 
 logger = logging.getLogger("dynareporter.admin_hof")
 
@@ -46,27 +45,16 @@ class HoFWinnerCreate(BaseModel):
     prize: str | None = Field(default=None, max_length=100)
 
 
-def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    # `has_role()` uznaje primary + secondary (`users.roles` JSONB) — patrz
-    # PR #207 multi-role schema. Bez tego sekretarka z secondary=admin
-    # nie mogłaby dodać HoF winner.
-    if not current_user.has_role(UserRole.admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Wymagana rola admin"
-        )
-
-
 @router.post(
     "/winner",
     summary="Dodaj wpis Hall of Fame (admin only)",
 )
 async def add_winner(
     payload: HoFWinnerCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Insert/replace winner — ON CONFLICT (competition_type, period, rank)."""
-    _require_admin(current_user)
     sql = text(
         """
         INSERT INTO dr_competition_winners (
@@ -115,10 +103,9 @@ async def add_winner(
 )
 async def delete_winner(
     winner_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    _require_admin(current_user)
     await db.execute(
         text("DELETE FROM dr_competition_winners WHERE id = :id"),
         {"id": winner_id},
