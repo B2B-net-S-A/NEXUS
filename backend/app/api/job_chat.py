@@ -376,7 +376,7 @@ async def delete_message(
         return  # idempotentne
 
     is_author = msg.author_id == current_user.id
-    is_admin = current_user.role == UserRole.admin
+    is_admin = current_user.has_role(UserRole.admin)
     if not (is_author or is_admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

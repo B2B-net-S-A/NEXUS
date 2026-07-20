@@ -26,7 +26,7 @@ async def is_member_of_candidate_chat(
     db: AsyncSession, user: User, candidate_id: int
 ) -> bool:
     """True if user can read/post in chat for this candidate."""
-    if user.role == UserRole.admin:
+    if user.has_role(UserRole.admin):
         return True
 
     candidate = await db.get(Candidate, candidate_id)

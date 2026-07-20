@@ -381,7 +381,7 @@ async def delete_message(
     if msg.is_deleted:
         return
     is_author = msg.author_id == current_user.id
-    is_admin = current_user.role == UserRole.admin
+    is_admin = current_user.has_role(UserRole.admin)
     if not (is_author or is_admin):
         raise HTTPException(status_code=403, detail="Możesz usuwać tylko swoje.")
     msg.is_deleted = True

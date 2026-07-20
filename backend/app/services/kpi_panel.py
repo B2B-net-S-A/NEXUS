@@ -265,7 +265,7 @@ async def compute_my_panel(
     # CV do bazy — tylko dla ról z targetem (recruiter/TAC) lub gdy target ustawiony.
     cv_target = await _resolve_target(db, user=user, kpi_id="cv_added_daily")
     cv_to_base: Optional[FunnelCounts] = None
-    if cv_target > 0 or user.role in _CV_TARGET_ROLES:
+    if cv_target > 0 or user.has_any_role(*_CV_TARGET_ROLES):
         cv_params = {
             "uid": user.id,
             "day_start": day_start,
@@ -285,7 +285,7 @@ async def compute_my_panel(
     total_activity = (
         weryfikacje.month + rekomendacje.month + interview_month + placementy_month
     )
-    applies = user.role in _OPERATIONAL_ROLES or total_activity > 0
+    applies = user.has_any_role(*_OPERATIONAL_ROLES) or total_activity > 0
 
     return PanelResult(
         role=user.role.value if user.role else "user",

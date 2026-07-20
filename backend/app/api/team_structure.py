@@ -639,7 +639,7 @@ async def list_my_team(
       CandidateStage na jakimkolwiek aktywnym jobie TAC NIE jest terminalny
       (hired/rejected/withdrawn).
     """
-    if current_user.role not in (UserRole.delivery_lead, UserRole.admin):
+    if not current_user.has_any_role(UserRole.delivery_lead, UserRole.admin):
         return []
 
     # 1. Wszystkie TAC-i przypisane do current DL
