@@ -11,19 +11,20 @@
 
 Re-audyt uruchomiony jako wieloagentowy sweep po 10 wymiarach, z adwersarialną weryfikacją każdego ustalenia i deduplikacją względem rejestru Codexa.
 
-**Najważniejszy wynik: PR 1/7 (containment) miał lukę w routerach siostrzanych.** Codex wyliczył w M2-SEC-01 konkretne pliki (`candidates.py`, `search.py`, dokumenty, pule, marketplace) — i dokładnie te zostały zamknięte. Ale **te same dane** kandydata serwują dwa inne routery, których nie było ani w rejestrze Codexa, ani w PR1:
+**Najważniejszy wynik: PR 1/7 (containment) miał lukę w powierzchniach równoległych.** Codex wyliczył w M2-SEC-01 konkretne pliki (`candidates.py`, `search.py`, dokumenty, pule, marketplace) — i dokładnie te zostały zamknięte. Ale **te same dane** kandydata serwują trzy inne routery, których nie było ani w rejestrze Codexa, ani w PR1:
 
+- `import_export.py` — **`GET /api/export/candidates` wydawał CAŁĄ bazę** (~54k: imię, nazwisko, email, telefon, lokalizacja, stawka) **dowolnej zalogowanej roli**, bez limitu i bez audytu — czyli dokładnie to, co PR1 zamknął obok, pod inną ścieżką;
 - `candidate_stage_cv.py` — rola `user` mogła **pobrać CV każdego kandydata** (oryginalne i brandowane), enumerując sekwencyjny `stage_id`;
-- `candidate_pins.py` — rola `user` mogła **zbierać imię/nazwisko/email** kandydatów, chodząc po `candidate_id`.
+- `candidate_pins.py` — rola `user` mogła **zbierać imię/nazwisko/email**, chodząc po `candidate_id`.
 
 Do tego niezależnie: **nie-sekretny `revoke_key` linku CV działał jako token dostępu**, znosząc gwarancję P1.9 „sekret nigdy nie jest przechowywany".
 
-Wszystkie trzy naprawione w PR #817 (poniżej). Dodatkowo **obalony został fałszywy P0** wygenerowany przez własny sweep — opisany w §4, bo pokazuje konkretną pułapkę metodyczną.
+Wszystkie cztery naprawione w PR #817 (poniżej). Dodatkowo **obalony został fałszywy P0** wygenerowany przez własny sweep — opisany w §4, bo pokazuje konkretną pułapkę metodyczną.
 
 | | liczba |
 |---|---:|
-| Ustalenia potwierdzone i NOWE względem Codexa | 5 |
-| Z tego naprawione w tym PR | 3 |
+| Ustalenia potwierdzone i NOWE względem Codexa | 6 |
+| Z tego naprawione w tym PR | 4 |
 | Rozszerzenia istniejących pozycji Codexa | 2 |
 | **Obalone** (fałszywy P0 z własnego sweepu) | 1 |
 | Niezweryfikowane (przerwane limitem sesji) | 5 |
@@ -32,6 +33,29 @@ Wszystkie trzy naprawione w PR #817 (poniżej). Dodatkowo **obalony został fał
 ---
 
 ## 2. Ustalenia NOWE — potwierdzone i naprawione (PR #817)
+
+### R-00 (P0) — równoległy eksport wydawał całą bazę kandydatów każdej zalogowanej roli
+
+**Plik:** `backend/app/api/import_export.py`
+
+Obok `/api/candidates/export` (zamkniętego przez PR1 na TAC+ i objętego audytem) istnieje **druga, niezależna powierzchnia**:
+
+```python
+@router.get("/export/candidates")
+async def export_candidates(
+    current_user: CurrentUser,          # ← gołe: każda zalogowana rola
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Candidate).order_by(...))   # ← BEZ limitu
+```
+
+CSV zawiera `name`, `lastname`, `email`, `phone`, `location`, `source`, `skills`, `salary_expectation` — czyli **cała baza ~54k kandydatów** dla roli `user` (read-only viewer/klient), którą PR1 był budowany po to, by odciąć. Bez limitu wierszy, bez zdarzenia audytowego, bez `reason/purpose`.
+
+Bliźniaczo `POST /api/import/candidates` pozwalał tej samej roli **masowo tworzyć** kandydatów z CSV.
+
+To jest najczystszy przykład problemu metodycznego z §6: PR1 zamknął *ścieżkę wymienioną w rejestrze*, a nie *zasób*. Dwie trasy, ten sam eksport, jedna zabezpieczona.
+
+**Fix:** `GET /api/export/candidates` → `CandidateExportAccess` + zdarzenie audytowe (ten sam kontrakt co PR1); `POST /api/import/candidates` → `CandidateWriteAccess`.
 
 ### R-01 (P0-class) — viewer mógł pobrać CV każdego kandydata przez router stage-CV
 
@@ -154,7 +178,7 @@ Wymagają weryfikacji przed jakąkolwiek reakcją; zgłoszone przez findery, ale
 
 Kontra-audyt **nie obalił** żadnego z jego ustaleń — próbki, które sprawdziłem (M2-SEC-01..04, M2-PRIV-01/02, M2-SEC-03), były trafne, a PR1 potwierdził je w praktyce. Jego słabością nie są błędy, tylko **granica metody**:
 
-1. **Inwentaryzacja po nazwach plików, nie po zasobie.** Rejestr wylicza pliki; router serwujący ten sam zasób pod inną ścieżką (`candidate_stage_cv`, `candidate_pins`) wypada poza radar. Stąd R-01 i R-02 — i stąd PR1, wierny rejestrowi, odtworzył tę samą lukę.
+1. **Inwentaryzacja po nazwach plików, nie po zasobie.** Rejestr wylicza pliki; router serwujący ten sam zasób pod inną ścieżką (`import_export`, `candidate_stage_cv`, `candidate_pins`) wypada poza radar. Stąd R-00, R-01 i R-02 — i stąd PR1, wierny rejestrowi, odtworzył tę samą lukę. Test „czy rola `user` dostaje 403 na `/api/candidates/export`" przechodził, podczas gdy `/api/export/candidates` wydawał tę samą bazę.
 2. **Ustalenia ogólne zamiast zlokalizowanych.** M2-SEARCH-01 opisuje „language code i level mogą pochodzić z innych obiektów" jako ryzyko; R-04 to ten sam problem, ale wskazany co do predykatu — czyli naprawialny.
 3. **Brak przeglądu powierzchni publicznych pod kątem kontraktu tokenów.** R-03 (revoke_key jako token dostępu) leży dokładnie w M2-TOKEN-01 tematycznie, ale dotyczy innego tokena niż engagement magic-link i nie został wychwycony.
 
