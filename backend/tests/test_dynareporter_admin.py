@@ -219,85 +219,20 @@ async def test_hof_post_validates_prize_max_length(
 
 
 # ---------------------------------------------------------------------------
-# Board Monthly Upsert — covers PR #261, #267
+# Board Monthly Upsert — testy USUNIĘTE 2026-07-20.
+#
+# Trzy testy walidacji (`report_month` pattern, `hit_ratio` <= 100, `revenue` >= 0
+# — z PR #261/#267) sprawdzały schemat `BoardMonthlyUpsert` na trasie
+# POST /api/dynareporter/board-dashboard/monthly. Trasa i schemat zostały usunięte
+# razem z ręcznym wprowadzaniem statystyk: NEXUS liczy te liczby sam z własnych
+# danych i pokazuje w /insights. Bez endpointu testy asertowałyby 405 zamiast 422,
+# czyli nie sprawdzałyby już niczego — dlatego znikają, a nie są przepisywane.
+#
+# Nadal chronione gdzie indziej: `test_dynareporter_readonly.py` asertuje, że KAŻDA
+# zarejestrowana trasa mutująca pod /api/dynareporter jest zablokowana (middleware
+# `LegacyStatsDeprecationMiddleware` działa PRZED routingiem, więc brak trasy tego
+# nie osłabia). Historia Rady została przepisana do `analytics_metric_snapshots`.
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_board_monthly_validates_report_month_pattern(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
-) -> None:
-    """Bad report_month format → 422 NOT 500.
-
-    Before PR #267 this would return 500 with `'str' object has no attribute
-    'toordinal'`. PR #267 added Pydantic pattern + manual datetime.strptime
-    with HTTPException(422) fallback.
-    """
-    response = await app_client.post(
-        "/api/dynareporter/board-dashboard/monthly",
-        headers=app_auth_headers,
-        json={
-            "report_month": "2026-13",  # invalid month
-            "revenue": 0,
-            "consultant_costs": 0,
-            "other_costs": 0,
-            "active_consultants": 0,
-            "departures": 0,
-            "placements": 0,
-            "avg_margin_per_hour": 0,
-            "hit_ratio": 0,
-            "placement_clients": [],
-        },
-    )
-    assert response.status_code == 422, response.text
-
-
-@pytest.mark.asyncio
-async def test_board_monthly_validates_hit_ratio_max(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
-) -> None:
-    """hit_ratio > 100% → 422 (PR #267 added le=100)."""
-    response = await app_client.post(
-        "/api/dynareporter/board-dashboard/monthly",
-        headers=app_auth_headers,
-        json={
-            "report_month": "2026-06",
-            "revenue": 0,
-            "consultant_costs": 0,
-            "other_costs": 0,
-            "active_consultants": 0,
-            "departures": 0,
-            "placements": 0,
-            "avg_margin_per_hour": 0,
-            "hit_ratio": 150.0,  # percentage > 100%
-            "placement_clients": [],
-        },
-    )
-    assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_board_monthly_validates_negative_revenue(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
-) -> None:
-    """Negative revenue → 422 (PR #267 added ge=0)."""
-    response = await app_client.post(
-        "/api/dynareporter/board-dashboard/monthly",
-        headers=app_auth_headers,
-        json={
-            "report_month": "2026-06",
-            "revenue": -1.0,
-            "consultant_costs": 0,
-            "other_costs": 0,
-            "active_consultants": 0,
-            "departures": 0,
-            "placements": 0,
-            "avg_margin_per_hour": 0,
-            "hit_ratio": 0,
-            "placement_clients": [],
-        },
-    )
-    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------

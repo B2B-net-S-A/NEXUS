@@ -3,18 +3,19 @@
 Phase B.2.1 z planu migracji DynaReportera. Pierwszy realny moduł
 z danymi (po B.0+B.1 walidacji wzorca).
 
+2026-07-20: usunięte trasy zapisu (POST upsert, DELETE) — ręczne wprowadzanie
+statystyk wygaszone, NEXUS liczy te liczby sam (patrz /insights).
+GET-y zostają dla widoków historycznych.
+
 Endpoints:
 - GET    /api/dynareporter/kpi/body-leasing/my        — moje wpisy (filtr)
 - GET    /api/dynareporter/kpi/body-leasing/all       — wpisy wszystkich (admin)
 - GET    /api/dynareporter/kpi/body-leasing/summary   — agregaty per okres
 - GET    /api/dynareporter/kpi/body-leasing/ranking   — Liga Mistrzów input
-- POST   /api/dynareporter/kpi/body-leasing           — upsert tygodniowy
-- DELETE /api/dynareporter/kpi/body-leasing/{id}      — usuń wpis
 
 Uprawnienia:
 - Każdy zalogowany user widzi *swoje* wpisy (`/my`)
 - `admin` / `delivery_lead` / `head_of_recruitment` widzą wszystkich (`/all`)
-- Wpisy może edytować autor wpisu lub admin
 - Ranking widoczny dla wszystkich (motywacja)
 """
 
@@ -24,16 +25,14 @@ from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
+from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.user import User, UserRole
 from app.schemas.dr_kpi_body_leasing import (
-    DrKpiBodyLeasingCreate,
     DrKpiBodyLeasingRankingEntry,
     DrKpiBodyLeasingResponse,
     DrKpiBodyLeasingSummary,
@@ -251,95 +250,3 @@ async def get_ranking(
         )
         for rank, (uid, name, email, p, i, r, v) in enumerate(rows, start=1)
     ]
-
-
-@router.post(
-    "",
-    response_model=DrKpiBodyLeasingResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Upsert tygodniowy wpis KPI (PK collision → UPDATE)",
-)
-async def upsert_entry(
-    payload: DrKpiBodyLeasingCreate,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-    user_id: Optional[int] = Query(
-        default=None, description="Target user (admin only)"
-    ),
-) -> DrKpiBodyLeasingResponse:
-    """UPSERT — jeśli wpis dla (user, week) istnieje, nadpisuje counters.
-
-    User może zapisywać tylko własne wpisy (default user_id = current_user.id).
-    Admin może przekazać `?user_id=X` żeby zapisać wpis za innego usera.
-    """
-    target_user_id = user_id if user_id is not None else current_user.id
-    _check_admin_or_self(current_user, target_user_id)
-
-    # `index_where=` — target the PARTIAL unique index
-    # `dr_kpi_body_leasing_unique_non_draft WHERE is_draft = false`. Without
-    # this, asyncpg would fail to resolve the conflict target and the upsert
-    # would behave inconsistently (e.g. insert duplicates for drafts).
-    # Quality check DB-C-1 fix.
-    stmt = (
-        pg_insert(DrKpiBodyLeasing)
-        .values(user_id=target_user_id, **payload.model_dump())
-        .on_conflict_do_update(
-            index_elements=["user_id", "report_date"],
-            index_where=text("is_draft = false"),
-            set_={
-                "week_number": payload.week_number,
-                "verifications": payload.verifications,
-                "recommendations": payload.recommendations,
-                "interviews": payload.interviews,
-                "placements": payload.placements,
-                "requests": payload.requests,
-                "days_worked": payload.days_worked,
-                "is_draft": payload.is_draft,
-                "linkedin_cv_added": payload.linkedin_cv_added,
-                "linkedin_messages_sent": payload.linkedin_messages_sent,
-                "linkedin_responses_received": payload.linkedin_responses_received,
-            },
-        )
-        .returning(DrKpiBodyLeasing)
-    )
-    result = await db.execute(stmt)
-    # Read result BEFORE commit — asyncpg/SQLAlchemy closes the cursor on
-    # commit(), and scalar_one() on a closed cursor raises ResourceClosedError.
-    # Quality check CRITICAL #4 fix.
-    row = result.scalar_one()
-    await db.commit()
-
-    # Lookup user name/email
-    target_user = (
-        await db.execute(select(User).where(User.id == target_user_id))
-    ).scalar_one()
-
-    return DrKpiBodyLeasingResponse.model_validate(
-        {**row.__dict__, "user_name": target_user.name, "user_email": target_user.email}
-    )
-
-
-@router.delete(
-    "/{entry_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
-    summary="Usuwa wpis KPI Body Leasing",
-)
-async def delete_entry(
-    entry_id: int,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> None:
-    """Usuwa wpis — autor wpisu lub admin (DL/HoR też mogą)."""
-    row = (
-        await db.execute(
-            select(DrKpiBodyLeasing).where(DrKpiBodyLeasing.id == entry_id)
-        )
-    ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Wpis nie znaleziony")
-
-    _check_admin_or_self(current_user, row.user_id)
-
-    await db.delete(row)
-    await db.commit()

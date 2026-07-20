@@ -27,8 +27,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   FileSpreadsheet,
   Building2,
-  Target,
-  DollarSign,
   Users,
   Database,
   Trophy,
@@ -42,9 +40,6 @@ import {
 import { useAuthStore, hasRole } from "@/store/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BodyLeasingDataEntry } from "./_modules/BodyLeasingDataEntry";
-import { BoardDataEntry } from "./_modules/BoardDataEntry";
-import { DeliveryLeadDataEntry } from "./_modules/DeliveryLeadDataEntry";
 import { ScoringConfig } from "./_modules/ScoringConfig";
 import { HallOfFameManager } from "./_modules/HallOfFameManager";
 import { MasterDataManager } from "./_modules/MasterDataManager";
@@ -57,10 +52,17 @@ import { DLClientManager } from "./_modules/DLClientManager";
 // nie jest potrzebny. SalesDataEntry.tsx + PrzetargiDataEntry.tsx zachowane na
 // dysku ale nie wpięte tutaj — można usunąć w follow-up cleanup.
 
+// 2026-07-20: usunięte ręczne wprowadzanie statystyk — moduły `body_leasing`,
+// `delivery_lead` i `board_data`. NEXUS liczy te liczby sam z własnych danych
+// (kontrakty, candidate_stages, placementy) i pokazuje je w /insights.
+// Kontekst: backend blokował te zapisy 409 od PR #785 (DYNAREPORTER_MODE=read_only),
+// a ostatni realny zapis do tabel dr_* to 2026-05-25 — formularze były już martwe,
+// tylko nadal się renderowały i wywalały 409 dopiero przy zapisie, co czytało się
+// jak awaria. Historia Rady została przepisana do analytics_metric_snapshots
+// (backfill-board-snapshots, 29 wierszy, 2026-07-20).
+// ZOSTAJĄ zakładki konfiguracyjne (pracownicy, zespół, klienci, stawki, punktacja) —
+// to nie są statystyki. Docelowo do przeniesienia do Ustawień NEXUS-a.
 type ModuleType =
-  | "body_leasing"
-  | "delivery_lead"
-  | "board_data"
   | "employees"
   | "recruitment_team"
   | "dl_clients"
@@ -78,9 +80,6 @@ type ModuleCard = {
 };
 
 const MODULE_CARDS: ModuleCard[] = [
-  { type: "body_leasing", title: "Rekrutacja", description: "KPI działu Rekrutacja", color: "blue", icon: Building2 },
-  { type: "delivery_lead", title: "Delivery Lead", description: "Hit Ratio i Placements", color: "orange", icon: Target },
-  { type: "board_data", title: "Rada Nadzorcza", description: "Dane miesięczne dla Rady", color: "purple", icon: DollarSign },
   { type: "employees", title: "Pracownicy i konta", description: "Zarządzanie pracownikami i kontami", color: "amber", icon: Users },
   { type: "recruitment_team", title: "Zespół Rekrutacji", description: "Przypisania sourcerów i TAC", color: "teal", icon: Users },
   { type: "dl_clients", title: "DL - Klienci", description: "Przypisania DL do klientów", color: "cyan", icon: Building2 },
@@ -122,7 +121,9 @@ function formatDate(d: string): string {
 
 export default function AdminDashboardPage() {
   const { user, hydrated } = useAuthStore();
-  const [activeModule, setActiveModule] = useState<ModuleType>("body_leasing");
+  // Domyślna zakładka była "body_leasing" — moduł usunięty razem z ręcznym
+  // wprowadzaniem statystyk, więc startujemy od pierwszej pozostałej.
+  const [activeModule, setActiveModule] = useState<ModuleType>("employees");
 
   if (!hydrated) {
     return <div className="p-8 text-sm text-muted-foreground">Ładowanie sesji…</div>;
@@ -202,9 +203,6 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Module content */}
-      {activeModule === "body_leasing" && <BodyLeasingDataEntry />}
-      {activeModule === "board_data" && <BoardDataEntry />}
-      {activeModule === "delivery_lead" && <DeliveryLeadDataEntry />}
       {activeModule === "settings" && <ScoringConfig />}
       {activeModule === "hall_of_fame" && <HallOfFameManager />}
       {activeModule === "master_data" && <MasterDataManager />}

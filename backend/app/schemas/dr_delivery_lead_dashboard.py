@@ -2,6 +2,9 @@
 
 Port `/delivery-lead` z artur-t-96/InfraReporter
 (`server/src/routes/deliveryLead.ts` + `client/src/pages/DeliveryLead.tsx`).
+
+2026-07-20: usunięty `DLUpsert` — był payloadem wyłącznie usuniętej trasy
+POST /entry (ręczne wprowadzanie statystyk wygaszone).
 """
 
 from __future__ import annotations
@@ -89,21 +92,3 @@ class DLDashboard(BaseModel):
     period_label: str
     period_start: Optional[date] = None
     period_end: Optional[date] = None
-
-
-class DLUpsert(BaseModel):
-    """Payload POST /entry — admin upsert miesięcznego KPI dla DL."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    user_id: int = Field(ge=1)
-    # Format enforced — bez tego "abc" by przeszedł i wywalił PostgreSQL DataError.
-    report_month: str = Field(
-        description="YYYY-MM",
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
-    )
-    requests: int = Field(default=0, ge=0)
-    placements: int = Field(default=0, ge=0)
-    vacancies: int = Field(default=0, ge=0)
-    open_requests: int = Field(default=0, ge=0)
-    open_vacancies: int = Field(default=0, ge=0)

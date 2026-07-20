@@ -4,29 +4,25 @@ Port `/board` z artur-t-96/InfraReporter:
 - monthly: 3 lata danych monthly P&L + per-client placement breakdown
 
 Tylko admin/board_member może oglądać (top-secret financials).
+
+2026-07-20: usunięte trasy zapisu (POST upsert /monthly, DELETE /monthly/{m}) —
+ręczne wprowadzanie statystyk wygaszone, NEXUS liczy te liczby sam
+(patrz /insights). GET-y zostają dla widoków historycznych.
 """
 
 from __future__ import annotations
 
-import logging
-
-from datetime import date, datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import CurrentUser
 from app.core.database import get_db
-from app.models.user import User, UserRole
-from app.schemas.dr_board_dashboard import (
-    BoardMonthlyRow,
-    BoardMonthlyUpsert,
-    BoardPlacementClient,
-)
-
-logger = logging.getLogger("dynareporter.board_dashboard")
+from app.models.user import User
+from app.schemas.dr_board_dashboard import BoardMonthlyRow, BoardPlacementClient
 
 router = APIRouter()
 
@@ -127,175 +123,3 @@ async def get_monthly(
         )
         for r in rows
     ]
-
-
-@router.post(
-    "/monthly",
-    response_model=BoardMonthlyRow,
-    status_code=status.HTTP_201_CREATED,
-    summary="Upsert miesięcznego raportu Rady Nadzorczej + per-client placements",
-)
-async def upsert_monthly(
-    payload: BoardMonthlyUpsert,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> BoardMonthlyRow:
-    """Admin only — upsert miesięcznego board report. Idempotent ON CONFLICT."""
-    _require_board_access(current_user)
-    if current_user.role != UserRole.admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tylko admin może modyfikować board data",
-        )
-
-    # YYYY-MM → date(YYYY, MM, 1) — asyncpg wymaga `datetime.date` dla kolumn typu
-    # `date` (raw string "YYYY-MM-01" wywoła DataError: 'str' has no attribute 'toordinal').
-    try:
-        month_date = datetime.strptime(f"{payload.report_month}-01", "%Y-%m-%d").date()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"report_month must be YYYY-MM (got '{payload.report_month}')",
-        ) from exc
-
-    # Upsert main report
-    sql_upsert = text(
-        """
-        INSERT INTO dr_board_monthly_report (
-            report_month, revenue, consultant_costs, other_costs,
-            active_consultants, departures, placements,
-            avg_margin_per_hour, hit_ratio, updated_at
-        ) VALUES (
-            :report_month, :revenue, :consultant_costs, :other_costs,
-            :active_consultants, :departures, :placements,
-            :avg_margin_per_hour, :hit_ratio, CURRENT_TIMESTAMP
-        )
-        ON CONFLICT (report_month) DO UPDATE SET
-            revenue = EXCLUDED.revenue,
-            consultant_costs = EXCLUDED.consultant_costs,
-            other_costs = EXCLUDED.other_costs,
-            active_consultants = EXCLUDED.active_consultants,
-            departures = EXCLUDED.departures,
-            placements = EXCLUDED.placements,
-            avg_margin_per_hour = EXCLUDED.avg_margin_per_hour,
-            hit_ratio = EXCLUDED.hit_ratio,
-            updated_at = CURRENT_TIMESTAMP
-        RETURNING id
-        """
-    )
-    await db.execute(
-        sql_upsert,
-        {
-            "report_month": month_date,
-            "revenue": payload.revenue,
-            "consultant_costs": payload.consultant_costs,
-            "other_costs": payload.other_costs,
-            "active_consultants": payload.active_consultants,
-            "departures": payload.departures,
-            "placements": payload.placements,
-            "avg_margin_per_hour": payload.avg_margin_per_hour,
-            "hit_ratio": payload.hit_ratio,
-        },
-    )
-
-    # Re-set per-client placements (DELETE + bulk INSERT pattern).
-    # Wcześniej był loop z N+1 round-trips do DB (jeden execute() per client).
-    # Teraz jeden INSERT z executemany — 1 round-trip nawet dla 50 klientów.
-    await db.execute(
-        text("DELETE FROM dr_board_placement_clients WHERE report_month = :m"),
-        {"m": month_date},
-    )
-    valid_clients = [
-        {
-            "m": month_date,
-            "name": pc.client_name.strip(),
-            "cnt": pc.count,
-        }
-        for pc in payload.placement_clients
-        if pc.client_name and pc.client_name.strip() and pc.count > 0
-    ]
-    if valid_clients:
-        await db.execute(
-            text(
-                """
-                INSERT INTO dr_board_placement_clients (
-                    report_month, client_name, placement_count
-                ) VALUES (:m, :name, :cnt)
-                ON CONFLICT (report_month, client_name) DO UPDATE
-                SET placement_count = EXCLUDED.placement_count
-                """
-            ),
-            valid_clients,
-        )
-
-    await db.commit()
-    logger.info(
-        "Board monthly upsert: month=%s revenue=%s placements=%s clients=%d by admin=%s",
-        payload.report_month,
-        payload.revenue,
-        payload.placements,
-        len(valid_clients),
-        current_user.id,
-    )
-
-    return BoardMonthlyRow(
-        report_month=payload.report_month,
-        revenue=payload.revenue,
-        consultant_costs=payload.consultant_costs,
-        other_costs=payload.other_costs,
-        margin=payload.revenue - payload.consultant_costs,
-        profit=payload.revenue - payload.consultant_costs - payload.other_costs,
-        active_consultants=payload.active_consultants,
-        departures=payload.departures,
-        placements=payload.placements,
-        avg_margin_per_hour=payload.avg_margin_per_hour,
-        hit_ratio=payload.hit_ratio,
-        placement_clients=payload.placement_clients,
-    )
-
-
-@router.delete(
-    "/monthly/{report_month}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,  # FastAPI 0.115 strict — 204 must not have body
-    summary="Usuń miesięczny raport Rady Nadzorczej (admin only)",
-)
-async def delete_monthly(
-    report_month: str,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> None:
-    """Admin only — usuwa miesięczny raport + powiązane placement_clients.
-
-    Format `report_month`: 'YYYY-MM' (np. '2026-05').
-    """
-    _require_board_access(current_user)
-    if current_user.role != UserRole.admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tylko admin może usuwać board data",
-        )
-
-    try:
-        month_date = datetime.strptime(f"{report_month}-01", "%Y-%m-%d").date()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"report_month must be YYYY-MM (got '{report_month}')",
-        ) from exc
-
-    # Cascade delete: placements_clients first, then main report.
-    await db.execute(
-        text("DELETE FROM dr_board_placement_clients WHERE report_month = :m"),
-        {"m": month_date},
-    )
-    await db.execute(
-        text("DELETE FROM dr_board_monthly_report WHERE report_month = :m"),
-        {"m": month_date},
-    )
-    await db.commit()
-    logger.info(
-        "Board monthly DELETED: month=%s by admin=%s",
-        report_month,
-        current_user.id,
-    )

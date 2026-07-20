@@ -1,29 +1,27 @@
-"""DynaReporter B.2.4 — Placements endpoints."""
+"""DynaReporter B.2.4 — Placements endpoints.
+
+2026-07-20: usunięte trasy zapisu (POST "", POST /with-delivery-lead, DELETE) —
+ręczne wprowadzanie statystyk wygaszone, NEXUS liczy te liczby sam
+(patrz /insights). GET-y zostają dla widoków historycznych.
+"""
 
 from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
+from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.dr_placement_details import DrPlacementDetail
 from app.models.user import User, UserRole
 
 router = APIRouter()
-
-
-class PlacementCreate(BaseModel):
-    client_id: int
-    placement_date: date
-    week_number: Optional[int] = None
-    notes: Optional[str] = None
 
 
 class PlacementResponse(BaseModel):
@@ -35,15 +33,6 @@ class PlacementResponse(BaseModel):
     week_number: Optional[int] = None
     notes: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
-
-
-class PlacementWithDlCreate(BaseModel):
-    """Placement z panelu Rekrutacji: sourcer + odpowiedzialny DL + klient + data."""
-
-    sourcer_user_id: int
-    delivery_lead_user_id: int
-    client_id: int
-    placement_date: date
 
 
 class PlacementStatsByUser(BaseModel):
@@ -177,108 +166,3 @@ async def stats_by_client(
         PlacementStatsByClient(client_id=cid, client_name=name, total_placements=cnt)
         for cid, name, cnt in rows
     ]
-
-
-@router.post("", response_model=PlacementResponse, status_code=status.HTTP_201_CREATED)
-async def create_placement(
-    payload: PlacementCreate,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-    user_id: Optional[int] = Query(default=None),
-) -> PlacementResponse:
-    is_admin = current_user.role in (
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.head_of_recruitment,
-    )
-    target_uid = user_id if user_id is not None else current_user.id
-    if not is_admin and target_uid != current_user.id:
-        raise HTTPException(status_code=403, detail="Tylko swoje placementy")
-
-    row = DrPlacementDetail(user_id=target_uid, **payload.model_dump())
-    db.add(row)
-    await db.commit()
-    await db.refresh(row)
-    tgt = (await db.execute(select(User).where(User.id == target_uid))).scalar_one()
-    return PlacementResponse.model_validate({**row.__dict__, "user_name": tgt.name})
-
-
-@router.post(
-    "/with-delivery-lead",
-    response_model=PlacementResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Dodaj placement (sourcer+klient) i dolicz +1 do DL w miesiącu",
-)
-async def create_placement_with_dl(
-    payload: PlacementWithDlCreate,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> PlacementResponse:
-    """Atomowo: tworzy `dr_placement_details` dla sourcera ORAZ inkrementuje
-    `dr_kpi_delivery_lead.placements` odpowiedzialnego DL w miesiącu daty
-    podpisania (tworzy wiersz DL jeśli go nie ma). Dzięki temu placement wpisany
-    w panelu Rekrutacji od razu widać w panelu Delivery Lead. Tylko admin/DL/head.
-    """
-    if current_user.role not in (
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.head_of_recruitment,
-    ):
-        raise HTTPException(status_code=403, detail="Brak uprawnień")
-
-    row = DrPlacementDetail(
-        user_id=payload.sourcer_user_id,
-        client_id=payload.client_id,
-        placement_date=payload.placement_date,
-        week_number=payload.placement_date.isocalendar().week,
-    )
-    db.add(row)
-
-    report_month = payload.placement_date.replace(day=1)
-    await db.execute(
-        text(
-            """
-            INSERT INTO dr_kpi_delivery_lead (
-                user_id, report_month, requests, placements, vacancies,
-                open_requests, open_vacancies, created_at, updated_at
-            ) VALUES (
-                :dl, :month, 0, 1, 0, 0, 0,
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            ON CONFLICT (user_id, report_month) DO UPDATE SET
-                placements = dr_kpi_delivery_lead.placements + 1,
-                updated_at = CURRENT_TIMESTAMP
-            """
-        ),
-        {"dl": payload.delivery_lead_user_id, "month": report_month},
-    )
-    await db.commit()
-    await db.refresh(row)
-    tgt = (
-        await db.execute(select(User).where(User.id == payload.sourcer_user_id))
-    ).scalar_one()
-    return PlacementResponse.model_validate({**row.__dict__, "user_name": tgt.name})
-
-
-@router.delete(
-    "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
-)
-async def delete_placement(
-    entry_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
-) -> None:
-    row = (
-        await db.execute(
-            select(DrPlacementDetail).where(DrPlacementDetail.id == entry_id)
-        )
-    ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Placement nie znaleziony")
-    is_admin = current_user.role in (
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.head_of_recruitment,
-    )
-    if not is_admin and row.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Tylko swoje placementy")
-    await db.delete(row)
-    await db.commit()
