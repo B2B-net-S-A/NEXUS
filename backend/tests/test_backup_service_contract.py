@@ -31,7 +31,15 @@ def _backup_service() -> dict:
 
 def test_data_volumes_are_mounted_read_only() -> None:
     """The sidecar reads application data; it must never be able to write it."""
-    for volume in _backup_service().get("volumes") or []:
+    volumes = _backup_service().get("volumes") or []
+    # Without this the test passes vacuously when the `volumes:` block is
+    # deleted altogether: the loop below simply never runs, and the mount it
+    # exists to protect is gone while CI stays green.
+    assert volumes, (
+        "the backup service declares no volume mounts — uploads_data must be "
+        "mounted read-only, or the CV files are not being backed up at all"
+    )
+    for volume in volumes:
         # Only string short-syntax mounts are used here.
         assert isinstance(volume, str), f"unexpected mount syntax: {volume!r}"
         assert volume.endswith(":ro"), (

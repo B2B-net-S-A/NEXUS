@@ -63,6 +63,11 @@ export RCLONE_CONFIG_OFFSITE_REGION="${BACKUP_S3_REGION:-eu-central-1}"
 # losing a night's backup to one blip.
 export RCLONE_RETRIES="3"
 export RCLONE_LOW_LEVEL_RETRIES="5"
+# Bez limitów czasu nieodpowiadające S3 zawiesza cały potok bezterminowo:
+# pg_dump czeka na age, age na rclone, a pozostałe artefakty nigdy nie zostaną
+# nawet spróbowane. Kontener wygląda wtedy na żywy, nie robiąc nic.
+export RCLONE_TIMEOUT="30m"
+export RCLONE_CONNECT_TIMEOUT="60s"
 
 DEST="offsite:${BACKUP_S3_BUCKET}/${PREFIX}"
 
@@ -116,7 +121,16 @@ if [ -d "$UPLOADS_DIR" ]; then
     if tar -C "$UPLOADS_DIR" -czf - . 2>/tmp/up.err \
         | age -r "$BACKUP_AGE_PUBLIC_KEY" \
         | rclone rcat "$up_object"; then
-        record "uploads" "ok" "$(remote_size "$up_object")" ""
+        up_size="$(remote_size "$up_object")"
+        # Ta sama bramka co przy Postgresie: zerwany potok, którego rclone
+        # przyjmie jako obiekt zerowej długości, bez tego zapisałby się jako
+        # "ok" i spełnił warunek czystego przebiegu — a wtedy retencja
+        # skasowałaby dobre stare kopie w noc, w którą nowa jest pusta.
+        if [ "$up_size" -lt 1024 ]; then
+            record "uploads" "suspect" "$up_size" "remote object is implausibly small"
+        else
+            record "uploads" "ok" "$up_size" ""
+        fi
     else
         record "uploads" "error" 0 "$(tr -d '\n\"' </tmp/up.err | tail -c 200)"
     fi
@@ -175,6 +189,14 @@ fi
 # LATEST.json is the machine-readable answer to "when did a backup last
 # genuinely succeed, and how big was it". Monitoring reads this instead of
 # trusting that a scheduled job existed.
+#
+# DELIBERATE: this object is NOT encrypted, so that monitoring can read it
+# without holding the age private key. The `detail` field carries a truncated
+# tool error, which for pg_dump can name the host, user and database (never the
+# password — that arrives via PGPASSWORD). The bucket is private and this is
+# schema-level information, so the trade is accepted knowingly: a manifest only
+# readable with the decryption key could not serve its purpose. Do not "fix"
+# this by encrypting the manifest.
 manifest="$(printf '{"finished_at":"%s","stamp":"%s","failures":%s,"retention_days":%s,"artefacts":[%s]}' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$STAMP" "$FAILURES" "$RETENTION_DAYS" "${RESULTS%,}")"
 
