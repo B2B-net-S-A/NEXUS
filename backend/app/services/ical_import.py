@@ -147,6 +147,7 @@ class ICalImportResult:
     inserted: int = 0
     updated: int = 0
     skipped_past: int = 0
+    skipped_conflict: int = 0
     errors: int = 0
     error_samples: list[str] = field(default_factory=list)
 
@@ -157,6 +158,7 @@ class ICalImportResult:
             "inserted": self.inserted,
             "updated": self.updated,
             "skipped_past": self.skipped_past,
+            "skipped_conflict": self.skipped_conflict,
             "errors": self.errors,
             "error_samples": self.error_samples[:20],
         }
@@ -211,6 +213,11 @@ async def import_ical_url(
         result.error_samples.append(f"parse: {e!r}")
         return result
 
+    # UIDs inserted during THIS run. Pending rows are invisible to the
+    # collision SELECT below, so a feed repeating a UID would otherwise still
+    # hit the unique index at commit and lose the whole batch.
+    seen_uids: set[str] = set()
+
     for component in cal.walk("VEVENT"):
         result.events_fetched += 1
         try:
@@ -257,6 +264,27 @@ async def import_ical_url(
                 existing.end_time = dtend
                 result.updated += 1
             else:
+                # The DB carries a partial unique index on
+                # (external_source, external_id) that does NOT include
+                # created_by (ux_calendar_events_external, migration 0010).
+                # Inserting a UID another user already imported would raise
+                # IntegrityError at commit and roll back the ENTIRE batch,
+                # losing every event in this import. Skip and report the
+                # collision instead — we must neither overwrite the other
+                # user's event (P0.8) nor destroy this user's import.
+                if uid in seen_uids:
+                    result.skipped_conflict += 1
+                    continue
+                taken = await db.scalar(
+                    select(CalendarEvent.id).where(
+                        CalendarEvent.external_source == source_tag,
+                        CalendarEvent.external_id == uid,
+                    )
+                )
+                if taken is not None:
+                    result.skipped_conflict += 1
+                    continue
+                seen_uids.add(uid)
                 ev = CalendarEvent(
                     title=summary,
                     description=description,
