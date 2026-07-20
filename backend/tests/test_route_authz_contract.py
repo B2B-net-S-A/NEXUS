@@ -215,7 +215,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/clients/{client_id}/one-pagers"),
     ("GET", "/api/clients/{client_id}/one-pagers/{one_pager_id}/download"),
     ("GET", "/api/clients/{client_id}/required-documents"),
-    ("GET", "/api/clients/{client_id}/required-documents/{doc_id}/download"),
     ("GET", "/api/competence-categories"),
     ("GET", "/api/competitions/my-position"),
     ("GET", "/api/contacts"),

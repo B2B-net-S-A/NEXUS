@@ -539,26 +539,32 @@ async def global_search(
         for c in clients_result.scalars().all()
     ]
 
-    # Contacts
-    contacts_result = await db.execute(
-        select(Contact)
-        .where(
-            or_(
-                Contact.name.ilike(f"%{q}%"),
-                Contact.email.ilike(f"%{q}%"),
+    # Contacts — same containment as candidates above. Contact rows carry
+    # client-side hiring-manager names, e-mails and phone numbers (PII), and
+    # the candidates section is already skipped for the viewer/client role;
+    # leaving contacts open would let the same role enumerate people from the
+    # search bar through a different section.
+    contacts_list: list[dict[str, Any]] = []
+    if user_has_candidate_read(current_user):
+        contacts_result = await db.execute(
+            select(Contact)
+            .where(
+                or_(
+                    Contact.name.ilike(f"%{q}%"),
+                    Contact.email.ilike(f"%{q}%"),
+                )
             )
+            .limit(LIMIT)
         )
-        .limit(LIMIT)
-    )
-    contacts_list = [
-        {
-            "id": c.id,
-            "name": c.name,
-            "subtitle": c.email or c.position or "",
-            "url": "/contacts",
-        }
-        for c in contacts_result.scalars().all()
-    ]
+        contacts_list = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "subtitle": c.email or c.position or "",
+                "url": "/contacts",
+            }
+            for c in contacts_result.scalars().all()
+        ]
 
     return {
         "query": q,
