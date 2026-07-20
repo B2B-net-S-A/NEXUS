@@ -20,9 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser
 from app.core.database import get_db
-from app.models.user import UserRole
 
 logger = logging.getLogger("dynareporter.admin_users")
 
@@ -127,17 +126,6 @@ class SourcerCategoryPayload(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    # `has_role()` uznaje primary role (`users.role`) ORAZ secondary roles
-    # (`users.roles` JSONB) — multi-role schema z PR #207 (migracja 0110).
-    # Raw `current_user.role != UserRole.admin` blokowałby usera z
-    # primary=`recruiter` + secondary=`admin` (np. po AAD group sync).
-    if not current_user.has_role(UserRole.admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Wymagana rola admin"
-        )
-
-
 # ---------------------------------------------------------------------------
 # Employees endpoints
 # ---------------------------------------------------------------------------
@@ -149,11 +137,10 @@ def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
     summary="Lista pracowników (users + dr_user_seniority)",
 )
 async def list_employees(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[EmployeeRow]:
     """Lista wszystkich userów + seniority dla acceleration path roles."""
-    _require_admin(current_user)
     sql = text(
         """
         SELECT
@@ -215,11 +202,10 @@ async def list_employees(
 async def upsert_seniority(
     user_id: int,
     payload: SeniorityPayload,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Upsert do dr_user_seniority (1:1 z users)."""
-    _require_admin(current_user)
     sql = text(
         """
         INSERT INTO dr_user_seniority (
@@ -263,10 +249,9 @@ async def upsert_seniority(
 async def toggle_active(
     user_id: int,
     payload: ToggleActivePayload,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    _require_admin(current_user)
     await db.execute(
         text("UPDATE users SET is_active = :a WHERE id = :uid"),
         {"a": payload.is_active, "uid": user_id},
@@ -288,13 +273,12 @@ async def toggle_active(
 async def update_allowed_sections(
     user_id: int,
     payload: AllowedSectionsPayload,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Replace user's allowed_sections list. Validates że każda section to
     znana DR section (no arbitrary strings).
     """
-    _require_admin(current_user)
     # Whitelist of known DR sections — przeciwko admin przypadkowo dodawał
     # garbage strings. Sync z `DynaReporterSection` type w
     # `frontend/src/store/auth.ts` (DASHES, legacy DR convention) + DB values.
@@ -345,11 +329,10 @@ async def update_allowed_sections(
     summary="Recruitment Team — lista członków zespołu rekrutacji",
 )
 async def list_team_members(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[TeamMember]:
     """Lista userów z rolami sourcer/tac/recruiter/delivery_lead."""
-    _require_admin(current_user)
     sql = text(
         """
         SELECT
@@ -376,10 +359,9 @@ async def list_team_members(
     summary="TAC ↔ Delivery Lead assignments",
 )
 async def list_tac_dl_assignments(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[TacDlAssignment]:
-    _require_admin(current_user)
     sql = text(
         """
         SELECT
@@ -411,10 +393,9 @@ async def list_tac_dl_assignments(
     summary="Sourcer ↔ Competence Category assignments",
 )
 async def list_sourcer_categories(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[SourcerCategoryAssignment]:
-    _require_admin(current_user)
     sql = text(
         """
         SELECT
@@ -486,10 +467,9 @@ async def list_competence_categories(
 )
 async def add_tac_dl_assignment(
     payload: TacDlPayload,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    _require_admin(current_user)
     # Constraint to UNIQUE(tac_user_id) — TAC ma dokładnie jednego DL.
     # Re-przypisanie TAC do innego DL = UPDATE (nie duplikat). Wcześniejszy
     # ON CONFLICT (tac_user_id, delivery_lead_user_id) nie pasował do
@@ -525,10 +505,9 @@ async def add_tac_dl_assignment(
 async def delete_tac_dl_assignment(
     tac_user_id: int,
     dl_user_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    _require_admin(current_user)
     await db.execute(
         text(
             "DELETE FROM dr_tac_delivery_lead_assignments "
@@ -552,10 +531,9 @@ async def delete_tac_dl_assignment(
 )
 async def add_sourcer_category(
     payload: SourcerCategoryPayload,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    _require_admin(current_user)
     if payload.priority < 1 or payload.priority > 5:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -606,10 +584,9 @@ async def add_sourcer_category(
 async def delete_sourcer_category(
     user_id: int,
     category_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    _require_admin(current_user)
     await db.execute(
         text(
             "DELETE FROM dr_sourcer_category_assignments "
@@ -637,10 +614,9 @@ async def delete_sourcer_category(
     summary="Delivery Lead ↔ Klient assignments",
 )
 async def list_dl_clients(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[DLClientAssignment]:
-    _require_admin(current_user)
     sql = text(
         """
         SELECT
@@ -682,10 +658,9 @@ class DLClientAssignPayload(BaseModel):
 )
 async def add_dl_client(
     payload: DLClientAssignPayload,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    _require_admin(current_user)
     sql = text(
         """
         INSERT INTO dr_delivery_lead_client_assignments (
@@ -723,14 +698,13 @@ async def add_dl_client(
 async def patch_dl_client(
     assignment_id: int,
     payload: dict,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Toggle `is_head` flag dla istniejącego DL-client assignment.
 
     Payload: {"is_head": bool}. Single-field update, brak innych mutowalnych pól.
     """
-    _require_admin(current_user)
     if "is_head" not in payload:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -767,10 +741,9 @@ async def patch_dl_client(
 )
 async def delete_dl_client(
     assignment_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    _require_admin(current_user)
     await db.execute(
         text("DELETE FROM dr_delivery_lead_client_assignments WHERE id = :id"),
         {"id": assignment_id},
