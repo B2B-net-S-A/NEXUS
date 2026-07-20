@@ -32,6 +32,9 @@ by module — each entry removed is one route that gained a real gate.
 
 from __future__ import annotations
 
+import ast
+import inspect
+import textwrap
 from typing import Any
 
 # Dependency callables that constitute a genuine authorisation decision, as
@@ -50,6 +53,54 @@ _GATE_QUALNAME_MARKERS = (
 
 # The bare authentication dependency: proves identity, decides nothing.
 _AUTHN_QUALNAMES = ("get_current_user",)
+
+# Many handlers carry no gate in their signature but check imperatively as the
+# first statement of the body — e.g. `dynareporter_admin_master_data.py` takes
+# `current_user: CurrentUser` and then calls `_require_admin(current_user)`.
+# That is genuine authorisation; it is simply invisible to FastAPI's dependency
+# graph, and therefore to any structural analysis.
+#
+# The distinction matters and the two are NOT the same problem:
+#
+#   bare_unchecked — nothing anywhere. A read-only `user` can do this. A hole.
+#   bare_in_body   — enforced, but only by a line somebody has to remember to
+#                    write. Invisible in OpenAPI, unenforced for the next
+#                    handler added to the file, and silently lost if a refactor
+#                    returns early. A robustness problem, not a hole.
+#
+# Collapsing them would either overstate the danger or hide it. They are
+# counted separately.
+_IN_BODY_CALL_PREFIXES = ("_require_", "require_", "_assert_", "_ensure_")
+_IN_BODY_ATTRIBUTE_MARKERS = ("has_role", "HTTP_403_FORBIDDEN")
+
+
+def _has_in_body_check(route: Any) -> bool:
+    """True when the handler authorises imperatively rather than via Depends."""
+    endpoint = getattr(route, "endpoint", None)
+    if endpoint is None:
+        return False
+    try:
+        source = textwrap.dedent(inspect.getsource(endpoint))
+    except (OSError, TypeError):  # pragma: no cover — builtins, C funcs
+        return False
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:  # pragma: no cover — decorators can confuse dedent
+        return False
+
+    for node in ast.walk(tree):
+        # `_require_admin(current_user)` / `require_client_access(...)`
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = getattr(func, "id", None) or getattr(func, "attr", None) or ""
+            if any(name.startswith(p) for p in _IN_BODY_CALL_PREFIXES):
+                return True
+            if any(m in name for m in _IN_BODY_ATTRIBUTE_MARKERS):
+                return True
+        # `raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, ...)`
+        if isinstance(node, ast.Attribute) and node.attr in _IN_BODY_ATTRIBUTE_MARKERS:
+            return True
+    return False
 
 
 def _walk_dependants(dependant: Any) -> list[Any]:
@@ -82,7 +133,7 @@ def _classify(route: Any) -> str:
     if any(any(m in q for m in _GATE_QUALNAME_MARKERS) for q in qualnames):
         return "gated"
     if any(any(a in q for a in _AUTHN_QUALNAMES) for q in qualnames):
-        return "bare"
+        return "bare_in_body" if _has_in_body_check(route) else "bare_unchecked"
     return "public"
 
 
@@ -361,15 +412,39 @@ _BARE_BASELINE: set[tuple[str, str]] = {
 
 
 def test_no_new_bare_authenticated_routes() -> None:
-    """A new route may not rely on authentication alone."""
-    bare = {(m, p) for m, p, c in _routes() if c == "bare"}
+    """A new route may not rely on authentication alone.
+
+    Both flavours are held to the baseline. `bare_in_body` is not a security
+    hole, but it must not GROW either: every new imperative check is another
+    place where the next handler in that file starts unprotected by default,
+    which is the mechanism this whole contract exists to stop.
+    """
+    routes = _routes()
+    bare = {(m, p) for m, p, c in routes if c.startswith("bare")}
     new = bare - _BARE_BASELINE
-    assert not new, (
-        f"{len(new)} route(s) are authenticated but not authorised, and are not "
-        "in the baseline. Give each a resource gate "
-        "(CandidatePIIAccess / ClientAccess / require_financial_access / "
-        "AdminUser / require_capability), or add it to _BARE_BASELINE with a "
-        f"justification:\n" + "\n".join(f"  {m} {p}" for m, p in sorted(new))
+    if not new:
+        return
+
+    unchecked = {(m, p) for m, p, c in routes if c == "bare_unchecked"} & new
+    in_body = new - unchecked
+    lines = []
+    if unchecked:
+        lines.append(
+            f"  NO AUTHORISATION AT ALL ({len(unchecked)}) — a read-only `user` can call these:"
+        )
+        lines += [f"    {m} {p}" for m, p in sorted(unchecked)]
+    if in_body:
+        lines.append(
+            f"  authorised only by an in-body check ({len(in_body)}) — works, but is"
+            " invisible to OpenAPI and unenforced for the next handler added:"
+        )
+        lines += [f"    {m} {p}" for m, p in sorted(in_body)]
+
+    raise AssertionError(
+        f"{len(new)} route(s) are authenticated but not gated by a dependency, and "
+        "are not in the baseline. Give each a resource gate (CandidatePIIAccess / "
+        "ClientAccess / require_financial_access / AdminUser / require_capability), "
+        "or add it to _BARE_BASELINE with a justification:\n" + "\n".join(lines)
     )
 
 
@@ -381,15 +456,14 @@ def test_report_route_authz_inventory() -> None:
     enforcing assertion lives in the test above.
     """
     routes = _routes()
-    counts = {"public": 0, "gated": 0, "bare": 0}
+    counts: dict[str, int] = {}
     for _m, _p, c in routes:
-        counts[c] += 1
+        counts[c] = counts.get(c, 0) + 1
 
-    bare = sorted({(m, p) for m, p, c in routes if c == "bare"})
+    bare = sorted({(m, p) for m, p, c in routes if c.startswith("bare")})
     print(f"\n=== route authz inventory: {len(routes)} routes ===")
-    print(f"  gated  : {counts['gated']}")
-    print(f"  bare   : {counts['bare']}")
-    print(f"  public : {counts['public']}")
+    for name in ("gated", "bare_unchecked", "bare_in_body", "public"):
+        print(f"  {name:15s}: {counts.get(name, 0)}")
     print("\n_BARE_BASELINE = {")
     for method, path in bare:
         print(f'    ("{method}", "{path}"),')
