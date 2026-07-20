@@ -26,10 +26,84 @@
 
 This document covers backup policy and restore procedures.
 
-## Backup policy
+## Off-site backup (compose service `backup`)
 
-Nightly backup job runs on the Hetzner VPS (`.scripts/backup.sh` from commit
-`dfc55bd`). Two snapshots are captured:
+The replacement for the unversioned VPS script. Lives in `backup/` in this
+repository, deploys through the normal `git push` → Coolify pipeline, and needs
+no SSH access to install or change.
+
+| Artefact | Source | Object key | Recoverable from elsewhere? |
+|---|---|---|---|
+| Postgres | `pg_dump -Fc` over the compose network | `nexus/postgres/YYYY-MM-DD/…dump.age` | **No — sole source of truth** |
+| Uploaded CVs | `uploads_data` volume, read-only mount | `nexus/uploads/YYYY-MM-DD/…tar.gz.age` | **No — original documents** |
+| Qdrant | snapshot API, per collection | `nexus/qdrant/YYYY-MM-DD/…snapshot.age` | Yes — re-embed from Postgres (costs time + Voyage spend) |
+
+Design decisions worth knowing before changing anything:
+
+- **Nothing buffers to local disk.** Every artefact is a pipe:
+  `producer | age | rclone rcat`. This VPS hit 98.8% disk in July 2026 and the
+  cleanup that followed destroyed the Postgres container; a backup job that
+  staged a temp dump would be the single most likely thing to repeat that.
+- **The server holds only a public key.** `age -r <recipient>` encrypts. The
+  private half lives in the password manager and never touches the VPS, so a
+  compromised sidecar can write new backups but cannot read old ones.
+  **Losing that private key loses every backup** — there is no recovery path.
+- **Retention only prunes after a fully clean run.** Deleting old good backups
+  on a night when the new ones failed converts a backup system into a data-loss
+  system.
+- **Every upload is verified by re-stat.** A pipe exiting `0` is not evidence
+  the bytes arrived; the remote object size is checked, and an implausibly
+  small Postgres dump is recorded as a failure rather than a success.
+- **`LATEST.json`** at the bucket root records when a backup last genuinely
+  succeeded and how large each artefact was. Monitoring should read that rather
+  than assume a scheduled job implies a stored backup — assuming exactly that
+  is what hid the broken drill for months.
+
+### Activation
+
+Everything ships disabled (`BACKUP_ENABLED=false`); the script exits
+immediately. To turn it on:
+
+1. Create a Hetzner Object Storage bucket (Germany) and an access key pair.
+2. Generate the encryption key **on a local machine, not the server**:
+   ```bash
+   age-keygen -o nexus-backup.key   # prints the public key; keep the file safe
+   ```
+   Store `nexus-backup.key` in the password manager. Put **only** the public
+   key (`age1…`) into Coolify.
+3. In the Coolify env vault set `BACKUP_S3_*`, `BACKUP_AGE_PUBLIC_KEY`, and
+   `BACKUP_RUN_ON_START=true` for the first deploy so a misconfiguration
+   surfaces in minutes rather than at 02:00 UTC.
+4. Set `BACKUP_ENABLED=true` and redeploy.
+5. Confirm `LATEST.json` exists in the bucket and `failures` is `0`, then set
+   `BACKUP_RUN_ON_START=false`.
+6. Only after a **restore has actually been rehearsed** from these objects may
+   the status block at the top of this document be replaced with a verified
+   date.
+
+### Restoring from an off-site copy
+
+```bash
+# Postgres
+rclone cat offsite:nexus-backups/nexus/postgres/YYYY-MM-DD/<file>.dump.age \
+  | age -d -i nexus-backup.key > nexus.dump
+pg_restore -h <host> -U nexus -d nexus --clean --if-exists nexus.dump
+
+# Uploaded CVs
+rclone cat offsite:nexus-backups/nexus/uploads/YYYY-MM-DD/<file>.tar.gz.age \
+  | age -d -i nexus-backup.key | tar -xzf - -C /path/to/uploads
+
+# Qdrant — per collection, then POST /api/embed-init to verify shape
+rclone cat offsite:nexus-backups/nexus/qdrant/YYYY-MM-DD/<file>.snapshot.age \
+  | age -d -i nexus-backup.key > coll.snapshot
+```
+
+## Legacy backup policy (VPS-local, unverified)
+
+> Retained for reference only. The script below **has never been present in
+> this repository** — see the status block. Do not rely on it.
+
+Nightly backup job on the Hetzner VPS. Two snapshots are captured:
 
 | Source | Destination | Retention | Size (rough) |
 |---|---|---|---|
@@ -114,14 +188,22 @@ None of these are currently being caught.
 - **The drill does not run** — `BACKUP_DRILL_SSH_KEY` is unset; see the status
   block. Until it runs, none of the three classes above are detected. This is
   the gap that hid all the others: a green weekly job read as reassurance.
-- **The backup script is unversioned** — it exists only on the VPS, so it
-  cannot be reviewed, cannot be restored if the VPS is lost, and its actual
+- **The legacy backup script is unversioned** — it exists only on the VPS, so
+  it cannot be reviewed, cannot be restored if the VPS is lost, and its actual
   behaviour (does it still run? does rotation work? is the dump non-empty?) is
-  unknown. It belongs in this repository.
-- **Off-site copy not automated** — dumps live only on the VPS. If the VPS is
-  destroyed, backups go with it. Documented as a "Phase 8 item" since the
-  original commit and never done. This is now the first thing to fix, because
-  every other guarantee is worthless without a copy that survives the host.
+  unknown. Superseded by the `backup/` service in this repo, but the old script
+  is presumably still running on the host and should be turned off once the new
+  one is verified, so the two do not compete for disk.
+- **Off-site copy — built, not yet switched on.** Addressed by the `backup`
+  compose service; it remains a gap until `BACKUP_ENABLED=true` and
+  `LATEST.json` shows a clean run. Until then, backups still exist only on the
+  VPS disk.
+- **CV files were backed up by nothing at all** — the legacy policy table above
+  covers Postgres and Qdrant only, but candidate CVs live in a third volume
+  (`uploads_data` → `/tmp/nexus/uploads`) that no backup ever touched. Unlike
+  Qdrant these cannot be regenerated from anything. Now covered by the new
+  service; also a reminder to check the volume list, not the documentation,
+  when reasoning about what is protected.
 - **No point-in-time recovery (PITR)** — only daily dumps, losing up to 24h
   of data. WAL-E / wal-g with S3 target would bring PITR to minutes.
 - **Drill doesn't exercise Qdrant** — restoring snapshots in CI needs
