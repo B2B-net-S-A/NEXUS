@@ -129,10 +129,17 @@ async def get_public_cv(
     # M4 PR-04 (audyt P1.9, token v2): dual-read — legacy wiersze trzymają raw
     # token w PK, v2 wyłącznie SHA-256. Prezentowany sekret dopasowujemy do
     # obu form.
+    # PR1b (re-audyt M2): legacy-branch MUSI być zawężony do wierszy legacy
+    # (``token_sha256 IS NULL``). Bez tego nie-sekretny ``revoke_key`` v2
+    # (``v2$<hex>``, PK wiersza, trafia m.in. do Activity audit log) działał
+    # jako pełnoprawny token dostępu — co znosiło gwarancję P1.9 „sekret nigdy
+    # nie jest przechowywany". Klucz do odwoływania linku nie może być
+    # jednocześnie kluczem dostępu do CV.
     digest = hashlib.sha256(token.encode()).hexdigest()
     row: Optional[CVShareToken] = await db.scalar(
         select(CVShareToken).where(
-            (CVShareToken.token == token) | (CVShareToken.token_sha256 == digest)
+            (CVShareToken.token_sha256 == digest)
+            | ((CVShareToken.token == token) & (CVShareToken.token_sha256.is_(None)))
         )
     )
     if row is None or row.revoked:

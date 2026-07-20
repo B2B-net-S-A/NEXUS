@@ -250,6 +250,44 @@ async def test_token_v2_full_lifecycle(app_client: AsyncClient, app_auth_headers
         assert viewed is not None
 
 
+async def test_v2_revoke_key_is_not_an_access_token(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Nie-sekretny ``revoke_key`` v2 NIE może otwierać CV (re-audyt M2, PR1b).
+
+    Kontrakt P1.9 brzmi „sekret nigdy nie jest przechowywany": w DB leży tylko
+    SHA-256, a PK dostaje jawny identyfikator ``v2$<hex>`` służący do
+    ODWOŁANIA linku. Dual-read w ``get_public_cv`` dopasowywał jednak
+    ``token == <podany>`` bez zawężenia do wierszy legacy, więc revoke_key
+    działał jak pełnoprawny token dostępu. A revoke_key jest jawny: wraca
+    z API tworzenia, jest na liście linków i ląduje w Activity audit log —
+    czyli każdy użytkownik operacyjny (i każdy z dostępem do logów) trzymał
+    de facto działające poświadczenie do „klienckiego" linku bez logowania.
+    """
+    stage_id, _ = await _seed_finalized_cv("<p>Tajne CV</p>")
+
+    r = await app_client.post(
+        f"/api/candidates/stages/{stage_id}/cv/share-token?expires_in_days=7",
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    raw = r.json()["token"]
+    revoke_key = r.json()["revoke_key"]
+    assert revoke_key.startswith("v2$")
+
+    # Sekret nadal otwiera link — brak regresji dla właściwej ścieżki.
+    ok = await app_client.get(f"/api/public/cv/{raw}")
+    assert ok.status_code == 200, ok.text
+
+    # Revoke key NIE jest poświadczeniem dostępu.
+    denied = await app_client.get(f"/api/public/cv/{revoke_key}")
+    assert denied.status_code == 404, (
+        "revoke_key otworzył CV — nie-sekretny klucz odwołania działa jako "
+        f"token dostępu (status={denied.status_code})"
+    )
+    assert "Tajne CV" not in denied.text
+
+
 async def test_token_legacy_dual_read(app_client: AsyncClient, app_auth_headers):
     """Legacy wiersz (raw w PK, bez hasha) nadal działa w public GET."""
     from app.models.cv_share_token import CVShareToken

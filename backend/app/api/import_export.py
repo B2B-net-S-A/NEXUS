@@ -19,7 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.activity import Activity
-from app.api.deps import CurrentUser
+
+# Re-audyt M2 (PR1b): to jest DRUGA, rownolegla powierzchnia eksportu/importu
+# kandydatow obok /api/candidates/export. PR1 zamknal tamta (TAC+ i audyt),
+# a ta zostala na golym CurrentUser: GET /api/export/candidates robi
+# select(Candidate) BEZ limitu i strumieniuje imie/nazwisko/email/telefon/
+# lokalizacje/stawke calej bazy do dowolnej zalogowanej roli (w tym `user`,
+# ktora PR1 mial odcieta), bez zdarzenia audytowego. Import pozwalal tej
+# samej roli masowo tworzyc kandydatow.
+from app.api.candidate_access import CandidateExportAccess, CandidateWriteAccess
+from app.services import candidate_audit
 
 router = APIRouter()
 
@@ -52,7 +61,7 @@ def _safe_int(val: str) -> Optional[int]:
 
 @router.post("/import/candidates")
 async def import_candidates(
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -262,7 +271,7 @@ def _build_candidates_csv(candidates) -> bytes:
 
 @router.get("/export/candidates")
 async def export_candidates(
-    current_user: CurrentUser,
+    current_user: CandidateExportAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -272,6 +281,20 @@ async def export_candidates(
     candidates = result.scalars().all()
 
     csv_bytes = await run_in_threadpool(_build_candidates_csv, candidates)
+
+    # Ten sam nieusuwalny slad audytowy co /api/candidates/export (PR1) —
+    # bez PII, same liczniki.
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.EXPORT_REQUESTED,
+        user_id=current_user.id,
+        details={
+            "endpoint": "GET /api/export/candidates",
+            "format": "csv",
+            "row_count": len(candidates),
+        },
+    )
+    await db.commit()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     filename = f"kandydaci_{timestamp}.csv"

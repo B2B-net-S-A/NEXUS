@@ -25,7 +25,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser
+# M2 audit follow-up (PR1b): CandidatePinBrief embeds candidate name,
+# lastname and email, and the toggle/state routes accept an arbitrary
+# candidate_id - so a viewer/client blocked from /api/candidates/{id} by
+# PR1 could still harvest identity by walking IDs through the pin router.
+from app.api.candidate_access import CandidatePIIAccess
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_pin import CandidatePin
@@ -48,7 +52,7 @@ MAX_PINS_PER_USER = 50
 
 @router.get("/pins", response_model=list[CandidatePinRead])
 async def list_my_pins(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[CandidatePin]:
     """Return all pinned candidates for the calling user, newest first.
@@ -70,7 +74,7 @@ async def list_my_pins(
 
 @router.get("/{candidate_id}/pin", response_model=CandidatePinToggleResponse)
 async def get_pin_state(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     candidate_id: int = Path(..., ge=1),
     db: AsyncSession = Depends(get_db),
 ) -> CandidatePinToggleResponse:
@@ -97,7 +101,7 @@ async def get_pin_state(
 
 @router.post("/{candidate_id}/pin", response_model=CandidatePinToggleResponse)
 async def toggle_pin(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     candidate_id: int = Path(..., ge=1),
     payload: Optional[CandidatePinCreatePayload] = None,
     db: AsyncSession = Depends(get_db),
@@ -175,7 +179,7 @@ async def toggle_pin(
     response_model=None,  # FastAPI 0.115 strict — 204 must not have body
 )
 async def delete_pin(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     candidate_id: int = Path(..., ge=1),
     db: AsyncSession = Depends(get_db),
 ) -> None:
