@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import CandidateSearchAccess
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.saved_search import MatchHistory, SavedSearch
@@ -339,7 +340,7 @@ class MatchHistoryCreate(BaseModel):
 @router.post("/match-history", status_code=status.HTTP_201_CREATED)
 async def log_match(
     data: MatchHistoryCreate,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ):
     mh = MatchHistory(

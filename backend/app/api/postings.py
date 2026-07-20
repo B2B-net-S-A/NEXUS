@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: F401 (used via Depends)
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, TacPlus
 from app.core.database import get_db
 from app.models.job import Job
 from app.models.job_posting import JobPosting, Portal, PostingStatus
@@ -119,7 +119,7 @@ async def list_postings(
 async def create_posting(
     job_id: int,
     data: PostingCreate,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -156,7 +156,7 @@ async def create_posting(
 async def update_posting(
     posting_id: int,
     data: PostingUpdate,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Update posting status or metrics."""
@@ -181,7 +181,7 @@ async def update_posting(
 @router.delete("/postings/{posting_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_posting(
     posting_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a posting."""
@@ -199,7 +199,7 @@ async def delete_posting(
 async def publish_all(
     job_id: int,
     data: PublishAllRequest,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """
