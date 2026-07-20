@@ -23,8 +23,8 @@ Wszystkie cztery naprawione w PR #817 (poniżej). Dodatkowo **obalony został fa
 
 | | liczba |
 |---|---:|
-| Ustalenia potwierdzone i NOWE względem Codexa | 6 |
-| Z tego naprawione w tym PR | 4 |
+| Ustalenia potwierdzone i NOWE względem Codexa | 7 |
+| Z tego naprawione (PR #817 + #819) | 5 |
 | Rozszerzenia istniejących pozycji Codexa | 2 |
 | **Obalone** (fałszywy P0 z własnego sweepu) | 1 |
 | Niezweryfikowane (przerwane limitem sesji) | 5 |
@@ -56,6 +56,22 @@ Bliźniaczo `POST /api/import/candidates` pozwalał tej samej roli **masowo twor
 To jest najczystszy przykład problemu metodycznego z §6: PR1 zamknął *ścieżkę wymienioną w rejestrze*, a nie *zasób*. Dwie trasy, ten sam eksport, jedna zabezpieczona.
 
 **Fix:** `GET /api/export/candidates` → `CandidateExportAccess` + zdarzenie audytowe (ten sam kontrakt co PR1); `POST /api/import/candidates` → `CandidateWriteAccess`.
+
+### R-00b (P0-class) — panel generatora B2B wydawał dane kandydatów każdej roli *(PR #819)*
+
+**Plik:** `backend/app/api/cv_generator_b2b.py`
+
+Panel „Generator Umów B2B" jest w sidebarze **celowo dostępny dla wszystkich ról** („sourcing tooling"), a jego trasy stały na gołym `CurrentUser` — dosłownie `del current_user  # auth only`:
+
+| trasa | co wydawała |
+|---|---|
+| `GET /api/cv-generator/candidates` | typeahead po imieniu/nazwisku/**emailu** po całej bazie; puste `q` = ostatnio modyfikowani. `CandidateOption` = name, lastname, full_name, position, **email** → enumeracja **bez zgadywania ID** |
+| `GET /api/cv-generator/generated` | lista z `candidate_name` **cudzych** CV (`is_admin` sterował tylko flagą `can_delete`) |
+| `GET /api/cv-generator/generated/{id}/docx` | **brak jakiejkolwiek kontroli własności** — 403 w tym pliku dotyczy `DELETE`, nie pobierania → dowolne wygenerowane CV kandydata po sekwencyjnym ID |
+
+Kontrast bolesny: PR1 dał roli `user` 403 na `/api/candidates`, a ten typeahead pozwalał tej samej roli przeszukiwać tę samą bazę **razem z adresami email**.
+
+**Fix:** typeahead → `CandidateSearchAccess`; lista + docx → `CandidateDocumentAccess`; delete → `CandidateWriteAccess`.
 
 ### R-01 (P0-class) — viewer mógł pobrać CV każdego kandydata przez router stage-CV
 
