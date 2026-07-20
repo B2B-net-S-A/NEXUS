@@ -93,6 +93,46 @@ def user_has_candidate_read(user: User) -> bool:
     return user.has_any_role(*CANDIDATE_READ_ROLES)
 
 
+# Job fields a read-only viewer (QC / client-side `user`) must not receive on
+# the jobs list or detail. Financials, the whole champion sourcing profile, the
+# internal close notes and the free-form custom fields. Redaction sets each to
+# None rather than dropping the key, so the response SHAPE is unchanged and the
+# frontend does not break on a missing field — the viewer simply sees blanks.
+_VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
+    "salary_min",
+    "salary_max",
+    "champion_profile",
+    "close_notes",
+    "close_reason",
+    "custom_fields",
+    "description",
+    "requirements",
+)
+
+
+def redact_job_for_viewer(job_dict: dict, user: User) -> dict:
+    """Blank sensitive job fields for callers without an operational role.
+
+    Operational roles (recruiter and up) see everything. The read-only `user`
+    role — which per deps.py may be a client-side account — keeps the fields it
+    needs to make sense of the board (title, status, client, deadline,
+    headcount, owners) but loses money, the champion profile and internal
+    notes. Mutates and returns the same dict.
+    """
+    if user_has_candidate_read(user):
+        return job_dict
+    for field in _VIEWER_REDACTED_JOB_FIELDS:
+        if field in job_dict:
+            job_dict[field] = None
+    # Staff assignment is internal too — a client viewer has no need for the
+    # recruiter/collaborator roster with their e-mail addresses.
+    if "primary_owner" in job_dict:
+        job_dict["primary_owner"] = None
+    if "collaborators" in job_dict:
+        job_dict["collaborators"] = []
+    return job_dict
+
+
 def privacy_workflow_unavailable(operation: str) -> HTTPException:
     """409 for destructive privacy-adjacent operations disabled until PR 2.
 

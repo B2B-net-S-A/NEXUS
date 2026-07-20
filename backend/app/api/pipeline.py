@@ -893,7 +893,7 @@ async def move_candidate(
 @router.get("/kanban/{job_id}", response_model=KanbanView)
 async def get_kanban(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """

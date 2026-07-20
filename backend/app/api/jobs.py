@@ -40,6 +40,7 @@ from app.schemas.job import (
     UserBrief,
 )
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
+from app.api.candidate_access import redact_job_for_viewer
 from app.api.deps import (
     CurrentUser,
     DeliveryLeadPlus,
@@ -506,6 +507,7 @@ async def list_jobs(
         )
         if include_stage_counts:
             d["stage_breakdown"] = stage_breakdown.get(j.id, {})
+        redact_job_for_viewer(d, current_user)
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -878,6 +880,7 @@ async def get_job(
                 Client.id == job.client_id
             )
         )
+    redact_job_for_viewer(payload, current_user)
     return payload
 
 
