@@ -40,9 +40,9 @@ admin JWT.
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -218,9 +218,14 @@ def _alembic_state_from_code() -> dict[str, Any]:
         from alembic.config import Config
         from alembic.script import ScriptDirectory
 
-        script_location = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic"
-        )
+        # __file__ is <backend>/app/api/admin_schema_drift.py and the migration
+        # tree lives at <backend>/alembic — three levels up (api → app →
+        # backend). The two-level form works in app/main.py, which sits one
+        # directory shallower; copying it here silently resolved to
+        # <backend>/app/alembic, ScriptDirectory raised CommandError, and the
+        # bare except below turned that into a quiet "code_error" field. The
+        # endpoint reported no alembic state at all until a test caught it.
+        script_location = str(Path(__file__).resolve().parents[2] / "alembic")
         cfg = Config()
         cfg.set_main_option("script_location", script_location)
         script = ScriptDirectory.from_config(cfg)
@@ -233,6 +238,11 @@ def _alembic_state_from_code() -> dict[str, Any]:
         out["revision_count"] = sum(1 for _ in script.walk_revisions())
     except Exception as exc:  # noqa: BLE001 — diagnostic must never raise
         out["code_error"] = type(exc).__name__
+        # Recording only the exception class is what let a plain
+        # "path doesn't exist" hide as an opaque `CommandError`. This endpoint
+        # is admin-gated and emits schema identifiers only, so the message adds
+        # no exposure and saves the next debugging session.
+        out["code_error_detail"] = str(exc)[:200]
     return out
 
 
