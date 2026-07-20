@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.user import User, UserRole
-from app.api.deps import CurrentUser
+from app.api.deps import OperationalUser, CurrentUser
 from app.schemas.job import UserBrief
 
 router = APIRouter()
@@ -51,7 +51,7 @@ _DEFAULT_ROLES = [
 
 @router.get("", response_model=List[UserBrief])
 async def list_users(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     roles: Optional[List[UserRole]] = Query(
         None,
@@ -80,7 +80,7 @@ async def list_users(
 
 @router.get("/mentionable", response_model=List[UserBrief])
 async def list_mentionable_users(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     job_id: Optional[int] = Query(
         None,

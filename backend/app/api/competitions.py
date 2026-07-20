@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import OperationalUser, AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.user import User
@@ -35,7 +35,7 @@ def _parse_type(type_str: str) -> CompetitionType:
 
 @router.get("/current")
 async def get_current(
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     type: str = Query(..., description="CompetitionType value"),
     period: Optional[str] = Query(
@@ -135,7 +135,7 @@ async def get_current(
 
 @router.get("/monthly-races")
 async def monthly_races(
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     period: Optional[str] = None,
 ):
@@ -209,7 +209,7 @@ async def monthly_races(
 
 @router.get("/history")
 async def get_history(
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     type: str = Query(...),
     limit: int = Query(10, ge=1, le=100),

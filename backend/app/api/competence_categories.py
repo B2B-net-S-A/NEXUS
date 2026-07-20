@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, OperationalUser
 from app.core.database import get_db
 from app.models.competence_category import (
     CompetenceCategory,
@@ -65,7 +65,7 @@ async def list_competence_categories(
 @router.get("/{cc_id}/recruiters", response_model=list[CcRecruiterOut])
 async def list_cc_recruiters(
     cc_id: int,
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     priority: Optional[int] = Query(None, ge=1, le=2),
 ):

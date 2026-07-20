@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, HeadOfRecruitmentPlus
+from app.api.deps import HeadOfRecruitmentPlus, OperationalUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.team_structure import (
@@ -88,7 +88,7 @@ def _role_str(role) -> str | None:
 @router.get("/{client_id}/team", response_model=ClientTeamResponse)
 async def get_client_team(
     client_id: int,
-    _user: CurrentUser,
+    _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientTeamResponse:
     """Combined TAC + DL view for a single client."""
