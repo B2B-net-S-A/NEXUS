@@ -162,6 +162,20 @@ READ_ENDPOINTS = [
     ("POST", "/api/search/candidates", {}),
     ("POST", "/api/candidates/check-duplicates", {}),
     ("POST", "/api/candidates/bulk-cv-download", {"candidate_ids": [999999]}),
+    # ── PR1b: sibling routers that serve the SAME candidate data ────────────
+    # Found by the independent module-2 re-audit: PR1 closed the canonical
+    # /api/candidates/* surfaces but these two routers kept bare CurrentUser,
+    # so a viewer could still (a) stream any candidate's original/branded CV
+    # by walking sequential stage_id values and (b) harvest name/lastname/
+    # email through the pin router's CandidatePinBrief. Regression-locked here
+    # so a future router cannot silently reopen the same hole.
+    ("GET", "/api/candidates/stages/999999/cv/original", None),
+    ("GET", "/api/candidates/stages/999999/cv/original/download", None),
+    ("GET", "/api/candidates/stages/999999/cv/branded", None),
+    ("GET", "/api/candidates/stages/999999/cv/branded/render-pdf", None),
+    ("GET", "/api/candidates/pins", None),
+    ("GET", "/api/candidates/999999/pin", None),
+    ("POST", "/api/candidates/999999/pin", None),
 ]
 
 

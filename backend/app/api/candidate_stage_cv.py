@@ -37,7 +37,15 @@ from sqlalchemy.orm import selectinload
 
 from app.services.cv_html_renderer import _generate_cv_html
 from app.services.html_sanitizer import sanitize_cv_html
-from app.api.deps import CurrentUser, RecruiterPlus
+
+# M2 audit follow-up (PR1b): the stage-CV snapshot router serves the SAME
+# candidate CV bytes that PR1 closed on /api/candidates/*, but only its
+# write routes were gated - the reads stayed open to any logged-in role.
+# A read-only viewer/client could enumerate sequential stage_id values and
+# download every candidate's original + branded CV. Reads now require the
+# same CandidateDocumentAccess capability as the canonical document routes.
+from app.api.candidate_access import CandidateDocumentAccess
+from app.api.deps import RecruiterPlus
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -118,7 +126,7 @@ async def _load_csv_for_stage(db: AsyncSession, stage_id: int) -> CandidateStage
 )
 async def get_original_cv(
     stage_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVOriginalSnapshotResponse:
     csv = await _load_csv_for_stage(db, stage_id)
@@ -128,7 +136,7 @@ async def get_original_cv(
 @router.get("/candidates/stages/{stage_id}/cv/original/download")
 async def download_original_cv(
     stage_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     csv = await _load_csv_for_stage(db, stage_id)
@@ -242,7 +250,7 @@ def _build_branded_response(
 )
 async def get_branded_cv(
     stage_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
     """Lazy render brandowanego CV — pierwszy GET generuje HTML z `_generate_cv_html()`,
@@ -367,7 +375,7 @@ async def update_branded_cv(
 )
 async def render_branded_cv_for_print(
     stage_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     """Wrap brandowane CV w printable HTML z auto window.print() — FE otwiera w
