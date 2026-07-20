@@ -34,8 +34,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 # Dependency callables that constitute a genuine authorisation decision, as
 # opposed to merely establishing who the caller is. Matched on __qualname__ so
 # the closures returned by factories like require_roles(...) are recognised.
@@ -117,13 +115,6 @@ def _routes() -> list[tuple[str, str, str]]:
 _BARE_BASELINE: set[tuple[str, str]] = set()
 
 
-@pytest.mark.skipif(
-    not _BARE_BASELINE,
-    reason=(
-        "Baseline not yet captured — run test_report_route_authz_inventory to "
-        "print the current classification, then freeze it here."
-    ),
-)
 def test_no_new_bare_authenticated_routes() -> None:
     """A new route may not rely on authentication alone."""
     bare = {(m, p) for m, p, c in _routes() if c == "bare"}
