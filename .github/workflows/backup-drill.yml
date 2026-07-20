@@ -84,9 +84,21 @@ jobs:
         run: |
           psql -h localhost -U drill -d nexus_drill -c "SELECT count(*) AS candidates FROM candidates;"
 
-      - name: No SSH key — drill skipped
+      - name: No SSH key — drill cannot run (FAIL)
         if: env.BACKUP_DRILL_SSH_KEY == ''
         run: |
-          echo "::warning::BACKUP_DRILL_SSH_KEY secret not configured. "
-          echo "::warning::Add it in repo settings to enable weekly backup restore drills."
-          echo "Backup drill configuration is documented in docs/disaster-recovery.md"
+          echo "::error::BACKUP_DRILL_SSH_KEY is not configured, so every step that"
+          echo "::error::actually verifies anything was skipped: fetch, restore,"
+          echo "::error::alembic upgrade and smoke query never ran."
+          echo ""
+          echo "This step used to emit a warning and let the job pass. That made the"
+          echo "drill report GREEN every week while restoring nothing — the worst"
+          echo "possible signal, because docs/disaster-recovery.md then cited this"
+          echo "workflow as proof the restore path was verified."
+          echo ""
+          echo "A disaster-recovery drill that cannot run is a FAILING drill."
+          echo "There is currently no evidence that a NEXUS backup can be restored."
+          echo ""
+          echo "To make this green, the drill has to genuinely pass — see"
+          echo "docs/disaster-recovery.md for what is still missing."
+          exit 1

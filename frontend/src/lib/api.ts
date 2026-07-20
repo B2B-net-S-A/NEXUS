@@ -37,6 +37,14 @@ export const api = axios.create({
  */
 export function extractErrorMsg(error: unknown): string {
   if (error instanceof AxiosError && error.response) {
+    // 429 = limit zapytań. slowapi odpowiada ciałem {"error": "Rate limit
+    // exceeded: N per 1 minute"} — BEZ klucza `detail`, więc bez tej gałęzi
+    // wołający spadał na surowe `error.message` i użytkownik dostawał
+    // „Request failed with status code 429" (zgłoszenie: Wiktoria Denka).
+    if (error.response.status === 429) {
+      console.error("[api] rate limited:", error.response.data);
+      return "Zbyt wiele prób w krótkim czasie — odczekaj minutę i spróbuj ponownie.";
+    }
     const data = error.response.data;
     if (data && typeof data === "object") {
       // `require_roles` (backend/app/api/deps.py) zwraca detail w formie
@@ -80,11 +88,46 @@ export function extractErrorMsg(error: unknown): string {
   return String(error);
 }
 
-// Attach token from localStorage
+// Attach token from localStorage.
+//
+// **Explicit beats implicit**: a call that passes its own `Authorization`
+// header wins over whatever still sits in localStorage. Axios has already
+// merged per-request headers into `config.headers` (an AxiosHeaders instance)
+// by the time this interceptor runs, so an unconditional assignment here
+// silently CLOBBERS the caller's token.
+//
+// That clobbering locked users out of BOTH login paths. Each one authenticates
+// first and then calls `/api/auth/me` with the freshly minted token passed
+// explicitly — BEFORE `setAuth` has persisted it:
+//   - Microsoft SSO   → src/app/login/microsoft/callback/page.tsx (after
+//                       trading the one-time code for a JWT)
+//   - e-mail + hasło  → src/app/login/page.tsx::handleSubmit (after
+//                       /api/auth/login)
+// Anyone who still had an expired token in localStorage got that dead token
+// pinned onto the request instead, so `/api/auth/me` answered 401 "Could not
+// validate credentials" — surfaced as a bounce back to /login (SSO) or as an
+// error banner over a correct password. The lockout was permanent: the 401
+// handler below declines to clear storage while on a `/login*` path, so the
+// stale token survived every retry. A user with no stored token logged in
+// fine, which is why this looked user-specific.
+//
+// It also prevented a subtler identity mix-up: on a shared browser a *valid*
+// token for another user would have made `/api/auth/me` describe THEM while we
+// stored the SSO user's token.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("access_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+    const headers = config.headers as unknown as {
+      has?: (name: string) => boolean;
+      Authorization?: unknown;
+    };
+    const hasExplicitAuth =
+      typeof headers?.has === "function"
+        ? headers.has("Authorization")
+        : headers?.Authorization != null;
+    if (token && !hasExplicitAuth) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     // Admin „podgląd jako użytkownik": gdy aktywny, dokleja nagłówek z id
     // podglądanego usera. Backend (admin-only, read-only) podmienia wtedy
     // efektywnego current_user — patrz backend/app/api/deps.py.

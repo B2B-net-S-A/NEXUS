@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import api from "@/lib/api";
+import api, { extractErrorMsg } from "@/lib/api";
 import { requiresOnboarding, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -121,12 +121,10 @@ function LoginForm() {
       if (!data?.authorize_url) throw new Error("Brak authorize_url w odpowiedzi");
       window.location.href = data.authorize_url;
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } }; message?: string };
-      setError(
-        e.response?.data?.detail ||
-          e.message ||
-          "Nie udało się uruchomić logowania Microsoft",
-      );
+      // extractErrorMsg zamiast surowego `e.message` — inaczej 429 z limitera
+      // (ciało slowapi nie ma klucza `detail`) wyświetlał się użytkownikowi
+      // jako „Request failed with status code 429".
+      setError(extractErrorMsg(err) || "Nie udało się uruchomić logowania Microsoft");
       setSsoLoading(false);
     }
   };
@@ -146,8 +144,8 @@ function LoginForm() {
       } else {
         router.push(nextPath);
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Błąd logowania");
+    } catch (err: unknown) {
+      setError(extractErrorMsg(err) || "Błąd logowania");
     } finally {
       setLoading(false);
     }
