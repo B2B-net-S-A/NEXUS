@@ -178,6 +178,14 @@ READ_ENDPOINTS = [
     ("POST", "/api/candidates/999999/pin", None),
 ]
 
+# Druga, równoległa powierzchnia eksportu/importu kandydatów (import_export.py).
+# PR1 zamknął /api/candidates/export (TAC+ i audyt), a ta trasa została na gołym
+# CurrentUser i strumieniowała CAŁĄ bazę (bez limitu) do dowolnej zalogowanej
+# roli. Trzymana w osobnej macierzy, bo dzieli kontrakt z eksportem, nie z read.
+PARALLEL_EXPORT_ENDPOINTS = [
+    ("GET", "/api/export/candidates", None),
+]
+
 
 @pytest.mark.parametrize("method,path,body", READ_ENDPOINTS)
 async def test_read_surface_role_matrix(
@@ -307,6 +315,33 @@ async def test_client_rate_requires_finance_capability(
 
 
 # ── Export: TAC-and-up + immutable audit ─────────────────────────────────────
+
+
+@pytest.mark.parametrize("method,path,body", PARALLEL_EXPORT_ENDPOINTS)
+async def test_parallel_export_surface_matches_export_capability(
+    m2_client: AsyncClient,
+    headers_by_role: dict[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+    body,
+):
+    """`/api/export/candidates` musi mieć DOKŁADNIE ten sam kontrakt co
+    `/api/candidates/export` — inaczej PR1 zamknął jedne drzwi, a druga
+    trasa dalej wydawała całą bazę (imię/nazwisko/email/telefon/stawka)
+    każdej zalogowanej roli, łącznie z read-only viewerem."""
+    for role in ROLES:
+        resp = await m2_client.request(
+            method, path, headers=headers_by_role[role], json=body
+        )
+        if role in EXPORT_ROLES:
+            assert resp.status_code != 403, (
+                f"[{role.value}] {method} {path} unexpectedly forbidden"
+            )
+        else:
+            assert resp.status_code == 403, (
+                f"[{role.value}] {method} {path} expected 403, "
+                f"got {resp.status_code} — równoległy eksport omija gate PR1"
+            )
 
 
 async def test_export_role_matrix(
