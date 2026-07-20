@@ -97,7 +97,7 @@ async def send_contract_for_signature(
 )
 async def list_signatures_for_contract(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> list[DocumentSignature]:
     """Most-recent-first list of every send attempt on this contract.
@@ -120,7 +120,7 @@ async def list_signatures_for_contract(
 )
 async def get_signature_detail(
     signature_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Single signature + chronological event timeline (Phase 3 webhooks)."""
