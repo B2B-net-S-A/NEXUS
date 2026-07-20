@@ -455,6 +455,13 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
+    # champion_card_share_tokens.token_sha256 — hash-at-rest v2 (migracja 0181).
+    # Bez tej kolumny mint v2 (token_sha256=digest) wywala UndefinedColumn i cały
+    # generator linku do karty champion pada. Idempotentne.
+    """ALTER TABLE champion_card_share_tokens
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """CREATE INDEX IF NOT EXISTS ix_champion_card_share_tokens_token_sha256
+       ON champion_card_share_tokens (token_sha256)""",
     # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
     # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
     # UndefinedColumnError gdyby app wystartował przed alembic upgrade.
