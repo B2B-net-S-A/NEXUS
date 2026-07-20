@@ -132,6 +132,54 @@ def _expected_enums() -> dict[str, set[str]]:
     return out
 
 
+async def _actual_indexes(db: AsyncSession) -> set[tuple[str, str]]:
+    """-> {(table, index_name)} for every index in the public schema."""
+    rows = (
+        await db.execute(
+            text(
+                "SELECT tablename, indexname FROM pg_indexes WHERE schemaname = 'public'"
+            )
+        )
+    ).all()
+    return {(t, i) for t, i in rows}
+
+
+async def _actual_foreign_keys(db: AsyncSession) -> set[tuple[str, str, str]]:
+    """-> {(table, column, referenced_table)}.
+
+    Compared by shape rather than by constraint name: SQLAlchemy and hand-written
+    migrations name constraints differently for the same relationship, so
+    matching on names would report drift that does not exist.
+    """
+    rows = (
+        await db.execute(
+            text("""
+                SELECT tc.table_name, kcu.column_name, ccu.table_name AS referenced
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON kcu.constraint_name = tc.constraint_name
+                 AND kcu.table_schema = tc.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_schema = 'public'
+            """)
+        )
+    ).all()
+    return {(t, c, r) for t, c, r in rows}
+
+
+def _truncate_identifier(name: str) -> str:
+    """Postgres silently truncates identifiers at 63 bytes.
+
+    Without mirroring that, every ORM index whose generated name is longer
+    would be reported as missing forever — a permanent false positive that
+    would teach people to ignore this report.
+    """
+    return name[:63]
+
+
 async def _run_checks(db: AsyncSession) -> dict[str, Any]:
     expected_tables = {
         name for name in Base.metadata.tables if name not in _KNOWN_NON_ORM_TABLES
@@ -196,9 +244,57 @@ async def _run_checks(db: AsyncSession) -> dict[str, Any]:
         if absent:
             missing_enum_values.append({"enum": enum_name, "missing": absent})
 
+    # Indexes — a missing one is invisible until it is a performance incident.
+    # The performance audit flagged full scans on candidate_stages as P1; an
+    # index that a migration declared but never landed looks exactly like that
+    # and nothing else in the stack notices.
+    actual_indexes = await _actual_indexes(db)
+    actual_index_names = {name for _, name in actual_indexes}
+    missing_indexes: list[dict[str, Any]] = []
+    for table_name, table in Base.metadata.tables.items():
+        if table_name not in actual_tables:
+            continue
+        for index in table.indexes:
+            if not index.name:
+                continue
+            if _truncate_identifier(index.name) not in actual_index_names:
+                missing_indexes.append(
+                    {
+                        "table": table_name,
+                        "index": index.name,
+                        "columns": [c.name for c in index.columns],
+                        "unique": bool(index.unique),
+                    }
+                )
+
+    # Foreign keys — a missing one is silent integrity loss: orphaned rows
+    # accumulate and only surface much later as "impossible" data.
+    actual_fks = await _actual_foreign_keys(db)
+    missing_foreign_keys: list[dict[str, Any]] = []
+    for table_name, table in Base.metadata.tables.items():
+        if table_name not in actual_tables:
+            continue
+        for fk in table.foreign_keys:
+            referenced = fk.column.table.name
+            local = fk.parent.name
+            if (table_name, local, referenced) not in actual_fks:
+                missing_foreign_keys.append(
+                    {
+                        "table": table_name,
+                        "column": local,
+                        "references": referenced,
+                    }
+                )
+
     return {
         "missing_tables": missing_tables,
         "extra_tables": extra_tables,
+        "missing_indexes": sorted(
+            missing_indexes, key=lambda r: (r["table"], r["index"])
+        ),
+        "missing_foreign_keys": sorted(
+            missing_foreign_keys, key=lambda r: (r["table"], r["column"])
+        ),
         "missing_columns": sorted(
             missing_columns,
             key=lambda r: (r["severity"] != "high", r["table"], r["column"]),
@@ -274,6 +370,8 @@ async def schema_drift(
             "nullability_mismatch": len(checks["nullability_mismatch"]),
             "missing_enum_types": len(checks["missing_enum_types"]),
             "missing_enum_values": len(checks["missing_enum_values"]),
+            "missing_indexes": len(checks["missing_indexes"]),
+            "missing_foreign_keys": len(checks["missing_foreign_keys"]),
             "extra_tables": len(checks["extra_tables"]),
         }
         # The headline: is the live schema able to serve the ORM as written?

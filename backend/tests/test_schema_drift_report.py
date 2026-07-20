@@ -102,6 +102,19 @@ async def test_schema_drift_reports_only_known_drift(
     assert summary["missing_columns"] == 0, f"columns missing: {body['missing_columns'][:5]}"
     assert summary["missing_enum_types"] == 0, body["missing_enum_types"]
 
+    # Indexes and foreign keys are asserted at zero deliberately. If a
+    # migrated database is missing either, the failure message below is the
+    # measurement — cheaper and more exact than guessing a baseline. A missing
+    # index is silent performance loss; a missing foreign key is silent
+    # integrity loss. Neither is caught by anything else in the stack.
+    assert summary["missing_indexes"] == 0, (
+        f"indexes declared by the ORM but absent from the database: {body['missing_indexes']}"
+    )
+    assert summary["missing_foreign_keys"] == 0, (
+        "foreign keys declared by the ORM but absent from the database: "
+        f"{body['missing_foreign_keys']}"
+    )
+
     observed = {
         (entry["enum"], label)
         for entry in body["missing_enum_values"]
