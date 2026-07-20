@@ -1784,6 +1784,15 @@ _CONSTRAINT_STATEMENTS = [
 # CONCURRENTLY, bo stary kontener może jeszcze obsługiwać ruch podczas startu
 # nowego — zwykły CREATE INDEX brałby ACCESS EXCLUSIVE i blokował zapisy.
 # IF NOT EXISTS sprawia, że kolejne starty są natychmiastowe.
+#
+# UWAGA: ta lista jest KRÓTSZA niż _INDEXES w migracji 0180 i tak ma być.
+# Tu są 30 indeksów zmierzonych jako brakujące NA PRODUKCJI; migracja tworzy
+# unię 36 z pomiarem CI, żeby świeża baza (odtworzenie, nowe środowisko)
+# dostała komplet. Sześć różnicy produkcja już ma — m.in.
+# ix_champion_profile_suggestions_job_id, ix_proposal_snapshots_job_id,
+# ix_rate_benchmarks_role/_seniority,
+# ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
+# tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_activities_external_id ON activities (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_analytics_metric_snapshots_module ON analytics_metric_snapshots (module)",
@@ -1851,15 +1860,21 @@ async def backfill():
             await conn.execute("SET statement_timeout = '120s'")
         except Exception as e:
             print(f"backfill: nie udało się ustawić statement_timeout -> {e!r}")
-        for stmt in _INDEX_STATEMENTS:
-            try:
-                await conn.execute(stmt)
-            except Exception as e:
-                print(f"backfill index skip: {stmt!r} -> {e!r}")
         try:
-            await conn.execute("SET statement_timeout = 0")
-        except Exception:
-            pass
+            for stmt in _INDEX_STATEMENTS:
+                try:
+                    await conn.execute(stmt)
+                except Exception as e:
+                    print(f"backfill index skip: {stmt!r} -> {e!r}")
+        finally:
+            # W finally, nie po pętli: wyjątki w środku są łykane, więc w
+            # praktyce reset zawsze się wykonywał — ale gdyby cokolwiek
+            # wypropagowało (np. zerwane połączenie), limit zostałby ustawiony
+            # na tym połączeniu. Ta ścieżka biegnie przy każdym deployu.
+            try:
+                await conn.execute("SET statement_timeout = 0")
+            except Exception:
+                pass
         print("backfill: ok")
     finally:
         await conn.close()
