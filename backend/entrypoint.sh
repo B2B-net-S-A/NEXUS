@@ -1814,7 +1814,6 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_templates_external_id ON pipeline_templates (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_competence_category_id ON talent_pools (competence_category_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_external_id ON talent_pools (external_id)",
-    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_is_personal ON talent_pools (is_personal)",
 ]
 
 

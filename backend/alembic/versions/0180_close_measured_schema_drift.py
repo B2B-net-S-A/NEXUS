@@ -45,6 +45,11 @@ gap (zero UNIQUE indexes were missing). The clearest cost:
 VEVENT, so every calendar import scanned the table once per event. Ten of them
 are ``external_id`` columns — the very keys the Traffit and M365 integrations
 look records up by.
+
+``talent_pools.is_personal`` is deliberately absent: migration 0137 already
+created ``ix_talent_pools_is_personal`` over ``(is_personal, created_by)``. A
+B-tree index serves lookups on any leading subset of its columns, so that one
+already answers the ORM's need — and the name would collide anyway.
 """
 
 from alembic import op
@@ -107,7 +112,6 @@ _INDEXES = [
     ("ix_talent_pools_competence_category_id", "talent_pools", "competence_category_id"),
     ("ix_talent_pools_external_id", "talent_pools", "external_id"),
     ("ix_talent_pools_is_marketplace", "talent_pools", "is_marketplace"),
-    ("ix_talent_pools_is_personal", "talent_pools", "is_personal"),
 ]
 
 
