@@ -53,8 +53,12 @@ import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCom
 import api from "@/lib/api";
 import {
   type RecruitmentOption,
+  CHAMPION_ACCEPT,
+  CV_ACCEPT,
+  MAX_UPLOAD_MB,
   downloadBlob,
   extractErrorDetail,
+  fileValidationError,
 } from "@/lib/cv-generator";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -108,25 +112,6 @@ function formatGeneratedDate(iso?: string | null): string {
   });
 }
 
-const CV_ACCEPT = ".pdf,.docx";
-const CHAMPION_ACCEPT = ".docx";
-const MAX_UPLOAD_MB = 50;
-
-function fileValidationError(file: File, accept: string): string | null {
-  const ext = `.${(file.name.split(".").pop() ?? "").toLowerCase()}`;
-  const allowed = accept.split(",").map((s) => s.trim().toLowerCase());
-  if (ext === ".doc") {
-    return "Format .doc (Word 97-2003) nie jest obsługiwany — zapisz plik jako .docx lub PDF.";
-  }
-  if (!allowed.includes(ext)) {
-    return `Nieobsługiwany format '${ext}'. Dozwolone: ${allowed.join(", ")}.`;
-  }
-  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
-    return `Plik za duży (${Math.round(file.size / 1024 / 1024)} MB). Maksymalny rozmiar to ${MAX_UPLOAD_MB} MB.`;
-  }
-  return null;
-}
-
 export function CVGeneratorStandaloneV2() {
   const toast = useToast();
 
@@ -142,6 +127,11 @@ export function CVGeneratorStandaloneV2() {
   // ── Old mode state ──────────────────────────────────────────────────────
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [championFile, setChampionFile] = useState<File | null>(null);
+  // Durable rejection reason. A toast alone was not enough: it self-destructs
+  // and the dropzone re-renders its untouched empty state, so a recruiter whose
+  // champion file was rejected saw no trace of it and generated a CV with no
+  // champion at all — reported as "the generator does not work with a champion".
+  const [championError, setChampionError] = useState<string | null>(null);
   const [screeningNotes, setScreeningNotes] = useState("");
 
   // ── Shared options ──────────────────────────────────────────────────────
@@ -282,6 +272,7 @@ export function CVGeneratorStandaloneV2() {
       // without manually removing the previous file, champion and notes.
       setCvFile(null);
       setChampionFile(null);
+      setChampionError(null);
       setScreeningNotes("");
       toast.showSuccess(
         "Generacja ruszyła w tle — CV pojawi się na liście poniżej. Formularz wyczyszczony — możesz wgrać kolejne CV.",
@@ -364,11 +355,19 @@ export function CVGeneratorStandaloneV2() {
     if (f) {
       const err = fileValidationError(f, CHAMPION_ACCEPT);
       if (err) {
+        setChampionError(err);
         toast.showError(`Profil Championa: ${err}`);
         return;
       }
     }
+    setChampionError(null);
     setChampionFile(f);
+  }
+
+  function handleChampionEmptyDrop() {
+    setChampionError(
+      "Nie udało się odczytać upuszczonego pliku — wybierz go z dysku, klikając pole powyżej.",
+    );
   }
 
   return (
@@ -453,9 +452,11 @@ export function CVGeneratorStandaloneV2() {
         <OldModeForm
           cvFile={cvFile}
           championFile={championFile}
+          championError={championError}
           screeningNotes={screeningNotes}
           setCvFile={handleCvFile}
           setChampionFile={handleChampionFile}
+          onChampionEmptyDrop={handleChampionEmptyDrop}
           setScreeningNotes={setScreeningNotes}
         />
       )}
@@ -499,6 +500,15 @@ export function CVGeneratorStandaloneV2() {
           </div>
         </CardContent>
       </Card>
+
+      {mode === "old" && championError && !championFile && (
+        <Alert
+          variant="warning"
+          className="mt-6"
+          title="Wygenerujesz CV bez Profilu Championa"
+          description="Technologie klienta nie zostaną wytłuszczone, a lista brakujących wymagań nie powstanie. Popraw plik w kroku 2 albo generuj świadomie."
+        />
+      )}
 
       <div className="mt-6 flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
@@ -766,18 +776,22 @@ function NewModeForm({
 type OldModeFormProps = {
   cvFile: File | null;
   championFile: File | null;
+  championError: string | null;
   screeningNotes: string;
   setCvFile: (f: File | null) => void;
   setChampionFile: (f: File | null) => void;
+  onChampionEmptyDrop: () => void;
   setScreeningNotes: (v: string) => void;
 };
 
 function OldModeForm({
   cvFile,
   championFile,
+  championError,
   screeningNotes,
   setCvFile,
   setChampionFile,
+  onChampionEmptyDrop,
   setScreeningNotes,
 }: OldModeFormProps) {
   return (
@@ -817,7 +831,17 @@ function OldModeForm({
             accept={CHAMPION_ACCEPT}
             label="Upuść DOCX championa tutaj lub kliknij, by wybrać"
             description="DOCX"
+            invalid={!!championError}
+            onEmptyDrop={onChampionEmptyDrop}
           />
+          {championError && (
+            <Alert
+              variant="error"
+              className="mt-3"
+              title="Profil Championa nie został wczytany"
+              description={championError}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -850,6 +874,10 @@ type FileDropZoneProps = {
   accept: string;
   label: string;
   description: string;
+  /** Tint the zone as rejected — pairs with a caller-rendered error Alert. */
+  invalid?: boolean;
+  /** Fired when a drop carried no readable file (e.g. dragged from a mail client). */
+  onEmptyDrop?: () => void;
 };
 
 function FileDropZone({
@@ -858,6 +886,8 @@ function FileDropZone({
   accept,
   label,
   description,
+  invalid,
+  onEmptyDrop,
 }: FileDropZoneProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -865,6 +895,10 @@ function FileDropZone({
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
     const next = e.target.files?.[0] ?? null;
     onFile(next);
+    // Reset so re-picking the SAME file fires `change` again. Without this, a
+    // rejected file could not be retried after fixing it on disk — the second
+    // pick was a silent no-op, which reads as "the button does nothing".
+    e.target.value = "";
   }
 
   function handleDrop(e: DragEvent<HTMLLabelElement>) {
@@ -872,7 +906,11 @@ function FileDropZone({
     e.stopPropagation();
     setDragOver(false);
     const next = e.dataTransfer.files?.[0] ?? null;
-    if (next) onFile(next);
+    if (next) {
+      onFile(next);
+    } else {
+      onEmptyDrop?.();
+    }
   }
 
   function handleDragOver(e: DragEvent<HTMLLabelElement>) {
@@ -917,7 +955,9 @@ function FileDropZone({
         "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors",
         dragOver
           ? "border-primary bg-primary/5"
-          : "border-border hover:bg-muted/30",
+          : invalid
+            ? "border-destructive/60 bg-destructive/5"
+            : "border-border hover:bg-muted/30",
       )}
       onDrop={handleDrop}
       onDragOver={handleDragOver}

@@ -17,6 +17,40 @@ export type RecruitmentOption = {
   ready: boolean;
 };
 
+export const CV_ACCEPT = ".pdf,.docx";
+export const CHAMPION_ACCEPT = ".docx";
+export const MAX_UPLOAD_MB = 50;
+
+/**
+ * Client-side upload precheck. Mirrors the server's `_validate_upload`
+ * (`standalone_service.py`) so a file the backend would reject never costs the
+ * recruiter a round trip — the server remains the authority.
+ *
+ * Returns a Polish message, or `null` when the file is acceptable.
+ */
+export function fileValidationError(file: File, accept: string): string | null {
+  // `lastIndexOf` (not `split(".").pop()`): an extensionless "ProfilChampiona"
+  // used to report a nonsense extension of '.profilchampiona'. Trim first so a
+  // trailing space in the filename does not defeat the allowlist.
+  const name = file.name.trim().toLowerCase();
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot) : "";
+  const allowed = accept.split(",").map((s) => s.trim().toLowerCase());
+  if (!ext) {
+    return `Plik nie ma rozszerzenia. Dozwolone: ${allowed.join(", ")}.`;
+  }
+  if (ext === ".doc") {
+    return "Format .doc (Word 97-2003) nie jest obsługiwany — zapisz plik jako .docx lub PDF.";
+  }
+  if (!allowed.includes(ext)) {
+    return `Nieobsługiwany format '${ext}'. Dozwolone: ${allowed.join(", ")}.`;
+  }
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    return `Plik za duży (${Math.round(file.size / 1024 / 1024)} MB). Maksymalny rozmiar to ${MAX_UPLOAD_MB} MB.`;
+  }
+  return null;
+}
+
 export const STAGE_LABELS: Record<string, string> = {
   new: "Nowy",
   contacted: "Kontakt",

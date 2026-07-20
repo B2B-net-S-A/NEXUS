@@ -1,5 +1,54 @@
 import { describe, it, expect } from "vitest";
-import { parseDispositionFilename } from "@/lib/cv-generator";
+import {
+  CHAMPION_ACCEPT,
+  MAX_UPLOAD_MB,
+  fileValidationError,
+  parseDispositionFilename,
+} from "@/lib/cv-generator";
+
+describe("fileValidationError", () => {
+  const file = (name: string, size = 1024) =>
+    new File([new Uint8Array(size)], name);
+
+  it("accepts a .docx champion regardless of case or trailing space", () => {
+    expect(fileValidationError(file("champion.docx"), CHAMPION_ACCEPT)).toBeNull();
+    expect(fileValidationError(file("Champion.DOCX"), CHAMPION_ACCEPT)).toBeNull();
+    expect(fileValidationError(file("champion.docx "), CHAMPION_ACCEPT)).toBeNull();
+  });
+
+  it("accepts a name containing dots before the extension", () => {
+    expect(
+      fileValidationError(file("Profil Championa 2026.01.20.docx"), CHAMPION_ACCEPT),
+    ).toBeNull();
+  });
+
+  it("reports a missing extension instead of inventing one", () => {
+    // `split(".").pop()` used to report '.profilchampiona' here.
+    const err = fileValidationError(file("ProfilChampiona"), CHAMPION_ACCEPT);
+    expect(err).toContain("nie ma rozszerzenia");
+    expect(err).not.toContain("profilchampiona");
+  });
+
+  it("gives .doc its own actionable message", () => {
+    expect(fileValidationError(file("champion.doc"), CHAMPION_ACCEPT)).toContain(
+      "Word 97-2003",
+    );
+  });
+
+  it("rejects a PDF champion with the allowed list", () => {
+    expect(fileValidationError(file("champion.pdf"), CHAMPION_ACCEPT)).toContain(
+      ".docx",
+    );
+  });
+
+  it("rejects a file above the size cap", () => {
+    const huge = new File([], "champion.docx");
+    Object.defineProperty(huge, "size", {
+      value: (MAX_UPLOAD_MB + 1) * 1024 * 1024,
+    });
+    expect(fileValidationError(huge, CHAMPION_ACCEPT)).toContain("za duży");
+  });
+});
 
 describe("parseDispositionFilename", () => {
   it("decodes the RFC 5987 filename* parameter so Polish characters survive", () => {
