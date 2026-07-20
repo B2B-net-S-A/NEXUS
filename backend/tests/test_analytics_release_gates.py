@@ -1,9 +1,10 @@
 """Bramki release Analytics (plan PR 8) — blokujące testy CI.
 
 CI musi blokować (plan §PR8):
-1. NOWE heady Alembica (chroniczny multi-head prod: baseline 24 — plan
-   wymagał "dokładnie jeden", ale wymuszenie single-head to osobna,
-   ryzykowna operacja scalająca; bramka pilnuje ZERA nowych),
+1. NOWE heady Alembica — od 2026-07-20 baseline wynosi 1, czyli plan
+   doczekał się swojego "dokładnie jednego". Scalenie okazało się tanie
+   (0179 łączy 0177+0178); ryzykowna wydawała się tylko dlatego, że
+   regexowy licznik headów raportował 26 zamiast 2,
 2. mutacje w analytics/DynaReporter chronione tylko CurrentUser,
 3. viewer-safe odpowiedzi z zakazanym polem finansowym,
 4. dryf kontraktu OpenAPI /api/analytics/v1 bez świadomej aktualizacji.
@@ -14,6 +15,7 @@ RBAC matrix + zakaz 500-jako-odmowy egzekwuje test_rbac.py (też blocking).
 from __future__ import annotations
 
 import json
+import ast
 import re
 import uuid
 from pathlib import Path
@@ -30,28 +32,78 @@ from app.models.user import User, UserRole
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-# Baseline historycznych headów (stan 2026-07-16). Nowa migracja MUSI
-# doczepić się do istniejącego grafu (down_revision = aktualny czubek
-# łańcucha 01xx), nie tworzyć nowego heada. 25. head to
-# 0175_stage_notif_user_fk_cascade (równoległa sesja 2026-07-16 — dubel
-# numeru 0175 i wiszący czubek; gate powstał ZA późno żeby go złapać).
-# Obniżaj baseline przy scalaniu headów; NIGDY nie podnoś bez powodu.
-_ALEMBIC_HEADS_BASELINE = 25
+# Dozwolona liczba headów. Od 2026-07-20 wynosi 1 — czyli łańcuch MUSI mieć
+# dokładnie jeden czubek.
+#
+# Poprzednia wartość (25) nie opisywała rzeczywistości, tylko błąd parsera:
+# regexowa wersja `_alembic_heads()` nie czytała wieloliniowego
+# `down_revision = (...)`, więc liczyła 26 headów, podczas gdy sam alembic
+# raportował 2. Baseline podnoszono, żeby pomieścić zmyślone heady — a to
+# znaczy, że prawdziwy nowy head mógł się pojawić, nigdy nie przekraczając
+# progu. Bramka przez cały ten czas mierzyła szum.
+#
+# Po scaleniu 0177+0178 przez 0179 i naprawie parsera prawdziwa liczba to 1.
+# Trzymamy ją na 1: `alembic upgrade head` (l. poj.) w backup-drill.yml
+# rozwiązuje się tylko przy jednym czubku, więc każdy rozjazd natychmiast
+# psuje ścieżkę odtworzenia po awarii. NIGDY nie podnoś tej wartości —
+# zamiast tego dopisz migrację merge.
+_ALEMBIC_HEADS_BASELINE = 1
 
 
 def _alembic_heads() -> list[str]:
+    """Heads in the migration graph, parsed with `ast` rather than regex.
+
+    The previous implementation used
+    ``re.findall(r"down_revision(?::[^=]*)?\\s*=\\s*(.+)", src)``. ``.`` does not
+    match newlines, so for the multi-line merge form::
+
+        down_revision = (
+            "0177_analytics_snapshots_cutovers",
+            "0178_recruitment_processes",
+        )
+
+    the capture was the bare ``(`` and the inner token scan found **no
+    parents** — every ancestor declared that way stayed unclaimed and was
+    counted as a head. 14 files parsed differently under the two approaches,
+    11 of them multi-line tuples.
+
+    The consequence was worse than a wrong number: this gate exists to stop
+    head sprawl, and it reported 26 heads while alembic itself reported 2. The
+    baseline was then raised to 25 to accommodate the phantom count, which
+    meant a genuine new head could appear without ever crossing the threshold.
+    Fixing head sprawl also *tripped* it, because a merge revision necessarily
+    uses the very syntax the regex could not read.
+
+    Parsing the assignment properly handles both the string and the
+    tuple/list form, and matches ``alembic heads`` exactly.
+    """
     versions = BACKEND / "alembic" / "versions"
-    revs: dict[str, str] = {}
+    revs: set[str] = set()
     downs: set[str] = set()
     for f in versions.glob("*.py"):
-        src = f.read_text(encoding="utf-8")
-        m = re.search(r"^revision(?::\s*str)?\s*=\s*['\"]([^'\"]+)", src, re.M)
-        if m:
-            revs[m.group(1)] = f.name
-        for dd in re.findall(r"down_revision(?::[^=]*)?\s*=\s*(.+)", src):
-            for tok in re.findall(r"['\"]([^'\"]+)['\"]", dd):
-                downs.add(tok)
-    return [r for r in revs if r not in downs]
+        try:
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover — a broken migration file
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            target = node.targets[0] if isinstance(node, ast.Assign) else node.target
+            if not isinstance(target, ast.Name):
+                continue
+            value = node.value
+            if target.id == "revision" and isinstance(value, ast.Constant):
+                revs.add(value.value)
+            elif target.id == "down_revision":
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    downs.add(value.value)
+                elif isinstance(value, (ast.Tuple, ast.List)):
+                    for element in value.elts:
+                        if isinstance(element, ast.Constant) and isinstance(
+                            element.value, str
+                        ):
+                            downs.add(element.value)
+    return sorted(revs - downs)
 
 
 def test_no_new_alembic_heads():
