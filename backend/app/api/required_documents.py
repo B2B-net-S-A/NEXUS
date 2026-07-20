@@ -464,7 +464,7 @@ async def download_required_doc(
     client_id: int,
     doc_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_tac_plus),
 ):
     await _assert_client(db, client_id)
     result = await db.execute(
