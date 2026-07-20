@@ -31,6 +31,7 @@ class ChampionParseDiagnostics:
 
     from_docx: bool = False
     headings_found: int = 0
+    content_sections_found: int = 0
     raw_entry_count: int = 0
     kept_entry_count: int = 0
     dropped_prose: int = 0
@@ -39,6 +40,16 @@ class ChampionParseDiagnostics:
     @property
     def dropped_total(self) -> int:
         return self.dropped_prose + self.dropped_overflow
+
+    @property
+    def nothing_recognised(self) -> bool:
+        """No section that can carry content was recognised at all.
+
+        Covers both "not a single known heading" and "only boundary headings"
+        — the latter still leaves ``headings_found > 0`` while producing an
+        entirely empty profile, so counting headings alone would stay silent.
+        """
+        return bool(self.from_docx and not self.content_sections_found)
 
     @property
     def wiped_out(self) -> bool:
@@ -534,7 +545,14 @@ def parse_champion_from_docx_bytes(
         seg = picked.get(name)
         return seg.body if seg else ""
 
-    diag = ChampionParseDiagnostics(from_docx=True, headings_found=len(segments))
+    diag = ChampionParseDiagnostics(
+        from_docx=True,
+        headings_found=len(segments),
+        # Boundary headings ("OFFLIMIT", "Strategia Delivery Leada") do not carry
+        # content, so a document made only of those parses to an entirely empty
+        # profile. Counting them as "recognised" would suppress the warning.
+        content_sections_found=len(picked),
+    )
     must_have, nice_to_have = _guard_skill_lists(
         body("must_have"), body("nice_to_have"), diag
     )

@@ -426,9 +426,12 @@ def _is_strong_tech_token(token: str) -> bool:
         return False
     if any(ch in probe for ch in "+#/."):
         return True
-    if any(ch.isdigit() for ch in token):
+    # `probe`, not `token`, for all branches below the strip. Behaviourally a
+    # no-op (the stripped characters carry neither digits nor letters) — kept
+    # uniform so a future edit to the strip set stays correct everywhere.
+    if any(ch.isdigit() for ch in probe):
         return True
-    letters = [ch for ch in token if ch.isalpha()]
+    letters = [ch for ch in probe if ch.isalpha()]
     if len(letters) < 2:
         return False
     if all(ch.isupper() for ch in letters):

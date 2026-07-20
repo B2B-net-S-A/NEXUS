@@ -1013,9 +1013,9 @@ def _champion_parse_warnings(
     diag = champion_dto.diagnostics
     if not diag.from_docx:
         return []
-    if diag.headings_found == 0:
+    if diag.nothing_recognised:
         return [
-            "Profil Championa: nie rozpoznano żadnej sekcji w dokumencie — "
+            "Profil Championa: nie rozpoznano żadnej sekcji z treścią — "
             "profil został zignorowany przy generowaniu. Upewnij się, że plik "
             "zawiera nagłówki MUST-HAVE / NICE-TO-HAVE w osobnych wierszach."
         ]

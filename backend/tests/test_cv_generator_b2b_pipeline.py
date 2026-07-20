@@ -1731,10 +1731,11 @@ def test_total_skill_loss_is_flagged_and_warned():
     assert diag.wiped_out is True and diag.implausible is True
 
     dto = ChampionProfileForPrompt()
-    # Sections WERE recognised — the guard is what emptied the lists, so the
-    # recruiter must get the "everything was rejected" message, not the
+    # A content section WAS recognised — the guard is what emptied the lists, so
+    # the recruiter must get the "everything was rejected" message, not the
     # "no section recognised" one.
     diag.headings_found = 2
+    diag.content_sections_found = 1
     dto.diagnostics = diag
     assert "żadna pozycja" in _champion_parse_warnings(dto)[0]
 
@@ -1818,6 +1819,28 @@ def test_champion_no_known_heading_yields_empty_not_swallow():
     )
     assert cp.is_empty()
     assert cp.diagnostics.headings_found == 0
+    assert cp.diagnostics.nothing_recognised is True
+
+
+def test_champion_with_only_boundary_headings_is_not_silent():
+    # Boundary headings are recognised but carry no content, so headings_found
+    # is non-zero while the profile is entirely empty. Counting headings alone
+    # would let this through without any warning to the recruiter.
+    cp = parse_champion_from_docx_bytes(
+        _champion_docx(
+            "Strategia Delivery Leada - jak znajdziemy idealnego kandydata?",
+            "Szukamy w bankowości.",
+            "OFFLIMIT - TAK",
+        ),
+        "champion.docx",
+    )
+    assert cp.is_empty()
+    assert cp.diagnostics.headings_found > 0
+    assert cp.diagnostics.nothing_recognised is True
+
+    dto = ChampionProfileForPrompt()
+    dto.diagnostics = cp.diagnostics
+    assert "nie rozpoznano żadnej sekcji" in _champion_parse_warnings(dto)[0]
 
 
 def test_guard_drops_prose_keeps_real_chips():
@@ -1872,6 +1895,7 @@ def test_implausible_champion_emits_recruiter_warning():
     dto.diagnostics = ChampionParseDiagnostics(
         from_docx=True,
         headings_found=3,
+        content_sections_found=2,
         raw_entry_count=256,
         kept_entry_count=40,
         dropped_overflow=216,
