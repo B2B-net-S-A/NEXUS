@@ -166,7 +166,7 @@ async def upload_signed_offline(
 )
 async def list_signatures(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> list[DocumentSignature]:
     """Most-recent-first signatures for a contract."""
@@ -184,7 +184,7 @@ async def list_signatures(
 )
 async def get_signature(
     signature_id: int,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     sig = await db.scalar(

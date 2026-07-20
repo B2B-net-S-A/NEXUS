@@ -63,11 +63,16 @@ def _to_schema(kpi_result) -> KpiResultSchema:
 
 
 # Role, które nie wykonują pracy operacyjnej — nie pokazujemy im widgeta.
-_NON_OPERATIONAL_ROLES = {
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.user,
+# Role, które MAJĄ własne KPI rekrutacyjne. Zapisane jako zbiór pozytywny,
+# bo lista zabroniona źle się zachowuje przy schemacie multi-role: użytkownik z
+# primary=delivery_lead i secondary=recruiter realnie rekrutuje i POWINIEN
+# widzieć swoje KPI, a sprawdzenie "czy jest na liście zabronionych" wyklucza
+# go przez samą rolę główną. Pytanie brzmi "czy masz JAKĄKOLWIEK rolę z KPI",
+# nie "czy twoja główna rola jest na czarnej liście".
+_KPI_BEARING_ROLES = {
+    UserRole.tac,
+    UserRole.recruiter,
+    UserRole.sourcer,
 }
 
 
@@ -82,7 +87,7 @@ async def get_my_kpis_today(
     - Dla ról nie-operacyjnych (admin, delivery_lead, ...) zwraca pustą
       listę — widget nie powinien im się pokazywać.
     """
-    if current_user.role in _NON_OPERATIONAL_ROLES:
+    if not current_user.has_any_role(*_KPI_BEARING_ROLES):
         return []
 
     results = await evaluate_user_kpis(db, user=current_user)

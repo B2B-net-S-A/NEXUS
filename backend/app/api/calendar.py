@@ -437,7 +437,7 @@ def _resolve_scope_user(requested_user_id: Optional[int], current_user) -> int:
     """Default: scan caller's own events. Cross-user lookups need admin/HoR."""
     if requested_user_id is None or requested_user_id == current_user.id:
         return current_user.id
-    if current_user.role not in (UserRole.admin, UserRole.head_of_recruitment):
+    if not current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
         raise HTTPException(
             status_code=403,
             detail="Cross-user conflict lookups require admin/head_of_recruitment",

@@ -100,7 +100,7 @@ async def _ensure_unique_slug(
 
 
 def _is_admin(user) -> bool:
-    return user.role == UserRole.admin
+    return user.has_role(UserRole.admin)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────

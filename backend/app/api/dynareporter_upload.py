@@ -42,7 +42,7 @@ async def list_history(
     file_type: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[UploadHistoryResponse]:
-    is_priv = current_user.role in (
+    is_priv = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,

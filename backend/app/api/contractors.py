@@ -154,7 +154,7 @@ async def list_contractors(
     else:
         query = query.where(Contract.status.in_(_LIST_STATUSES))
 
-    if current_user.role not in _FULL_VISIBILITY_ROLES:
+    if not current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
         # Join Candidate for ownership scoping. Using join (not selectinload
         # chain) so the WHERE can reference Candidate.created_by.
         query = query.join(Candidate, Contract.candidate_id == Candidate.id).where(
@@ -210,7 +210,7 @@ async def contractor_stats(
     )
     query = query.where(Contract.status.in_(_LIST_STATUSES))
 
-    if current_user.role not in _FULL_VISIBILITY_ROLES:
+    if not current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
         query = query.join(Candidate, Contract.candidate_id == Candidate.id).where(
             Candidate.created_by == current_user.id
         )

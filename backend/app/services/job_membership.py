@@ -22,7 +22,7 @@ from app.models.user import User, UserRole
 
 async def is_member_of_job(db: AsyncSession, user: User, job_id: int) -> bool:
     """Czy user może widzieć/uczestniczyć w Job Chacie danego projektu."""
-    if user.role == UserRole.admin:
+    if user.has_role(UserRole.admin):
         return True
 
     job = await db.get(Job, job_id)

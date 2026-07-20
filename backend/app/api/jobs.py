@@ -106,7 +106,7 @@ async def _validate_owner_override(
             status.HTTP_400_BAD_REQUEST,
             detail=f"{field}: user is inactive",
         )
-    if user.role not in allowed_roles:
+    if not user.has_any_role(*allowed_roles):
         allowed = "/".join(sorted(r.value for r in allowed_roles))
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -201,7 +201,7 @@ async def _load_collaborator_map(
 
 async def _require_manage_ownership(job: Job, current_user: User) -> None:
     """Gate for collaborator add/remove: admin, delivery_lead, or primary owner."""
-    if current_user.role in (UserRole.admin, UserRole.delivery_lead):
+    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
         return
     if job.recruiter_id is not None and job.recruiter_id == current_user.id:
         return
@@ -2482,7 +2482,7 @@ async def claim_job(
     is a read-only viewer (403). Any user in the ownership-eligible role set
     can claim.
     """
-    if current_user.role not in _OWNERSHIP_ELIGIBLE_ROLES:
+    if not current_user.has_any_role(*_OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Read-only viewers cannot claim jobs",

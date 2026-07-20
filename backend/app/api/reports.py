@@ -768,7 +768,7 @@ async def report_my_delivery_lead(
     """Własne KPI dla użytkownika z rolą `delivery_lead`. Zwraca pozycję
     w rankingu + własne clients + metryki.
     """
-    if current_user.role != UserRole.delivery_lead:
+    if not current_user.has_role(UserRole.delivery_lead):
         raise HTTPException(
             status_code=403,
             detail="Requires role=delivery_lead",
