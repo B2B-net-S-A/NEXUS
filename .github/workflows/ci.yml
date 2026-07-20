@@ -137,6 +137,7 @@ jobs:
                  tests/test_auth_microsoft.py \
                  tests/test_calendar_conflicts.py \
                  tests/test_ical_ssrf.py \
+                 tests/test_ical_uid_collision.py \
                  tests/test_user_email_templates.py \
                  tests/test_actionable_messages.py \
                  tests/test_aad_groups.py \
