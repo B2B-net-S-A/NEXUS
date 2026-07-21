@@ -321,7 +321,9 @@ class ContractActivityEntry(BaseModel):
 
 class ContractRateHistoryEntry(BaseModel):
     id: int
-    rate: float
+    # ``None`` when redacted for non-VIEW_FINANCE readers (P0.12) — the amount is
+    # the sensitive field; ``currency`` stays as metadata.
+    rate: Optional[float] = None
     currency: str
     contract_type: str
     start_date: date
