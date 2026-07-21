@@ -118,12 +118,19 @@ async def get_cached_or_compute(
     *,
     semantic_similarity: Optional[float] = None,
     profile: WeightProfile = DEFAULT_PROFILE,
+    allow_cache_write: bool = True,
 ) -> ScoreBreakdown:
     """
     Return a fresh ScoreBreakdown: hit the cache first, recompute on miss/stale.
 
     The cache is keyed by (candidate, job, profile) so different weight
     profiles don't trample each other's results.
+
+    ``allow_cache_write=False`` — degraded mode (M3-CACHE-01), mirroring
+    :func:`bulk_get_or_compute`: the caller computed with a neutral semantic
+    layer because Qdrant/Voyage were down, so the result is still returned for
+    display but must NOT be persisted as a fresh cache row — otherwise the wrong
+    score outlives the outage. Cache READS stay allowed (prior good rows are OK).
     """
     row = await db.scalar(
         select(CandidateJobMatchScore).where(
@@ -142,12 +149,13 @@ async def get_cached_or_compute(
     breakdown = await score_candidate_job(
         candidate, job, db, semantic_similarity=semantic_similarity, profile=profile
     )
-    try:
-        await _upsert_breakdown(db, breakdown, profile_id=profile.id)
-        await db.commit()
-    except Exception as e:  # pragma: no cover — write-through best-effort
-        logger.warning("match score cache upsert failed: %s", e)
-        await db.rollback()
+    if allow_cache_write:
+        try:
+            await _upsert_breakdown(db, breakdown, profile_id=profile.id)
+            await db.commit()
+        except Exception as e:  # pragma: no cover — write-through best-effort
+            logger.warning("match score cache upsert failed: %s", e)
+            await db.rollback()
     return breakdown
 
 
