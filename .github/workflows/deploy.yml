@@ -3,8 +3,10 @@ name: Deploy
 # Unified deployment workflow per ~/.claude/rules/deployment.md.
 # Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
 #
-# Push do main → trigger Coolify deploy via API → poll deployment status by
-# UUID → smoke test /api/health. Coolify samo buduje + restart kontenerów.
+# Push do main → CI ("CI" workflow) runs → on its success this workflow fires
+# (via workflow_run, see the `on:` block) → trigger Coolify deploy via API →
+# poll deployment status by UUID → smoke test /api/health. Coolify samo buduje
+# + restart kontenerów. Red CI → deploy skipped (P1-CI-01 gate).
 #
 # 2026-07-16 (analytics plan PR 0): the old flow fired the webhook and then
 # blind-slept 180s before polling /api/health. Two real failure modes slipped
@@ -27,7 +29,32 @@ name: Deploy
 #   APP_URL           Production URL for smoke test (e.g. https://compass.dynaminds.pl)
 
 on:
-  push:
+  # P1-CI-01: gate the deploy on the SAME-SHA CI passing.
+  #
+  # Previously this workflow triggered directly on `push: branches: [main]`,
+  # INDEPENDENTLY of ci.yml. Nothing coupled them, so a red post-merge push-CI
+  # (branch protection only gates the PR, not the post-merge push to main) did
+  # NOT stop the deploy — a broken main could still ship to prod.
+  #
+  # Now the deploy is chained to ci.yml (workflow name "CI") via `workflow_run`:
+  #   push to main → "CI" runs → on its completion this workflow fires →
+  #   the deploy job runs ONLY if that run's conclusion == success (see the
+  #   `if:` guard on the deploy job). Red CI → deploy job skipped → no deploy.
+  #
+  # `workflow_run` always uses the workflow file from the default branch (main)
+  # and carries the triggering run's commit as
+  # `github.event.workflow_run.head_sha` — the SHA whose CI we just verified —
+  # exposed below as TARGET_SHA and asserted by the smoke test.
+  #
+  # ROLLBACK: revert this `on:` block to the ungated form —
+  #     on:
+  #       push:
+  #         branches: [main]
+  #       workflow_dispatch:
+  # and drop the `if:` guard + TARGET_SHA env added alongside it.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -43,12 +70,23 @@ env:
   # ~/.claude/rules/observability.md applies to every dynaminds smoke curl so
   # the workflow keeps working if the domain ever goes behind the CF proxy.
   SMOKE_UA: "dynaminds-smoke-test/1.0 (+github-actions; nexus)"
+  # The commit the deploy verifies. Under `workflow_run` this is the SHA whose
+  # CI passed (head_sha of the triggering run); under manual `workflow_dispatch`
+  # there is no workflow_run payload, so we fall back to github.sha (main HEAD
+  # at dispatch). The smoke test asserts /api/health serves this SHA.
+  TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   deploy:
     name: Trigger Coolify deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Deploy ONLY when the same-SHA CI passed on main. A manual
+    # workflow_dispatch (no workflow_run payload) is kept as an escape hatch for
+    # redeploys/rollbacks (deployment-runbook §4). A red — or non-main — CI run
+    # leaves this false → this job is skipped → smoke-test (needs: deploy) is
+    # skipped too → the whole workflow no-ops without touching prod.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
       - name: Trigger deployment
         id: trigger
@@ -146,7 +184,7 @@ jobs:
             echo "::error::vars.APP_URL not set in repo settings"
             exit 1
           fi
-          EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
           # The deploy job already confirmed the deployment FINISHED server-side,
           # so this only needs to absorb the container swap + app boot —
           # 20 × 15s = 5 min is plenty (was: blind sleep 180 + 6 min).
@@ -202,7 +240,7 @@ jobs:
             echo "::error::vars.APP_URL not set in repo settings"
             exit 1
           fi
-          EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
           for i in $(seq 1 6); do
             response=$(curl -sSL --max-time 25 -A "$SMOKE_UA" "$APP_URL/api/health/deep" 2>/tmp/curl_err || echo '')
             if [ -n "$response" ]; then
