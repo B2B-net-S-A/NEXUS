@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
 from sqlalchemy import bindparam, text
@@ -33,6 +34,22 @@ logger = logging.getLogger(__name__)
 
 # RRF constant — k=60 from the original RRF paper, robust to outlier ranks.
 RRF_K = 60
+
+
+@dataclass(frozen=True)
+class HybridResult:
+    """Outcome of a hybrid (BM25 + dense + RRF) retrieval.
+
+    ``pairs`` is the ranked ``[(doc_id, score), ...]``. ``degraded`` is True when
+    the dense (Voyage/Qdrant) leg FAILED for this request — the ranking then
+    leans on BM25 alone, so a short or empty list must NOT be presented as
+    "nothing matched" (it may be a provider outage). This is deliberately
+    distinct from a healthy empty result (``degraded=False`` and ``pairs == []``),
+    which really does mean "no candidates".
+    """
+
+    pairs: list[tuple[int, float]] = field(default_factory=list)
+    degraded: bool = False
 
 
 def reciprocal_rank_fusion(
@@ -88,20 +105,50 @@ async def bm25_jobs(db: AsyncSession, query: str, *, limit: int = 100) -> list[i
     return [int(r[0]) for r in rows]
 
 
-async def dense_candidates(query: str, *, limit: int = 100) -> list[int]:
-    """Top-N candidate ids from Qdrant dense semantic search."""
+async def dense_candidates(
+    query: str, *, limit: int = 100, raise_on_error: bool = False
+) -> list[int]:
+    """Top-N candidate ids from Qdrant dense semantic search.
+
+    With ``raise_on_error=True`` a provider outage raises
+    :class:`~app.services.embedding_service.SemanticSearchUnavailable` instead of
+    being swallowed to ``[]`` — see :func:`hybrid_candidates`.
+    """
     from app.services.embedding_service import search_candidates_semantic
 
-    hits = await search_candidates_semantic(query, top_k=limit)
+    hits = await search_candidates_semantic(
+        query, top_k=limit, raise_on_error=raise_on_error
+    )
     return [int(h["candidate_id"]) for h in hits]
 
 
-async def dense_jobs(query: str, *, limit: int = 100) -> list[int]:
+async def dense_jobs(
+    query: str, *, limit: int = 100, raise_on_error: bool = False
+) -> list[int]:
     """Top-N job ids from Qdrant dense semantic search."""
     from app.services.embedding_service import search_jobs_semantic
 
-    hits = await search_jobs_semantic(query, top_k=limit)
+    hits = await search_jobs_semantic(query, top_k=limit, raise_on_error=raise_on_error)
     return [int(h["job_id"]) for h in hits]
+
+
+async def _dense_ids_or_degraded(
+    coro,
+) -> tuple[list[int], bool]:
+    """Await a dense-retrieval coroutine, converting a provider outage into a
+    ``(ids, degraded)`` pair instead of propagating.
+
+    Returns ``([], True)`` when the dense leg raised ``SemanticSearchUnavailable``
+    so the surrounding ``asyncio.gather`` (with the BM25 leg) is never aborted —
+    hybrid retrieval degrades to BM25-only while still flagging the outage.
+    """
+    from app.services.embedding_service import SemanticSearchUnavailable
+
+    try:
+        return await coro, False
+    except SemanticSearchUnavailable as exc:
+        logger.error("[Hybrid] dense retrieval unavailable — BM25-only: %s", exc)
+        return [], True
 
 
 async def hybrid_candidates(
@@ -111,20 +158,27 @@ async def hybrid_candidates(
     pool: int = 100,
     final_top_k: int = 20,
     use_rerank: Optional[bool] = None,
-) -> list[tuple[int, float]]:
+) -> HybridResult:
     """Hybrid (BM25 + dense + RRF) candidate retrieval.
 
-    Returns [(candidate_id, score), ...]. When `use_rerank` is True (or None
-    and settings.RERANKER_ENABLED is True), the top `pool` after RRF is
-    re-ordered by Voyage rerank-2.5 — `score` then becomes the rerank score.
+    Returns a :class:`HybridResult` carrying ``pairs`` = [(candidate_id, score),
+    ...] and a ``degraded`` flag. When `use_rerank` is True (or None and
+    settings.RERANKER_ENABLED is True), the top `pool` after RRF is re-ordered
+    by Voyage rerank-2.5 — `score` then becomes the rerank score.
+
+    If the dense (Voyage/Qdrant) leg is *down*, the ranking falls back to BM25
+    alone and ``degraded=True`` so the API can tell the user "semantic search
+    unavailable" instead of misreporting an outage as "no candidates".
     """
-    bm25_ids, dense_ids = await asyncio.gather(
+    bm25_ids, (dense_ids, degraded) = await asyncio.gather(
         bm25_candidates(db, query, limit=pool),
-        dense_candidates(query, limit=pool),
+        _dense_ids_or_degraded(
+            dense_candidates(query, limit=pool, raise_on_error=True)
+        ),
     )
     fused = reciprocal_rank_fusion([bm25_ids, dense_ids])
     if not fused:
-        return []
+        return HybridResult(pairs=[], degraded=degraded)
 
     cand_ids = [doc_id for doc_id, _ in fused[:pool]]
 
@@ -135,7 +189,7 @@ async def hybrid_candidates(
         use_rerank = bool(getattr(settings, "RERANKER_ENABLED", False))
 
     if not use_rerank:
-        return fused[:final_top_k]
+        return HybridResult(pairs=fused[:final_top_k], degraded=degraded)
 
     # Rerank: load minimal candidate text, send to cross-encoder.
     from sqlalchemy import select  # noqa: PLC0415
@@ -155,7 +209,10 @@ async def hybrid_candidates(
     pairs = await rerank_or_passthrough(query, docs, top_k=final_top_k)
 
     # Map rerank pairs back to candidate ids.
-    return [(ordered[idx].id, float(score)) for idx, score in pairs]
+    return HybridResult(
+        pairs=[(ordered[idx].id, float(score)) for idx, score in pairs],
+        degraded=degraded,
+    )
 
 
 async def hybrid_jobs(
@@ -165,15 +222,20 @@ async def hybrid_jobs(
     pool: int = 100,
     final_top_k: int = 20,
     use_rerank: Optional[bool] = None,
-) -> list[tuple[int, float]]:
-    """Hybrid retrieval for jobs (e.g. CV-upload-preview reverse matching)."""
-    bm25_ids, dense_ids = await asyncio.gather(
+) -> HybridResult:
+    """Hybrid retrieval for jobs (e.g. CV-upload-preview reverse matching).
+
+    Same contract as :func:`hybrid_candidates`: returns a :class:`HybridResult`
+    whose ``degraded`` flag is True when the dense leg was down (BM25-only
+    fallback), so an outage is never mistaken for "no matching jobs".
+    """
+    bm25_ids, (dense_ids, degraded) = await asyncio.gather(
         bm25_jobs(db, query, limit=pool),
-        dense_jobs(query, limit=pool),
+        _dense_ids_or_degraded(dense_jobs(query, limit=pool, raise_on_error=True)),
     )
     fused = reciprocal_rank_fusion([bm25_ids, dense_ids])
     if not fused:
-        return []
+        return HybridResult(pairs=[], degraded=degraded)
 
     job_ids = [doc_id for doc_id, _ in fused[:pool]]
 
@@ -183,7 +245,7 @@ async def hybrid_jobs(
         use_rerank = bool(getattr(settings, "RERANKER_ENABLED", False))
 
     if not use_rerank:
-        return fused[:final_top_k]
+        return HybridResult(pairs=fused[:final_top_k], degraded=degraded)
 
     from sqlalchemy import select  # noqa: PLC0415
 
@@ -196,4 +258,7 @@ async def hybrid_jobs(
     ordered = [by_id[jid] for jid in job_ids if jid in by_id]
     docs = [_build_job_text(j)[:4000] for j in ordered]
     pairs = await rerank_or_passthrough(query, docs, top_k=final_top_k)
-    return [(ordered[idx].id, float(score)) for idx, score in pairs]
+    return HybridResult(
+        pairs=[(ordered[idx].id, float(score)) for idx, score in pairs],
+        degraded=degraded,
+    )

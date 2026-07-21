@@ -157,6 +157,12 @@ class SearchFacets(BaseModel):
 class SearchMeta(BaseModel):
     ai_status: AiStatus = "ok"
     took_ms: int = 0
+    # True when a *hybrid* search ran but its semantic (Voyage/Qdrant) leg was
+    # down for THIS request, so results came from BM25 alone. Lets the UI say
+    # "wyszukiwanie semantyczne niedostępne" instead of "brak kandydatów" — an
+    # outage must never read as an empty database. Unlike ``ai_status`` (a
+    # rolling health window), this reflects the current request's outcome.
+    search_degraded: bool = False
 
 
 class CandidateSearchResponse(BaseModel):
