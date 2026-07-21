@@ -29,6 +29,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_score import CandidateJobMatchScore
@@ -108,6 +109,30 @@ async def _upsert_breakdown(
     await db.execute(stmt)
 
 
+async def _persist_breakdowns(
+    breakdowns: Sequence[ScoreBreakdown], *, profile_id: int
+) -> None:
+    """Write computed breakdowns to the cache on a DEDICATED session (M3-TX-01).
+
+    The write-through cache is best-effort: persisting a freshly computed score
+    must never commit or roll back the CALLER's request transaction. The caller
+    owns its session via ``Depends(get_db)`` — a ``/recommendations`` read or a
+    justification generation must not be finalized (or discarded) as a side
+    effect of an unrelated cache write. Running the upsert on its own
+    ``AsyncSessionLocal`` fully isolates any failure, mirroring
+    :func:`index_outbox_service._default_reindex`.
+    """
+    if not breakdowns:
+        return
+    try:
+        async with AsyncSessionLocal() as s:
+            for b in breakdowns:
+                await _upsert_breakdown(s, b, profile_id=profile_id)
+            await s.commit()
+    except Exception as e:  # pragma: no cover — write-through best-effort
+        logger.warning("match score cache upsert failed: %s", e)
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
@@ -150,12 +175,7 @@ async def get_cached_or_compute(
         candidate, job, db, semantic_similarity=semantic_similarity, profile=profile
     )
     if allow_cache_write:
-        try:
-            await _upsert_breakdown(db, breakdown, profile_id=profile.id)
-            await db.commit()
-        except Exception as e:  # pragma: no cover — write-through best-effort
-            logger.warning("match score cache upsert failed: %s", e)
-            await db.rollback()
+        await _persist_breakdowns([breakdown], profile_id=profile.id)
     return breakdown
 
 
@@ -212,13 +232,7 @@ async def bulk_get_or_compute(
         pending_writes.append(breakdown)
 
     if pending_writes and allow_cache_write:
-        try:
-            for b in pending_writes:
-                await _upsert_breakdown(db, b, profile_id=profile.id)
-            await db.commit()
-        except Exception as e:  # pragma: no cover
-            logger.warning("match score bulk cache upsert failed: %s", e)
-            await db.rollback()
+        await _persist_breakdowns(pending_writes, profile_id=profile.id)
 
     results.sort(key=lambda r: -r.total)
     return results

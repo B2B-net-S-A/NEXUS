@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.models.match_telemetry import (
     LEGACY_INDEX_VERSION,
     LEGACY_RANKER_VERSION,
@@ -121,44 +122,50 @@ async def record_impressions(
 
     inserted = 0
     try:
-        for e in entries:
-            result = await db.execute(
-                stmt,
-                {
-                    "run_id": run_id,
-                    "surface": surface,
-                    "job_id": job_id,
-                    "request_id": request_id,
-                    "user_ref": user_ref,
-                    "client_ref": client_ref,
-                    "candidate_id": e.candidate_id,
-                    "rank": e.rank,
-                    "eligible": e.eligible,
-                    "retrieval_sources": (
-                        json.dumps(e.retrieval_sources)
-                        if e.retrieval_sources is not None
-                        else None
-                    ),
-                    "retrieval_score": e.retrieval_score,
-                    "rerank_score": e.rerank_score,
-                    "fit_score": e.fit_score,
-                    "fit_breakdown": (
-                        json.dumps(e.fit_breakdown)
-                        if e.fit_breakdown is not None
-                        else None
-                    ),
-                    "ranker_version": ranker_version,
-                    "index_version": index_version,
-                    "text_schema_version": text_schema_version,
-                    "taxonomy_version": taxonomy_version,
-                    "degraded": degraded,
-                },
-            )
-            inserted += result.rowcount or 0
-        await db.commit()
+        # Dedicated session (M3-TX-01): telemetry is fire-and-forget and must
+        # NEVER commit or roll back the CALLER's request transaction. The passed
+        # ``db`` (the request session owned by the recommendation flow) is
+        # deliberately not used for the write — a telemetry failure has to stay
+        # isolated from the business operation, so the INSERTs run on their own
+        # ``AsyncSessionLocal``.
+        async with AsyncSessionLocal() as s:
+            for e in entries:
+                result = await s.execute(
+                    stmt,
+                    {
+                        "run_id": run_id,
+                        "surface": surface,
+                        "job_id": job_id,
+                        "request_id": request_id,
+                        "user_ref": user_ref,
+                        "client_ref": client_ref,
+                        "candidate_id": e.candidate_id,
+                        "rank": e.rank,
+                        "eligible": e.eligible,
+                        "retrieval_sources": (
+                            json.dumps(e.retrieval_sources)
+                            if e.retrieval_sources is not None
+                            else None
+                        ),
+                        "retrieval_score": e.retrieval_score,
+                        "rerank_score": e.rerank_score,
+                        "fit_score": e.fit_score,
+                        "fit_breakdown": (
+                            json.dumps(e.fit_breakdown)
+                            if e.fit_breakdown is not None
+                            else None
+                        ),
+                        "ranker_version": ranker_version,
+                        "index_version": index_version,
+                        "text_schema_version": text_schema_version,
+                        "taxonomy_version": taxonomy_version,
+                        "degraded": degraded,
+                    },
+                )
+                inserted += result.rowcount or 0
+            await s.commit()
     except Exception as exc:  # noqa: BLE001 — telemetry never breaks matching
         logger.warning("[telemetry] impression write failed: %s", exc)
-        await db.rollback()
         return 0
     return inserted
 
@@ -195,20 +202,22 @@ async def record_outcome(
         """
     )
     try:
-        result = await db.execute(
-            stmt,
-            {
-                "event_id": event_id,
-                "run_id": run_id,
-                "candidate_id": candidate_id,
-                "job_id": job_id,
-                "event_type": event_type,
-                "reason_code": reason_code,
-            },
-        )
-        await db.commit()
-        return bool(result.rowcount)
+        # Dedicated session (M3-TX-01): see record_impressions. ``db`` stays
+        # untouched so an outcome-write failure never disturbs the caller's txn.
+        async with AsyncSessionLocal() as s:
+            result = await s.execute(
+                stmt,
+                {
+                    "event_id": event_id,
+                    "run_id": run_id,
+                    "candidate_id": candidate_id,
+                    "job_id": job_id,
+                    "event_type": event_type,
+                    "reason_code": reason_code,
+                },
+            )
+            await s.commit()
+            return bool(result.rowcount)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[telemetry] outcome write failed: %s", exc)
-        await db.rollback()
         return False
