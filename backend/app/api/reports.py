@@ -3,7 +3,9 @@ Nexus ATS — Reporting Module
 Generates live reports from ATS data (recruitment, sales, delivery, tenders, board).
 """
 
+import logging
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,7 +27,10 @@ from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.fx_service import rates_to_pln
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -38,23 +43,57 @@ router = APIRouter()
 _WORKING_DAYS_PER_MONTH = 22
 
 
-def _monthly(contract: Contract, value: Optional[int]) -> int:
+def _monthly(contract: Contract, value: Optional[Decimal | int | float]) -> Decimal:
+    """Normalise a stored per-unit rate to a monthly amount, keeping full
+    ``Decimal`` precision.
+
+    Previously this truncated the per-unit rate with ``int(value)`` *before*
+    multiplying by the hours/days, which magnified rounding (135.50/h → 135 →
+    ×160 = 21600 instead of 21680). ``rate_client``/``margin`` are
+    ``Numeric(12, 3)``, so we preserve the Decimal end-to-end — mirroring
+    ``Contract.monthly_rate``.
+    """
     if value is None:
-        return 0
+        return Decimal("0")
+    dec = value if isinstance(value, Decimal) else Decimal(str(value))
     if contract.rate_unit is None or contract.rate_unit.value == "monthly":
-        return int(value)
+        return dec
     if contract.rate_unit.value == "daily":
-        return int(value) * _WORKING_DAYS_PER_MONTH
+        return dec * _WORKING_DAYS_PER_MONTH
     # hourly
-    return int(value) * int(contract.billing_hours_per_month or 160)
+    return dec * int(contract.billing_hours_per_month or 160)
 
 
-def _monthly_rate_client(contract: Contract) -> int:
+def _monthly_rate_client(contract: Contract) -> Decimal:
     return _monthly(contract, contract.rate_client)
 
 
-def _monthly_margin(contract: Contract) -> int:
+def _monthly_margin(contract: Contract) -> Decimal:
     return _monthly(contract, contract.margin)
+
+
+def _fold_finance_pln(
+    contracts, rates: dict[str, Optional[Decimal]]
+) -> tuple[Decimal, Decimal, set[str]]:
+    """Sum monthly client-rate & margin in PLN over ``contracts`` using ``rates``
+    (currency→PLN, ``None`` = no report rate).
+
+    A contract whose currency lacks a rate is EXCLUDED from the sum and its code
+    is returned in the ``missing`` set — the total never silently under-reports
+    a foreign amount as if it were PLN. Mirrors ``metrics._sum_finance``.
+    """
+    revenue = Decimal("0")
+    margin = Decimal("0")
+    missing: set[str] = set()
+    for c in contracts:
+        cur = (c.currency or "PLN").upper()
+        rate = rates.get(cur)
+        if rate is None:
+            missing.add(cur)
+            continue
+        revenue += _monthly_rate_client(c) * rate
+        margin += _monthly_margin(c) * rate
+    return revenue, margin, missing
 
 
 def _sql_monthly(col):
@@ -342,8 +381,16 @@ async def report_sales(
     )
     active_contracts = (await db.execute(active_q)).scalars().all()
 
-    total_revenue = sum(_monthly_rate_client(c) for c in active_contracts)
-    total_margin = sum(_monthly_margin(c) for c in active_contracts)
+    # Sum in PLN via report FX rates (as of today) — non-PLN contracts must NOT
+    # be added at face value. Missing-rate currencies are excluded and surfaced
+    # in `finance_warnings` rather than silently counted as PLN.
+    fx_missing: set[str] = set()
+    snapshot_currencies = {(c.currency or "PLN").upper() for c in active_contracts}
+    snapshot_rates = await rates_to_pln(db, snapshot_currencies, today)
+    total_revenue, total_margin, missing = _fold_finance_pln(
+        active_contracts, snapshot_rates
+    )
+    fx_missing |= missing
     active_consultants = len(active_contracts)
 
     # New contracts this month
@@ -408,8 +455,12 @@ async def report_sales(
             .all()
         )
 
-        m_revenue = sum(_monthly_rate_client(c) for c in month_contracts)
-        m_margin = sum(_monthly_margin(c) for c in month_contracts)
+        # FX as of the month being reported (point-in-time), matching
+        # metrics.finance_trend — a March MRR uses March's rate, not today's.
+        m_currencies = {(c.currency or "PLN").upper() for c in month_contracts}
+        m_rates = await rates_to_pln(db, m_currencies, month_start)
+        m_revenue, m_margin, m_missing = _fold_finance_pln(month_contracts, m_rates)
+        fx_missing |= m_missing
 
         mrr_trend.append(
             {
@@ -421,32 +472,69 @@ async def report_sales(
             }
         )
 
-    # Top clients by revenue
+    # Top clients by revenue — group by client × currency so each per-currency
+    # subtotal is converted to PLN before ranking. Adding raw rates across
+    # currencies produced both wrong totals and a wrong ranking. The DB Numeric
+    # sums keep full precision; only the FX fold + top-10 cut happen in Python.
     top_clients_q = (
         select(
             Client.id,
             Client.name,
+            Contract.currency,
             func.count(Contract.id).label("contracts_count"),
             func.sum(_sql_monthly(Contract.rate_client)).label("revenue"),
             func.sum(_sql_monthly(Contract.margin)).label("margin"),
         )
         .join(Contract, Client.id == Contract.client_id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Client.id, Client.name)
-        .order_by(func.sum(_sql_monthly(Contract.rate_client)).desc())
-        .limit(10)
+        .group_by(Client.id, Client.name, Contract.currency)
     )
     top_clients_rows = (await db.execute(top_clients_q)).all()
+    tc_currencies = {(r.currency or "PLN").upper() for r in top_clients_rows}
+    tc_rates = await rates_to_pln(db, tc_currencies, today)
+    tc_acc: dict[int, dict] = {}
+    for r in top_clients_rows:
+        cur = (r.currency or "PLN").upper()
+        acc = tc_acc.setdefault(
+            r.id,
+            {
+                "client_name": r.name,
+                "contracts_count": 0,
+                "revenue": Decimal("0"),
+                "margin": Decimal("0"),
+            },
+        )
+        acc["contracts_count"] += int(r.contracts_count or 0)
+        rate = tc_rates.get(cur)
+        if rate is None:
+            fx_missing.add(cur)
+            continue
+        acc["revenue"] += Decimal(r.revenue or 0) * rate
+        acc["margin"] += Decimal(r.margin or 0) * rate
     top_clients = [
         {
-            "client_id": r.id,
-            "client_name": r.name,
-            "contracts_count": r.contracts_count,
-            "revenue": int(r.revenue or 0),
-            "margin": int(r.margin or 0),
+            "client_id": cid,
+            "client_name": v["client_name"],
+            "contracts_count": v["contracts_count"],
+            "revenue": v["revenue"],
+            "margin": v["margin"],
         }
-        for r in top_clients_rows
+        for cid, v in tc_acc.items()
     ]
+    top_clients.sort(key=lambda x: x["revenue"], reverse=True)
+    top_clients = top_clients[:10]
+
+    finance_warnings: list[str] = []
+    if fx_missing:
+        details = ", ".join(sorted(fx_missing))
+        finance_warnings.append(
+            f"Brak kursu NBP dla walut: {details} — kwoty w tych walutach "
+            "POMINIĘTE w sumach (uzupełnij: POST /api/fx/refresh)"
+        )
+        logger.warning(
+            "reports/sales: missing FX rate(s) for %s — amounts excluded from totals",
+            details,
+        )
 
     result_data = {
         "total_revenue": total_revenue,
@@ -456,6 +544,9 @@ async def report_sales(
         "ending_contracts_30days": ending_contracts_30days,
         "mrr_trend": mrr_trend,
         "top_clients": top_clients,
+        "currency": "PLN",
+        "finance_quality": "unavailable" if fx_missing else "complete",
+        "finance_warnings": finance_warnings,
     }
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data

@@ -142,6 +142,39 @@ async def convert_to_pln(
     return converted
 
 
+async def rates_to_pln(
+    db: AsyncSession, currencies: set[str], on: Optional[date] = None
+) -> dict[str, Optional[Decimal]]:
+    """Report FX rate per currency → PLN: latest cached rate with
+    ``effective_date <= on`` (default today), keyed by upper-case code.
+
+    Unlike :func:`convert_to_pln`, a currency with **no** cached rate maps to
+    ``None`` — never a silent 1:1. Callers summing money across currencies must
+    therefore exclude those amounts and flag the total as incomplete rather than
+    under-report a foreign amount as if it were the same number of PLN. Mirrors
+    ``app.analytics.metrics._fx_rates_to_pln`` (the canonical finance summation).
+    """
+    on = on or date.today()
+    out: dict[str, Optional[Decimal]] = {}
+    for raw in currencies:
+        code = (raw or "PLN").upper()
+        if code in out:
+            continue
+        if code == "PLN":
+            out[code] = Decimal("1")
+            continue
+        row = (
+            await db.execute(
+                select(FxRate.rate_to_pln)
+                .where(FxRate.currency == code, FxRate.effective_date <= on)
+                .order_by(FxRate.effective_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        out[code] = Decimal(row) if row is not None else None
+    return out
+
+
 async def fx_age_days(db: AsyncSession, currency: str) -> Optional[int]:
     """Return age of the most recent cached rate for a currency, or None if absent."""
     cur = currency.upper()
