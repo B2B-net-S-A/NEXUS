@@ -385,7 +385,9 @@ async def get_client_finance(
     scope = await ensure_client_scope(db, current_user, client_id)
 
     async def _compute():
-        data, warnings, flag = await metrics.client_finance(db, client_id)
+        data, warnings, flag = await metrics.client_finance(
+            db, client_id, as_of=metrics.finance_as_of(period)
+        )
         return data, _finance_quality(warnings, flag)
 
     return await _cached_envelope(
@@ -418,7 +420,9 @@ async def get_finance_summary(
     db: AsyncSession = Depends(get_db),
 ):
     async def _compute():
-        data, warnings, flag = await metrics.finance_summary(db)
+        data, warnings, flag = await metrics.finance_summary(
+            db, as_of=metrics.finance_as_of(period)
+        )
         return data, _finance_quality(warnings, flag)
 
     return await _cached_envelope(
@@ -463,7 +467,9 @@ async def get_finance_clients(
     db: AsyncSession = Depends(get_db),
 ):
     async def _compute():
-        data, warnings, flag = await metrics.finance_clients(db)
+        data, warnings, flag = await metrics.finance_clients(
+            db, as_of=metrics.finance_as_of(period)
+        )
         return data, _finance_quality(warnings, flag)
 
     return await _cached_envelope(
@@ -485,7 +491,9 @@ async def get_executive_board(
     async def _compute():
         ov = await metrics.overview(db, period)
         funnel = await metrics.recruitment_funnel(db, period)
-        finance, warnings, flag = await metrics.finance_summary(db)
+        finance, warnings, flag = await metrics.finance_summary(
+            db, as_of=metrics.finance_as_of(period)
+        )
         data = {"overview": ov, "funnel": funnel["funnel"], "finance": finance}
         return data, _finance_quality(warnings, flag)
 
