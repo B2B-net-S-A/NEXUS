@@ -283,6 +283,7 @@ async def advanced_candidate_search(
     # === Layer 3: free-text — FTS or hybrid (BM25+dense+RRF+rerank) ==========
     q_text = (body.q or "").strip() if body.q else ""
     hybrid_order: list[int] = []
+    search_degraded = False
     use_hybrid = body.search_mode == "hybrid" and bool(q_text)
     if use_hybrid:
         # Pull a generous pool so multi-page results stay consistent without
@@ -290,10 +291,14 @@ async def advanced_candidate_search(
         # the first 4 pages at default page_size=50.
         from app.services.hybrid_search import hybrid_candidates  # noqa: PLC0415
 
-        pairs = await hybrid_candidates(
+        hybrid = await hybrid_candidates(
             db, q_text, pool=200, final_top_k=200, use_rerank=None
         )
-        hybrid_order = [cid for cid, _ in pairs]
+        # Outage on the semantic leg: results fell back to BM25 alone. Surface
+        # it in meta so the UI can say "semantic search unavailable" — an empty
+        # or short list here must never read as "the database has no one".
+        search_degraded = hybrid.degraded
+        hybrid_order = [cid for cid, _ in hybrid.pairs]
         if hybrid_order:
             clauses.append(Candidate.id.in_(hybrid_order))
         else:
@@ -381,7 +386,9 @@ async def advanced_candidate_search(
         page_size=body.page_size,
         items=items,
         facets=facets,
-        meta=SearchMeta(ai_status=ai_status(), took_ms=took_ms),
+        meta=SearchMeta(
+            ai_status=ai_status(), took_ms=took_ms, search_degraded=search_degraded
+        ),
     )
 
 

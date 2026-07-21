@@ -249,6 +249,7 @@ jobs:
                  tests/test_eval_matching_leakage_gate.py \
                  tests/test_slack_alert_http_status.py \
                  tests/test_client_rate_write_authz.py \
+                 tests/test_hybrid_search_degraded.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
