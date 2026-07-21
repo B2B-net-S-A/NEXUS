@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import time
 import uuid
 
 import pytest
@@ -33,6 +34,15 @@ WEBHOOK_SECRET = "test-cloudtalk-shared-secret"
 
 def _sign(body: bytes, secret: str = WEBHOOK_SECRET) -> str:
     return hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+
+def _sign_ts(timestamp: str, body: bytes, secret: str = WEBHOOK_SECRET) -> str:
+    material = timestamp.encode("utf-8") + b"." + body
+    return hmac.new(secret.encode("utf-8"), material, hashlib.sha256).hexdigest()
+
+
+def _fresh_ts() -> str:
+    return str(int(time.time()))
 
 
 @pytest_asyncio.fixture
@@ -70,9 +80,7 @@ def _disable_enrichment(monkeypatch):
     async def _noop(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(
-        "app.services.champion_draft_service.enrich_from_call", _noop
-    )
+    monkeypatch.setattr("app.services.champion_draft_service.enrich_from_call", _noop)
 
 
 @pytest.fixture
@@ -99,9 +107,7 @@ async def test_webhook_dry_run_when_disabled(
 
     # No DB writes in dry-run mode.
     async with AsyncSessionLocal() as db:
-        row = await db.scalar(
-            select(Call).where(Call.cloudtalk_call_id == "ct-abc")
-        )
+        row = await db.scalar(select(Call).where(Call.cloudtalk_call_id == "ct-abc"))
         assert row is None
 
 
@@ -255,3 +261,120 @@ async def test_webhook_handles_unknown_phone_gracefully(
     data = resp.json()
     assert data["candidate_matched"] is False
     assert data["call_id"] is None
+
+
+# ── Replay protection + no-secret-in-URL (M6-P0.12) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_webhook_accepts_fresh_timestamped_signature(
+    app_client: AsyncClient,
+    seeded_candidate: dict,
+    _enable_cloudtalk,
+    _disable_enrichment,
+) -> None:
+    """A fresh X-CloudTalk-Timestamp + signature over `ts.body` is accepted."""
+    ct_id = f"ct-ts-{uuid.uuid4().hex[:6]}"
+    body = json.dumps(
+        {"call": {"id": ct_id, "external_number": "48601234567", "duration": 30}}
+    ).encode()
+    ts = _fresh_ts()
+
+    resp = await app_client.post(
+        "/api/calls/webhook",
+        content=body,
+        headers={
+            "X-CloudTalk-Signature": _sign_ts(ts, body),
+            "X-CloudTalk-Timestamp": ts,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_stale_timestamp_replay(
+    app_client: AsyncClient, _enable_cloudtalk, _disable_enrichment
+) -> None:
+    """A correctly-signed request with an old timestamp is rejected (replay)."""
+    ct_id = f"ct-stale-{uuid.uuid4().hex[:6]}"
+    body = json.dumps(
+        {"call": {"id": ct_id, "external_number": "48601234567"}}
+    ).encode()
+    # 20 minutes old — well outside the ±5 min freshness window.
+    stale_ts = str(int(time.time()) - 1200)
+
+    resp = await app_client.post(
+        "/api/calls/webhook",
+        content=body,
+        headers={
+            "X-CloudTalk-Signature": _sign_ts(stale_ts, body),
+            "X-CloudTalk-Timestamp": stale_ts,
+        },
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_timestamp_signature_reuse_with_new_ts(
+    app_client: AsyncClient, _enable_cloudtalk, _disable_enrichment
+) -> None:
+    """Captured signature replayed under a forged fresh timestamp → 401.
+
+    The signature is bound to the original timestamp, so pairing it with a new
+    (still-fresh) timestamp fails the HMAC — the core replay defense.
+    """
+    ct_id = f"ct-reuse-{uuid.uuid4().hex[:6]}"
+    body = json.dumps(
+        {"call": {"id": ct_id, "external_number": "48601234567"}}
+    ).encode()
+    captured_sig = _sign_ts(str(int(time.time()) - 60), body)
+
+    resp = await app_client.post(
+        "/api/calls/webhook",
+        content=body,
+        headers={
+            "X-CloudTalk-Signature": captured_sig,
+            "X-CloudTalk-Timestamp": _fresh_ts(),  # attacker forges a fresh ts
+        },
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_webhook_requires_timestamp_when_configured(
+    app_client: AsyncClient, _enable_cloudtalk, _disable_enrichment, monkeypatch
+) -> None:
+    """With REQUIRE_TIMESTAMP on, a legacy body-only request is rejected."""
+    monkeypatch.setattr(
+        settings, "CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP", True, raising=False
+    )
+    body = json.dumps(
+        {"call": {"id": "ct-req-ts", "external_number": "48601234567"}}
+    ).encode()
+
+    resp = await app_client.post(
+        "/api/calls/webhook",
+        content=body,
+        headers={"X-CloudTalk-Signature": _sign(body)},  # no timestamp header
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_url_path_token_route_is_gone(
+    app_client: AsyncClient, _enable_cloudtalk
+) -> None:
+    """The secret-in-URL variant must no longer exist (404, not auth-checked).
+
+    Behavioral proof that the HMAC signing secret is never read from a URL
+    path segment: posting to /api/calls/webhook/<anything> — including the
+    real secret — routes to no handler.
+    """
+    body = json.dumps({"call": {"id": "ct-url"}}).encode()
+    for token in ("some-token", WEBHOOK_SECRET):
+        resp = await app_client.post(f"/api/calls/webhook/{token}", content=body)
+        assert resp.status_code == 404, (
+            f"URL-path-token webhook must not exist; got {resp.status_code} "
+            f"for token={token!r}"
+        )

@@ -661,6 +661,18 @@ class Settings(BaseSettings):
     # → Signing secret. Generated locally via `openssl rand -hex 32`; not
     # derived from the API key pair.
     CLOUDTALK_WEBHOOK_SECRET: str = ""
+    # ── Webhook replay protection (M6-P0.12) ────────────────────────────────
+    # When an inbound webhook carries an ``X-CloudTalk-Timestamp`` header, the
+    # timestamp is folded into the HMAC-signed material and the request is
+    # rejected if the timestamp is outside ±TOLERANCE seconds of now — a
+    # captured request cannot be replayed once it ages past the window.
+    CLOUDTALK_WEBHOOK_TOLERANCE_SECONDS: int = 300
+    # When True the webhook REQUIRES a fresh ``X-CloudTalk-Timestamp`` header
+    # and rejects any request without one (401). Default False so the
+    # integration keeps accepting CloudTalk's legacy body-only signature; flip
+    # True once you confirm your CloudTalk plan sends signed timestamps (see
+    # the CloudTalk activation checklist in CLAUDE.md).
+    CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP: bool = False
     # Background sync loop cadence (Phase 5 — historical backfill + catch-up
     # after webhook downtime). Clamped to >=300s in the loop.
     CLOUDTALK_SYNC_INTERVAL_SECONDS: int = 3600

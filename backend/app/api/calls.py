@@ -20,7 +20,7 @@ from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.call import Call, CallDirection, CallStatus
-from app.services.cloudtalk import verify_signature
+from app.services.cloudtalk import timestamp_is_fresh, verify_signature
 from app.services.dedup_service import _normalize_phone
 
 router = APIRouter()
@@ -325,12 +325,9 @@ async def _process_cloudtalk_payload(
 ) -> dict:
     """Parse a verified CloudTalk webhook body, upsert Call, run enrichment.
 
-    Shared between the HMAC-authenticated ``/api/calls/webhook`` endpoint
-    (used when CloudTalk signs requests with the shared secret) and the
-    URL-token ``/api/calls/webhook/{token}`` endpoint (used by CloudTalk
-    Workflow Automations, which cannot compute an HMAC over the body).
-    Both auth strategies funnel into this function with raw_body already
-    trusted.
+    Reached only after ``/api/calls/webhook`` has verified the
+    ``X-CloudTalk-Signature`` HMAC (and, when present, the fresh
+    ``X-CloudTalk-Timestamp``), so ``raw_body`` is already trusted here.
     """
     try:
         payload = await _safe_parse_json(raw_body)
@@ -462,45 +459,6 @@ async def _process_cloudtalk_payload(
     }
 
 
-@router.post("/calls/webhook/{token}")
-async def cloudtalk_webhook_url_token(
-    token: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """CloudTalk inbound webhook authenticated by a URL-path token.
-
-    Used by CloudTalk Workflow Automations → "API request" action, which
-    cannot compute an HMAC signature over the request body. The token in
-    the URL must match ``settings.CLOUDTALK_WEBHOOK_SECRET`` constant-time;
-    the rest of the processing is identical to the HMAC-signed variant.
-
-    Use HTTPS exclusively — the URL is private and never logged with the
-    full token (FastAPI access logs strip path query string but NOT path
-    segments, so prefer signed-HMAC where possible).
-    """
-    import hmac as _hmac
-    import logging
-
-    logger = logging.getLogger(__name__)
-    raw_body = await request.body()
-
-    if not settings.CLOUDTALK_ENABLED:
-        return {"status": "dry-run", "enabled": False}
-
-    if not settings.CLOUDTALK_WEBHOOK_SECRET:
-        logger.warning(
-            "CloudTalk webhook (URL-token): secret empty while enabled; rejecting"
-        )
-        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
-
-    if not _hmac.compare_digest(token, settings.CLOUDTALK_WEBHOOK_SECRET):
-        logger.warning("CloudTalk webhook (URL-token): token mismatch")
-        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
-
-    return await _process_cloudtalk_payload(raw_body, db, logger)
-
-
 @router.post("/calls/webhook")
 async def cloudtalk_webhook(
     request: Request,
@@ -508,12 +466,23 @@ async def cloudtalk_webhook(
 ):
     """CloudTalk inbound webhook (HMAC-signed).
 
+    This is the ONLY inbound webhook route. There is deliberately no
+    URL-path-token variant: putting the shared secret in the URL leaks it to
+    Cloudflare/Traefik/access logs, which strip the query string but NOT path
+    segments (M6-P0.12). CloudTalk Workflow Automations that cannot HMAC-sign
+    must instead be configured as a native signed webhook (dashboard →
+    Integrations → Webhooks).
+
     Flow:
       1. When ``settings.CLOUDTALK_ENABLED`` is False — DRY-RUN: returns 200
          with ``{"status":"dry-run"}`` and logs payload keys. No DB writes,
          no HMAC check (the secret may not be configured yet).
       2. When enabled — verifies ``X-CloudTalk-Signature`` HMAC-SHA256 against
          ``settings.CLOUDTALK_WEBHOOK_SECRET``. Rejects with 401 on mismatch.
+         Replay protection: when ``X-CloudTalk-Timestamp`` is present it is
+         folded into the signed material and must be fresh (±TOLERANCE); when
+         ``CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP`` is set a missing timestamp is
+         rejected outright.
       3. Parses payload defensively (call-ended / transcript-ready / recording-
          ready may differ slightly); failures to decode return 204.
       4. Looks up Candidate by phone (last-9-digits, reusing
@@ -522,9 +491,6 @@ async def cloudtalk_webhook(
          (transcript may arrive later than call-ended).
       6. If transcript is present and the call maps to a Candidate with an
          active Job, dispatches LLM enrichment (Champion Profile suggestion).
-
-    See :func:`cloudtalk_webhook_url_token` for the Workflow Automations
-    variant (URL-token auth instead of HMAC).
     """
     import logging
 
@@ -549,13 +515,30 @@ async def cloudtalk_webhook(
 
     # ── HMAC verification (enabled path) ────────────────────────────────────
     signature_header = request.headers.get("X-CloudTalk-Signature", "")
+    timestamp_header = request.headers.get("X-CloudTalk-Timestamp") or None
     if not settings.CLOUDTALK_WEBHOOK_SECRET:
         logger.warning(
             "CloudTalk webhook: CLOUDTALK_WEBHOOK_SECRET empty while enabled; rejecting"
         )
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    # ── Replay protection ────────────────────────────────────────────────────
+    if settings.CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP and timestamp_header is None:
+        logger.warning(
+            "CloudTalk webhook: missing X-CloudTalk-Timestamp while required; rejecting"
+        )
+        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+    if timestamp_header is not None and not timestamp_is_fresh(
+        timestamp_header, settings.CLOUDTALK_WEBHOOK_TOLERANCE_SECONDS
+    ):
+        logger.warning("CloudTalk webhook: stale/malformed timestamp — replay rejected")
+        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+
     if not verify_signature(
-        raw_body, signature_header, settings.CLOUDTALK_WEBHOOK_SECRET
+        raw_body,
+        signature_header,
+        settings.CLOUDTALK_WEBHOOK_SECRET,
+        timestamp=timestamp_header,
     ):
         logger.warning("CloudTalk webhook: signature mismatch")
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)
