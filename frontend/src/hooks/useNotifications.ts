@@ -92,11 +92,15 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       wsRef.current = null;
     }
 
-    const url = `${WS_BASE}/ws/notifications?token=${encodeURIComponent(token)}`;
+    // Carry the JWT on the WS subprotocol instead of the query string so it
+    // never lands in access/proxy/trace logs (P1-WS-01). The server reads the
+    // token from the second offered subprotocol and echoes the "access_token"
+    // sentinel back as the negotiated subprotocol.
+    const url = `${WS_BASE}/ws/notifications`;
     let ws: WebSocket;
 
     try {
-      ws = new WebSocket(url);
+      ws = new WebSocket(url, ["access_token", token]);
     } catch {
       // WebSocket not supported or URL invalid — fall back to polling
       startPolling();

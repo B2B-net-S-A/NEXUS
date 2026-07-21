@@ -272,6 +272,8 @@ jobs:
                  tests/test_schema_inventory.py \
                  tests/test_invite_links.py \
                  tests/test_application_submissions.py \
+                 tests/test_ws_token_subprotocol.py \
+                 tests/test_match_cache_cas.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

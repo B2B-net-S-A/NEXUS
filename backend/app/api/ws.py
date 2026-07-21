@@ -72,8 +72,14 @@ class ConnectionManager:
 
     # ── Notifications (existing API) ──────────────────────────────────────────
 
-    async def connect(self, user_id: int, websocket: WebSocket) -> None:
-        await websocket.accept()
+    async def connect(
+        self, user_id: int, websocket: WebSocket, *, subprotocol: Optional[str] = None
+    ) -> None:
+        # When the client carried the JWT on the WS subprotocol, RFC 6455 requires
+        # us to echo one of the offered subprotocols on accept or the browser
+        # aborts the handshake. `subprotocol=None` (legacy query-param path) is the
+        # plain-accept default.
+        await websocket.accept(subprotocol=subprotocol)
         if user_id not in self._connections:
             self._connections[user_id] = []
         self._connections[user_id].append(websocket)
@@ -325,6 +331,39 @@ async def _stamp_last_seen(user_id: int) -> None:
 
 # ── Token auth helper ──────────────────────────────────────────────────────────
 
+# Sentinel subprotocol the client offers alongside the JWT, e.g.
+# ``new WebSocket(url, ["access_token", "<jwt>"])``. The server reads the JWT
+# from the paired value and echoes THIS sentinel as the negotiated subprotocol.
+_WS_TOKEN_SUBPROTOCOL = "access_token"
+
+
+def _extract_ws_token(
+    websocket: WebSocket, query_token: Optional[str]
+) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve the WS auth token, preferring the subprotocol over the query string.
+
+    NEXUS-P1-WS-01: a JWT in the ``?token=`` query string leaks into access /
+    proxy / trace logs. The client instead offers two subprotocols —
+    ``[_WS_TOKEN_SUBPROTOCOL, "<jwt>"]`` — so the token rides an ``Upgrade``
+    request header that is not logged as a URL. We read it from there and echo
+    the sentinel as the accepted subprotocol.
+
+    Returns ``(token, accepted_subprotocol)``. ``accepted_subprotocol`` is the
+    sentinel only when the token actually came from the subprotocol (so it can be
+    echoed on accept); it is ``None`` on the legacy query-param fallback, where no
+    subprotocol must be echoed. The ``?token=`` path is retained as a temporary
+    rollout fallback so in-flight clients on the old bundle keep working.
+    """
+    subprotocols = list(websocket.scope.get("subprotocols") or [])
+    if _WS_TOKEN_SUBPROTOCOL in subprotocols:
+        idx = subprotocols.index(_WS_TOKEN_SUBPROTOCOL)
+        # The JWT is the offer immediately following the sentinel.
+        if idx + 1 < len(subprotocols):
+            token = subprotocols[idx + 1]
+            if token:
+                return token, _WS_TOKEN_SUBPROTOCOL
+    return query_token, None
+
 
 async def _authenticate_ws_token(token: str) -> Optional[User]:
     """Validate JWT token and return User, or None on failure."""
@@ -401,11 +440,20 @@ async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) 
 @router.websocket("/ws/notifications")
 async def ws_notifications(
     websocket: WebSocket,
-    token: str = Query(..., description="JWT access token"),
+    token: Optional[str] = Query(
+        None,
+        description=(
+            "JWT access token (legacy fallback; prefer the WS subprotocol "
+            "['access_token', <jwt>] which keeps the token out of URLs/logs)"
+        ),
+    ),
 ):
     """
     WebSocket endpoint for real-time notifications + presence.
-    Connect with: ws://host/ws/notifications?token=<access_token>
+
+    Auth: connect with subprotocols ``["access_token", "<jwt>"]`` (preferred —
+    keeps the token off the URL) or, as a temporary rollout fallback, with
+    ``ws://host/ws/notifications?token=<access_token>``.
 
     Events sent to client:
       {type: "notification", data: {id, title, message, link, created_at}}
@@ -418,12 +466,16 @@ async def ws_notifications(
       {type: "presence:unsubscribe", resource_type, resource_id}
       {type: "presence:editing", resource_type, resource_id, field, active}
     """
-    user = await _authenticate_ws_token(token)
+    raw_token, accepted_subprotocol = _extract_ws_token(websocket, token)
+    if not raw_token:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+    user = await _authenticate_ws_token(raw_token)
     if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    await manager.connect(user.id, websocket)
+    await manager.connect(user.id, websocket, subprotocol=accepted_subprotocol)
 
     try:
         await websocket.send_json(

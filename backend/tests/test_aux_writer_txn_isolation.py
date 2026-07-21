@@ -31,6 +31,7 @@ import ast
 import inspect
 import textwrap
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import text
@@ -281,7 +282,9 @@ async def test_persist_breakdowns_is_best_effort_and_isolated():
     dedicated session. It must be swallowed (never raise) and write nothing —
     proving the write is self-contained and cannot poison a caller session."""
     bad = _mk_breakdown(candidate_id=BASE + 3, job_id=BASE + 3)
-    await cache._persist_breakdowns([bad], profile_id=0)  # must not raise
+    await cache._persist_breakdowns(
+        [bad], profile_id=0, compute_start=datetime.now(timezone.utc)
+    )  # must not raise
 
     async with AsyncSessionLocal() as db:
         n = await db.scalar(

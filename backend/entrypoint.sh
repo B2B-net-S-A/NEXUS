@@ -527,6 +527,12 @@ _COLUMN_STATEMENTS = [
     # migration 0185). At 32 every cache INSERT failed silently (value too long)
     # → the match-score cache stopped persisting. Idempotent — no-op once wide.
     "ALTER TABLE candidate_job_match_scores ALTER COLUMN scoring_algorithm_version TYPE VARCHAR(64)",
+    # candidate_job_match_scores.invalidated_at (migration 0189_match_score_cache_cas,
+    # audyt P1-MATCH-02) — compare-and-swap fence so a score compute that started
+    # before a mark_stale_* cannot resurrect stale=False on write-back. NULL =
+    # never invalidated since last fresh compute. Without the column the write-back
+    # 500s (UndefinedColumn) under multi-head. Nullable, idempotent.
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS invalidated_at TIMESTAMPTZ NULL",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS notify_new_matches BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_seen_candidate_id INTEGER",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS unseen_count INTEGER NOT NULL DEFAULT 0",
