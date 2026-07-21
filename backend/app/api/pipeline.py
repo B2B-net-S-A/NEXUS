@@ -29,6 +29,7 @@ from app.models.pipeline_template import (
     PipelineStageDef,
     PipelineTemplate,
     RejectionReason,
+    TerminalType,
 )
 from app.models.user import User, UserRole
 from app.schemas.pipeline import (
@@ -398,6 +399,23 @@ async def move_candidate(
             legacy_enum = PipelineStage(stage_def.legacy_enum_value)
         except ValueError:
             legacy_enum = data.stage or PipelineStage.new
+    elif stage_def and stage_def.is_terminal and legacy_enum == PipelineStage.new:
+        # M4-P0.2: a CUSTOM terminal stage carries no legacy_enum_value (the
+        # StageDef schema has no such field and clone_template doesn't copy it),
+        # so it would fall through as `new` — a custom "Zatrudniony" would never
+        # trigger the auto-draft Contract (line ~700 keys on `hired`) and a
+        # custom "Odrzucony" would never fire the rejection mail. Derive the
+        # hire/reject/withdraw signal from terminal_type so those side effects
+        # fire. list_stages also can't return `hired` for custom stages, so the
+        # FE can't supply it either — this is the only place it can be inferred.
+        _terminal_to_legacy = {
+            TerminalType.hired: PipelineStage.hired,
+            TerminalType.rejected: PipelineStage.rejected,
+            TerminalType.withdrawn: PipelineStage.withdrawn,
+        }
+        mapped = _terminal_to_legacy.get(stage_def.terminal_type)
+        if mapped is not None:
+            legacy_enum = mapped
 
     # ── M4 PR-01: capability guard na ruchy terminalne i rate-bearing ──────
     # Terminal (po stage_def LUB legacy enum): sourcer nie zamyka rekrutacji
