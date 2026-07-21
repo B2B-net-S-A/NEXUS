@@ -311,6 +311,13 @@ async def _compute_breakdown(
 ) -> ScoreBreakdown:
     """Same calibrated score the kanban ring uses (cache-first + Qdrant cosine)."""
     similarity: Optional[float] = None
+    # A raised lookup = genuine Qdrant/Voyage outage → the composite below is
+    # computed with a neutral semantic layer and must NOT be persisted as fresh
+    # (M3-CACHE-01), or a degraded breakdown outlives the outage in the shared
+    # (candidate, job, DEFAULT_PROFILE) cache that /recommendations reads. A
+    # candidate that merely has no embedding returns None WITHOUT raising, and
+    # is cached normally.
+    provider_outage = False
     try:
         from app.services.embedding_service import (  # noqa: PLC0415
             _build_job_text,
@@ -321,9 +328,14 @@ async def _compute_breakdown(
         similarity = sims.get(candidate.id)
     except Exception as exc:  # pragma: no cover - semantic layer is best-effort
         logger.warning("match_justification: similarity lookup failed: %s", exc)
+        provider_outage = True
 
     return await get_cached_or_compute(
-        candidate, job, db, semantic_similarity=similarity
+        candidate,
+        job,
+        db,
+        semantic_similarity=similarity,
+        allow_cache_write=not provider_outage,
     )
 
 

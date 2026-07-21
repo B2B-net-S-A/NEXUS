@@ -235,6 +235,7 @@ jobs:
                  tests/test_emails_send_disabled.py \
                  tests/test_signature_link_revocation.py \
                  tests/test_kpi_accepted_verification_only.py \
+                 tests/test_match_cache_degraded_write.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
