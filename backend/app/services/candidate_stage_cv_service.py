@@ -90,13 +90,18 @@ async def create_original_cv_snapshot(
         original_snapshot_at=datetime.now(tz=timezone.utc) if has_cv else None,
         original_snapshot_source=source if has_cv else None,
     )
-    db.add(csv_row)
+    # SAVEPOINT: wstawiamy snapshot w zagnieżdżonej transakcji. Jeśli równoległy
+    # create_stage zdążył wstawić snapshot dla tego samego stage_id (UNIQUE
+    # łapie), rollback SAVEPOINT-u wycofuje TYLKO ten INSERT — transakcja
+    # wołającego (nowy CandidateStage + reszta batcha w np. proposals_bulk)
+    # PRZEŻYWA. NIE wolno tu robić `db.rollback()` na współdzielonej sesji: to
+    # porzuciłoby całą operację biznesową wołającego (M3-TX-01 — pomocniczy
+    # writer nie posiada transakcji requestu). Wzór z autenti/webhook_handler.py.
     try:
-        await db.flush()
+        async with db.begin_nested():
+            db.add(csv_row)
+            await db.flush()
     except IntegrityError:
-        # Race: dwa równoczesne create_stage dla tego samego stage_id (rzadkie,
-        # ale UNIQUE łapie). Rolluj i zwróć istniejący — idempotent.
-        await db.rollback()
         again = await db.scalar(
             select(CandidateStageCV).where(
                 CandidateStageCV.candidate_stage_id == stage.id

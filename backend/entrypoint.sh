@@ -546,6 +546,17 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_saved_search_id ON saved_search_alert_log (saved_search_id)",
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_candidate_id ON saved_search_alert_log (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidates_updated_at ON candidates (updated_at)",
+    # contract_alerts atomic dedup (migration 0186_contract_alert_dedup) —
+    # contract_alerts_loop claimuje (kategoria, próg, encja) przez INSERT ...
+    # ON CONFLICT DO NOTHING, więc nakładające się / równoległe przebiegi pętli
+    # nie duplikują notyfikacji. Tabela musi istnieć zanim loop wystartuje,
+    # inaczej claim 500s pod chronicznym multi-head driftem alembica na prod.
+    """CREATE TABLE IF NOT EXISTS contract_alert_dedup (
+        id SERIAL PRIMARY KEY,
+        dedup_key VARCHAR(128) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_contract_alert_dedup_key UNIQUE (dedup_key)
+    )""",
     # match telemetry (migration 0169_match_telemetry) — append-only impression
     # + outcome logs. No FKs (analytics survive candidate hard-delete; purged by
     # retention/DSAR). Writer is flag-gated (AI_MATCH_TELEMETRY_ENABLED) so these
