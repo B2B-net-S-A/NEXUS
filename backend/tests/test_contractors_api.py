@@ -200,13 +200,16 @@ async def test_activate_draft_happy_path(
     # Margin was recomputed by the model-level before_update listener
     assert body["margin"] == 5000
 
-    # Revert so subsequent runs stay idempotent — flip back to draft
-    revert = await app_client.patch(
-        f"/api/contracts/{draft['id']}",
-        json={"status": "draft"},
+    # Revert so subsequent runs stay idempotent — via the audited /reopen
+    # transition (free `PATCH {status: draft}` writes are no longer accepted;
+    # P1-CONTRACT-01).
+    revert = await app_client.post(
+        f"/api/contracts/{draft['id']}/reopen",
+        json={"reason": "test idempotency"},
         headers=app_auth_headers,
     )
     assert revert.status_code == 200
+    assert revert.json()["status"] == "draft"
 
 
 @pytest.mark.asyncio

@@ -452,6 +452,14 @@ _ENUM_STATEMENTS = [
     # docelowo właściwą naprawą jest values_callable na kolumnie, żeby ORM
     # wysyłał wartość zamiast nazwy — ale to zmiana kodu, nie schematu.
     "ALTER TYPE nextsteppreference ADD VALUE IF NOT EXISTS 'pass_'",
+    # Contract lifecycle invariant (migracja 0190_contract_lifecycle_invariant):
+    # dwie nowe wartości contractstatus. Bez nich guarded lifecycle
+    # (app/services/contract_lifecycle.py) crashuje na INSERT/UPDATE contracts z
+    # tymi statusami (InvalidTextRepresentationError):
+    #   ready_for_signature — sfinalizowany, niepodpisany draft (NIE 'active'),
+    #   void                — soft-delete/annulacja zamiast hard DELETE.
+    "ALTER TYPE contractstatus ADD VALUE IF NOT EXISTS 'ready_for_signature'",
+    "ALTER TYPE contractstatus ADD VALUE IF NOT EXISTS 'void'",
 ]
 
 _COLUMN_STATEMENTS = [
@@ -1772,6 +1780,14 @@ _COLUMN_STATEMENTS = [
     "ON application_submissions (submitted_email)",
     "CREATE INDEX IF NOT EXISTS ix_application_submissions_job_id "
     "ON application_submissions (job_id)",
+    # Contract lifecycle invariant (migracja 0190_contract_lifecycle_invariant):
+    # void metadata na contracts. Ustawiane przez POST /api/contracts/{id}/void
+    # (soft-delete). Bez kolumn UPDATE/INSERT contracts z voided_* => UndefinedColumn.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS voided_by INTEGER NULL",
+    "ALTER TABLE contracts DROP CONSTRAINT IF EXISTS fk_contracts_voided_by",
+    "ALTER TABLE contracts ADD CONSTRAINT fk_contracts_voided_by "
+    "FOREIGN KEY (voided_by) REFERENCES users(id) ON DELETE SET NULL",
 ]
 
 _DATA_STATEMENTS = [

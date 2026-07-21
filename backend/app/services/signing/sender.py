@@ -333,14 +333,37 @@ async def finalize_signed_pdf(
         raise HTTPException(
             status_code=422, detail="Plik nie zawiera podpisu elektronicznego"
         )
-    if settings.DSS_VALIDATION_URL and not report.is_qes:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Podpis nie jest kwalifikowany (wymagany QES). "
-                f"Werdykt walidacji: {report.indication or 'nieokreślony'}"
-            ),
-        )
+
+    # Fail-closed for QES lanes (M5-P0.x): a qualified document may only be
+    # completed on an AUTHORITATIVE, positive DSS verdict. Previously the QES
+    # gate was skipped whenever ``DSS_VALIDATION_URL`` was unset — so with no
+    # validator configured, a non-qualified (or indeterminate) signature would
+    # silently complete on the non-authoritative pyHanko fallback. Now: no
+    # validator, or a timed-out / INDETERMINATE result, refuses completion and
+    # leaves the signature state unchanged (the caller does not commit on 4xx).
+    requires_qes = (sig.signature_type or "").upper() == "QES"
+    if requires_qes:
+        if not settings.DSS_VALIDATION_URL:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Brak autorytatywnej walidacji QES — DSS_VALIDATION_URL nie "
+                    "jest skonfigurowany, więc podpisu nie można potwierdzić jako "
+                    "kwalifikowanego. Dokument nie został sfinalizowany."
+                ),
+            )
+        indication = (report.indication or "").upper()
+        authoritative_qes = report.is_qes and not indication.startswith("INDETERMINATE")
+        if not authoritative_qes:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Walidacja QES nierozstrzygnięta lub negatywna (werdykt: "
+                    f"{report.indication or 'nieokreślony'}). Podpis nie jest "
+                    "kwalifikowany lub nie ma autorytatywnego potwierdzenia — "
+                    "dokument nie został sfinalizowany."
+                ),
+            )
 
     # Both parties signed (consultant + our company side) ⇒ the contract is
     # fully executed ⇒ the candidate is hired. Detected via the approval-
