@@ -101,14 +101,23 @@ async def test_terminate_sets_reason_and_amendment(
     assert terminated.json()["termination_reason"] == "project_ended"
     assert terminated.json()["termination_lessons"] == "pytest smoke"
 
-    # Revert — flip back via PATCH so subsequent runs stay idempotent.
+    # Revert — via the audited /reopen transition so subsequent runs stay
+    # idempotent (free `PATCH {status}` writes are no longer accepted;
+    # P1-CONTRACT-01). /reopen lands at `draft`; restore the end date with a
+    # normal PATCH afterwards.
     if original_status != "ended":
-        revert = await app_client.patch(
-            f"/api/contracts/{cid}",
-            json={"status": original_status, "end_date": original_end},
+        revert = await app_client.post(
+            f"/api/contracts/{cid}/reopen",
+            json={"reason": "test idempotency"},
             headers=app_auth_headers,
         )
         assert revert.status_code == 200
+        if original_end:
+            await app_client.patch(
+                f"/api/contracts/{cid}",
+                json={"end_date": original_end},
+                headers=app_auth_headers,
+            )
 
 
 # ── Benchmark ───────────────────────────────────────────────────────────────
