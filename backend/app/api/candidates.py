@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Literal, Optional
 import asyncio
 import io
@@ -52,7 +53,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import RejectionReason
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_pipeline import CandidateStage, VerificationStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.talent_pool import TalentPoolMembership
@@ -3123,6 +3124,43 @@ async def set_recruitment_expected_rate(
         latest.expected_rate_value = payload.rate_value
         latest.expected_rate_unit = (payload.rate_unit or RateUnit.monthly).value
         latest.expected_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
+
+    # Rate-verification gate (M4-P0.4). Without this, a recruiter could move a
+    # candidate to `verified` within budget (→ verification_status=active, no
+    # approval), then PATCH an over-budget rate here — which previously just
+    # wrote the value and left the row `active`, so an over-budget candidate
+    # advanced with nobody's sign-off. Mirror the /move gate: on a `verified`
+    # stage, re-run the same normalized budget comparison; over budget (or a
+    # non-comparable rate) → `pending` + snapshot budget + notify approvers;
+    # within budget → `active`. RecruitmentRateEditAccess includes recruiter,
+    # but approval still needs ApproverPlus — separation of duties preserved.
+    if latest.stage == PipelineStage.verified:
+        from app.services.rate_normalization import normalize_rate_to_monthly
+
+        job = await db.scalar(select(Job).where(Job.id == job_id))
+        if (
+            job is not None
+            and job.salary_max is not None
+            and payload.rate_value is not None
+        ):
+            latest.budget_max_at_move = int(job.salary_max)
+            normalized, _note = normalize_rate_to_monthly(
+                Decimal(payload.rate_value),
+                (payload.rate_unit or RateUnit.monthly).value,
+                (payload.rate_currency or "PLN"),
+            )
+            if normalized is None or normalized > Decimal(job.salary_max):
+                latest.verification_status = VerificationStatus.pending
+                from app.api.pipeline import _notify_pending_verification
+
+                candidate = await db.scalar(
+                    select(Candidate).where(Candidate.id == candidate_id)
+                )
+                await _notify_pending_verification(
+                    db, stage=latest, candidate=candidate, job=job
+                )
+            else:
+                latest.verification_status = VerificationStatus.active
 
     await db.commit()
     await db.refresh(latest)
