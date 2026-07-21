@@ -243,5 +243,79 @@ async def test_revenue_forecast_converts_by_default(
     )
     # Default != nominal: conversion actually happens by default. CHF 10000 → 50000
     # PLN makes the two totals differ regardless of what else is in the DB.
+    # NB: directionality is intentionally NOT asserted. A currency with no cached
+    # NBP rate is counted 1:1 under convert_currency=false but EXCLUDED under
+    # convert_currency=true (P1-FX-01), so the nominal total can exceed the
+    # converted one. The magnitude difference is what proves conversion is on.
     assert abs(d_month["revenue"] - n_month["revenue"]) > 1.0
-    assert d_month["revenue"] > n_month["revenue"]
+
+
+async def test_revenue_forecast_missing_fx_excluded_not_counted_1to1(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """A non-PLN contract with no cached rate is EXCLUDED, not folded in 1:1 (P1-FX-01).
+
+    Pollution-proof: run the forecast twice — once with no rate for a per-run
+    unique fake currency, once after seeding it @7.0 — and prove the delta equals
+    the FULL converted amount (7.0×monthly). That is only possible if the no-rate
+    run EXCLUDED the contract entirely. The old 1:1-coercion bug would instead
+    leave a delta of only (7.0 − 1.0)×monthly (the foreign amount already counted
+    at parity). A per-run currency code guarantees no leftover fx_rates row can
+    mask the missing-rate case.
+    """
+    unique = uuid.uuid4().hex[:8]
+    # A per-run fake ISO-ish code (X-space = "no currency"), 3 chars, that no
+    # other test seeds a rate for — so the "no cached rate" precondition holds.
+    fake_cur = f"X{uuid.uuid4().hex[:2].upper()}"
+    monthly = 10000  # default rate_unit → monthly == rate_client
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"NoRate Client {unique}")
+        db.add(client)
+        await db.flush()
+        cand = Candidate(name="NoRate", lastname=f"Contractor-{unique}")
+        db.add(cand)
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=cand.id,
+                client_id=client.id,
+                status=ContractStatus.active,
+                start_date=date(2025, 1, 1),
+                end_date=None,
+                rate_client=Decimal(str(monthly)),
+                rate_candidate=Decimal("6000"),
+                currency=fake_cur,  # per-run code — no rate ever seeded for it
+            )
+        )
+        await db.commit()
+
+    async def _forecast() -> dict:
+        resp = await app_client.get(
+            "/api/contract-analytics/revenue-forecast?horizon_months=1",
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    no_rate = await _forecast()
+    # Flagged, and the missing currency is named in the warnings.
+    assert no_rate["fx_missing"] is True
+    assert any(
+        "Brak kursu NBP" in w and fake_cur in w for w in no_rate["fx_warnings"]
+    ), no_rate["fx_warnings"]
+    rev_excluded = no_rate["months"][0]["revenue"]
+
+    await _seed_rate(fake_cur, "7.0", date.today())
+    with_rate = await _forecast()
+    rev_included = with_rate["months"][0]["revenue"]
+    # Once the rate exists the currency stops being warned about.
+    assert not any(fake_cur in w for w in with_rate["fx_warnings"])
+
+    delta = rev_included - rev_excluded
+    # Exclusion → delta is the FULL converted amount.
+    assert delta == pytest.approx(monthly * 7.0, abs=0.5), (
+        "missing-rate amount must have been excluded, so adding the rate lifts "
+        "revenue by the whole converted value"
+    )
+    # A 1:1 coercion bug would leave a delta of only (7.0 − 1.0)×monthly.
+    assert delta != pytest.approx(monthly * 6.0, abs=0.5)

@@ -1,6 +1,6 @@
 """NBP FX rate fetcher + per-date lookup.
 
-NBP daily table A (http://api.nbp.pl/api/exchangerates/tables/a/) lists middle
+NBP daily table A (https://api.nbp.pl/api/exchangerates/tables/a/) lists middle
 rates for major currencies. We cache whatever we fetch in the fx_rates table
 so subsequent conversions don't hit the network.
 
@@ -24,7 +24,7 @@ from app.models.fx_rate import FxRate
 
 logger = logging.getLogger(__name__)
 
-NBP_URL = "http://api.nbp.pl/api/exchangerates/tables/a/"
+NBP_URL = "https://api.nbp.pl/api/exchangerates/tables/a/"
 
 
 async def fetch_and_store_nbp_today() -> int:
