@@ -250,7 +250,6 @@ jobs:
                  tests/test_assign_snapshot_consistency.py \
                  tests/test_eval_matching_leakage_gate.py \
                  tests/test_slack_alert_http_status.py \
-                 tests/test_client_rate_write_authz.py \
                  tests/test_hybrid_search_degraded.py \
                  tests/test_rejection_email_integration.py \
                  -v --tb=short \

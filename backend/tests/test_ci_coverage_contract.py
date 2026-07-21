@@ -167,7 +167,8 @@ _UNWIRED: set[str] = {
     "test_rate_cards.py",
     "test_recommendation_competence_category_multi.py",
     "test_recommendation_filters.py",
-    "test_rejection_email_integration.py",
+    # test_rejection_email_integration.py wired into ci.yml by #870 — removed
+    # from this burn-down baseline so test_baseline_has_no_stale_entries stays green.
     "test_rejection_email_scheduler.py",
     "test_reports_clients.py",
     "test_reports_invite_links.py",

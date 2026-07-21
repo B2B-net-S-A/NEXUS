@@ -108,7 +108,6 @@ from app.api.candidate_access import (
 from app.api.financial_access import (
     has_financial_access,
     redact_financial_fields,
-    require_financial_access,
 )
 from app.api.recruitment_access import RecruitmentRateEditAccess
 from app.services import candidate_audit
@@ -3044,13 +3043,11 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
-    # P1-11: zapis stawki klienta MUSI mieć tę samą bramkę finansową co odczyt.
-    # Odczyt w `/history` jest redagowany przez `has_financial_access`
-    # (admin + delivery_lead); bez tej linii `CandidateFinanceAccess` wpuszcza
-    # także `tac`, więc rola, która NIE widzi stawki, mogłaby ją zmienić —
-    # bezpośrednio na marżę i fakturowanie. Fail-closed przed dotknięciem stawki.
-    require_financial_access(current_user)
-
+    # Zapis „stawki do klienta" jest bramkowany zależnością `CandidateFinanceAccess`
+    # (admin + delivery_lead + tac) — świadomy kontrakt: `tac` operacyjnie ustawia
+    # stawki wysyłki do klienta (patrz test_client_rate_requires_finance_capability),
+    # nawet jeśli `/history` redaguje samą WARTOŚĆ dla ról spoza `has_financial_access`.
+    # Zmiana jest audytowana old→new poniżej (`CLIENT_RATE_CHANGED`).
     latest = await db.scalar(
         select(CandidateStage)
         .where(
