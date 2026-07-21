@@ -168,11 +168,16 @@ class WeightProfile:
 # Version stamp for the match-score cache. Derives from the scoring-contract
 # flag so flipping AI_SCORING_CONTRACT_V2 changes the string, which the cache
 # treats as a full invalidation (old rows recompute under the new budget rule).
+#
+# The embedding model is folded in (AI-P0-06 part c): the cached semantic layer
+# is only comparable within one embedding space, so swapping VOYAGE_MODEL must
+# invalidate every cached score. Weight-profile edits are handled separately by
+# mark_stale_for_profile (parts a/b) — those don't change this global string.
 SCORING_ALGORITHM_VERSION: str = (
     "score-v2-budget100"
     if getattr(settings, "AI_SCORING_CONTRACT_V2", False)
     else "score-v1-legacy"
-)
+) + f"+emb-{getattr(settings, 'VOYAGE_MODEL', 'unknown')}"
 
 
 DEFAULT_PROFILE = WeightProfile()

@@ -244,6 +244,24 @@ async def mark_stale_for_job(db: AsyncSession, job_id: int) -> int:
     return res.rowcount or 0
 
 
+async def mark_stale_for_profile(db: AsyncSession, profile_id: int) -> int:
+    """Mark all (*, *, profile) cached rows stale — call when a weight profile's
+    weights change or the profile is deleted (AI-P0-06 part a).
+
+    The cache key is (candidate, job, profile) + a global algorithm-version
+    string, but that string tracks only the scoring contract + embedding model,
+    NOT per-profile weights. So editing a profile's weights in place would keep
+    serving old-weight scores under the same profile_id. Invalidating by
+    profile_id closes that. Caller owns the transaction (no commit here).
+    """
+    res = await db.execute(
+        update(CandidateJobMatchScore)
+        .where(CandidateJobMatchScore.profile_id == profile_id)
+        .values(stale=True)
+    )
+    return res.rowcount or 0
+
+
 async def mark_stale_for_many_candidates(
     db: AsyncSession, candidate_ids: Iterable[int]
 ) -> int:
