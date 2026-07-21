@@ -24,6 +24,16 @@ from app.api.recruitment_access import (
     CalendarWriteAccess,
     RecruitmentReadAccess,
 )
+from app.api.calendar_access import (
+    CALENDAR_EVENT_DELETED,
+    CALENDAR_EVENT_UPDATED,
+    event_visibility_filter,
+    project_event_fields,
+    record_calendar_audit,
+    user_can_mutate_event,
+    user_can_view_event,
+    user_is_override,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +117,13 @@ async def list_events(
     event_type: Optional[EventType] = Query(None),
     status: Optional[EventStatus] = Query(None),
 ):
-    """List calendar events. Optionally filter by date range, type, status."""
-    query = select(CalendarEvent)
+    """List calendar events the caller may see (owner / attendee / admin-HoR).
+
+    Resource scoping (P1-CALENDAR-01): the SQL query is filtered to events the
+    caller owns or attends before any row is read; admin/head_of_recruitment
+    see all. A non-owner participant receives a redacted projection.
+    """
+    query = select(CalendarEvent).where(event_visibility_filter(current_user))
     conditions = []
     if from_date:
         conditions.append(CalendarEvent.start_time >= from_date)
@@ -152,11 +167,12 @@ async def list_events(
             if cli:
                 client_name = cli.name
 
+        projected = project_event_fields(ev, current_user)
         output.append(
             CalendarEventResponse(
                 id=ev.id,
                 title=ev.title,
-                description=ev.description,
+                description=projected["description"],
                 event_type=ev.event_type.value,
                 start_time=ev.start_time,
                 end_time=ev.end_time,
@@ -167,7 +183,7 @@ async def list_events(
                 job_title=job_title,
                 client_id=ev.client_id,
                 client_name=client_name,
-                attendees=ev.attendees or [],
+                attendees=projected["attendees"],
                 location=ev.location,
                 teams_link=ev.teams_link,
                 online_meeting_url=ev.online_meeting_url,
@@ -269,7 +285,9 @@ async def get_event(
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
     event = result.scalar_one_or_none()
-    if not event:
+    # Anti-enumeration (P1-CALENDAR-01): a caller with no relationship to the
+    # event gets the same 404 as a non-existent id — existence is not revealed.
+    if not event or not user_can_view_event(event, current_user):
         raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
 
     candidate_name = None
@@ -296,10 +314,11 @@ async def get_event(
         if cli:
             client_name = cli.name
 
+    projected = project_event_fields(event, current_user)
     return CalendarEventResponse(
         id=event.id,
         title=event.title,
-        description=event.description,
+        description=projected["description"],
         event_type=event.event_type.value,
         start_time=event.start_time,
         end_time=event.end_time,
@@ -310,7 +329,7 @@ async def get_event(
         job_title=job_title,
         client_id=event.client_id,
         client_name=client_name,
-        attendees=event.attendees or [],
+        attendees=projected["attendees"],
         location=event.location,
         teams_link=event.teams_link,
         online_meeting_url=event.online_meeting_url,
@@ -331,12 +350,25 @@ async def update_event(
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
     event = result.scalar_one_or_none()
-    if not event:
+    # 404 when the caller may not even see it (anti-enumeration); 403 when they
+    # can see it (owner/attendee) but are not allowed to mutate — P1-CALENDAR-01.
+    if not event or not user_can_view_event(event, current_user):
         raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
+    if not user_can_mutate_event(event, current_user):
+        raise HTTPException(
+            status_code=403, detail="Brak uprawnień do edycji tego wydarzenia"
+        )
 
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(event, field, value)
 
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_UPDATED,
+        user_id=current_user.id,
+        event_id=event.id,
+        override=user_is_override(current_user),
+    )
     await db.commit()
     await db.refresh(event)
 
@@ -383,8 +415,20 @@ async def delete_event(
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
     event = result.scalar_one_or_none()
-    if not event:
+    # Same 404/403 contract as update — P1-CALENDAR-01.
+    if not event or not user_can_view_event(event, current_user):
         raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
+    if not user_can_mutate_event(event, current_user):
+        raise HTTPException(
+            status_code=403, detail="Brak uprawnień do usunięcia tego wydarzenia"
+        )
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_DELETED,
+        user_id=current_user.id,
+        event_id=event.id,
+        override=user_is_override(current_user),
+    )
     await db.delete(event)
     await db.commit()
 
