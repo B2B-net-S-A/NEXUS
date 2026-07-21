@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from functools import reduce
 from typing import Optional
 
-from sqlalchemy import String, and_, case, cast, func, not_, or_
+from sqlalchemy import String, and_, case, cast, func, not_, or_, select
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import (
@@ -83,32 +83,78 @@ def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
 
 
 def _language_clause(req: LanguageRequirement) -> Optional[ColumnElement]:
-    """Match ``Candidate.languages`` JSONB containing a ``code`` entry whose
-    ``level`` is at least ``req.min_level``.
+    """Match a candidate whose ``languages`` JSONB carries ``req.code`` at or
+    above ``req.min_level`` — with the code and the level bound to the SAME
+    element (SEARCH-18).
 
-    Schema convention (legacy + parser-emitted):
-    ``[{"code": "EN", "level": "B2"}, ...]``  *or*  ``{"EN": "B2", ...}``.
+    The prior implementation cast the whole ``languages`` array to text and ran
+    a single ILIKE (``%"EN"%"B2"%``), so ``EN`` in one element and ``B2`` in a
+    *different* element counted as a match: a candidate with
+    ``[{lang:EN,level:A2},{lang:DE,level:C2}]`` wrongly satisfied ``EN>=B2``.
+    We now require one element to carry both fields.
 
-    We render an OR over both shapes so older candidates still match.
+    Two stored shapes are supported, per-element correct in both:
+
+    * array of dicts — ``[{"lang": "EN", "level": "B2"}, ...]`` (``code`` is an
+      accepted alias for ``lang``);
+    * flat map — ``{"EN": "B2", ...}`` where the key *is* the language code.
+
+    Code and level are both case-folded (preserving the old ILIKE tolerance);
+    ``level`` acceptance follows the CEFR ordering in ``_LEVEL_ORDER``.
     """
     code_upper = req.code.upper()
     try:
         min_idx = _LEVEL_ORDER.index(req.min_level)
     except ValueError:
         return None
-    accepted_levels = _LEVEL_ORDER[min_idx:]
+    accepted_levels = [lvl.upper() for lvl in _LEVEL_ORDER[min_idx:]]
 
-    # JSONB array shape: languages @> '[{"code": "EN", "level": "B2"}]' for any
-    # accepted level. We can't AND an array contains across multiple acceptable
-    # levels in one expression efficiently — rely on text fallback below.
-    text_blob = func.coalesce(cast(Candidate.languages, String), "")
-    pattern_clauses = [
-        text_blob.ilike(f'%"{code_upper}"%"{lvl}"%') for lvl in accepted_levels
-    ]
-    pattern_clauses += [
-        text_blob.ilike(f'%"{lvl}"%"{code_upper}"%') for lvl in accepted_levels
-    ]
-    return or_(*pattern_clauses) if pattern_clauses else None
+    langs = Candidate.languages
+
+    # Array shape: ONE element must carry both the code and an accepted level.
+    # ``jsonb_array_elements`` errors on non-arrays, so guard the type first.
+    array_elem = func.jsonb_array_elements(
+        case(
+            (func.jsonb_typeof(langs) == "array", langs),
+            else_=func.jsonb_build_array(),
+        )
+    ).table_valued("value")
+    elem_code = func.upper(
+        func.coalesce(
+            array_elem.c.value.op("->>")("lang"),
+            array_elem.c.value.op("->>")("code"),
+            "",
+        )
+    )
+    elem_level = func.upper(func.coalesce(array_elem.c.value.op("->>")("level"), ""))
+    array_match = (
+        select(array_elem.c.value)
+        .where(and_(elem_code == code_upper, elem_level.in_(accepted_levels)))
+        .correlate(Candidate)
+        .exists()
+    )
+
+    # Flat-map shape: the key is the code, the value its level — inherently
+    # per-element. ``jsonb_each_text`` gives case-insensitive key matching.
+    map_kv = func.jsonb_each_text(
+        case(
+            (func.jsonb_typeof(langs) == "object", langs),
+            else_=func.jsonb_build_object(),
+        )
+    ).table_valued("key", "value")
+    map_match = (
+        select(map_kv.c.value)
+        .where(
+            and_(
+                func.upper(map_kv.c.key) == code_upper,
+                func.upper(map_kv.c.value).in_(accepted_levels),
+            )
+        )
+        .correlate(Candidate)
+        .exists()
+    )
+
+    return or_(array_match, map_match)
 
 
 def _bool_eq(col: ColumnElement, value: Optional[bool]) -> Optional[ColumnElement]:
