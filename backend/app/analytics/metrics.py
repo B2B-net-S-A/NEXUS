@@ -24,7 +24,7 @@ Wszystkie funkcje przyjmują ``Period`` ([start, end), Europe/Warsaw).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -417,15 +417,22 @@ async def tenders(
 # ── Finanse (Decimal; pełna poprawność FX = plan PR 6) ──────────────────────
 
 
-async def _active_contracts(db: AsyncSession, *, client_id: int | None = None):
-    today = date.today()
+async def _active_contracts(
+    db: AsyncSession, *, client_id: int | None = None, on: date | None = None
+):
+    """Kontrakty aktywne NA DZIEŃ ``on`` (domyślnie dziś).
+
+    ``on`` czyni to zapytanie point-in-time (M7-P0.4): dla historycznego okresu
+    zwraca kontrakty aktywne na koniec tamtego okresu, nie stan bieżący.
+    """
+    on = on or date.today()
     stmt = (
         select(Contract)
         .where(
             Contract.status != ContractStatus.draft,
             Contract.start_date.isnot(None),
-            Contract.start_date <= today,
-            (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+            Contract.start_date <= on,
+            (Contract.end_date.is_(None)) | (Contract.end_date >= on),
         )
         .options(
             selectinload(Contract.candidate_rate_schedule),
@@ -520,20 +527,23 @@ async def _sum_finance(
     return data, warnings, flag
 
 
-async def _bench_and_utilization(db: AsyncSession) -> dict[str, Any]:
-    """Bench = kandydat MIAŁ kontrakt, ale dziś nie ma aktywnego (plan PR 6).
+async def _bench_and_utilization(
+    db: AsyncSession, *, on: date | None = None
+) -> dict[str, Any]:
+    """Bench = kandydat MIAŁ kontrakt, ale na dzień ``on`` nie ma aktywnego.
 
     Utilization = aktywni / (aktywni + bench) — mianownik to populacja
-    konsultantów (ktokolwiek kiedykolwiek na kontrakcie), nie cała baza.
+    konsultantów (ktokolwiek na kontrakcie do dnia ``on``), nie cała baza.
+    ``on`` domyślnie dziś; przy okresie historycznym = koniec okresu (M7-P0.4).
     """
-    today = date.today()
+    on = on or date.today()
     active_cands = (
         await db.execute(
             select(func.count(distinct(Contract.candidate_id))).where(
                 Contract.status != ContractStatus.draft,
                 Contract.start_date.isnot(None),
-                Contract.start_date <= today,
-                (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+                Contract.start_date <= on,
+                (Contract.end_date.is_(None)) | (Contract.end_date >= on),
             )
         )
     ).scalar() or 0
@@ -542,7 +552,7 @@ async def _bench_and_utilization(db: AsyncSession) -> dict[str, Any]:
             select(func.count(distinct(Contract.candidate_id))).where(
                 Contract.status != ContractStatus.draft,
                 Contract.start_date.isnot(None),
-                Contract.start_date <= today,
+                Contract.start_date <= on,
             )
         )
     ).scalar() or 0
@@ -557,13 +567,29 @@ async def _bench_and_utilization(db: AsyncSession) -> dict[str, Any]:
     }
 
 
+def finance_as_of(period: Period) -> date:
+    """Data odniesienia point-in-time dla finansów danego okresu (M7-P0.4).
+
+    Snapshot finansów „za okres" to stan na jego OSTATNI dzień, nigdy w
+    przyszłości. Period jest półotwarty ``[start, end)``, więc ostatni objęty
+    dzień = ``end - 1 dzień``; zawsze zaklamrowany do dziś. Dla bieżącego
+    okresu (kind day/week/month/... zawsze rozwiązuje się do trwającego) wychodzi
+    dziś = stan bieżący; dla zakresu historycznego (custom) = koniec zakresu.
+    """
+    last_day = (period.end - timedelta(days=1)).date()
+    tz = period.start.tzinfo
+    today = datetime.now(tz).date() if tz else date.today()
+    return min(last_day, today)
+
+
 async def finance_summary(
-    db: AsyncSession,
+    db: AsyncSession, *, as_of: date | None = None
 ) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
-    """MRR/marża date-effective na dziś (Decimal, PLN, FX) + bench/utilization."""
-    contracts = await _active_contracts(db)
-    data, warnings, flag = await _sum_finance(db, contracts)
-    data["consultants"] = await _bench_and_utilization(db)
+    """MRR/marża point-in-time na dzień ``as_of`` (domyślnie dziś), PLN + FX
+    z kursu tej daty + bench/utilization na ten sam dzień (M7-P0.4)."""
+    contracts = await _active_contracts(db, on=as_of)
+    data, warnings, flag = await _sum_finance(db, contracts, on=as_of)
+    data["consultants"] = await _bench_and_utilization(db, on=as_of)
     return data, warnings, flag
 
 
@@ -681,10 +707,11 @@ async def finance_trend(
 
 
 async def finance_clients(
-    db: AsyncSession, *, limit: int = 20
+    db: AsyncSession, *, limit: int = 20, as_of: date | None = None
 ) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
-    """Per-klient MRR/marża (date-effective dziś, FX), top wg MRR."""
-    contracts = await _active_contracts(db)
+    """Per-klient MRR/marża point-in-time na ``as_of`` (domyślnie dziś), FX, top
+    wg MRR (M7-P0.4)."""
+    contracts = await _active_contracts(db, on=as_of)
     by_client: dict[int, list] = {}
     for c in contracts:
         by_client.setdefault(c.client_id, []).append(c)
@@ -704,7 +731,7 @@ async def finance_clients(
     all_warnings: list[str] = []
     worst: QualityFlag = "complete"
     for client_id, cs in by_client.items():
-        data, warnings, flag = await _sum_finance(db, cs)
+        data, warnings, flag = await _sum_finance(db, cs, on=as_of)
         if flag == "unavailable":
             worst = "unavailable"
         rows.append(
@@ -765,10 +792,10 @@ async def client_operations(
 
 
 async def client_finance(
-    db: AsyncSession, client_id: int
+    db: AsyncSession, client_id: int, *, as_of: date | None = None
 ) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
-    contracts = await _active_contracts(db, client_id=client_id)
-    return await _sum_finance(db, contracts)
+    contracts = await _active_contracts(db, client_id=client_id, on=as_of)
+    return await _sum_finance(db, contracts, on=as_of)
 
 
 # ── /meta/metrics — rejestr definicji ────────────────────────────────────────
