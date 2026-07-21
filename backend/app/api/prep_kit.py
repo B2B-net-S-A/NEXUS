@@ -17,6 +17,11 @@ from app.models.client import Client
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
+from app.services.client_access import (
+    assert_client_exists,
+    deny,
+    resolve_client_access,
+)
 from app.services.question_suggestions import suggest_questions_for_prep
 
 router = APIRouter()
@@ -81,6 +86,20 @@ async def generate_prep_kit(
         )
     )
     stages = stage_result.scalars().all()
+
+    # ── Per-client containment (M1B-SEC-01) ─────────────────────────────────
+    # Everything below that is client-specific — the overview (tech_stack /
+    # culture / general), selling_points and the Tier-3 interview questions —
+    # is derived from ClientKnowledge for job.client_id. Gate it behind the
+    # same per-client access already enforced on GET /clients/{id}/knowledge,
+    # so a recruiter assigned only to client A cannot pass client B's job_id
+    # and read B's private knowledge (cross-team BOLA). The candidate-side data
+    # stays gated by the CandidatePIIAccess role dependency above.
+    if job.client_id:
+        await assert_client_exists(db, job.client_id)
+        access = await resolve_client_access(db, current_user, job.client_id)
+        if not access.can_view_knowledge:
+            raise deny("brak dostępu do wiedzy tego klienta")
 
     # ── Fetch Client ──────────────────────────────────────────────────────────
     client: Optional[Client] = None
