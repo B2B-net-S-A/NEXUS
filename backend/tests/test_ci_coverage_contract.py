@@ -130,7 +130,9 @@ _UNWIRED: set[str] = {
     "test_fx.py",
     "test_http_headers.py",
     "test_interview_questions.py",
-    "test_invite_links.py",
+    # test_invite_links.py wired into ci.yml by the P0-CAND-01 containment PR
+    # (public /apply duplicate-email no longer overwrites a candidate) — removed
+    # from this burn-down baseline so test_baseline_has_no_stale_entries stays green.
     "test_invoices.py",
     "test_job_cc.py",
     "test_job_chat.py",

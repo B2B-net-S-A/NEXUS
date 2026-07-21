@@ -6,7 +6,9 @@ Covers:
 - Revoke flow (authorised caller + subsequent 404 on public GET).
 - Public GET metadata shape (no sensitive fields leaked).
 - Public POST creates new candidate with correct `created_by` + CandidateStage.
-- Public POST for a duplicate email updates existing candidate and reassigns ownership.
+- Public POST for a duplicate email (P0-CAND-01): the existing candidate is NOT
+  mutated (no name/CV/contact/owner change); a pending ApplicationSubmission is
+  parked instead, and the response never reveals the duplicate.
 - Multi-use: second application through the same link increments use_count.
 """
 
@@ -216,7 +218,8 @@ async def test_public_apply_creates_candidate_with_ownership(inv_client: AsyncCl
         files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4 minimal"), "application/pdf")},
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "created"
+    # Response is generic — no created/updated discriminator (enumeration oracle).
+    assert resp.json()["status"] == "received"
 
     # Verify candidate has created_by = recruiter, and stage exists on correct job.
     async with AsyncSessionLocal() as db:
@@ -240,10 +243,22 @@ async def test_public_apply_creates_candidate_with_ownership(inv_client: AsyncCl
 
 
 @pytest.mark.asyncio
-async def test_public_apply_updates_duplicate_email_and_reassigns_ownership(
+async def test_public_apply_duplicate_email_parks_submission_without_mutation(
     inv_client: AsyncClient,
 ):
-    # Seed an existing candidate owned by recruiter X.
+    """P0-CAND-01: a duplicate-email apply must NOT touch the canonical candidate.
+
+    The whole point of the containment: a public, reusable invite link plus a
+    known e-mail can no longer overwrite a candidate's name/CV/contact/owner.
+    Instead a pending ApplicationSubmission is parked for recruiter review, and
+    the response is generic (does not reveal the e-mail already existed).
+    """
+    from app.models.application_submission import (
+        ApplicationSubmission,
+        ApplicationSubmissionStatus,
+    )
+
+    # Seed an existing candidate owned by recruiter X, with its own CV + phone.
     uid_x, email_x, pass_x = await _seed_user(UserRole.recruiter, "owner-x")
     job_id = await _seed_job()
     applicant_email = f"dup-{uuid.uuid4().hex[:6]}@example.com"
@@ -252,14 +267,16 @@ async def test_public_apply_updates_duplicate_email_and_reassigns_ownership(
             name="Old",
             lastname="Name",
             email=applicant_email,
+            phone="+48 111 000 000",
             created_by=uid_x,
+            cv_filename="original_cv.pdf",
         )
         db.add(cand)
         await db.commit()
         await db.refresh(cand)
         original_id = cand.id
 
-    # Recruiter Y creates a link and the candidate re-applies.
+    # Recruiter Y creates a link and the (duplicate) candidate "re-applies".
     uid_y, email_y, pass_y = await _seed_user(UserRole.recruiter, "new-y")
     headers_y = await _login(inv_client, email_y, pass_y)
     token = (
@@ -273,20 +290,53 @@ async def test_public_apply_updates_duplicate_email_and_reassigns_ownership(
     resp = await inv_client.post(
         f"/api/public/apply/{token}",
         data={
-            "first_name": "New",
-            "last_name": "Name",
+            "first_name": "Attacker",
+            "last_name": "Overwrite",
             "email": applicant_email,
+            "phone": "+48 999 888 777",
         },
-        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+        files={"cv": ("evil.pdf", io.BytesIO(b"%PDF-1.4 evil"), "application/pdf")},
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "updated"
+    # Generic — no created/updated leak.
+    assert resp.json()["status"] == "received"
 
     async with AsyncSessionLocal() as db:
+        # Candidate is byte-for-byte unchanged: name, owner, CV, contact.
         cand = await db.scalar(select(Candidate).where(Candidate.id == original_id))
         assert cand is not None
-        assert cand.name == "New"
-        assert cand.created_by == uid_y  # ownership reassigned
+        assert cand.name == "Old"
+        assert cand.lastname == "Name"
+        assert cand.created_by == uid_x  # ownership NOT reassigned
+        assert cand.cv_filename == "original_cv.pdf"  # CV NOT replaced
+        assert cand.phone == "+48 111 000 000"  # contact NOT overwritten
+
+        # A pending submission was parked, pointing at the matched candidate.
+        submission = await db.scalar(
+            select(ApplicationSubmission).where(
+                ApplicationSubmission.matched_candidate_id == original_id
+            )
+        )
+        assert submission is not None
+        assert (
+            submission.status
+            == ApplicationSubmissionStatus.pending_review.value
+        )
+        assert submission.submitted_first_name == "Attacker"
+        assert submission.submitted_email == applicant_email
+        assert submission.job_id == job_id
+        # The raw token is never stored — only its digest.
+        assert submission.invite_link_token_sha256
+        assert submission.invite_link_token_sha256 != token
+
+        # No candidate stage was created for the matched candidate either.
+        stage = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == original_id,
+                CandidateStage.job_id == job_id,
+            )
+        )
+        assert stage is None
 
 
 @pytest.mark.asyncio
@@ -470,11 +520,18 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_reapply_records_previous_owner_in_activity(
+async def test_reapply_audits_submission_not_candidate(
     inv_client: AsyncClient,
 ):
-    """Re-applying through a different link records the prior owner on Activity.details."""
+    """P0-CAND-01: a duplicate-email reapply audits the SUBMISSION, not the candidate.
+
+    The old contract reassigned ownership and wrote an ``applied_via_invite``
+    Activity onto the existing candidate. The new contract leaves the candidate
+    (and its audit trail) untouched and records a ``submission_received``
+    Activity against the parked submission instead.
+    """
     from app.models.activity import Activity
+    from app.models.application_submission import ApplicationSubmission
 
     uid_x, _, _ = await _seed_user(UserRole.recruiter, "prev-x")
     uid_y, email_y, pass_y = await _seed_user(UserRole.recruiter, "prev-y")
@@ -515,18 +572,35 @@ async def test_reapply_records_previous_owner_in_activity(
     assert resp.status_code == 201, resp.text
 
     async with AsyncSessionLocal() as db:
-        act = await db.scalar(
-            select(Activity)
-            .where(
+        # No applied_via_invite Activity written onto the existing candidate.
+        cand_act = await db.scalar(
+            select(Activity).where(
                 Activity.entity_type == "candidate",
                 Activity.entity_id == cand_id,
                 Activity.action == "applied_via_invite",
             )
-            .order_by(Activity.created_at.desc())
         )
-        assert act is not None
-        assert act.user_id == uid_y
-        assert (act.details or {}).get("previous_created_by") == uid_x
+        assert cand_act is None
+        # Ownership stayed with X.
+        cand = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
+        assert cand is not None and cand.created_by == uid_x
+
+        # The submission carries the audit instead.
+        submission = await db.scalar(
+            select(ApplicationSubmission).where(
+                ApplicationSubmission.matched_candidate_id == cand_id
+            )
+        )
+        assert submission is not None
+        sub_act = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "application_submission",
+                Activity.entity_id == submission.id,
+                Activity.action == "submission_received",
+            )
+        )
+        assert sub_act is not None
+        assert sub_act.user_id == uid_y
 
 
 @pytest.mark.asyncio
