@@ -13,6 +13,17 @@
  * - SEARCH-P1-01: the reference number in the title (e.g. ``(ZOB-2846)``) must
  *   not pollute the free-text query, and ``nice_skills`` must NOT become a hard
  *   "at least one" gate (they are preferences; proper soft weighting is Phase 4).
+ *   The flip side of that same finding: the prefill was also *too poor* — it
+ *   carried only the bare title, dropping the job's ``description`` /
+ *   ``requirements`` / ``seniority``. Those now feed the free-text query, routed
+ *   through ``search_mode: "hybrid"`` so the text drives semantic
+ *   (BM25 + dense + rerank) retrieval instead of a boolean ``AND`` over
+ *   ``websearch_to_tsquery`` — enriching recall without re-introducing a hard
+ *   gate. Signals with no NULL-safe home are deliberately NOT mapped: a job has
+ *   no candidate-facing ``languages`` / ``notice_period`` / start-date field to
+ *   source from, the search request has no remote-policy filter, and
+ *   ``experience_years_min`` hard-excludes candidates whose experience is
+ *   unknown — so seniority is carried in the semantic text, not as a cut.
  */
 
 import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
@@ -20,6 +31,12 @@ import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
 /** Minimal job shape needed to build a search prefill. */
 export interface JobPrefillSource {
   title: string;
+  /** Free-text role description — enriches the semantic query. */
+  description?: string | null;
+  /** Free-text requirements (often a concise skills list) — dense signal. */
+  requirements?: string | null;
+  /** Seniority enum: junior | mid | senior | lead | architect. */
+  seniority?: string | null;
   must_skills?: unknown;
   nice_skills?: unknown;
   competence_category_id?: number | null;
@@ -72,6 +89,57 @@ export function stripJobReference(title: string): string {
   return cleaned || title.trim();
 }
 
+// The backend caps the free-text `q` at 500 chars; stay under it with room to
+// spare and truncate on a word boundary so we never send a half-word lexeme.
+const MAX_QUERY_CHARS = 480;
+
+/**
+ * Clean a free-text job fragment (``description`` / ``requirements``) for use
+ * inside the search query: strip reference codes, drop HTML tags, and collapse
+ * all whitespace/markup runs into single spaces. Returns "" for empty input.
+ */
+export function cleanQueryFragment(raw?: string | null): string {
+  if (!raw) return "";
+  return raw
+    .replace(/<[^>]+>/g, " ") // any stray HTML tags
+    .replace(BRACKETED_REF, " ")
+    .replace(STANDALONE_REF, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Truncate to ``max`` chars without cutting a word in half. */
+function truncateOnWordBoundary(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trim();
+}
+
+/**
+ * Assemble the free-text search query for a job. Combines the ref-stripped
+ * title, the seniority token, and cleaned ``requirements`` + ``description`` —
+ * so the job's real signal (not just its title) reaches the semantic query.
+ * Ordered most-informative-first so truncation drops the least useful tail.
+ * Reference numbers never leak in (both the title and the fragments are
+ * ref-stripped). Falls back to the bare title if enrichment is empty.
+ */
+export function buildJobSearchQueryText(job: JobPrefillSource): string {
+  const title = stripJobReference(job.title);
+  const seniority = job.seniority ? String(job.seniority).trim() : "";
+  const combined = [
+    title,
+    seniority,
+    cleanQueryFragment(job.requirements),
+    cleanQueryFragment(job.description),
+  ]
+    .filter((part) => part.length > 0)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return truncateOnWordBoundary(combined, MAX_QUERY_CHARS) || title;
+}
+
 // Work-mode tokens that are NOT cities. Matched case-insensitively against a
 // whole location segment (after splitting), so "Remote" / "Praca zdalna" /
 // "hybryda" are dropped but a city named e.g. "Zdalna" (none exist) is unaffected.
@@ -120,15 +188,28 @@ export function parseJobLocationCities(location?: string | null): string[] {
 /**
  * Build the candidate-search prefill for a job's manual-search tab.
  *
- * Note ``nice_skills`` are deliberately omitted: they used to be sent as
+ * The free-text ``q`` carries the job's real signal (title + seniority +
+ * requirements + description, ref-stripped) and rides ``search_mode: "hybrid"``
+ * so that text drives semantic retrieval rather than a boolean ``AND`` over FTS
+ * — otherwise a multi-sentence description would zero out results. See
+ * ``buildJobSearchQueryText``.
+ *
+ * ``nice_skills`` are deliberately omitted: they used to be sent as
  * ``skills_any`` which the backend turns into a mandatory "at least one" gate,
  * zeroing out results. Proper soft-preference weighting lands in Phase 4.
+ * ``languages`` / ``notice_period_max`` / ``availability_date_before`` /
+ * ``experience_years_min`` are intentionally NOT set here — a job has no
+ * NULL-safe source/target for them, so setting them would invent a hard filter
+ * the finding explicitly warns against.
  */
 export function buildJobSearchPrefill(
   job: JobPrefillSource,
 ): Partial<CandidateSearchRequest> {
   return {
-    q: stripJobReference(job.title),
+    q: buildJobSearchQueryText(job),
+    // Description-driven `q` is only recall-safe under hybrid retrieval; in the
+    // default boolean mode `q` becomes a hard `websearch_to_tsquery` AND.
+    search_mode: "hybrid",
     competence_category_ids: job.competence_category_id
       ? [job.competence_category_id]
       : [],

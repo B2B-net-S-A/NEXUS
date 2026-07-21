@@ -1488,6 +1488,9 @@ export default function JobDetailPage() {
 interface JobLite {
   id: number;
   title: string;
+  description?: string | null;
+  requirements?: string | null;
+  seniority?: string | null;
   must_skills?: unknown;
   nice_skills?: unknown;
   competence_category_id?: number | null;

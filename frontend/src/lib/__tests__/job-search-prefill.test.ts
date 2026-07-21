@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildJobSearchPrefill,
+  buildJobSearchQueryText,
+  cleanQueryFragment,
   extractSkillNames,
   parseJobLocationCities,
   stripJobReference,
@@ -84,6 +86,67 @@ describe("extractSkillNames", () => {
   });
 });
 
+describe("cleanQueryFragment", () => {
+  it("collapses whitespace/newlines and strips HTML", () => {
+    expect(
+      cleanQueryFragment("Angular 14+\n<b>RxJS</b>\t TypeScript"),
+    ).toBe("Angular 14+ RxJS TypeScript");
+  });
+
+  it("strips reference codes from a fragment", () => {
+    expect(cleanQueryFragment("Rola dla projektu (ZOB-2846) w banku")).toBe(
+      "Rola dla projektu w banku",
+    );
+  });
+
+  it("returns empty for null / empty", () => {
+    expect(cleanQueryFragment(null)).toBe("");
+    expect(cleanQueryFragment("")).toBe("");
+  });
+});
+
+describe("buildJobSearchQueryText", () => {
+  const job = {
+    title: "Data Engineer (ZOB-2846)",
+    seniority: "senior",
+    requirements: "Spark, Airflow, dbt",
+    description:
+      "Poszukujemy inżyniera danych do budowy hurtowni na GCP w zespole ML.",
+  };
+
+  it("enriches the query with title, seniority, requirements and description", () => {
+    const q = buildJobSearchQueryText(job);
+    expect(q).toContain("Data Engineer");
+    expect(q).toContain("senior");
+    expect(q).toContain("Spark");
+    expect(q).toContain("hurtowni"); // from the description
+  });
+
+  it("never leaks the reference number into the query", () => {
+    const q = buildJobSearchQueryText({
+      title: "Data Engineer (ZOB-2846)",
+      description: "Kandydat rozliczany na projekcie ZOB-2846.",
+    });
+    expect(q).not.toContain("ZOB-2846");
+    expect(q).not.toContain("ZOB");
+  });
+
+  it("caps the query length under the backend's 500-char limit", () => {
+    const q = buildJobSearchQueryText({
+      title: "Dev",
+      description: "słowo ".repeat(400), // ~2400 chars
+    });
+    expect(q.length).toBeLessThanOrEqual(480);
+    expect(q.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to the bare title when there is nothing to enrich", () => {
+    expect(buildJobSearchQueryText({ title: "Backend Developer" })).toBe(
+      "Backend Developer",
+    );
+  });
+});
+
 describe("buildJobSearchPrefill", () => {
   it("maps a job's hourly rate to rate_hourly_* (not salary_*)", () => {
     const prefill = buildJobSearchPrefill({
@@ -103,6 +166,34 @@ describe("buildJobSearchPrefill", () => {
     expect(prefill.q).toBe("Data Engineer");
   });
 
+  it("carries the job's description/requirements/seniority into the query", () => {
+    const prefill = buildJobSearchPrefill({
+      title: "Data Engineer (ZOB-2846)",
+      seniority: "senior",
+      requirements: "Spark, Airflow",
+      description: "Budowa hurtowni danych na GCP.",
+    });
+    // Too-poor fix: the query is no longer just the bare title.
+    expect(prefill.q).toContain("Data Engineer");
+    expect(prefill.q).toContain("senior");
+    expect(prefill.q).toContain("Spark");
+    expect(prefill.q).toContain("hurtowni");
+    // Negative control: the OLD behavior sent only the stripped title.
+    expect(prefill.q).not.toBe("Data Engineer");
+  });
+
+  it("routes the enriched query through hybrid (semantic), not boolean AND", () => {
+    // Description text in `q` is only recall-safe under hybrid retrieval;
+    // in boolean mode `q` becomes a hard websearch_to_tsquery AND.
+    const prefill = buildJobSearchPrefill({
+      title: "Data Engineer",
+      description: "Spark i Airflow na GCP.",
+    });
+    expect(prefill.search_mode).toBe("hybrid");
+    // Negative control: the old prefill left search_mode at the boolean default.
+    expect(prefill.search_mode).not.toBe("boolean");
+  });
+
   it("does NOT send nice_skills as a hard filter", () => {
     const prefill = buildJobSearchPrefill({
       title: "Dev",
@@ -111,6 +202,20 @@ describe("buildJobSearchPrefill", () => {
     });
     expect(prefill.skills_must).toEqual(["Python"]);
     expect(prefill.skills_any).toBeUndefined();
+  });
+
+  it("does NOT invent NULL-excluding hard filters from job metadata", () => {
+    // seniority/languages/notice/start-date have no NULL-safe home, so the
+    // mapper must not turn them into structured cuts that over-filter.
+    const prefill = buildJobSearchPrefill({
+      title: "Senior Data Engineer",
+      seniority: "senior",
+      requirements: "Angielski C1, notice 1 miesiąc, start ASAP",
+    });
+    expect(prefill.experience_years_min).toBeUndefined();
+    expect(prefill.languages).toBeUndefined();
+    expect(prefill.notice_period_max).toBeUndefined();
+    expect(prefill.availability_date_before).toBeUndefined();
   });
 
   it("parses location into cities", () => {
