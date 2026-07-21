@@ -250,6 +250,7 @@ jobs:
                  tests/test_assign_snapshot_consistency.py \
                  tests/test_eval_matching_leakage_gate.py \
                  tests/test_slack_alert_http_status.py \
+                 tests/test_signature_reconciler.py \
                  tests/test_hybrid_search_degraded.py \
                  tests/test_rejection_email_integration.py \
                  tests/test_presence_authz_p1_12.py \
