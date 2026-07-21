@@ -92,11 +92,28 @@ def render_contract_pdf(
     """
     # Lazy import — WeasyPrint pulls heavy native libs at module load. Tests
     # that don't exercise PDF generation should not pay this cost.
-    from weasyprint import HTML  # noqa: WPS433 (intentional lazy import)
+    from weasyprint import HTML, default_url_fetcher  # noqa: WPS433 (lazy import)
+
+    def _deny_external(url: str) -> dict:
+        """Block all network/file access during PDF render (M5-P0.10 SSRF).
+
+        Contract HTML is attacker-influenced: any TacPlus (non-admin) user saves
+        the draft verbatim, and it is served to the PUBLIC ``/sign/{token}/pdf``
+        endpoint. WeasyPrint's default fetcher follows ``http(s)://``,
+        ``file://``, ``ftp://`` server-side — a blind SSRF (cloud metadata,
+        local files). CSP can't help; this runs on the server. Only embedded
+        ``data:`` URIs are allowed; anything else raises, and WeasyPrint drops
+        that resource and keeps rendering (fail-closed, no PDF failure).
+        """
+        if url.startswith("data:"):
+            return default_url_fetcher(url)
+        raise ValueError(f"blocked external resource in contract PDF: {url[:64]!r}")
 
     cleaned = _strip_print_script(html or "")
     document = _wrap_for_pdf(cleaned, title=title)
-    pdf_bytes = HTML(string=document, base_url=base_url).write_pdf()
+    pdf_bytes = HTML(
+        string=document, base_url=base_url, url_fetcher=_deny_external
+    ).write_pdf()
     if pdf_bytes is None:
         # WeasyPrint returns None when target=None and no output_path —
         # we always pass string-based input so this is defensive.

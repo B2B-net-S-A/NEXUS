@@ -243,6 +243,7 @@ jobs:
                  tests/test_expected_rate_verification_gate.py \
                  tests/test_autenti_webhook_monotonic.py \
                  tests/test_search_skills_soft_signal.py \
+                 tests/test_contract_html_trust_boundary.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
