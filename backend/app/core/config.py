@@ -501,6 +501,19 @@ class Settings(BaseSettings):
     # owak nie zalogują się hasłem — break-glass wymaga konta z hasłem.
     PASSWORD_LOGIN_ENABLED: bool = True
 
+    # ── Break-glass dla logowania hasłem ─────────────────────────────────────
+    # CSV adresów email, które NADAL mogą zalogować się hasłem, gdy
+    # ``PASSWORD_LOGIN_ENABLED=False``. Bez tego wyłączenie flagi na produkcji
+    # (tryb SSO-only) zablokowałoby na stałe każdego admina, który ma tylko
+    # hasło i żadnej ścieżki SSO — a wtedy awaria Azure/SSO = brak wejścia dla
+    # nikogo. Ta wąska lista dopuszczeń trzyma logowanie ORAZ odzyskiwanie hasła
+    # (/forgot-password, /reset-password) żywe dla wskazanych kont, reszta dalej
+    # dostaje 503. Trzymany jako ``str`` (nie ``List[str]``) z tego samego
+    # powodu co ``SSO_ALLOWED_DOMAINS`` — pydantic-settings v2 wymuszałby JSON.
+    # Użyj ``settings.password_login_break_glass_email_set``. Pusta (domyślnie)
+    # = brak wyjątku, zachowanie sprzed zmiany (wszyscy zablokowani).
+    PASSWORD_LOGIN_BREAK_GLASS_EMAILS: str = ""
+
     # ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────
     # Kill-switch. When False the SSO callback skips Graph /me/memberOf entirely
     # and falls back to legacy behaviour (new SSO users land as ``recruiter``,
@@ -785,6 +798,22 @@ class Settings(BaseSettings):
         return [
             d.strip().lower() for d in self.SSO_ALLOWED_DOMAINS.split(",") if d.strip()
         ]
+
+    @property
+    def password_login_break_glass_email_set(self) -> set[str]:
+        """Parse PASSWORD_LOGIN_BREAK_GLASS_EMAILS CSV into a lowercased set.
+
+        Emails here bypass the ``PASSWORD_LOGIN_ENABLED=False`` gate on /login,
+        /forgot-password and /reset-password. Empty (default) → empty set → no
+        exception (every password login stays blocked when the flag is off).
+        """
+        if not self.PASSWORD_LOGIN_BREAK_GLASS_EMAILS:
+            return set()
+        return {
+            e.strip().lower()
+            for e in self.PASSWORD_LOGIN_BREAK_GLASS_EMAILS.split(",")
+            if e.strip()
+        }
 
     @property
     def aad_group_role_map(self) -> dict[str, str]:

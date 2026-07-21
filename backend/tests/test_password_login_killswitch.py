@@ -51,6 +51,118 @@ async def test_reset_password_returns_503_when_disabled(
     assert resp.status_code == 503
 
 
+async def test_login_break_glass_email_bypasses_disabled_flag(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Break-glass: konto z listy NIE dostaje 503 mimo wyłączonej flagi.
+
+    Bez tego wyłączenie ``PASSWORD_LOGIN_ENABLED`` na produkcji (tryb SSO-only)
+    zamknęłoby na stałe admina, który ma tylko hasło i żadnej ścieżki SSO. Konta
+    z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS`` przechodzą przez bramkę do zwykłego
+    sprawdzenia poświadczeń — tu 401 (brak takiego konta w DB), NIE 503.
+    """
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(
+        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
+    )
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": "admin@x.com", "password": "cokolwiek"}
+    )
+    assert resp.status_code != 503
+    assert resp.status_code == 401
+
+
+async def test_login_break_glass_is_case_insensitive(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Dopasowanie po znormalizowanym (lowercase) adresie — wielkość liter nieistotna."""
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(
+        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "Admin@X.com"
+    )
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": "admin@x.com", "password": "cokolwiek"}
+    )
+    assert resp.status_code == 401
+
+
+async def test_login_non_break_glass_email_still_503_when_disabled(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Adres spoza listy dalej dostaje 503 — wyjątek jest wąski, nie globalny."""
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(
+        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
+    )
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": "other@x.com", "password": "cokolwiek"}
+    )
+    assert resp.status_code == 503
+
+
+async def test_login_empty_break_glass_list_blocks_everyone(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Pusta lista (domyślnie) = zachowanie sprzed zmiany: wszyscy 503."""
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "")
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": "admin@x.com", "password": "cokolwiek"}
+    )
+    assert resp.status_code == 503
+
+
+async def test_forgot_password_break_glass_bypasses_disabled_flag(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Odzyskiwanie hasła dla admina awaryjnego działa mimo wyłączonej flagi.
+
+    Zwraca generyczne 200 (anti-enumeration) zamiast 503 — inaczej break-glass
+    admin nie mógłby nawet poprosić o link resetowy.
+    """
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(
+        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
+    )
+    resp = await app_client.post(
+        "/api/auth/forgot-password", json={"email": "admin@x.com"}
+    )
+    assert resp.status_code == 200
+
+
+async def test_forgot_password_non_break_glass_still_503(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(
+        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
+    )
+    resp = await app_client.post(
+        "/api/auth/forgot-password", json={"email": "other@x.com"}
+    )
+    assert resp.status_code == 503
+
+
+async def test_reset_password_break_glass_defers_gate(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Z niepustą listą reset-password nie blokuje na wejściu (nie zna emaila).
+
+    Token jest zużywany i rozstrzygany; nieprawidłowy token → 400, NIE 503 —
+    dowód, że bramka „flag off → 503" została odroczona za rozpoznanie konta.
+    """
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(
+        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
+    )
+    resp = await app_client.post(
+        "/api/auth/reset-password",
+        json={"token": "a" * 64, "new_password": "NoweHaslo123!@#"},
+    )
+    assert resp.status_code != 503
+    assert resp.status_code == 400
+
+
 async def test_login_not_gated_when_enabled(
     app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):

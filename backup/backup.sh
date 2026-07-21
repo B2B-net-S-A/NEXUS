@@ -24,6 +24,12 @@
 #    real remote size recorded. "The pipe exited 0" is not evidence the bytes
 #    arrived; `rclone size` on the object is.
 set -eu
+# pipefail: bez tego status potoku `producer | age | rclone` to wyłącznie kod
+# ostatniego procesu — udany `rclone rcat` maskuje `pg_dump`/`tar`/`curl`, który
+# padł w środku, i przyjęlibyśmy obcięty backup jako sukces. Z pipefail taki
+# potok zwraca niezerowy kod, więc trafia w gałąź `else` (record error) zamiast
+# w bramkę rozmiaru. busybox ash (postgres:16-alpine) wspiera `set -o pipefail`.
+set -o pipefail
 
 BACKUP_ENABLED="${BACKUP_ENABLED:-false}"
 if [ "$BACKUP_ENABLED" != "true" ]; then
@@ -148,7 +154,11 @@ fi
 # immediately after streaming out, even if the upload failed.
 if collections="$(curl -fsS --max-time 30 "${QDRANT_URL}/collections" 2>/dev/null | jq -r '.result.collections[]?.name')"; then
     for c in $collections; do
-        snap="$(curl -fsS -X POST --max-time 300 "${QDRANT_URL}/collections/${c}/snapshots" 2>/dev/null | jq -r '.result.name // empty')"
+        # `|| true` w środku podstawienia: to BARE assignment (nie w `if`), więc
+        # z pipefail+set -e niezerowy curl przerwałby cały skrypt, porzucając
+        # kolejne kolekcje i zapis manifestu — a to łamie „fail loudly, per
+        # artefact" (#3). Zamiast tego pusty snap wpada w guard [ -z ] poniżej.
+        snap="$(curl -fsS -X POST --max-time 300 "${QDRANT_URL}/collections/${c}/snapshots" 2>/dev/null | jq -r '.result.name // empty' || true)"
         if [ -z "$snap" ]; then
             record "qdrant:${c}" "error" 0 "snapshot creation returned no name"
             continue
