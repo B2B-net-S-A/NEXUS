@@ -511,7 +511,11 @@ _COLUMN_STATEMENTS = [
     # AI_SCORING_CONTRACT_V2 auto-invalidates. Backfill to 'score-v1-legacy'
     # (== the flag-off version) so nothing recomputes on deploy. Without the
     # column the recommendations read 500s (UndefinedColumn) under multi-head.
-    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS scoring_algorithm_version VARCHAR(32) NOT NULL DEFAULT 'score-v1-legacy'",
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS scoring_algorithm_version VARCHAR(64) NOT NULL DEFAULT 'score-v1-legacy'",
+    # Widen 32→64: the version now folds in the embedding model name (AI-P0-06,
+    # migration 0185). At 32 every cache INSERT failed silently (value too long)
+    # → the match-score cache stopped persisting. Idempotent — no-op once wide.
+    "ALTER TABLE candidate_job_match_scores ALTER COLUMN scoring_algorithm_version TYPE VARCHAR(64)",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS notify_new_matches BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_seen_candidate_id INTEGER",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS unseen_count INTEGER NOT NULL DEFAULT 0",

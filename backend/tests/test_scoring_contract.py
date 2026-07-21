@@ -130,10 +130,15 @@ def test_from_record_explicit_champion_used_regardless_of_flag(monkeypatch):
 
 
 def test_scoring_algorithm_version_is_known_string():
-    assert ss.SCORING_ALGORITHM_VERSION in {
-        "score-v1-legacy",
-        "score-v2-budget100",
-    }
+    # The version now folds in the embedding model (AI-P0-06):
+    #   "<base>+emb-<VOYAGE_MODEL>". The base must still be a known contract.
+    version = ss.SCORING_ALGORITHM_VERSION
+    base = version.split("+emb-")[0]
+    assert base in {"score-v1-legacy", "score-v2-budget100"}, version
+    assert "+emb-" in version, "embedding model no longer folded in (AI-P0-06)"
+    # Must fit the DB column (VARCHAR(64), migration 0185) — else cache INSERTs
+    # fail silently and the whole match-score cache stops persisting.
+    assert len(version) <= 64, f"version {version!r} exceeds column width"
 
 
 def test_weights_payload_accepts_legacy_five(monkeypatch):

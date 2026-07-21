@@ -52,7 +52,13 @@ class CandidateJobMatchScore(Base):
     # miss, so a formula/flag change (AI_SCORING_CONTRACT_V2) auto-invalidates
     # without a manual stale sweep. Existing rows backfill to 'score-v1-legacy'.
     scoring_algorithm_version: Mapped[str] = mapped_column(
-        String(32), server_default="score-v1-legacy", nullable=False
+        # 64 not 32: the version now folds in the embedding model name
+        # (AI-P0-06), e.g. "score-v1-legacy+emb-voyage-3-large" = 34 chars.
+        # At 32 the INSERT failed silently (caught by _upsert_breakdown's
+        # except) → the whole match-score cache stopped persisting.
+        String(64),
+        server_default="score-v1-legacy",
+        nullable=False,
     )
     scored_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
