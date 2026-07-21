@@ -21,7 +21,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -66,6 +66,48 @@ async def _send_chat_email(user: User, notif: Notification) -> bool:
     )
 
 
+async def _claim_notification(db: AsyncSession, notif_id: int) -> bool:
+    """Atomically claim a notification for sending.
+
+    Flips ``email_sent_at`` from NULL → ``now()`` in a single UPDATE guarded by
+    ``email_sent_at IS NULL``, and returns True only for the caller that won the
+    claim. A concurrent/overlapping pass (multi-worker or restart overlap)
+    blocks on the row lock, then re-evaluates the WHERE against the committed
+    stamp, matches zero rows and returns False — so the email is sent exactly
+    once. The claim is committed immediately to release the row lock and make
+    the stamp visible to the other pass.
+    """
+    result = await db.execute(
+        update(Notification)
+        .where(
+            Notification.id == notif_id,
+            Notification.email_sent_at.is_(None),
+        )
+        .values(email_sent_at=func.now())
+        .returning(Notification.id)
+    )
+    claimed = result.scalar_one_or_none() is not None
+    await db.commit()
+    return claimed
+
+
+async def _release_claim(db: AsyncSession, notif_id: int) -> None:
+    """Release a claim so a later pass retries.
+
+    Called when the send did not actually go out (SMTP disabled / send error).
+    This preserves the original contract of only keeping the stamp on a
+    confirmed send — without it, a claim taken while SMTP is off would suppress
+    the email forever. Safe against the race: only the pass that won the claim
+    reaches here, so no other worker is touching this row in this window.
+    """
+    await db.execute(
+        update(Notification)
+        .where(Notification.id == notif_id)
+        .values(email_sent_at=None)
+    )
+    await db.commit()
+
+
 async def _process_one_pass(db: AsyncSession) -> int:
     """Single pass — return count of emails fired."""
     now = datetime.now(timezone.utc)
@@ -76,6 +118,8 @@ async def _process_one_pass(db: AsyncSession) -> int:
     #   - older than threshold
     #   - unread
     #   - not yet email-sent
+    # The `email_sent_at IS NULL` filter only narrows the batch; the atomic
+    # claim below is the real guard against a double send.
     rows = await db.execute(
         select(Notification, User)
         .join(User, User.id == Notification.user_id)
@@ -93,15 +137,20 @@ async def _process_one_pass(db: AsyncSession) -> int:
 
     sent = 0
     for notif, user in pairs:
+        # Claim the row atomically BEFORE sending so an overlapping pass can't
+        # send the same email twice.
+        if not await _claim_notification(db, notif.id):
+            continue
+        ok = False
         try:
             ok = await _send_chat_email(user, notif)
-            if ok:
-                notif.email_sent_at = now
-                sent += 1
         except Exception as e:  # noqa: BLE001
             logger.warning("chat_email_fallback failed for notif %d: %s", notif.id, e)
-    if sent:
-        await db.commit()
+        if ok:
+            sent += 1
+        else:
+            # SMTP off / send failed — release the claim so a later pass retries.
+            await _release_claim(db, notif.id)
     return sent
 
 

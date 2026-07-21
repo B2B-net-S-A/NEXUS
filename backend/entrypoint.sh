@@ -674,6 +674,21 @@ _COLUMN_STATEMENTS = [
     # notes + calls contract_id FK (migration 0037_contracts_expansion)
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
     "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    # Atomic dedup dla notatek Fireflies (migracja 0186). services/fireflies_sync.py
+    # robił nieatomowy SELECT-then-INSERT po nie-unikalnym source_ref
+    # ('fireflies:<id>') → dwa równoległe syncy wstawiały duplikaty. Kod używa
+    # teraz INSERT ... ON CONFLICT DO NOTHING, który potrzebuje unikalnego indeksu
+    # arbitra. Indeks jest CZĘŚCIOWY (tylko fireflies:) więc NIE dotyka Traffita
+    # ('traffit:activity:<id>') ani NULL-owych source_ref. Dedup MUSI iść przed
+    # CREATE (inaczej padnie na istniejących duplikatach); note_mentions.note_id
+    # to ON DELETE CASCADE, więc kasowanie duplikatu sprząta ewentualne dzieci.
+    """DELETE FROM notes a
+        USING notes b
+        WHERE a.source_ref LIKE 'fireflies:%'
+          AND b.source_ref = a.source_ref
+          AND b.id < a.id""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_notes_source_ref_fireflies "
+    "ON notes (source_ref) WHERE source_ref LIKE 'fireflies:%'",
     # talent_pools centroid cache (pre-existing model fields — no dedicated migration)
     "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS centroid_vector_id VARCHAR(100)",
     "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS centroid_updated_at TIMESTAMPTZ",
