@@ -44,5 +44,19 @@ class CandidateInviteLink(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    # Hash-at-rest v2 (migracja 0183). Unlike champion/signature/engagement,
+    # the invite LIST must reconstruct each link's URL (frontend "copy link"),
+    # so a one-way hash alone would lose the URL. Two columns solve both needs:
+    #   token_sha256 — deterministic, for the /apply lookup and revoke
+    #   token_ct     — Fernet ciphertext of the raw secret, so the list can
+    #                  decrypt and show the URL; a DB leak without the key is
+    #                  useless. PK holds a non-secret v2$ revoke key.
+    # Graceful: if the encryption key is unset, mint falls back to the legacy
+    # plaintext-PK path — no regression, just no improvement, until a key lands.
+    token_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    token_ct: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     creator = relationship("User", foreign_keys=[created_by])
     job = relationship("Job", foreign_keys=[job_id])

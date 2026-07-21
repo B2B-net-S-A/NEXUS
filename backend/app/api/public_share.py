@@ -252,8 +252,18 @@ async def _load_valid_link(token: str, db: AsyncSession) -> CandidateInviteLink:
 
     Shared by both GET and POST so failure modes stay consistent.
     """
+    import hashlib
+
+    # Dual-read: v2 by SHA-256 digest, legacy by raw token (token_sha256 NULL).
+    digest = hashlib.sha256(token.encode()).hexdigest()
     link = await db.scalar(
-        select(CandidateInviteLink).where(CandidateInviteLink.token == token)
+        select(CandidateInviteLink).where(
+            (CandidateInviteLink.token_sha256 == digest)
+            | (
+                (CandidateInviteLink.token == token)
+                & (CandidateInviteLink.token_sha256.is_(None))
+            )
+        )
     )
     if link is None or link.revoked:
         raise HTTPException(status_code=404, detail="Invite link not found or revoked")
