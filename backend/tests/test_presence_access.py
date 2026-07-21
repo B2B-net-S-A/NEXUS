@@ -52,20 +52,19 @@ async def test_ws_presence_subscribe_gate_excludes_viewer():
     assert len(viewers) == 1 and viewers[0]["user_id"] == 990002
 
 
-def test_viewers_payload_has_no_email():
+def test_viewers_payload_has_no_email_or_role():
     mgr = ConnectionManager()
     key = "candidate:1"
     mgr._viewers[key] = {5: set()}
-    mgr._user_info[5] = ViewerInfo(
-        user_id=5, name="Anna Nowak", email="anna@example.com", role="recruiter"
-    )
+    mgr._user_info[5] = ViewerInfo(user_id=5, name="Anna Nowak")
 
     payload = mgr._build_viewers_payload(key)
     assert len(payload) == 1
     entry = payload[0]
-    assert "email" not in entry  # redacted
+    assert "email" not in entry  # redacted (P1.3)
+    assert "role" not in entry  # NEXUS-P1-12: role no longer broadcast either
     assert entry["name"] == "Anna Nowak"  # safe identity kept
-    assert entry["role"] == "recruiter"
+    assert entry["user_id"] == 5
 
 
 async def _seed_user(role: UserRole) -> tuple[str, str]:

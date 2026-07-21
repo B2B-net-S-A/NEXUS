@@ -226,7 +226,9 @@ async def test_get_viewers_snapshot_shape(manager, user_a):
     v = snapshot[0]
     assert v["user_id"] == user_a.id
     assert v["name"] == "User A"
-    assert v["email"] == "user.a@example.com"
-    assert v["role"] == UserRole.recruiter.value
+    # NEXUS-P1-12 / P1.3: presence payload carries no email or role — only the
+    # minimum identity needed to render "who is viewing/editing".
+    assert "email" not in v
+    assert "role" not in v
     assert v["editing"] == ["notes"]
     assert isinstance(v["since"], str)

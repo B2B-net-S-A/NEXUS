@@ -30,10 +30,16 @@ router = APIRouter()
 
 @dataclass(frozen=True)
 class ViewerInfo:
+    """Minimum identity broadcast on a presence channel.
+
+    NEXUS-P1-12: deliberately only ``user_id`` + display ``name``. A colleague's
+    email and role are internal PII and must never be broadcast to everyone
+    viewing a candidate/job — so they are not even cached here, which makes a
+    future re-leak through the payload builder structurally impossible.
+    """
+
     user_id: int
     name: str
-    email: str
-    role: str
 
 
 ResourceType = str  # "candidate" | "job"
@@ -47,10 +53,6 @@ def _make_key(resource_type: str, resource_id: int) -> ResourceKey:
 def _parse_key(key: ResourceKey) -> Tuple[str, int]:
     rt, rid_str = key.split(":", 1)
     return rt, int(rid_str)
-
-
-def _role_to_str(role) -> str:
-    return role.value if hasattr(role, "value") else str(role)
 
 
 # ── Connection Manager ─────────────────────────────────────────────────────────
@@ -129,8 +131,6 @@ class ConnectionManager:
             self._user_info[user.id] = ViewerInfo(
                 user_id=user.id,
                 name=user.name,
-                email=user.email,
-                role=_role_to_str(user.role),
             )
 
     async def subscribe(
@@ -267,10 +267,12 @@ class ConnectionManager:
                 {
                     "user_id": info.user_id,
                     "name": info.name,
-                    # P1.3: email removed — presence must not leak a colleague's
-                    # address to everyone viewing a candidate/job. The frontend
-                    # avatar falls back to `name`.
-                    "role": info.role,
+                    # NEXUS-P1-12 (extends P1.3): the payload carries only the
+                    # minimum identity needed to render "who is viewing/editing"
+                    # — user_id + display name. A colleague's email AND role are
+                    # internal PII and must not be broadcast to everyone on a
+                    # candidate/job channel. The frontend avatar falls back to
+                    # `name`; the role tooltip line degrades to empty.
                     "editing": sorted(editing_for_key.get(uid, set())),
                     "since": since_for_key.get(uid),
                 }
@@ -349,6 +351,27 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
 _ALLOWED_RESOURCE_TYPES = {"candidate", "job"}
 
 
+def presence_subscribe_allowed(user: User) -> bool:
+    """Authorization gate for joining a candidate/job presence channel.
+
+    NEXUS-P1-12: the raw WebSocket path would otherwise bypass every HTTP
+    authorization guard, letting any authenticated account subscribe to an
+    arbitrary ``candidate:{id}`` / ``job:{id}`` channel and watch who is
+    editing it.
+
+    NEXUS candidate/job access is role-based (see ``app.api.candidate_access``):
+    the internal operational roles read the whole base, while the read-only
+    viewer/client ``user`` role does not. There is no per-resource ACL to
+    consult, so this capability check IS the containment for presence — it
+    reuses the same ``user_has_candidate_read`` capability the HTTP
+    ``RecruitmentReadAccess`` / candidate-read guards enforce (union of the
+    primary ``users.role`` and secondary ``users.roles`` via ``has_any_role``).
+    Applied identically to candidate and job channels; fail-closed (a viewer is
+    refused both subscribe and the ``presence:editing`` signal).
+    """
+    return user_has_candidate_read(user)
+
+
 async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) -> None:
     msg_type = msg.get("type")
     rt = msg.get("resource_type")
@@ -356,18 +379,18 @@ async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) 
     if rt not in _ALLOWED_RESOURCE_TYPES or not isinstance(rid, int):
         return
 
-    # P1.3: presence is an internal collaboration signal. A read-only viewer
+    # Presence is an internal collaboration signal. A read-only viewer
     # (UserRole.user) must not be able to see — or announce themselves in — the
     # viewer list of an arbitrary candidate/job. Unsubscribe stays open so a
     # role change can always tear a stale subscription down.
     if msg_type == "presence:subscribe":
-        if not user_has_candidate_read(user):
+        if not presence_subscribe_allowed(user):
             return
         await manager.subscribe(user, websocket, rt, rid)
     elif msg_type == "presence:unsubscribe":
         await manager.unsubscribe(user.id, websocket, rt, rid)
     elif msg_type == "presence:editing":
-        if not user_has_candidate_read(user):
+        if not presence_subscribe_allowed(user):
             return
         field = msg.get("field")
         active = bool(msg.get("active"))
