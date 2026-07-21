@@ -130,6 +130,7 @@ from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import invite_links as invite_links_api
+from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import settings as app_settings_api
 from app.api import champion_suggestions as champion_suggestions_api
@@ -928,6 +929,11 @@ app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
     invite_links_api.router, prefix="/api/invite-links", tags=["invite-links"]
+)
+app.include_router(
+    application_submissions_api.router,
+    prefix="/api/application-submissions",
+    tags=["application-submissions"],
 )
 app.include_router(app_settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(

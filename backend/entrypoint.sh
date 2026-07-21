@@ -1725,6 +1725,47 @@ _COLUMN_STATEMENTS = [
     "ON recruitment_processes (job_id, status)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_process_one_open "
     "ON recruitment_processes (candidate_id, job_id) WHERE status = 'open'",
+    # application_submissions (migration 0189, P0-CAND-01) — parks public
+    # /apply/{token} submissions that matched an existing candidate, instead of
+    # OVERWRITING that candidate. Table must exist before submit_public_apply's
+    # INSERT runs or a duplicate-email apply 500s under prod's chronic alembic
+    # multi-head drift. DDL 1:1 with 0189.
+    """CREATE TABLE IF NOT EXISTS application_submissions (
+        id SERIAL PRIMARY KEY,
+        invite_link_token_sha256 VARCHAR(64),
+        job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending_review',
+        submitted_first_name VARCHAR(100) NOT NULL,
+        submitted_last_name VARCHAR(100) NOT NULL,
+        submitted_email VARCHAR(255) NOT NULL,
+        submitted_phone VARCHAR(30),
+        submitted_linkedin VARCHAR(500),
+        submitted_message TEXT,
+        matched_candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        cv_object_key VARCHAR(500),
+        cv_filename VARCHAR(500),
+        cv_content_type VARCHAR(100),
+        cv_size_bytes INTEGER,
+        cv_file_content BYTEA,
+        raw_cv_text TEXT,
+        raw_payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at TIMESTAMPTZ,
+        CONSTRAINT ck_application_submissions_status CHECK (
+            status IN ('pending_review','linked','merged','created','rejected')
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_status "
+    "ON application_submissions (status)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_matched_candidate_id "
+    "ON application_submissions (matched_candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_link "
+    "ON application_submissions (invite_link_token_sha256)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_submitted_email "
+    "ON application_submissions (submitted_email)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_job_id "
+    "ON application_submissions (job_id)",
 ]
 
 _DATA_STATEMENTS = [
