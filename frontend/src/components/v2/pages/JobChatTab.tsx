@@ -31,7 +31,7 @@ import {
 
 import { jobChatApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { hasMinRole, useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 import {
   CHAT_BUS_EVENT,
   type ChatBusEvent,
@@ -53,7 +53,10 @@ interface JobChatTabProps {
 
 export default function JobChatTab({ jobId }: JobChatTabProps) {
   const user = useAuthStore((s) => s.user);
-  const canPin = hasMinRole(user, "delivery_lead");
+  // Exact-role, NIE ranga: head_of_recruitment (ROLE_RANK 4.5 > delivery_lead)
+  // przechodził przez hasMinRole i dostawał prawo przypinania, którego backend
+  // mu nie daje. Pin wiadomości = tylko admin + delivery_lead.
+  const canPin = hasRole(user, "admin", "delivery_lead");
   const queryClient = useQueryClient();
 
   // ── Members (do wyświetlenia licznika "X członków" w headerze) ────────────
