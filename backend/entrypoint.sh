@@ -455,6 +455,16 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
+    # signature_links.token_sha256 + engagement_declaration_tokens.token_sha256
+    # — hash-at-rest v2 (migracja 0182). Bez tego mint v2 wywala UndefinedColumn.
+    """ALTER TABLE signature_links
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """CREATE INDEX IF NOT EXISTS ix_signature_links_token_sha256
+       ON signature_links (token_sha256)""",
+    """ALTER TABLE engagement_declaration_tokens
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """CREATE INDEX IF NOT EXISTS ix_engagement_declaration_tokens_token_sha256
+       ON engagement_declaration_tokens (token_sha256)""",
     # champion_card_share_tokens.token_sha256 — hash-at-rest v2 (migracja 0181).
     # Bez tej kolumny mint v2 (token_sha256=digest) wywala UndefinedColumn i cały
     # generator linku do karty champion pada. Idempotentne.

@@ -41,6 +41,12 @@ class SignatureLink(Base):
     # purpose-scoped layer lives on top in the public endpoint).
     token: Mapped[str] = mapped_column(Text, primary_key=True)
 
+    # Hash-at-rest v2 (migracja 0182). token PK = nie-sekretny v2$<hex>, sekret
+    # tylko jako SHA-256 tutaj i w URL. Legacy raw-w-PK w dual-read do wygaśnięcia.
+    token_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+
     signature_id: Mapped[int] = mapped_column(
         ForeignKey("document_signatures.id", ondelete="CASCADE"),
         nullable=False,

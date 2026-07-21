@@ -204,11 +204,20 @@ def render_unsigned_pdf(sig: DocumentSignature) -> bytes:
 
 def mint_signature_link(
     db: AsyncSession, sig: DocumentSignature, *, party: str = "consultant"
-) -> SignatureLink:
-    """Create a single-use signing link tied to ``sig``."""
+) -> tuple[SignatureLink, str]:
+    """Create a single-use signing link tied to ``sig``.
+
+    Returns ``(link, raw_token)``. The raw token goes into the ``/sign/{token}``
+    URL and is never stored: the row keeps only its SHA-256 (v2 hash-at-rest),
+    with a non-secret ``v2$`` revoke key in the PK.
+    """
+    import hashlib
+
     purpose = "upload_signed" if sig.provider == "upload_validate" else "qes_signing"
+    raw_token = secrets.token_urlsafe(36)
     link = SignatureLink(
-        token=secrets.token_urlsafe(36),
+        token=f"v2${secrets.token_hex(16)}",
+        token_sha256=hashlib.sha256(raw_token.encode()).hexdigest(),
         signature_id=sig.id,
         party=party,
         purpose=purpose,
@@ -220,7 +229,7 @@ def mint_signature_link(
         ),
     )
     db.add(link)
-    return link
+    return link, raw_token
 
 
 async def prepare_and_send(
@@ -238,12 +247,12 @@ async def prepare_and_send(
     sig = await prepare_send(
         db, contract_id=contract_id, payload=payload, sender_user=sender_user
     )
-    link = mint_signature_link(db, sig)
+    _link, raw_token = mint_signature_link(db, sig)
     sig.status = SignatureStatus.sent
     sig.sent_at = datetime.now(timezone.utc)
 
     base = settings.PUBLIC_BASE_URL.rstrip("/")
-    sign_url = f"{base}/sign/{link.token}"
+    sign_url = f"{base}/sign/{raw_token}"
 
     db.add(
         Activity(

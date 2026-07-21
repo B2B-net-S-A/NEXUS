@@ -60,9 +60,17 @@ class PublicEngagementSubmitResponse(BaseModel):
 
 
 async def _resolve_token(token: str, db: AsyncSession) -> EngagementDeclarationToken:
+    import hashlib
+
+    # Dual-read: v2 by SHA-256 digest, legacy by raw token (token_sha256 NULL).
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row = await db.scalar(
         select(EngagementDeclarationToken).where(
-            EngagementDeclarationToken.token == token
+            (EngagementDeclarationToken.token_sha256 == digest)
+            | (
+                (EngagementDeclarationToken.token == token)
+                & (EngagementDeclarationToken.token_sha256.is_(None))
+            )
         )
     )
     if not row:
@@ -126,7 +134,9 @@ async def submit_engagement_form(
         await db.execute(
             update(EngagementDeclarationToken)
             .where(
-                EngagementDeclarationToken.token == token,
+                # row.token is the stored PK/revoke-key, not the raw secret —
+                # after v2 the incoming `token` no longer matches the column.
+                EngagementDeclarationToken.token == row.token,
                 EngagementDeclarationToken.used_at.is_(None),
             )
             .values(used_at=now)
