@@ -226,6 +226,7 @@ jobs:
                  tests/test_traffit_client.py \
                  tests/test_traffit_mappers.py \
                  tests/test_traffit_sync.py \
+                 tests/test_traffit_watermark_on_failure.py \
                  tests/test_traffit_integration_models.py \
                  tests/test_traffit_merge.py \
                  tests/test_client_access_matrix.py \
