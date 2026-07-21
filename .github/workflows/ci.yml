@@ -276,6 +276,7 @@ jobs:
                  tests/test_ws_token_subprotocol.py \
                  tests/test_match_cache_cas.py \
                  tests/test_contract_lifecycle_invariant.py \
+                 tests/test_pipeline_membership_gate.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

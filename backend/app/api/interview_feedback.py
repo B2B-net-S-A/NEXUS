@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.recruitment_access import (
     RecruitmentAssessmentWriteAccess,
     RecruitmentReadAccess,
+    ensure_job_membership,
 )
 from app.core.database import get_db
 from app.models.calendar_event import CalendarEvent
@@ -164,6 +165,13 @@ async def create_feedback(
     current_user: RecruitmentAssessmentWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> InterviewFeedbackOut:
+    # P1-PIPE-01: feedback tied to a job is a pipeline ingress — members only.
+    # Checked before the event lookup so a non-member of the job learns nothing
+    # about the referenced event. Job-less feedback (job_id omitted) is not
+    # scope-gated: there is no job to scope it to.
+    if payload.job_id is not None:
+        await ensure_job_membership(db, current_user, payload.job_id)
+
     event = await db.get(CalendarEvent, payload.calendar_event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Nie znaleziono eventu")

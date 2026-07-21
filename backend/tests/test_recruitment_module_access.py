@@ -73,23 +73,23 @@ RATE_EDIT_ROLES = {
 
 async def _seed_user(
     role: UserRole, secondary: list[str] | None = None
-) -> tuple[str, str]:
+) -> tuple[str, str, int]:
     unique = uuid.uuid4().hex[:8]
     email = f"m4acc-{role.value}-{unique}@example.com"
     password = f"T3st_{unique}!M4"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"M4 Access {role.value}",
-                role=role,
-                roles=secondary or [role.value],
-                is_active=True,
-            )
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"M4 Access {role.value}",
+            role=role,
+            roles=secondary or [role.value],
+            is_active=True,
         )
+        db.add(user)
         await db.commit()
-    return email, password
+        await db.refresh(user)
+    return email, password, user.id
 
 
 async def _login(client: AsyncClient, email: str, password: str) -> dict[str, str]:
@@ -114,12 +114,28 @@ async def m4_client() -> AsyncClient:
 
 
 @pytest_asyncio.fixture(scope="module")
-async def headers_by_role(m4_client: AsyncClient) -> dict[UserRole, dict[str, str]]:
-    out: dict[UserRole, dict[str, str]] = {}
+async def role_accounts(
+    m4_client: AsyncClient,
+) -> dict[UserRole, tuple[dict[str, str], int]]:
+    """One seeded account per role → (auth headers, user id).
+
+    The id is needed since P1-PIPE-01: pipeline-move tests must own the job so
+    the membership gate passes and the ROLE guard is what's actually under
+    test (a non-member of any role gets a uniform 403 regardless of role).
+    """
+    out: dict[UserRole, tuple[dict[str, str], int]] = {}
     for role in ROLES:
-        email, password = await _seed_user(role)
-        out[role] = await _login(m4_client, email, password)
+        email, password, uid = await _seed_user(role)
+        headers = await _login(m4_client, email, password)
+        out[role] = (headers, uid)
     return out
+
+
+@pytest_asyncio.fixture(scope="module")
+async def headers_by_role(
+    role_accounts: dict[UserRole, tuple[dict[str, str], int]],
+) -> dict[UserRole, dict[str, str]]:
+    return {role: acct[0] for role, acct in role_accounts.items()}
 
 
 async def _seed_candidate() -> int:
@@ -137,7 +153,9 @@ async def _seed_candidate() -> int:
         return c.id
 
 
-async def _seed_job() -> int:
+async def _seed_job(owner_id: int | None = None) -> int:
+    """Seed a job. ``owner_id`` becomes ``recruiter_id`` so that user is a
+    member of the job (P1-PIPE-01) and the pipeline membership gate passes."""
     from app.models.client import Client
     from app.models.job import Job, JobStatus
 
@@ -150,6 +168,7 @@ async def _seed_job() -> int:
             title=f"M4-Job-{uuid.uuid4().hex[:6]}",
             status=JobStatus.published,
             client_id=cli.id,
+            recruiter_id=owner_id,
         )
         db.add(j)
         await db.commit()
@@ -244,13 +263,16 @@ async def test_operational_roles_not_blocked_on_reads(
 # ── M4-SEC-02: sourcer bez terminal/verified/rate ────────────────────────────
 
 
-async def test_sourcer_cannot_terminal_move(m4_client: AsyncClient, headers_by_role):
-    cand, job = await _seed_candidate(), await _seed_job()
+async def test_sourcer_cannot_terminal_move(m4_client: AsyncClient, role_accounts):
+    sourcer_headers, sourcer_id = role_accounts[UserRole.sourcer]
+    # Sourcer owns the job → membership gate (P1-PIPE-01) passes, so the 403
+    # under test comes from the terminal-move capability guard, not membership.
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=sourcer_id)
     await _seed_stage(cand, job, "screening")
     r = await m4_client.post(
         "/api/pipeline/move",
         json={"candidate_id": cand, "job_id": job, "stage": "hired"},
-        headers=headers_by_role[UserRole.sourcer],
+        headers=sourcer_headers,
     )
     assert r.status_code == 403, r.text
 
@@ -262,15 +284,16 @@ async def test_sourcer_cannot_terminal_move(m4_client: AsyncClient, headers_by_r
             "stage": "rejected",
             "rejection_reason": "nope",
         },
-        headers=headers_by_role[UserRole.sourcer],
+        headers=sourcer_headers,
     )
     assert r.status_code == 403, r.text
 
 
 async def test_sourcer_cannot_verified_move_nor_rate(
-    m4_client: AsyncClient, headers_by_role
+    m4_client: AsyncClient, role_accounts
 ):
-    cand, job = await _seed_candidate(), await _seed_job()
+    sourcer_headers, sourcer_id = role_accounts[UserRole.sourcer]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=sourcer_id)
     await _seed_stage(cand, job, "screening")
     r = await m4_client.post(
         "/api/pipeline/move",
@@ -281,27 +304,28 @@ async def test_sourcer_cannot_verified_move_nor_rate(
             "expected_rate_value": 100,
             "expected_rate_unit": "hourly",
         },
-        headers=headers_by_role[UserRole.sourcer],
+        headers=sourcer_headers,
     )
     assert r.status_code == 403, r.text
 
     r = await m4_client.patch(
         f"/api/candidates/{cand}/recruitments/{job}/expected-rate",
         json={"rate_value": 120, "rate_unit": "hourly"},
-        headers=headers_by_role[UserRole.sourcer],
+        headers=sourcer_headers,
     )
     assert r.status_code == 403, r.text
 
 
 async def test_sourcer_can_still_do_nonterminal_move(
-    m4_client: AsyncClient, headers_by_role
+    m4_client: AsyncClient, role_accounts
 ):
-    cand, job = await _seed_candidate(), await _seed_job()
+    sourcer_headers, sourcer_id = role_accounts[UserRole.sourcer]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=sourcer_id)
     await _seed_stage(cand, job, "new")
     r = await m4_client.post(
         "/api/pipeline/move",
         json={"candidate_id": cand, "job_id": job, "stage": "screening"},
-        headers=headers_by_role[UserRole.sourcer],
+        headers=sourcer_headers,
     )
     assert r.status_code == 200, r.text
 
@@ -325,14 +349,15 @@ async def test_bulk_hired_verified_blocked_for_everyone(
 
 @pytest.mark.parametrize("role", sorted(TERMINAL_ROLES, key=lambda r: r.value))
 async def test_terminal_roles_not_blocked_on_hired(
-    m4_client: AsyncClient, headers_by_role, role
+    m4_client: AsyncClient, role_accounts, role
 ):
-    cand, job = await _seed_candidate(), await _seed_job()
+    headers, uid = role_accounts[role]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
     await _seed_stage(cand, job, "onboarding")
     r = await m4_client.post(
         "/api/pipeline/move",
         json={"candidate_id": cand, "job_id": job, "stage": "hired"},
-        headers=headers_by_role[role],
+        headers=headers,
     )
     assert r.status_code != 403, f"hired blocked for {role.value}: {r.text}"
 
@@ -341,11 +366,11 @@ async def test_terminal_roles_not_blocked_on_hired(
 
 
 async def test_secondary_role_grants_terminal(m4_client: AsyncClient):
-    email, password = await _seed_user(
+    email, password, uid = await _seed_user(
         UserRole.sourcer, secondary=["sourcer", "recruiter"]
     )
     headers = await _login(m4_client, email, password)
-    cand, job = await _seed_candidate(), await _seed_job()
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
     await _seed_stage(cand, job, "onboarding")
     r = await m4_client.post(
         "/api/pipeline/move",
@@ -396,7 +421,9 @@ async def test_secondary_dl_can_cancel_foreign_rejection_email(
     assert r.status_code == 403, r.text
 
     # TAC + secondary delivery_lead → 200.
-    email, password = await _seed_user(UserRole.tac, secondary=["tac", "delivery_lead"])
+    email, password, _uid = await _seed_user(
+        UserRole.tac, secondary=["tac", "delivery_lead"]
+    )
     headers = await _login(m4_client, email, password)
     r = await m4_client.post(f"/api/rejection-emails/{row_id}/cancel", headers=headers)
     assert r.status_code == 200, r.text
@@ -419,7 +446,7 @@ async def test_user_delete_cascades_notification_rule(m4_client: AsyncClient):
         StageNotificationRule,
     )
 
-    email, _ = await _seed_user(UserRole.recruiter)
+    email, _password, _uid = await _seed_user(UserRole.recruiter)
     async with AsyncSessionLocal() as db:
         target = await db.scalar(select(User).where(User.email == email))
         tpl = PipelineTemplate(name=f"M4-Tpl-{uuid.uuid4().hex[:6]}")
@@ -465,7 +492,9 @@ async def test_role_rule_resolver_includes_secondary_roles():
     )
     from app.models.stage_notification import RecipientType
 
-    email, _ = await _seed_user(UserRole.tac, secondary=["tac", "delivery_lead"])
+    email, _password, _uid = await _seed_user(
+        UserRole.tac, secondary=["tac", "delivery_lead"]
+    )
     async with AsyncSessionLocal() as db:
         hybrid = await db.scalar(select(User).where(User.email == email))
         rule = _RuleSnapshot(
