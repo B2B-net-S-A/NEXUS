@@ -322,8 +322,7 @@ async def finalize_signed_pdf(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"Podpis w statusie {sig.status.value} nie może zostać "
-                "sfinalizowany"
+                f"Podpis w statusie {sig.status.value} nie może zostać sfinalizowany"
             ),
         )
 
