@@ -254,10 +254,10 @@ async def regenerate_link(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot regenerate link for status={sig.status.value}",
         )
-    link = mint_signature_link(db, sig)
+    _link, raw_token = mint_signature_link(db, sig)
     await db.commit()
     base = settings.PUBLIC_BASE_URL.rstrip("/")
-    return {"sign_url": f"{base}/sign/{link.token}", "expires_at": sig.expires_at}
+    return {"sign_url": f"{base}/sign/{raw_token}", "expires_at": sig.expires_at}
 
 
 @router.get("/health")

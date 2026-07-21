@@ -43,7 +43,17 @@ async def _load_valid_link(
     db: AsyncSession, token: str, *, require_unused: bool
 ) -> SignatureLink:
     """Load a usable link or raise the uniform 404 (no-info-leak)."""
-    link = await db.scalar(select(SignatureLink).where(SignatureLink.token == token))
+    # Dual-read: v2 rows match the SHA-256 of the incoming secret; legacy rows
+    # kept the raw secret in the PK (token_sha256 NULL) and age out on expiry.
+    import hashlib
+
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    link = await db.scalar(
+        select(SignatureLink).where(
+            (SignatureLink.token_sha256 == digest)
+            | ((SignatureLink.token == token) & (SignatureLink.token_sha256.is_(None)))
+        )
+    )
     now = datetime.now(timezone.utc)
     if (
         link is None

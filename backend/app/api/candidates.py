@@ -4290,13 +4290,19 @@ async def create_engagement_declaration_link(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    token_str = secrets.token_urlsafe(24)  # ~32 chars urlsafe
+    import hashlib
+
+    # v2: sekret tylko w URL i jako digest; kolumna token = nie-sekretny revoke-key.
+    token_str = secrets.token_urlsafe(24)  # ~32 chars urlsafe, goes into URL
+    revoke_key = f"v2${secrets.token_hex(16)}"
+    token_digest = hashlib.sha256(token_str.encode()).hexdigest()
     now = datetime.now(timezone.utc)
     expires_at = now + _timedelta(days=30)
 
     row = EngagementDeclarationToken(
         candidate_id=candidate_id,
-        token=token_str,
+        token=revoke_key,
+        token_sha256=token_digest,
         created_at=now,
         expires_at=expires_at,
         created_by=current_user.id,
