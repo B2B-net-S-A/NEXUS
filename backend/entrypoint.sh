@@ -455,6 +455,17 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
+    # Restart-safe background loops (migracja 0186, audyt P1/P2). Durable dedup
+    # markers dla pętli tła — bez nich pętla po restarcie (Coolify rebuild na
+    # każdym pushu) i przy >1 workerze duplikuje wysyłki:
+    #   calendar_reminder_loop  → reminder_sent_at (NULL = nie przypomniano)
+    #   slack_sla_alerts_loop   → sla_alerted_at   (NULL = nie zaalarmowano)
+    # linkedin_sync NIE wymaga kolumny (reużywa candidates.linkedin_synced_at
+    # + FOR UPDATE SKIP LOCKED).
+    """ALTER TABLE calendar_events
+       ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ NULL""",
+    """ALTER TABLE candidate_stages
+       ADD COLUMN IF NOT EXISTS sla_alerted_at TIMESTAMPTZ NULL""",
     # candidate_invite_links: token_sha256 + token_ct — hash+encrypt v2
     # (migracja 0183). Bez nich mint v2 wywala UndefinedColumn.
     """ALTER TABLE candidate_invite_links

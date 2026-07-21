@@ -104,6 +104,16 @@ class CalendarEvent(Base, TimestampMixin):
         Boolean, default=False, nullable=False, index=True
     )
 
+    # Durable dedup for the T-15min reminder loop (audyt P1 restart-safety).
+    # Set the moment the reminder notification is persisted, inside the same
+    # transaction as the send. NULL = never reminded. Replaces the old
+    # in-memory `reminded_ids` set that reset on every restart (Coolify rebuilds
+    # on each push) and diverged per uvicorn worker → duplicate reminders. The
+    # loop filters on `reminder_sent_at IS NULL`, so a restart never re-sends.
+    reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     # Phase 7.5 — candidate self-confirmation (Outlook Actionable Messages or
     # fallback paths). NULL until the candidate clicks "Potwierdzam" in the
     # email; then populated with the confirmation timestamp + source string

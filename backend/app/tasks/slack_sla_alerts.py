@@ -4,11 +4,13 @@ Phase 7c — Slack alerts for SLA violations.
 Polls pipeline overview-sla logic every N minutes, finds new breaches since
 the last check, and posts them to SLACK_WEBHOOK_URL (if configured).
 
-Dedup: keeps an in-process set of already-alerted (candidate_stage_id, moved_at)
-pairs so we don't spam on every poll. A new breach = a candidate stage that
-crossed its SLA threshold since the last run (or entered a new stage that's
-already over SLA). On each run we replace the set — this does mean if the
-worker restarts, we'll re-alert once per breach, which is acceptable noise.
+Dedup: DURABLE + ATOMIC (audyt P1 restart-safety). Each alerted CandidateStage
+row is stamped with `sla_alerted_at` inside the same transaction as a successful
+Slack POST, under a `SELECT ... FOR UPDATE SKIP LOCKED` claim. A CandidateStage
+row is a single stage-entry (a stage move creates a new row), so one durable
+stamp = exactly one alert, ever. This replaces the old in-process set that reset
+on every restart (Coolify rebuilds on each push) and diverged per uvicorn worker
+→ re-alerting every breach on restart / duplicate alerts across workers.
 """
 
 from __future__ import annotations
@@ -75,9 +77,39 @@ async def _compute_breaches(db: AsyncSession) -> list[dict]:
                     "days_in_stage": days,
                     "sla_max_days": sd.sla_max_days,
                     "overdue_by_days": days - sd.sla_max_days,
+                    # Durable dedup marker — None means "never alerted".
+                    "sla_alerted_at": s.sla_alerted_at,
                 }
             )
     return breaches
+
+
+async def _dispatch_alert(webhook: str, breach: dict) -> bool:
+    """Claim one breach row and, if un-alerted, post to Slack + stamp it.
+
+    Uses `SELECT ... FOR UPDATE SKIP LOCKED` so parallel workers can't both
+    alert the same CandidateStage. Only stamps `sla_alerted_at` when Slack
+    accepts (2xx); a failed POST rolls back un-stamped so the next tick retries.
+    Returns True only when an alert was actually sent + persisted.
+    """
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(CandidateStage)
+            .where(CandidateStage.id == breach["candidate_stage_id"])
+            .with_for_update(skip_locked=True)
+        )
+        if row is None:
+            # Locked by another worker, or the stage row is gone.
+            return False
+        if row.sla_alerted_at is not None:
+            # Another worker won the race and already alerted this row.
+            return False
+        if not await _post_to_slack(webhook, breach):
+            # Leave un-stamped so the next tick retries this breach.
+            return False
+        row.sla_alerted_at = datetime.now(timezone.utc)
+        await db.commit()
+        return True
 
 
 async def _post_to_slack(webhook: str, breach: dict) -> bool:
@@ -120,28 +152,32 @@ async def slack_sla_alerts_loop(
         return
 
     logger.info("slack_sla_alerts: started interval=%.1f min", interval_minutes)
-    alerted: set[int] = set()  # candidate_stage_ids already reported
     # Initial delay so app startup isn't slowed
     await asyncio.sleep(90)
     while True:
         try:
             async with AsyncSessionLocal() as db:
                 breaches = await _compute_breaches(db)
-            new_breaches = [
-                b for b in breaches if b["candidate_stage_id"] not in alerted
-            ]
+            # Durable dedup: skip anything already stamped as alerted. The
+            # per-row FOR UPDATE claim in _dispatch_alert is the atomic guard.
+            new_breaches = [b for b in breaches if b["sla_alerted_at"] is None]
             sent = 0
             for b in new_breaches:
-                # Only mark as alerted when Slack actually accepted the message
-                # (2xx). A failed send stays un-marked so the next tick retries.
-                if await _post_to_slack(webhook, b):
-                    alerted.add(b["candidate_stage_id"])
-                    sent += 1
-            # Clean up: if a stage is no longer in breaches (stage moved), let it re-alert if it comes back
-            active_ids = {b["candidate_stage_id"] for b in breaches}
-            alerted &= active_ids  # keep only still-breaching
+                try:
+                    if await _dispatch_alert(webhook, b):
+                        sent += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "slack_sla_alerts: dispatch failed for stage %s: %s",
+                        b["candidate_stage_id"],
+                        e,
+                    )
             if sent:
                 logger.info("slack_sla_alerts: posted %d new breach alerts", sent)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:  # noqa: BLE001
             logger.warning("slack_sla_alerts: cycle error %s", e)
         await asyncio.sleep(interval_minutes * 60)
