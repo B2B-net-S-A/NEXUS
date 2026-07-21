@@ -262,7 +262,7 @@ def _conflict_to_dict(c: CandidateConflict) -> dict:
 @router.get("/candidates/{candidate_id}/conflicts")
 async def list_conflicts(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateFinanceAccess,
     active_only: bool = True,
     db: AsyncSession = Depends(get_db),
 ):

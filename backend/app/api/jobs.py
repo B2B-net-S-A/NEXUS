@@ -1111,7 +1111,7 @@ async def publish_job(
 
 @router.get("/{job_id}/champion-profile")
 async def get_champion_profile(
-    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ) -> dict:
     """Return the Delivery Lead's Champion Profile for this job (or {}).
 
@@ -1724,7 +1724,7 @@ async def clear_champion_briefing(
 @router.get("/{job_id}/champion-profile/briefing/audio-url")
 async def champion_briefing_audio_url(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Short-lived presigned URL for the briefing audio.
