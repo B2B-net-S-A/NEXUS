@@ -233,6 +233,9 @@ jobs:
                  tests/test_template_render_access.py \
                  tests/test_notes_access.py \
                  tests/test_emails_send_disabled.py \
+                 tests/test_signature_link_revocation.py \
+                 tests/test_kpi_accepted_verification_only.py \
+                 tests/test_match_cache_degraded_write.py \
                  tests/test_prep_kit_fireflies_authz.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
