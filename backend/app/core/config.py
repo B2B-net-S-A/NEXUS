@@ -592,6 +592,17 @@ class Settings(BaseSettings):
     # to >=300s in the loop.
     SIGNING_SWEEPER_INTERVAL_SECONDS: int = 3600
 
+    # ── Signature dispatch reconciler (M5-P0.9, restart-safe recovery) ──────
+    # Every signature sender persists a `draft` row and hands the actual send
+    # to a background task. A restart between the 202 and completion orphans
+    # the row at draft/sending forever — the expiry sweepers only touch
+    # sent/in_progress. This reconciler marks such rows `failed` + notifies the
+    # sender to resend. Covers all rails; each row gated by its provider's
+    # kill-switch (AUTENTI_ENABLED / SIGNING_ENABLED). Loop no-ops when both off.
+    # Interval clamped >=300s; grace clamped >=60s in the loop.
+    SIGNATURE_RECONCILE_INTERVAL_SECONDS: int = 600
+    SIGNATURE_RECONCILE_GRACE_SECONDS: int = 600
+
     # KIR Szafir SDK (pas główny — podpis kartą client-side). Asset/licence
     # config filled from KIR onboarding (Faza 0). Web Module JS URL is served
     # to the /sign page; empty = SDK pas unavailable (UI hides it).
