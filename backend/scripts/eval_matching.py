@@ -46,7 +46,7 @@ import logging
 import math
 import os
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
@@ -154,6 +154,20 @@ ABLATION_PROFILES: tuple[WeightProfile, ...] = (
     WeightProfile("semantic_heavy", 55.0, 20.0, 10.0, 5.0, 5.0, 5.0),
     WeightProfile("balanced", 25.0, 25.0, 20.0, 15.0, 5.0, 10.0),
 )
+
+
+def _without_champion(profile: WeightProfile) -> WeightProfile:
+    """Zero the champion_fit layer to close eval label leakage (AI-P0-01).
+
+    ``_score_champion_fit`` reads ``CandidateStage.screening_answers`` for the
+    exact (candidate, job) pair — but those answers only exist for candidates
+    already advanced to screening, which is *precisely* the ground-truth
+    positive set this eval scores against. Scoring on that signal inflates every
+    metric (the model is peeking at the label). Ranking metrics don't depend on
+    the absolute budget, so dropping the layer to 0 is the honest headline.
+    Opt back in with ``--include-champion``.
+    """
+    return replace(profile, champion_fit=0.0)
 
 
 def _to_scoring_profile(profile: WeightProfile) -> "scoring_service.WeightProfile":
@@ -690,6 +704,13 @@ async def _run(args: argparse.Namespace) -> int:
     else:
         profiles = [DEFAULT_PROFILE]
 
+    # AI-P0-01: close champion_fit label leakage unless explicitly opted in.
+    if not args.include_champion:
+        profiles = [_without_champion(p) for p in profiles]
+        logger.info(
+            "champion_fit zeroed (leakage guard) — pass --include-champion to keep it"
+        )
+
     # Phase B1: preload alias map so skills layer sees canonical names.
     try:
         from app.services.skill_taxonomy_loader import refresh_alias_map
@@ -810,7 +831,32 @@ async def _run(args: argparse.Namespace) -> int:
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         logger.info("JSON dump written to %s", json_path)
 
-    return 0
+    # AI-P0-01: quality gate. Without this the eval always exit-0'd, so it could
+    # never guard CI — a regression in matching would go green. The primary
+    # profile is profile_results[0] (default, champion-masked by default).
+    exit_code = 0
+    primary = profile_results[0]
+    if (
+        args.fail_under_precision is not None
+        and primary.mean_precision_at_5 < args.fail_under_precision
+    ):
+        logger.error(
+            "QUALITY GATE FAIL: Precision@5 %.4f < threshold %.4f",
+            primary.mean_precision_at_5,
+            args.fail_under_precision,
+        )
+        exit_code = 1
+    if (
+        args.fail_under_recall is not None
+        and primary.mean_recall_at_20 < args.fail_under_recall
+    ):
+        logger.error(
+            "QUALITY GATE FAIL: Recall@20 %.4f < threshold %.4f",
+            primary.mean_recall_at_20,
+            args.fail_under_recall,
+        )
+        exit_code = 1
+    return exit_code
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -859,6 +905,33 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--json",
         action="store_true",
         help="Also write a sibling .json file with raw metrics.",
+    )
+    parser.add_argument(
+        "--include-champion",
+        action="store_true",
+        help=(
+            "Include the champion_fit layer. OFF by default: it reads "
+            "screening_answers that only exist for ground-truth positives "
+            "(label leakage, AI-P0-01), so the honest headline zeroes it."
+        ),
+    )
+    parser.add_argument(
+        "--fail-under-precision",
+        type=float,
+        default=None,
+        help=(
+            "Quality gate: exit non-zero if the primary profile's mean "
+            "Precision@5 is below this value (e.g. 0.15)."
+        ),
+    )
+    parser.add_argument(
+        "--fail-under-recall",
+        type=float,
+        default=None,
+        help=(
+            "Quality gate: exit non-zero if the primary profile's mean "
+            "Recall@20 is below this value."
+        ),
     )
     return parser.parse_args(argv)
 
