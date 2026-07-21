@@ -233,6 +233,7 @@ jobs:
                  tests/test_template_render_access.py \
                  tests/test_notes_access.py \
                  tests/test_emails_send_disabled.py \
+                 tests/test_match_cache_degraded_write.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
