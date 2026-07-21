@@ -7,9 +7,10 @@ Two entry points:
   snapshot of "other active processes", and inserts a ScheduledRejectionEmail
   row with `scheduled_at = now + 15min`.
 - `dispatch()` — called from the background loop when `scheduled_at` is due.
-  Resolves the recruiter's M365 connection and sends via `m365_sender.send_new`,
-  with retry/backoff on failure and `status=skipped` when no mailbox is
-  connected.
+  Re-verifies the candidate is STILL rejected (defense-in-depth: a restore via
+  `/bulk-move` or verification-revert doesn't cancel the queued mail), resolves
+  the recruiter's M365 connection and sends via `m365_sender.send_new`, with
+  retry/backoff on failure and `status=skipped` when no mailbox is connected.
 
 Business rule for the trigger: we fire when the *previous* stage was
 `{cv_sent, client_interview, acceptance, negotiation, onboarding}` — i.e. the
@@ -198,6 +199,51 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
     if row.status != RejectionEmailStatus.pending:
         logger.info(
             "rejection_email_dispatch: row %s skipped (status=%s)", row_id, row.status
+        )
+        return
+
+    # Defense-in-depth (audyt P1.7): NIE wysyłaj, jeśli kandydat został w
+    # międzyczasie PRZYWRÓCONY z odrzucenia. Ścieżka `/move` anuluje pending
+    # maile przy ruchu na etap nieterminalny, ale inne ścieżki (np. `/bulk-move`,
+    # revert weryfikacji) tego nie robią — a każda przyszła ścieżka też mogłaby
+    # ominąć anulowanie. Sprawdzamy AKTUALNY (najnowszy) etap pary
+    # (candidate, job) tuż przed wysyłką; jeśli to już nie `rejected`, kandydat
+    # wrócił do procesu → oznaczamy mail jako cancelled i nic nie wysyłamy.
+    current_stage = await db.scalar(
+        select(CandidateStage.stage)
+        .where(
+            CandidateStage.candidate_id == row.candidate_id,
+            CandidateStage.job_id == row.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if current_stage != PipelineStage.rejected:
+        current_stage_label = getattr(current_stage, "value", current_stage)
+        row.status = RejectionEmailStatus.cancelled
+        row.cancelled_at = datetime.now(timezone.utc)
+        row.last_error = f"candidate_restored:current_stage={current_stage_label}"
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=row.candidate_id,
+                action="rejection_email_cancelled_on_restore",
+                user_id=row.recruiter_id,
+                details={
+                    "scheduled_rejection_email_id": row.id,
+                    "job_id": row.job_id,
+                    "reason": "candidate_no_longer_rejected_at_dispatch",
+                    "current_stage": current_stage_label,
+                },
+            )
+        )
+        await db.flush()
+        await db.commit()
+        logger.info(
+            "rejection_email_dispatch: row %s cancelled — candidate restored "
+            "(current_stage=%s)",
+            row_id,
+            current_stage_label,
         )
         return
 
