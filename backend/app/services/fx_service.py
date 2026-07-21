@@ -76,15 +76,20 @@ async def fetch_and_store_nbp_today() -> int:
     return inserted
 
 
-async def convert_to_pln(
-    db: AsyncSession, amount: Decimal | int, currency: str, on: Optional[date] = None
-) -> Decimal:
-    """Return `amount × rate(currency→PLN)` for the given date (default today)."""
-    if amount is None:
-        return Decimal("0")
+async def get_rate_to_pln(
+    db: AsyncSession, currency: str, on: Optional[date] = None
+) -> tuple[Decimal, bool]:
+    """Resolve the multiplier for ``currency → PLN`` on a date (default today).
+
+    Returns ``(rate, rate_found)``. ``rate`` is ``1`` for PLN and for any
+    currency with no cached rate (a 1:1 degradation, kept non-fatal so a
+    missing rate never 500s a dashboard). ``rate_found`` is ``False`` on that
+    fallback so callers can surface a ``fx_missing`` / degraded signal instead
+    of silently reporting a wrong number (M7-P0.11).
+    """
     cur = (currency or "PLN").upper()
     if cur == "PLN":
-        return Decimal(amount)
+        return Decimal("1"), True
     target = on or date.today()
     # Find closest rate not newer than `target`; fall back to most recent overall.
     res = await db.execute(
@@ -103,9 +108,38 @@ async def convert_to_pln(
         )
         row = res.scalar_one_or_none()
     if row is None:
-        # No rate at all — degrade gracefully to 1:1 rather than crash.
-        return Decimal(amount)
-    return Decimal(amount) * row.rate_to_pln
+        # No rate at all — degrade gracefully to 1:1 rather than crash, but make
+        # it observable so a missing rate isn't silently mispriced.
+        logger.warning(
+            "fx: no cached rate for %s (asof %s) — using 1:1 fallback (degraded)",
+            cur,
+            target,
+        )
+        return Decimal("1"), False
+    return row.rate_to_pln, True
+
+
+async def convert_to_pln_detail(
+    db: AsyncSession, amount: Decimal | int, currency: str, on: Optional[date] = None
+) -> tuple[Decimal, bool]:
+    """Like :func:`convert_to_pln` but also reports whether a rate was found.
+
+    The second tuple element is ``False`` when the conversion fell back to 1:1
+    because no FX rate is cached for ``currency`` — callers summing across
+    currencies use it to flag a degraded (``fx_missing``) result.
+    """
+    if amount is None:
+        return Decimal("0"), True
+    rate, found = await get_rate_to_pln(db, currency, on)
+    return Decimal(amount) * rate, found
+
+
+async def convert_to_pln(
+    db: AsyncSession, amount: Decimal | int, currency: str, on: Optional[date] = None
+) -> Decimal:
+    """Return `amount × rate(currency→PLN)` for the given date (default today)."""
+    converted, _ = await convert_to_pln_detail(db, amount, currency, on)
+    return converted
 
 
 async def fx_age_days(db: AsyncSession, currency: str) -> Optional[int]:

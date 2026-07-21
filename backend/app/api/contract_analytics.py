@@ -11,13 +11,13 @@ billing_hours_per_month fields introduced in A3.
 """
 
 from datetime import date, timedelta
-from decimal import Decimal
-from typing import List, Optional
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, PlainSerializer
 
 from app.api.deps import DeliveryLeadPlus
 from app.core.database import get_db
@@ -25,9 +25,22 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
 from app.models.job import Job
-from app.services.fx_service import convert_to_pln
+from app.services.fx_service import get_rate_to_pln
 
 router = APIRouter()
+
+# Money is folded across currencies in Decimal for exactness, but the wire
+# format stays a JSON *number* (rounded to grosze). Pydantic serialises a bare
+# Decimal as a JSON string here, which the FE (`acc + row.total_monthly_margin`)
+# would silently concatenate — so we serialise as float on the way out.
+MoneyPLN = Annotated[
+    Decimal,
+    PlainSerializer(
+        lambda v: float(Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+        return_type=float,
+        when_used="json",
+    ),
+]
 
 
 # ── SQL helper: normalise a per-row rate to monthly using rate_unit ───────────
@@ -43,6 +56,20 @@ def _sql_monthly(col):
     )
 
 
+async def _resolve_rate_cache(db, currencies) -> dict[str, tuple[Decimal, bool]]:
+    """Resolve today's PLN multiplier once per distinct currency.
+
+    Returns ``{CURRENCY: (rate, rate_found)}``. Caching per currency avoids an
+    FX lookup per aggregate row while keeping the cross-currency conversion.
+    """
+    cache: dict[str, tuple[Decimal, bool]] = {}
+    for currency in currencies:
+        cur = (currency or "PLN").upper()
+        if cur not in cache:
+            cache[cur] = await get_rate_to_pln(db, cur)
+    return cache
+
+
 # ── Pydantic DTOs ─────────────────────────────────────────────────────────────
 
 
@@ -50,18 +77,24 @@ class MarginByContractor(BaseModel):
     candidate_id: int
     candidate_name: str
     active_contracts: int
-    total_monthly_margin: int
-    total_monthly_revenue: int
+    # MoneyPLN, not int: amounts are converted from each contract's currency to
+    # PLN before summing, which yields fractional złoty (M7-P0.11).
+    total_monthly_margin: MoneyPLN
+    total_monthly_revenue: MoneyPLN
     margin_pct: Optional[float]
+    # True when at least one contributing currency had no cached FX rate and we
+    # fell back to a 1:1 conversion — the total is a best-effort approximation.
+    fx_missing: bool = False
 
 
 class MarginByClient(BaseModel):
     client_id: int
     client_name: str
     active_contracts: int
-    total_monthly_margin: int
-    total_monthly_revenue: int
+    total_monthly_margin: MoneyPLN
+    total_monthly_revenue: MoneyPLN
     margin_pct: Optional[float]
+    fx_missing: bool = False
 
 
 class UtilizationStats(BaseModel):
@@ -75,14 +108,17 @@ class UtilizationStats(BaseModel):
 class ForecastMonth(BaseModel):
     month: str
     month_label: str
-    revenue: int
-    margin: int
+    # MoneyPLN for currency-correct sums (see MarginByContractor note).
+    revenue: MoneyPLN
+    margin: MoneyPLN
     active_count: int
 
 
 class RevenueForecast(BaseModel):
     horizon_months: int
     months: List[ForecastMonth]
+    # True when any month mixed a currency with no cached FX rate (1:1 fallback).
+    fx_missing: bool = False
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -96,36 +132,66 @@ async def margin_by_contractor(
 ):
     rev_sql = _sql_monthly(Contract.rate_client)
     marg_sql = _sql_monthly(Contract.margin)
+    # Group by (candidate, currency) so EUR/USD/PLN subtotals stay separate and
+    # each is converted to PLN before we fold them per contractor. Summing raw
+    # across currencies would add e.g. EUR + PLN nominally (M7-P0.11).
     res = await db.execute(
         select(
             Candidate.id,
             Candidate.name,
             Candidate.lastname,
+            Contract.currency,
             func.count(Contract.id).label("active_contracts"),
             func.coalesce(func.sum(marg_sql), 0).label("margin"),
             func.coalesce(func.sum(rev_sql), 0).label("revenue"),
         )
         .join(Contract, Contract.candidate_id == Candidate.id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Candidate.id, Candidate.name, Candidate.lastname)
-        .order_by(func.sum(marg_sql).desc())
-        .limit(limit)
+        .group_by(Candidate.id, Candidate.name, Candidate.lastname, Contract.currency)
     )
-    rows = []
-    for r in res.all():
-        revenue = int(r.revenue or 0)
-        margin = int(r.margin or 0)
-        rows.append(
-            MarginByContractor(
-                candidate_id=r.id,
-                candidate_name=f"{r.name} {r.lastname}",
-                active_contracts=r.active_contracts,
-                total_monthly_margin=margin,
-                total_monthly_revenue=revenue,
-                margin_pct=round((margin / revenue) * 100, 1) if revenue else None,
-            )
+    raw = res.all()
+    rate_cache = await _resolve_rate_cache(db, (r.currency for r in raw))
+
+    acc: dict[int, dict] = {}
+    for r in raw:
+        rate, found = rate_cache[(r.currency or "PLN").upper()]
+        bucket = acc.setdefault(
+            r.id,
+            {
+                "name": r.name,
+                "lastname": r.lastname,
+                "active_contracts": 0,
+                "margin": Decimal("0"),
+                "revenue": Decimal("0"),
+                "fx_missing": False,
+            },
         )
-    return rows
+        bucket["active_contracts"] += int(r.active_contracts or 0)
+        bucket["margin"] += Decimal(r.margin or 0) * rate
+        bucket["revenue"] += Decimal(r.revenue or 0) * rate
+        if not found:
+            bucket["fx_missing"] = True
+
+    rows = [
+        MarginByContractor(
+            candidate_id=cid,
+            candidate_name=f"{b['name']} {b['lastname']}",
+            active_contracts=b["active_contracts"],
+            total_monthly_margin=b["margin"],
+            total_monthly_revenue=b["revenue"],
+            margin_pct=(
+                round(float(b["margin"] / b["revenue"]) * 100, 1)
+                if b["revenue"]
+                else None
+            ),
+            fx_missing=b["fx_missing"],
+        )
+        for cid, b in acc.items()
+    ]
+    # Rank by PLN-normalised margin (SQL can no longer order/limit — the ranking
+    # only makes sense after cross-currency folding).
+    rows.sort(key=lambda x: x.total_monthly_margin, reverse=True)
+    return rows[:limit]
 
 
 @router.get("/margin-by-client", response_model=List[MarginByClient])
@@ -136,35 +202,62 @@ async def margin_by_client(
 ):
     rev_sql = _sql_monthly(Contract.rate_client)
     marg_sql = _sql_monthly(Contract.margin)
+    # Group by (client, currency) and convert each subtotal to PLN before
+    # folding per client — otherwise EUR + PLN would be added nominally
+    # (M7-P0.11).
     res = await db.execute(
         select(
             Client.id,
             Client.name,
+            Contract.currency,
             func.count(Contract.id).label("active_contracts"),
             func.coalesce(func.sum(marg_sql), 0).label("margin"),
             func.coalesce(func.sum(rev_sql), 0).label("revenue"),
         )
         .join(Contract, Contract.client_id == Client.id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Client.id, Client.name)
-        .order_by(func.sum(marg_sql).desc())
-        .limit(limit)
+        .group_by(Client.id, Client.name, Contract.currency)
     )
-    rows = []
-    for r in res.all():
-        revenue = int(r.revenue or 0)
-        margin = int(r.margin or 0)
-        rows.append(
-            MarginByClient(
-                client_id=r.id,
-                client_name=r.name,
-                active_contracts=r.active_contracts,
-                total_monthly_margin=margin,
-                total_monthly_revenue=revenue,
-                margin_pct=round((margin / revenue) * 100, 1) if revenue else None,
-            )
+    raw = res.all()
+    rate_cache = await _resolve_rate_cache(db, (r.currency for r in raw))
+
+    acc: dict[int, dict] = {}
+    for r in raw:
+        rate, found = rate_cache[(r.currency or "PLN").upper()]
+        bucket = acc.setdefault(
+            r.id,
+            {
+                "name": r.name,
+                "active_contracts": 0,
+                "margin": Decimal("0"),
+                "revenue": Decimal("0"),
+                "fx_missing": False,
+            },
         )
-    return rows
+        bucket["active_contracts"] += int(r.active_contracts or 0)
+        bucket["margin"] += Decimal(r.margin or 0) * rate
+        bucket["revenue"] += Decimal(r.revenue or 0) * rate
+        if not found:
+            bucket["fx_missing"] = True
+
+    rows = [
+        MarginByClient(
+            client_id=cid,
+            client_name=b["name"],
+            active_contracts=b["active_contracts"],
+            total_monthly_margin=b["margin"],
+            total_monthly_revenue=b["revenue"],
+            margin_pct=(
+                round(float(b["margin"] / b["revenue"]) * 100, 1)
+                if b["revenue"]
+                else None
+            ),
+            fx_missing=b["fx_missing"],
+        )
+        for cid, b in acc.items()
+    ]
+    rows.sort(key=lambda x: x.total_monthly_margin, reverse=True)
+    return rows[:limit]
 
 
 @router.get("/utilization", response_model=UtilizationStats)
@@ -228,8 +321,11 @@ async def revenue_forecast(
     db: AsyncSession = Depends(get_db),
     horizon_months: int = Query(12, ge=1, le=24),
     convert_currency: bool = Query(
-        False,
-        description="If true, converts non-PLN amounts to PLN via cached NBP rates.",
+        True,
+        description=(
+            "Convert non-PLN amounts to PLN via cached NBP rates (default on). "
+            "Pass false only for a deliberately nominal cross-currency sum."
+        ),
     ),
 ):
     today = date.today()
@@ -244,11 +340,19 @@ async def revenue_forecast(
 
     from app.api.reports import _monthly_margin, _monthly_rate_client
 
-    async def _to_display(amount: int, currency: str) -> int:
-        if not convert_currency or (currency or "PLN").upper() == "PLN":
-            return amount
-        converted = await convert_to_pln(db, Decimal(amount), currency)
-        return int(converted)
+    # Resolve each currency's rate once (all months use today's rate).
+    rate_cache = await _resolve_rate_cache(db, (c.currency for c in active_contracts))
+    fx_missing = False
+
+    def _to_display(amount: int, currency: str) -> Decimal:
+        nonlocal fx_missing
+        cur = (currency or "PLN").upper()
+        if not convert_currency or cur == "PLN":
+            return Decimal(amount)
+        rate, found = rate_cache.get(cur, (Decimal("1"), False))
+        if not found:
+            fx_missing = True
+        return Decimal(amount) * rate
 
     months: list[ForecastMonth] = []
     for i in range(horizon_months):
@@ -267,24 +371,26 @@ async def revenue_forecast(
             if c.start_date < next_month
             and (c.end_date is None or c.end_date >= month_start)
         ]
-        revenue_raw = 0
-        margin_raw = 0
+        revenue_raw = Decimal("0")
+        margin_raw = Decimal("0")
         for c in active_in_month:
-            revenue_raw += await _to_display(_monthly_rate_client(c), c.currency)
-            margin_raw += await _to_display(_monthly_margin(c), c.currency)
+            revenue_raw += _to_display(_monthly_rate_client(c), c.currency)
+            margin_raw += _to_display(_monthly_margin(c), c.currency)
         months.append(
             ForecastMonth(
                 month=month_start.strftime("%Y-%m"),
                 month_label=month_start.strftime("%b %Y"),
-                revenue=int(revenue_raw),
-                margin=int(margin_raw),
+                revenue=revenue_raw,
+                margin=margin_raw,
                 active_count=len(active_in_month),
             )
         )
 
     # Reference to silence unused-arg warning in future linters
     _ = timedelta
-    return RevenueForecast(horizon_months=horizon_months, months=months)
+    return RevenueForecast(
+        horizon_months=horizon_months, months=months, fx_missing=fx_missing
+    )
 
 
 # ── Role × Client mix (headcount analytics) ──────────────────────────────────
