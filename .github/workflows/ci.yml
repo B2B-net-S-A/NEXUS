@@ -218,6 +218,7 @@ jobs:
                  tests/test_cortex_api.py \
                  tests/test_eval_candidate_search.py \
                  tests/test_structured_candidate_search.py \
+                 tests/test_language_level_binding.py \
                  tests/test_candidate_job_eligibility.py \
                  tests/test_proposals_bulk.py \
                  tests/test_assign_eligibility_gate.py \
