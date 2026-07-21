@@ -213,6 +213,7 @@ jobs:
                  tests/test_contract_future_termination.py \
                  tests/test_contracts_expiring.py \
                  tests/test_contracts_export.py \
+                 tests/test_contract_alerts_expansion.py \
                  tests/test_match_justification.py \
                  tests/test_cortex_fact_store.py \
                  tests/test_cortex_traffit_extract.py \

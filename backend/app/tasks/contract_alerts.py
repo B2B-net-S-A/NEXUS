@@ -105,27 +105,58 @@ async def _claim_alert(db: AsyncSession, dedup_key: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
-async def _contract_ids_already_notified(db: AsyncSession, threshold: int) -> set[int]:
-    """Find contract_ids that already have a contract_ending notification for this threshold."""
-    # We use a deterministic title prefix per threshold for dedup without schema change.
-    title_prefix = f"[{threshold}d]"
+def _end_date_from_title(title: str | None) -> str | None:
+    """Pull the ISO deadline encoded as ``[Nd|YYYY-MM-DD]`` from an ending-alert title.
+
+    Returns ``None`` for legacy ``[Nd]`` titles that carry no deadline — those never
+    match an episode, so a contract still inside a window at ship time may re-alert
+    once (an acceptable one-off, not a silent gap).
+    """
+    if not title or not title.startswith("["):
+        return None
+    close = title.find("]")
+    if close == -1:
+        return None
+    _, sep, end_iso = title[1:close].partition("|")  # "30d|2026-09-01" -> "2026-09-01"
+    if not sep:
+        return None
+    return end_iso.strip() or None
+
+
+async def _contract_ids_already_notified(
+    db: AsyncSession, threshold: int
+) -> set[tuple[int, str]]:
+    """Return ``(contract_id, end_date_iso)`` episodes already alerted at this threshold.
+
+    Episode-aware dedup (P1-NOTIFY-01): the title encodes the current deadline as
+    ``[Nd|<end_date>]``, so a bulk-extend to a new ``end_date`` is a NEW episode — the
+    pair no longer matches and every threshold re-arms. A contract counts as
+    already-notified for a threshold ONLY when a prior ``[Nd]`` notification exists for
+    the SAME end_date (keyed without a schema change).
+    """
+    # Prefix without the closing bracket so both legacy ``[Nd]`` and new ``[Nd|..]``
+    # titles are fetched; legacy rows then drop out via the None end_date parse.
+    title_prefix = f"[{threshold}d"
     res = await db.execute(
-        select(Notification.link).where(
+        select(Notification.link, Notification.title).where(
             Notification.notification_type == NotificationType.contract_ending,
             Notification.title.like(f"{title_prefix}%"),
         )
     )
-    ids: set[int] = set()
-    for (link,) in res.all():
+    episodes: set[tuple[int, str]] = set()
+    for link, title in res.all():
         if not link:
+            continue
+        end_iso = _end_date_from_title(title)
+        if end_iso is None:
             continue
         # link format: /contracts/<id>
         try:
             cid = int(link.rstrip("/").split("/")[-1])
-            ids.add(cid)
         except ValueError:
             continue
-    return ids
+        episodes.add((cid, end_iso))
+    return episodes
 
 
 async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Contract]:
@@ -149,9 +180,16 @@ async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Cont
     return list(res.scalars().all())
 
 
-async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) -> None:
+async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) -> bool:
+    """Post the expiry summary to Slack. Returns ``True`` only on a 2xx response.
+
+    httpx does not raise on 4xx/5xx by default, so a failed webhook must never be
+    counted as sent (mirrors ``slack_sla_alerts._post_to_slack``). On an HTTP error
+    status or a transport error we log a warning and return ``False`` so the caller
+    leaves ``stats['slack_sent']`` at 0.
+    """
     if not webhook or not events:
-        return
+        return False
     lines = []
     for threshold, c in events:
         lines.append(
@@ -164,9 +202,12 @@ async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) 
     )
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(webhook, json={"text": text})
+            resp = await client.post(webhook, json={"text": text})
+            resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
         logger.warning("contract_alerts: slack post failed %s", e)
+        return False
+    return True
 
 
 async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocument]:
@@ -279,16 +320,26 @@ async def run_contract_alerts_cycle() -> dict:
         for threshold in THRESHOLDS_DAYS:
             already = await _contract_ids_already_notified(db, threshold)
             contracts = await _contracts_at_threshold(db, threshold)
-            fresh = [c for c in contracts if c.id not in already]
+            # Episode-aware: a contract re-alerts once its CURRENT deadline forms a
+            # new (id, end_date) pair — bulk-extend to a fresh end_date re-arms it.
+            fresh = [
+                c for c in contracts if (c.id, c.end_date.isoformat()) not in already
+            ]
             notif_type = (
                 NotificationType.contract_ending_90d
                 if threshold == 90
                 else NotificationType.contract_ending
             )
             for c in fresh:
-                if not await _claim_alert(db, f"ending:{threshold}:{c.id}"):
+                # Claim key carries the end_date too, so the atomic ledger re-arms on
+                # extend just like the SELECT pre-filter above.
+                if not await _claim_alert(
+                    db, f"ending:{threshold}:{c.id}:{c.end_date.isoformat()}"
+                ):
                     continue
-                title = f"[{threshold}d] Kontrakt #{c.id} wygasa"
+                title = (
+                    f"[{threshold}d|{c.end_date.isoformat()}] Kontrakt #{c.id} wygasa"
+                )
                 message = (
                     f"Kontrakt #{c.id} kończy się {c.end_date} — "
                     f"zostało {threshold} dni. Rozważ przedłużenie lub kontakt z klientem."
@@ -424,8 +475,8 @@ async def run_contract_alerts_cycle() -> dict:
         await db.commit()
 
     webhook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
-    if webhook and to_slack:
-        await _post_slack_summary(webhook, to_slack)
+    if webhook and to_slack and await _post_slack_summary(webhook, to_slack):
+        # Only count as sent on a 2xx — a 4xx/5xx webhook must not inflate the stat.
         stats["slack_sent"] = len(to_slack)
 
     logger.info("contract_alerts: cycle done %s", stats)
