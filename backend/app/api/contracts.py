@@ -812,7 +812,14 @@ async def create_contract(
             selectinload(Contract.framework_rate_schedule),
         )
     )
-    return _to_detail(result.scalar_one())
+    detail = _to_detail(result.scalar_one())
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    # P0.12: writing a contract does not grant sight of its finances — TAC can
+    # create/PATCH (see #874) but the RESPONSE stays redacted for non-VIEW_FINANCE.
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 @router.post("/alerts/run", status_code=status.HTTP_200_OK)
@@ -942,7 +949,7 @@ async def expiring_contracts(
         )
     )
     today = date.today()
-    return [
+    items = [
         ContractResponse.model_validate(
             {
                 **{
@@ -956,6 +963,14 @@ async def expiring_contracts(
         )
         for c in result.scalars().all()
     ]
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    # P0.12: the expiry banner is operational — TAC sees which contracts end, but
+    # not the rates/margin (mirrors list_contracts + get_contract redaction).
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        for item in items:
+            _redact_contract_finance(item)
+    return items
 
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)
@@ -1202,9 +1217,17 @@ async def update_contract(
                 selectinload(Contract.framework_rate_schedule),
             )
         )
-        return _to_detail(reloaded.scalar_one())
-    await db.refresh(contract)
-    return _to_detail(contract)
+        detail = _to_detail(reloaded.scalar_one())
+    else:
+        await db.refresh(contract)
+        detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    # P0.12: TAC may PATCH (incl. client rate, #874) but the response stays
+    # redacted for non-VIEW_FINANCE — the write allowance is not sight of finances.
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 @router.post("/{contract_id}/activate", response_model=ContractDetailResponse)
@@ -1282,7 +1305,12 @@ async def activate_contract(
             "Teams notify (contract_signed via activate) scheduling failed: %s", exc
         )
 
-    return _to_detail(contract)
+    detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 # ── Editable draft (migracja 0058) ───────────────────────────────────────────
@@ -2417,7 +2445,12 @@ async def terminate_contract(
     )
     await db.flush()
     await db.refresh(contract)
-    return _to_detail(contract)
+    detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 # ── Notes + Calls timeline per contract ──────────────────────────────────────
