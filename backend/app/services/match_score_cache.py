@@ -23,9 +23,10 @@ worker (future) can sweep `stale=True` rows and refresh them in batch.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,9 +81,24 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
 
 
 async def _upsert_breakdown(
-    db: AsyncSession, breakdown: ScoreBreakdown, *, profile_id: int
+    db: AsyncSession,
+    breakdown: ScoreBreakdown,
+    *,
+    profile_id: int,
+    compute_start: datetime,
 ) -> None:
-    """Persist (insert-or-update) a computed breakdown; clears `stale`."""
+    """Persist (insert-or-update) a computed breakdown; conditionally clears `stale`.
+
+    CAS fence (P1-MATCH-02): a compute that STARTED before a concurrent
+    ``mark_stale_*`` must never resurrect a fresh cache row. ``compute_start`` is
+    the DB clock captured *before* scoring began; ``mark_stale_*`` stamps
+    ``invalidated_at`` with the DB clock. On conflict we clear ``stale`` only when
+    the row was NOT invalidated after this compute began
+    (``invalidated_at IS NULL OR invalidated_at < compute_start``); otherwise
+    ``stale`` stays ``True`` so the next read recomputes against the newer data.
+    The freshly computed breakdown is still written either way — only the staleness
+    verdict is gated.
+    """
     stmt = pg_insert(CandidateJobMatchScore).values(
         candidate_id=breakdown.candidate_id,
         job_id=breakdown.job_id,
@@ -91,6 +107,13 @@ async def _upsert_breakdown(
         breakdown=breakdown.as_dict(),
         stale=False,
         scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
+    )
+    # Unqualified column refs in an ON CONFLICT DO UPDATE SET/predicate resolve to
+    # the EXISTING row, so this reads the invalidated_at written by any mark_stale
+    # that landed while this compute was in flight.
+    not_invalidated_mid_compute = or_(
+        CandidateJobMatchScore.invalidated_at.is_(None),
+        CandidateJobMatchScore.invalidated_at < compute_start,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=[
@@ -101,8 +124,8 @@ async def _upsert_breakdown(
         set_={
             "total_score": stmt.excluded.total_score,
             "breakdown": stmt.excluded.breakdown,
-            "scored_at": __import__("sqlalchemy").func.now(),
-            "stale": False,
+            "scored_at": func.now(),
+            "stale": case((not_invalidated_mid_compute, False), else_=True),
             "scoring_algorithm_version": SCORING_ALGORITHM_VERSION,
         },
     )
@@ -110,7 +133,10 @@ async def _upsert_breakdown(
 
 
 async def _persist_breakdowns(
-    breakdowns: Sequence[ScoreBreakdown], *, profile_id: int
+    breakdowns: Sequence[ScoreBreakdown],
+    *,
+    profile_id: int,
+    compute_start: datetime,
 ) -> None:
     """Write computed breakdowns to the cache on a DEDICATED session (M3-TX-01).
 
@@ -127,7 +153,9 @@ async def _persist_breakdowns(
     try:
         async with AsyncSessionLocal() as s:
             for b in breakdowns:
-                await _upsert_breakdown(s, b, profile_id=profile_id)
+                await _upsert_breakdown(
+                    s, b, profile_id=profile_id, compute_start=compute_start
+                )
             await s.commit()
     except Exception as e:  # pragma: no cover — write-through best-effort
         logger.warning("match score cache upsert failed: %s", e)
@@ -171,11 +199,16 @@ async def get_cached_or_compute(
     ):
         return _breakdown_from_row(row)
 
+    # Fence the write-back against invalidations that land while we compute
+    # (P1-MATCH-02): capture the DB clock BEFORE scoring starts.
+    compute_start = await db.scalar(select(func.now()))
     breakdown = await score_candidate_job(
         candidate, job, db, semantic_similarity=semantic_similarity, profile=profile
     )
     if allow_cache_write:
-        await _persist_breakdowns([breakdown], profile_id=profile.id)
+        await _persist_breakdowns(
+            [breakdown], profile_id=profile.id, compute_start=compute_start
+        )
     return breakdown
 
 
@@ -218,6 +251,12 @@ async def bulk_get_or_compute(
     )
     cached_by_cid = {r.candidate_id: r for r in cached_rows}
 
+    # Fence the write-back against invalidations that land while we compute
+    # (P1-MATCH-02): one DB-clock read BEFORE any scoring, only when we will
+    # actually compute at least one miss.
+    needs_compute = any(c.id not in cached_by_cid for c in candidates)
+    compute_start = await db.scalar(select(func.now())) if needs_compute else None
+
     results: list[ScoreBreakdown] = []
     pending_writes: list[ScoreBreakdown] = []
     for c in candidates:
@@ -231,8 +270,10 @@ async def bulk_get_or_compute(
         results.append(breakdown)
         pending_writes.append(breakdown)
 
-    if pending_writes and allow_cache_write:
-        await _persist_breakdowns(pending_writes, profile_id=profile.id)
+    if pending_writes and allow_cache_write and compute_start is not None:
+        await _persist_breakdowns(
+            pending_writes, profile_id=profile.id, compute_start=compute_start
+        )
 
     results.sort(key=lambda r: -r.total)
     return results
@@ -243,7 +284,7 @@ async def mark_stale_for_candidate(db: AsyncSession, candidate_id: int) -> int:
     res = await db.execute(
         update(CandidateJobMatchScore)
         .where(CandidateJobMatchScore.candidate_id == candidate_id)
-        .values(stale=True)
+        .values(stale=True, invalidated_at=func.now())
     )
     return res.rowcount or 0
 
@@ -253,7 +294,7 @@ async def mark_stale_for_job(db: AsyncSession, job_id: int) -> int:
     res = await db.execute(
         update(CandidateJobMatchScore)
         .where(CandidateJobMatchScore.job_id == job_id)
-        .values(stale=True)
+        .values(stale=True, invalidated_at=func.now())
     )
     return res.rowcount or 0
 
@@ -271,7 +312,7 @@ async def mark_stale_for_profile(db: AsyncSession, profile_id: int) -> int:
     res = await db.execute(
         update(CandidateJobMatchScore)
         .where(CandidateJobMatchScore.profile_id == profile_id)
-        .values(stale=True)
+        .values(stale=True, invalidated_at=func.now())
     )
     return res.rowcount or 0
 
@@ -286,6 +327,6 @@ async def mark_stale_for_many_candidates(
     res = await db.execute(
         update(CandidateJobMatchScore)
         .where(CandidateJobMatchScore.candidate_id.in_(ids))
-        .values(stale=True)
+        .values(stale=True, invalidated_at=func.now())
     )
     return res.rowcount or 0

@@ -7,6 +7,7 @@ Populated by `scoring_service.get_cached_or_compute`. Invalidated (marked
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import (
     Boolean,
@@ -64,3 +65,11 @@ class CandidateJobMatchScore(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     stale: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    # P1-MATCH-02: last time this row was invalidated by a mark_stale_* call.
+    # Acts as a compare-and-swap fence so a score compute that STARTED before an
+    # invalidation cannot resurrect `stale=False` on write-back — the upsert
+    # clears `stale` only when this is NULL or older than the compute's start.
+    # NULL = never invalidated since the last fresh compute.
+    invalidated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
