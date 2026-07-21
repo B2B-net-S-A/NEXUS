@@ -63,6 +63,7 @@ from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
 from app.api import admin_pipeline_inventory
 from app.api import admin_engagement_inventory
+from app.api import admin_candidate_pii_orphans
 from app.api import admin_schema_drift
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
@@ -656,6 +657,11 @@ app.include_router(
     admin_schema_drift.router,
     prefix="/api/admin",
     tags=["admin-schema-drift"],
+)
+app.include_router(
+    admin_candidate_pii_orphans.router,
+    prefix="/api/admin",
+    tags=["admin-candidate-pii-orphans"],
 )
 app.include_router(
     admin_workflows.router,

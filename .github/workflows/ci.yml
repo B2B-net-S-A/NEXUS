@@ -146,6 +146,7 @@ jobs:
                  tests/test_job_viewer_projection.py \
                  tests/test_log_token_redaction.py \
                  tests/test_ci_coverage_contract.py \
+                 tests/test_candidate_pii_orphans.py \
                  tests/test_user_email_templates.py \
                  tests/test_actionable_messages.py \
                  tests/test_aad_groups.py \
