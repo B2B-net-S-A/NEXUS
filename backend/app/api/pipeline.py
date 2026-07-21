@@ -45,8 +45,13 @@ from app.schemas.pipeline import (
 from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
 from app.api.recruitment_access import (
+    ensure_job_membership,
     user_can_edit_rates,
     user_can_terminal_transition,
+)
+from app.services.pipeline_eligibility import (
+    assert_candidate_move_eligible,
+    assert_candidates_move_eligible,
 )
 from app.services.rate_normalization import (
     POLICY_VERSION as RATE_POLICY_VERSION,
@@ -324,6 +329,12 @@ async def move_candidate(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # ── P1-PIPE-01: resource scope ── a caller may only touch the pipeline of
+    # a job they belong to (owner/DL/TAC/collaborator) or oversee (admin/HoR).
+    # Runs before any target/capability work so a non-member learns nothing
+    # about the requested move.
+    await ensure_job_membership(db, current_user, job.id)
+
     stage_def = await _resolve_stage_def(
         db, job, stage_def_id=data.stage_def_id, legacy_stage=data.stage
     )
@@ -442,6 +453,28 @@ async def move_candidate(
                 "Ruch na etap 'Zweryfikowany' ustawia stawkę kandydata i wymaga "
                 "roli recruiter/tac/delivery_lead/admin."
             ),
+        )
+
+    # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
+    # enforce (global blacklist / active client blacklist·NDA·competitor) →
+    # 409 with the Polish reason. Skipped for terminal REMOVAL moves so a
+    # blacklisted/conflicted candidate can always be closed OUT (rejected /
+    # withdrawn); a forward or `hired` move of such a candidate is blocked.
+    is_removal_move = legacy_enum in (
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+    ) or bool(
+        stage_def
+        and stage_def.is_terminal
+        and stage_def.terminal_type
+        and stage_def.terminal_type.value in ("rejected", "withdrawn")
+    )
+    if not is_removal_move:
+        await assert_candidate_move_eligible(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            now=datetime.now(timezone.utc),
         )
 
     # Terminal-move validation: require rejection_reason_id
@@ -924,6 +957,9 @@ async def get_kanban(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # P1-PIPE-01: reading a job's board is a pipeline ingress — members only.
+    await ensure_job_membership(db, current_user, job.id)
+
     # All CandidateStage rows for this job, newest→oldest per candidate.
     # Secondary id.desc() makes the per-candidate "first" (latest) and "last"
     # (earliest) rows deterministic when two moves share a `moved_at`.
@@ -1082,6 +1118,9 @@ async def get_stage_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Full stage history for a candidate in a specific job."""
+    # P1-PIPE-01: stage history is a per-job pipeline read — members only
+    # (same scope as the kanban board).
+    await ensure_job_membership(db, current_user, job_id)
     result = await db.execute(
         select(CandidateStage)
         .where(
@@ -1811,6 +1850,12 @@ async def bulk_move_candidates(
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # P1-PIPE-01: bulk pipeline write — members only (same gate as /move).
+    # Runs after the pure-input terminal/gate 422s above (which reveal nothing
+    # job-specific) and before any candidate lookup.
+    await ensure_job_membership(db, current_user, job.id)
+
     existing_ids = set(
         (await db.execute(select(Candidate.id).where(Candidate.id.in_(unique_ids))))
         .scalars()
@@ -1822,6 +1867,18 @@ async def bulk_move_candidates(
             status_code=422,
             detail=f"Nieistniejący kandydaci: {missing[:20]}",
         )
+
+    # P1-PIPE-01: eligibility gate ── bulk-move only ever targets non-terminal
+    # stages (terminal/verified/hired 422 above), so every candidate is a
+    # forward move and the hard block applies to all. Fail-closed: any
+    # blacklisted / client-conflicted candidate rejects the batch (409),
+    # identical to the single /move contract.
+    await assert_candidates_move_eligible(
+        db,
+        candidate_ids=unique_ids,
+        job=job,
+        now=datetime.now(timezone.utc),
+    )
 
     moved = 0
     for cid in unique_ids:

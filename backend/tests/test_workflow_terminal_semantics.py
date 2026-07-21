@@ -63,7 +63,15 @@ async def _seed_job_with_custom_terminal(term: TerminalType) -> dict:
         )
         db.add(stage)
         await db.flush()
-        job = Job(title=f"WF Job {u}", client_id=client.id, pipeline_template_id=tpl.id)
+        # Owner = the acting recruiter (job.recruiter_id), so the P1-PIPE-01
+        # membership gate admits them (these tests exercise terminal-stage
+        # semantics, not access control).
+        job = Job(
+            title=f"WF Job {u}",
+            client_id=client.id,
+            pipeline_template_id=tpl.id,
+            recruiter_id=user.id,
+        )
         db.add(job)
         await db.commit()
         return {
