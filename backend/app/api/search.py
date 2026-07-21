@@ -33,6 +33,7 @@ from app.services.ai_health import ai_status
 from app.services.structured_candidate_search import (
     build_filter_groups,
     build_structured_filter,
+    skills_soft_rank,
 )
 
 router = APIRouter()
@@ -338,12 +339,21 @@ async def advanced_candidate_search(
             candidates = []
     else:
         base = select(Candidate).where(where_clause)
+        order_cols: list[Any] = []
+        # SEARCH-P0-03: skill chips are a soft signal — they no longer cut, so
+        # rank matchers to the top. Leads the sort whenever skill chips are
+        # present (a skill search wants skill-relevant results first); the
+        # requested sort is the tie-break below.
+        skill_rank = skills_soft_rank(body)
+        if skill_rank is not None:
+            order_cols.append(skill_rank.desc())
         if body.sort == "relevance" and q_text:
-            base = base.order_by(_fts_rank_order(), Candidate.updated_at.desc())
+            order_cols.extend([_fts_rank_order(), Candidate.updated_at.desc()])
         elif body.sort == "name":
-            base = base.order_by(Candidate.lastname.asc(), Candidate.name.asc())
+            order_cols.extend([Candidate.lastname.asc(), Candidate.name.asc()])
         else:
-            base = base.order_by(Candidate.updated_at.desc())
+            order_cols.append(Candidate.updated_at.desc())
+        base = base.order_by(*order_cols)
 
         base = base.offset((body.page - 1) * body.page_size).limit(body.page_size)
         if q_text:
