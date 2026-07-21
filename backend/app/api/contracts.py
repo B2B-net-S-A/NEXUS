@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import hashlib
 import logging
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
@@ -1308,6 +1310,27 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
 
 
+# Draft/contract HTML is authored by TacPlus (non-admin) users and served
+# same-origin for preview. An explicit restrictive CSP is the browser-side
+# trust boundary against stored XSS (M5-P0.10): every script is blocked EXCEPT
+# our own auto-print snippet, allowed by its SHA-256 hash. Inline styles +
+# data: images are permitted so the legal-document formatting still renders.
+# Set per-route so it holds even in DEBUG and independent of the incidental
+# global default. An injected `<script>`/`onerror=` in the draft body has no
+# matching hash → the browser refuses to run it.
+_AUTOPRINT_JS = (
+    "window.addEventListener('load',()=>setTimeout(()=>window.print(),300));"
+)
+_AUTOPRINT_HASH = "sha256-" + base64.b64encode(
+    hashlib.sha256(_AUTOPRINT_JS.encode("utf-8")).digest()
+).decode("ascii")
+_CONTRACT_PREVIEW_CSP = (
+    "default-src 'none'; "
+    f"script-src '{_AUTOPRINT_HASH}'; "
+    "style-src 'unsafe-inline'; img-src data:; font-src data:"
+)
+
+
 def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
     """Wrap raw body HTML with print-friendly stylesheet + auto-print script."""
     return (
@@ -1321,8 +1344,7 @@ def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
         "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}"
         "@media print{body{margin:0;padding:0}}"
         "</style>"
-        "<script>window.addEventListener('load',()=>setTimeout("
-        "()=>window.print(),300));</script>"
+        f"<script>{_AUTOPRINT_JS}</script>"
         "</head><body>"
         f"{body_html}"
         "</body></html>"
@@ -1491,7 +1513,10 @@ async def render_draft_for_print(
         contract.candidate
         and f"{contract.candidate.name} {contract.candidate.lastname}"
     ) or "Umowa"
-    return HTMLResponse(content=_wrap_printable(body, contract.id, title))
+    return HTMLResponse(
+        content=_wrap_printable(body, contract.id, title),
+        headers={"Content-Security-Policy": _CONTRACT_PREVIEW_CSP},
+    )
 
 
 @router.post(

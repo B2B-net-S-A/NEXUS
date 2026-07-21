@@ -9,7 +9,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
-from jinja2 import Environment, StrictUndefined, TemplateError, select_autoescape
+from jinja2 import StrictUndefined, TemplateError, select_autoescape
+from jinja2.sandbox import SandboxedEnvironment
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +56,11 @@ class TemplateResponse(TemplateBase):
 
 # ── Jinja sandbox ────────────────────────────────────────────────────────────
 
-_jinja_env = Environment(
+# Template source is user-supplied (recruiters author contract templates), so it
+# must render in a SandboxedEnvironment — a plain Environment allows SSTI
+# (``{{ ''.__class__.__mro__ ... }}`` → RCE). Mirrors user_email_templates.py
+# (M5-P0.10).
+_jinja_env = SandboxedEnvironment(
     autoescape=select_autoescape(["html", "xml"]),
     undefined=StrictUndefined,
     trim_blocks=True,
@@ -348,4 +353,16 @@ async def render_template_for_contract(
         f"{rendered}"
         "</body></html>"
     )
-    return HTMLResponse(content=html)
+    # Rendered template HTML is authored by users and served same-origin — an
+    # explicit restrictive CSP blocks stored XSS (M5-P0.10). No legit script in
+    # this skeleton, so scripts are denied outright; inline styles + data:
+    # images are allowed so the formatting still renders.
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Content-Security-Policy": (
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "img-src data:; font-src data:"
+            )
+        },
+    )
