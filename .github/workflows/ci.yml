@@ -244,6 +244,7 @@ jobs:
                  tests/test_autenti_webhook_monotonic.py \
                  tests/test_search_skills_soft_signal.py \
                  tests/test_contract_html_trust_boundary.py \
+                 tests/test_workflow_terminal_semantics.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
