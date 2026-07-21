@@ -244,8 +244,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/emails/{email_id}/attachments/{attachment_id}/download"),
     ("GET", "/api/embed-diagnostics"),
     ("GET", "/api/entity-schema/{entity_type}"),
-    ("GET", "/api/fireflies/status"),
-    ("GET", "/api/fireflies/sync"),
     ("GET", "/api/fx"),
     ("GET", "/api/interview-questions"),
     ("GET", "/api/interview-questions/{question_id}"),
