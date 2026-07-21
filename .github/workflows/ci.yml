@@ -260,6 +260,7 @@ jobs:
                  tests/test_contract_analytics_fx.py \
                  tests/test_aux_writer_txn_isolation.py \
                  tests/test_champion_conflicts_authz.py \
+                 tests/test_cloudtalk_webhook_race.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

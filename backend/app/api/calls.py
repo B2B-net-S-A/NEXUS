@@ -13,6 +13,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess
@@ -318,6 +319,43 @@ def _extract_call_fields(call_info: dict) -> dict:
     }
 
 
+def _apply_webhook_updates(
+    call_row: Optional[Call],
+    fields: dict,
+    transcript: str,
+    summary: str,
+    mapped_user_id: Optional[int],
+) -> None:
+    """Merge a later CloudTalk event into an existing ``Call`` row.
+
+    Only fills fields the event actually carries, and never regresses an
+    already-set identity field (agent/user/started_at) or a non-initiated
+    status. Shared by the normal replay path and the concurrent-insert
+    fallback so both apply identical merge semantics.
+    """
+    if call_row is None:
+        return
+    if transcript:
+        call_row.transcript = transcript
+    if summary:
+        call_row.summary = summary
+    if fields["recording_url"]:
+        call_row.recording_url = fields["recording_url"]
+    if fields["duration_seconds"] is not None:
+        call_row.duration_seconds = fields["duration_seconds"]
+    if fields["agent_id"] is not None and call_row.cloudtalk_agent_id is None:
+        call_row.cloudtalk_agent_id = fields["agent_id"]
+    if mapped_user_id is not None and call_row.user_id is None:
+        call_row.user_id = mapped_user_id
+    if fields["started_at"] is not None and call_row.started_at is None:
+        call_row.started_at = fields["started_at"]
+    if (
+        call_row.status == CallStatus.initiated
+        and fields["status"] != CallStatus.initiated
+    ):
+        call_row.status = fields["status"]
+
+
 async def _process_cloudtalk_payload(
     raw_body: bytes,
     db: AsyncSession,
@@ -387,7 +425,16 @@ async def _process_cloudtalk_payload(
             )
 
     if call_row is None and candidate is not None:
-        call_row = Call(
+        # Atomic insert-or-merge. CloudTalk delivers SEPARATE webhook POSTs per
+        # event (call-ended / transcript-ready / recording-ready) for the SAME
+        # call, plus retries. Two events that both SELECT null above would each
+        # try to INSERT the same unique ``cloudtalk_call_id`` — the loser raises
+        # IntegrityError. Wrap the INSERT in a SAVEPOINT (mirrors the Autenti
+        # webhook hardening, #859): on conflict, re-SELECT the row the racing
+        # event just committed and fall through to the same UPDATE path so THIS
+        # event's data (transcript/recording/status) still lands instead of
+        # surfacing a 500 — the transcript payload is exactly what would be lost.
+        new_row = Call(
             candidate_id=candidate.id,
             user_id=mapped_user_id,
             direction=fields["direction"],
@@ -400,27 +447,27 @@ async def _process_cloudtalk_payload(
             cloudtalk_agent_id=fields["agent_id"],
             started_at=fields["started_at"],
         )
-        db.add(call_row)
+        try:
+            async with db.begin_nested():
+                db.add(new_row)
+                await db.flush()
+            call_row = new_row
+        except IntegrityError:
+            # SAVEPOINT rolled back → ``new_row`` is expunged. Re-fetch the row
+            # the concurrent event created and merge our fields into it.
+            logger.info(
+                "CloudTalk webhook: concurrent insert for ct_id=%s — merging "
+                "into the existing row",
+                ct_id,
+            )
+            call_row = await db.scalar(
+                select(Call).where(Call.cloudtalk_call_id == ct_id)
+            )
+            _apply_webhook_updates(
+                call_row, fields, transcript, summary, mapped_user_id
+            )
     elif call_row is not None:
-        if transcript:
-            call_row.transcript = transcript
-        if summary:
-            call_row.summary = summary
-        if fields["recording_url"]:
-            call_row.recording_url = fields["recording_url"]
-        if fields["duration_seconds"] is not None:
-            call_row.duration_seconds = fields["duration_seconds"]
-        if fields["agent_id"] is not None and call_row.cloudtalk_agent_id is None:
-            call_row.cloudtalk_agent_id = fields["agent_id"]
-        if mapped_user_id is not None and call_row.user_id is None:
-            call_row.user_id = mapped_user_id
-        if fields["started_at"] is not None and call_row.started_at is None:
-            call_row.started_at = fields["started_at"]
-        if (
-            call_row.status == CallStatus.initiated
-            and fields["status"] != CallStatus.initiated
-        ):
-            call_row.status = fields["status"]
+        _apply_webhook_updates(call_row, fields, transcript, summary, mapped_user_id)
 
     await db.commit()
     if call_row is not None:
