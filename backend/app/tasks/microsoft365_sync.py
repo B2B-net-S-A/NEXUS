@@ -39,7 +39,12 @@ logger = logging.getLogger(__name__)
 
 # Fatal-error markers → skip that connection until user manually reconnects.
 # These indicate the sync path itself is broken (not transient Graph flakes).
-_FATAL_ERROR_MARKERS = ("timeout", "retry_after cap", "M365ReauthRequired")
+# NOTE: "timeout" is deliberately NOT here — a transient network/Graph timeout
+# is exactly the kind of flake that should fall through to the normal
+# ``_ERROR_BACKOFF_SECONDS`` retry and auto-recover, not permanently strand the
+# connection (P1-M365-01). Only genuinely non-recoverable states (reauth
+# required, retry_after cap exhausted) belong here.
+_FATAL_ERROR_MARKERS = ("retry_after cap", "M365ReauthRequired")
 # Backoff for connections whose last attempt errored — don't hammer them
 # every 5 min. Artur can force with POST /api/microsoft365/sync/trigger.
 _ERROR_BACKOFF_SECONDS = 30 * 60  # 30 min

@@ -396,12 +396,26 @@ async def _process_cloudtalk_payload(
         normalized_col = func.right(
             func.regexp_replace(Candidate.phone, r"[^\d]", "", "g"), 9
         )
-        candidate = await db.scalar(
-            select(Candidate)
-            .where(Candidate.phone.isnot(None))
-            .where(normalized_col == last9)
-            .limit(1)
+        phone_match = (Candidate.phone.isnot(None)) & (normalized_col == last9)
+        # Deterministic pick: newest candidate id wins so the same call never
+        # attributes to a different row across replays. Count first so a shared
+        # last-9 (two candidates, same trailing digits) is made observable rather
+        # than silently misattributed.
+        match_count = await db.scalar(
+            select(func.count()).select_from(Candidate).where(phone_match)
         )
+        candidate = await db.scalar(
+            select(Candidate).where(phone_match).order_by(Candidate.id.desc()).limit(1)
+        )
+        if match_count and match_count > 1:
+            logger.warning(
+                "CloudTalk webhook: phone last-9=%s matched %d candidates "
+                "(ct_id=%s) — attributing to newest id=%s; possible misattribution",
+                last9,
+                match_count,
+                ct_id,
+                candidate.id if candidate else None,
+            )
         if candidate is None:
             logger.info(
                 "CloudTalk webhook: no candidate match for phone last-9=%s (ct_id=%s)",
@@ -474,8 +488,38 @@ async def _process_cloudtalk_payload(
         await db.refresh(call_row)
 
     if transcript and candidate is not None:
+        from app.models.champion_suggestion import (
+            ChampionProfileSuggestion,
+            SuggestionSource,
+        )
         from app.models.recruitment_pipeline import CandidateStage
         from app.services.champion_draft_service import enrich_from_call
+
+        # Replay guard: CloudTalk redelivers the same transcript-ready webhook on
+        # retry. Enrichment is idempotent per call — if a suggestion sourced from
+        # THIS call (source_type=cloudtalk_call, source_ref=ct_id) already exists,
+        # skip re-running the LLM so a redelivery doesn't spawn duplicate drafts.
+        # The legit call-ended → transcript-ready flow is unaffected: call-ended
+        # carries no transcript, so this block only runs on the first transcript.
+        already_enriched = False
+        if ct_id:
+            already_enriched = bool(
+                await db.scalar(
+                    select(ChampionProfileSuggestion.id)
+                    .where(
+                        ChampionProfileSuggestion.source_type
+                        == SuggestionSource.cloudtalk_call,
+                        ChampionProfileSuggestion.source_ref == ct_id,
+                    )
+                    .limit(1)
+                )
+            )
+        if already_enriched:
+            logger.info(
+                "CloudTalk webhook: enrichment already exists for ct_id=%s — "
+                "skipping replay re-enrichment",
+                ct_id,
+            )
 
         stage_res = await db.execute(
             select(CandidateStage)
@@ -484,7 +528,7 @@ async def _process_cloudtalk_payload(
             .limit(1)
         )
         stage = stage_res.scalar_one_or_none()
-        if stage and stage.job_id:
+        if stage and stage.job_id and not already_enriched:
             try:
                 await enrich_from_call(
                     db,

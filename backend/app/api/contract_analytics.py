@@ -10,6 +10,7 @@ All numbers are normalised to monthly equivalents using the rate_unit /
 billing_hours_per_month fields introduced in A3.
 """
 
+import logging
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, List, Optional
@@ -26,6 +27,8 @@ from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
 from app.models.job import Job
 from app.services.fx_service import get_rate_to_pln
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -117,8 +120,12 @@ class ForecastMonth(BaseModel):
 class RevenueForecast(BaseModel):
     horizon_months: int
     months: List[ForecastMonth]
-    # True when any month mixed a currency with no cached FX rate (1:1 fallback).
+    # True when any month included a currency with no cached FX rate. Those
+    # amounts are EXCLUDED from the totals (not coerced 1:1) — see fx_warnings.
     fx_missing: bool = False
+    # Human-readable notes surfacing which currencies were dropped for lack of a
+    # cached NBP rate. Empty when every currency converted cleanly.
+    fx_warnings: List[str] = []
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -343,8 +350,18 @@ async def revenue_forecast(
     # Resolve each currency's rate once (all months use today's rate).
     rate_cache = await _resolve_rate_cache(db, (c.currency for c in active_contracts))
     fx_missing = False
+    missing_fx: set[str] = set()
 
-    def _to_display(amount: int, currency: str) -> Decimal:
+    def _to_display(amount: int, currency: str) -> Optional[Decimal]:
+        """Convert a monthly amount to PLN, or ``None`` when it must be dropped.
+
+        When ``convert_currency`` is on and a non-PLN currency has no cached NBP
+        rate we return ``None`` so the caller EXCLUDES it — coercing 1:1 would
+        silently report a foreign amount as if it were PLN (mirrors
+        ``analytics.metrics._sum_finance`` / ``reports._fold_finance_pln``).
+        ``convert_currency=false`` is the deliberate nominal cross-currency sum,
+        so there we keep the raw amount.
+        """
         nonlocal fx_missing
         cur = (currency or "PLN").upper()
         if not convert_currency or cur == "PLN":
@@ -352,6 +369,8 @@ async def revenue_forecast(
         rate, found = rate_cache.get(cur, (Decimal("1"), False))
         if not found:
             fx_missing = True
+            missing_fx.add(cur)
+            return None
         return Decimal(amount) * rate
 
     months: list[ForecastMonth] = []
@@ -374,8 +393,12 @@ async def revenue_forecast(
         revenue_raw = Decimal("0")
         margin_raw = Decimal("0")
         for c in active_in_month:
-            revenue_raw += _to_display(_monthly_rate_client(c), c.currency)
-            margin_raw += _to_display(_monthly_margin(c), c.currency)
+            rev = _to_display(_monthly_rate_client(c), c.currency)
+            marg = _to_display(_monthly_margin(c), c.currency)
+            if rev is not None:
+                revenue_raw += rev
+            if marg is not None:
+                margin_raw += marg
         months.append(
             ForecastMonth(
                 month=month_start.strftime("%Y-%m"),
@@ -388,8 +411,23 @@ async def revenue_forecast(
 
     # Reference to silence unused-arg warning in future linters
     _ = timedelta
+    fx_warnings: List[str] = []
+    if missing_fx:
+        details = ", ".join(sorted(missing_fx))
+        fx_warnings.append(
+            f"Brak kursu NBP dla walut: {details} — kwoty w tych walutach "
+            "POMINIĘTE w prognozie (uzupełnij: POST /api/fx/refresh)"
+        )
+        logger.warning(
+            "contract-analytics/revenue-forecast: missing FX rate(s) for %s — "
+            "amounts excluded from forecast totals",
+            details,
+        )
     return RevenueForecast(
-        horizon_months=horizon_months, months=months, fx_missing=fx_missing
+        horizon_months=horizon_months,
+        months=months,
+        fx_missing=fx_missing,
+        fx_warnings=fx_warnings,
     )
 
 
