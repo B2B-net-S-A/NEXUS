@@ -20,10 +20,12 @@ from typing import Iterable
 
 import httpx
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_alert_dedup import ContractAlertDedup
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.notification import Notification, NotificationType
@@ -77,6 +79,30 @@ async def _staff_user_ids(db: AsyncSession) -> list[int]:
         select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
     )
     return [row[0] for row in res.all()]
+
+
+async def _claim_alert(db: AsyncSession, dedup_key: str) -> bool:
+    """Atomically claim a dedup key. ``INSERT ... ON CONFLICT DO NOTHING``.
+
+    Returns ``True`` if THIS pass inserted the row (fresh — go create the
+    notifications), ``False`` if the key was already claimed (skip). The
+    ``_already_notified`` SELECT helpers stay as a cheap pre-filter (and keep
+    all-time dedup semantics across the pre-ledger transition), but they are
+    NOT atomic on their own: two overlapping / concurrent loop passes (restart,
+    multi-worker) could both pass the SELECT before either committed and then
+    insert DUPLICATE notifications. This claim closes that race — the UNIQUE
+    constraint serializes the two passes so exactly one wins the key. The claim
+    is committed in the SAME transaction as the notifications, so a rollback
+    drops both together.
+    """
+    stmt = (
+        pg_insert(ContractAlertDedup)
+        .values(dedup_key=dedup_key)
+        .on_conflict_do_nothing(constraint="uq_contract_alert_dedup_key")
+        .returning(ContractAlertDedup.id)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none() is not None
 
 
 async def _contract_ids_already_notified(db: AsyncSession, threshold: int) -> set[int]:
@@ -260,6 +286,8 @@ async def run_contract_alerts_cycle() -> dict:
                 else NotificationType.contract_ending
             )
             for c in fresh:
+                if not await _claim_alert(db, f"ending:{threshold}:{c.id}"):
+                    continue
                 title = f"[{threshold}d] Kontrakt #{c.id} wygasa"
                 message = (
                     f"Kontrakt #{c.id} kończy się {c.end_date} — "
@@ -293,6 +321,8 @@ async def run_contract_alerts_cycle() -> dict:
             already = await _compliance_already_notified(db)
             fresh = [d for d in expiring if d.id not in already]
             for doc in fresh:
+                if not await _claim_alert(db, f"compliance:{doc.id}"):
+                    continue
                 title = f"[compliance] Dokument #{doc.id} wygasa"
                 message = (
                     f"Dokument {doc.doc_type.value} (doc_id={doc.id}) kontraktu "
@@ -323,6 +353,8 @@ async def run_contract_alerts_cycle() -> dict:
             already = await _equipment_already_notified(db)
             fresh = [item for item in due if item.id not in already]
             for item in fresh:
+                if not await _claim_alert(db, f"equipment:{item.id}"):
+                    continue
                 days_left = (
                     (item.return_due_date - date.today()).days
                     if item.return_due_date
@@ -361,6 +393,8 @@ async def run_contract_alerts_cycle() -> dict:
             already = await _client_order_already_notified(db)
             fresh = [c for c in orders if c.id not in already]
             for c in fresh:
+                if not await _claim_alert(db, f"client_order:{c.id}"):
+                    continue
                 days_left = (
                     (c.client_order_end_date - date.today()).days
                     if c.client_order_end_date

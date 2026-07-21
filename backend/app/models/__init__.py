@@ -33,6 +33,7 @@ from app.models.contract_amendment import ContractAmendment, ContractAmendmentTy
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
 from app.models.contract_framework_rate import ContractFrameworkRate
+from app.models.contract_alert_dedup import ContractAlertDedup  # noqa: F401
 from app.models.contract_onboarding import (
     ContractOnboardingItem,
     OnboardingItemStatus,
@@ -271,6 +272,7 @@ __all__ = [
     "TalentPool",
     "TalentPoolMembership",
     "MarketplaceAlertLog",
+    "ContractAlertDedup",
     "CalendarEvent",
     "Notification",
     "PasswordResetToken",
