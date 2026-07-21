@@ -268,6 +268,7 @@ jobs:
                  tests/test_finance_activity_leak.py \
                  tests/test_m365_sync_timeout_recovery.py \
                  tests/test_cloudtalk_enrichment_replay.py \
+                 tests/test_schema_inventory.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
