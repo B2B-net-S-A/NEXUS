@@ -80,8 +80,15 @@ async def _compute_breaches(db: AsyncSession) -> list[dict]:
     return breaches
 
 
-async def _post_to_slack(webhook: str, breach: dict) -> None:
-    """Best-effort Slack post. Silently logs errors."""
+async def _post_to_slack(webhook: str, breach: dict) -> bool:
+    """Post one breach to Slack. Returns True only on a 2xx response.
+
+    httpx does not raise on 4xx/5xx by default, so we must inspect the status
+    code explicitly. On an HTTP error status or a transport error we log a
+    warning and return False; the caller then leaves the breach un-alerted so
+    the next poll retries it (idempotent — it re-sends only because it was
+    never marked as sent).
+    """
     text = (
         f":warning: SLA breach — kandydat #{breach['candidate_id']} "
         f"utknął w etapie *{breach['stage_name']}* od {breach['days_in_stage']} dni "
@@ -90,9 +97,17 @@ async def _post_to_slack(webhook: str, breach: dict) -> None:
     )
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(webhook, json={"text": text})
+            resp = await client.post(webhook, json={"text": text})
     except Exception as e:  # noqa: BLE001
         logger.warning("slack_sla_alerts: post failed %s", e)
+        return False
+    if resp.status_code >= 400:
+        logger.warning(
+            "slack_sla_alerts: Slack returned HTTP %d — alert not marked sent",
+            resp.status_code,
+        )
+        return False
+    return True
 
 
 async def slack_sla_alerts_loop(
@@ -115,16 +130,18 @@ async def slack_sla_alerts_loop(
             new_breaches = [
                 b for b in breaches if b["candidate_stage_id"] not in alerted
             ]
+            sent = 0
             for b in new_breaches:
-                await _post_to_slack(webhook, b)
-                alerted.add(b["candidate_stage_id"])
+                # Only mark as alerted when Slack actually accepted the message
+                # (2xx). A failed send stays un-marked so the next tick retries.
+                if await _post_to_slack(webhook, b):
+                    alerted.add(b["candidate_stage_id"])
+                    sent += 1
             # Clean up: if a stage is no longer in breaches (stage moved), let it re-alert if it comes back
             active_ids = {b["candidate_stage_id"] for b in breaches}
             alerted &= active_ids  # keep only still-breaching
-            if new_breaches:
-                logger.info(
-                    "slack_sla_alerts: posted %d new breach alerts", len(new_breaches)
-                )
+            if sent:
+                logger.info("slack_sla_alerts: posted %d new breach alerts", sent)
         except Exception as e:  # noqa: BLE001
             logger.warning("slack_sla_alerts: cycle error %s", e)
         await asyncio.sleep(interval_minutes * 60)
