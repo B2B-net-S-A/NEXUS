@@ -30,6 +30,7 @@ from app.schemas.job_shortlist import (
     ShortlistPromoteResponse,
     ShortlistUpdateRequest,
 )
+from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
@@ -303,6 +304,11 @@ async def promote_shortlist_entry(
         moved_by=current_user.id,
     )
     db.add(stage)
+    # M3-ACT-01: snapshot the CV current at promotion + emit the audit, the
+    # same invariant the single-assign path holds — shortlist promotion was
+    # skipping it. Idempotent + fail-soft.
+    await db.flush()
+    await create_original_cv_snapshot(db, stage)
     entry.promoted_to_pipeline_at = now
     entry.updated_by = current_user.id
     await db.commit()
