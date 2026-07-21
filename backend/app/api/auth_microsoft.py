@@ -380,12 +380,22 @@ async def callback(
     result = await db.execute(select(User).where(User.email == email_lower))
     user = result.scalar_one_or_none()
     if user is None:
+        # First-time SSO users self-provision as the least-privileged
+        # read-only viewer (``UserRole.user``), NOT an active recruiter.
+        # The domain whitelist only proves the email belongs to the corp
+        # tenant — it says nothing about whether that person should have
+        # candidate/RODO write access. AAD group RBAC (the authoritative
+        # role source) is deliberately hard-disabled, so a recruiter default
+        # would grant full write access gated by domain alone. An admin
+        # promotes real recruiters via Settings → Admin → Users. The account
+        # is still ``is_active=True`` so the viewer CAN log in (read-only),
+        # they are simply not blocked.
         user = User(
             email=email_lower,
             name=name,
             password_hash=None,  # SSO-only — no bcrypt hash.
-            role=UserRole.recruiter,
-            roles=[UserRole.recruiter.value],
+            role=UserRole.user,
+            roles=[UserRole.user.value],
             is_active=True,
             profile_completed=False,
             oauth_provider="microsoft",
@@ -401,6 +411,12 @@ async def callback(
         # MS account suddenly auto-provisioning into the ATS). Listing
         # placeholder user_id=0 (system action — no admin actor).
         await db.flush()  # populate user.id for the Activity FK
+        logger.info(
+            "sso new-user provisioned as read-only viewer: email=%s domain=%s role=%s",
+            email_lower,
+            domain,
+            UserRole.user.value,
+        )
         db.add(
             Activity(
                 entity_type="user",
@@ -412,7 +428,7 @@ async def callback(
                     "domain": domain,
                     "provider": "microsoft",
                     "azure_oid": azure_oid,
-                    "default_role": UserRole.recruiter.value,
+                    "default_role": UserRole.user.value,
                 },
             )
         )
