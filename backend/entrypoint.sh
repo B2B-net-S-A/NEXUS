@@ -455,6 +455,14 @@ _ENUM_STATEMENTS = [
 ]
 
 _COLUMN_STATEMENTS = [
+    # candidate_invite_links: token_sha256 + token_ct — hash+encrypt v2
+    # (migracja 0183). Bez nich mint v2 wywala UndefinedColumn.
+    """ALTER TABLE candidate_invite_links
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """ALTER TABLE candidate_invite_links
+       ADD COLUMN IF NOT EXISTS token_ct TEXT""",
+    """CREATE INDEX IF NOT EXISTS ix_candidate_invite_links_token_sha256
+       ON candidate_invite_links (token_sha256)""",
     # signature_links.token_sha256 + engagement_declaration_tokens.token_sha256
     # — hash-at-rest v2 (migracja 0182). Bez tego mint v2 wywala UndefinedColumn.
     """ALTER TABLE signature_links
