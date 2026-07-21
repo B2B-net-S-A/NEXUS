@@ -90,6 +90,7 @@ from app.services import storage_service
 from app.services.contract_service import validate_ready_for_activation
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
+from app.api.financial_access import redact_feed_activity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -999,6 +1000,13 @@ async def contract_activities(
     if contract_exists.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Contract not found")
 
+    # P0.12: a contract ``updated`` audit row carries the changed rate fields
+    # (rate_candidate/rate_client/margin) in ``details`` — strip them for
+    # non-VIEW_FINANCE readers (TAC), mirroring `_redact_contract_finance`.
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+
     result = await db.execute(
         select(Activity, User.email)
         .outerjoin(User, Activity.user_id == User.id)
@@ -1008,11 +1016,16 @@ async def contract_activities(
     )
     entries: list[ContractActivityEntry] = []
     for activity, user_email in result.all():
+        details = redact_feed_activity(
+            activity.action, activity.details, finance_ok=finance_ok
+        )
+        if details is None:
+            continue
         entries.append(
             ContractActivityEntry(
                 id=activity.id,
                 action=activity.action,
-                details=activity.details,
+                details=details,
                 user_id=activity.user_id,
                 user_name=user_email,
                 created_at=activity.created_at,
@@ -1046,11 +1059,17 @@ async def contract_rate_history(
     )
     history_query = history_query.order_by(RateHistory.start_date.desc())
 
+    # P0.12: rate amounts are finance data — redacted (None) for non-VIEW_FINANCE
+    # readers (TAC), the same gate the contract list/detail rate reads use.
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+
     result = await db.execute(history_query)
     return [
         ContractRateHistoryEntry(
             id=r.id,
-            rate=r.rate,
+            rate=(r.rate if finance_ok else None),
             currency=r.currency,
             contract_type=r.contract_type.value
             if hasattr(r.contract_type, "value")

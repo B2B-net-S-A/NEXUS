@@ -265,6 +265,7 @@ jobs:
                  tests/test_chat_email_fallback_race.py \
                  tests/test_fireflies_note_dedup.py \
                  tests/test_cvsnapshot_txn_alerts_dedup.py \
+                 tests/test_finance_activity_leak.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

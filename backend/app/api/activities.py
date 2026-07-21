@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.activity import Activity
 from app.api.deps import CurrentUser, OperationalUser
+from app.api.financial_access import has_financial_access, redact_feed_activity
 from app.analytics.capabilities import (
     AnalyticsCapability,
     require_capability,
@@ -244,9 +245,19 @@ async def get_activity_feed(
     result = await db.execute(query)
     rows = result.all()
 
+    # Finance protection (P1): the raw ``details`` can carry rate amounts
+    # (candidate ``client_rate_changed`` audit, contract ``updated`` events).
+    # Non-finance readers get rate-change rows omitted + finance keys stripped,
+    # exactly as the candidate timeline redacts them.
+    finance_ok = has_financial_access(current_user)
+
     feed = []
     for activity, user_name in rows:
-        details = activity.details or {}
+        details = redact_feed_activity(
+            activity.action, activity.details or {}, finance_ok=finance_ok
+        )
+        if details is None:
+            continue
         entity_name = details.get("name", details.get("title", ""))
 
         feed.append(
