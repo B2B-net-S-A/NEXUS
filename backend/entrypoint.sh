@@ -1454,6 +1454,11 @@ _COLUMN_STATEMENTS = [
                 'verified', 'cv_sent', 'interview', 'client_interview',
                 'acceptance', 'hired'
             )
+            -- Odrzucone/oczekujące weryfikacje NIE liczą się jako kamień
+            -- milowy ani nie kotwiczą kredytu (M7-P0.8). Liczy się tylko
+            -- zaakceptowana ('active') weryfikacja. Pozostałe stage'y mają
+            -- default verification_status='active', więc filtr ich nie dotyka.
+            AND (cs.stage <> 'verified' OR cs.verification_status = 'active')
         ) ranked
         WHERE rn = 1""",
     # ── Snapshoty + cutover (0177, plan analytics PR 7) ─────────────────
