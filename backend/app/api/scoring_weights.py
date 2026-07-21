@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles
@@ -116,7 +117,17 @@ async def create_profile(
         active=payload.active,
     )
     db.add(row)
-    await db.commit()
+    # The name check above is racy: two concurrent creates both pass it, then
+    # the UNIQUE constraint (uq_scoring_weight_profiles_name) rejects the second
+    # at commit. Catch it so the loser gets the same 409 as the read path,
+    # never a 500.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="profile name already exists"
+        ) from None
     await db.refresh(row)
     return row
 

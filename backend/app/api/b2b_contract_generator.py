@@ -136,7 +136,16 @@ async def create_role(
         display_order=data.display_order,
     )
     db.add(role)
-    await db.commit()
+    # The slug check above is racy; the UNIQUE constraint on
+    # b2b_contract_roles.slug is the real guard. Give the loser of a concurrent
+    # create the same 409 as the read path, not a 500.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="Rola o tym slug już istnieje"
+        ) from None
     await db.refresh(role)
     return role
 

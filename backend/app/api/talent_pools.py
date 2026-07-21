@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -255,7 +256,16 @@ async def add_candidate_to_pool(
         added_by=current_user.id,
     )
     db.add(membership)
-    await db.commit()
+    # Racy membership check above: the UNIQUE (talent_pool_id, candidate_id)
+    # constraint (uq_pool_candidate) is the real guard. On a concurrent double
+    # add the loser gets a clean 409, not a 500.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="Kandydat jest już w tej puli"
+        ) from None
 
     return {
         "message": "Kandydat dodany do puli",
