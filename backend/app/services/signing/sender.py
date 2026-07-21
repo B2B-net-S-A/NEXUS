@@ -313,6 +313,19 @@ async def finalize_signed_pdf(
     company side, i.e. ``>= 2`` approval signatures). Does NOT commit (caller
     owns the transaction). Returns the validation verdict dict for the response.
     """
+    # Fail-closed on status (M5-P0.2). A withdrawn/expired/rejected — or already
+    # completed — signature must never be finalized, even if a still-live token
+    # survived (belt-and-braces with link revocation on withdraw). Only an
+    # in-flight signature (sent / in_progress) may be completed. Guards BOTH
+    # callers: public /sign/{token}/submit and recruiter /upload-signed.
+    if sig.status not in (SignatureStatus.sent, SignatureStatus.in_progress):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Podpis w statusie {sig.status.value} nie może zostać sfinalizowany"
+            ),
+        )
+
     provider = get_provider(sig.provider)
     report = await provider.validate(pdf_bytes)
 
