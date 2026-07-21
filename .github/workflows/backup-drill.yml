@@ -65,9 +65,39 @@ jobs:
         env:
           PGPASSWORD: drill-password
         run: |
+          # A drill that swallows ALL pg_restore output (the old `|| echo …
+          # continuing`) reports green even when the restore genuinely failed —
+          # the exact class of fake-green this whole workflow exists to kill.
+          # Instead: capture the exit code, print the stderr, and fail UNLESS the
+          # only diagnostics are the known-harmless DROP / extension noise a
+          # clean-restore into a vanilla postgres:16-alpine always emits.
+          set +e
           pg_restore --clean --if-exists --no-owner --no-privileges \
-            -h localhost -U drill -d nexus_drill /tmp/latest.dump \
-            || echo "pg_restore reported warnings (common for views/extensions); continuing"
+            -h localhost -U drill -d nexus_drill /tmp/latest.dump 2>/tmp/restore.err
+          rc=$?
+          set -e
+          echo "----- pg_restore stderr -----"
+          cat /tmp/restore.err || true
+          echo "-----------------------------"
+          if [ "$rc" -eq 0 ]; then
+            echo "pg_restore exited 0 — clean restore."
+            exit 0
+          fi
+          # Non-zero exit. Keep only lines pg_restore itself flagged as error/
+          # warning, then drop the ones that are expected and harmless here:
+          #   • DROP of an object that does not exist yet (fresh DB + --clean)
+          #   • CREATE/COMMENT on an extension not bundled in the drill image
+          #   • the trailing "errors ignored on restore: N" summary line
+          # Anything left is a real restore failure and must turn the drill red.
+          unexpected="$(grep -E '^pg_restore: (error|warning):' /tmp/restore.err \
+            | grep -viE 'does not exist|already exists|errors ignored on restore|extension|EXTENSION' \
+            || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::pg_restore reported errors beyond harmless DROP/extension noise:"
+            echo "$unexpected"
+            exit 1
+          fi
+          echo "pg_restore reported only harmless DROP/extension warnings; continuing."
 
       - name: Alembic upgrade head on restored DB
         if: env.BACKUP_DRILL_SSH_KEY != '' && success()
@@ -77,12 +107,17 @@ jobs:
           SECRET_KEY: drill-only-not-for-production-at-least-48-chars-long
         run: alembic -c alembic/alembic.ini upgrade head
 
-      - name: Sample query (smoke)
+      - name: Sample query (smoke — restored data must be non-empty)
         if: env.BACKUP_DRILL_SSH_KEY != '' && success()
         env:
           PGPASSWORD: drill-password
         run: |
-          psql -h localhost -U drill -d nexus_drill -c "SELECT count(*) AS candidates FROM candidates;"
+          # A restore that leaves the candidates table present but EMPTY is a
+          # silent failure: the schema arrived, the data did not. Counting is not
+          # enough — assert the count is actually > 0 so an empty dump fails loud.
+          count="$(psql -tAc 'SELECT count(*) FROM candidates' -h localhost -U drill -d nexus_drill)"
+          echo "candidates restored: ${count}"
+          test "${count}" -gt 0
 
       - name: No SSH key — drill cannot run (FAIL)
         if: env.BACKUP_DRILL_SSH_KEY == ''

@@ -8,6 +8,9 @@
 # undocumented state on a VPS -- the exact failure mode that left the previous
 # backup script unreviewable.
 set -eu
+# Spójnie z backup.sh: brak potoków dziś, ale gdyby ktoś dopisał `a | b`,
+# pipefail od razu daje poprawny status zamiast maskowania błędu ostatnim etapem.
+set -o pipefail
 
 HOUR="${BACKUP_HOUR_UTC:-2}"
 RUN_ON_START="${BACKUP_RUN_ON_START:-false}"
