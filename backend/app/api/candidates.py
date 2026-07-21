@@ -3494,6 +3494,25 @@ _MATCH_CACHE_INVALIDATING_FIELDS = frozenset(
     }
 )
 
+# Fields that feed the candidate embedding text (``_build_candidate_text``). A
+# manual edit to any of them must re-embed, else vector search keeps matching on
+# months-stale content (AI-P0-04). Superset is safe — the outbox worker's
+# compare-and-set collapses a no-op re-embed by desired_hash.
+_EMBEDDING_TEXT_FIELDS = frozenset(
+    {
+        "skills",
+        "verified_tech",
+        "tags",
+        "experience",
+        "preferences",
+        "ai_summary",
+        "competence_category",
+        "name",
+        "lastname",
+        "years_it_experience",
+    }
+)
+
 
 @router.patch("/{candidate_id}", response_model=CandidateResponse)
 async def update_candidate(
@@ -3538,6 +3557,23 @@ async def update_candidate(
     # reload with eager-loaded relations so `_derive_employment` sees current
     # contracts/conflicts.
     await db.flush()
+
+    # Re-embed when embedding-text fields changed (AI-P0-04). Without this, the
+    # profile-edit PATCH updated the row but left the vector index on stale
+    # content — a candidate whose skills/experience were curated here stayed
+    # searchable on months-old text. Same best-effort call the CV paths use:
+    # outbox-on ⇒ fast durable enqueue (worker embeds async); outbox-off ⇒
+    # inline embed. Failures are logged, never surfaced to the edit.
+    if _EMBEDDING_TEXT_FIELDS & set(updates.keys()):
+        try:
+            from app.services.index_outbox_service import schedule_or_embed_candidate
+
+            await schedule_or_embed_candidate(candidate.id, db)
+        except Exception as e:  # noqa: BLE001 — reindex is best-effort
+            logger.warning(
+                "[update_candidate] re-embed failed id=%s: %s", candidate.id, e
+            )
+
     reloaded = await db.execute(
         select(Candidate)
         .options(*_candidate_list_options())
