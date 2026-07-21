@@ -87,8 +87,29 @@ async def _tick() -> None:
         for cid in candidate_ids:
             try:
                 async with AsyncSessionLocal() as db:
-                    cand = await db.get(Candidate, cid)
+                    # Atomic claim (audyt P2 restart/multi-worker safety):
+                    # FOR UPDATE SKIP LOCKED so two workers can't both pay for
+                    # the same Proxycurl enrichment. The lock is held across the
+                    # paid fetch (inside sync_candidate_linkedin, which commits
+                    # the session — releasing the lock and stamping
+                    # linkedin_synced_at). A concurrent worker either SKIPs the
+                    # locked row, or acquires it after commit and is filtered by
+                    # the freshness re-check below.
+                    cand = await db.scalar(
+                        select(Candidate)
+                        .where(Candidate.id == cid)
+                        .with_for_update(skip_locked=True)
+                    )
                     if cand is None or cand.status != CandidateStatus.active:
+                        # Locked by another worker, gone, or no longer active.
+                        continue
+                    # Re-check staleness under the lock: another worker may have
+                    # just synced this candidate (fresh linkedin_synced_at) in
+                    # the gap between the id-scan and acquiring the lock.
+                    if (
+                        cand.linkedin_synced_at is not None
+                        and cand.linkedin_synced_at >= cutoff
+                    ):
                         continue
                     await sync_candidate_linkedin(db, cand, client=client)
             except asyncio.CancelledError:

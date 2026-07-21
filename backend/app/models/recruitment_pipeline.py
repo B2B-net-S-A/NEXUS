@@ -225,6 +225,14 @@ class CandidateStage(Base, TimestampMixin):
         String(50), default="manual", index=True
     )
 
+    # Durable dedup for the Slack SLA-breach alert loop (audyt P1 restart-safety).
+    # Stamped inside the same transaction as a successful Slack POST, under a
+    # `SELECT ... FOR UPDATE SKIP LOCKED` claim. NULL = never alerted. Replaces
+    # the old in-memory `alerted` set that reset on every restart and diverged
+    # per worker → re-alerting every SLA breach. Each CandidateStage row is a
+    # single stage-entry, so one durable stamp = exactly one alert, ever.
+    sla_alerted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")
     job = relationship("Job", back_populates="pipeline_stages")
