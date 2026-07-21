@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,6 +21,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.contract import Contract
 from app.models.document_signature import DocumentSignature, SignatureStatus
+from app.models.signature_link import SignatureLink
 from app.schemas.document_signature import (
     DocumentSignatureDetailResponse,
     DocumentSignatureResponse,
@@ -219,6 +220,19 @@ async def withdraw_signature(
             detail=f"Cannot withdraw signature in status={sig.status.value}",
         )
     sig.status = SignatureStatus.withdrawn
+    # Revoke every still-open link for this signature. Setting sig.status alone
+    # did NOT stop an already-handed-out link: _load_valid_link only checks
+    # link.revoked/expiry/used_at, not sig.status — so a party who received the
+    # URL before the withdraw could still submit and complete the signature
+    # (M5-P0.2). Revoking flips those links to revoked=True → uniform 404.
+    await db.execute(
+        update(SignatureLink)
+        .where(
+            SignatureLink.signature_id == sig.id,
+            SignatureLink.used_at.is_(None),
+        )
+        .values(revoked=True)
+    )
     db.add(
         Activity(
             entity_type="contract",
@@ -254,6 +268,17 @@ async def regenerate_link(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot regenerate link for status={sig.status.value}",
         )
+    # Revoke prior outstanding links BEFORE minting the replacement, so an old
+    # URL cannot coexist with the fresh one (M5-P0.2). The new link is added
+    # after this UPDATE, so it stays revoked=False.
+    await db.execute(
+        update(SignatureLink)
+        .where(
+            SignatureLink.signature_id == sig.id,
+            SignatureLink.used_at.is_(None),
+        )
+        .values(revoked=True)
+    )
     _link, raw_token = mint_signature_link(db, sig)
     await db.commit()
     base = settings.PUBLIC_BASE_URL.rstrip("/")
