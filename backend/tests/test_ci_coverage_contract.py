@@ -104,8 +104,8 @@ _UNWIRED: set[str] = {
     "test_clients_team.py",
     "test_cloudtalk_api.py",
     "test_cloudtalk_client.py",
-    "test_cloudtalk_webhook.py",
-    "test_cloudtalk_webhook_verify.py",
+    # test_cloudtalk_webhook.py + test_cloudtalk_webhook_verify.py wired into
+    # ci.yml by #876 (M6-P0.12) — removed from burn-down baseline.
     "test_contract_alerts_expansion.py",
     "test_contract_analytics.py",
     "test_contract_analytics_expansion.py",
