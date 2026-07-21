@@ -238,6 +238,7 @@ jobs:
                  tests/test_match_cache_degraded_write.py \
                  tests/test_prep_kit_fireflies_authz.py \
                  tests/test_finance_point_in_time.py \
+                 tests/test_cache_key_invalidation.py \
                  tests/test_candidate_edit_reembed.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing

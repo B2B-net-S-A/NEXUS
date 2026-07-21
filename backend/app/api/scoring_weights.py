@@ -21,6 +21,7 @@ from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
+from app.services.match_score_cache import mark_stale_for_profile
 
 router = APIRouter()
 
@@ -149,6 +150,9 @@ async def update_profile(
     row.client_id = payload.client_id
     row.weights = payload.weights.model_dump()
     row.active = payload.active
+    # Editing weights in place would otherwise keep serving old-weight cached
+    # scores for this profile_id (AI-P0-06 a) — invalidate them in the same txn.
+    await mark_stale_for_profile(db, profile_id)
     await db.commit()
     await db.refresh(row)
     return row
@@ -165,5 +169,8 @@ async def delete_profile(
     )
     if not row:
         raise HTTPException(status_code=404, detail="not found")
+    # Drop any cached scores computed under this profile before it disappears
+    # (AI-P0-06 a) — otherwise they linger as dead, un-recomputable rows.
+    await mark_stale_for_profile(db, profile_id)
     await db.delete(row)
     await db.commit()

@@ -260,6 +260,14 @@ async def process_event(
             ev.indexed_hash = ev.desired_hash
             ev.indexed_revision = ev.entity_revision
             ev.last_error = None
+            # A candidate's semantic vector just changed → any cached match
+            # score for that candidate now embeds a stale semantic layer
+            # (AI-P0-06 b). Invalidate so the next read recomputes. Local import
+            # avoids an import cycle (match_score_cache → scoring_service).
+            if ev.entity_type == CANDIDATE and ev.operation == "upsert":
+                from app.services.match_score_cache import mark_stale_for_candidate
+
+                await mark_stale_for_candidate(db, ev.entity_id)
         else:
             raise RuntimeError("reindex returned False")
     except Exception as exc:  # noqa: BLE001
