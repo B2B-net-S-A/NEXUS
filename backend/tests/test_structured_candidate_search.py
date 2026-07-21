@@ -56,23 +56,18 @@ class TestCompetenceCategory:
 
 
 class TestSkills:
-    def test_skills_must_emits_one_clause_per_skill(self):
+    def test_skills_must_is_soft_no_hard_clause(self):
+        # SEARCH-P0-03: skills_must is a soft ranking signal, not a hard filter.
         req = CandidateSearchRequest(skills_must=["Python", "FastAPI"])
-        clauses = build_structured_filter(req)
-        # one clause per must-skill
-        assert len(clauses) == 2
-        sql = _compile(clauses)
-        assert "Python" in sql and "FastAPI" in sql
+        assert build_structured_filter(req) == []
 
-    def test_skills_any_emits_single_OR_clause(self):
+    def test_skills_any_is_soft_no_hard_clause(self):
+        # SEARCH-P0-03: skills_any no longer emits a hard OR clause.
         req = CandidateSearchRequest(skills_any=["React", "Vue", "Angular"])
-        clauses = build_structured_filter(req)
-        assert len(clauses) == 1
-        sql = _compile(clauses)
-        assert "OR" in sql.upper()
-        assert "React" in sql and "Vue" in sql and "Angular" in sql
+        assert build_structured_filter(req) == []
 
     def test_skills_none_emits_NOT_per_skill(self):
+        # Exclusion stays a hard filter — "must NOT have X" is a real constraint.
         req = CandidateSearchRequest(skills_none=["junior", "stażysta"])
         clauses = build_structured_filter(req)
         sql = _compile(clauses)
@@ -303,9 +298,11 @@ class TestFilterGroups:
         assert build_filter_groups(CandidateSearchRequest()) == []
 
     def test_groups_are_keyed_and_labelled(self):
+        # skills_none is the remaining hard skill clause (skills_must/any are
+        # soft now, SEARCH-P0-03), so use it to exercise the skills group.
         req = CandidateSearchRequest(
             competence_category_ids=[2],
-            skills_must=["Python"],
+            skills_none=["junior"],
             location_cities=["Warszawa"],
             rate_hourly_max=150,
         )
@@ -336,7 +333,7 @@ class TestFilterGroups:
     def test_group_order_is_stable(self):
         req = CandidateSearchRequest(
             tags=["a"],
-            skills_must=["Python"],
+            skills_none=["junior"],  # skills_must/any are soft (SEARCH-P0-03)
             competence_category_ids=[1],
             rate_hourly_max=100,
         )
@@ -350,13 +347,15 @@ class TestFilterGroups:
 
 class TestCombined:
     def test_cc_plus_skills_plus_status_compose_with_AND(self):
+        # skills_must is soft now (SEARCH-P0-03) — use skills_none for the hard
+        # skill clause so the AND-composition still has all three.
         req = CandidateSearchRequest(
             competence_category_ids=[2],
-            skills_must=["Python"],
+            skills_none=["Python"],
             status=[CandidateStatus.active],
         )
         clauses = build_structured_filter(req)
-        # CC + 1 skill + status = 3 clauses (AND-ed by caller)
+        # CC + 1 skill-exclusion + status = 3 clauses (AND-ed by caller)
         assert len(clauses) == 3
         sql = _compile(clauses)
         assert "competence_category_id" in sql

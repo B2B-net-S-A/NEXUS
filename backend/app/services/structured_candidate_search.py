@@ -19,6 +19,7 @@ Why a separate module:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import reduce
 from typing import Optional
 
 from sqlalchemy import String, and_, case, cast, func, not_, or_
@@ -63,6 +64,22 @@ def _skills_text() -> ColumnElement:
 def _skill_match(skill: str) -> ColumnElement:
     pattern = f"%{_escape_like(skill)}%"
     return _skills_text().ilike(pattern, escape="\\")
+
+
+def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
+    """ORDER BY expression: how many of the requested (must ∪ any) skills the
+    candidate's structured text matches. Higher = more relevant.
+
+    SEARCH-P0-03: skill chips are a SOFT signal — they rank, they never cut.
+    Returns ``None`` when no inclusion chips were sent (nothing to rank by).
+    A candidate the substring misses simply scores 0 here and sinks, rather
+    than being excluded from the result set entirely.
+    """
+    wanted = list(req.skills_must) + list(req.skills_any or [])
+    if not wanted:
+        return None
+    matches = [case((_skill_match(s), 1), else_=0) for s in wanted]
+    return reduce(lambda a, b: a + b, matches)
 
 
 def _language_clause(req: LanguageRequirement) -> Optional[ColumnElement]:
@@ -132,13 +149,16 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     add("competence_category", "Kategoria kompetencji", cc)
 
     skills: list[ColumnElement] = []
-    for skill in req.skills_must:
-        skills.append(_skill_match(skill))
-    if req.skills_any:
-        skills.append(or_(*(_skill_match(s) for s in req.skills_any)))
+    # SEARCH-P0-03: skills_must / skills_any are a SOFT ranking signal now
+    # (see ``skills_soft_rank``), NOT a hard filter. A candidate the scorer
+    # rates highly must never be cut from the list before ranking just because
+    # a substring ILIKE over the structured `skills`+`tags` column missed (that
+    # column is empty for ~99% of imported candidates, and 'Go' spuriously
+    # matches 'Django'). Only skills_none stays a hard filter — "must NOT have
+    # X" is a real exclusion the recruiter explicitly asked for.
     for skill in req.skills_none:
         skills.append(not_(_skill_match(skill)))
-    add("skills", "Umiejętności", skills)
+    add("skills", "Umiejętności (wykluczenia)", skills)
 
     experience: list[ColumnElement] = []
     if req.experience_years_min is not None:
