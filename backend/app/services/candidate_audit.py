@@ -33,6 +33,10 @@ DOCUMENT_DOWNLOADED = "document_downloaded"
 DOCUMENT_URL_ISSUED = "document_url_issued"
 SENSITIVE_OPERATION_BLOCKED = "sensitive_operation_blocked"
 BULK_ACTION_EXECUTED = "bulk_action_executed"
+# Client-facing pricing mutation („stawka do klienta"). Records old→new so a
+# rate change leaves a trail (P1-11). Financial payload — must stay out of any
+# non-finance-redacted read surface (e.g. the candidate timeline feed).
+CLIENT_RATE_CHANGED = "client_rate_changed"
 
 
 def record_candidate_audit(

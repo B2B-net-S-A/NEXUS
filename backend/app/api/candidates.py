@@ -105,7 +105,11 @@ from app.api.candidate_access import (
     CandidateSearchAccess,
     privacy_workflow_unavailable,
 )
-from app.api.financial_access import has_financial_access, redact_financial_fields
+from app.api.financial_access import (
+    has_financial_access,
+    redact_financial_fields,
+    require_financial_access,
+)
 from app.api.recruitment_access import RecruitmentRateEditAccess
 from app.services import candidate_audit
 from app.api import ws as ws_manager
@@ -2675,7 +2679,13 @@ async def get_candidate(
 #   - `traffit:Notatka`      (40k)  duplikuje realne wpisy `Note` ("Notatka — …")
 # Pozostałe `traffit:*` (Tag-dodany, Plik-dodany, Email, …) niosą content —
 # ich NIE ukrywamy. `activities.action` jest NOT NULL → notin_ bezpieczne.
-_HIDDEN_TIMELINE_ACTIONS = ("traffit:Zmiana etapu", "traffit:Notatka")
+_HIDDEN_TIMELINE_ACTIONS = (
+    "traffit:Zmiana etapu",
+    "traffit:Notatka",
+    # Financial audit event: its details carry the client rate, and the
+    # timeline feed is served to non-finance roles without redaction (P1-11).
+    candidate_audit.CLIENT_RATE_CHANGED,
+)
 
 
 @router.get("/{candidate_id}/timeline")
@@ -3034,6 +3044,13 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
+    # P1-11: zapis stawki klienta MUSI mieć tę samą bramkę finansową co odczyt.
+    # Odczyt w `/history` jest redagowany przez `has_financial_access`
+    # (admin + delivery_lead); bez tej linii `CandidateFinanceAccess` wpuszcza
+    # także `tac`, więc rola, która NIE widzi stawki, mogłaby ją zmienić —
+    # bezpośrednio na marżę i fakturowanie. Fail-closed przed dotknięciem stawki.
+    require_financial_access(current_user)
+
     latest = await db.scalar(
         select(CandidateStage)
         .where(
@@ -3049,6 +3066,15 @@ async def set_recruitment_client_rate(
             detail="Brak rekrutacji dla tego kandydata i tej oferty.",
         )
 
+    # Snapshot old value BEFORE mutation so the audit trail records old→new.
+    old_value = (
+        float(latest.client_rate_value)
+        if latest.client_rate_value is not None
+        else None
+    )
+    old_unit = latest.client_rate_unit
+    old_currency = latest.client_rate_currency
+
     if payload.rate_value is None:
         latest.client_rate_value = None
         latest.client_rate_unit = None
@@ -3057,6 +3083,32 @@ async def set_recruitment_client_rate(
         latest.client_rate_value = payload.rate_value
         latest.client_rate_unit = (payload.rate_unit or RateUnit.monthly).value
         latest.client_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
+
+    new_value = (
+        float(latest.client_rate_value)
+        if latest.client_rate_value is not None
+        else None
+    )
+
+    # Immutable audit trail (old→new). Kept out of the candidate timeline feed
+    # (`_HIDDEN_TIMELINE_ACTIONS`) because that feed is visible to non-finance
+    # roles without financial redaction — the rate value must not leak there.
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.CLIENT_RATE_CHANGED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={
+            "job_id": job_id,
+            "stage_id": latest.id,
+            "old_client_rate": old_value,
+            "old_client_rate_unit": old_unit,
+            "old_client_rate_currency": old_currency,
+            "new_client_rate": new_value,
+            "new_client_rate_unit": latest.client_rate_unit,
+            "new_client_rate_currency": latest.client_rate_currency,
+        },
+    )
 
     await db.commit()
     await db.refresh(latest)
