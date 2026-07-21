@@ -1,5 +1,7 @@
 import axios, { AxiosError } from "axios";
 
+import { clearSessionArtifacts } from "./session";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // 30s global request timeout. Before this was unset → axios default = infinite
@@ -131,8 +133,16 @@ api.interceptors.request.use((config) => {
     // Admin „podgląd jako użytkownik": gdy aktywny, dokleja nagłówek z id
     // podglądanego usera. Backend (admin-only, read-only) podmienia wtedy
     // efektywnego current_user — patrz backend/app/api/deps.py.
+    //
+    // NIGDY nie doklejaj podglądu do endpointów uwierzytelniania (/api/auth/*):
+    // login, /me, verify, refresh itd. muszą działać na tożsamości zalogowanego
+    // admina, a nie podglądanego usera — inaczej „podgląd jako" wyciekłby do
+    // samego uwierzytelniania (np. /api/auth/me opisałoby podglądanego usera).
     const impersonateId = localStorage.getItem("nexus_impersonate_id");
-    if (impersonateId) config.headers["X-Impersonate-User-Id"] = impersonateId;
+    const isAuthEndpoint = (config.url ?? "").startsWith("/api/auth/");
+    if (impersonateId && !isAuthEndpoint) {
+      config.headers["X-Impersonate-User-Id"] = impersonateId;
+    }
   }
   return config;
 });
@@ -192,13 +202,12 @@ function triggerSessionExpiredRedirect(): void {
   // Already on the login flow (or any /login/* sub-route) — nothing to do.
   if (window.location.pathname.startsWith("/login")) return;
   sessionRedirectInFlight = true;
-  try {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("nexus_user");
-    document.cookie = "nexus_access=; path=/; max-age=0; samesite=lax";
-  } catch {
-    /* non-browser env */
-  }
+  // Wyczyść WSZYSTKIE artefakty sesji (JWT, cache usera ORAZ markery podglądu
+  // „jako użytkownik") — inaczej nexus_impersonate_id/nexus_real_user przeżyłyby
+  // martwą sesję i wyciekły do następnego logowania (nagłówek impersonacji
+  // jechałby dalej). clearSessionArtifacts jest no-op poza przeglądarką i sam
+  // łapie wyjątki storage.
+  clearSessionArtifacts();
   const next = encodeURIComponent(
     window.location.pathname + window.location.search,
   );

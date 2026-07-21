@@ -1,5 +1,7 @@
 import { create } from "zustand"
 
+import { clearSessionArtifacts } from "@/lib/session"
+
 // ── Role model ──────────────────────────────────────────────────────────────
 //
 // Jedna, skonsolidowana hierarchia. Odpowiada `UserRole` po stronie backendu
@@ -219,11 +221,6 @@ function writeAuthCookie(token: string): void {
   )}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`
 }
 
-function clearAuthCookie(): void {
-  if (typeof document === "undefined") return
-  document.cookie = `${COOKIE_NAME}=; path=/; max-age=0; samesite=lax`
-}
-
 // Bezpieczne odczyty z localStorage — w środowisku testowym (jsdom/Vitest)
 // localStorage może być niedostępny lub częściowo inicjowany.
 // Zwracamy null zamiast rzucać na module load.
@@ -430,14 +427,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   logout: () => {
-    try {
-      localStorage.removeItem("access_token")
-    } catch {
-      /* non-browser env */
-    }
-    persistUser(null)
-    clearImpersonation()
-    clearAuthCookie()
+    // Ten sam teardown co przy wygaśnięciu sesji (lib/api.ts) — jedno źródło
+    // prawdy o kluczach sesji: access_token, nexus_user, nexus_real_user,
+    // nexus_impersonate_id oraz cookie nexus_access.
+    clearSessionArtifacts()
     set({ user: null, token: null, realUser: null, hydrated: true })
     if (typeof window !== "undefined") {
       window.location.href = "/login"

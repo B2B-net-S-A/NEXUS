@@ -18,7 +18,7 @@ import {
  SelectTrigger,
  SelectValue,
 } from"@/components/ui/select";
-import { useAuthStore, ROLE_LABELS, hasMinRole, hasRole } from"@/store/auth";
+import { useAuthStore, ROLE_LABELS, hasRole } from"@/store/auth";
 import { OwnerBadge } from"./OwnerBadge";
 import { ReassignOwnerV2 } from"@/components/v2/modals/ReassignOwnerV2";
 import type { UserBrief } from"./ownership-types";
@@ -48,7 +48,10 @@ export function JobOwnershipPanel({
  const [addOpen, setAddOpen] = useState(false);
  const [error, setError] = useState<string | null>(null);
 
- const canReassign = hasMinRole(currentUser, "delivery_lead");
+ // Exact-role, NIE ranga: head_of_recruitment (ROLE_RANK 4.5 > delivery_lead)
+ // przechodził przez hasMinRole i dostawał uprawnienia DL, których backend mu
+ // NIE daje. Przejęcie/reassign ownera oferty = tylko admin + delivery_lead.
+ const canReassign = hasRole(currentUser, "admin", "delivery_lead");
  const canClaim =
  primaryOwner === null && !!currentUser && !hasRole(currentUser, "user");
  const isPrimary = !!currentUser && primaryOwner?.id === currentUser.id;

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt"
+
 /**
  * Next.js middleware — gate routing based on role-based access control (RBAC).
  *
@@ -131,35 +133,10 @@ function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
   return match ? match.roles : undefined
 }
 
-/**
- * Dekoduje payload JWT bez weryfikacji podpisu.
- * Dlaczego bez weryfikacji: middleware Next.js działa w runtime edge — nie
- * mamy tu `jsonwebtoken` ani dostępu do SECRET_KEY (który jest po stronie
- * backendu). Dekodujemy payload, aby wyciągnąć `role` na potrzeby routingu UI.
- * Prawdziwa walidacja sygnatury odbywa się przy każdym wywołaniu API
- * (backend/app/api/deps.py::get_current_user) — middleware to tylko UX guard.
- */
-function decodeJwtPayload(
-  token: string
-): { role?: UserRole; roles?: string[]; exp?: number; fpc?: boolean } | null {
-  try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return null
-    const payload = parts[1]
-    // base64url → base64
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/")
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4)
-    const json = atob(padded)
-    return JSON.parse(json)
-  } catch {
-    return null
-  }
-}
-
-function isExpired(exp: number | undefined): boolean {
-  if (!exp) return true
-  return Date.now() / 1000 >= exp
-}
+// Dekodowanie payloadu JWT (bez weryfikacji podpisu) współdzielone z warstwą
+// kliencką — patrz src/lib/jwt.ts. Middleware działa w runtime edge i nie ma
+// dostępu do SECRET_KEY; prawdziwa walidacja sygnatury odbywa się po stronie
+// backendu (backend/app/api/deps.py::get_current_user). Tu tylko UX-guard.
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -182,7 +159,7 @@ export function middleware(request: NextRequest) {
   }
 
   const payload = decodeJwtPayload(token)
-  if (!payload || isExpired(payload.exp) || !payload.role) {
+  if (!payload || isJwtExpired(payload.exp) || !payload.role) {
     const loginUrl = new URL("/login", request.url)
     if (pathname !== "/") loginUrl.searchParams.set("next", pathname)
     const response = NextResponse.redirect(loginUrl)

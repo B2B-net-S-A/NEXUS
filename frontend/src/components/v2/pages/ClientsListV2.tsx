@@ -171,7 +171,10 @@ export function ClientsListV2() {
  {isLoading ?"Ładowanie…" : `${total} firm w portfelu`}
  </p>
  </div>
- <RequireRole minRole="tac">
+ {/* Exact-role, NIE ranga: minRole="tac" (hasMinRole) przepuszczał
+    head_of_recruitment (ROLE_RANK 4.5 > tac), który po stronie backendu NIE
+    zakłada klientów. Zakładanie firmy = admin + delivery_lead + tac. */}
+ <RequireRole roles={["admin", "delivery_lead", "tac"]}>
  <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
  <Plus className="h-4 w-4" /> Nowy klient
  </Button>

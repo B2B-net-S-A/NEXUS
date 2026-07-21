@@ -52,11 +52,19 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+    // Aktywne listy V2 używają kluczy z sufiksem `-v2` / `calendar-events`.
+    // Stare (bezsufiksowe) klucze zostawiamy — są nieszkodliwe, a niektóre
+    // ekrany V1 nadal ich używają. Bez kluczy V2 świeżo dodany rekord nie
+    // pojawiał się na liście bez ręcznego odświeżenia strony.
     queryClient.invalidateQueries({ queryKey: ["candidates"] });
+    queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
     queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
     queryClient.invalidateQueries({ queryKey: ["clients"] });
+    queryClient.invalidateQueries({ queryKey: ["clients-v2"] });
     queryClient.invalidateQueries({ queryKey: ["contacts"] });
     queryClient.invalidateQueries({ queryKey: ["calendar"] });
+    queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
     queryClient.invalidateQueries({ queryKey: ["sidebar-badges-v2"] });
   };
 

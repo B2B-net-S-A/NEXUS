@@ -78,6 +78,36 @@ describe("hasMinRole", () => {
   })
 })
 
+describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () => {
+  const hor = mkUser("head_of_recruitment")
+  const dl = mkUser("delivery_lead")
+  const tac = mkUser("tac")
+  const admin = mkUser("admin")
+
+  // Bug u źródła: ROLE_RANK.head_of_recruitment (4.5) > delivery_lead (4) i
+  // > tac (3), więc hasMinRole przepuszczał HoR przez bramki DL/TAC, których
+  // backend mu NIE daje. Dokumentujemy złe zachowanie, żeby regresja była
+  // widoczna, i dlatego bramki UI używają hasRole (exact), nie hasMinRole.
+  it("hasMinRole BŁĘDNIE przepuszczał HoR przez bramki DL/TAC", () => {
+    expect(hasMinRole(hor, "delivery_lead")).toBe(true)
+    expect(hasMinRole(hor, "tac")).toBe(true)
+  })
+
+  it("bramka pin/reassign (admin+delivery_lead) wyklucza HoR i TAC", () => {
+    expect(hasRole(hor, "admin", "delivery_lead")).toBe(false)
+    expect(hasRole(tac, "admin", "delivery_lead")).toBe(false)
+    expect(hasRole(dl, "admin", "delivery_lead")).toBe(true)
+    expect(hasRole(admin, "admin", "delivery_lead")).toBe(true)
+  })
+
+  it("bramka Nowy klient (admin+delivery_lead+tac) wyklucza HoR, dopuszcza TAC", () => {
+    expect(hasRole(hor, "admin", "delivery_lead", "tac")).toBe(false)
+    expect(hasRole(tac, "admin", "delivery_lead", "tac")).toBe(true)
+    expect(hasRole(dl, "admin", "delivery_lead", "tac")).toBe(true)
+    expect(hasRole(admin, "admin", "delivery_lead", "tac")).toBe(true)
+  })
+})
+
 describe("ROLE_RANK invariants", () => {
   it("admin jest najwyższy", () => {
     const maxRank = Math.max(...ALL_ROLES.map((r) => ROLE_RANK[r]))

@@ -4,6 +4,8 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import api, { extractErrorMsg } from "@/lib/api";
+import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
+import { clearSessionArtifacts } from "@/lib/session";
 import { requiresOnboarding, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -84,12 +86,23 @@ function LoginForm() {
   const sessionReason = sessionReasonMessage(searchParams.get("reason"));
   const { setAuth, token } = useAuthStore();
 
+  // Auto-redirect osób, które mają JESZCZE ważną sesję — ale TYLKO wtedy.
+  // Wcześniej wystarczyła sama OBECNOŚĆ tokenu (`storedToken || token`), więc
+  // wygasły JWT gnijący w localStorage odbijał usera z /login z powrotem do
+  // aplikacji, gdzie middleware/API natychmiast wykopywały go na /login →
+  // pętla. Gdy token jest wygasły albo uszkodzony, sprzątamy resztki sesji
+  // (JWT, cache usera, markery podglądu „jako") i ZOSTAJEMY na /login.
   useEffect(() => {
     const storedToken =
       typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    if (storedToken || token) {
+    const activeToken = token ?? storedToken;
+    if (!activeToken) return;
+    const payload = decodeJwtPayload(activeToken);
+    if (payload && !isJwtExpired(payload.exp)) {
       router.replace(nextPath);
+      return;
     }
+    clearSessionArtifacts();
   }, [token, router, nextPath]);
 
   useEffect(() => {
