@@ -240,6 +240,8 @@ jobs:
                  tests/test_finance_point_in_time.py \
                  tests/test_cache_key_invalidation.py \
                  tests/test_candidate_edit_reembed.py \
+                 tests/test_expected_rate_verification_gate.py \
+                 tests/test_autenti_webhook_monotonic.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
