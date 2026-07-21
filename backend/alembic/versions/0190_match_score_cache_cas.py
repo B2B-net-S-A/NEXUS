@@ -19,8 +19,8 @@ Revises: 0188_contract_alert_dedup
 
 from alembic import op
 
-revision = "0189_match_score_cache_cas"
-down_revision = "0188_contract_alert_dedup"
+revision = "0190_match_score_cache_cas"
+down_revision = "0189_application_submissions"
 branch_labels = None
 depends_on = None
 
