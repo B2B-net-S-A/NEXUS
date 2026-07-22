@@ -212,7 +212,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           }
         } else if (
           typeof msg.type === "string" &&
-          msg.type.startsWith("candidate-chat:message: ") &&
+          msg.type.startsWith("candidate-chat:message:") &&
           msg.data
         ) {
           if (typeof window !== "undefined") {
@@ -238,7 +238,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           ws.send("ping");
         } else if (
           typeof msg.type === "string" &&
-          msg.type.startsWith("presence: ")
+          msg.type.startsWith("presence:")
         ) {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent(PRESENCE_EVENT, { detail: msg }));
