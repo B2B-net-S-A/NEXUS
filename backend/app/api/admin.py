@@ -373,6 +373,9 @@ async def reset_password(
     user.password_hash = hash_password(data.new_password)
     user.force_password_change = True
     user.force_password_change_at = func.now()
+    # F-05: admin-reset unieważnia wszystkie wcześniej wybite tokeny usera —
+    # wykradziony/wyciekły token nie przeżywa resetu hasła.
+    user.tokens_valid_after = func.now()
 
     db.add(
         Activity(

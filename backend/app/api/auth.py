@@ -14,6 +14,7 @@ from app.core.security import (
     hash_password,
     verify_password,
     decode_token,
+    token_is_revoked,
 )
 from app.models.activity import Activity
 from app.models.user import User, UserRole
@@ -475,6 +476,13 @@ async def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
+    # Session-revocation floor (F-05): refresh token wybity przed ostatnią
+    # zmianą hasła jest martwy — 401. Bez tego wykradziony refresh token
+    # wybijałby świeże access tokeny mimo resetu hasła.
+    if token_is_revoked(payload, user.tokens_valid_after):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
     return TokenResponse(
         access_token=create_access_token(
             user.id,
@@ -528,6 +536,9 @@ async def change_password(
     current_user.password_hash = hash_password(data.new_password)
     current_user.force_password_change = False
     current_user.force_password_change_at = None
+    # F-05: unieważnij wszystkie wcześniej wybite tokeny (także bieżący —
+    # user zaloguje się ponownie). Wykradziony token nie przeżywa zmiany hasła.
+    current_user.tokens_valid_after = func.now()
 
     db.add(
         Activity(
@@ -671,6 +682,8 @@ async def reset_password_with_token(
     user.password_hash = hash_password(data.new_password)
     user.force_password_change = False
     user.force_password_change_at = None
+    # F-05: reset przez link z maila też unieważnia wcześniejsze tokeny.
+    user.tokens_valid_after = func.now()
 
     db.add(
         Activity(

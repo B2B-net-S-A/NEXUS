@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import decode_token, token_is_revoked
 from app.models.user import User, UserRole
 
 # ``auto_error=False`` — świadomie, NIE domyślne zachowanie.
@@ -130,6 +130,12 @@ async def get_current_user(
     result = await db.execute(select(User).where(User.id == int(user_id)))
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
+        raise credentials_exception
+
+    # Session-revocation floor (F-05): token wybity przed ostatnią zmianą hasła
+    # jest martwy — 401, żeby frontend wylogował (nie 403). NULL floor =
+    # brak unieważnienia (istniejący userzy nie są dotknięci).
+    if token_is_revoked(payload, user.tokens_valid_after):
         raise credentials_exception
 
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
