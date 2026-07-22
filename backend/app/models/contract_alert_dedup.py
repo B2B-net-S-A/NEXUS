@@ -8,11 +8,13 @@ wygenerują duplikatu tego samego alertu — tylko jeden przebieg wygrywa claim,
 reszta widzi konflikt i pomija (wcześniej dedup był nieatomowym
 SELECT-then-INSERT, więc dwa przebiegi mogły wstawić dublet).
 
-`dedup_key` to stabilny string per (kategoria, próg, encja), np.:
-  * ``ending:30:<contract_id>``
-  * ``compliance:<contract_document_id>``
-  * ``equipment:<contract_equipment_id>``
-  * ``client_order:<contract_id>``
+`dedup_key` to stabilny string per (kategoria, próg, encja, epizod). Epizod
+(data granicy okna) sprawia, że nowe wystąpienie tej samej encji re-armuje alert
+zamiast być na zawsze wyciszone (F-29). Przykłady:
+  * ``ending:30:<contract_id>:<end_date>``
+  * ``compliance:<contract_document_id>:<expiry_date>``
+  * ``equipment:<contract_equipment_id>:<return_due_date>``
+  * ``client_order:<contract_id>:<client_order_end_date>``
 
 Brak FK — klucz jest nieprzezroczystym stringiem obejmującym różne encje.
 """
