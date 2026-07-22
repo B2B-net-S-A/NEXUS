@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from datetime import date, timedelta
 from typing import Iterable
 
@@ -106,21 +107,23 @@ async def _claim_alert(db: AsyncSession, dedup_key: str) -> bool:
 
 
 def _end_date_from_title(title: str | None) -> str | None:
-    """Pull the ISO deadline encoded as ``[Nd|YYYY-MM-DD]`` from an ending-alert title.
+    """Pull the episode discriminator encoded as ``[tag|<value>]`` from an alert title.
 
-    Returns ``None`` for legacy ``[Nd]`` titles that carry no deadline — those never
-    match an episode, so a contract still inside a window at ship time may re-alert
-    once (an acceptable one-off, not a silent gap).
+    Shared by every episode-aware family (F-29): ending ``[Nd|<end_date>]``, compliance
+    ``[compliance|<expiry>]``, equipment ``[eq_ret|<due>]``, client order
+    ``[client_order|<order_end>]``. Returns ``None`` for legacy ``[tag]`` titles that
+    carry no discriminator — those never match an episode, so an entity still inside a
+    window at ship time may re-alert once (an acceptable one-off, not a silent gap).
     """
     if not title or not title.startswith("["):
         return None
     close = title.find("]")
     if close == -1:
         return None
-    _, sep, end_iso = title[1:close].partition("|")  # "30d|2026-09-01" -> "2026-09-01"
+    _, sep, episode = title[1:close].partition("|")  # "30d|2026-09-01" -> "2026-09-01"
     if not sep:
         return None
-    return end_iso.strip() or None
+    return episode.strip() or None
 
 
 async def _contract_ids_already_notified(
@@ -225,26 +228,33 @@ async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocum
     return list(res.scalars().all())
 
 
-async def _compliance_already_notified(db: AsyncSession) -> set[int]:
-    """Find contract_document ids already reported."""
+async def _compliance_already_notified(db: AsyncSession) -> set[tuple[int, str]]:
+    """Return ``(doc_id, expiry_iso)`` compliance episodes already reported.
+
+    Episode-aware dedup (F-29): the title encodes the document's current expiry as
+    ``[compliance|<expiry>]``, so a renewed document with a fresh ``expiry_date`` is a
+    NEW episode — the pair no longer matches and the alert re-arms. A document counts
+    as already-notified ONLY when a prior notification exists for the SAME expiry. The
+    ``[compliance%`` prefix also catches legacy ``[compliance]`` rows; those parse to a
+    ``None`` expiry and drop out (a doc still in-window at ship time may re-alert once).
+    """
     res = await db.execute(
-        select(Notification.message).where(
+        select(Notification.message, Notification.title).where(
             Notification.notification_type == NotificationType.contract_ending,
-            Notification.title.like("[compliance]%"),
+            Notification.title.like("[compliance%"),
         )
     )
-    ids: set[int] = set()
-    for (msg,) in res.all():
-        # Message encodes the doc id in the form 'doc_id=<N>'
-        if not msg:
+    episodes: set[tuple[int, str]] = set()
+    for msg, title in res.all():
+        expiry_iso = _end_date_from_title(title)
+        if expiry_iso is None or not msg:
             continue
-        for tok in msg.split():
-            if tok.startswith("doc_id="):
-                try:
-                    ids.add(int(tok.split("=", 1)[1].rstrip(".")))
-                except ValueError:
-                    pass
-    return ids
+        # Message encodes the doc id as '(doc_id=<N>)'; match anywhere so the
+        # surrounding parens do not defeat the parse.
+        m = re.search(r"doc_id=(\d+)", msg)
+        if m:
+            episodes.add((int(m.group(1)), expiry_iso))
+    return episodes
 
 
 async def _equipment_due_for_return(db: AsyncSession) -> list[ContractEquipment]:
@@ -260,14 +270,27 @@ async def _equipment_due_for_return(db: AsyncSession) -> list[ContractEquipment]
     return list(res.scalars().all())
 
 
-async def _equipment_already_notified(db: AsyncSession) -> set[int]:
+async def _equipment_already_notified(db: AsyncSession) -> set[tuple[int, str]]:
+    """Return ``(equipment_id, due_iso)`` return episodes already reported.
+
+    Episode-aware dedup (F-29): the title encodes the current ``return_due_date`` as
+    ``[eq_ret|<due>]``, so a piece of equipment re-flagged ``pending`` with a fresh due
+    date is a NEW episode and re-arms — the old, id-only key permanently suppressed it.
+    Legacy ``[eq_ret]`` rows carry no due date and drop out (may re-alert once).
+    """
     res = await db.execute(
-        select(Notification.related_entity_id).where(
+        select(Notification.related_entity_id, Notification.title).where(
             Notification.notification_type == NotificationType.equipment_return_due_14d,
             Notification.related_entity_type == "contract_equipment",
         )
     )
-    return {row[0] for row in res.all() if row[0] is not None}
+    episodes: set[tuple[int, str]] = set()
+    for entity_id, title in res.all():
+        due_iso = _end_date_from_title(title)
+        if entity_id is None or due_iso is None:
+            continue
+        episodes.add((entity_id, due_iso))
+    return episodes
 
 
 async def _client_orders_ending(db: AsyncSession) -> list[Contract]:
@@ -284,14 +307,27 @@ async def _client_orders_ending(db: AsyncSession) -> list[Contract]:
     return list(res.scalars().all())
 
 
-async def _client_order_already_notified(db: AsyncSession) -> set[int]:
+async def _client_order_already_notified(db: AsyncSession) -> set[tuple[int, str]]:
+    """Return ``(contract_id, order_end_iso)`` client-order episodes already reported.
+
+    Episode-aware dedup (F-29): the title encodes the current ``client_order_end_date``
+    as ``[client_order|<order_end>]``, so a client order extended to a fresh end date is
+    a NEW episode and re-arms — the old, id-only key permanently suppressed it. Legacy
+    ``[client_order]`` rows carry no date and drop out (may re-alert once).
+    """
     res = await db.execute(
-        select(Notification.related_entity_id).where(
+        select(Notification.related_entity_id, Notification.title).where(
             Notification.notification_type == NotificationType.client_order_ending_30d,
             Notification.related_entity_type == "contract",
         )
     )
-    return {row[0] for row in res.all() if row[0] is not None}
+    episodes: set[tuple[int, str]] = set()
+    for entity_id, title in res.all():
+        order_iso = _end_date_from_title(title)
+        if entity_id is None or order_iso is None:
+            continue
+        episodes.add((entity_id, order_iso))
+    return episodes
 
 
 async def run_contract_alerts_cycle() -> dict:
@@ -370,11 +406,22 @@ async def run_contract_alerts_cycle() -> dict:
         if staff_ids:
             expiring = await _compliance_documents_expiring(db)
             already = await _compliance_already_notified(db)
-            fresh = [d for d in expiring if d.id not in already]
+            # Episode-aware: a renewed document re-alerts once its CURRENT expiry forms
+            # a new (id, expiry) pair. ``_compliance_documents_expiring`` guarantees a
+            # non-null expiry_date, so the isoformat() is always available.
+            fresh = [
+                d
+                for d in expiring
+                if d.expiry_date is not None
+                and (d.id, d.expiry_date.isoformat()) not in already
+            ]
             for doc in fresh:
-                if not await _claim_alert(db, f"compliance:{doc.id}"):
+                episode = doc.expiry_date.isoformat()
+                # Claim key carries the expiry too, so the atomic ledger re-arms on
+                # renewal just like the SELECT pre-filter above.
+                if not await _claim_alert(db, f"compliance:{doc.id}:{episode}"):
                     continue
-                title = f"[compliance] Dokument #{doc.id} wygasa"
+                title = f"[compliance|{episode}] Dokument #{doc.id} wygasa"
                 message = (
                     f"Dokument {doc.doc_type.value} (doc_id={doc.id}) kontraktu "
                     f"#{doc.contract_id} wygasa {doc.expiry_date}. "
@@ -402,16 +449,23 @@ async def run_contract_alerts_cycle() -> dict:
         if staff_ids:
             due = await _equipment_due_for_return(db)
             already = await _equipment_already_notified(db)
-            fresh = [item for item in due if item.id not in already]
+            # Episode-aware: equipment re-flagged pending with a fresh return_due_date
+            # forms a new (id, due) pair and re-arms. ``_equipment_due_for_return``
+            # guarantees a non-null return_due_date.
+            fresh = [
+                item
+                for item in due
+                if item.return_due_date is not None
+                and (item.id, item.return_due_date.isoformat()) not in already
+            ]
             for item in fresh:
-                if not await _claim_alert(db, f"equipment:{item.id}"):
+                episode = item.return_due_date.isoformat()
+                # Claim key carries the due date too, so the atomic ledger re-arms on a
+                # new due date just like the SELECT pre-filter above.
+                if not await _claim_alert(db, f"equipment:{item.id}:{episode}"):
                     continue
-                days_left = (
-                    (item.return_due_date - date.today()).days
-                    if item.return_due_date
-                    else None
-                )
-                title = f"[eq_ret] Sprzęt do zwrotu — item #{item.id}"
+                days_left = (item.return_due_date - date.today()).days
+                title = f"[eq_ret|{episode}] Sprzęt do zwrotu — item #{item.id}"
                 message = (
                     f"Sprzęt {item.item_type.value} "
                     f"(serial={item.serial_number or '—'}) z kontraktu "
@@ -442,17 +496,25 @@ async def run_contract_alerts_cycle() -> dict:
         if staff_ids:
             orders = await _client_orders_ending(db)
             already = await _client_order_already_notified(db)
-            fresh = [c for c in orders if c.id not in already]
+            # Episode-aware: a client order extended to a fresh client_order_end_date
+            # forms a new (id, order_end) pair and re-arms. ``_client_orders_ending``
+            # guarantees a non-null client_order_end_date.
+            fresh = [
+                c
+                for c in orders
+                if c.client_order_end_date is not None
+                and (c.id, c.client_order_end_date.isoformat()) not in already
+            ]
             for c in fresh:
-                if not await _claim_alert(db, f"client_order:{c.id}"):
+                episode = c.client_order_end_date.isoformat()
+                # Claim key carries the order end date too, so the atomic ledger re-arms
+                # on an extended order just like the SELECT pre-filter above.
+                if not await _claim_alert(db, f"client_order:{c.id}:{episode}"):
                     continue
-                days_left = (
-                    (c.client_order_end_date - date.today()).days
-                    if c.client_order_end_date
-                    else None
-                )
+                days_left = (c.client_order_end_date - date.today()).days
                 title = (
-                    f"[client_order] Kontrakt #{c.id} — zamówienie klienta kończy się"
+                    f"[client_order|{episode}] Kontrakt #{c.id} — "
+                    f"zamówienie klienta kończy się"
                 )
                 message = (
                     f"Zamówienie klienta dla kontraktu #{c.id} wygasa "
