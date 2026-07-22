@@ -10,9 +10,12 @@ Two hardening guards on ``app.api.calls._process_cloudtalk_payload``:
     suggestion and calls the enrichment path exactly once.
 
 (b) Ambiguous last-9 lookup — two candidates sharing the last nine phone digits
-    used to be resolved by an unordered ``LIMIT 1`` (non-deterministic, silent
-    misattribution). The fix orders by newest id and logs a warning when the
-    match count > 1. We assert the warning fires and the newest id is chosen.
+    must NOT be auto-attached to any candidate (F-12). Guessing (e.g. "newest
+    id wins") would drop one person's recording/transcript onto an arbitrary
+    other candidate's profile. Instead the call is left UNASSIGNED
+    (candidate_id NULL) and a warning is logged, so an operator can attribute
+    it manually. We assert the warning fires, the call is still persisted, and
+    no candidate is attached.
 """
 
 from __future__ import annotations
@@ -197,10 +200,15 @@ async def two_candidates_same_last9():
         await db.commit()
 
 
-async def test_ambiguous_last9_logs_warning_and_picks_newest(
+async def test_ambiguous_last9_logs_warning_and_leaves_unassigned(
     two_candidates_same_last9: dict, caplog
 ) -> None:
-    """A last-9 shared by 2 candidates must warn and deterministically pick newest."""
+    """A last-9 shared by 2 candidates must warn and leave the call UNASSIGNED (F-12).
+
+    The call must not be guessed onto an arbitrary candidate, but it must not be
+    dropped either: the Call row is persisted with candidate_id NULL so an
+    operator can attribute it manually.
+    """
     ct_id = f"ct-ambig-{uuid.uuid4().hex[:6]}"
     body = _body(ct_id, "48601234567", duration=30, status="completed")
     logger = logging.getLogger("app.api.calls")
@@ -210,7 +218,8 @@ async def test_ambiguous_last9_logs_warning_and_picks_newest(
             result = await _process_cloudtalk_payload(body, db, logger)
 
     assert result["status"] == "ok"
-    assert result["candidate_matched"] is True
+    # Ambiguous → not attached to any candidate.
+    assert result["candidate_matched"] is False
 
     warned = [
         r
@@ -221,7 +230,13 @@ async def test_ambiguous_last9_logs_warning_and_picks_newest(
 
     async with AsyncSessionLocal() as db:
         row = await db.scalar(select(Call).where(Call.cloudtalk_call_id == ct_id))
-    assert row is not None
-    assert row.candidate_id == two_candidates_same_last9["newer_id"], (
-        "the deterministic pick must be the newest candidate id"
-    )
+        assert row is not None, "ambiguous call must still be persisted (not lost)"
+        assert row.candidate_id is None, "ambiguous call must be left UNASSIGNED"
+        assert row.candidate_id not in (
+            two_candidates_same_last9["older_id"],
+            two_candidates_same_last9["newer_id"],
+        )
+        # Clean up the unassigned row (candidate_id NULL → not caught by the
+        # fixture's cascade on candidate delete).
+        await db.execute(delete(Call).where(Call.cloudtalk_call_id == ct_id))
+        await db.commit()

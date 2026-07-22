@@ -42,8 +42,12 @@ class Call(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     # Powiązania
-    candidate_id: Mapped[int] = mapped_column(
-        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
+    # Nullable: an inbound CloudTalk call whose phone matches MORE than one
+    # candidate (same trailing-9 digits) is left UNASSIGNED rather than
+    # auto-attached to an arbitrary candidate (F-12). The row is still persisted
+    # (by cloudtalk_call_id) so the event isn't lost; an operator resolves it.
+    candidate_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True, index=True
     )
     user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True

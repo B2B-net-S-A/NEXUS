@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import random
 import time
 import uuid
 
@@ -70,6 +71,48 @@ async def seeded_candidate():
     async with AsyncSessionLocal() as db:
         await db.execute(delete(Call).where(Call.candidate_id == candidate_id))
         await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
+        await db.commit()
+
+
+@pytest_asyncio.fixture
+async def ambiguous_candidates():
+    """Seed TWO candidates that share the same trailing-9 phone digits.
+
+    Different surface formatting, identical last-9 → an inbound webhook for that
+    number matches both (F-12: ambiguous). A distinctive random suffix keeps
+    these out of the way of the single-candidate ``seeded_candidate`` tests, and
+    a per-test token isolates teardown of the unassigned (candidate_id NULL)
+    Call row.
+    """
+    token = uuid.uuid4().hex[:8]
+    suffix = f"{random.randint(100000000, 999999999)}"  # 9 digits
+    async with AsyncSessionLocal() as db:
+        c1 = Candidate(
+            name=f"AmbA-{token}",
+            lastname="Test",
+            email=f"amb-a-{token}@example.com",
+            phone=f"+48 {suffix[:3]}-{suffix[3:6]}-{suffix[6:]}",
+        )
+        c2 = Candidate(
+            name=f"AmbB-{token}",
+            lastname="Test",
+            email=f"amb-b-{token}@example.com",
+            phone=f"0048{suffix}",  # same last-9, different format
+        )
+        db.add_all([c1, c2])
+        await db.commit()
+        await db.refresh(c1)
+        await db.refresh(c2)
+        ids = [c1.id, c2.id]
+
+    yield {"ids": ids, "token": token, "external_number": f"48{suffix}"}
+
+    async with AsyncSessionLocal() as db:
+        # Unassigned call has candidate_id NULL → not caught by the cascade on
+        # candidate delete; clean it by its ct_id token first.
+        await db.execute(delete(Call).where(Call.cloudtalk_call_id.like(f"%{token}%")))
+        await db.execute(delete(Call).where(Call.candidate_id.in_(ids)))
+        await db.execute(delete(Candidate).where(Candidate.id.in_(ids)))
         await db.commit()
 
 
@@ -261,6 +304,55 @@ async def test_webhook_handles_unknown_phone_gracefully(
     data = resp.json()
     assert data["candidate_matched"] is False
     assert data["call_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_leaves_ambiguous_phone_unassigned(
+    app_client: AsyncClient,
+    ambiguous_candidates: dict,
+    _enable_cloudtalk,
+    _disable_enrichment,
+) -> None:
+    """Two candidates share the last-9 phone → leave the call UNASSIGNED (F-12).
+
+    The call must NOT be auto-attached to an arbitrary (e.g. newest) candidate,
+    but it must NOT be lost either: a Call row is persisted with candidate_id
+    NULL for manual attribution, and candidate-dependent enrichment is skipped
+    even though a transcript is present.
+    """
+    ct_id = f"ct-amb-{ambiguous_candidates['token']}"
+    payload = {
+        "call": {
+            "id": ct_id,
+            "external_number": ambiguous_candidates["external_number"],
+            "type": "incoming",
+            "duration": 42,
+            "status": "completed",
+            "transcript": "Dzień dobry, dzwonię w sprawie oferty.",
+            "summary": "Rozmowa wstępna",
+        }
+    }
+    body = json.dumps(payload).encode()
+
+    resp = await app_client.post(
+        "/api/calls/webhook",
+        content=body,
+        headers={"X-CloudTalk-Signature": _sign(body)},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Ambiguous → not attached to any candidate, and no enrichment...
+    assert data["candidate_matched"] is False
+    assert data["enriched"] is False
+    # ...but the event is NOT lost: a Call row exists, unassigned.
+    assert data["call_id"] is not None
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(select(Call).where(Call.cloudtalk_call_id == ct_id))
+        assert row is not None, "ambiguous call must still be persisted"
+        assert row.candidate_id is None, "ambiguous call must be left UNASSIGNED"
+        assert row.candidate_id not in ambiguous_candidates["ids"]
+        assert row.transcript == "Dzień dobry, dzwonię w sprawie oferty."
 
 
 # ── Replay protection + no-secret-in-URL (M6-P0.12) ──────────────────────────

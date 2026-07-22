@@ -699,6 +699,13 @@ _COLUMN_STATEMENTS = [
     # notes + calls contract_id FK (migration 0037_contracts_expansion)
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
     "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    # calls.candidate_id NULL — unassigned inbound CloudTalk calls (F-12,
+    # migracja 0192). Ambiguous inbound (dwóch+ kandydatów o tych samych
+    # ostatnich 9 cyfrach telefonu) NIE jest przypisywany na ślepo do
+    # najnowszego kandydata — wiersz Call powstaje z candidate_id NULL do
+    # ręcznej atrybucji. Bez tego INSERT unassigned-a padnie na NOT NULL.
+    # DROP NOT NULL jest idempotentny (no-op gdy kolumna już nullable).
+    "ALTER TABLE calls ALTER COLUMN candidate_id DROP NOT NULL",
     # Atomic dedup dla notatek Fireflies (migracja 0186). services/fireflies_sync.py
     # robił nieatomowy SELECT-then-INSERT po nie-unikalnym source_ref
     # ('fireflies:<id>') → dwa równoległe syncy wstawiały duplikaty. Kod używa
