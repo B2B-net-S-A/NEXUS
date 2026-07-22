@@ -43,7 +43,7 @@ class CallCreate(BaseModel):
 
 class CallResponse(BaseModel):
     id: int
-    candidate_id: int
+    candidate_id: Optional[int]
     user_id: Optional[int]
     direction: CallDirection
     duration_seconds: Optional[int]
@@ -391,32 +391,39 @@ async def _process_cloudtalk_payload(
     from app.models.candidate import Candidate
 
     candidate: Optional[Candidate] = None
+    ambiguous_match = False
     last9 = _normalize_phone(phone)
     if last9:
         normalized_col = func.right(
             func.regexp_replace(Candidate.phone, r"[^\d]", "", "g"), 9
         )
         phone_match = (Candidate.phone.isnot(None)) & (normalized_col == last9)
-        # Deterministic pick: newest candidate id wins so the same call never
-        # attributes to a different row across replays. Count first so a shared
-        # last-9 (two candidates, same trailing digits) is made observable rather
-        # than silently misattributed.
-        match_count = await db.scalar(
-            select(func.count()).select_from(Candidate).where(phone_match)
-        )
-        candidate = await db.scalar(
-            select(Candidate).where(phone_match).order_by(Candidate.id.desc()).limit(1)
-        )
-        if match_count and match_count > 1:
+        matched_ids = (
+            await db.scalars(
+                select(Candidate.id).where(phone_match).order_by(Candidate.id)
+            )
+        ).all()
+        if len(matched_ids) > 1:
+            # F-12: two or more candidates share the same trailing-9 phone
+            # digits. Do NOT guess — auto-picking one (e.g. the newest id) would
+            # drop one person's recording/transcript onto an arbitrary other
+            # candidate's profile (privacy + data-integrity leak). Leave the call
+            # UNASSIGNED (candidate stays None → candidate_id NULL) so an operator
+            # can attribute it manually. The Call row is still upserted below so
+            # the event isn't lost, and candidate-dependent enrichment is skipped.
+            ambiguous_match = True
             logger.warning(
                 "CloudTalk webhook: phone last-9=%s matched %d candidates "
-                "(ct_id=%s) — attributing to newest id=%s; possible misattribution",
+                "(ct_id=%s, candidate_ids=%s) — leaving call UNASSIGNED for "
+                "manual attribution (no auto-pick)",
                 last9,
-                match_count,
+                len(matched_ids),
                 ct_id,
-                candidate.id if candidate else None,
+                list(matched_ids),
             )
-        if candidate is None:
+        elif matched_ids:
+            candidate = await db.get(Candidate, matched_ids[0])
+        else:
             logger.info(
                 "CloudTalk webhook: no candidate match for phone last-9=%s (ct_id=%s)",
                 last9,
@@ -438,7 +445,11 @@ async def _process_cloudtalk_payload(
                 fields["agent_id"],
             )
 
-    if call_row is None and candidate is not None:
+    if call_row is None and (candidate is not None or ambiguous_match):
+        # Insert when we have a unique candidate OR the match was ambiguous
+        # (candidate is None → candidate_id NULL, unassigned) so the call is
+        # persisted for manual attribution instead of being dropped (F-12).
+        #
         # Atomic insert-or-merge. CloudTalk delivers SEPARATE webhook POSTs per
         # event (call-ended / transcript-ready / recording-ready) for the SAME
         # call, plus retries. Two events that both SELECT null above would each
@@ -449,7 +460,7 @@ async def _process_cloudtalk_payload(
         # event's data (transcript/recording/status) still lands instead of
         # surfacing a 500 — the transcript payload is exactly what would be lost.
         new_row = Call(
-            candidate_id=candidate.id,
+            candidate_id=candidate.id if candidate is not None else None,
             user_id=mapped_user_id,
             direction=fields["direction"],
             status=fields["status"],
