@@ -178,10 +178,16 @@ async def resolve_application_submission(
     Every action is audited. A submission can only be resolved once — a second
     attempt returns 409.
     """
+    # F-03: lock the row for the transaction. Resolve reads the submission and
+    # then mutates its status; without SELECT ... FOR UPDATE two concurrent
+    # resolves both pass the pending_review check and double-process (double
+    # link/merge/create). The lock serialises them so the loser sees the
+    # already-resolved status and 409s.
     submission = await db.scalar(
         select(ApplicationSubmission)
         .where(ApplicationSubmission.id == submission_id)
         .options(undefer(ApplicationSubmission.cv_file_content))
+        .with_for_update()
     )
     if submission is None:
         raise HTTPException(status_code=404, detail="Submission not found")

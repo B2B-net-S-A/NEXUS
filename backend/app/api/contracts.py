@@ -454,6 +454,16 @@ async def list_contracts(
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    if not finance_ok:
+        # F-13: the amount fields are redacted from the response below. The
+        # rate/margin FILTERS must be ignored too — otherwise a non-finance
+        # caller can binary-search a hidden rate/margin by watching which rows
+        # survive the filter (an oracle). Drop them before building the query.
+        rate_client_min = rate_client_max = margin_min = None
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -518,9 +528,7 @@ async def list_contracts(
         )
         for c in contracts
     ]
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    if not finance_ok:
         for item in items:
             _redact_contract_finance(item)
     return ContractList(items=items, total=total, page=page, page_size=page_size)

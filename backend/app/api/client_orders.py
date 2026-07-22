@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import DlAssignedOrAdmin, TacPlus
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -106,6 +107,32 @@ def _compute_monthly_margin(
     return monthly_client - monthly_cand
 
 
+# F-13 / P0.12: kwoty (stawki, marża, wartość zamówienia) widzą tylko role z
+# VIEW_FINANCE (admin + delivery_lead). TAC zachowuje operacyjny widok zamówień
+# i kontraktorów, ale bez kwot — spójne z redakcją w contracts.py
+# (`_redact_contract_finance`) i clients.py. `currency`/daty to metadane, nie kwoty.
+_ORDER_FINANCE_FIELDS = ("rate_client", "total_value", "monthly_margin")
+_CONTRACTOR_FINANCE_FIELDS = (
+    "rate_candidate",
+    "latest_order_rate_client",
+    "latest_order_monthly_margin",
+)
+
+
+def _redact_order_finance(order: ClientOrderRead) -> ClientOrderRead:
+    for field in _ORDER_FINANCE_FIELDS:
+        setattr(order, field, None)
+    return order
+
+
+def _redact_contractor_finance(item: ContractWithOrdersRead) -> ContractWithOrdersRead:
+    for field in _CONTRACTOR_FINANCE_FIELDS:
+        setattr(item, field, None)
+    for order in item.orders:
+        _redact_order_finance(order)
+    return item
+
+
 async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRead:
     """Pełny widok Orderu z computed fields (candidate_name, monthly_margin, etc)."""
     contract = order.contract or await db.scalar(
@@ -160,7 +187,7 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 @router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
 async def list_contractors_with_orders(
     client_id: int,
-    _user: TacPlus,
+    user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę kontraktorów (per Contract) z historią Orderów per Contract.
@@ -226,6 +253,10 @@ async def list_contractors_with_orders(
             )
         )
 
+    if not user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
+        for item in items:
+            _redact_contractor_finance(item)
+
     return ClientOrdersGroupedResponse(contractors=items, total_contractors=len(items))
 
 
@@ -238,14 +269,14 @@ async def list_contractors_with_orders(
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    _user: TacPlus,
+    user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
     "Dodaj przedłużenie".
     """
-    # Reuse main list, filter na active/ending tylko
-    resp = await list_contractors_with_orders(client_id, _user, db)
+    # Reuse main list (which already redacts finance fields for non-VIEW_FINANCE).
+    resp = await list_contractors_with_orders(client_id, user, db)
     return [
         c
         for c in resp.contractors
@@ -260,7 +291,7 @@ async def list_active_contracts_for_extension(
 async def get_order(
     client_id: int,
     order_id: int,
-    _user: TacPlus,
+    user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)
@@ -274,7 +305,10 @@ async def get_order(
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
-    return await _order_to_read(db, order)
+    result = await _order_to_read(db, order)
+    if not user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_order_finance(result)
+    return result
 
 
 @router.post(

@@ -1785,9 +1785,15 @@ _COLUMN_STATEMENTS = [
     # (soft-delete). Bez kolumn UPDATE/INSERT contracts z voided_* => UndefinedColumn.
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS voided_by INTEGER NULL",
-    "ALTER TABLE contracts DROP CONSTRAINT IF EXISTS fk_contracts_voided_by",
-    "ALTER TABLE contracts ADD CONSTRAINT fk_contracts_voided_by "
-    "FOREIGN KEY (voided_by) REFERENCES users(id) ON DELETE SET NULL",
+    # F-01: idempotent guarded ADD instead of DROP+ADD on every boot. The old
+    # DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT recreated the FK on every
+    # restart (Coolify rebuilds each push) — pointless churn, plus a window
+    # where the FK is briefly absent under concurrent writes. Add only if
+    # missing; identical semantics (voided_by → users(id) ON DELETE SET NULL).
+    """DO $$ BEGIN
+        ALTER TABLE contracts ADD CONSTRAINT fk_contracts_voided_by
+            FOREIGN KEY (voided_by) REFERENCES users(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
 ]
 
 _DATA_STATEMENTS = [
