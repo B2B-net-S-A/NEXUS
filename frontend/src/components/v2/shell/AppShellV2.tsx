@@ -37,6 +37,13 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isApplyPage = pathname?.startsWith("/apply/") ?? false;
   // `/sign/{token}` — public consultant signing page, no internal app shell.
   const isSignPage = pathname?.startsWith("/sign/") ?? false;
+  // `/register`, `/register/verify` — public self-service registration (bare form).
+  const isRegisterPage = pathname?.startsWith("/register") ?? false;
+  // `/cv/{token}` — public CV preview. `startsWith("/cv/")` (trailing slash) żeby
+  // NIE złapać authed `/cv-generator`.
+  const isCvPreviewPage = pathname?.startsWith("/cv/") ?? false;
+  // `/engagement/{token}` — public magic-link engagement page, no internal shell.
+  const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<QuickActionModal>(null);
@@ -87,6 +94,12 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isSharePage) return <>{children}</>;
   if (isApplyPage) return <>{children}</>;
   if (isSignPage) return <>{children}</>;
+  // Public/standalone routes — render children bare so the authed shell
+  // (sidebar, presence, notifications) never mounts and fires 401-noisy fetches
+  // for unauthenticated visitors.
+  if (isRegisterPage) return <>{children}</>;
+  if (isCvPreviewPage) return <>{children}</>;
+  if (isEngagementPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
   if (pathname?.startsWith("/preview")) return <>{children}</>;
 

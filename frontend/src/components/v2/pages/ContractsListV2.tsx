@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from"react";
+import { useEffect, useMemo, useState } from"react";
 import Link from"next/link";
 import { useQuery, useQueryClient } from"@tanstack/react-query";
 import {
@@ -119,6 +119,14 @@ export function ContractsListV2() {
  });
  };
 
+ // Selection is scoped to the currently-visible result set. Reset it whenever
+ // the filters, search, or page change so a bulk action can never target rows
+ // the user can no longer see. (Functional guard avoids a needless re-render
+ // when nothing is selected.)
+ useEffect(() => {
+ setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
+ }, [search, statusFilter, typeFilter, endingSoon, page]);
+
  const flashToast = (msg: string) => {
  setToast(msg);
  setTimeout(() => setToast(null), 3500);
@@ -192,6 +200,15 @@ export function ContractsListV2() {
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+ // "All selected" is derived by comparing the SET of selected ids against the
+ // set of currently-visible ids — never by count equality (which is fragile
+ // against stale ids from a previous page/filter). Computed inline (page size
+ // is small, and it's only read in render + handlers, never a dep array).
+ const visibleIds = items.map((i) => i.id);
+ const allVisibleSelected =
+ visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+ const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
 
  const expiringCount = useMemo(
  () => (Array.isArray(expiring) ? expiring.length : expiring?.total ?? 0),
@@ -351,11 +368,7 @@ export function ContractsListV2() {
  selectedIds={selectedIds}
  onClear={() => setSelectedIds(new Set())}
  onSelectAllVisible={() =>
- setSelectedIds(
- selectedIds.size === items.length
- ? new Set()
- : new Set(items.map((i) => i.id))
- )
+ setSelectedIds(allVisibleSelected ? new Set() : new Set(visibleIds))
  }
  visibleCount={items.length}
  onDone={(msg) => {
@@ -374,14 +387,14 @@ export function ContractsListV2() {
  <TableHead className="w-8">
  <Checkbox
  checked={
- items.length > 0 && items.every((i) => selectedIds.has(i.id))
+ allVisibleSelected
  ? true
- : selectedIds.size > 0
+ : someVisibleSelected
  ?"indeterminate"
  : false
  }
  onCheckedChange={(v) =>
- setSelectedIds(v ? new Set(items.map((i) => i.id)) : new Set())
+ setSelectedIds(v ? new Set(visibleIds) : new Set())
  }
  aria-label="Zaznacz wszystkie"
  />
