@@ -541,6 +541,18 @@ _COLUMN_STATEMENTS = [
     # never invalidated since last fresh compute. Without the column the write-back
     # 500s (UndefinedColumn) under multi-head. Nullable, idempotent.
     "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS invalidated_at TIMESTAMPTZ NULL",
+    # match_score_invalidations (migration 0194_match_score_invalidations, audyt F-28)
+    # — persistent invalidation ledger. The invalidated_at column above only fences
+    # the CONFLICT (row-exists) write-back; the MISS path has no row to stamp, so
+    # mark_stale_* UPSERTs a watermark here and the miss-path INSERT reads it to
+    # decide stale. Without the table mark_stale_*/write-back 500s (UndefinedTable)
+    # under prod's chronic alembic multi-head drift. Idempotent.
+    """CREATE TABLE IF NOT EXISTS match_score_invalidations (
+        entity_type VARCHAR(16) NOT NULL,
+        entity_id INTEGER NOT NULL,
+        last_invalidated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT pk_match_score_invalidations PRIMARY KEY (entity_type, entity_id)
+    )""",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS notify_new_matches BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_seen_candidate_id INTEGER",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS unseen_count INTEGER NOT NULL DEFAULT 0",
