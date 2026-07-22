@@ -1794,6 +1794,11 @@ _COLUMN_STATEMENTS = [
         ALTER TABLE contracts ADD CONSTRAINT fk_contracts_voided_by
             FOREIGN KEY (voided_by) REFERENCES users(id) ON DELETE SET NULL;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # Session-revocation floor (migracja 0192_user_tokens_valid_after, F-05):
+    # po zmianie/resecie hasła backend ustawia tokens_valid_after=now() i odrzuca
+    # (401) tokeny z wcześniejszym iat. Bez tej kolumny UPDATE users z
+    # tokens_valid_after => UndefinedColumn i każda zmiana hasła zwraca 500.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMPTZ",
 ]
 
 _DATA_STATEMENTS = [

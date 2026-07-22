@@ -75,3 +75,27 @@ def create_refresh_token(subject: Union[str, int]) -> str:
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT token. Raises JWTError on failure."""
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+
+
+def token_is_revoked(payload: dict, tokens_valid_after: Optional[datetime]) -> bool:
+    """True gdy token jest unieważniony przez session-revocation floor (F-05).
+
+    ``tokens_valid_after`` = None → brak floora → nigdy nie unieważnione
+    (istniejący userzy bez zdarzenia zmiany hasła nie są dotknięci).
+
+    Gdy floor jest ustawiony, porównujemy ``iat`` tokenu z floorem na
+    granulacji CAŁYCH sekund, bo JWT ``iat`` ma rozdzielczość sekundową
+    (jose koduje datetime jako unixowy int). Floorujemy ``tokens_valid_after``
+    do pełnych sekund, żeby NIE odrzucić tokenu wybitego w tej samej sekundzie
+    co zdarzenie zmiany hasła (nowe tokeny po zmianie są wybijane później).
+
+    Brak ``iat`` przy ustawionym floorze → nie potrafimy udowodnić świeżości
+    tokenu → traktujemy jako unieważniony (bezpieczny kierunek).
+    """
+    if tokens_valid_after is None:
+        return False
+    iat = payload.get("iat")
+    if iat is None:
+        return True
+    floor_seconds = int(tokens_valid_after.timestamp())
+    return int(iat) < floor_seconds
