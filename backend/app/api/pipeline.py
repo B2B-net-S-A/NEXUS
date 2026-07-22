@@ -43,7 +43,7 @@ from app.schemas.pipeline import (
     STAGE_LABELS,
 )
 from app.api.candidate_access import CandidatePIIAccess
-from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
+from app.api.deps import ApproverPlus, CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_membership,
     user_can_edit_rates,
@@ -1295,12 +1295,17 @@ async def revoke_share_token(
 
 @router.get("/overview")
 async def pipeline_overview(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Manager dashboard: bird's eye view across ALL jobs.
     Returns per-job stage counts + bottleneck alerts + workload per recruiter.
+
+    F-07: gated to OperationalUser (excludes the read-only ``user`` viewer).
+    The overview aggregates pipeline data across every job — recruiter workload,
+    per-job candidate counts — which is operational intelligence, not a public
+    dashboard. The bare ``CurrentUser`` let a QC/client viewer read it all.
     """
 
     # Get latest stage per candidate per job

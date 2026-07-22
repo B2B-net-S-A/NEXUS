@@ -274,7 +274,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/pipeline-templates"),
     ("GET", "/api/pipeline-templates/{template_id}"),
     ("GET", "/api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules"),
-    ("GET", "/api/pipeline/overview"),
+    # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
     ("GET", "/api/pipeline/stages"),
     ("GET", "/api/postings/stats"),
     ("GET", "/api/procedures"),
