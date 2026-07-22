@@ -33,6 +33,9 @@ paths = [
   '''backend/scripts/.+\.py''',
   '''backend/seed.*\.py''',
   '''backend/entrypoint\.sh''',
+  # Schema-inventory test seeds the local-dev DSN (nexus:nexus@localhost) to
+  # spin up throwaway DBs — same benign default as scripts/seed above.
+  '''backend/tests/test_schema_inventory\.py''',
 ]
 regexes = [
   '''change-me''',
