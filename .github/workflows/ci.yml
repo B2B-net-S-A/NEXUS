@@ -275,6 +275,7 @@ jobs:
                  tests/test_application_submissions.py \
                  tests/test_ws_token_subprotocol.py \
                  tests/test_match_cache_cas.py \
+                 tests/test_match_cache_invalidation_race.py \
                  tests/test_contract_lifecycle_invariant.py \
                  tests/test_pipeline_membership_gate.py \
                  tests/test_reaudit_backend_guards.py \
