@@ -2,8 +2,8 @@
 """Read-only schema-drift inventory: clean migrations vs. entrypoint safety-net.
 
 P1-DB-01 diagnostic. Prod's alembic bookmark is stuck (``0152``) while the code
-head is ``0188``; ``backend/entrypoint.sh`` keeps prod's schema alive through a
-huge hand-maintained idempotent DDL safety-net plus ``Base.metadata.create_all``,
+head keeps advancing; ``backend/entrypoint.sh`` keeps prod's schema alive through
+a huge hand-maintained idempotent DDL safety-net plus ``Base.metadata.create_all``,
 swallowing any ``alembic upgrade`` error. The open question this tool answers:
 **does the safety-net schema agree with the clean-migration schema, or have the
 two drifted into different systems?**
@@ -12,8 +12,10 @@ It answers that WITHOUT any production access and WITHOUT writing to any real DB
 by building two throwaway schemas locally and diffing their introspected shape:
 
   * Schema A  — canonical migrations. A fresh empty DB, then
-                ``alembic upgrade heads`` (→ 0188). What the migration ledger
-                declares.
+                ``alembic upgrade heads`` (→ the current migration head, which
+                the tool determines dynamically from the alembic graph rather
+                than pinning a revision that goes stale). What the migration
+                ledger declares.
   * Schema B  — entrypoint safety-net. A fresh empty DB, then the entrypoint's
                 schema-construction path: ``Base.metadata.create_all()`` followed
                 by the idempotent DDL the entrypoint runs (``_ENUM_STATEMENTS``,
@@ -39,6 +41,13 @@ READ-ONLY, PROD-SAFE — enforced and non-negotiable:
   * Writes ONLY to the two throwaway build DSNs (``--schema-a-dsn`` /
     ``--schema-b-dsn``), which the caller declares disposable. It refuses to run
     if those two are equal or collide with ``--compare-dump``.
+  * NON-DESTRUCTIVE BY DEFAULT: ``--reset`` (drop+recreate ``public``) is OFF by
+    default. A destructive reset additionally requires
+    ``--destructive-reset-disposable <exact-db-name>`` matching each build DSN's
+    database (a typo-guard) AND passes :func:`assert_safe_to_reset`, which fails
+    closed on a production ``ENVIRONMENT``, a production-looking host (e.g.
+    ``dynaminds``), or a non-local host whose db name lacks a disposable marker.
+    One wrong DSN can no longer silently ``DROP SCHEMA`` a real database.
   * ``--compare-dump`` (the future prod hook) is opened strictly read-only —
     only SELECTs, never a write, never a reset. Do NOT point it at prod today.
 
@@ -60,6 +69,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import asyncpg
 
@@ -68,7 +78,6 @@ import asyncpg
 # ---------------------------------------------------------------------------
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-EXPECTED_HEAD = "0188_contract_alert_dedup"
 
 # alembic_version is migration bookkeeping, not part of the domain schema; it
 # exists only in Schema A and comparing it would be pure noise.
@@ -76,6 +85,29 @@ EXCLUDED_TABLES = frozenset({"alembic_version"})
 
 CATEGORIES = ("equivalent", "only_in_migrations", "only_in_safetynet", "divergent")
 OBJECT_TYPES = ("tables", "columns", "enums", "indexes", "constraints", "views")
+
+# --- Destructive-reset safety gate ----------------------------------------
+# A schema reset does ``DROP SCHEMA public CASCADE`` — irreversible. These
+# markers let :func:`assert_safe_to_reset` fail closed: only a clearly
+# disposable, non-production target is ever eligible to be dropped.
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+# Substrings that, if present in the DSN host, mark it as production — refuse.
+PRODUCTION_HOST_MARKERS = ("dynaminds",)
+# A target DB whose name contains one of these tokens is treated as disposable.
+DISPOSABLE_DB_TOKENS = (
+    "test",
+    "tmp",
+    "throwaway",
+    "_ci",
+    "ci_",
+    "disposable",
+    "scratch",
+    "schema_inv",
+)
+
+
+class SchemaResetRefused(RuntimeError):
+    """Raised when a destructive schema reset target fails the safety gate."""
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +134,131 @@ def maintenance_dsn(dsn: str, db: str = "postgres") -> str:
     """Same server, different (maintenance) database — for CREATE/DROP DATABASE."""
     apg = to_asyncpg_dsn(dsn)
     return re.sub(r"/[^/?]+(\?|$)", f"/{db}\\1", apg, count=1)
+
+
+def parse_host_db(dsn: str) -> tuple[str, str]:
+    """Return the lowercased ``(host, database)`` parsed from any accepted DSN.
+
+    Used by the destructive-reset safety gate. Raises ``ValueError`` if the DSN
+    cannot be parsed, so callers can fail closed rather than guess.
+    """
+    parts = urlsplit(to_asyncpg_dsn(dsn))
+    host = (parts.hostname or "").lower()
+    db = parts.path.lstrip("/").split("?", 1)[0].lower()
+    if not db:
+        raise ValueError("DSN carries no database name")
+    return host, db
+
+
+# ---------------------------------------------------------------------------
+# Destructive-reset safety gate
+# ---------------------------------------------------------------------------
+
+
+def assert_safe_to_reset(dsn: str) -> None:
+    """Fail closed unless ``dsn`` is a clearly disposable, non-production target.
+
+    ``reset_public_schema`` runs ``DROP SCHEMA public CASCADE`` — one wrong DSN
+    wipes the target. This gate is the last line of defence and refuses on ANY
+    doubt. A reset is allowed only when ALL of the following hold:
+
+      * ``ENVIRONMENT`` is not ``production`` / ``prod``.
+      * The DSN host contains no production marker (e.g. ``dynaminds``).
+      * The target is disposable: either the host is local
+        (``localhost`` / ``127.0.0.1`` / ``::1`` / ``host.docker.internal``) OR
+        the database name carries a disposable token
+        (``test`` / ``tmp`` / ``throwaway`` / ``_ci`` / ``disposable`` / …).
+
+    Raises :class:`SchemaResetRefused` otherwise. Never mutates anything.
+    """
+    env = os.environ.get("ENVIRONMENT", "").strip().lower()
+    if env in ("production", "prod"):
+        raise SchemaResetRefused(
+            "refusing DROP SCHEMA: ENVIRONMENT="
+            f"{os.environ.get('ENVIRONMENT')!r} — schema reset is only for "
+            "disposable build databases, never a production environment"
+        )
+
+    try:
+        host, db = parse_host_db(dsn)
+    except Exception as exc:  # noqa: BLE001 — fail closed on any parse doubt
+        raise SchemaResetRefused(
+            f"refusing DROP SCHEMA: cannot parse host/db from DSN ({exc}); "
+            "unable to prove the target is disposable"
+        ) from None
+
+    for marker in PRODUCTION_HOST_MARKERS:
+        if marker in host:
+            raise SchemaResetRefused(
+                f"refusing DROP SCHEMA: host {host!r} matches production marker "
+                f"{marker!r}"
+            )
+
+    is_local = host in LOCAL_HOSTS
+    has_disposable_marker = any(tok in db for tok in DISPOSABLE_DB_TOKENS)
+    if not (is_local or has_disposable_marker):
+        raise SchemaResetRefused(
+            f"refusing DROP SCHEMA: host {host!r} is not local "
+            f"({'/'.join(sorted(LOCAL_HOSTS))}) and database {db!r} lacks a "
+            f"disposable marker ({'/'.join(DISPOSABLE_DB_TOKENS)}) — the target "
+            "does not look disposable"
+        )
+
+
+def plan_reset(dsn: str, *, reset: bool, confirmations: set[str]) -> bool:
+    """Decide whether a destructive reset of ``dsn`` is authorised and safe.
+
+    Returns ``True`` only when the caller opted in (``--reset``) AND confirmed
+    the exact database name (``--destructive-reset-disposable <db>``) AND the
+    safety gate passes. Returns ``False`` when reset was not requested. Raises
+    (fail closed) on an unconfirmed or unsafe destructive reset.
+    """
+    if not reset:
+        return False
+    _host, db = parse_host_db(dsn)
+    if db not in confirmations:
+        raise SystemExit(
+            f"refusing destructive reset of database {db!r}: pass "
+            f"--destructive-reset-disposable {db} to confirm the exact target "
+            f"(typo-guard). Got confirmations={sorted(confirmations)!r}."
+        )
+    assert_safe_to_reset(dsn)
+    return True
+
+
+async def reset_if_requested(dsn: str, *, reset: bool, confirmations: set[str]) -> bool:
+    """Run :func:`reset_public_schema` only if :func:`plan_reset` authorises it.
+
+    Single seam used by the orchestrator for both build DSNs so that the opt-in,
+    typo-guard and safety gate are enforced uniformly before any ``DROP SCHEMA``.
+    """
+    if plan_reset(dsn, reset=reset, confirmations=confirmations):
+        await reset_public_schema(dsn)
+        return True
+    return False
+
+
+def determine_expected_head(backend_dir: Path) -> str | None:
+    """Compute the single migration head straight from the migration graph.
+
+    Reads the alembic ``ScriptDirectory`` (no DB connection, no ``env.py``
+    execution) so the tool tracks the real repo head instead of a hardcoded
+    revision that silently goes stale. Returns the single head id, or ``None``
+    when alembic is unavailable or the graph has multiple heads (a genuine
+    multi-head problem the caller surfaces head-agnostically).
+    """
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+    except Exception:  # noqa: BLE001 — alembic missing → caller falls back
+        return None
+    try:
+        cfg = Config(str(backend_dir / "alembic" / "alembic.ini"))
+        cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+        heads = list(ScriptDirectory.from_config(cfg).get_heads())
+    except Exception:  # noqa: BLE001 — unparseable graph → caller falls back
+        return None
+    return heads[0] if len(heads) == 1 else None
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +451,9 @@ async def introspect(dsn: str) -> SchemaSnapshot:
 async def reset_public_schema(dsn: str) -> None:
     """Drop & recreate the ``public`` schema to guarantee a fresh build target.
 
-    Only ever called on the two throwaway build DSNs — never on ``--compare-dump``.
+    Only ever called on the two throwaway build DSNs — never on ``--compare-dump``
+    — and only after :func:`plan_reset` / :func:`assert_safe_to_reset` have
+    confirmed the target is a disposable, non-production database.
     """
     conn = await asyncpg.connect(to_asyncpg_dsn(dsn))
     try:
@@ -691,10 +850,11 @@ def render_markdown(report: dict[str, Any]) -> str:
     b = report["schema_b"]
     lines.append("## Build status")
     lines.append("")
+    expected_head_label = report["expected_head"] or "dynamic (alembic heads)"
     lines.append(
         f"- **Schema A (migrations)**: {'built' if a['build_ok'] else 'FAILED'} — "
         f"heads = `{', '.join(a['alembic_heads']) or 'none'}` "
-        f"(expected single head `{report['expected_head']}`: "
+        f"(expected single head `{expected_head_label}`: "
         f"{'OK' if a['single_expected_head'] else 'MISMATCH'})."
     )
     ca = b["create_all"]
@@ -814,9 +974,15 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                 "refusing to run: --compare-dump collides with a throwaway build DSN"
             )
 
+    # Destructive reset is opt-in (``--reset``) AND requires an exact db-name
+    # confirmation per DSN (``--destructive-reset-disposable``). Compute the
+    # expected head from the live migration graph so it never goes stale.
+    confirmations = set(args.destructive_reset_disposable or [])
+    expected_head = args.expected_head or determine_expected_head(backend_dir)
+
     report: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "expected_head": args.expected_head,
+        "expected_head": expected_head,
         "read_only": True,
         "ordering_note": "Schema B builds create_all FIRST, then layers safety-net DDL (see module docstring).",
     }
@@ -827,8 +993,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 
     # --- Schema A ---------------------------------------------------------
     if do_a:
-        if args.reset:
-            await reset_public_schema(a_dsn)
+        await reset_if_requested(a_dsn, reset=args.reset, confirmations=confirmations)
         a_build = build_schema_a(a_dsn, backend_dir)
         heads = await read_alembic_heads(a_dsn) if a_build.ok else []
     else:
@@ -837,8 +1002,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 
     # --- Schema B ---------------------------------------------------------
     if do_b:
-        if args.reset:
-            await reset_public_schema(b_dsn)
+        await reset_if_requested(b_dsn, reset=args.reset, confirmations=confirmations)
         create_all = await build_schema_b_create_all(
             b_dsn, repair_fks=args.repair_dangling_fks
         )
@@ -853,10 +1017,18 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     snap_b = await introspect(b_dsn)
     diff = diff_schemas(snap_a, snap_b)
 
+    # Compare against the dynamically-determined head. When it could not be
+    # determined (alembic absent / multi-head), fall back to the head-agnostic
+    # invariant: exactly one head is a healthy migration graph.
+    if expected_head is not None:
+        single_expected_head = heads == [expected_head]
+    else:
+        single_expected_head = len(heads) == 1
+
     report["schema_a"] = {
         "build_ok": a_build.ok,
         "alembic_heads": heads,
-        "single_expected_head": heads == [args.expected_head],
+        "single_expected_head": single_expected_head,
         "stdout_tail": a_build.stdout_tail,
         "counts": snap_a.counts(),
     }
@@ -926,8 +1098,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--reset",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="drop+recreate the public schema on A and B before building (throwaway only)",
+        default=False,
+        help=(
+            "opt in to drop+recreate the public schema on A and B before building "
+            "(destructive; OFF by default). Also requires "
+            "--destructive-reset-disposable to confirm each exact db name"
+        ),
+    )
+    p.add_argument(
+        "--destructive-reset-disposable",
+        action="append",
+        default=None,
+        metavar="EXACT_DB_NAME",
+        help=(
+            "typo-guard confirmation for a destructive --reset: the value must "
+            "EXACTLY match the database name parsed from a build DSN. Repeat once "
+            "per DSN (e.g. --destructive-reset-disposable schema_inv_a "
+            "--destructive-reset-disposable schema_inv_b). A reset target that is "
+            "not confirmed here, or that fails the production/disposable safety "
+            "gate, is refused before any DROP"
+        ),
     )
     p.add_argument(
         "--build",
@@ -957,7 +1147,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--out-dir", default=str(BACKEND_DIR / "scripts" / "out"))
     p.add_argument("--backend-dir", default=str(BACKEND_DIR))
-    p.add_argument("--expected-head", default=EXPECTED_HEAD)
+    p.add_argument(
+        "--expected-head",
+        default=None,
+        help=(
+            "optional override for the expected single migration head; when "
+            "omitted the head is derived dynamically from the alembic migration "
+            "graph so it never goes stale"
+        ),
+    )
     p.add_argument("--json-only", action="store_true", help="write/print only JSON")
     p.add_argument(
         "--markdown-only", action="store_true", help="write/print only Markdown"

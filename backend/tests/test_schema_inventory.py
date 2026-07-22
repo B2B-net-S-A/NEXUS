@@ -27,13 +27,16 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 TOOL = BACKEND / "scripts" / "schema_inventory.py"
-EXPECTED_HEAD = "0188_contract_alert_dedup"
 
 CATEGORIES = ("equivalent", "only_in_migrations", "only_in_safetynet", "divergent")
 OBJECT_TYPES = ("tables", "columns", "enums", "indexes", "constraints", "views")
 
 DB_A = "schema_inv_a"
 DB_B = "schema_inv_b"
+
+# Import the tool as a module for the DB-free unit tests of its safety gate.
+sys.path.insert(0, str(BACKEND / "scripts"))
+import schema_inventory as si  # noqa: E402
 
 
 def _server_dsn() -> str:
@@ -93,7 +96,14 @@ def report(
             dsn_a,
             "--schema-b-dsn",
             dsn_b,
+            # Destructive reset is now opt-in AND requires the exact db name of
+            # each disposable build DSN (typo-guard). These are localhost DBs,
+            # so assert_safe_to_reset allows them.
             "--reset",
+            "--destructive-reset-disposable",
+            DB_A,
+            "--destructive-reset-disposable",
+            DB_B,
             "--out-dir",
             str(out_dir),
         ],
@@ -180,4 +190,145 @@ def test_diff_categorises_every_table(report: dict) -> None:
     assert accounted == a_tables, (
         f"table diff does not account for all {a_tables} migration tables "
         f"(equivalent+only_in_migrations+divergent={accounted})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Destructive-reset safety gate (F-02) — DB-free unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        # Production-looking host marker.
+        "postgresql://nexus:nexus@db.dynaminds.pl:5432/nexus",
+        "postgresql+asyncpg://u:p@api.nexus.dynaminds.pl:5432/nexus",
+        # Non-local host whose db name carries no disposable marker.
+        "postgresql://u:p@db.internal:5432/nexus",
+        "postgresql://u:p@10.0.0.9:5432/nexus_prod",
+    ],
+)
+def test_assert_safe_to_reset_refuses_production_looking_dsns(dsn: str) -> None:
+    """The gate fails closed on any DSN that does not look clearly disposable."""
+    with pytest.raises(si.SchemaResetRefused):
+        si.assert_safe_to_reset(dsn)
+
+
+def test_assert_safe_to_reset_refuses_when_environment_is_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ENVIRONMENT=production overrides even a localhost disposable target."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(si.SchemaResetRefused):
+        si.assert_safe_to_reset("postgresql://nexus:nexus@localhost:5432/schema_inv_a")
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "postgresql://nexus:nexus@localhost:5432/schema_inv_a",
+        "postgresql://nexus:nexus@127.0.0.1:5432/schema_inv_b",
+        "postgresql+asyncpg://u:p@host.docker.internal:5432/anything",
+        # Remote host, but a clearly disposable db name → allowed.
+        "postgresql://u:p@ci-runner:5432/nexus_test",
+    ],
+)
+def test_assert_safe_to_reset_allows_disposable_targets(
+    dsn: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local hosts (any db name) and disposable db names are allowed."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    si.assert_safe_to_reset(dsn)  # must not raise
+
+
+def _spy_reset(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace ``reset_public_schema`` with a spy; return the list of DSNs it saw."""
+    calls: list[str] = []
+
+    async def _fake_reset(dsn: str) -> None:
+        calls.append(dsn)
+
+    monkeypatch.setattr(si, "reset_public_schema", _fake_reset)
+    return calls
+
+
+def test_default_invocation_performs_no_drop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No --reset ⇒ reset default is False and no DROP is ever issued."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    ns = si.build_parser().parse_args(
+        [
+            "--schema-a-dsn",
+            f"postgresql://u@localhost:5432/{DB_A}",
+            "--schema-b-dsn",
+            f"postgresql://u@localhost:5432/{DB_B}",
+        ]
+    )
+    assert ns.reset is False, "reset must default to False (non-destructive)"
+
+    calls = _spy_reset(monkeypatch)
+    did_reset = asyncio.run(
+        si.reset_if_requested(
+            f"postgresql://u@localhost:5432/{DB_A}",
+            reset=ns.reset,
+            confirmations=set(),
+        )
+    )
+    assert did_reset is False
+    assert calls == [], "reset_public_schema must not be called without --reset"
+
+
+def test_destructive_reset_requires_matching_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--reset with a confirmation that does not match the DSN db → no DROP."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    calls = _spy_reset(monkeypatch)
+    with pytest.raises(SystemExit):
+        asyncio.run(
+            si.reset_if_requested(
+                f"postgresql://u@localhost:5432/{DB_A}",
+                reset=True,
+                confirmations={"totally-different-name"},
+            )
+        )
+    assert calls == [], "a mismatched confirmation must not trigger a DROP"
+
+
+def test_destructive_reset_with_matching_confirmation_drops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--reset + exact db-name confirmation on a disposable localhost DB → DROP."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    calls = _spy_reset(monkeypatch)
+    dsn = f"postgresql://u@localhost:5432/{DB_A}"
+    did_reset = asyncio.run(
+        si.reset_if_requested(dsn, reset=True, confirmations={DB_A})
+    )
+    assert did_reset is True
+    assert calls == [dsn], "a confirmed, safe reset must call reset_public_schema once"
+
+
+def test_expected_head_default_is_dynamic_not_hardcoded() -> None:
+    """F-01: no stale hardcoded head. The default is dynamic; the derived head is
+    computed from the live migration graph (head-agnostic — we do not pin a
+    specific revision, only assert the stale ``0188`` pin is gone)."""
+    ns = si.build_parser().parse_args(
+        [
+            "--schema-a-dsn",
+            f"postgresql://u@localhost:5432/{DB_A}",
+            "--schema-b-dsn",
+            f"postgresql://u@localhost:5432/{DB_B}",
+        ]
+    )
+    assert ns.expected_head is None, "expected-head must have no hardcoded default"
+
+    head = si.determine_expected_head(BACKEND)
+    if head is None:
+        pytest.skip("alembic unavailable or multi-head in this environment")
+    assert isinstance(head, str) and head
+    assert head != "0188_contract_alert_dedup", (
+        "the stale 0188 pin must not be baked back in — the head is dynamic"
     )
