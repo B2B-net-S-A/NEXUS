@@ -116,6 +116,22 @@ def test_success_on_primary_no_fallback(monkeypatch):
     assert calls == ["claude-sonnet-4-6"]  # fallback never touched
 
 
+def test_model_override_uses_uop_primary_without_cv_quality_pin(monkeypatch):
+    monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
+    calls = _install_fake_client(
+        monkeypatch,
+        {
+            "claude-sonnet-5": lambda: _FakeMessage('{"issues": []}'),
+            "claude-opus-4-8": lambda: _FakeMessage("should-not-be-called"),
+        },
+    )
+
+    out = analyze_with_ai("payload", "req-uop", model_override="claude-sonnet-5")
+
+    assert out == '{"issues": []}'
+    assert calls == ["claude-sonnet-5"]
+
+
 def test_falls_back_to_second_model_on_overload(monkeypatch):
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)

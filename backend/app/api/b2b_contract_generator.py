@@ -83,6 +83,25 @@ def _ascii_filename(name: str) -> str:
     return safe.strip("._") or "umowa"
 
 
+def _contract_docx_filename(contract_number: str | None) -> str:
+    """Publiczna nazwa pobieranego DOCX: ``Umowa B2B 1472-2026.docx``."""
+    number = re.sub(r"\s*/\s*", "-", (contract_number or "").strip())
+    label = _ascii_filename(number) if number else ""
+    return f"Umowa B2B {label}.docx" if label else "Umowa B2B.docx"
+
+
+def _docx_response(data: bytes, contract_number: str | None) -> Response:
+    """Zwróć DOCX z nazwą widoczną dla frontendu także przez CORS."""
+    filename = _contract_docx_filename(contract_number)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Access-Control-Expose-Headers": "Content-Disposition, X-Contract-Number",
+    }
+    if contract_number:
+        headers["X-Contract-Number"] = contract_number
+    return Response(content=data, media_type=_DOCX_MEDIA, headers=headers)
+
+
 # ── Katalog ról ──────────────────────────────────────────────────────────────
 
 
@@ -379,14 +398,8 @@ async def download_docx(
     lang = normalize_language(language or detail_lang)
     data = await run_in_threadpool(render_contract_docx, contract, language=lang)
 
-    cand = contract.candidate
-    label = f"{cand.name}_{cand.lastname}" if cand else f"contract_{contract.id}"
-    filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
-    return Response(
-        content=data,
-        media_type=_DOCX_MEDIA,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    number = contract.b2b_detail.contract_number if contract.b2b_detail else None
+    return _docx_response(data, number)
 
 
 # ── Numeracja umów (auto, uwzględnia wcześniej wygenerowane) ──────────────────
@@ -567,17 +580,7 @@ async def render_standalone(
     context["b2b"]["contract_number"] = number
 
     data = await run_in_threadpool(render_from_context, context, language=lang)
-    label = _ascii_filename(payload.partner_name or number)
-    filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
-    return Response(
-        content=data,
-        media_type=_DOCX_MEDIA,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Contract-Number": number,
-            "Access-Control-Expose-Headers": "X-Contract-Number",
-        },
-    )
+    return _docx_response(data, number)
 
 
 @router.get("/generated", response_model=list[B2BGeneratedContractItem])
@@ -648,13 +651,7 @@ async def download_generated_contract(
     context["b2b"]["contract_number"] = row.contract_number
 
     data = await run_in_threadpool(render_from_context, context, language=lang)
-    label = _ascii_filename(row.partner_name or row.contract_number)
-    filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
-    return Response(
-        content=data,
-        media_type=_DOCX_MEDIA,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return _docx_response(data, row.contract_number)
 
 
 @router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)
@@ -780,7 +777,7 @@ async def check_uop(
     except CVGeneratorAIError as exc:
         raise HTTPException(
             status_code=503,
-            detail="Sprawdzanie AI jest niedostępne (brak konfiguracji ANTHROPIC_API_KEY).",
+            detail="Sprawdzanie AI jest chwilowo niedostępne — spróbuj ponownie później.",
         ) from exc
     except ValueError as exc:
         raise HTTPException(
