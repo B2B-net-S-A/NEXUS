@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 
 from app.services.cv_generator_b2b.ai_client import (
@@ -24,6 +25,7 @@ from app.services.cv_generator_b2b.ai_client import (
 logger = logging.getLogger(__name__)
 
 _MAX_INPUT_CHARS = 6000
+_DEFAULT_UOP_MODEL = "claude-sonnet-5"
 
 _PROMPT_PL = """Jesteś polskim prawnikiem specjalizującym się w umowach B2B (kontrakt \
 z jednoosobową działalnością gospodarczą). Oceń poniższy „opis projektu i zakres \
@@ -87,13 +89,63 @@ Text to assess:
 
 
 def _extract_json(raw: str) -> dict:
-    """Wyjmij obiekt JSON z odpowiedzi (czasem owinięty w ```json ... ```)."""
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
-    candidate = fenced.group(1) if fenced else raw
-    start, end = candidate.find("{"), candidate.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("no JSON object in AI response")
-    return json.loads(candidate[start : end + 1])
+    """Wyjmij pierwszy kompletny wynik UoP z odpowiedzi Claude.
+
+    Modele czasem dodają prose/code fence albo wstawiają dosłowny znak nowej
+    linii w długim polu ``rewritten``. ``raw_decode`` ignoruje tekst po obiekcie,
+    a drugi przebieg z ``strict=False`` toleruje ten bezpieczny, częsty defekt
+    bez zgadywania lub przepisywania treści analizy.
+    """
+    fenced = re.findall(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    candidates = [*fenced, raw]
+    last_error: ValueError | json.JSONDecodeError | None = None
+
+    for candidate in candidates:
+        for match in re.finditer(r"\{", candidate):
+            for strict in (True, False):
+                try:
+                    value, _end = json.JSONDecoder(strict=strict).raw_decode(
+                        candidate, match.start()
+                    )
+                except json.JSONDecodeError as exc:
+                    last_error = exc
+                    continue
+                if isinstance(value, dict) and "issues" in value:
+                    return value
+                last_error = ValueError("JSON object does not contain issues")
+
+    raise ValueError("no valid UoP JSON object in AI response") from last_error
+
+
+def _normalize_result(data: dict, clean: str) -> dict:
+    """Waliduj i znormalizuj luźny JSON modelu do stabilnego kontraktu API."""
+    raw_issues = data.get("issues")
+    if not isinstance(raw_issues, list):
+        raise ValueError("AI issues field is not a list")
+
+    issues = [
+        {
+            "phrase": str(item.get("phrase", "")),
+            "why": str(item.get("why", "")),
+            "suggestion": str(item.get("suggestion", "")),
+        }
+        for item in raw_issues
+        if isinstance(item, dict)
+    ]
+    return {
+        "ok": len(issues) == 0,
+        "issues": issues,
+        "rewritten": str(data.get("rewritten") or clean),
+        "summary": str(data.get("summary") or ""),
+    }
+
+
+def _uop_model() -> str:
+    """Model UoP niezależny od quality-pinu generatora CV."""
+    return (
+        os.environ.get("UOP_CHECK_MODEL", _DEFAULT_UOP_MODEL).strip()
+        or _DEFAULT_UOP_MODEL
+    )
 
 
 def check_employment_hallmarks(text: str, language: str = "pl") -> dict:
@@ -108,23 +160,32 @@ def check_employment_hallmarks(text: str, language: str = "pl") -> dict:
         return {"ok": True, "issues": [], "rewritten": "", "summary": ""}
     clean = clean[:_MAX_INPUT_CHARS]
     template = _PROMPT_EN if (language or "pl").lower().startswith("en") else _PROMPT_PL
-    raw = analyze_with_ai(template.format(text=clean), request_id="uop-check")
-    data = _extract_json(raw)
-    issues = data.get("issues") or []
-    return {
-        "ok": len(issues) == 0,
-        "issues": [
-            {
-                "phrase": str(i.get("phrase", "")),
-                "why": str(i.get("why", "")),
-                "suggestion": str(i.get("suggestion", "")),
-            }
-            for i in issues
-            if isinstance(i, dict)
-        ],
-        "rewritten": str(data.get("rewritten") or clean),
-        "summary": str(data.get("summary") or ""),
-    }
+    prompt = template.format(text=clean)
+    parse_error: ValueError | None = None
+    for attempt in range(2):
+        retry_instruction = (
+            "\n\nPOPRZEDNIA ODPOWIEDŹ NIE BYŁA POPRAWNYM JSON-em. "
+            "Zwróć ponownie wyłącznie jeden obiekt JSON. Znaki nowej linii "
+            "wewnątrz wartości tekstowych zapisz jako \\n."
+            if attempt
+            else ""
+        )
+        raw = analyze_with_ai(
+            prompt + retry_instruction,
+            request_id="uop-check-retry" if attempt else "uop-check",
+            model_override=_uop_model(),
+        )
+        try:
+            return _normalize_result(_extract_json(raw), clean)
+        except ValueError as exc:
+            parse_error = exc
+            logger.warning(
+                "[uop-check] invalid structured response attempt=%d/2: %s",
+                attempt + 1,
+                exc,
+            )
+
+    raise ValueError("AI returned invalid UoP response twice") from parse_error
 
 
 __all__ = ["check_employment_hallmarks", "CVGeneratorAIError"]

@@ -106,7 +106,9 @@ def _sample_context(
             "role_name": "Backend Software Development",
             "language": lang,
             "scope_items": scope,
-            "start_clause": "z dniem 01.07.2026" if lang == "pl" else "on 01.07.2026",
+            "start_clause": (
+                "z dniem 01.07.2026 roku" if lang == "pl" else "on 01.07.2026"
+            ),
             "partner_instrumental": "Jan Kowalski & Co",
             **gender_forms(gender),
         },
@@ -303,6 +305,67 @@ def test_format_rate_polish_comma():
     assert format_rate(None) is None
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("not_earlier", "nie wcześniej niż 23.07.2026 roku"),
+        ("not_later", "nie później niż 23.07.2026 roku"),
+    ],
+)
+def test_start_mode_is_identical_in_body_and_appendix_3(mode, expected):
+    """Wybrany tryb daty + „roku" trafia do §13 i Załącznika nr 3 w HTML/DOCX."""
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import render_from_context
+    from app.services.b2b_contract_generator.render_context import build_render_context
+
+    req = B2BRenderRequest(
+        language="pl",
+        partner_name="Jan Kowalski",
+        client_name="ACME Bank S.A.",
+        project_city="Warszawa",
+        project_description="Testowanie systemu bankowego.",
+        contract_number="1472/2026",
+        signing_date=date(2026, 7, 23),
+        start_date=date(2026, 7, 23),
+        start_date_mode=mode,
+        rate_candidate=150,
+    )
+    context = build_render_context(req, None)
+    assert context["b2b"]["start_clause"] == expected
+
+    html_path = TEMPLATE_DIR / "umowa_b2b_pl.html"
+    html = _jinja_env.from_string(html_path.read_text(encoding="utf-8")).render(
+        **context
+    )
+    assert html.count(expected) == 2
+
+    data = render_from_context(context, language="pl")
+    document = Document(io.BytesIO(data))
+    docx_text = (
+        "\n".join(p.text for p in document.paragraphs)
+        + "\n"
+        + "\n".join(
+            cell.text
+            for table in document.tables
+            for row in table.rows
+            for cell in row.cells
+        )
+    )
+    assert docx_text.count(expected) == 2
+
+
+def test_english_start_clause_has_no_polish_year_suffix():
+    from app.services.b2b_contract_generator.formatting import start_clause
+
+    assert start_clause(date(2026, 7, 23), "not_earlier", "en") == (
+        "no earlier than 23.07.2026"
+    )
+
+
 def test_render_context_accepts_fractional_rate():
     """Regresja 422: stawka ułamkowa (135.5) renderuje się — kwota „135,50"
     + spójne słownie z groszami w kontekście umowy."""
@@ -472,6 +535,21 @@ def test_validate_contract_number_canonicalizes():
             _validate_contract_number(bad, "1435/2026")
         assert exc.value.status_code == 422
         assert "1435/2026" in exc.value.detail
+
+
+def test_contract_docx_filename_uses_contract_number_and_is_exposed_to_browser():
+    from app.api.b2b_contract_generator import (
+        _contract_docx_filename,
+        _docx_response,
+    )
+
+    assert _contract_docx_filename("1472/2026") == "Umowa B2B 1472-2026.docx"
+    response = _docx_response(b"PK\x03\x04 fake docx", "1472/2026")
+    assert response.headers["Content-Disposition"] == (
+        'attachment; filename="Umowa B2B 1472-2026.docx"'
+    )
+    assert response.headers["X-Contract-Number"] == "1472/2026"
+    assert "Content-Disposition" in response.headers["Access-Control-Expose-Headers"]
 
 
 def test_generated_contract_unique_year_seq_constraint():
