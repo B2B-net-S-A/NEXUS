@@ -122,6 +122,8 @@ def _normalize_result(data: dict, clean: str) -> dict:
     raw_issues = data.get("issues")
     if not isinstance(raw_issues, list):
         raise ValueError("AI issues field is not a list")
+    if any(not isinstance(item, dict) for item in raw_issues):
+        raise ValueError("AI issues field contains a non-object item")
 
     issues = [
         {
@@ -130,7 +132,6 @@ def _normalize_result(data: dict, clean: str) -> dict:
             "suggestion": str(item.get("suggestion", "")),
         }
         for item in raw_issues
-        if isinstance(item, dict)
     ]
     return {
         "ok": len(issues) == 0,
@@ -161,17 +162,18 @@ def check_employment_hallmarks(text: str, language: str = "pl") -> dict:
     clean = clean[:_MAX_INPUT_CHARS]
     template = _PROMPT_EN if (language or "pl").lower().startswith("en") else _PROMPT_PL
     prompt = template.format(text=clean)
+    retry_instruction = (
+        "\n\nPREVIOUS RESPONSE WAS NOT VALID JSON. Return only one JSON object. "
+        "Encode newlines inside string values as \\n."
+        if template is _PROMPT_EN
+        else "\n\nPOPRZEDNIA ODPOWIEDŹ NIE BYŁA POPRAWNYM JSON-em. "
+        "Zwróć ponownie wyłącznie jeden obiekt JSON. Znaki nowej linii "
+        "wewnątrz wartości tekstowych zapisz jako \\n."
+    )
     parse_error: ValueError | None = None
     for attempt in range(2):
-        retry_instruction = (
-            "\n\nPOPRZEDNIA ODPOWIEDŹ NIE BYŁA POPRAWNYM JSON-em. "
-            "Zwróć ponownie wyłącznie jeden obiekt JSON. Znaki nowej linii "
-            "wewnątrz wartości tekstowych zapisz jako \\n."
-            if attempt
-            else ""
-        )
         raw = analyze_with_ai(
-            prompt + retry_instruction,
+            prompt + (retry_instruction if attempt else ""),
             request_id="uop-check-retry" if attempt else "uop-check",
             model_override=_uop_model(),
         )

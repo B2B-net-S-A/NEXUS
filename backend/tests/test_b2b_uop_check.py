@@ -57,6 +57,35 @@ def test_check_uop_retries_once_after_malformed_response(monkeypatch):
     assert "POPRZEDNIA ODPOWIEDŹ" in calls[1]["content"]
 
 
+def test_check_uop_uses_english_retry_instruction(monkeypatch):
+    calls: list[str] = []
+    responses = iter(
+        [
+            "invalid",
+            '{"issues":[],"rewritten":"Independent services.","summary":"OK."}',
+        ]
+    )
+
+    def fake_analyze(content, *args, **kwargs):
+        calls.append(content)
+        return next(responses)
+
+    monkeypatch.setattr(uop_check, "analyze_with_ai", fake_analyze)
+
+    result = uop_check.check_employment_hallmarks(
+        "Independent software testing services.", language="en"
+    )
+
+    assert result["ok"] is True
+    assert "PREVIOUS RESPONSE WAS NOT VALID JSON" in calls[1]
+    assert "POPRZEDNIA ODPOWIEDŹ" not in calls[1]
+
+
+def test_normalize_result_rejects_non_object_issue_items():
+    with pytest.raises(ValueError, match="non-object"):
+        uop_check._normalize_result({"issues": [None, "invalid"]}, "source")
+
+
 def test_check_uop_raises_after_two_malformed_responses(monkeypatch):
     monkeypatch.setattr(uop_check, "analyze_with_ai", lambda *args, **kwargs: "invalid")
 

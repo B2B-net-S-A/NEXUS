@@ -344,7 +344,7 @@ function GeneratedContractsTab() {
       const res = await b2bGeneratorApi.downloadGenerated(r.id);
       const filename = parseDispositionFilename(
         res.headers["content-disposition"] || "",
-        `Umowa B2B ${r.contract_number.replace("/", "-")}.docx`,
+        `Umowa B2B ${r.contract_number.replaceAll("/", "-")}.docx`,
       );
       downloadBlob(res.data as Blob, filename);
     },
@@ -941,7 +941,7 @@ function GeneratorForm() {
       const res = await b2bGeneratorApi.renderDocx(buildPayload(lang));
       const filename = parseDispositionFilename(
         res.headers["content-disposition"] || "",
-        `Umowa B2B ${contractNumber.trim().replace("/", "-")}.docx`,
+        `Umowa B2B ${contractNumber.trim().replaceAll("/", "-")}.docx`,
       );
       downloadBlob(res.data as Blob, filename);
     },
