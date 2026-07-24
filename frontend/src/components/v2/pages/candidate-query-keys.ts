@@ -10,6 +10,8 @@ const candidateId = (id: number | string) => Number(id);
 export const candidateQueryKeys = {
   all: ["candidate"] as const,
   detail: (id: number | string) => ["candidate", candidateId(id)] as const,
+  quickView: (id: number | string) =>
+    ["candidate-quick-view", candidateId(id)] as const,
   risk: (id: number | string) => ["candidate-risk", candidateId(id)] as const,
   history: (id: number | string) =>
     ["candidate-history", candidateId(id)] as const,
@@ -25,6 +27,8 @@ export const candidateQueryKeys = {
     ["candidate-ai-profile", candidateId(id)] as const,
   documents: (id: number | string) =>
     ["candidate-documents", candidateId(id)] as const,
+  cvDocuments: (id: number | string) =>
+    ["candidate-documents", candidateId(id), { kind: "cv" }] as const,
   contracts: (id: number | string) =>
     ["candidate-contracts", candidateId(id)] as const,
   recommendations: (id: number | string, topK: number) =>

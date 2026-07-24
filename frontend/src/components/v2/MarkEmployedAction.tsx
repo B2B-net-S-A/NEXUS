@@ -24,6 +24,7 @@ interface MarkEmployedActionProps {
   employment?: EmploymentInfo | null;
   size?: "sm" | "md";
   variant?: "primary" | "outline" | "ghost";
+  className?: string;
   /** Fired after a successful mark, so the host can refetch its own data. */
   onMarked?: () => void;
 }
@@ -42,6 +43,7 @@ export function MarkEmployedAction({
   employment,
   size = "sm",
   variant = "outline",
+  className,
   onMarked,
 }: MarkEmployedActionProps) {
   const queryClient = useQueryClient();
@@ -72,6 +74,9 @@ export function MarkEmployedAction({
       queryClient.invalidateQueries({
         queryKey: candidateQueryKeys.detail(candidateId),
       });
+      queryClient.invalidateQueries({
+        queryKey: candidateQueryKeys.quickView(candidateId),
+      });
       queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
       onMarked?.();
     },
@@ -85,7 +90,7 @@ export function MarkEmployedAction({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size={size} variant={variant}>
+        <Button size={size} variant={variant} className={className}>
           <BriefcaseBusiness className="h-4 w-4" />
           Oznacz jako zatrudnionego
         </Button>
