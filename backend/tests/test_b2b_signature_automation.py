@@ -673,9 +673,8 @@ async def test_confirm_links_existing_ready_contract_and_lists_contractor(
 async def test_confirm_reuses_pipeline_placeholder_and_replaces_only_its_defaults(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    scenario = await _seed_bound_scenario(
-        created_by=await _current_admin_id(app_client)
-    )
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
     async with AsyncSessionLocal() as db:
         placeholder = Contract(
             candidate_id=scenario["candidate_id"],
@@ -690,6 +689,19 @@ async def test_confirm_reuses_pipeline_placeholder_and_replaces_only_its_default
             currency="PLN",
         )
         db.add(placeholder)
+        await db.flush()
+        db.add(
+            Activity(
+                entity_type="contract",
+                entity_id=placeholder.id,
+                action="auto_drafted_from_pipeline",
+                user_id=admin_id,
+                details={
+                    "candidate_id": scenario["candidate_id"],
+                    "job_id": scenario["job_id"],
+                },
+            )
+        )
         generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
         assert generated is not None
         generated.render_payload = {
@@ -717,6 +729,52 @@ async def test_confirm_reuses_pipeline_placeholder_and_replaces_only_its_default
         assert contract.rate_candidate == Decimal("150.500")
         assert contract.rate_unit == RateUnit.hourly
         assert contract.currency == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_confirm_never_overwrites_incomplete_manual_draft_terms(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        manual_draft = Contract(
+            candidate_id=scenario["candidate_id"],
+            client_id=scenario["client_id"],
+            job_id=scenario["job_id"],
+            contract_type=ContractType.b2b,
+            status=ContractStatus.draft,
+            start_date=date(2026, 9, 1),
+            rate_candidate=None,
+            rate_client=None,
+            rate_unit=RateUnit.monthly,
+            currency="EUR",
+        )
+        db.add(manual_draft)
+        await db.commit()
+        await db.refresh(manual_draft)
+        manual_draft_id = manual_draft.id
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 409, response.text
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        1,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, manual_draft_id)
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert contract is not None
+        assert contract.start_date == date(2026, 9, 1)
+        assert contract.rate_candidate is None
+        assert contract.rate_unit == RateUnit.monthly
+        assert contract.currency == "EUR"
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+        assert generated.contract_id is None
 
 
 @pytest.mark.asyncio

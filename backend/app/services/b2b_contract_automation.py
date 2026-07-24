@@ -87,8 +87,10 @@ def _raise_conflict(contract: Contract, details: list[str]) -> None:
     )
 
 
-def _is_skeletal_pipeline_draft(
-    contract: Contract, detail: B2BContractDetail | None
+async def _is_skeletal_pipeline_draft(
+    db: AsyncSession,
+    contract: Contract,
+    detail: B2BContractDetail | None,
 ) -> bool:
     """Recognize the placeholder draft created by the hired-stage hook.
 
@@ -98,7 +100,7 @@ def _is_skeletal_pipeline_draft(
     a later signed document look conflicting.
     """
 
-    return (
+    has_skeletal_shape = (
         contract.status == ContractStatus.draft
         and detail is None
         and contract.rate_candidate is None
@@ -106,6 +108,23 @@ def _is_skeletal_pipeline_draft(
         and not contract.candidate_rate_schedule
         and contract.draft_content_html is None
     )
+    if not has_skeletal_shape:
+        return False
+
+    # Shape alone is not evidence of origin: a user may intentionally save an
+    # incomplete manual draft with a negotiated date or currency. Only the
+    # durable audit written by the hired-stage hook authorizes replacing its
+    # placeholder defaults from the signed document.
+    origin_activity_id = await db.scalar(
+        select(Activity.id)
+        .where(
+            Activity.entity_type == "contract",
+            Activity.entity_id == contract.id,
+            Activity.action == "auto_drafted_from_pipeline",
+        )
+        .limit(1)
+    )
+    return origin_activity_id is not None
 
 
 def _assert_compatible_terms(
@@ -115,14 +134,14 @@ def _assert_compatible_terms(
     *,
     signing_date: date | None,
     language: str | None,
+    skeletal_pipeline_draft: bool,
 ) -> None:
     """Reject only material conflicts where both sides already carry a value."""
 
     conflicts: list[str] = []
-    skeletal_draft = _is_skeletal_pipeline_draft(contract, detail)
     start_date = _payload_value(payload, "start_date")
     if (
-        not skeletal_draft
+        not skeletal_pipeline_draft
         and contract.start_date is not None
         and start_date is not None
     ):
@@ -136,7 +155,7 @@ def _assert_compatible_terms(
 
     currency = (_payload_value(payload, "currency") or "").strip().upper()
     if (
-        not skeletal_draft
+        not skeletal_pipeline_draft
         and contract.currency
         and currency
         and contract.currency.upper() != currency
@@ -144,7 +163,7 @@ def _assert_compatible_terms(
         conflicts.append("waluta")
 
     if (
-        not skeletal_draft
+        not skeletal_pipeline_draft
         and contract.rate_unit
         and contract.rate_unit != RateUnit.hourly
     ):
@@ -568,6 +587,7 @@ async def ensure_b2b_employment_draft(
         )
 
     created_contract = not contracts
+    skeletal_pipeline_draft = False
     if created_contract:
         contract = Contract(
             candidate_id=candidate.id,
@@ -587,6 +607,11 @@ async def ensure_b2b_employment_draft(
     else:
         contract = contracts[0]
         existing_detail = contract.b2b_detail
+        skeletal_pipeline_draft = await _is_skeletal_pipeline_draft(
+            db,
+            contract,
+            existing_detail,
+        )
         if contract.status not in allowed_statuses:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -646,6 +671,7 @@ async def ensure_b2b_employment_draft(
                 payload,
                 signing_date=signing_date,
                 language=language,
+                skeletal_pipeline_draft=skeletal_pipeline_draft,
             )
 
     if require_b2b:
@@ -653,8 +679,7 @@ async def ensure_b2b_employment_draft(
             contract,
             payload,
             replace_skeletal_defaults=(
-                not created_contract
-                and _is_skeletal_pipeline_draft(contract, existing_detail)
+                not created_contract and skeletal_pipeline_draft
             ),
         )
         _seed_candidate_rate_schedule(contract, payload, actor_id=actor_id)
