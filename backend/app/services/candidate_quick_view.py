@@ -147,10 +147,12 @@ def resolve_current_position(candidate: Candidate) -> dict[str, Optional[str]]:
     ]
     if current_rows:
         current_rows.sort(
-            key=lambda row: _parse_started_at(
-                row.get("start") or row.get("start_date") or row.get("from")
-            )[0]
-            or "",
+            key=lambda row: (
+                _parse_started_at(
+                    row.get("start") or row.get("start_date") or row.get("from")
+                )[0]
+                or ""
+            ),
             reverse=True,
         )
         row = current_rows[0]
