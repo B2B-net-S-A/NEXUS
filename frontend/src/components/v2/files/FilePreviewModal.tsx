@@ -12,8 +12,16 @@
  * backendu), więc bez problemów CORS z bucketem Hetzner Object Storage.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Download, FileText, Loader2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileText,
+  Loader2,
+  X,
+} from "lucide-react";
 
 import {
   Dialog,
@@ -28,6 +36,7 @@ export interface CandidateDocument {
   filename: string;
   content_type: string | null;
   size_bytes: number | null;
+  document_kind: "cv" | "cover_letter" | "certificate" | "other";
   is_primary: boolean;
   uploaded_at: string | null;
   external_source: string | null;
@@ -306,27 +315,119 @@ export function FilePreviewContent({
 // Body wydzielone do `FilePreviewContent`, by ten sam podgląd działał inline.
 export function FilePreviewModal({
   doc,
+  documents,
+  initialDocumentId,
   candidateId,
   onClose,
   onDownload,
 }: {
-  doc: CandidateDocument | null;
+  doc?: CandidateDocument | null;
+  documents?: CandidateDocument[];
+  initialDocumentId?: number | null;
   candidateId: number;
   onClose: () => void;
   onDownload: (doc: CandidateDocument) => void;
 }) {
+  const gallery = useMemo(() => {
+    if (documents?.length) {
+      return [...documents].sort((left, right) => {
+        if (left.is_primary !== right.is_primary) return left.is_primary ? -1 : 1;
+        const leftDate = left.uploaded_at ?? left.created_at;
+        const rightDate = right.uploaded_at ?? right.created_at;
+        return rightDate.localeCompare(leftDate);
+      });
+    }
+    return doc ? [doc] : [];
+  }, [doc, documents]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const galleryLabel = gallery.every(
+    (candidateDocument) => candidateDocument.document_kind === "cv",
+  )
+    ? "CV"
+    : "Dokument";
+  const open =
+    gallery.length > 0 &&
+    (documents ? initialDocumentId != null : doc != null);
+
+  useEffect(() => {
+    if (!open) {
+      setActiveIndex(0);
+      return;
+    }
+    const requestedId = initialDocumentId ?? doc?.id;
+    const requestedIndex = requestedId
+      ? gallery.findIndex((candidateDoc) => candidateDoc.id === requestedId)
+      : -1;
+    setActiveIndex(requestedIndex >= 0 ? requestedIndex : 0);
+  }, [doc?.id, gallery, initialDocumentId, open]);
+
+  useEffect(() => {
+    if (!open || gallery.length <= 1) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setActiveIndex((index) => Math.max(0, index - 1));
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setActiveIndex((index) => Math.min(gallery.length - 1, index + 1));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [gallery.length, open]);
+
+  const activeDocument = gallery[activeIndex] ?? null;
+
   return (
-    <Dialog open={!!doc} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent size="full" className="h-[92vh] p-0 gap-0" hideClose>
         <DialogHeader className="flex-row items-center justify-between gap-3 py-3 pr-3">
-          <DialogTitle className="min-w-0 truncate text-base font-semibold">
-            {doc?.filename ?? "Podgląd pliku"}
-          </DialogTitle>
+          <div className="min-w-0">
+            <DialogTitle className="truncate text-base font-semibold">
+              {activeDocument?.filename ?? "Podgląd CV"}
+            </DialogTitle>
+            <p
+              className="mt-0.5 text-xs tabular-nums text-muted-foreground"
+              aria-live="polite"
+            >
+              {galleryLabel} {activeIndex + 1} z {gallery.length}
+            </p>
+          </div>
           <div className="flex shrink-0 items-center gap-2">
-            {doc && (
+            <div
+              className="inline-flex items-center rounded-md border border-border"
+              aria-label="Nawigacja między dokumentami CV"
+            >
               <button
                 type="button"
-                onClick={() => onDownload(doc)}
+                onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}
+                disabled={activeIndex === 0}
+                className="rounded-l-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Poprzednie CV"
+                aria-keyshortcuts="ArrowLeft"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveIndex((index) =>
+                    Math.min(gallery.length - 1, index + 1),
+                  )
+                }
+                disabled={activeIndex >= gallery.length - 1}
+                className="rounded-r-md border-l border-border p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Następne CV"
+                aria-keyshortcuts="ArrowRight"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+            {activeDocument && (
+              <button
+                type="button"
+                onClick={() => onDownload(activeDocument)}
                 className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
                 title="Pobierz plik na dysk"
               >
@@ -338,7 +439,7 @@ export function FilePreviewModal({
               type="button"
               onClick={onClose}
               className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
-              aria-label="Zamknij"
+              aria-label="Zamknij podgląd dokumentu"
             >
               <X className="h-4 w-4" />
             </button>
@@ -346,7 +447,7 @@ export function FilePreviewModal({
         </DialogHeader>
 
         <FilePreviewContent
-          doc={doc}
+          doc={activeDocument}
           candidateId={candidateId}
           onDownload={onDownload}
           className="flex-1 min-h-0"
