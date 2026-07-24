@@ -4,6 +4,8 @@ from datetime import date
 from types import SimpleNamespace
 
 from app.services.candidate_quick_view import (
+    format_quick_view_location,
+    format_quick_view_note_content,
     format_cv_highlight_bullets,
     resolve_current_position,
     resolve_cv_highlights,
@@ -85,6 +87,27 @@ def test_source_hides_invite_token_prefix():
         external_source="manual",
     )
     assert resolve_source(candidate)["acquisition_source"] == "Formularz aplikacyjny"
+
+
+def test_quick_view_location_formats_traffit_blob_without_duplicate_regions():
+    raw = (
+        '{"locality":"Gdańsk","region1":"Pomorskie","region2":"Gdańsk",'
+        '"region3":"Gdańsk","postcode":"80-001","country":"Polska"}'
+    )
+
+    assert format_quick_view_location(raw) == "Gdańsk, Pomorskie, Polska"
+    assert format_quick_view_location("{broken", city="Warszawa") == "Warszawa"
+
+
+def test_quick_view_note_flattens_traffit_json_html_and_resolves_mentions():
+    raw = (
+        '{"content":"<div><p>Kontakt $$user_23$$ &amp; kandydat</p></div>",'
+        '"state":{"id":23,"name":"Screening"}}'
+    )
+
+    assert format_quick_view_note_content(raw, {"23": "Anna Kowalska"}) == (
+        "Kontakt @Anna Kowalska & kandydat"
+    )
 
 
 def test_cv_highlights_ignore_unproven_ai_summary():

@@ -2726,6 +2726,8 @@ async def get_candidate_quick_view(
     """
 
     from app.services.candidate_quick_view import (
+        format_quick_view_location,
+        format_quick_view_note_content,
         resolve_current_position,
         resolve_cv_highlights,
         resolve_source,
@@ -2835,7 +2837,7 @@ async def get_candidate_quick_view(
     recent_notes = [
         CandidateQuickViewNote(
             id=note.id,
-            content=render_traffit_mentions(note.content, mention_labels),
+            content=format_quick_view_note_content(note.content, mention_labels),
             created_at=note.created_at,
             author_name=author_name,
         )
@@ -2850,7 +2852,10 @@ async def get_candidate_quick_view(
             email=candidate.email,
             phone=candidate.phone,
             city=candidate.city,
-            location=candidate.location,
+            location=format_quick_view_location(
+                candidate.location,
+                city=candidate.city,
+            ),
             status=candidate.status,
             employment=_derive_employment(candidate),
             competence_category_id=candidate.competence_category_id,

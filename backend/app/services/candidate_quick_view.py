@@ -7,11 +7,14 @@ highlights in one unit-testable place.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime
 from typing import Any, Optional
 
 from app.models.candidate import Candidate
+from app.services.note_mention_render import render_traffit_mentions
+from app.services.text_cleaning import clean_rich_text
 
 _SOURCE_LABELS = {
     "linkedin": "LinkedIn",
@@ -30,6 +33,14 @@ _SOURCE_LABELS = {
 }
 
 _CV_SOURCE_PREFIXES = ("claude:", "ollama:", "regex")
+_LOCATION_LABEL_KEYS = (
+    "locality",
+    "city",
+    "region3",
+    "region2",
+    "region1",
+    "country",
+)
 _SECTOR_LABELS = {
     "banking": "Bankowość",
     "bankowość": "Bankowość",
@@ -61,6 +72,50 @@ def _label_source(value: Any) -> Optional[str]:
     if cleaned.casefold().startswith("invite_link:"):
         return "Formularz aplikacyjny"
     return _SOURCE_LABELS.get(cleaned.casefold(), cleaned)
+
+
+def format_quick_view_location(
+    value: Any,
+    *,
+    city: Any = None,
+) -> Optional[str]:
+    """Return a readable location and never leak a Traffit JSON blob."""
+
+    fallback = _clean_text(city)
+    data: Any = value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return fallback
+        if not stripped.startswith("{"):
+            return _clean_text(stripped) or fallback
+        try:
+            data = json.loads(stripped)
+        except (TypeError, ValueError):
+            return fallback
+
+    if not isinstance(data, dict):
+        return fallback
+
+    labels: list[str] = []
+    seen: set[str] = set()
+    for key in _LOCATION_LABEL_KEYS:
+        label = _clean_text(data.get(key), limit=120)
+        if not label or label.casefold() in seen:
+            continue
+        seen.add(label.casefold())
+        labels.append(label)
+    return ", ".join(labels) or fallback
+
+
+def format_quick_view_note_content(
+    content: Optional[str],
+    mention_labels: dict[str, str],
+) -> str:
+    """Flatten imported JSON/HTML notes after resolving Traffit mentions."""
+
+    rendered = render_traffit_mentions(content, mention_labels)
+    return clean_rich_text(rendered)
 
 
 def resolve_source(candidate: Candidate) -> dict[str, Optional[str]]:
