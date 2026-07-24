@@ -112,7 +112,6 @@ from app.api.candidate_access import (
     CandidateFinanceAccess,
     CandidatePIIAccess,
     CandidateSearchAccess,
-    CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
     CANDIDATE_WRITE_ROLES,
     privacy_workflow_unavailable,
