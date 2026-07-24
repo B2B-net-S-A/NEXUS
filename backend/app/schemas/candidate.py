@@ -543,7 +543,7 @@ class CandidateFromCVResponse(BaseModel):
     candidate: CandidateResponse
     confidence: dict[str, float] = Field(default_factory=dict)
     duplicates: list[CandidateFromCVDuplicate] = Field(default_factory=list)
-    source: Optional[str] = None  # e.g. "claude:cv_enrichment:v4"
+    source: Optional[str] = None  # e.g. "claude:cv_enrichment:v5"
 
 
 class CandidateFromCVConflictResponse(BaseModel):
