@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.models.candidate import Candidate
+from app.services.candidate_quick_view import format_cv_highlight_bullets
 
 _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
 
@@ -84,7 +85,13 @@ def _apply_cv_contact_fields(
             candidate.location = city_value[:255]
 
 
-def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
+def _apply_cv_enrichment(
+    candidate: Candidate,
+    parsed: dict,
+    *,
+    source_document_id: int | None = None,
+    source_hash: str | None = None,
+) -> int:
     """Pure function: mutate `candidate` fields from a `parse_cv()` result.
 
     Returns the number of companies that were written into `experience`
@@ -116,8 +123,6 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
         candidate.education = parsed["education"]
     if parsed.get("languages"):
         candidate.languages = parsed["languages"]
-    if parsed.get("career_summary"):
-        candidate.ai_summary = parsed["career_summary"]
     # Only backfill LinkedIn URL when the recruiter hasn't set one manually —
     # we never want to clobber a curated value with a noisy regex hit.
     if parsed.get("linkedin_url") and not candidate.linkedin:
@@ -130,7 +135,28 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
     # v4: contact fields — only backfill empty slots, honour manual overrides.
     _apply_cv_contact_fields(candidate, parsed, existing_extracted)
 
+    generated_at = datetime.now(timezone.utc)
+    cv_highlights = {
+        "profile": parsed.get("professional_profile") or parsed.get("career_summary"),
+        "years_experience": parsed.get("years_it_experience"),
+        "current_role": parsed.get("current_position"),
+        "current_role_started_at": parsed.get("current_position_started_at"),
+        "current_role_started_at_precision": parsed.get(
+            "current_position_started_at_precision", "unknown"
+        ),
+        "technologies": list(parsed.get("technologies") or [])[:8],
+        "sectors": list(parsed.get("sectors") or [])[:4],
+        "source_document_id": source_document_id,
+        "source_hash": source_hash,
+        "extractor_version": parsed.get("_source"),
+        "generated_at": generated_at.isoformat(),
+    }
+    bullets = format_cv_highlight_bullets(cv_highlights)
+    if bullets:
+        candidate.ai_summary = "\n".join(bullets)
+
     next_extracted = dict(parsed)
+    next_extracted["cv_highlights"] = cv_highlights
     if manual_override:
         next_extracted["_manual_override_experience"] = True
     # Preserve any per-field manual overrides already recorded.
@@ -164,5 +190,5 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
         ]
         written = len(companies)
 
-    candidate.cv_parsed_at = datetime.now(timezone.utc)
+    candidate.cv_parsed_at = generated_at
     return written

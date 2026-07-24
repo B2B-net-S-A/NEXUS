@@ -20,13 +20,14 @@ functional API — the full frontend review queue is a follow-up.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
@@ -38,7 +39,7 @@ from app.models.application_submission import (
     ApplicationSubmissionStatus,
 )
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.candidate_document import CandidateDocument
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
 logger = logging.getLogger(__name__)
@@ -108,31 +109,62 @@ async def _load_submission_cv_bytes(
 
 
 async def _attach_cv_as_document(
-    db: AsyncSession, candidate_id: int, submission: ApplicationSubmission
-) -> None:
+    db: AsyncSession,
+    candidate_id: int,
+    submission: ApplicationSubmission,
+    *,
+    is_primary: bool = False,
+) -> Optional[CandidateDocument]:
     """Attach the submission CV to a candidate as a (non-primary) document.
 
     Reuses the object-storage key when present (no re-upload); otherwise stores
     the BYTEA fallback. Never touches the candidate's primary CV fields.
     """
     if not submission.cv_filename:
-        return
-    file_bytes: Optional[bytes] = None
-    if not submission.cv_object_key:
-        file_bytes = await _load_submission_cv_bytes(submission)
-    db.add(
-        CandidateDocument(
-            candidate_id=candidate_id,
-            filename=submission.cv_filename,
-            file_content=file_bytes,
-            storage_key=submission.cv_object_key,
-            content_type=submission.cv_content_type,
-            size_bytes=submission.cv_size_bytes,
-            is_primary=False,
-            uploaded_at=datetime.now(timezone.utc),
-            external_source="apply_submission",
+        return None
+    file_bytes = await _load_submission_cv_bytes(submission)
+    content_hash = hashlib.sha256(file_bytes).hexdigest() if file_bytes else None
+    existing = (
+        await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.content_sha256 == content_hash,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
         )
+        if content_hash
+        else None
     )
+    if is_primary:
+        await db.execute(
+            update(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+            .values(is_primary=False)
+        )
+    document = existing or CandidateDocument(
+        candidate_id=candidate_id,
+        filename=submission.cv_filename,
+        file_content=file_bytes if not submission.cv_object_key else None,
+        storage_key=submission.cv_object_key,
+        content_type=submission.cv_content_type,
+        size_bytes=submission.cv_size_bytes,
+        document_kind=CandidateDocumentKind.cv,
+        is_primary=is_primary,
+        uploaded_at=datetime.now(timezone.utc),
+        external_source="apply_submission",
+        content_sha256=content_hash,
+    )
+    document.document_kind = CandidateDocumentKind.cv
+    if is_primary or existing is None:
+        document.is_primary = is_primary
+    if existing is None:
+        db.add(document)
+    await db.flush()
+    return document
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -170,6 +202,7 @@ async def list_application_submissions(
 async def resolve_application_submission(
     submission_id: int,
     payload: ResolveRequest,
+    background_tasks: BackgroundTasks,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ResolveResponse:
@@ -199,6 +232,7 @@ async def resolve_application_submission(
 
     action = payload.action
     resolved_candidate_id: Optional[int] = None
+    primary_document: Optional[CandidateDocument] = None
 
     if action == "reject":
         submission.status = ApplicationSubmissionStatus.rejected.value
@@ -225,12 +259,12 @@ async def resolve_application_submission(
                 candidate.linkedin = submission.submitted_linkedin
             if submission.submitted_message:
                 prefix = (
-                    candidate.ai_summary.strip() + "\n\n"
-                    if candidate.ai_summary
+                    candidate.profile_about.strip() + "\n\n"
+                    if candidate.profile_about
                     else ""
                 )
                 stamp = datetime.now(timezone.utc).date().isoformat()
-                candidate.ai_summary = (
+                candidate.profile_about = (
                     f"{prefix}[{stamp}] {submission.submitted_message.strip()}"
                 )
             submission.status = ApplicationSubmissionStatus.merged.value
@@ -261,7 +295,7 @@ async def resolve_application_submission(
             source="apply_submission",
             status=CandidateStatus.active,
             created_by=current_user.id,
-            ai_summary=submission.submitted_message,
+            profile_about=submission.submitted_message,
             cv_filename=submission.cv_filename,
             cv_storage_key=submission.cv_object_key,
             cv_file_content=(
@@ -271,6 +305,12 @@ async def resolve_application_submission(
         )
         db.add(candidate)
         await db.flush()
+        primary_document = await _attach_cv_as_document(
+            db,
+            candidate.id,
+            submission,
+            is_primary=True,
+        )
         if submission.job_id is not None:
             db.add(
                 CandidateStage(
@@ -317,6 +357,15 @@ async def resolve_application_submission(
         )
 
     await db.commit()
+    if primary_document is not None:
+        from app.api.candidates import _enrich_candidate_from_document_task
+
+        background_tasks.add_task(
+            _enrich_candidate_from_document_task,
+            resolved_candidate_id,
+            primary_document.id,
+            primary_document.content_sha256,
+        )
 
     return ResolveResponse(
         id=submission.id,

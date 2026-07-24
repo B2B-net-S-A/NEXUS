@@ -2,9 +2,11 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal, Optional
 import asyncio
+import hashlib
 import io
 import logging
 import re
+import tempfile
 import zipfile
 import aiofiles
 import os
@@ -35,6 +37,7 @@ from sqlalchemy import (
     or_,
     select,
     text,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -44,7 +47,10 @@ from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
-from app.models.candidate_document import CandidateDocument
+from app.models.candidate_document import (
+    CandidateDocument,
+    CandidateDocumentKind,
+)
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.activity import Activity
@@ -62,6 +68,7 @@ from app.schemas.candidate import (
     CandidateCreate,
     CandidateCvHighlights,
     CandidateDocumentOut,
+    CandidateDocumentUpdate,
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
     CandidateFromCVDuplicate,
@@ -112,6 +119,7 @@ from app.api.candidate_access import (
     CandidateFinanceAccess,
     CandidatePIIAccess,
     CandidateSearchAccess,
+    CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
     CANDIDATE_WRITE_ROLES,
     privacy_workflow_unavailable,
@@ -3529,6 +3537,7 @@ async def list_candidate_documents(
     candidate_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    document_kind: Optional[CandidateDocumentKind] = Query(default=None, alias="kind"),
 ):
     """List wszystkich plików kandydata (multi-file CV, Faza A migracji
     Traffit). Primary plik jest pierwszy w response (sortowanie po
@@ -3543,16 +3552,88 @@ async def list_candidate_documents(
     if cand is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
+    stmt = select(CandidateDocument).where(
+        CandidateDocument.candidate_id == candidate_id,
+        CandidateDocument.source_deleted_at.is_(None),
+    )
+    if document_kind is not None:
+        stmt = stmt.where(CandidateDocument.document_kind == document_kind)
     result = await db.execute(
-        select(CandidateDocument)
-        .where(CandidateDocument.candidate_id == candidate_id)
-        .order_by(
+        stmt.order_by(
             CandidateDocument.is_primary.desc(),
             CandidateDocument.uploaded_at.desc().nulls_last(),
             CandidateDocument.created_at.desc(),
         )
     )
     return list(result.scalars().all())
+
+
+@router.patch(
+    "/{candidate_id}/documents/{doc_id}",
+    response_model=CandidateDocumentOut,
+)
+async def update_candidate_document(
+    candidate_id: int,
+    doc_id: int,
+    payload: CandidateDocumentUpdate,
+    background_tasks: BackgroundTasks,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Classify a candidate attachment and/or set the active primary CV."""
+
+    await db.execute(
+        select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+    )
+    doc = (
+        await db.execute(
+            select(CandidateDocument).where(
+                CandidateDocument.id == doc_id,
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if payload.document_kind is not None:
+        doc.document_kind = CandidateDocumentKind(payload.document_kind)
+        if doc.document_kind != CandidateDocumentKind.cv:
+            doc.is_primary = False
+
+    if payload.is_primary is True:
+        if doc.document_kind != CandidateDocumentKind.cv:
+            raise HTTPException(
+                status_code=422,
+                detail="Only a document classified as CV can be primary",
+            )
+        await db.execute(
+            update(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.id != doc_id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+            .values(is_primary=False)
+        )
+        doc.is_primary = True
+    elif payload.is_primary is False:
+        doc.is_primary = False
+
+    await db.commit()
+    await db.refresh(doc)
+
+    if payload.is_primary is True:
+        background_tasks.add_task(
+            _enrich_candidate_from_document_task,
+            candidate_id,
+            doc_id,
+            doc.content_sha256,
+        )
+
+    return doc
 
 
 @router.get("/{candidate_id}/documents/{doc_id}/content")
@@ -3576,6 +3657,7 @@ async def download_candidate_document(
         select(CandidateDocument).where(
             CandidateDocument.id == doc_id,
             CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.source_deleted_at.is_(None),
         )
     )
     doc = result.scalar_one_or_none()
@@ -3670,6 +3752,7 @@ async def get_candidate_document_url(
         select(CandidateDocument).where(
             CandidateDocument.id == doc_id,
             CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.source_deleted_at.is_(None),
         )
     )
     doc = result.scalar_one_or_none()
@@ -3917,7 +4000,198 @@ async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> Non
         logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, e)
 
 
-async def _enrich_candidate_cv_task(candidate_id: int) -> None:
+async def _store_candidate_cv_document(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    filename: str,
+    content: bytes,
+    content_type: Optional[str],
+    external_source: str,
+    is_primary: bool = True,
+) -> CandidateDocument:
+    """Persist one CV version with content-level deduplication."""
+
+    digest = hashlib.sha256(content).hexdigest()
+    if is_primary:
+        await db.execute(
+            select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+        )
+    existing = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.content_sha256 == digest,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if is_primary:
+        await db.execute(
+            update(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+            .values(is_primary=False)
+        )
+    if existing is not None:
+        existing.document_kind = CandidateDocumentKind.cv
+        existing.is_primary = is_primary
+        existing.filename = filename[:500]
+        existing.content_type = content_type or None
+        existing.size_bytes = len(content)
+        existing.uploaded_at = datetime.now(timezone.utc)
+        await db.flush()
+        return existing
+
+    storage_key: Optional[str] = None
+    file_content: Optional[bytes] = content
+    try:
+        from app.services.object_storage import (
+            is_available as object_storage_available,
+            upload_cv as upload_cv_to_storage,
+        )
+
+        if object_storage_available():
+            storage_key = await asyncio.to_thread(
+                upload_cv_to_storage,
+                content=content,
+                filename=filename[:500],
+                content_type=(content_type or None),
+            )
+            file_content = None
+    except Exception as exc:  # pragma: no cover - storage fallback
+        logger.warning(
+            "[candidate_documents] storage upload failed candidate=%s: %s",
+            candidate_id,
+            exc,
+        )
+
+    document = CandidateDocument(
+        candidate_id=candidate_id,
+        filename=filename[:500],
+        file_content=file_content,
+        storage_key=storage_key,
+        content_type=(content_type or None),
+        size_bytes=len(content),
+        document_kind=CandidateDocumentKind.cv,
+        is_primary=is_primary,
+        uploaded_at=datetime.now(timezone.utc),
+        external_source=external_source,
+        content_sha256=digest,
+    )
+    db.add(document)
+    await db.flush()
+    return document
+
+
+async def _candidate_document_bytes(
+    db: AsyncSession, document: CandidateDocument
+) -> bytes:
+    if document.storage_key:
+        from app.services.object_storage import download_cv, is_available
+
+        if is_available():
+            return await asyncio.to_thread(download_cv, document.storage_key)
+    await db.refresh(document, attribute_names=["file_content"])
+    return document.file_content or b""
+
+
+async def _enrich_candidate_from_document_task(
+    candidate_id: int,
+    document_id: int,
+    expected_hash: Optional[str] = None,
+) -> None:
+    """Extract and enrich from the still-current primary CV version."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.services import cv_text_extractor
+    from app.services.cv_parser import parse_cv
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    async with AsyncSessionLocal() as db:
+        temp_path: Optional[str] = None
+        try:
+            document = await db.scalar(
+                select(CandidateDocument).where(
+                    CandidateDocument.id == document_id,
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                    CandidateDocument.is_primary.is_(True),
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            candidate = await db.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            if document is None or candidate is None:
+                return
+            if (
+                expected_hash
+                and document.content_sha256
+                and document.content_sha256 != expected_hash
+            ):
+                return
+
+            content = await _candidate_document_bytes(db, document)
+            if not content:
+                return
+            suffix = os.path.splitext(document.filename)[1] or ".bin"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+                handle.write(content)
+                temp_path = handle.name
+            raw_text = await asyncio.to_thread(
+                cv_text_extractor.extract_text,
+                temp_path,
+                document.filename,
+            )
+            if not raw_text:
+                return
+            parsed = await parse_cv(raw_text)
+
+            current_primary = await db.scalar(
+                select(CandidateDocument.id).where(
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                    CandidateDocument.is_primary.is_(True),
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            if current_primary != document_id:
+                return
+
+            candidate.raw_cv_text = raw_text
+            candidate.cv_filename = document.filename
+            _apply_cv_enrichment(
+                candidate,
+                parsed,
+                source_document_id=document.id,
+                source_hash=document.content_sha256,
+            )
+            await db.commit()
+            await mark_stale_for_candidate(db, candidate_id)
+            await db.commit()
+        except Exception as exc:  # pragma: no cover - defensive background task
+            logger.warning(
+                "[cv_enrich] document task failed candidate=%s document=%s: %s",
+                candidate_id,
+                document_id,
+                exc,
+            )
+            await db.rollback()
+        finally:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+
+async def _enrich_candidate_cv_task(
+    candidate_id: int,
+    source_document_id: Optional[int] = None,
+    source_hash: Optional[str] = None,
+) -> None:
     """Background task: parse `raw_cv_text` and fan out to candidate fields.
 
     Runs with a fresh DB session because FastAPI's per-request session is
@@ -3930,6 +4204,25 @@ async def _enrich_candidate_cv_task(candidate_id: int) -> None:
 
     async with AsyncSessionLocal() as db:
         try:
+            if source_document_id is not None:
+                current_primary = (
+                    await db.execute(
+                        select(
+                            CandidateDocument.id,
+                            CandidateDocument.content_sha256,
+                        ).where(
+                            CandidateDocument.candidate_id == candidate_id,
+                            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                            CandidateDocument.is_primary.is_(True),
+                            CandidateDocument.source_deleted_at.is_(None),
+                        )
+                    )
+                ).first()
+                if current_primary is None or current_primary.id != source_document_id:
+                    return
+                if source_hash and current_primary.content_sha256 != source_hash:
+                    return
+
             result = await db.execute(
                 select(Candidate).where(Candidate.id == candidate_id)
             )
@@ -3938,7 +4231,31 @@ async def _enrich_candidate_cv_task(candidate_id: int) -> None:
                 return
 
             parsed = await parse_cv(candidate.raw_cv_text)
-            written = _apply_cv_enrichment(candidate, parsed)
+            if source_document_id is not None:
+                still_primary = (
+                    await db.execute(
+                        select(
+                            CandidateDocument.id,
+                            CandidateDocument.content_sha256,
+                        ).where(
+                            CandidateDocument.candidate_id == candidate_id,
+                            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                            CandidateDocument.is_primary.is_(True),
+                            CandidateDocument.source_deleted_at.is_(None),
+                        )
+                    )
+                ).first()
+                if still_primary is None or still_primary.id != source_document_id:
+                    return
+                if source_hash and still_primary.content_sha256 != source_hash:
+                    return
+
+            written = _apply_cv_enrichment(
+                candidate,
+                parsed,
+                source_document_id=source_document_id,
+                source_hash=source_hash,
+            )
             await db.commit()
 
             # v4: CC auto-classification after enrichment writes skills/summary.
@@ -4097,7 +4414,21 @@ async def create_candidate_from_cv(
         logger.warning("[from-cv] rename failed: %s", e)
     candidate.cv_filename = safe_name
 
-    _apply_cv_enrichment(candidate, parsed)
+    document = await _store_candidate_cv_document(
+        db,
+        candidate_id=candidate.id,
+        filename=safe_name,
+        content=content,
+        content_type=file.content_type,
+        external_source="from_cv",
+        is_primary=True,
+    )
+    _apply_cv_enrichment(
+        candidate,
+        parsed,
+        source_document_id=document.id,
+        source_hash=document.content_sha256,
+    )
 
     activity = Activity(
         entity_type="candidate",
@@ -4242,6 +4573,15 @@ async def upload_cv(
     # `UPLOAD_DIR/candidate_<id>_<cv_filename>`, so any directory components
     # left in cv_filename would re-introduce traversal on read.
     candidate.cv_filename = safe_filename
+    document = await _store_candidate_cv_document(
+        db,
+        candidate_id=candidate_id,
+        filename=safe_filename,
+        content=content,
+        content_type=file.content_type,
+        external_source="manual",
+        is_primary=True,
+    )
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate_id,
@@ -4275,7 +4615,12 @@ async def upload_cv(
     # Phase D4: schedule AI enrichment off the request path. Task runs in a
     # fresh DB session so it survives the response lifecycle.
     if candidate.raw_cv_text:
-        background_tasks.add_task(_enrich_candidate_cv_task, candidate_id)
+        background_tasks.add_task(
+            _enrich_candidate_cv_task,
+            candidate_id,
+            document.id,
+            document.content_sha256,
+        )
 
     # Re-fetch with eager-loaded relations so CandidateResponse can build
     # the derived `employment` field; upload_cv used to return the bare

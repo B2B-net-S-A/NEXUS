@@ -423,7 +423,10 @@ def traffit_employee_to_candidate(
         "linkedin": _trunc(_pick_nonempty(payload.get("linkedin")), 500),
         "location": _trunc(_pick_nonempty(payload.get("candidate_location")), 255),
         "status": normalize_candidate_status(payload.get("status")),
-        "ai_summary": _pick_nonempty(payload.get("candidate_about")),
+        # Traffit ``candidate_about`` is recruiter-authored profile text, not
+        # an AI summary generated from the CV. Keep the two provenance domains
+        # separate so quick-view never labels imported prose as AI.
+        "profile_about": _pick_nonempty(payload.get("candidate_about")),
         "languages": languages,
         "cv_filename": _trunc(cv_filename, 500),
         "cv_extracted_data": custom,
