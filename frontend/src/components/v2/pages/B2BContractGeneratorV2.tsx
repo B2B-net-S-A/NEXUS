@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   CheckCircle2,
   ChevronsUpDown,
+  CircleDashed,
   Download,
   Eye,
+  ExternalLink,
   FileSignature,
   Loader2,
   Mail,
@@ -43,6 +47,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -58,6 +71,7 @@ import api, {
   b2bGeneratorApi,
   extractErrorMsg,
   signingApi,
+  type B2BConfirmFullySignedResult,
   type B2BGeneratedContractRow,
   type B2BGeneratePayload,
   type B2BRenderPayload,
@@ -87,6 +101,38 @@ const NO_ACCESS_DESC =
   "wygenerowane wcześniej umowy nie zostały usunięte, są tylko niewidoczne " +
   "bez uprawnień.";
 
+type ContractConflict = {
+  message: string;
+  contractIds: number[];
+};
+
+function getContractConflict(error: unknown): ContractConflict | null {
+  const response = (
+    error as {
+      response?: {
+        status?: number;
+        data?: { detail?: unknown };
+      };
+    } | null
+  )?.response;
+  if (response?.status !== 409) return null;
+  const detail = response.data?.detail;
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
+    return null;
+  }
+  const message = (detail as { message?: unknown }).message;
+  const rawIds = (detail as { contract_ids?: unknown }).contract_ids;
+  if (typeof message !== "string") return null;
+  return {
+    message,
+    contractIds: Array.isArray(rawIds)
+      ? rawIds.filter(
+          (id): id is number => typeof id === "number" && Number.isFinite(id),
+        )
+      : [],
+  };
+}
+
 type CandidateOption = {
   id: number;
   name: string;
@@ -115,6 +161,7 @@ type CandidateDetail = {
 };
 
 type JobDetail = {
+  client_id?: number | null;
   description?: string | null;
   location?: string | null;
   client_name?: string | null;
@@ -179,6 +226,44 @@ function hasSpecialClauses(clientName: string): boolean {
     n.includes("bik") ||
     n.includes("alior")
   );
+}
+
+export type GeneratedContractMemo = {
+  key: string | null;
+  contractId: number | null;
+  pending: Promise<number> | null;
+};
+
+export function reuseOrGenerateContractId({
+  key,
+  memo,
+  generate,
+}: {
+  key: string;
+  memo: GeneratedContractMemo;
+  generate: (contractId: number | null) => Promise<{ contract_id: number }>;
+}): Promise<number> {
+  if (memo.key === key && memo.pending) return memo.pending;
+
+  if (memo.key !== key) {
+    memo.key = key;
+    memo.contractId = null;
+  }
+  const currentContractId = memo.contractId;
+  const pending = generate(currentContractId)
+    .then((generated) => {
+      if (memo.key === key && memo.pending === pending) {
+        memo.contractId = generated.contract_id;
+      }
+      return generated.contract_id;
+    })
+    .finally(() => {
+      if (memo.key === key && memo.pending === pending) {
+        memo.pending = null;
+      }
+    });
+  memo.pending = pending;
+  return pending;
 }
 
 /** Heurystyczna odmiana imienia i nazwiska do narzędnika („z Panem Janem
@@ -271,7 +356,7 @@ export function B2BContractGeneratorV2() {
 
   return (
     // max-w-6xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
-    // (7 kolumn + 3 akcje: Edytuj / Pobierz / Usuń). Przy 4xl kolumna akcji
+    // (8 kolumn + akcje: status / Edytuj / Pobierz / Usuń). Przy 4xl kolumna akcji
     // wychodziła poza wąski kontener i „Usuń" było ucięte poza ekranem —
     // użytkownik nie widział opcji usunięcia. Szerszy kontener mieści wszystkie
     // akcje w widocznym obszarze.
@@ -319,9 +404,404 @@ export function B2BContractGeneratorV2() {
 
 // ── Zakładka: wygenerowane umowy (numery) ───────────────────────────────────
 
-function GeneratedContractsTab() {
+function ConfirmFullySignedDialog({
+  row,
+  open,
+  onOpenChange,
+  onConfirmed,
+}: {
+  row: B2BGeneratedContractRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirmed: (result: B2BConfirmFullySignedResult) => void;
+}) {
   const toast = useToast();
+  const router = useRouter();
+  const [candidate, setCandidate] = useState<CandidateOption | null>(null);
+  const [candidateOpen, setCandidateOpen] = useState(false);
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [stageId, setStageId] = useState("");
+  const [submitError, setSubmitError] = useState<ContractConflict | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setCandidate(null);
+    setCandidateOpen(false);
+    setCandidateQuery("");
+    setStageId("");
+    setSubmitError(null);
+  }, [open, row.id]);
+
+  const effectiveCandidateId = row.candidate_id ?? candidate?.id ?? null;
+
+  const candidatesQuery = useQuery({
+    queryKey: ["b2b-signature-candidates", candidateQuery],
+    queryFn: async () => {
+      const res = await api.get<CandidateOption[]>("/api/cv-generator/candidates", {
+        params: { q: candidateQuery, limit: 20 },
+      });
+      return res.data;
+    },
+    enabled: open && !row.candidate_id && candidateOpen,
+    staleTime: 30_000,
+  });
+
+  const recruitmentsQuery = useQuery({
+    queryKey: ["b2b-signature-recruitments", effectiveCandidateId],
+    queryFn: async () => {
+      if (!effectiveCandidateId) return [] as RecruitmentOption[];
+      const res = await api.get<RecruitmentOption[]>(
+        `/api/cv-generator/candidates/${effectiveCandidateId}/recruitments`,
+      );
+      return res.data;
+    },
+    enabled: open && !!effectiveCandidateId && !row.job_id,
+    staleTime: 30_000,
+  });
+
+  const selectedRecruitment = useMemo(
+    () =>
+      recruitmentsQuery.data?.find((r) => String(r.stage_id) === stageId) ??
+      null,
+    [recruitmentsQuery.data, stageId],
+  );
+  const effectiveJobId = row.job_id ?? selectedRecruitment?.job_id ?? null;
+
+  const linkedCandidateQuery = useQuery({
+    queryKey: ["b2b-signature-candidate", row.candidate_id],
+    queryFn: async () => {
+      if (!row.candidate_id) return null;
+      const res = await api.get<CandidateDetail>(
+        `/api/candidates/${row.candidate_id}`,
+      );
+      return res.data;
+    },
+    enabled: open && !!row.candidate_id && !row.candidate_name,
+    staleTime: 300_000,
+  });
+
+  const jobQuery = useQuery({
+    queryKey: ["b2b-signature-job", effectiveJobId],
+    queryFn: async () => {
+      if (!effectiveJobId) return null;
+      const res = await api.get<JobDetail & { title?: string | null }>(
+        `/api/jobs/${effectiveJobId}`,
+      );
+      return res.data;
+    },
+    enabled: open && !!effectiveJobId,
+    staleTime: 300_000,
+  });
+
+  const confirmMut = useMutation({
+    onMutate: () => setSubmitError(null),
+    mutationFn: () => {
+      if (!effectiveCandidateId || !effectiveJobId) {
+        throw new Error("Wybierz kandydata i konkretną rekrutację.");
+      }
+      return b2bGeneratorApi.confirmFullySigned(row.id, {
+        candidate_id: effectiveCandidateId,
+        job_id: effectiveJobId,
+      });
+    },
+    onSuccess: (result) => {
+      onConfirmed(result);
+      onOpenChange(false);
+    },
+    onError: (error) => {
+      const conflict = getContractConflict(error);
+      const normalized = conflict ?? {
+        message: extractErrorMsg(error),
+        contractIds: [],
+      };
+      setSubmitError(normalized);
+      if (normalized.contractIds.length > 0) {
+        toast.showActionToast(normalized.message, {
+          actionLabel:
+            normalized.contractIds.length === 1
+              ? "Otwórz kontrakt"
+              : "Otwórz pierwszy kontrakt",
+          onAction: () =>
+            router.push(`/contracts/${normalized.contractIds[0]}`),
+          durationMs: 10_000,
+        });
+      } else {
+        toast.showError(normalized.message);
+      }
+    },
+  });
+
+  const candidateLabel =
+    row.candidate_name ??
+    linkedCandidateQuery.data?.full_name ??
+    candidate?.full_name ??
+    row.partner_name ??
+    "—";
+  const recruitmentLabel =
+    row.job_title ??
+    selectedRecruitment?.job_title ??
+    jobQuery.data?.title ??
+    "—";
+  const canonicalClient =
+    jobQuery.data?.client_name ?? row.canonical_client_name ?? "—";
+  const canonicalClientMismatch =
+    row.client_id !== null &&
+    jobQuery.data?.client_id != null &&
+    row.client_id !== jobQuery.data.client_id;
+  const canConfirm =
+    !!effectiveCandidateId &&
+    !!effectiveJobId &&
+    jobQuery.isSuccess &&
+    !canonicalClientMismatch &&
+    !confirmMut.isPending;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!confirmMut.isPending) onOpenChange(next);
+      }}
+    >
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Potwierdź podpisanie umowy</DialogTitle>
+          <DialogDescription>
+            Umowa {row.contract_number} zostanie oznaczona jako podpisana przez
+            obie strony. To jednokierunkowa, audytowana deklaracja.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody className="space-y-4">
+          {!row.candidate_id ? (
+            <div>
+              <Label className="mb-1.5 block">Kandydat</Label>
+              <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={candidateOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {candidate?.full_name ?? "Wybierz kandydata…"}
+                      </span>
+                    </span>
+                    <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-[--radix-popover-trigger-width] p-0"
+                >
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Szukaj kandydata…"
+                      value={candidateQuery}
+                      onValueChange={setCandidateQuery}
+                    />
+                    <CommandList>
+                      {candidatesQuery.isLoading ? (
+                        <div className="p-3 text-sm text-muted-foreground">
+                          Szukam…
+                        </div>
+                      ) : (
+                        <CommandEmpty>Brak wyników.</CommandEmpty>
+                      )}
+                      <CommandGroup>
+                        {(candidatesQuery.data ?? []).map((item) => (
+                          <CommandItem
+                            key={item.id}
+                            value={String(item.id)}
+                            onSelect={() => {
+                              setCandidate(item);
+                              setStageId("");
+                              setCandidateOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                candidate?.id === item.id
+                                  ? "opacity-100"
+                                  : "opacity-0",
+                              )}
+                            />
+                            <span className="truncate">
+                              {item.full_name}
+                              {item.email ? (
+                                <span className="ml-1 text-xs text-muted-foreground">
+                                  {item.email}
+                                </span>
+                              ) : null}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          ) : null}
+
+          {!row.job_id ? (
+            <div>
+              <Label className="mb-1.5 block">Rekrutacja</Label>
+              <Select
+                value={stageId}
+                onValueChange={setStageId}
+                disabled={!effectiveCandidateId || recruitmentsQuery.isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      effectiveCandidateId
+                        ? "Wybierz konkretną rekrutację…"
+                        : "Najpierw wybierz kandydata"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(recruitmentsQuery.data ?? []).map((item) => (
+                    <SelectItem
+                      key={item.stage_id}
+                      value={String(item.stage_id)}
+                    >
+                      {item.job_title} · {item.stage}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {effectiveCandidateId &&
+              !recruitmentsQuery.isLoading &&
+              (recruitmentsQuery.data?.length ?? 0) === 0 ? (
+                <p className="mt-1.5 text-xs text-destructive">
+                  Kandydat nie ma rekrutacji, którą można powiązać z umową.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <dl className="grid gap-3 rounded-lg border border-border bg-muted/40 p-4 sm:grid-cols-3">
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">
+                Kandydat
+              </dt>
+              <dd className="mt-1 text-sm font-medium text-foreground">
+                {candidateLabel}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">
+                Rekrutacja
+              </dt>
+              <dd className="mt-1 text-sm font-medium text-foreground">
+                {recruitmentLabel}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">
+                Klient kanoniczny
+              </dt>
+              <dd className="mt-1 text-sm font-medium text-foreground">
+                {jobQuery.isLoading
+                  ? "Ładowanie…"
+                  : jobQuery.isError
+                    ? "Nie udało się pobrać"
+                    : canonicalClient}
+              </dd>
+            </div>
+          </dl>
+
+          {jobQuery.isError || canonicalClientMismatch ? (
+            <Alert
+              variant="error"
+              title="Nie można potwierdzić klienta"
+              description={
+                canonicalClientMismatch
+                  ? "Klient zapisany przy umowie nie odpowiada aktualnemu klientowi rekrutacji. Otwórz rekord i wyjaśnij powiązanie."
+                  : "Nie udało się pobrać aktualnych danych rekrutacji. Odśwież widok i spróbuj ponownie."
+              }
+            />
+          ) : null}
+
+          <Alert
+            variant="warning"
+            title="To nie jest walidacja podpisu elektronicznego"
+            description="Potwierdzenie zapisze autora i czas deklaracji, ale nie utworzy pliku podpisanej umowy ani wpisu QES."
+          />
+
+          {submitError ? (
+            <Alert variant="error" title="Nie można zakończyć automatyzacji">
+              <p className="mt-0.5 text-xs opacity-90">{submitError.message}</p>
+              {submitError.contractIds.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {submitError.contractIds.map((contractId) => (
+                    <Link
+                      key={contractId}
+                      href={`/contracts/${contractId}`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold underline underline-offset-2"
+                    >
+                      Kontrakt #{contractId}
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+            </Alert>
+          ) : null}
+
+          <div className="rounded-lg border border-border p-4">
+            <p className="text-sm font-medium text-foreground">
+              System wykona atomowo:
+            </p>
+            <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
+              <li>• utworzy albo powiąże istniejącego kontraktora,</li>
+              <li>• zapewni szkic zamówienia klienta,</li>
+              <li>• ustawi etap kandydata na „Zatrudniony”,</li>
+              <li>• zapisze pełny ślad audytowy.</li>
+            </ul>
+          </div>
+        </DialogBody>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={confirmMut.isPending}
+            onClick={() => onOpenChange(false)}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!canConfirm}
+            onClick={() => confirmMut.mutate()}
+          >
+            {confirmMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            Potwierdź podpisanie
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function GeneratedContractsTab() {
+  const toast = useToast();
+  const router = useRouter();
   const queryClient = useQueryClient();
+  const [signatureRow, setSignatureRow] =
+    useState<B2BGeneratedContractRow | null>(null);
   const q = useQuery({
     queryKey: ["b2b-generated"],
     queryFn: () => b2bGeneratorApi.generated(100),
@@ -365,7 +845,28 @@ function GeneratedContractsTab() {
   });
   const rows = q.data ?? [];
 
+  const handleConfirmed = (result: B2BConfirmFullySignedResult) => {
+    const fallbackMessage =
+      result.outcome === "created"
+        ? "Umowa podpisana — utworzono szkic kontraktora."
+        : result.outcome === "linked_existing"
+          ? "Umowa podpisana — powiązano istniejącego kontraktora bez duplikatu."
+          : "Umowa była już przetworzona — nie utworzono duplikatu.";
+    toast.showActionToast(result.message || fallbackMessage, {
+      actionLabel: "Otwórz kontraktora",
+      onAction: () => router.push(`/contracts/${result.contract_id}`),
+      durationMs: 10_000,
+    });
+    queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+    queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["candidate", result.candidate_id] });
+    queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["candidate-pipelines"] });
+  };
+
   const startEdit = (r: B2BGeneratedContractRow) => {
+    if (r.signature_status === "signed_both") return;
     setEditingId(r.id);
     setEditClientName(r.client_name ?? "");
   };
@@ -398,9 +899,10 @@ function GeneratedContractsTab() {
         <CardDescription>
           Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
           numer nie powtarza istniejącego. Umowę można pobrać ponownie, a nazwę
-          Klienta poprawić („Edytuj"); wpis może edytować lub usunąć („Usuń")
-          osoba, która wygenerowała umowę, lub administrator. Usunięcie zwalnia
-          numer — najniższy wolny numer wraca do podpowiedzi w generatorze.
+          Klienta poprawić („Edytuj"). Status podpisu jest widoczny w tabeli;
+          potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
+          Niepodpisany wpis może edytować lub usunąć osoba, która go
+          wygenerowała, albo administrator.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -427,6 +929,7 @@ function GeneratedContractsTab() {
                   <th className="py-2 pr-4 font-medium">Język</th>
                   <th className="py-2 pr-4 font-medium">Wygenerowano</th>
                   <th className="py-2 pr-4 font-medium">Wygenerował</th>
+                  <th className="py-2 pr-4 font-medium">Status podpisu</th>
                   <th className="py-2 text-right font-medium">Akcje</th>
                 </tr>
               </thead>
@@ -438,6 +941,7 @@ function GeneratedContractsTab() {
                     downloadMut.isPending && downloadMut.variables?.id === r.id;
                   const editing = editingId === r.id;
                   const saving = updateMut.isPending && editing;
+                  const signed = r.signature_status === "signed_both";
                   return (
                     <tr key={r.id} className="border-b">
                       <td className="py-2 pr-4 font-medium">
@@ -475,6 +979,77 @@ function GeneratedContractsTab() {
                           : "—"}
                       </td>
                       <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
+                      <td className="py-2 pr-4">
+                        <div className="flex min-w-[12rem] flex-col items-start gap-1.5">
+                          <Badge
+                            variant={signed ? "success" : "outline"}
+                            size="md"
+                            title={
+                              signed
+                                ? [
+                                    r.signed_by_name
+                                      ? `Potwierdził: ${r.signed_by_name}`
+                                      : null,
+                                    r.signed_at
+                                      ? `Data: ${r.signed_at
+                                          .slice(0, 16)
+                                          .replace("T", " ")}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")
+                                : "Umowa nie została oznaczona jako podpisana"
+                            }
+                          >
+                            {signed ? (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            ) : (
+                              <CircleDashed className="h-3.5 w-3.5" />
+                            )}
+                            {signed
+                              ? "Podpisana obustronnie"
+                              : "Niepodpisana"}
+                          </Badge>
+
+                          {signed ? (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                              {r.candidate_id ? (
+                                <Link
+                                  href={`/candidates/${r.candidate_id}`}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                >
+                                  Kandydat
+                                  <ExternalLink className="h-3 w-3" />
+                                </Link>
+                              ) : null}
+                              {r.contract_id ? (
+                                <Link
+                                  href={`/contracts/${r.contract_id}`}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                >
+                                  Kontraktor
+                                  <ExternalLink className="h-3 w-3" />
+                                </Link>
+                              ) : null}
+                            </div>
+                          ) : r.can_confirm_signed ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8"
+                              onClick={() => setSignatureRow(r)}
+                            >
+                              <FileSignature className="h-4 w-4" />
+                              Oznacz jako podpisaną
+                            </Button>
+                          ) : r.blocked_reason ? (
+                            <span className="max-w-[15rem] text-xs text-muted-foreground">
+                              {r.blocked_reason}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {editing ? (
@@ -508,7 +1083,7 @@ function GeneratedContractsTab() {
                             </>
                           ) : (
                             <>
-                              {r.can_edit ? (
+                              {!signed && r.can_edit ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -537,7 +1112,7 @@ function GeneratedContractsTab() {
                                   <span className="ml-1">Pobierz</span>
                                 </Button>
                               ) : null}
-                              {r.can_delete ? (
+                              {!signed && r.can_delete ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -554,7 +1129,9 @@ function GeneratedContractsTab() {
                                   <span className="ml-1">Usuń</span>
                                 </Button>
                               ) : null}
-                              {!r.can_edit && !r.can_download && !r.can_delete ? (
+                              {(!r.can_edit || signed) &&
+                              !r.can_download &&
+                              (!r.can_delete || signed) ? (
                                 <span className="text-xs text-muted-foreground">
                                   —
                                 </span>
@@ -571,6 +1148,16 @@ function GeneratedContractsTab() {
           </div>
         )}
       </CardContent>
+      {signatureRow ? (
+        <ConfirmFullySignedDialog
+          row={signatureRow}
+          open
+          onOpenChange={(open) => {
+            if (!open) setSignatureRow(null);
+          }}
+          onConfirmed={handleConfirmed}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -582,7 +1169,7 @@ function GeneratorForm() {
 
   const [language, setLanguage] = useState<Lang>("pl");
 
-  // Źródło danych (opcjonalne) — pre-fill z kandydata + rekrutacji.
+  // Źródło danych — wymagane powiązanie kandydata z rekrutacją.
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
   const [candidateOpen, setCandidateOpen] = useState(false);
   const [candidateQuery, setCandidateQuery] = useState("");
@@ -648,6 +1235,15 @@ function GeneratorForm() {
   const [partnerLookup, setPartnerLookup] = useState<LookupStatus>("idle");
 
   const [previewHtml, setPreviewHtml] = useState<string>("");
+  // Cache is keyed by candidate + recruitment and includes the in-flight
+  // promise. This makes rapid double actions single-flight; after a remount
+  // the backend's candidate row lock and pair-based lookup remain the durable
+  // idempotency layer.
+  const generatedContractMemo = useRef<GeneratedContractMemo>({
+    key: null,
+    contractId: null,
+    pending: null,
+  });
 
   // Pre-fill „raz na kandydata / ofertę" — nie nadpisuje ręcznych zmian.
   const prefilledCand = useRef<number | null>(null);
@@ -768,8 +1364,8 @@ function GeneratorForm() {
     if (j.client_name) setClientName(j.client_name);
   }, [jobQuery.data, selectedRecruitment]);
 
-  // Smart-prefill opisu projektu z roli (gdy brak oferty z rekrutacji i user
-  // nie edytował ręcznie) — sensowny start także w trybie standalone.
+  // Smart-prefill opisu projektu z roli, dopóki użytkownik nie wskaże oferty
+  // lub nie edytuje opisu ręcznie.
   useEffect(() => {
     if (!selectedRole || selectedRecruitment || descTouched.current) return;
     setProjectDescription(smartDescription(selectedRole, language, clientName));
@@ -845,6 +1441,8 @@ function GeneratorForm() {
   }, [clientsQuery.data, clientQuery]);
 
   const buildPayload = (lang: Lang): B2BRenderPayload => ({
+    candidate_id: candidate?.id ?? null,
+    job_id: selectedRecruitment?.job_id ?? null,
     role_id: selectedRole ? selectedRole.id : null,
     language: lang,
     gender,
@@ -886,6 +1484,8 @@ function GeneratorForm() {
 
   const validate = (): boolean => {
     const missing: string[] = [];
+    if (!candidate) missing.push("Kandydat");
+    if (!selectedRecruitment) missing.push("Rekrutacja");
     if (!selectedRole) missing.push("Rola / stanowisko");
     if (!partnerName.trim()) missing.push("Imię i nazwisko Partnera");
     if (!partnerInstrumental.trim()) missing.push("Imię i nazwisko (narzędnik)");
@@ -947,9 +1547,10 @@ function GeneratorForm() {
     },
     onSuccess: () => {
       toast.showSuccess("Umowa pobrana (DOCX).");
-      nextNumberQuery.refetch().then((r) => {
-        if (r.data) setContractNumber(r.data.contract_number);
-      });
+      // Formularz nadal opisuje właśnie pobrany dokument. Nie podmieniamy
+      // numeru na N+1, bo kolejne „Wyślij/Oznacz wysłaną/Wgraj” muszą
+      // zaktualizować szkic dla tego samego numeru N.
+      nextNumberQuery.refetch();
     },
     onError: (e) => {
       toast.showError(extractErrorMsg(e));
@@ -1019,25 +1620,44 @@ function GeneratorForm() {
     };
   };
 
+  const ensureGeneratedContractId = () => {
+    if (!candidate || !selectedRecruitment) {
+      return Promise.reject(
+        new Error(
+          "Wybierz kandydata i rekrutację, aby utworzyć lub powiązać umowę.",
+        ),
+      );
+    }
+    const key = `${candidate.id}:${selectedRecruitment.job_id}`;
+    return reuseOrGenerateContractId({
+      key,
+      memo: generatedContractMemo.current,
+      generate: async (contractId) => {
+        const payload = buildGeneratePayload();
+        if (!payload) {
+          throw new Error(
+            "Wybierz kandydata, rekrutację, rolę i datę startu, aby utworzyć umowę.",
+          );
+        }
+        return b2bGeneratorApi.generate({
+          ...payload,
+          contract_id: contractId ?? undefined,
+        });
+      },
+    });
+  };
+
   const sendSignMut = useMutation({
     mutationFn: async () => {
-      const gp = buildGeneratePayload();
-      if (!gp) {
-        throw new Error(
-          "Wybierz kandydata, rekrutację, rolę i datę startu, aby wysłać do podpisu.",
-        );
-      }
-      // 1. Promocja do realnego Contract z treścią (draft_content_html).
-      const gen = await b2bGeneratorApi.generate(gp);
-      // 2. Wyślij do podpisu → zwraca publiczny link /sign/{token}.
-      const res = await signingApi.sendForSignature(gen.contract_id, {
+      const contractId = await ensureGeneratedContractId();
+      const res = await signingApi.sendForSignature(contractId, {
         provider: "upload_validate",
         signature_type: "QES",
       });
       return res.sign_url;
     },
-    onSuccess: (url) => {
-      setSignLink(url);
+    onSuccess: (signUrl) => {
+      setSignLink(signUrl);
       toast.showSuccess("Link do podpisu wygenerowany — skopiuj i wyślij konsultantowi.");
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -1067,14 +1687,8 @@ function GeneratorForm() {
 
   const markSentMut = useMutation({
     mutationFn: async () => {
-      const gp = buildGeneratePayload();
-      if (!gp) {
-        throw new Error(
-          "Wybierz kandydata, rekrutację, rolę i datę startu, aby oznaczyć wysłaną.",
-        );
-      }
-      const gen = await b2bGeneratorApi.generate(gp);
-      await signingApi.markSentOffline(gen.contract_id);
+      const contractId = await ensureGeneratedContractId();
+      await signingApi.markSentOffline(contractId);
     },
     onSuccess: () => {
       toast.showSuccess(
@@ -1086,14 +1700,8 @@ function GeneratorForm() {
 
   const uploadSignedMut = useMutation({
     mutationFn: async (file: File) => {
-      const gp = buildGeneratePayload();
-      if (!gp) {
-        throw new Error(
-          "Wybierz kandydata, rekrutację, rolę i datę startu, aby wgrać podpisaną umowę.",
-        );
-      }
-      const gen = await b2bGeneratorApi.generate(gp);
-      return signingApi.uploadSigned(gen.contract_id, file);
+      const contractId = await ensureGeneratedContractId();
+      return signingApi.uploadSigned(contractId, file);
     },
     onSuccess: (verdict) => {
       setUploadVerdict({
@@ -1144,6 +1752,11 @@ function GeneratorForm() {
     uploadSignedMut.mutate(file);
   };
 
+  const signingActionPending =
+    sendSignMut.isPending ||
+    markSentMut.isPending ||
+    uploadSignedMut.isPending;
+
   // Bez roli legal-team każdy endpoint generatora zwraca 403: lista obszarów
   // jest pusta, numer się nie nadaje, DOCX się nie wygeneruje. Pokazanie
   // formularza sugerowałoby, że brakuje tylko słownika obszarów — stąd jeden
@@ -1161,19 +1774,22 @@ function GeneratorForm() {
 
   return (
     <div className="space-y-4">
-      {/* Źródło danych (opcjonalne) */}
+      {/* Źródło danych */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Źródło danych (opcjonalne)</CardTitle>
+          <CardTitle className="text-base">Źródło danych</CardTitle>
           <CardDescription>
-            Wybierz kandydata i rekrutację, by zaciągnąć dane — albo wpisz
-            wszystko ręcznie w polach poniżej (tryb standalone).
+            Wybierz kandydata i konkretną rekrutację. Powiązanie jest wymagane,
+            aby po podpisaniu utworzyć kontraktora bez zgadywania po nazwisku
+            lub nazwie klienta.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label className="mb-1.5 block">Kandydat (opcjonalnie)</Label>
+              <Label className="mb-1.5 block">
+                Kandydat <span className="text-destructive">*</span>
+              </Label>
               <div className="flex gap-2">
                 <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
                   <PopoverTrigger asChild>
@@ -1259,7 +1875,10 @@ function GeneratorForm() {
             </div>
 
             <div>
-              <Label className="mb-1.5 block">Rekrutacja (klient z oferty)</Label>
+              <Label className="mb-1.5 block">
+                Rekrutacja (klient z oferty){" "}
+                <span className="text-destructive">*</span>
+              </Label>
               <Select
                 value={stageId}
                 onValueChange={setStageId}
@@ -1268,7 +1887,9 @@ function GeneratorForm() {
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      candidate ? "Wybierz rekrutację…" : "Opcjonalne — najpierw kandydat"
+                      candidate
+                        ? "Wybierz rekrutację…"
+                        : "Najpierw wybierz kandydata"
                     }
                   />
                 </SelectTrigger>
@@ -1753,7 +2374,7 @@ function GeneratorForm() {
         </Button>
         <Button
           variant="outline"
-          disabled={sendSignMut.isPending}
+          disabled={signingActionPending}
           onClick={onSendSign}
           title="Tworzy umowę i generuje link do podpisu kwalifikowanego dla konsultanta"
         >
@@ -1766,7 +2387,7 @@ function GeneratorForm() {
         </Button>
         <Button
           variant="outline"
-          disabled={markSentMut.isPending}
+          disabled={signingActionPending}
           onClick={onMarkSentOffline}
           title="Wysłałeś umowę mailem? Oznacz wysłaną, by przenieść kandydata na etap „Umowa wysłana”."
         >
@@ -1779,7 +2400,7 @@ function GeneratorForm() {
         </Button>
         <Button
           variant="outline"
-          disabled={uploadSignedMut.isPending}
+          disabled={signingActionPending}
           onClick={onUploadSignedClick}
           title="Masz podpisaną umowę z maila? Wgraj PDF — zweryfikujemy podpis i przeniesiemy na etap „Umowa podpisana”."
         >
