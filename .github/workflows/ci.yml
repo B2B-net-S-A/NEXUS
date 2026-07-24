@@ -83,7 +83,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
         run: |
-          alembic -c alembic/alembic.ini upgrade 0194_match_score_invalidations
+          alembic -c alembic/alembic.ini upgrade 0195_candidate_document_kind
           python scripts/verify_b2b_signature_migration.py seed
           alembic -c alembic/alembic.ini upgrade heads
           alembic -c alembic/alembic.ini upgrade heads

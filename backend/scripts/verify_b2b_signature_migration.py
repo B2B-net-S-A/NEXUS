@@ -2,7 +2,7 @@
 """CI probe for the additive generated-contract signature migration.
 
 The probe is intentionally split in two invocations around ``alembic upgrade``:
-``seed`` inserts a row using the pre-0195 schema, while ``verify`` proves that
+``seed`` inserts a row using the pre-0196 schema, while ``verify`` proves that
 the migration preserved the legal-document snapshot and applied safe defaults.
 It only touches one unmistakable CI sentinel row.
 """
@@ -18,9 +18,9 @@ import asyncpg
 
 
 PROBE_YEAR = 2098
-PROBE_SEQ = 2_147_480_195
-PROBE_NUMBER = "migration-probe-0195"
-PROBE_PAYLOAD = '{"probe":"0195","preserve":true}'
+PROBE_SEQ = 2_147_480_196
+PROBE_NUMBER = "migration-probe-0196"
+PROBE_PAYLOAD = '{"probe":"0196","preserve":true}'
 
 
 def _dsn() -> str:
@@ -96,7 +96,7 @@ async def _verify() -> None:
         assert row["language"] == "pl"
         assert row["signing_date"] == "2026-07-24"
         assert json.loads(row["render_payload"]) == {
-            "probe": "0195",
+            "probe": "0196",
             "preserve": True,
         }
         assert row["signature_status"] == "unsigned"

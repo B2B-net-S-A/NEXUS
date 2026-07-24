@@ -95,7 +95,7 @@ async def _seed_legacy_generated(*, created_by: int | None = None) -> int:
     """Seed the shape that predates candidate/job/signature columns.
 
     Omitting every new attribute exercises ORM/DTO backwards compatibility.
-    Preservation of a pre-0195 row is covered by the hosted Alembic CI probe.
+    Preservation of a pre-0196 row is covered by the hosted Alembic CI probe.
     """
     year, seq, number = _unique_number()
     async with AsyncSessionLocal() as db:

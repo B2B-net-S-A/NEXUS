@@ -1409,9 +1409,10 @@ async def api_health_deep_check():
 
     from fastapi import status as http_status
     from fastapi.responses import JSONResponse
-    from sqlalchemy import select
+    from sqlalchemy import select, text
 
     from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.contract import Contract
@@ -1432,6 +1433,7 @@ async def api_health_deep_check():
         ("contracts", Contract),
         ("contract_candidate_rates", ContractCandidateRate),
         ("contract_client_rates", ContractClientRate),
+        ("b2b_generated_contracts", B2BGeneratedContract),
         ("candidates", Candidate),
         ("clients", Client),
         ("jobs", Job),
@@ -1457,6 +1459,98 @@ async def api_health_deep_check():
             checks[name] = "unhealthy"
             errors[name] = type(exc).__name__
             logger.warning("health/deep: %s probe failed: %r", name, exc)
+
+    # The generated-contract ORM probe above resolves every mapped column, but
+    # it cannot prove that the fail-open startup safety-net also installed the
+    # default, enum labels, constraints and valid relation indexes required by
+    # the signing transaction. Keep this catalog check auth-free and boolean:
+    # no row data or schema details leave the service.
+    b2b_signature_schema_query = text(
+        """
+        WITH expected_columns(name) AS (
+            VALUES
+                ('signature_status'),
+                ('signature_source'),
+                ('candidate_id'),
+                ('job_id'),
+                ('client_id'),
+                ('contract_id'),
+                ('signed_at'),
+                ('signed_by_user_id')
+        ),
+        expected_constraints(name) AS (
+            VALUES
+                ('ck_b2b_generated_contracts_signature_status'),
+                ('ck_b2b_generated_contracts_signature_source'),
+                ('fk_b2b_generated_contracts_candidate_id'),
+                ('fk_b2b_generated_contracts_job_id'),
+                ('fk_b2b_generated_contracts_client_id'),
+                ('fk_b2b_generated_contracts_contract_id'),
+                ('fk_b2b_generated_contracts_signed_by_user_id')
+        ),
+        expected_indexes(name) AS (
+            VALUES
+                ('ix_b2b_generated_contracts_candidate_id'),
+                ('ix_b2b_generated_contracts_job_id'),
+                ('ix_b2b_generated_contracts_client_id'),
+                ('ix_b2b_generated_contracts_contract_id'),
+                ('ix_b2b_generated_contracts_signed_by_user_id')
+        )
+        SELECT
+            (
+                SELECT COUNT(DISTINCT c.column_name) = 8
+                FROM information_schema.columns AS c
+                JOIN expected_columns AS e ON e.name = c.column_name
+                WHERE c.table_schema = 'public'
+                  AND c.table_name = 'b2b_generated_contracts'
+            )
+            AND EXISTS (
+                SELECT 1
+                FROM information_schema.columns AS c
+                WHERE c.table_schema = 'public'
+                  AND c.table_name = 'b2b_generated_contracts'
+                  AND c.column_name = 'signature_status'
+                  AND c.is_nullable = 'NO'
+                  AND POSITION('unsigned' IN COALESCE(c.column_default, '')) > 0
+            )
+            AND (
+                SELECT COUNT(DISTINCT e.enumlabel) = 2
+                FROM pg_type AS t
+                JOIN pg_enum AS e ON e.enumtypid = t.oid
+                WHERE t.typname = 'contractstatus'
+                  AND e.enumlabel IN ('ready_for_signature', 'void')
+            )
+            AND (
+                SELECT COUNT(DISTINCT c.conname) = 7
+                FROM pg_constraint AS c
+                JOIN expected_constraints AS e ON e.name = c.conname
+                WHERE c.conrelid =
+                    TO_REGCLASS('public.b2b_generated_contracts')
+            )
+            AND (
+                SELECT COUNT(DISTINCT ic.relname) = 5
+                       AND COALESCE(BOOL_AND(i.indisvalid), FALSE)
+                FROM pg_index AS i
+                JOIN pg_class AS ic ON ic.oid = i.indexrelid
+                JOIN expected_indexes AS e ON e.name = ic.relname
+                WHERE i.indrelid =
+                    TO_REGCLASS('public.b2b_generated_contracts')
+            )
+        """
+    )
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await asyncio.wait_for(
+                session.execute(b2b_signature_schema_query), timeout=3.0
+            )
+            schema_matches = bool(result.scalar_one())
+        checks["b2b_signature_schema"] = "healthy" if schema_matches else "unhealthy"
+        if not schema_matches:
+            errors["b2b_signature_schema"] = "SchemaMismatch"
+    except Exception as exc:  # noqa: BLE001
+        checks["b2b_signature_schema"] = "unhealthy"
+        errors["b2b_signature_schema"] = type(exc).__name__
+        logger.warning("health/deep: b2b_signature_schema probe failed: %r", exc)
 
     all_healthy = all(v == "healthy" for v in checks.values())
 

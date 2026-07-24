@@ -4,15 +4,15 @@ The columns are additive and all historical rows remain ``unsigned``. No
 name-based backfill is attempted: legacy rows are linked explicitly when a
 trusted user confirms the signature.
 
-Revision ID: 0195_b2b_signature_automation
-Revises: 0194_match_score_invalidations
+Revision ID: 0196_b2b_signature_automation
+Revises: 0195_candidate_document_kind
 """
 
 from alembic import op
 
 
-revision = "0195_b2b_signature_automation"
-down_revision = "0194_match_score_invalidations"
+revision = "0196_b2b_signature_automation"
+down_revision = "0195_candidate_document_kind"
 branch_labels = None
 depends_on = None
 

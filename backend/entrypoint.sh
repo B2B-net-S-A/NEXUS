@@ -474,7 +474,7 @@ _COLUMN_STATEMENTS = [
        ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ NULL""",
     """ALTER TABLE candidate_stages
        ADD COLUMN IF NOT EXISTS sla_alerted_at TIMESTAMPTZ NULL""",
-    # Generated B2B contract signature automation (migration 0195). Historical
+    # Generated B2B contract signature automation (migration 0196). Historical
     # rows remain unsigned; entity links are filled explicitly, never guessed
     # from partner/client names.
     """ALTER TABLE b2b_generated_contracts
