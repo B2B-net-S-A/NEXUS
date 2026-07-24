@@ -147,6 +147,7 @@ async def _seed_candidate(**overrides) -> int:
 READ_ENDPOINTS = [
     ("GET", "/api/candidates", None),
     ("GET", "/api/candidates/999999", None),
+    ("GET", "/api/candidates/999999/quick-view", None),
     ("GET", "/api/candidates/999999/timeline", None),
     ("GET", "/api/candidates/999999/history", None),
     ("GET", "/api/candidates/999999/documents", None),

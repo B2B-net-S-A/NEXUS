@@ -52,7 +52,7 @@ from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
-from app.models.pipeline_template import RejectionReason
+from app.models.pipeline_template import PipelineStageDef, RejectionReason
 from app.models.recruitment_pipeline import CandidateStage, VerificationStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus
@@ -60,6 +60,7 @@ from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User, UserRole
 from app.schemas.candidate import (
     CandidateCreate,
+    CandidateCvHighlights,
     CandidateDocumentOut,
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
@@ -70,6 +71,14 @@ from app.schemas.candidate import (
     CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationUpdate,
+    CandidateQuickViewAvailability,
+    CandidateQuickViewCandidate,
+    CandidateQuickViewCapabilities,
+    CandidateQuickViewNote,
+    CandidateQuickViewPosition,
+    CandidateQuickViewRecruitment,
+    CandidateQuickViewResponse,
+    CandidateQuickViewSource,
     CandidateResponse,
     CandidateUpdate,
     EmploymentInfo,
@@ -81,7 +90,7 @@ from app.schemas.candidate import (
 )
 from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
-from app.schemas.pipeline import ClientRateUpdate
+from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
@@ -103,6 +112,9 @@ from app.api.candidate_access import (
     CandidateFinanceAccess,
     CandidatePIIAccess,
     CandidateSearchAccess,
+    CandidateWriteAccess,
+    CANDIDATE_DOCUMENT_ROLES,
+    CANDIDATE_WRITE_ROLES,
     privacy_workflow_unavailable,
 )
 from app.api.financial_access import (
@@ -2667,6 +2679,177 @@ async def get_candidate(
     ]
     return payload.model_copy(
         update={"invite_source": invite_source, "linkedin_snapshots": snapshots}
+    )
+
+
+@router.get(
+    "/{candidate_id}/quick-view",
+    response_model=CandidateQuickViewResponse,
+)
+async def get_candidate_quick_view(
+    candidate_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Typed, bounded projection used by the candidate quick-view drawer.
+
+    The response contains no raw CV bytes and no note-author e-mail. Document
+    metadata/content stays behind the dedicated document capability routes.
+    """
+
+    from app.services.candidate_quick_view import (
+        resolve_current_position,
+        resolve_cv_highlights,
+        resolve_source,
+    )
+
+    candidate = (
+        await db.execute(
+            select(Candidate)
+            .options(*_candidate_list_options())
+            .where(Candidate.id == candidate_id)
+        )
+    ).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    latest_per_job = (
+        select(
+            CandidateStage.id.label("stage_id"),
+            CandidateStage.job_id,
+            CandidateStage.stage,
+            CandidateStage.stage_def_id,
+            CandidateStage.moved_at,
+            CandidateStage.moved_by,
+        )
+        .where(CandidateStage.candidate_id == candidate_id)
+        .distinct(CandidateStage.job_id)
+        .order_by(
+            CandidateStage.job_id,
+            CandidateStage.moved_at.desc(),
+            CandidateStage.id.desc(),
+        )
+        .subquery()
+    )
+    mover = aliased(User)
+    recruitment_rows = (
+        await db.execute(
+            select(
+                latest_per_job,
+                Job.title.label("job_title"),
+                Client.name.label("client_name"),
+                mover.name.label("moved_by_name"),
+                PipelineStageDef.name.label("stage_def_name"),
+                PipelineStageDef.is_terminal.label("stage_def_terminal"),
+            )
+            .select_from(latest_per_job)
+            .join(Job, Job.id == latest_per_job.c.job_id)
+            .outerjoin(Client, Client.id == Job.client_id)
+            .outerjoin(mover, mover.id == latest_per_job.c.moved_by)
+            .outerjoin(
+                PipelineStageDef,
+                PipelineStageDef.id == latest_per_job.c.stage_def_id,
+            )
+            .where(
+                or_(
+                    PipelineStageDef.is_terminal.is_(False),
+                    and_(
+                        PipelineStageDef.id.is_(None),
+                        latest_per_job.c.stage.notin_(
+                            [
+                                PipelineStage.rejected,
+                                PipelineStage.withdrawn,
+                                PipelineStage.hired,
+                            ]
+                        ),
+                    ),
+                )
+            )
+            .order_by(
+                latest_per_job.c.moved_at.desc(),
+                latest_per_job.c.stage_id.desc(),
+            )
+            .limit(3)
+        )
+    ).all()
+    current_recruitments = [
+        CandidateQuickViewRecruitment(
+            job_id=row.job_id,
+            job_title=row.job_title or f"Rekrutacja #{row.job_id}",
+            client_name=row.client_name,
+            stage_id=row.stage_id,
+            stage_name=row.stage_def_name
+            or STAGE_LABELS.get(
+                row.stage,
+                getattr(row.stage, "value", str(row.stage)),
+            ),
+            moved_at=row.moved_at,
+            moved_by_name=row.moved_by_name,
+        )
+        for row in recruitment_rows
+    ]
+
+    note_rows = (
+        await db.execute(
+            select(Note, User.name.label("author_name"))
+            .outerjoin(User, User.id == Note.author_id)
+            .where(
+                Note.candidate_id == candidate_id,
+                Note.source_deleted_at.is_(None),
+            )
+            .order_by(Note.created_at.desc(), Note.id.desc())
+            .limit(3)
+        )
+    ).all()
+    mention_labels = await build_traffit_user_label_map(
+        db, collect_traffit_user_ids(note.content for note, _ in note_rows)
+    )
+    recent_notes = [
+        CandidateQuickViewNote(
+            id=note.id,
+            content=render_traffit_mentions(note.content, mention_labels),
+            created_at=note.created_at,
+            author_name=author_name,
+        )
+        for note, author_name in note_rows
+    ]
+
+    return CandidateQuickViewResponse(
+        candidate=CandidateQuickViewCandidate(
+            id=candidate.id,
+            name=candidate.name,
+            lastname=candidate.lastname,
+            email=candidate.email,
+            phone=candidate.phone,
+            city=candidate.city,
+            location=candidate.location,
+            status=candidate.status,
+            employment=_derive_employment(candidate),
+            competence_category_id=candidate.competence_category_id,
+            competence_category=candidate.competence_category,
+            skills=candidate.skills,
+        ),
+        current_position=CandidateQuickViewPosition(
+            **resolve_current_position(candidate)
+        ),
+        availability=CandidateQuickViewAvailability(
+            status=candidate.availability_status,
+            available_from=candidate.availability_date,
+            notice_period=candidate.notice_period,
+            notice_period_unit=candidate.notice_period_unit,
+        ),
+        source=CandidateQuickViewSource(**resolve_source(candidate)),
+        current_recruitments=current_recruitments,
+        recent_notes=recent_notes,
+        cv_highlights=CandidateCvHighlights(**resolve_cv_highlights(candidate)),
+        capabilities=CandidateQuickViewCapabilities(
+            can_assign=current_user.has_any_role(*CANDIDATE_WRITE_ROLES),
+            can_mark_employed=current_user.has_any_role(
+                UserRole.admin, UserRole.delivery_lead
+            ),
+            can_view_documents=current_user.has_any_role(*CANDIDATE_DOCUMENT_ROLES),
+            can_open_full_profile=True,
+        ),
     )
 
 

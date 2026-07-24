@@ -167,6 +167,7 @@ jobs:
                  tests/test_process_backfill.py \
                  tests/test_candidate_delete.py \
                  tests/test_candidate_module_access.py \
+                 tests/test_candidate_quick_view_contract.py \
                  tests/test_candidate_pins.py \
                  tests/test_note_crud.py \
                  tests/test_compose_calls_access.py \
