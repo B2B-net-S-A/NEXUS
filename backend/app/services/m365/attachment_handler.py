@@ -18,11 +18,12 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.candidate import Candidate
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.m365 import Email, EmailAttachment
 from app.services.m365.graph_client import GraphClient
 from app.services.storage_service import _sanitize_filename
@@ -42,8 +43,7 @@ M365_ROOT = STORAGE_ROOT / "microsoft365"
 # left side is intentionally permissive — `MyCV.pdf` and `becv.pdf` both
 # match; the MIME guard in `is_cv_candidate_attachment` rules out junk.
 _CV_FILENAME_RE = re.compile(
-    r"(cv|resume|życiorys|zyciorys|lebenslauf)"
-    r"(?![a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])",
+    r"(cv|resume|życiorys|zyciorys|lebenslauf)" r"(?![a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])",
     re.I,
 )
 _CV_CONTENT_TYPES = frozenset(
@@ -257,17 +257,54 @@ async def try_parse_cv(
             attachment.parsed_candidate_id = candidate.id
             return
 
+    content = await asyncio.to_thread(abs_path.read_bytes)
+    content_hash = attachment.sha256 or hashlib.sha256(content).hexdigest()
+    document = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.content_sha256 == content_hash,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    await db.execute(
+        update(CandidateDocument)
+        .where(
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+        .values(is_primary=False)
+    )
+    if document is None:
+        document = CandidateDocument(
+            candidate_id=candidate.id,
+            filename=attachment.filename,
+            file_content=content,
+            content_type=attachment.content_type,
+            size_bytes=len(content),
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=True,
+            uploaded_at=email_row.received_at or attachment.cv_parse_attempted_at,
+            external_source="m365",
+            external_id=(attachment.m365_attachment_id or "")[:100] or None,
+            content_sha256=content_hash,
+        )
+        db.add(document)
+        await db.flush()
+    else:
+        document.document_kind = CandidateDocumentKind.cv
+        document.is_primary = True
+
+    from app.services.cv_enrichment import _apply_cv_enrichment
+
     candidate.raw_cv_text = text
     candidate.cv_filename = attachment.filename
-    candidate.cv_parsed_at = attachment.cv_parse_attempted_at
-    if parsed.get("skills"):
-        candidate.skills = parsed["skills"]
-    if parsed.get("years_it_experience") is not None:
-        candidate.years_it_experience = parsed["years_it_experience"]
-    if parsed.get("education"):
-        candidate.education = parsed["education"]
-    if parsed.get("languages"):
-        candidate.languages = parsed["languages"]
+    _apply_cv_enrichment(
+        candidate,
+        parsed,
+        source_document_id=document.id,
+        source_hash=content_hash,
+    )
 
     attachment.parsed_candidate_id = candidate.id
     attachment.parse_error = None

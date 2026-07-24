@@ -1459,6 +1459,17 @@ _COLUMN_STATEMENTS = [
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS content_sha256 VARCHAR(64)',
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS source_manifest_fingerprint VARCHAR(64)',
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS source_deleted_at TIMESTAMPTZ',
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_type WHERE typname = 'candidatedocumentkind'
+        ) THEN
+            CREATE TYPE candidatedocumentkind AS ENUM (
+                'cv', 'cover_letter', 'certificate', 'other'
+            );
+        END IF;
+    END $$""",
+    "ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS document_kind candidatedocumentkind NOT NULL DEFAULT 'other'",
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_documents_candidate_sha ON candidate_documents (candidate_id, content_sha256) WHERE content_sha256 IS NOT NULL AND source_deleted_at IS NULL',
     'CREATE INDEX IF NOT EXISTS ix_candidate_documents_manifest ON candidate_documents (candidate_id, source_manifest_fingerprint)',
     'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS external_source VARCHAR(50)',
@@ -1824,6 +1835,71 @@ _DATA_STATEMENTS = [
     # 0173: rejection_reasons.external_source backfill (integracja Traffit).
     "UPDATE rejection_reasons SET external_source = 'manual' "
     "WHERE external_source IS NULL",
+    """UPDATE candidate_documents AS document
+       SET document_kind = 'cv'
+       FROM candidates AS candidate
+       WHERE document.candidate_id = candidate.id
+         AND document.source_deleted_at IS NULL
+         AND (
+             document.is_primary IS TRUE
+             OR document.external_source = 'apply_submission'
+             OR (
+                 candidate.cv_filename IS NOT NULL
+                 AND lower(document.filename) = lower(candidate.cv_filename)
+             )
+             OR document.filename ~* '(^|[^a-z])(cv|resume|curriculum)([^a-z]|$)'
+         )""",
+    """INSERT INTO candidate_documents (
+           candidate_id, filename, file_content, storage_key, size_bytes,
+           document_kind, is_primary, uploaded_at, external_source,
+           created_at, updated_at
+       )
+       SELECT candidate.id,
+              candidate.cv_filename,
+              CASE WHEN candidate.cv_storage_key IS NULL
+                   THEN candidate.cv_file_content ELSE NULL END,
+              candidate.cv_storage_key,
+              CASE WHEN candidate.cv_storage_key IS NULL
+                   THEN octet_length(candidate.cv_file_content) ELSE NULL END,
+              'cv',
+              TRUE,
+              COALESCE(candidate.cv_parsed_at, candidate.updated_at),
+              'legacy_backfill',
+              NOW(),
+              NOW()
+       FROM candidates AS candidate
+       WHERE candidate.cv_filename IS NOT NULL
+         AND btrim(candidate.cv_filename) <> ''
+         AND (
+             candidate.cv_storage_key IS NOT NULL
+             OR candidate.cv_file_content IS NOT NULL
+         )
+         AND NOT EXISTS (
+             SELECT 1
+             FROM candidate_documents AS document
+             WHERE document.candidate_id = candidate.id
+               AND document.source_deleted_at IS NULL
+               AND (
+                   document.is_primary IS TRUE
+                   OR lower(document.filename) = lower(candidate.cv_filename)
+               )
+         )""",
+    """WITH ranked AS (
+           SELECT id,
+                  row_number() OVER (
+                      PARTITION BY candidate_id
+                      ORDER BY uploaded_at DESC NULLS LAST, created_at DESC, id DESC
+                  ) AS position
+           FROM candidate_documents
+           WHERE document_kind = 'cv'
+             AND is_primary IS TRUE
+             AND source_deleted_at IS NULL
+       )
+       UPDATE candidate_documents AS document
+       SET is_primary = FALSE
+       FROM ranked
+       WHERE document.id = ranked.id
+         AND ranked.position > 1""",
     # Backfill closed_at for historical closed rows so reports sort by "real
     # close date" instead of NULL. Safe because only touches NULL rows.
     "UPDATE jobs SET closed_at = updated_at WHERE status = 'closed' AND closed_at IS NULL",
@@ -1965,6 +2041,10 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calendar_events_external_source ON calendar_events (external_source)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_contract_id ON calls (contract_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_external_id ON candidate_stages (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_document_kind ON candidate_documents (document_kind)",
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_documents_active_primary_cv "
+    "ON candidate_documents (candidate_id) WHERE is_primary IS TRUE "
+    "AND source_deleted_at IS NULL AND document_kind = 'cv'",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_availability_status ON candidates (availability_status)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_competence_category_id ON candidates (competence_category_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_created_by ON candidates (created_by)",

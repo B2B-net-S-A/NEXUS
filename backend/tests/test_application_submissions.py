@@ -135,12 +135,8 @@ def _stub_external_services(monkeypatch):
     async def _noop_task(candidate_id: int) -> None:
         return None
 
-    monkeypatch.setattr(
-        "app.services.embedding_service.embed_candidate", _noop_embed
-    )
-    monkeypatch.setattr(
-        "app.api.public_share._invite_post_apply_task", _noop_task
-    )
+    monkeypatch.setattr("app.services.embedding_service.embed_candidate", _noop_embed)
+    monkeypatch.setattr("app.api.public_share._invite_post_apply_task", _noop_task)
 
 
 async def _apply(
@@ -216,9 +212,7 @@ async def test_new_email_apply_still_creates_candidate(sub_client: AsyncClient):
     await _apply(sub_client, token, email=fresh_email, first="Genuinely", last="New")
 
     async with AsyncSessionLocal() as db:
-        cand = await db.scalar(
-            select(Candidate).where(Candidate.email == fresh_email)
-        )
+        cand = await db.scalar(select(Candidate).where(Candidate.email == fresh_email))
         assert cand is not None
         assert cand.created_by == uid
         assert cand.name == "Genuinely"
@@ -309,6 +303,7 @@ async def test_resolve_link_attaches_cv_without_mutation(sub_client: AsyncClient
             )
         )
         assert doc is not None
+        assert doc.document_kind.value == "cv"
         assert doc.is_primary is False
         # Audited.
         act = await db.scalar(
@@ -394,6 +389,14 @@ async def test_resolve_create_makes_new_candidate(sub_client: AsyncClient):
         assert new_cand is not None
         assert new_cand.name == "Sub"
         assert new_cand.created_by == uid_admin
+        primary_cv = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == new_id,
+                CandidateDocument.document_kind == "cv",
+                CandidateDocument.is_primary.is_(True),
+            )
+        )
+        assert primary_cv is not None
         act = await db.scalar(
             select(Activity).where(
                 Activity.entity_type == "candidate",
