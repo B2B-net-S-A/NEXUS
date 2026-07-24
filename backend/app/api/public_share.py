@@ -659,12 +659,7 @@ async def submit_public_apply(
     # Background: CV parse (companies, skills, ai_summary) + CC auto-classify.
     # Runs in a fresh DB session after the response has been sent, so the
     # candidate sees a fast 201.
-    background_tasks.add_task(
-        _invite_post_apply_task,
-        candidate.id,
-        document.id,
-        content_hash,
-    )
+    background_tasks.add_task(_invite_post_apply_task, candidate.id)
 
     return {"ok": True, "status": "received"}
 
