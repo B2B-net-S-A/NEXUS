@@ -43,6 +43,7 @@ from app.models.application_submission import (
     ApplicationSubmissionStatus,
 )
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.champion_share import ChampionCardShareToken
 from app.models.cv_share_token import CVShareToken
@@ -539,7 +540,7 @@ async def submit_public_apply(
         source=f"invite_link:{token[:8]}",
         status=CandidateStatus.active,
         created_by=link.created_by,
-        ai_summary=message.strip() if message else None,
+        profile_about=message.strip() if message else None,
     )
     db.add(candidate)
     await db.flush()
@@ -549,6 +550,21 @@ async def submit_public_apply(
     candidate.cv_filename = stored_filename
     if raw_text:
         candidate.raw_cv_text = raw_text
+    content_hash = hashlib.sha256(content).hexdigest()
+    document = CandidateDocument(
+        candidate_id=candidate.id,
+        filename=stored_filename,
+        file_content=content,
+        content_type=cv.content_type,
+        size_bytes=len(content),
+        document_kind=CandidateDocumentKind.cv,
+        is_primary=True,
+        uploaded_at=datetime.now(timezone.utc),
+        external_source="invite_link",
+        content_sha256=content_hash,
+    )
+    db.add(document)
+    await db.flush()
 
     # Ensure CandidateStage for (candidate, link.job_id) exists at stage="new".
     stage_exists = await db.scalar(
@@ -648,7 +664,11 @@ async def submit_public_apply(
     return {"ok": True, "status": "received"}
 
 
-async def _invite_post_apply_task(candidate_id: int) -> None:
+async def _invite_post_apply_task(
+    candidate_id: int,
+    source_document_id: Optional[int] = None,
+    source_hash: Optional[str] = None,
+) -> None:
     """After-response pipeline for invite-link applications.
 
     Steps:
@@ -668,7 +688,32 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
     try:
         from app.api.candidates import _enrich_candidate_cv_task
 
-        await _enrich_candidate_cv_task(candidate_id)
+        if source_document_id is None:
+            async with AsyncSessionLocal() as db:
+                primary = (
+                    await db.execute(
+                        select(
+                            CandidateDocument.id,
+                            CandidateDocument.content_sha256,
+                        ).where(
+                            CandidateDocument.candidate_id == candidate_id,
+                            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                            CandidateDocument.is_primary.is_(True),
+                            CandidateDocument.source_deleted_at.is_(None),
+                        )
+                    )
+                ).first()
+            if primary is not None:
+                source_document_id = primary.id
+                source_hash = primary.content_sha256
+        if source_document_id is None:
+            await _enrich_candidate_cv_task(candidate_id)
+        else:
+            await _enrich_candidate_cv_task(
+                candidate_id,
+                source_document_id,
+                source_hash,
+            )
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("[apply] CV enrichment failed candidate=%s: %s", candidate_id, e)
 

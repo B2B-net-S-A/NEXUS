@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -58,6 +59,18 @@ logger = logging.getLogger(__name__)
 
 
 ORPHAN_CLIENT_NAME = "__traffit_orphans"
+_CV_FILENAME_RE = re.compile(
+    r"(^|[^a-z])(cv|resume|curriculum)([^a-z]|$)",
+    re.IGNORECASE,
+)
+
+
+def _traffit_document_kind(filename: str, *, is_primary: bool) -> str:
+    """Conservative classification: ambiguous Traffit attachments stay other."""
+
+    if is_primary or _CV_FILENAME_RE.search(filename):
+        return "cv"
+    return "other"
 
 
 @dataclass
@@ -175,7 +188,7 @@ _UPSERT_CANDIDATE = text(
     """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
-        location, status, ai_summary, languages, cv_filename,
+        location, status, profile_about, languages, cv_filename,
         cv_extracted_data, source, created_by,
         notes_count, champion, availability_status,
         linkedin_sync_status,
@@ -184,7 +197,7 @@ _UPSERT_CANDIDATE = text(
         :external_id, :external_source, :name, :lastname, :email, :phone,
         :linkedin, :location,
         CAST(:status AS candidatestatus),
-        :ai_summary,
+        :profile_about,
         CAST(:languages AS JSONB),
         :cv_filename,
         CAST(:cv_extracted_data AS JSONB),
@@ -203,7 +216,10 @@ _UPSERT_CANDIDATE = text(
         linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
         location          = COALESCE(EXCLUDED.location, candidates.location),
         status            = EXCLUDED.status,
-        ai_summary        = COALESCE(EXCLUDED.ai_summary, candidates.ai_summary),
+        profile_about     = COALESCE(
+            EXCLUDED.profile_about,
+            candidates.profile_about
+        ),
         languages         = EXCLUDED.languages,
         cv_filename       = COALESCE(EXCLUDED.cv_filename, candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data || EXCLUDED.cv_extracted_data,
@@ -228,6 +244,10 @@ _UPDATE_CANDIDATE_ADOPT = text(
         linkedin        = COALESCE(CAST(:linkedin AS varchar(255)), candidates.linkedin),
         location        = COALESCE(CAST(:location AS varchar(255)), candidates.location),
         status          = CAST(:status AS candidatestatus),
+        profile_about   = COALESCE(
+            CAST(:profile_about AS text),
+            candidates.profile_about
+        ),
         languages       = CAST(:languages AS JSONB),
         cv_filename     = COALESCE(CAST(:cv_filename AS varchar(255)),
                                    candidates.cv_filename),
@@ -362,7 +382,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
     """
     INSERT INTO candidate_documents (
         candidate_id, filename, storage_key, content_type,
-        size_bytes, is_primary, uploaded_at,
+        size_bytes, document_kind, is_primary, uploaded_at,
         external_id, external_source,
         created_at, updated_at
     ) VALUES (
@@ -371,6 +391,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         CAST(:storage_key AS varchar(500)),
         CAST(:content_type AS varchar(100)),
         CAST(:size_bytes AS integer),
+        CAST(:document_kind AS candidatedocumentkind),
         CAST(:is_primary AS boolean),
         :uploaded_at,
         CAST(:external_id AS varchar(100)),
@@ -383,6 +404,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         storage_key  = COALESCE(EXCLUDED.storage_key, candidate_documents.storage_key),
         content_type = COALESCE(EXCLUDED.content_type, candidate_documents.content_type),
         size_bytes   = COALESCE(EXCLUDED.size_bytes, candidate_documents.size_bytes),
+        document_kind = EXCLUDED.document_kind,
         is_primary   = EXCLUDED.is_primary,
         uploaded_at  = COALESCE(EXCLUDED.uploaded_at, candidate_documents.uploaded_at),
         updated_at   = NOW()
@@ -1025,6 +1047,7 @@ class TraffitImporter:
                         "linkedin": payload.get("linkedin"),
                         "location": payload.get("location"),
                         "status": payload["status"],
+                        "profile_about": payload.get("profile_about"),
                         "languages": json.dumps(payload["languages"]),
                         "cv_filename": payload.get("cv_filename"),
                         "cv_extracted_data": json.dumps(payload["cv_extracted_data"]),
@@ -1689,6 +1712,24 @@ class TraffitImporter:
                         content_type=content_type[:100] if content_type else None,
                     )
 
+                    if is_primary:
+                        await self.db.execute(
+                            text(
+                                """
+                                UPDATE candidate_documents
+                                SET is_primary = FALSE, updated_at = NOW()
+                                WHERE candidate_id = :candidate_id
+                                  AND document_kind = 'cv'
+                                  AND is_primary IS TRUE
+                                  AND source_deleted_at IS NULL
+                                  AND external_id IS DISTINCT FROM :external_id
+                                """
+                            ),
+                            {
+                                "candidate_id": row.id,
+                                "external_id": ext_id,
+                            },
+                        )
                     await self.db.execute(
                         _UPSERT_CANDIDATE_DOCUMENT,
                         {
@@ -1699,6 +1740,10 @@ class TraffitImporter:
                             if content_type
                             else None,
                             "size_bytes": len(file_bytes),
+                            "document_kind": _traffit_document_kind(
+                                filename,
+                                is_primary=is_primary,
+                            ),
                             "is_primary": is_primary,
                             "uploaded_at": uploaded_at,
                             "external_id": ext_id,

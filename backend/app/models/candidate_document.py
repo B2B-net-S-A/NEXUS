@@ -14,11 +14,13 @@ Idempotentność migracji z Traffita: `external_source='traffit'` +
 
 from __future__ import annotations
 
+import enum
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    Enum,
     DateTime,
     ForeignKey,
     Index,
@@ -31,6 +33,19 @@ from sqlalchemy.orm import Mapped, deferred, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+
+
+class CandidateDocumentKind(str, enum.Enum):
+    """Business type of a candidate attachment.
+
+    Only ``cv`` documents participate in the CV gallery. Generic Traffit
+    attachments remain ``other`` until a recruiter classifies them.
+    """
+
+    cv = "cv"
+    cover_letter = "cover_letter"
+    certificate = "certificate"
+    other = "other"
 
 
 class CandidateDocument(Base, TimestampMixin):
@@ -60,6 +75,13 @@ class CandidateDocument(Base, TimestampMixin):
     )
     content_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    document_kind: Mapped[CandidateDocumentKind] = mapped_column(
+        Enum(CandidateDocumentKind, name="candidatedocumentkind"),
+        default=CandidateDocumentKind.other,
+        server_default=CandidateDocumentKind.other.value,
+        nullable=False,
+        index=True,
+    )
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     uploaded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -97,6 +119,16 @@ class CandidateDocument(Base, TimestampMixin):
             "ix_candidate_documents_manifest",
             "candidate_id",
             "source_manifest_fingerprint",
+        ),
+        Index(
+            "ux_candidate_documents_active_primary_cv",
+            "candidate_id",
+            unique=True,
+            postgresql_where=text(
+                "is_primary IS TRUE "
+                "AND source_deleted_at IS NULL "
+                "AND document_kind = 'cv'"
+            ),
         ),
     )
 

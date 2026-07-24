@@ -41,6 +41,7 @@ Safety:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from dataclasses import dataclass, field
@@ -104,6 +105,95 @@ _MERGE_CV_INTO_EXISTING = text(
         cv_parsed_at       = COALESCE(candidates.cv_parsed_at, :cv_parsed_at),
         updated_at         = NOW()
     WHERE id = :nexus_id
+    """
+)
+
+_UPSERT_CANDIDATE_DOCUMENT = text(
+    """
+    INSERT INTO candidate_documents (
+        candidate_id,
+        filename,
+        file_content,
+        storage_key,
+        size_bytes,
+        document_kind,
+        is_primary,
+        uploaded_at,
+        external_id,
+        external_source,
+        content_sha256,
+        created_at,
+        updated_at
+    )
+    SELECT
+        :candidate_id,
+        :filename,
+        :file_content,
+        :storage_key,
+        :size_bytes,
+        CAST('cv' AS candidatedocumentkind),
+        NOT EXISTS (
+            SELECT 1
+            FROM candidate_documents AS current
+            WHERE current.candidate_id = :candidate_id
+              AND current.document_kind = 'cv'
+              AND current.is_primary IS TRUE
+              AND current.source_deleted_at IS NULL
+        ),
+        :uploaded_at,
+        :external_id,
+        'talent_radar',
+        :content_sha256,
+        NOW(),
+        NOW()
+    WHERE :filename IS NOT NULL
+      AND (:storage_key IS NOT NULL OR :file_content IS NOT NULL)
+    ON CONFLICT (external_source, external_id)
+    WHERE external_id IS NOT NULL
+    DO UPDATE SET
+        filename = EXCLUDED.filename,
+        file_content = COALESCE(
+            EXCLUDED.file_content,
+            candidate_documents.file_content
+        ),
+        storage_key = COALESCE(
+            EXCLUDED.storage_key,
+            candidate_documents.storage_key
+        ),
+        size_bytes = COALESCE(
+            EXCLUDED.size_bytes,
+            candidate_documents.size_bytes
+        ),
+        document_kind = CAST('cv' AS candidatedocumentkind),
+        content_sha256 = COALESCE(
+            EXCLUDED.content_sha256,
+            candidate_documents.content_sha256
+        ),
+        updated_at = NOW()
+    """
+)
+
+_ADOPT_CANDIDATE_DOCUMENT_BY_HASH = text(
+    """
+    UPDATE candidate_documents AS document
+    SET document_kind = CAST('cv' AS candidatedocumentkind),
+        is_primary = (
+            document.is_primary
+            OR NOT EXISTS (
+                SELECT 1
+                FROM candidate_documents AS current
+                WHERE current.candidate_id = :candidate_id
+                  AND current.id <> document.id
+                  AND current.document_kind = 'cv'
+                  AND current.is_primary IS TRUE
+                  AND current.source_deleted_at IS NULL
+            )
+        ),
+        updated_at = NOW()
+    WHERE document.candidate_id = :candidate_id
+      AND document.content_sha256 = :content_sha256
+      AND document.source_deleted_at IS NULL
+    RETURNING document.id
     """
 )
 
@@ -265,6 +355,7 @@ class TalentRadarImporter:
         """
         cv_storage_key: str | None = None
         cv_content = row["cv_content"]
+        cv_bytes = bytes(cv_content) if cv_content else None
         if cv_content:
             from app.services.object_storage import (
                 is_available as _storage_available,
@@ -274,7 +365,7 @@ class TalentRadarImporter:
             if _storage_available():
                 try:
                     cv_storage_key = _upload_cv(
-                        content=bytes(cv_content),
+                        content=cv_bytes,
                         filename=row["cv_filename"] or "cv",
                         content_type=None,
                     )
@@ -291,9 +382,12 @@ class TalentRadarImporter:
             "lastname": (row["lastname"] or "").strip() or "?",
             "raw_cv_text": row["raw_cv_text"],
             # cv_file_content zostaje BYTEA tylko gdy upload do S3 nie zadziałał.
-            "cv_file_content": cv_content if cv_storage_key is None else None,
+            "cv_file_content": cv_bytes if cv_storage_key is None else None,
             "cv_storage_key": cv_storage_key,
             "cv_filename": row["cv_filename"],
+            "cv_content_sha256": (
+                hashlib.sha256(cv_bytes).hexdigest() if cv_bytes else None
+            ),
             "cv_extracted_data": row["extracted_data"] or {},
             "skills": row["skills"] or [],
             "years_it_experience": row["experience_years"],
@@ -469,6 +563,7 @@ class TalentRadarImporter:
                 await self.target_db.execute(
                     _MERGE_CV_INTO_EXISTING, self._merge_params(p, existing_id)
                 )
+                await self._upsert_candidate_document(existing_id, p)
                 updated += 1
                 self.adopted += 1
                 # Cache so other rows in this run targeting the same person merge too.
@@ -485,6 +580,7 @@ class TalentRadarImporter:
             if row is None:
                 continue
             new_id, was_insert = row[0], row[1]
+            await self._upsert_candidate_document(new_id, p)
             if was_insert:
                 inserted += 1
             else:
@@ -498,6 +594,38 @@ class TalentRadarImporter:
 
         await self.target_db.commit()
         return (inserted, updated)
+
+    async def _upsert_candidate_document(
+        self,
+        candidate_id: int,
+        payload: dict[str, Any],
+    ) -> None:
+        content = payload.get("cv_file_content")
+        external_part = payload.get("external_id") or candidate_id
+        content_sha256 = payload.get("cv_content_sha256")
+        if content_sha256:
+            adopted = await self.target_db.execute(
+                _ADOPT_CANDIDATE_DOCUMENT_BY_HASH,
+                {
+                    "candidate_id": candidate_id,
+                    "content_sha256": content_sha256,
+                },
+            )
+            if adopted.fetchone() is not None:
+                return
+        await self.target_db.execute(
+            _UPSERT_CANDIDATE_DOCUMENT,
+            {
+                "candidate_id": candidate_id,
+                "filename": payload.get("cv_filename"),
+                "file_content": content,
+                "storage_key": payload.get("cv_storage_key"),
+                "size_bytes": len(content) if content else None,
+                "uploaded_at": payload.get("cv_parsed_at"),
+                "external_id": f"candidate-{external_part}"[:100],
+                "content_sha256": content_sha256,
+            },
+        )
 
     async def run(self) -> AsyncIterator[ImportProgress]:
         """Stream progress updates as we process batches. Caller awaits each yield."""

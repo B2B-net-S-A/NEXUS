@@ -567,12 +567,20 @@ class CandidateDocumentOut(BaseModel):
     filename: str
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
+    document_kind: Literal["cv", "cover_letter", "certificate", "other"]
     is_primary: bool
     uploaded_at: Optional[datetime] = None
     external_source: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CandidateDocumentUpdate(BaseModel):
+    document_kind: Optional[Literal["cv", "cover_letter", "certificate", "other"]] = (
+        None
+    )
+    is_primary: Optional[bool] = None
 
 
 # ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
