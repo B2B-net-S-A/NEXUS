@@ -78,11 +78,16 @@ jobs:
         run: ruff check app/
       - name: Ruff format check
         run: ruff format --check app/
-      - name: Alembic migration dry-run
+      - name: Alembic legacy-row and retry probe
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
-        run: alembic -c alembic/alembic.ini upgrade heads
+        run: |
+          alembic -c alembic/alembic.ini upgrade 0194_match_score_invalidations
+          python scripts/verify_b2b_signature_migration.py seed
+          alembic -c alembic/alembic.ini upgrade heads
+          alembic -c alembic/alembic.ini upgrade heads
+          python scripts/verify_b2b_signature_migration.py verify
       - name: Import smoke check
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
@@ -194,6 +199,7 @@ jobs:
                  tests/test_pipeline_templates_reorder.py \
                  tests/test_marketplace_api.py \
                  tests/test_b2b_contract_generator.py \
+                 tests/test_b2b_signature_automation.py \
                  tests/test_b2b_uop_check.py \
                  tests/test_contract_legal_access.py \
                  tests/test_client_amendment_access.py \

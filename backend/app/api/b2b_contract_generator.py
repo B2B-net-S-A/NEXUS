@@ -23,12 +23,16 @@ from sqlalchemy.orm import selectinload
 from app.api.contract_access import ContractLegalAccess
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
-from app.api.deps import AdminUser
+from app.api.deps import AdminUser, TacPlus
+from app.api.recruitment_access import ensure_job_membership
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_contract_role import B2BContractRole
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.candidate import Candidate
+from app.models.client import Client
+from app.models.client_order import ClientOrder
 from app.models.contract import (
     Contract,
     ContractStatus,
@@ -38,12 +42,16 @@ from app.models.contract import (
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_template import ContractTemplate
 from app.models.job import Job
+from app.models.job_collaborator import JobCollaborator
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import (
     B2BCompanyLookupResponse,
     B2BContractDetailResponse,
     B2BGenerateRequest,
     B2BGenerateResponse,
+    B2BConfirmFullySignedRequest,
+    B2BConfirmFullySignedResponse,
     B2BGeneratedContractItem,
     B2BGeneratedContractUpdate,
     B2BNextNumberResponse,
@@ -55,6 +63,7 @@ from app.schemas.b2b_contract_generator import (
     B2BUopCheckRequest,
     B2BUopCheckResponse,
 )
+from app.services.b2b_contract_automation import ensure_b2b_employment_draft
 from app.services.b2b_contract_generator.clause_overrides import (
     apply_ops_html,
     overrides_for_client,
@@ -100,6 +109,179 @@ def _docx_response(data: bytes, contract_number: str | None) -> Response:
     if contract_number:
         headers["X-Contract-Number"] = contract_number
     return Response(content=data, media_type=_DOCX_MEDIA, headers=headers)
+
+
+def _has_signature_role(user: User) -> bool:
+    return user.has_any_role(
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.tac,
+    )
+
+
+async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -> None:
+    await ensure_job_membership(db, user, job.id)
+
+
+async def _validate_candidate_job_link(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+) -> tuple[Candidate, Job]:
+    candidate = await db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
+    has_pipeline = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate.id,
+            CandidateStage.job_id == job.id,
+        )
+        .limit(1)
+    )
+    if has_pipeline is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Kandydat nie uczestniczy w wybranej rekrutacji. "
+                "Nie utworzono powiązania ani kontraktora."
+            ),
+        )
+    return candidate, job
+
+
+async def _serialize_generated_contracts(
+    db: AsyncSession,
+    rows: list[B2BGeneratedContract],
+    current_user: User,
+) -> list[B2BGeneratedContractItem]:
+    """One serializer for list, PATCH and signature command responses."""
+
+    user_ids = {
+        uid
+        for row in rows
+        for uid in (row.created_by, row.signed_by_user_id)
+        if uid is not None
+    }
+    candidate_ids = {row.candidate_id for row in rows if row.candidate_id is not None}
+    job_ids = {row.job_id for row in rows if row.job_id is not None}
+    client_ids = {row.client_id for row in rows if row.client_id is not None}
+
+    users: dict[int, str] = {}
+    if user_ids:
+        result = await db.execute(
+            select(User.id, User.name).where(User.id.in_(user_ids))
+        )
+        users = {uid: name for uid, name in result.all()}
+
+    candidates: dict[int, str] = {}
+    if candidate_ids:
+        result = await db.execute(
+            select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                Candidate.id.in_(candidate_ids)
+            )
+        )
+        candidates = {
+            cid: f"{name} {lastname}".strip() for cid, name, lastname in result.all()
+        }
+
+    jobs: dict[int, Job] = {}
+    if job_ids:
+        result = await db.execute(select(Job).where(Job.id.in_(job_ids)))
+        jobs = {job.id: job for job in result.scalars().all()}
+
+    clients: dict[int, str] = {}
+    if client_ids:
+        result = await db.execute(
+            select(Client.id, Client.name).where(Client.id.in_(client_ids))
+        )
+        clients = {cid: name for cid, name in result.all()}
+
+    scoped_job_ids: set[int] = set()
+    if _has_signature_role(current_user):
+        if current_user.has_role(UserRole.admin):
+            scoped_job_ids = set(job_ids)
+        else:
+            scoped_job_ids = {
+                job.id
+                for job in jobs.values()
+                if current_user.id
+                in {
+                    job.recruiter_id,
+                    job.delivery_lead_id,
+                    job.tac_id,
+                }
+            }
+            if job_ids:
+                result = await db.execute(
+                    select(JobCollaborator.job_id).where(
+                        JobCollaborator.job_id.in_(job_ids),
+                        JobCollaborator.user_id == current_user.id,
+                        JobCollaborator.removed_from_auto_cc.is_(False),
+                    )
+                )
+                scoped_job_ids.update(job_id for (job_id,) in result.all())
+
+    is_admin = current_user.has_role(UserRole.admin)
+    items: list[B2BGeneratedContractItem] = []
+    for row in rows:
+        is_signed = row.signature_status == "signed_both"
+        can_manage = not is_signed and (is_admin or row.created_by == current_user.id)
+        can_confirm = _has_signature_role(current_user) and not is_signed
+        blocked_reason: str | None = None
+        if is_signed:
+            blocked_reason = "Umowa została już oznaczona jako podpisana obustronnie."
+        elif not _has_signature_role(current_user):
+            blocked_reason = (
+                "Oznaczenie podpisu wymaga roli administratora, Delivery Lead lub TAC."
+            )
+            can_confirm = False
+        elif row.job_id is not None and row.job_id not in scoped_job_ids:
+            blocked_reason = "Brak przypisania do powiązanej rekrutacji."
+            can_confirm = False
+
+        job = jobs.get(row.job_id) if row.job_id is not None else None
+        items.append(
+            B2BGeneratedContractItem(
+                id=row.id,
+                contract_number=row.contract_number,
+                partner_name=row.partner_name,
+                client_name=row.client_name,
+                language=row.language,
+                signing_date=row.signing_date,
+                created_at=row.created_at.isoformat() if row.created_at else None,
+                created_by_name=users.get(row.created_by),
+                can_delete=can_manage,
+                can_edit=can_manage,
+                can_download=row.render_payload is not None,
+                signature_status=row.signature_status,
+                signature_source=row.signature_source,
+                candidate_id=row.candidate_id,
+                job_id=row.job_id,
+                client_id=row.client_id,
+                contract_id=row.contract_id,
+                candidate_name=candidates.get(row.candidate_id),
+                job_title=job.title if job else None,
+                canonical_client_name=clients.get(row.client_id),
+                signed_at=row.signed_at.isoformat() if row.signed_at else None,
+                signed_by_name=users.get(row.signed_by_user_id),
+                can_confirm_signed=can_confirm,
+                blocked_reason=blocked_reason,
+            )
+        )
+    return items
+
+
+async def _serialize_generated_contract(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    current_user: User,
+) -> B2BGeneratedContractItem:
+    return (await _serialize_generated_contracts(db, [row], current_user))[0]
 
 
 # ── Katalog ról ──────────────────────────────────────────────────────────────
@@ -262,15 +444,98 @@ async def generate(
             select(Contract)
             .where(Contract.id == payload.contract_id)
             .options(selectinload(Contract.candidate_rate_schedule))
+            .with_for_update()
         )
         if not contract:
             raise HTTPException(status_code=404, detail="Umowa nie znaleziona")
         if contract.contract_type != ContractType.b2b:
             raise HTTPException(status_code=409, detail="To nie jest umowa B2B")
+        if contract.status != ContractStatus.draft:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        f"Kontrakt #{contract.id} ma status "
+                        f"'{contract.status.value}' i nie może być edytowany "
+                        "przez generator."
+                    ),
+                    "contract_ids": [contract.id],
+                },
+            )
+        signed_generated_id = await db.scalar(
+            select(B2BGeneratedContract.id)
+            .where(
+                B2BGeneratedContract.contract_id == contract.id,
+                B2BGeneratedContract.signature_status == "signed_both",
+            )
+            .limit(1)
+        )
+        if signed_generated_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "Kontrakt jest już powiązany z audytowanym "
+                        "potwierdzeniem podpisanej umowy i nie może być "
+                        "ponownie zmieniony przez generator."
+                    ),
+                    "contract_ids": [contract.id],
+                },
+            )
+        if (
+            (
+                payload.candidate_id is not None
+                and payload.candidate_id != contract.candidate_id
+            )
+            or (payload.job_id is not None and payload.job_id != contract.job_id)
+            or (
+                payload.client_id is not None
+                and payload.client_id != contract.client_id
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "candidate_id, job_id lub client_id nie odpowiadają "
+                        "istniejącemu draftowi."
+                    ),
+                    "contract_ids": [contract.id],
+                },
+            )
+        if contract.job_id is not None:
+            _, existing_job = await _validate_candidate_job_link(
+                db,
+                candidate_id=contract.candidate_id,
+                job_id=contract.job_id,
+            )
+            if existing_job.client_id != contract.client_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": (
+                            "Klient kontraktu nie odpowiada klientowi rekrutacji."
+                        ),
+                        "contract_ids": [contract.id],
+                    },
+                )
     else:
         # client_id można wyprowadzić z wybranej rekrutacji (job → klient).
         client_id = payload.client_id
-        if not client_id and payload.job_id:
+        job: Job | None = None
+        if payload.job_id and payload.candidate_id:
+            _, job = await _validate_candidate_job_link(
+                db,
+                candidate_id=payload.candidate_id,
+                job_id=payload.job_id,
+            )
+            if client_id is not None and client_id != job.client_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="client_id nie odpowiada klientowi wybranej rekrutacji",
+                )
+            client_id = job.client_id
+        elif payload.job_id:
             job = await db.get(Job, payload.job_id)
             client_id = job.client_id if job else None
         if not payload.candidate_id or not client_id:
@@ -278,18 +543,40 @@ async def generate(
                 status_code=422,
                 detail="Wymagany candidate_id oraz client_id lub job_id z klientem",
             )
-        contract = Contract(
-            candidate_id=payload.candidate_id,
-            client_id=client_id,
-            job_id=payload.job_id,
-            contract_type=ContractType.b2b,
-            status=ContractStatus.draft,
-            start_date=payload.start_date,
-            rate_unit=RateUnit.hourly,
-            currency=payload.currency,
-        )
-        db.add(contract)
-        await db.flush()
+        if job is not None:
+            ensured = await ensure_b2b_employment_draft(
+                db,
+                candidate_id=payload.candidate_id,
+                job=job,
+                actor_id=current_user.id,
+                payload=payload,
+                contract_number=payload.contract_number,
+                signing_date=payload.signing_date,
+                language=lang,
+                allowed_statuses=(ContractStatus.draft,),
+                # A draft is the generator's editable workspace. Identity,
+                # client and lifecycle are still guarded by the shared
+                # service, but form fields below intentionally replace its
+                # current terms.
+                validate_terms=False,
+                reject_signed_generated_link=True,
+            )
+            contract = ensured.contract
+        else:
+            # Legacy ad-hoc path without a recruitment cannot be safely
+            # deduplicated. New UI flows always send job_id.
+            contract = Contract(
+                candidate_id=payload.candidate_id,
+                client_id=client_id,
+                job_id=None,
+                contract_type=ContractType.b2b,
+                status=ContractStatus.draft,
+                start_date=payload.start_date,
+                rate_unit=RateUnit.hourly,
+                currency=payload.currency,
+            )
+            db.add(contract)
+            await db.flush()
 
     # 2. Pola finansowe/daty na Contract.
     contract.start_date = payload.start_date
@@ -505,6 +792,13 @@ async def render_standalone(
     """
     lang = normalize_language(payload.language)
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
+    linked_job: Job | None = None
+    if payload.candidate_id is not None and payload.job_id is not None:
+        _, linked_job = await _validate_candidate_job_link(
+            db,
+            candidate_id=payload.candidate_id,
+            job_id=payload.job_id,
+        )
     context = build_render_context(payload, role)
 
     if fmt == "html":
@@ -559,6 +853,9 @@ async def render_standalone(
             language=lang,
             signing_date=payload.signing_date,
             created_by=current_user.id,
+            candidate_id=payload.candidate_id,
+            job_id=payload.job_id,
+            client_id=linked_job.client_id if linked_job else None,
             # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
             render_payload=payload.model_dump(mode="json"),
         )
@@ -594,31 +891,18 @@ async def list_generated_contracts(
 
     ``can_delete`` mówi UI, czy bieżący użytkownik może usunąć dany wpis (autor
     wpisu lub admin)."""
-    is_admin = current_user.has_role(UserRole.admin)
-    rows = (
-        await db.execute(
-            select(B2BGeneratedContract, User.name)
-            .outerjoin(User, User.id == B2BGeneratedContract.created_by)
-            .order_by(B2BGeneratedContract.created_at.desc())
-            .limit(limit)
+    rows = list(
+        (
+            await db.execute(
+                select(B2BGeneratedContract)
+                .order_by(B2BGeneratedContract.created_at.desc())
+                .limit(limit)
+            )
         )
-    ).all()
-    return [
-        B2BGeneratedContractItem(
-            id=r.id,
-            contract_number=r.contract_number,
-            partner_name=r.partner_name,
-            client_name=r.client_name,
-            language=r.language,
-            signing_date=r.signing_date,
-            created_at=r.created_at.isoformat() if r.created_at else None,
-            created_by_name=creator_name,
-            can_delete=is_admin or r.created_by == current_user.id,
-            can_edit=is_admin or r.created_by == current_user.id,
-            can_download=r.render_payload is not None,
-        )
-        for r, creator_name in rows
-    ]
+        .scalars()
+        .all()
+    )
+    return await _serialize_generated_contracts(db, rows, current_user)
 
 
 @router.get("/generated/{generated_id}/docx")
@@ -654,6 +938,206 @@ async def download_generated_contract(
     return _docx_response(data, row.contract_number)
 
 
+@router.post(
+    "/generated/{generated_id}/confirm-fully-signed",
+    response_model=B2BConfirmFullySignedResponse,
+)
+async def confirm_generated_contract_fully_signed(
+    generated_id: int,
+    payload: B2BConfirmFullySignedRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """One-way, audited manual confirmation with atomic employment automation."""
+
+    try:
+        row = await db.scalar(
+            select(B2BGeneratedContract)
+            .where(B2BGeneratedContract.id == generated_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+
+        # Idempotent replay: do not recreate an order/stage after the original
+        # workflow has completed (the order may legitimately be completed or
+        # deleted later). Return the durable links that still exist.
+        if row.signature_status == "signed_both":
+            if (
+                row.contract_id is None
+                or row.candidate_id is None
+                or row.job_id is None
+                or row.client_id is None
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Podpisany wpis ma niepełne powiązania. Wymaga naprawy "
+                        "administracyjnej; automatyzacja nie zostanie powtórzona."
+                    ),
+                )
+            signed_job = await db.get(Job, row.job_id)
+            if signed_job is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Powiązana rekrutacja już nie istnieje.",
+                )
+            await _require_signature_job_scope(db, current_user, signed_job)
+            order_id = await db.scalar(
+                select(ClientOrder.id)
+                .where(
+                    ClientOrder.contract_id == row.contract_id,
+                    ClientOrder.job_id == row.job_id,
+                )
+                .order_by(ClientOrder.created_at.desc(), ClientOrder.id.desc())
+                .limit(1)
+            )
+            item = await _serialize_generated_contract(db, row, current_user)
+            await db.commit()
+            return B2BConfirmFullySignedResponse(
+                outcome="already_processed",
+                contract_id=row.contract_id,
+                order_id=order_id,
+                candidate_id=row.candidate_id,
+                job_id=row.job_id,
+                client_id=row.client_id,
+                message=(
+                    "Umowa była już oznaczona jako podpisana. "
+                    "Nie utworzono żadnych dodatkowych rekordów."
+                ),
+                generated_contract=item,
+            )
+
+        if (
+            row.candidate_id is not None
+            and payload.candidate_id is not None
+            and row.candidate_id != payload.candidate_id
+        ) or (
+            row.job_id is not None
+            and payload.job_id is not None
+            and row.job_id != payload.job_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Wpis ma już inne powiązanie źródłowe. Nie można przepiąć "
+                    "go podczas potwierdzania podpisu."
+                ),
+            )
+
+        candidate_id = row.candidate_id or payload.candidate_id
+        job_id = row.job_id or payload.job_id
+        if candidate_id is None or job_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Historyczna umowa wymaga wskazania kandydata i konkretnej "
+                    "rekrutacji przed potwierdzeniem podpisu."
+                ),
+            )
+
+        _, job = await _validate_candidate_job_link(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+        )
+        await _require_signature_job_scope(db, current_user, job)
+        if row.client_id is not None and row.client_id != job.client_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Klient zapisany przy umowie nie odpowiada klientowi "
+                    "wybranej rekrutacji."
+                ),
+            )
+
+        render_payload = (
+            B2BRenderRequest(**row.render_payload) if row.render_payload else None
+        )
+        result = await ensure_b2b_employment_draft(
+            db,
+            candidate_id=candidate_id,
+            job=job,
+            actor_id=current_user.id,
+            payload=render_payload,
+            contract_number=row.contract_number,
+            signing_date=row.signing_date,
+            language=row.language,
+            ensure_order=True,
+            ensure_hired=True,
+            audit_source_generated_id=row.id,
+        )
+        if result.order is None:  # defensive; ensure_order=True guarantees it
+            raise RuntimeError("employment automation returned no ClientOrder")
+
+        row.signature_status = "signed_both"
+        row.signature_source = "manual_confirmation"
+        row.candidate_id = candidate_id
+        row.job_id = job.id
+        row.client_id = job.client_id
+        row.contract_id = result.contract.id
+        row.signed_at = datetime.now(timezone.utc)
+        row.signed_by_user_id = current_user.id
+        if row.render_payload is not None:
+            row.render_payload = {
+                **row.render_payload,
+                "candidate_id": candidate_id,
+                "job_id": job.id,
+            }
+        db.add(
+            Activity(
+                entity_type="b2b_generated_contract",
+                entity_id=row.id,
+                action="fully_signed_confirmed",
+                user_id=current_user.id,
+                details={
+                    "contract_number": row.contract_number,
+                    "candidate_id": candidate_id,
+                    "job_id": job.id,
+                    "client_id": job.client_id,
+                    "contract_id": result.contract.id,
+                    "order_id": result.order.id,
+                    "source": "manual_confirmation",
+                    "outcome": (
+                        "created" if result.created_contract else "linked_existing"
+                    ),
+                },
+            )
+        )
+        # Build the public projection before committing so even a serializer
+        # failure rolls back the entire handoff instead of returning a 500
+        # after employment was already persisted.
+        await db.flush()
+        item = await _serialize_generated_contract(db, row, current_user)
+        await db.commit()
+        outcome = "created" if result.created_contract else "linked_existing"
+        message = (
+            "Utworzono szkic kontraktora i zamówienia oraz oznaczono "
+            "kandydata jako zatrudnionego."
+            if result.created_contract
+            else (
+                "Kontraktor już istniał — umowę powiązano bez tworzenia "
+                "duplikatu, a zatrudnienie zsynchronizowano."
+            )
+        )
+        return B2BConfirmFullySignedResponse(
+            outcome=outcome,
+            contract_id=result.contract.id,
+            order_id=result.order.id,
+            candidate_id=candidate_id,
+            job_id=job.id,
+            client_id=job.client_id,
+            message=message,
+            generated_contract=item,
+        )
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
+
+
 @router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)
 async def update_generated_contract(
     generated_id: int,
@@ -667,9 +1151,21 @@ async def update_generated_contract(
     ``render_payload['client_name']`` — dzięki temu ponowne pobranie DOCX ma już
     poprawioną nazwę, a per-klienta klauzule (§/załączniki) dobiorą się pod nią.
     Edytować może wyłącznie autor wpisu lub administrator (jak przy usuwaniu)."""
-    row = await db.get(B2BGeneratedContract, generated_id)
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if row.signature_status == "signed_both":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Podpisana umowa jest częścią historii zatrudnienia i nie może "
+                "być edytowana."
+            ),
+        )
     is_admin = current_user.has_role(UserRole.admin)
     if not is_admin and row.created_by != current_user.id:
         raise HTTPException(
@@ -703,25 +1199,7 @@ async def update_generated_contract(
     await db.commit()
     await db.refresh(row)
 
-    creator_name = None
-    if row.created_by is not None:
-        creator_name = await db.scalar(
-            select(User.name).where(User.id == row.created_by)
-        )
-    can_manage = is_admin or row.created_by == current_user.id
-    return B2BGeneratedContractItem(
-        id=row.id,
-        contract_number=row.contract_number,
-        partner_name=row.partner_name,
-        client_name=row.client_name,
-        language=row.language,
-        signing_date=row.signing_date,
-        created_at=row.created_at.isoformat() if row.created_at else None,
-        created_by_name=creator_name,
-        can_delete=can_manage,
-        can_edit=can_manage,
-        can_download=row.render_payload is not None,
-    )
+    return await _serialize_generated_contract(db, row, current_user)
 
 
 @router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -736,9 +1214,21 @@ async def delete_generated_contract(
     administrator. Usunięcie nie zwalnia numeru wstecz — sugestia kolejnego numeru
     liczona jest jako ``max(numer)+1``, więc skasowanie najnowszego wpisu pozwala
     ponownie użyć jego numeru (świadome — to log/audyt, nie rejestr nadań)."""
-    row = await db.get(B2BGeneratedContract, generated_id)
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if row.signature_status == "signed_both":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Podpisana umowa jest częścią historii zatrudnienia i nie może "
+                "być usunięta."
+            ),
+        )
     if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
         raise HTTPException(
             status_code=403,

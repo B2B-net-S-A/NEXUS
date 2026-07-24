@@ -57,8 +57,14 @@ _FULL_VISIBILITY_ROLES = {
 }
 
 
-_LIST_STATUSES = (
+_PENDING_STATUSES = (
     ContractStatus.draft,
+    ContractStatus.ready_for_signature,
+)
+
+
+_LIST_STATUSES = (
+    *_PENDING_STATUSES,
     ContractStatus.active,
     ContractStatus.ending,
 )
@@ -92,7 +98,7 @@ def _to_item(contract: Contract) -> ContractorListItem:
     """Serialize a Contract (with eager-loaded relations) to the list row."""
     missing = (
         validate_ready_for_activation(contract)
-        if contract.status == ContractStatus.draft
+        if contract.status in _PENDING_STATUSES
         else []
     )
     candidate = contract.candidate
@@ -146,7 +152,12 @@ async def list_contractors(
     # raw stored status, so the tab counts agree with the register's date-based
     # filter and don't lag the promotion cron. "draft" stays a plain status match.
     if status_filter == ContractStatus.draft:
-        query = query.where(Contract.status == ContractStatus.draft)
+        # The existing "Do uzupełnienia" tab is the pending bucket: both an
+        # editable draft and a finalized-but-not-yet-active contract belong
+        # here. Items keep their real status for an accurate badge.
+        query = query.where(Contract.status.in_(_PENDING_STATUSES))
+    elif status_filter == ContractStatus.ready_for_signature:
+        query = query.where(Contract.status == ContractStatus.ready_for_signature)
     elif status_filter == ContractStatus.ending:
         query = query.where(ending_soon_clause())
     elif status_filter == ContractStatus.active:
@@ -165,7 +176,7 @@ async def list_contractors(
     # so newest active contractors surface at the top.
     query = query.order_by(
         case(
-            (Contract.status == ContractStatus.draft, 0),
+            (Contract.status.in_(_PENDING_STATUSES), 0),
             (Contract.status == ContractStatus.ending, 1),
             else_=2,
         ),
@@ -220,7 +231,7 @@ async def contractor_stats(
 
     stats = ContractorStats()
     for c in contracts:
-        if c.status == ContractStatus.draft:
+        if c.status in _PENDING_STATUSES:
             stats.draft += 1
             if validate_ready_for_activation(c):
                 stats.drafts_incomplete += 1

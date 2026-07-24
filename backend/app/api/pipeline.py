@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pydantic import BaseModel
 from typing import List, Optional
@@ -24,6 +24,7 @@ from app.models.notification import Notification, NotificationType
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+from app.services.b2b_contract_automation import ensure_b2b_employment_draft
 from app.models.job import Job
 from app.models.pipeline_template import (
     PipelineStageDef,
@@ -376,6 +377,16 @@ async def move_candidate(
             ),
         )
 
+    # Use the same first lock as the signed-contract automation. Besides
+    # serializing two pipeline moves, this prevents the inverse
+    # CandidateStage-FK → Candidate-FOR-UPDATE lock order that could deadlock
+    # with a concurrent signature confirmation.
+    locked_candidate_id = await db.scalar(
+        select(Candidate.id).where(Candidate.id == data.candidate_id).with_for_update()
+    )
+    if locked_candidate_id is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
     # Current row pary — kanoniczny tiebreaker (moved_at DESC, id DESC).
     # Reużywany niżej: pending-block, cancel maili przy restore, notyfikacje.
     previous_stage_row = await db.scalar(
@@ -446,6 +457,19 @@ async def move_candidate(
                 "recruiter/tac/delivery_lead/admin."
             ),
         )
+    # A concurrent confirm or pipeline move may have completed while this
+    # request waited for the candidate lock. Treat an identical hired move as
+    # an idempotent replay instead of appending a second terminal stage.
+    if (
+        legacy_enum == PipelineStage.hired
+        and previous_stage_row is not None
+        and previous_stage_row.stage == PipelineStage.hired
+    ):
+        resp = _stage_response(previous_stage_row)
+        resp["scheduled_rejection_email_id"] = None
+        await db.commit()
+        return CandidateStageResponse(**resp)
+
     if legacy_enum == PipelineStage.verified and not user_can_edit_rates(current_user):
         raise HTTPException(
             status_code=403,
@@ -746,69 +770,46 @@ async def move_candidate(
     # Phase 9 A2 + DL portal refactor 2026-05-11:
     # Auto-create a draft Contract + draft ClientOrder when the candidate is
     # hired. DL fills in the rates/dates/PDF afterwards.
-    if legacy_enum == PipelineStage.hired:
-        from datetime import date as _date
-
-        from app.models.client_order import ClientOrder, ClientOrderStatus
-        from app.models.contract import Contract, ContractStatus
-        from app.models.user import User, UserRole
-
-        existing_draft = await db.scalar(
-            select(Contract).where(
-                Contract.candidate_id == data.candidate_id,
-                Contract.client_id == job.client_id,
-                Contract.job_id == job.id,
-                Contract.status == ContractStatus.draft,
-            )
+    if legacy_enum == PipelineStage.hired and job.client_id is not None:
+        employment = await ensure_b2b_employment_draft(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            actor_id=current_user.id,
+            default_start_date=date.today(),
+            ensure_order=True,
+            # The stage was inserted and flushed just above. The idempotent
+            # guard sees it as latest and never appends a duplicate.
+            ensure_hired=True,
+            require_b2b=False,
+            ensure_detail=False,
         )
-        if existing_draft is None and job.client_id:
-            draft = Contract(
-                candidate_id=data.candidate_id,
-                client_id=job.client_id,
-                job_id=job.id,
-                start_date=_date.today(),
-                status=ContractStatus.draft,
-            )
-            db.add(draft)
-            await db.flush()
-
-            # Order draft pod Contractem — DL uzupełni PDF + stawkę klienta
-            # + dokładne daty. status=draft + auto-link do Job.
-            cand = await db.scalar(
-                select(Candidate).where(Candidate.id == data.candidate_id)
-            )
-            cand_name = cand.name if cand else f"#{data.candidate_id}"
-            order_draft = ClientOrder(
-                client_id=job.client_id,
-                contract_id=draft.id,
-                job_id=job.id,
-                title=(
-                    f"{cand_name} — {job.title}" if cand else f"Zamówienie #{job.id}"
-                ),
-                status=ClientOrderStatus.draft,
-                start_date=_date.today(),
-                created_by_user_id=current_user.id,
-                notes=(
-                    "Auto-utworzone z pipeline (kandydat na stage 'hired'). "
-                    "Uzupełnij stawkę klienta, daty, i wgraj PDF zamówienia."
-                ),
-            )
-            db.add(order_draft)
-            await db.flush()
-
+        if employment.created_contract or employment.created_order:
             db.add(
                 Activity(
                     entity_type="contract",
-                    entity_id=draft.id,
-                    action="auto_drafted_from_pipeline",
+                    entity_id=employment.contract.id,
+                    action=(
+                        "auto_drafted_from_pipeline"
+                        if employment.created_contract
+                        else "order_auto_drafted_from_pipeline"
+                    ),
                     user_id=current_user.id,
                     details={
                         "candidate_id": data.candidate_id,
                         "job_id": job.id,
                         "stage": legacy_enum.value,
-                        "order_id": order_draft.id,
+                        "order_id": (employment.order.id if employment.order else None),
                     },
                 )
+            )
+            cand = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
+            cand_name = (
+                f"{cand.name} {cand.lastname}".strip()
+                if cand
+                else f"#{data.candidate_id}"
             )
             staff_ids_res = await db.execute(
                 select(User.id).where(
@@ -822,7 +823,10 @@ async def move_candidate(
                 db.add(
                     Notification(
                         user_id=uid,
-                        title=f"Nowy draft kontraktu + zamówienia #{draft.id}",
+                        title=(
+                            "Nowy draft kontraktu + zamówienia "
+                            f"#{employment.contract.id}"
+                        ),
                         message=(
                             f"Kandydat {cand_name} został zatrudniony na "
                             f"ofertę '{job.title}' (#{job.id}). Uzupełnij stawki, "
@@ -831,7 +835,7 @@ async def move_candidate(
                         link=f"/clients/{job.client_id}?tab=zamowienia",
                         notification_type=NotificationType.contract_activated,
                         related_entity_type="contract",
-                        related_entity_id=draft.id,
+                        related_entity_id=employment.contract.id,
                     )
                 )
 

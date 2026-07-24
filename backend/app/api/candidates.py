@@ -594,6 +594,8 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
             state=EmploymentState.employed_at_client,
             client_id=chosen.client_id,
             client_name=chosen.client.name if chosen.client else None,
+            contract_id=chosen.id,
+            job_id=chosen.job_id,
             contract_end_date=chosen.end_date,
             source="contract",
         )
@@ -627,10 +629,29 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     if hired_now:
         chosen = max(hired_now, key=lambda s: (s.moved_at, s.id))
         client = chosen.job.client if chosen.job else None
+        matching_contracts = [
+            contract
+            for contract in (candidate.contracts or [])
+            if contract.job_id == chosen.job_id
+            and contract.status
+            in (
+                ContractStatus.draft,
+                ContractStatus.ready_for_signature,
+                ContractStatus.active,
+                ContractStatus.ending,
+            )
+        ]
+        linked_contract = (
+            max(matching_contracts, key=lambda contract: contract.id)
+            if matching_contracts
+            else None
+        )
         return EmploymentInfo(
             state=EmploymentState.employed_at_client,
             client_id=client.id if client else None,
             client_name=client.name if client else None,
+            contract_id=linked_contract.id if linked_contract else None,
+            job_id=chosen.job_id,
             contract_end_date=None,
             source="pipeline",
         )

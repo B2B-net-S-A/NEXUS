@@ -1774,9 +1774,9 @@ async def delete_contract(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "message": (
-                    "Contract is executed or has signature evidence and cannot "
-                    "be hard-deleted; void it instead to preserve documents "
-                    "and signatures."
+                    "Contract is executed, has signature evidence, or is linked "
+                    "to an audited bilateral-signature confirmation and cannot "
+                    "be hard-deleted; void it instead to preserve its history."
                 ),
                 "status": contract.status.value,
                 "void_endpoint": f"/api/contracts/{contract_id}/void",

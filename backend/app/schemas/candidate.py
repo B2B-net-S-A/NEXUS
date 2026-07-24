@@ -32,6 +32,8 @@ class EmploymentInfo(BaseModel):
     state: EmploymentState
     client_id: Optional[int] = None
     client_name: Optional[str] = None
+    contract_id: Optional[int] = None
+    job_id: Optional[int] = None
     contract_end_date: Optional[date] = None
     source: Literal["contract", "conflict", "pipeline", "none"] = "none"
 
