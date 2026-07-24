@@ -198,6 +198,7 @@ CORE_DEEP_CHECK_TABLES = {
     "contracts",
     "contract_candidate_rates",
     "contract_client_rates",
+    "b2b_generated_contracts",
     "candidates",
     "clients",
     "jobs",
@@ -219,6 +220,7 @@ async def test_api_health_deep_returns_shape(env_with_metadata):
     assert body["version"] == "abc1234"
     assert isinstance(body["checks"], dict)
     assert CORE_DEEP_CHECK_TABLES.issubset(body["checks"].keys())
+    assert "b2b_signature_schema" in body["checks"]
 
 
 @pytest.mark.asyncio
@@ -285,6 +287,43 @@ async def test_api_health_deep_returns_503_when_probe_errors(monkeypatch):
     assert set(deep["checks"].values()) == {"unhealthy"}
     assert CORE_DEEP_CHECK_TABLES.issubset(deep["errors"].keys())
     assert deep["errors"]["contract_candidate_rates"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_fails_closed_on_b2b_signature_schema(monkeypatch):
+    """A partial fail-open startup backfill must make the deploy gate red even
+    when every mapped-table SELECT still succeeds."""
+    import app.core.database as db_module
+
+    class _CatalogResult:
+        def scalar_one(self):
+            return False
+
+    class _PartialSchemaSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, statement, *args, **kwargs):
+            if "expected_columns" in str(statement):
+                return _CatalogResult()
+            return object()
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: _PartialSchemaSession())
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        deep_resp = await ac.get("/api/health/deep")
+
+    deep = deep_resp.json()
+    assert deep_resp.status_code == 503
+    assert deep["status"] == "unhealthy"
+    assert deep["checks"]["b2b_signature_schema"] == "unhealthy"
+    assert deep["errors"]["b2b_signature_schema"] == "SchemaMismatch"
+    assert all(deep["checks"][name] == "healthy" for name in CORE_DEEP_CHECK_TABLES)
 
 
 @pytest.mark.asyncio

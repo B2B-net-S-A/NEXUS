@@ -92,6 +92,9 @@ def _contract_vars(contract: Contract) -> dict:
     """Shape exposed to templates (keep stable — it's part of the contract)."""
     cand = contract.candidate
     cli = contract.client
+    candidate_full_name = (
+        f"{cand.name} {cand.lastname}".strip() if cand is not None else None
+    )
     # Generator Umów B2B — dane per-umowa (1:1) + wybrana rola (zakres usług).
     # `b2b_detail` musi być eager-loaded przy każdym wywołaniu (async).
     detail = getattr(contract, "b2b_detail", None)
@@ -157,7 +160,7 @@ def _contract_vars(contract: Contract) -> dict:
             "id": cand.id if cand else None,
             "name": cand.name if cand else None,
             "lastname": cand.lastname if cand else None,
-            "full_name": (f"{cand.name} {cand.lastname}" if cand else None),
+            "full_name": candidate_full_name,
             "email": cand.email if cand else None,
             "phone": cand.phone if cand else None,
             "address": cand.location if cand else None,
@@ -208,7 +211,7 @@ def _contract_vars(contract: Contract) -> dict:
                 lang,
             ),
             # Komparycja: ścieżka /generate nie odmienia (brak pola) → mianownik.
-            "partner_instrumental": cand.full_name if cand else None,
+            "partner_instrumental": candidate_full_name,
             # Formy gramatyczne płci: ścieżka /generate domyślnie męska
             # (B2BContractDetail nie ma kolumny płci) — standalone /render
             # podstawia właściwą formę z formularza.

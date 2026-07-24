@@ -80,7 +80,12 @@ async def test_list_contractors_returns_envelope(
         assert "contract_id" in item
         assert "candidate" in item and "id" in item["candidate"]
         assert "status" in item
-        assert item["status"] in ("draft", "active", "ending")
+        assert item["status"] in (
+            "draft",
+            "ready_for_signature",
+            "active",
+            "ending",
+        )
         # missing_fields is always present (empty list for non-drafts)
         assert isinstance(item.get("missing_fields"), list)
 
@@ -98,12 +103,8 @@ async def test_list_contractors_filter_by_status(
 
 
 @pytest.mark.asyncio
-async def test_contractor_stats_shape(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    resp = await app_client.get(
-        "/api/contractors/stats", headers=app_auth_headers
-    )
+async def test_contractor_stats_shape(app_client: AsyncClient, app_auth_headers: dict):
+    resp = await app_client.get("/api/contractors/stats", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert set(body.keys()) == {"draft", "drafts_incomplete", "active", "ending"}
@@ -117,9 +118,7 @@ async def test_contractor_stats_shape(
 # ── Integration: activate endpoint ──────────────────────────────────────────
 
 
-async def _find_or_create_draft(
-    app_client: AsyncClient, headers: dict
-) -> dict | None:
+async def _find_or_create_draft(app_client: AsyncClient, headers: dict) -> dict | None:
     """Return a draft contract dict — find first, else create one.
 
     Creating a draft requires a candidate + client + job. Keep the setup

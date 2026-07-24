@@ -358,12 +358,29 @@ async def void_contract(
 
 
 async def can_hard_delete(db: AsyncSession, contract: Contract) -> bool:
-    """Only a non-executed ``draft`` with no completed signature may be hard-deleted.
+    """Only an unexecuted, unaudited ``draft`` may be hard-deleted.
 
     Everything else (active/ending/ended/ready_for_signature/void, or any
-    contract that already has a completed signature) must be voided instead, so a
-    DELETE can never cascade away signature evidence.
+    contract that already has completed signature evidence or an audited manual
+    bilateral-signature confirmation) must be voided instead. This preserves
+    both cryptographic evidence and the generated-document employment history.
     """
     if contract.status != ContractStatus.draft:
         return False
-    return not await _has_completed_signature(db, contract.id)
+    if await _has_completed_signature(db, contract.id):
+        return False
+
+    # Local import avoids coupling the lifecycle module's import graph to the
+    # generator while still treating its one-way audit link as hard-delete
+    # evidence. The FK is RESTRICT at the database layer as a final guard.
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    generated_confirmation_id = await db.scalar(
+        select(B2BGeneratedContract.id)
+        .where(
+            B2BGeneratedContract.contract_id == contract.id,
+            B2BGeneratedContract.signature_status == "signed_both",
+        )
+        .limit(1)
+    )
+    return generated_confirmation_id is None
