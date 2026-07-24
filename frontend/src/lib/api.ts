@@ -64,6 +64,17 @@ export function extractErrorMsg(error: unknown): string {
       }
       // FastAPI HTTPException(detail="...") → string detail
       if (typeof data.detail === "string") return data.detail;
+      // Domenowe konflikty mogą zwracać ustrukturyzowany detail, np.
+      // {message, contract_ids}. Użytkownik powinien zobaczyć komunikat, nie
+      // "[object Object]" ani ogólny status HTTP.
+      if (
+        data.detail &&
+        typeof data.detail === "object" &&
+        !Array.isArray(data.detail) &&
+        typeof (data.detail as { message?: unknown }).message === "string"
+      ) {
+        return (data.detail as { message: string }).message;
+      }
       // FastAPI Pydantic ValidationError → list of { msg, loc, ... }
       if (Array.isArray(data.detail) && data.detail.length > 0) {
         const first = data.detail[0];
@@ -1074,7 +1085,11 @@ export const autentiApi = {
 
 // ── Contractors (Delivery module) ───────────────────────────────────────────
 
-export type ContractorStatus = "draft" | "active" | "ending";
+export type ContractorStatus =
+  | "draft"
+  | "ready_for_signature"
+  | "active"
+  | "ending";
 
 export interface ContractorCandidateRef {
   id: number;
@@ -2201,6 +2216,8 @@ export const signingApi = {
 };
 
 export interface B2BRenderPayload {
+  candidate_id?: number | null;
+  job_id?: number | null;
   role_id?: number | null;
   language: string;
   gender?: string;
@@ -2302,11 +2319,26 @@ export const b2bGeneratorApi = {
     api.get(`/api/b2b-generator/generated/${id}/docx`, {
       responseType: "blob",
     }),
+  confirmFullySigned: (
+    id: number,
+    body: B2BConfirmFullySignedRequest = {},
+  ) =>
+    api
+      .post<B2BConfirmFullySignedResult>(
+        `/api/b2b-generator/generated/${id}/confirm-fully-signed`,
+        body,
+      )
+      .then((r) => r.data),
   checkUop: (body: { text: string; language: string }) =>
     api
       .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body)
       .then((r) => r.data),
 };
+
+export type B2BSignatureStatus = "unsigned" | "signed_both";
+export type B2BSignatureSource =
+  | "manual_confirmation"
+  | "validated_upload";
 
 export interface B2BGeneratedContractRow {
   id: number;
@@ -2317,9 +2349,38 @@ export interface B2BGeneratedContractRow {
   signing_date: string | null;
   created_at: string | null;
   created_by_name: string | null;
+  signature_status: B2BSignatureStatus;
+  signature_source: B2BSignatureSource | null;
+  candidate_id: number | null;
+  job_id: number | null;
+  client_id: number | null;
+  contract_id: number | null;
+  candidate_name: string | null;
+  job_title: string | null;
+  canonical_client_name: string | null;
+  signed_at: string | null;
+  signed_by_name: string | null;
+  can_confirm_signed: boolean;
+  blocked_reason: string | null;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;
+}
+
+export interface B2BConfirmFullySignedRequest {
+  candidate_id?: number;
+  job_id?: number;
+}
+
+export interface B2BConfirmFullySignedResult {
+  outcome: "created" | "linked_existing" | "already_processed";
+  contract_id: number;
+  order_id: number | null;
+  candidate_id: number;
+  job_id: number;
+  client_id: number;
+  message: string;
+  generated_contract: B2BGeneratedContractRow;
 }
 
 export interface B2BUopIssue {

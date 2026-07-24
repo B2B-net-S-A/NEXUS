@@ -18,7 +18,7 @@ import {
 } from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
 import { Badge } from"@/components/ui/badge";
-import { Button } from"@/components/ui/button";
+import { Button, buttonVariants } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
 import {
  Table,
@@ -30,7 +30,7 @@ import {
 } from"@/components/ui/table";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
 
-type Tab = ContractorStatus;
+type Tab = Exclude<ContractorStatus, "ready_for_signature">;
 
 const PAGE_SIZE = 50;
 
@@ -128,14 +128,14 @@ export function ContractorsListV2() {
  </div>
 
  {incompleteCount > 0 && tab !== "draft" && (
- <Card className="bg-amber-50 border-amber-200 flex items-center gap-3 !p-4">
- <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+ <Card className="bg-warning-muted border-warning/25 flex items-center gap-3 !p-4">
+ <AlertTriangle className="h-5 w-5 text-warning-muted-foreground shrink-0" />
  <div className="flex-1">
- <p className="text-sm font-semibold text-amber-800">
+ <p className="text-sm font-semibold text-warning-muted-foreground">
  {incompleteCount} draft{incompleteCount > 1 ?"y" :""} czeka na
  uzupełnienie
  </p>
- <p className="text-xs text-amber-700">
+ <p className="text-xs text-warning-muted-foreground">
  Bez stawek, dat, typu umowy i trybu pracy nie możemy aktywować
  kontraktu.
  </p>
@@ -153,7 +153,7 @@ export function ContractorsListV2() {
  <div
  role="tablist"
  aria-label="Filtry kontraktorów"
- className="flex gap-1 border-b border-[hsl(var(--border))]"
+ className="flex gap-1 border-b border-border"
  >
  {(["draft","active","ending"] as Tab[]).map((t) => {
  const count =
@@ -219,12 +219,13 @@ export function ContractorsListV2() {
  ) : (
  items.map((c) => {
  const isDraft = c.status === "draft";
+ const isReadyForSignature = c.status === "ready_for_signature";
  const readyToActivate = isDraft && c.missing_fields.length === 0;
  return (
  <TableRow key={c.contract_id} interactive>
  <TableCell>
  <Link
- href={`/contracts/${c.contract_id}?from=contractors`}
+ href={`/candidates/${c.candidate.id}`}
  className="font-medium text-foreground hover:text-primary"
  >
  {c.candidate.name} {c.candidate.lastname}
@@ -270,6 +271,10 @@ export function ContractorsListV2() {
  {c.missing_fields.length} brak
  {c.missing_fields.length === 1 ?"" :"ów"}
  </Badge>
+ ) : isReadyForSignature ? (
+ <Badge size="sm" variant="soft">
+ Do aktywacji
+ </Badge>
  ) : readyToActivate ? (
  <Badge size="sm" variant="soft">
  gotowy
@@ -284,6 +289,7 @@ export function ContractorsListV2() {
  )}
  </TableCell>
  <TableCell className="text-right">
+ <div className="flex items-center justify-end gap-1">
  {isDraft ? (
  <Button
  size="sm"
@@ -297,13 +303,14 @@ export function ContractorsListV2() {
  ) : ("Uzupełnij"
  )}
  </Button>
- ) : (
- <Link href={`/contracts/${c.contract_id}?from=contractors`}>
- <Button size="sm" variant="ghost">
+ ) : null}
+ <Link
+ href={`/contracts/${c.contract_id}?from=contractors`}
+ className={buttonVariants({ size: "sm", variant: "ghost" })}
+ >
  <FileText className="h-3.5 w-3.5" /> Szczegóły
- </Button>
  </Link>
- )}
+ </div>
  </TableCell>
  </TableRow>
  );
