@@ -77,89 +77,209 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
+function quickViewData() {
+  return {
+    candidate: {
+      id: 7,
+      name: "Jan Adam Maksymilian",
+      lastname: "Kowalski-Wiśniewski",
+      email: "jan.adam.maksymilian.kowalski-wisniewski@example.com",
+      phone: "+48 500 100 200",
+      status: "active",
+      location: "Warszawa, Polska",
+      skills: [
+        "AWS",
+        "Azure",
+        "Kubernetes",
+        "Terraform",
+        "Docker",
+        "CI/CD",
+        "Go",
+        "Python",
+        "Rust",
+      ],
+    },
+    current_position: {
+      title: "Cloud Architect",
+      started_at: "2022",
+      precision: "year",
+    },
+    availability: {
+      status: "open_to_offers",
+      available_from: null,
+      notice_period: 2,
+      notice_period_unit: "months",
+    },
+    source: {
+      added_by_name: "Anna Kowalska",
+      acquisition_source: "LinkedIn",
+      imported_via: "TRAFFIT",
+    },
+    current_recruitments: [
+      {
+        job_id: 11,
+        job_title: "Platform Engineer",
+        client_name: "Bank SA",
+        stage_id: 31,
+        stage_name: "Rozmowa techniczna",
+        moved_at: "2026-07-13T08:00:00Z",
+        moved_by_name: "Ewa Nowak",
+      },
+    ],
+    recent_notes: [
+      {
+        id: 1,
+        content: "Rozmowa techniczna poszła bardzo dobrze.",
+        created_at: "2026-07-13T08:00:00Z",
+        author_name: "Piotr Zieliński",
+      },
+      {
+        id: 2,
+        content: "Notatka z importu.",
+        created_at: "2026-07-12T08:00:00Z",
+        author_name: null,
+      },
+    ],
+    cv_highlights: {
+      bullets: [
+        "Senior Cloud Architect z 10-letnim doświadczeniem.",
+        "Technologie: AWS, Kubernetes, Terraform.",
+      ],
+    },
+    capabilities: {
+      can_assign: true,
+      can_mark_employed: true,
+      can_view_documents: true,
+      can_open_full_profile: true,
+    },
+  };
+}
+
+function documentData() {
+  return {
+    id: 3,
+    filename: "JanKowalski.pdf",
+    content_type: "application/pdf",
+    size_bytes: 1024,
+    document_kind: "cv",
+    is_primary: true,
+    uploaded_at: "2026-07-10T08:00:00Z",
+    external_source: "traffit",
+    created_at: "2026-07-10T08:00:00Z",
+  };
+}
+
 describe("CandidateQuickView", () => {
   beforeEach(() => {
     push.mockReset();
     apiGet.mockReset();
     apiGet.mockImplementation((url: string) => {
-      if (url === "/api/candidates/7") {
-        return Promise.resolve({
-          data: {
-            id: 7,
-            name: "Jan Adam",
-            lastname: "Kowalski",
-            email: "jan@example.com",
-            phone: "+48 500 100 200",
-            status: "active",
-            position: "Cloud Architect",
-            location: "Warszawa",
-            cv_filename: "JanKowalski.pdf",
-            skills: ["AWS", "Azure", "Kubernetes", "Terraform", "Docker", "CI/CD", "Go"],
-          },
-        } as never);
+      if (url === "/api/candidates/7/quick-view") {
+        return Promise.resolve({ data: quickViewData() } as never);
       }
       if (url === "/api/candidates/7/risk") {
         return Promise.resolve({ data: { level: "low" } } as never);
       }
-      if (url === "/api/candidates/7/history") {
-        return Promise.resolve({
-          data: {
-            jobs: [
-              {
-                job_id: 11,
-                job_title: "Platform Engineer",
-                latest_stage: "screening",
-                last_moved_at: "2026-07-13T08:00:00Z",
-              },
-            ],
-          },
-        } as never);
-      }
-      if (url === "/api/candidates/7/ai-profile") {
-        return Promise.resolve({ data: { summary: "Mocny profil chmurowy." } } as never);
-      }
-      if (url === "/api/candidates/7/timeline?limit=3") {
-        return Promise.resolve({
-          data: { timeline: [{ id: 1, type: "note", content: "Rozmowa techniczna" }] },
-        } as never);
-      }
-      if (url === "/api/candidates/7/documents") {
-        return Promise.resolve({
-          data: [{ id: 3, filename: "JanKowalski.pdf", is_primary: true }],
-        } as never);
+      if (url === "/api/candidates/7/documents?kind=cv") {
+        return Promise.resolve({ data: [documentData()] } as never);
       }
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
   });
 
-  it("renders the compact hierarchy, correct initials and a single close", async () => {
+  it("shows complete identity, contact, source, pipeline, AI and note authors", async () => {
     const onClose = vi.fn();
-    render(
-      <CandidateQuickView candidateId={7} onClose={onClose} />,
-      { wrapper },
-    );
+    render(<CandidateQuickView candidateId={7} onClose={onClose} />, {
+      wrapper,
+    });
+
+    const fullName = "Jan Adam Maksymilian Kowalski-Wiśniewski";
+    const headings = await screen.findAllByRole("heading", { name: fullName });
+    expect(headings).toHaveLength(2);
+    expect(headings[1]).toHaveClass("whitespace-nowrap");
+    expect(headings[1]).not.toHaveClass("truncate");
+    expect(screen.getByText("JK")).toBeInTheDocument();
+    expect(screen.getByText("Cloud Architect")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "jan.adam.maksymilian.kowalski-wisniewski@example.com",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("+48 500 100 200")).toBeInTheDocument();
+    expect(screen.getByText("Warszawa, Polska")).toBeInTheDocument();
+    expect(screen.getByText("Otwarty na oferty · 2 mies.")).toBeInTheDocument();
+
+    expect(screen.getByText("Anna Kowalska")).toBeInTheDocument();
+    expect(screen.getByText("LinkedIn")).toBeInTheDocument();
+    expect(screen.getByText("TRAFFIT")).toBeInTheDocument();
+    expect(screen.getByText("Rozmowa techniczna")).toBeInTheDocument();
+    expect(screen.getByText(/Ewa Nowak/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Senior Cloud Architect z 10-letnim doświadczeniem."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Piotr Zieliński/)).toBeInTheDocument();
+    expect(screen.getByText(/System \/ import/)).toBeInTheDocument();
 
     expect(
-      await screen.findAllByRole("heading", { name: "Jan Adam Kowalski" }),
-    ).toHaveLength(2);
-    expect(screen.getByText("JK")).toBeInTheDocument();
-    expect(screen.getAllByText("Cloud Architect").length).toBeGreaterThan(0);
-    expect(await screen.findByText("Platform Engineer")).toBeInTheDocument();
-    expect(await screen.findByText("JanKowalski.pdf")).toBeInTheDocument();
-    expect(await screen.findByText("Sugerowane rekrutacje test")).toBeInTheDocument();
-    expect(screen.queryByText("Go")).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Przypisz do rekrutacji" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Oznacz jako zatrudnionego" }),
+    ).toBeEnabled();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Otwórz CV" })).toBeEnabled(),
+    );
+    expect(screen.getByRole("button", { name: "Pełny profil" })).toBeEnabled();
+    expect(screen.queryByText("Rust")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Sugerowane rekrutacje test"),
+    ).toBeInTheDocument();
 
     await waitFor(() =>
       expect(
         screen.getAllByRole("button", { name: "Zamknij szybki podgląd" }),
       ).toHaveLength(1),
     );
+    expect(apiGet).not.toHaveBeenCalledWith(
+      "/api/candidates/7/ai-profile",
+      expect.anything(),
+    );
+    expect(apiGet).not.toHaveBeenCalledWith(
+      "/api/candidates/7/history",
+      expect.anything(),
+    );
   });
 
-  it("finishes loading with a dedicated 404 state", async () => {
+  it("disables the CV action with an explanation when no CV is classified", async () => {
     apiGet.mockImplementation((url: string) => {
-      if (url === "/api/candidates/7") {
-        return Promise.reject({ response: { status: 404 } });
+      if (url === "/api/candidates/7/quick-view") {
+        return Promise.resolve({ data: quickViewData() } as never);
+      }
+      if (url === "/api/candidates/7/risk") {
+        return Promise.resolve({ data: { level: "low" } } as never);
+      }
+      if (url === "/api/candidates/7/documents?kind=cv") {
+        return Promise.resolve({ data: [] } as never);
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    const button = await screen.findByRole("button", { name: "Otwórz CV" });
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveAttribute("title", "Brak sklasyfikowanego CV");
+  });
+
+  it.each([
+    [404, "Nie znaleziono kandydata", "Kandydat mógł zostać usunięty."],
+    [403, "Nie masz dostępu do tego profilu", null],
+  ])("finishes loading with a dedicated %s state", async (status, title, copy) => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/candidates/7/quick-view") {
+        return Promise.reject({ response: { status } });
       }
       return Promise.resolve({ data: {} } as never);
     });
@@ -168,28 +288,8 @@ describe("CandidateQuickView", () => {
       wrapper,
     });
 
-    expect(await screen.findByText("Nie znaleziono kandydata")).toBeInTheDocument();
-    expect(screen.getByText("Kandydat mógł zostać usunięty.")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Spróbuj ponownie" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("finishes loading with a dedicated 403 state and no retry action", async () => {
-    apiGet.mockImplementation((url: string) => {
-      if (url === "/api/candidates/7") {
-        return Promise.reject({ response: { status: 403 } });
-      }
-      return Promise.resolve({ data: {} } as never);
-    });
-
-    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
-      wrapper,
-    });
-
-    expect(
-      await screen.findByText("Nie masz dostępu do tego profilu"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    if (copy) expect(screen.getByText(copy)).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Spróbuj ponownie" }),
     ).not.toBeInTheDocument();
@@ -201,17 +301,16 @@ describe("CandidateQuickView", () => {
   ])("recovers from a %s error after retry", async (_label, initialError) => {
     let detailAttempts = 0;
     apiGet.mockImplementation((url: string) => {
-      if (url === "/api/candidates/7") {
+      if (url === "/api/candidates/7/quick-view") {
         detailAttempts += 1;
         if (detailAttempts === 1) return Promise.reject(initialError);
-        return Promise.resolve({
-          data: {
-            id: 7,
-            name: "Jan",
-            lastname: "Kowalski",
-            status: "active",
-          },
-        } as never);
+        return Promise.resolve({ data: quickViewData() } as never);
+      }
+      if (url === "/api/candidates/7/risk") {
+        return Promise.resolve({ data: { level: "low" } } as never);
+      }
+      if (url === "/api/candidates/7/documents?kind=cv") {
+        return Promise.resolve({ data: [documentData()] } as never);
       }
       return Promise.resolve({ data: {} } as never);
     });
@@ -226,7 +325,9 @@ describe("CandidateQuickView", () => {
     retry.click();
 
     expect(
-      await screen.findAllByRole("heading", { name: "Jan Kowalski" }),
+      await screen.findAllByRole("heading", {
+        name: "Jan Adam Maksymilian Kowalski-Wiśniewski",
+      }),
     ).toHaveLength(2);
   });
 });
