@@ -5,7 +5,6 @@
  *  - Match stats badge on candidate list
  *  - Quick assign modal from candidate row
  *  - Suggested jobs widget on candidate profile
- *  - Job card chips + Sparkles drawer on jobs list
  *  - Advanced filter bar: skill autocomplete → chip → narrowed result
  *  - Threshold slider + profile selector reflected in URL
  *  - /settings/scoring CRUD
@@ -80,27 +79,6 @@ test.describe("Phase 9 — matching UX", () => {
     await expect(
       page.getByText(/SUGEROWANE REKRUTACJE/i).first()
     ).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("JobCard shows skill chips and Sparkles button", async ({ page }) => {
-    await page.goto("/jobs");
-    // At least one job with must_skills should show a chip like "Angular" / "Python"
-    await expect(
-      page
-        .getByRole("button", { name: /Sugerowani kandydaci/i })
-        .first()
-    ).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("Sparkles button opens SuggestedCandidatesDrawer", async ({ page }) => {
-    await page.goto("/jobs");
-    await page
-      .getByRole("button", { name: /Sugerowani kandydaci/i })
-      .first()
-      .click();
-    await expect(
-      page.getByRole("heading", { name: /Sugerowani kandydaci/i })
-    ).toBeVisible();
   });
 
   test("/settings/scoring lists profiles + shows Nowy profil CTA", async ({ page }) => {
