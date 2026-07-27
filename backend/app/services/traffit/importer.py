@@ -1110,6 +1110,12 @@ class TraffitImporter:
         since_commit = 0
         adopted = 0
         collisions = 0
+        # Tylko NOWO wstawieni. Świadomie nie obejmujemy update'ów: pełny
+        # reconcile dotyka wszystkich 55 tys. wierszy co tydzień, więc
+        # zapisanie intencji dla każdego z nich kazałoby workerowi
+        # przeliczyć całą bazę na Voyage'u raz w tygodniu. Nowy kandydat na
+        # pewno nie ma wektora; zmieniony przeważnie ma nadal poprawny.
+        new_candidate_ids: list[int] = []
 
         async for raw in self.traffit.get_paginated(
             "/employees/",
@@ -1188,10 +1194,20 @@ class TraffitImporter:
                         # ...i jego external_id, żeby kolejny rekord o tym
                         # samym ext nie próbował go ukraść innemu wierszowi.
                         ext_to_id[str(payload["external_id"])] = row[0]
+                        # Kandydat, którego jeszcze nie było w Nexusie, nie ma
+                        # też wektora — a bez wektora nie istnieje w
+                        # rekomendacjach, hybrid searchu ani w Marketplace.
+                        # Zapisujemy INTENCJĘ (tani INSERT), nie embedujemy tu:
+                        # jedno wywołanie Voyage na wiersz zamieniłoby import
+                        # 55 tys. kandydatów w 55 tys. sekwencyjnych calli.
+                        new_candidate_ids.append(row[0])
                     else:
                         progress.updated += 1
                 since_commit += 1
                 if since_commit >= commit_every:
+                    await self._record_new_candidate_index_intent(
+                        new_candidate_ids, progress
+                    )
                     await self.db.commit()
                     since_commit = 0
                     logger.info(
@@ -1214,14 +1230,44 @@ class TraffitImporter:
                 await self.db.rollback()
                 since_commit = 0
 
-        if not self.dry_run and since_commit > 0:
-            await self.db.commit()
+        if not self.dry_run:
+            await self._record_new_candidate_index_intent(new_candidate_ids, progress)
+            if since_commit > 0 or new_candidate_ids:
+                await self.db.commit()
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Candidates import done: %s",
             json.dumps(progress.as_dict(), default=str)[:500],
         )
         return progress
+
+    async def _record_new_candidate_index_intent(
+        self, new_ids: list[int], progress: PhaseProgress
+    ) -> None:
+        """Zapisz intencję reindeksu dla nowych kandydatów i wyczyść bufor.
+
+        Best-effort: kolejka indeksu nigdy nie może wywalić importu — kandydat
+        w bazie bez wektora jest gorszy niż kandydat z wektorem, ale kandydat,
+        którego w ogóle nie ma, jest gorszy od obu.
+        """
+        if not new_ids:
+            return
+        try:
+            from app.services.index_outbox_service import (
+                CANDIDATE,
+                record_bulk_reindex,
+            )
+
+            await record_bulk_reindex(self.db, CANDIDATE, list(new_ids))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Recording reindex intent failed for %d new candidates: %s",
+                len(new_ids),
+                e,
+            )
+            progress.add_error(f"index intent: {e!r}")
+        finally:
+            new_ids.clear()
 
     # ── Faza 5: jobs ────────────────────────────────────────────────────────
 

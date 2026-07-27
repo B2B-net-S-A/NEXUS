@@ -165,6 +165,71 @@ async def schedule_or_embed_job(job_id: int, db: AsyncSession) -> bool:
     return True
 
 
+async def record_bulk_reindex(
+    db: AsyncSession, entity_type: str, entity_ids: list[int]
+) -> int:
+    """Record reindex intent for a BATCH, in the caller's transaction, no embedding.
+
+    Bulk writers (CSV import, Traffit sync) must never embed on their own path:
+    that is one Voyage call per row, so a 5 000-row import becomes 5 000
+    sequential API calls and a single timeout takes an otherwise good row down
+    with it. Recording the intent is an INSERT; draining it is the worker's job.
+
+    Two deliberate differences from :func:`enqueue`:
+
+    * It does NOT no-op when ``AI_INDEX_OUTBOX_ENABLED`` is off. That flag
+      answers "should single-record writers defer instead of embedding inline?"
+      — a question bulk writers cannot ask, because for them there is no sane
+      inline alternative. Their real choice is between a durable row and
+      skipping the candidate entirely, and skipping is precisely the bug this
+      closes: 8 272 candidates measured in the DB and absent from Qdrant on
+      2026-07-27, invisible to recommendations, hybrid search and Marketplace.
+    * It writes in the CALLER's session. A bulk import that rolls back must not
+      leave reindex intents for rows that no longer exist.
+
+    Recording is not indexing: until ``AI_INDEX_WORKER_ENABLED`` is on the rows
+    sit pending. That is still strictly better than today — the backlog is
+    countable (``GET /api/admin/index-coverage``) and flipping the worker on
+    fixes every recorded row retroactively, which silence never could.
+
+    The revision and hash are computed properly, in ONE batch query. Writing
+    ``entity_revision=0`` instead would be cheaper and wrong: :func:`_superseded`
+    marks an event as already-handled when any *newer* revision is done, and
+    every previously indexed candidate has one — so a zero-revision event for an
+    UPDATED row would be silently dropped as superseded and the edit would never
+    reach the index. Building the text and hashing it is pure local work; no
+    embedding API is touched here.
+    """
+    if not entity_ids:
+        return 0
+
+    from app.models.candidate import Candidate
+    from app.models.job import Job
+
+    model = Candidate if entity_type == CANDIDATE else Job
+    rows = (
+        (await db.execute(select(model).where(model.id.in_(entity_ids))))
+        .scalars()
+        .all()
+    )
+
+    recorded = 0
+    for entity in rows:
+        st = desired_state(entity_type, entity)
+        db.add(
+            IndexOutboxEvent(
+                entity_type=entity_type,
+                entity_id=entity.id,
+                entity_revision=st.revision,
+                desired_hash=st.desired_hash,
+                operation="upsert",
+                status="pending",
+            )
+        )
+        recorded += 1
+    return recorded
+
+
 async def _enqueue_isolated(
     *,
     entity_type: str,

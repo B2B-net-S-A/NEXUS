@@ -7,6 +7,7 @@ GET  /api/export/candidates  — download all candidates as CSV (UTF-8 BOM)
 import csv
 import io
 import codecs
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -30,6 +31,7 @@ from app.models.activity import Activity
 from app.api.candidate_access import CandidateExportAccess, CandidateWriteAccess
 from app.services import candidate_audit
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Expected CSV columns (case-insensitive, order flexible)
@@ -110,6 +112,7 @@ async def import_candidates(
     skipped = 0
     errors = 0
     details = []
+    imported_ids: list[int] = []
 
     for row_num, row in enumerate(reader, start=2):  # start=2 (header is row 1)
         try:
@@ -162,6 +165,7 @@ async def import_candidates(
             )
             db.add(candidate)
             await db.flush()
+            imported_ids.append(candidate.id)
 
             activity = Activity(
                 entity_type="candidate",
@@ -194,6 +198,18 @@ async def import_candidates(
                     "reason": str(exc),
                 }
             )
+
+    # Record the reindex intent for everything this import created. Bulk path,
+    # so intent only — embedding inline here would be one Voyage call per row
+    # inside the import loop, turning a 5 000-row CSV into 5 000 sequential API
+    # calls where a single timeout costs a candidate. Cheap INSERTs in the same
+    # transaction: if the import rolls back, the intents go with it.
+    try:
+        from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
+
+        await record_bulk_reindex(db, CANDIDATE, imported_ids)
+    except Exception as exc:  # noqa: BLE001 — never fail an import on the queue
+        logger.warning("Recording reindex intent for CSV import failed: %s", exc)
 
     await db.commit()
 
