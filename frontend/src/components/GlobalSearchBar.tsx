@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X, Users, Briefcase, Building2, Sparkles } from "lucide-react";
 import api from "@/lib/api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 interface SearchResult {
   id: number;
@@ -41,15 +42,6 @@ interface SemanticSearchResults {
   search_type: "semantic" | "text_fallback";
 }
 
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
-}
-
 // Build a flat list of all navigable results for keyboard navigation
 function buildFlatList(results: GlobalSearchResults | null): { url: string }[] {
   if (!results) return [];
@@ -80,7 +72,7 @@ export function GlobalSearchBar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const debouncedQuery = useDebounce(query, 350);
+  const debouncedQuery = useDebouncedValue(query, 350);
 
   // Text search
   useEffect(() => {
