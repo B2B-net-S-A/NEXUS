@@ -125,14 +125,17 @@ jobs:
               "freq=" + (.frequency // "?"),
               "enabled=" + (.enabled | tostring),
               "container=" + (if (.container // "") == "" then "*** EMPTY ***" else .container end),
-              "client=" + (if (.command // "") | startswith("curl") then "curl"
-                           elif (.command // "") | startswith("wget") then "wget"
+              "client=" + (if ((.command // "") | test("\\bcurl\\b")) then "curl"
+                           elif ((.command // "") | test("\\bwget\\b")) then "wget"
                            else "other" end)
             ] | @tsv' | column -t -s "$(printf '\t')"
 
           echo ""
           no_container=$(echo "$tasks" | jq '[.[] | select((.container // "") == "")] | length')
-          uses_curl=$(echo "$tasks" | jq '[.[] | select((.command // "") | startswith("curl"))] | length')
+          # Word-boundary match, not a prefix: the command may be `/usr/bin/curl …`
+          # or wrapped as `sh -c "curl …"`, and a prefix test would call those "other"
+          # — a false negative on exactly the failure this audit exists to find.
+          uses_curl=$(echo "$tasks" | jq '[.[] | select((.command // "") | test("\\bcurl\\b"))] | length')
           echo "Tasks with no container name: $no_container"
           echo "Tasks invoking curl:          $uses_curl"
 
