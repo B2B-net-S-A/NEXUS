@@ -115,9 +115,10 @@ export RCLONE_S3_NO_CHECK_BUCKET="true"
 # darmowy i bez limitu. Przy 136 tys. obiektów korpusu CV pierwszy przebieg
 # (27.07) wyczerpał dzienną pulę klasy B w kilkanaście minut, po czym każda
 # kolejna kopia padała na `403 AccessDenied: Cannot download file, download
-# bandwidth or transaction (Class B) cap exceeded`. Zmierzone w tym przebiegu:
-# 12 294 obiekty wgrane, 5 941 odrzuconych — około jednej trzeciej korpusu, i to
-# deterministycznie, więc te same pliki przepadałyby co noc.
+# bandwidth or transaction (Class B) cap exceeded`. Zmierzone w tym przebiegu po
+# ~30 minutach: 22 438 obiektów wgranych przy 16 088 odrzuconych — czyli ponad
+# dwie piąte korpusu, a odsetek rósł, bo pula raz wyczerpana już nie wraca do
+# końca doby. Błąd jest deterministyczny, więc te same pliki przepadałyby co noc.
 #
 # Ustawione globalnie, nie flagą przy `sync`, bo dotyczy też małych `rcat`:
 # LATEST.json idzie pojedynczym PUT-em, a jego niepowodzenie kładzie CAŁY
