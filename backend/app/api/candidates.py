@@ -106,6 +106,11 @@ from app.services.scoring_service import (
     summarize_match_stats,
 )
 from app.services.dedup_service import find_candidate_duplicates
+from app.schemas.pipeline import HiringManagerVetoBrief
+from app.services.hiring_manager_verdicts import (
+    load_all_vetoes_for_candidate,
+    load_manager_rejections,
+)
 from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
@@ -2443,6 +2448,7 @@ async def create_candidate_from_linkedin(
         assert existing is not None  # find_candidate_duplicates just returned it
 
         assigned_job: Optional[int] = None
+        assignment_skipped: Optional[str] = None
         if data.job_id is not None:
             already = await db.scalar(
                 select(CandidateStage).where(
@@ -2451,14 +2457,30 @@ async def create_candidate_from_linkedin(
                 )
             )
             if already is None:
-                await _assign_candidate_to_job(
-                    db=db,
-                    candidate_id=existing_id,
-                    job_id=data.job_id,
-                    stage=target_stage,
-                    user_id=current_user.id,
-                )
-            assigned_job = data.job_id
+                # Dedup landed on someone we already have — so they may already
+                # carry a rejection from this job's hiring manager. Skip the
+                # assignment rather than 409 the whole request: the candidate
+                # data is still worth saving, and the extension has no sensible
+                # way to recover from a hard failure here.
+                job_row = await db.scalar(select(Job).where(Job.id == data.job_id))
+                verdict = None
+                if job_row is not None:
+                    verdicts = await load_manager_rejections(
+                        db, job=job_row, candidate_ids=[existing_id]
+                    )
+                    verdict = verdicts.get(existing_id)
+                if verdict is not None:
+                    assignment_skipped = verdict.as_polish_detail()
+                else:
+                    await _assign_candidate_to_job(
+                        db=db,
+                        candidate_id=existing_id,
+                        job_id=data.job_id,
+                        stage=target_stage,
+                        user_id=current_user.id,
+                    )
+            if assignment_skipped is None:
+                assigned_job = data.job_id
 
         resync = _is_sync_stale(existing.linkedin_synced_at)
         if resync:
@@ -2475,6 +2497,7 @@ async def create_candidate_from_linkedin(
             linkedin_sync_status=existing.linkedin_sync_status
             or LinkedinSyncStatus.disabled,
             assigned_to_job_id=assigned_job,
+            assignment_skipped_reason=assignment_skipped,
             profile_url_path=f"/candidates/{existing_id}",
             resync_scheduled=resync,
         )
@@ -3101,6 +3124,36 @@ async def get_candidate_timeline(
         "count": len(timeline),
         "timeline": timeline[:limit],
     }
+
+
+@router.get(
+    "/{candidate_id}/hiring-manager-vetoes",
+    response_model=list[HiringManagerVetoBrief],
+)
+async def get_candidate_hiring_manager_vetoes(
+    candidate_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Managers who rejected this candidate after meeting them, newest first.
+
+    Job-scoped views can only name one manager; this is the whole picture —
+    "with whom must we not pair this person again", plus the reasons, without
+    opening every past recruitment.
+    """
+    verdicts = await load_all_vetoes_for_candidate(db, candidate_id=candidate_id)
+    return [
+        HiringManagerVetoBrief(
+            hiring_manager_contact_id=v.hiring_manager_contact_id,
+            hiring_manager_name=v.hiring_manager_name,
+            source_job_id=v.source_job_id,
+            source_job_title=v.source_job_title,
+            rejected_at=v.rejected_at,
+            rejection_reason_name=v.rejection_reason_name,
+            rejection_note=v.rejection_note,
+        )
+        for v in verdicts
+    ]
 
 
 @router.get("/{candidate_id}/history")

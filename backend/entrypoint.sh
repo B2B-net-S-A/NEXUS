@@ -1507,6 +1507,9 @@ _COLUMN_STATEMENTS = [
     'CREATE INDEX IF NOT EXISTS ix_rejection_reasons_external_source ON rejection_reasons (external_source)',
     'CREATE INDEX IF NOT EXISTS ix_rejection_reasons_external_id ON rejection_reasons (external_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_rejection_reasons_external_source_id ON rejection_reasons (external_source, external_id) WHERE external_id IS NOT NULL',
+    # 0197: bez tej kolumny każdy SELECT z rejection_reasons po dodaniu pola do
+    # ORM leci UndefinedColumn — a to ścieżka KAŻDEGO terminalnego ruchu w pipeline.
+    'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS disqualifies_person BOOLEAN NOT NULL DEFAULT false',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_at TIMESTAMPTZ',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_external_id VARCHAR(255)',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_payload JSONB',
@@ -1865,6 +1868,20 @@ _DATA_STATEMENTS = [
     # 0173: rejection_reasons.external_source backfill (integracja Traffit).
     "UPDATE rejection_reasons SET external_source = 'manual' "
     "WHERE external_source IS NULL",
+    # 0197: jednorazowy seed „powód dyskwalifikuje osobę". Ta lista leci przy
+    # KAŻDYM starcie kontenera, więc bez guardu przywracałaby flagi po każdym
+    # deployu i kasowała świadome zmiany admina w panelu. Marker w app_settings
+    # jest wstawiany TYM SAMYM statementem, co seed — więc seed odpala się
+    # wyłącznie na runie, który ten marker zajął.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('rejection_reason_disqualifies_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE rejection_reasons SET disqualifies_person = true "
+    "WHERE category = 'rejected' "
+    "AND name IN ('Brak doświadczenia', 'Nie spełnia wymagań technicznych', "
+    "'Nie pasuje kulturowo') "
+    "AND EXISTS (SELECT 1 FROM marker)",
     """UPDATE candidate_documents AS document
        SET document_kind = 'cv'
        FROM candidates AS candidate
@@ -2114,6 +2131,7 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calendar_events_external_source ON calendar_events (external_source)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_contract_id ON calls (contract_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_external_id ON candidate_stages (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_rejection_reason_id ON candidate_stages (rejection_reason_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_document_kind ON candidate_documents (document_kind)",
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_documents_active_primary_cv "
     "ON candidate_documents (candidate_id) WHERE is_primary IS TRUE "

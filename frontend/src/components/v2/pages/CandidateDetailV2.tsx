@@ -144,6 +144,7 @@ import {
 } from"@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from"@/components/RateHistoryWidget";
 import { ConflictsWidget } from"@/components/ConflictsWidget";
+import { HiringManagerVetoesWidget } from"@/components/HiringManagerVetoesWidget";
 import { AddToMarketplaceButton } from"@/components/marketplace/AddToMarketplaceButton";
 import {
  AtOurClientBanner,
@@ -1105,6 +1106,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  </DeferUntilVisible>
  <DeferUntilVisible minHeight={44}>
  <ConflictsWidget candidateId={Number(id)} hideWhenEmpty />
+ </DeferUntilVisible>
+ <DeferUntilVisible minHeight={44}>
+ <HiringManagerVetoesWidget candidateId={Number(id)} hideWhenEmpty />
  </DeferUntilVisible>
  </div>
  </section>

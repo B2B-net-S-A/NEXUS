@@ -17,10 +17,12 @@ candidate-declared excluded clients) and raises.
 
 Scope notes (deliberate, to avoid reversing existing behaviour):
 
-* Only **hard** blocks are enforced — global blacklist and active client
-  blacklist / NDA / competitor. Soft signals (current employment at the
-  client, candidate-excluded client) never block a move; they surface as
-  warnings on the assignment ingresses and are irrelevant to a move.
+* Only **hard** blocks are enforced — global blacklist, active client
+  blacklist / NDA / competitor, and (on the moves that put a candidate back in
+  front of the client) a standing hiring-manager rejection. Soft signals
+  (current employment at the client, candidate-excluded client) never block a
+  move; they surface as warnings on the assignment ingresses and are irrelevant
+  to a move.
 * ``already_in_job`` is a *dedup* concern for **assignment**, not a move: a
   move presupposes the candidate is in the job, so it is passed as ``False``
   here and never blocks a move (mirrors ``recommendations.assign_candidate_to_job``,
@@ -33,7 +35,7 @@ Scope notes (deliberate, to avoid reversing existing behaviour):
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Sequence
+from typing import Optional, Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -46,9 +48,11 @@ from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityDecision,
     EligibilityInput,
+    EligibilityReason,
     evaluate_eligibility,
     extract_excluded_client_ids,
 )
+from app.services.hiring_manager_verdicts import ManagerVerdict, load_manager_rejections
 
 
 async def evaluate_candidates_for_job(
@@ -57,19 +61,52 @@ async def evaluate_candidates_for_job(
     job: Job,
     candidate_ids: Sequence[int],
     now: datetime,
+    enforce_manager_verdict: bool = True,
 ) -> dict[int, EligibilityDecision]:
     """Batch-load eligibility inputs and evaluate each candidate for ``job``.
 
+    Thin wrapper over :func:`evaluate_candidates_for_job_with_verdicts` for
+    callers that only need the decisions.
+    """
+    decisions, _ = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=candidate_ids,
+        now=now,
+        enforce_manager_verdict=enforce_manager_verdict,
+    )
+    return decisions
+
+
+async def evaluate_candidates_for_job_with_verdicts(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_ids: Sequence[int],
+    now: datetime,
+    enforce_manager_verdict: bool = True,
+) -> tuple[dict[int, EligibilityDecision], dict[int, ManagerVerdict]]:
+    """Evaluate eligibility and return the hiring-manager verdicts alongside.
+
     Pure policy stays in :func:`evaluate_eligibility`; this only performs the
-    two batched reads (candidates, active client conflicts). Candidates that do
-    not exist are simply absent from the result — the caller decides how to
-    treat a missing candidate (``/move`` leaves it to the DB FK; ``/bulk-move``
-    validates existence separately). ``already_in_job`` is always ``False``:
-    this gate is for moves, where being in the job is the precondition.
+    batched reads (candidates, active client conflicts, manager verdicts).
+    Candidates that do not exist are simply absent from the result — the caller
+    decides how to treat a missing candidate (``/move`` leaves it to the DB FK;
+    ``/bulk-move`` validates existence separately). ``already_in_job`` is always
+    ``False``: this gate is for moves, where being in the job is the
+    precondition.
+
+    The verdict map is returned separately because the decision carries only the
+    reason code; the details (who rejected, when, why) belong in the 409 message
+    and in the badge, not in the policy's shape.
+
+    ``enforce_manager_verdict=False`` skips the veto read entirely. Move
+    endpoints use it for transitions that are not "put this person in front of
+    the manager again" — see ``api/pipeline.py``.
     """
     ids = list(dict.fromkeys(candidate_ids))
     if not ids:
-        return {}
+        return {}, {}
 
     cand_rows = (
         (await db.execute(select(Candidate).where(Candidate.id.in_(ids))))
@@ -103,6 +140,10 @@ async def evaluate_candidates_for_job(
                 )
             )
 
+    verdicts: dict[int, ManagerVerdict] = {}
+    if enforce_manager_verdict:
+        verdicts = await load_manager_rejections(db, job=job, candidate_ids=ids)
+
     decisions: dict[int, EligibilityDecision] = {}
     for cid in ids:
         candidate = candidates_by_id.get(cid)
@@ -115,10 +156,23 @@ async def evaluate_candidates_for_job(
                 conflicts=tuple(conflicts_by_candidate.get(cid, ())),
                 excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
                 already_in_job=False,  # a move presupposes in-job; not a block
+                rejected_by_hiring_manager=cid in verdicts,
             ),
             now,
         )
-    return decisions
+    return decisions, verdicts
+
+
+def _detail_for(
+    decision: EligibilityDecision, verdict: Optional[ManagerVerdict]
+) -> str:
+    """409 body: name the manager and the date when the veto is what blocked."""
+    if (
+        decision.reason_code is EligibilityReason.rejected_by_hiring_manager
+        and verdict is not None
+    ):
+        return verdict.as_polish_detail()
+    return decision.reason
 
 
 async def assert_candidate_move_eligible(
@@ -127,6 +181,7 @@ async def assert_candidate_move_eligible(
     candidate_id: int,
     job: Job,
     now: datetime,
+    enforce_manager_verdict: bool = True,
 ) -> None:
     """Raise **409** if ``candidate_id`` is hard-blocked for ``job``.
 
@@ -136,13 +191,18 @@ async def assert_candidate_move_eligible(
     ingresses reject it. ``detail`` is the Polish eligibility reason —
     identical to ``recommendations.assign_candidate_to_job``.
     """
-    decisions = await evaluate_candidates_for_job(
-        db, job=job, candidate_ids=[candidate_id], now=now
+    decisions, verdicts = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=[candidate_id],
+        now=now,
+        enforce_manager_verdict=enforce_manager_verdict,
     )
     decision = decisions.get(candidate_id)
     if decision is not None and not decision.assignment_allowed:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=decision.reason
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_detail_for(decision, verdicts.get(candidate_id)),
         )
 
 
@@ -152,6 +212,7 @@ async def assert_candidates_move_eligible(
     candidate_ids: Sequence[int],
     job: Job,
     now: datetime,
+    enforce_manager_verdict: bool = True,
 ) -> None:
     """Raise **409** if *any* candidate in ``candidate_ids`` is hard-blocked.
 
@@ -160,12 +221,16 @@ async def assert_candidates_move_eligible(
     rejects the batch — fail-closed, with the same 409 + Polish reason a
     single ``/move`` returns, plus the offending candidate id(s).
     """
-    decisions = await evaluate_candidates_for_job(
-        db, job=job, candidate_ids=candidate_ids, now=now
+    decisions, verdicts = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=candidate_ids,
+        now=now,
+        enforce_manager_verdict=enforce_manager_verdict,
     )
     blocked = [(cid, d) for cid, d in decisions.items() if not d.assignment_allowed]
     if blocked:
-        reason = blocked[0][1].reason
+        reason = _detail_for(blocked[0][1], verdicts.get(blocked[0][0]))
         blocked_ids = sorted(cid for cid, _ in blocked)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

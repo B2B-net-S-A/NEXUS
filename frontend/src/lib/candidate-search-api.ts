@@ -191,7 +191,8 @@ export type BulkSkipReason =
   | "candidate_not_found"
   | "client_blacklist"
   | "client_nda"
-  | "client_competitor";
+  | "client_competitor"
+  | "rejected_by_hiring_manager";
 
 export type BulkWarningReason = "current_employment" | "excluded_by_candidate";
 

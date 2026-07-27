@@ -2333,6 +2333,17 @@ async def add_candidate_from_history(
             detail="Candidate already exists in this pipeline",
         )
 
+    # "Dodaj championa z historii" is exactly the flow that resurrects someone
+    # this job's hiring manager already interviewed and turned down.
+    from app.services.hiring_manager_verdicts import load_manager_rejections
+
+    verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=[payload.candidate_id]
+    )
+    verdict = verdicts.get(payload.candidate_id)
+    if verdict is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=verdict.as_polish_detail())
+
     stage = CandidateStage(
         candidate_id=payload.candidate_id,
         job_id=job_id,

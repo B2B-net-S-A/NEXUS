@@ -18,6 +18,7 @@ const SKIP_LABELS: Record<BulkSkipReason, string> = {
   client_blacklist: "konflikt: czarna lista klienta",
   client_nda: "konflikt: NDA z klientem",
   client_competitor: "konflikt: klient konkurencyjny",
+  rejected_by_hiring_manager: "hiring manager odrzucił po rozmowie",
 };
 
 const WARNING_LABELS: Record<BulkWarningReason, string> = {

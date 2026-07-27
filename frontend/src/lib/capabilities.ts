@@ -32,6 +32,7 @@ export type Capability =
   // ── Akcje tworzenia ────────────────────────────────────────────────────────
   | "candidate.create"
   | "job.create"
+  | "job.update"
   | "client.create"
   | "contract.create"
   | "contact.create"
@@ -76,6 +77,10 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "candidate.create": RECRUITER_PLUS,
   // POST /api/jobs → TacPlus (backend/app/api/jobs.py)
   "job.create": TAC_PLUS,
+  // PATCH /api/jobs/{id} → TacPlus (backend/app/api/jobs.py). Uwaga: TacPlus
+  // NIE obejmuje head_of_recruitment, więc inline-edycja pól oferty (np.
+  // hiring manager) musi być dla HoR ukryta — inaczej dostanie 403 na zapisie.
+  "job.update": TAC_PLUS,
   // POST /api/clients → TacPlus (backend/app/api/clients.py)
   "client.create": TAC_PLUS,
   // POST /api/contracts → TacPlus (backend/app/api/contracts.py)

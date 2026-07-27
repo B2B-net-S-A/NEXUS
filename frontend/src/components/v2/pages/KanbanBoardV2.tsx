@@ -24,6 +24,7 @@ import {
  Sparkles,
  Star,
  Trash2,
+ UserX,
  XCircle,
 } from"lucide-react";
 import api, {
@@ -92,6 +93,18 @@ interface KanbanItem {
  expected_rate_unit?: RateUnit | null;
  expected_rate_currency?: string | null;
  budget_max_at_move?: number | null;
+ // Hiring manager tej oferty odrzucił już tego kandydata po rozmowie na innej
+ // rekrutacji. Manager jest domyślny (to manager tej oferty), więc chip nie
+ // niesie nazwiska — kto/kiedy/dlaczego siedzi w tooltipie.
+ hm_veto?: {
+  hiring_manager_contact_id: number;
+  hiring_manager_name?: string | null;
+  source_job_id: number;
+  source_job_title?: string | null;
+  rejected_at: string;
+  rejection_reason_name: string;
+  rejection_note?: string | null;
+ } | null;
 }
 
 const APPROVER_ROLES = new Set(["admin","delivery_lead","head_of_recruitment"]);
@@ -359,7 +372,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-sm hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
  density === "compact" ?"p-2" :"p-5",
- isPending &&"opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40"
+ isPending &&"opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40",
+ // Świadomie bez grayscale/opacity — to sygnatura „pending" i czytałaby
+ // się jako „nieaktywny". Ten kandydat jest aktywny, tylko nie dla tego
+ // managera.
+ item.hm_veto && !isPending &&"border-destructive/50"
  )}
  title={
  isPending
@@ -426,6 +443,24 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  >
  <Clock className={density === "compact" ?"h-3 w-3" :"h-4 w-4"} />
  {item.days_in_stage}d
+ </span>
+ )}
+ {item.hm_veto && (
+ <span
+ className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive"
+ title={[
+ `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej oferty"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
+ `Powód: ${item.hm_veto.rejection_reason_name}`,
+ item.hm_veto.source_job_title
+ ? `Rekrutacja: ${item.hm_veto.source_job_title}`
+ : null,
+ "Nie proponuj go temu managerowi ponownie.",
+ ]
+ .filter(Boolean)
+ .join("\n")}
+ >
+ <UserX className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
+ Weto HM
  </span>
  )}
  </div>

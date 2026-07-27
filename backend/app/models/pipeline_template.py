@@ -198,6 +198,15 @@ class RejectionReason(Base, TimestampMixin):
     active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=true(), nullable=False
     )
+    # Czy ten powód jest werdyktem o OSOBIE (a nie o sytuacji). Tylko oznaczone
+    # powody blokują ponowne zgłoszenie kandydata do tego samego hiring managera
+    # (`services/hiring_manager_verdicts`). „Nie spełnia wymagań technicznych" —
+    # tak; „Za wysokie oczekiwania finansowe" / „Zatrudniony gdzie indziej" — nie,
+    # bo nie mówią nic o przydatności kandydata przy następnej okazji.
+    # Domyślnie False: nieznany powód nie blokuje (fail-open).
+    disqualifies_person: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     # Stabilna tożsamość powodu odrzucenia w Traffit — outbound
     # `_move_to_reject_state` wymaga jawnego mappingu remote `rejection_id`.
     external_source: Mapped[Optional[str]] = mapped_column(

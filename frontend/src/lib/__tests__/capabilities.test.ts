@@ -51,6 +51,17 @@ const EXPECTED: Record<Capability, Record<UserRole, boolean>> = {
     sourcer: false,
     user: false,
   },
+  // PATCH /api/jobs/{id} → TacPlus. HoR celowo na false: inline-edycja pól
+  // oferty dostałaby 403, więc kontrolka ma być dla niego niewidoczna.
+  "job.update": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   // POST /api/clients → TacPlus
   "client.create": {
     admin: true,

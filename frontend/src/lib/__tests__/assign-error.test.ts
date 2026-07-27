@@ -31,4 +31,14 @@ describe("assignErrorMessage", () => {
   it("falls back to the error message for non-axios errors", () => {
     expect(assignErrorMessage(new Error("boom"))).toBe("boom");
   });
+
+  it("keeps the hiring-manager veto sentence intact", () => {
+    // The backend sends a full sentence naming the manager and the date, not a
+    // code — a lookup miss here would replace it with a useless generic string.
+    const detail =
+      "Anna Kowalska odrzucił(a) tego kandydata po rozmowie 12.03.2026 " +
+      "— powód: „Nie spełnia wymagań technicznych”. " +
+      "To ten sam hiring manager co w tej rekrutacji.";
+    expect(assignErrorMessage(axios409(detail))).toBe(detail);
+  });
 });

@@ -66,6 +66,7 @@ from app.services import storage_service
 from app.services.candidate_stage_cv_service import (
     refresh_original_cv_snapshot,
 )
+from app.services.hiring_manager_verdicts import veto_for_candidate_stage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -515,6 +516,16 @@ async def create_cv_share_token(
         raise HTTPException(
             status_code=409,
             detail=("Nie można udostępnić draftu — najpierw zfinalizuj brandowane CV."),
+        )
+
+    # Last line before the CV reaches the client. The assignment gate does not
+    # cover pipelines created before this feature, nor a reason flagged
+    # disqualifying after the fact.
+    verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
+    if verdict is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{verdict.as_polish_detail()} Nie wysyłaj mu ponownie tego CV.",
         )
 
     raw_token = secrets.token_urlsafe(36)

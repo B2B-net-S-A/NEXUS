@@ -36,6 +36,7 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -984,6 +985,9 @@ export default function JobDetailPage() {
   // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
   const authUser = useAuthStore((s) => s.user);
   const isAdmin = hasRole(authUser, "admin");
+  // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
+  // żeby nie hodować drugiej listy ról obok niego (F-19).
+  const canUpdateJob = useCapability("job.update");
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
@@ -1250,23 +1254,14 @@ export default function JobDetailPage() {
               primaryOwner={job.primary_owner ?? null}
               collaborators={job.collaborators ?? []}
             />
-            {job.hiring_manager_name && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Hiring manager (klient):
-                </span>
-                {job.hiring_manager_contact_id && job.client_id ? (
-                  <Link
-                    href={`/clients/${job.client_id}?tab=zespol`}
-                    className="font-medium text-violet-600 hover:underline"
-                  >
-                    {job.hiring_manager_name}
-                  </Link>
-                ) : (
-                  <span className="font-medium">{job.hiring_manager_name}</span>
-                )}
-              </div>
-            )}
+            <HiringManagerPicker
+              jobId={Number(id)}
+              clientId={job.client_id ?? null}
+              value={job.hiring_manager_contact_id ?? null}
+              valueName={job.hiring_manager_name ?? null}
+              canEdit={canUpdateJob}
+              onSaved={() => queryClient.invalidateQueries({ queryKey: ["job", id] })}
+            />
           </div>
         )}
 

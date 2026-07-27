@@ -35,6 +35,7 @@ from app.models.pipeline_template import (
 from app.models.user import User, UserRole
 from app.schemas.pipeline import (
     CandidateStageResponse,
+    HiringManagerVetoBrief,
     KanbanColumn,
     KanbanView,
     PendingVerificationListItem,
@@ -49,6 +50,11 @@ from app.api.recruitment_access import (
     ensure_job_membership,
     user_can_edit_rates,
     user_can_terminal_transition,
+)
+from app.services.hiring_manager_verdicts import (
+    load_manager_rejections,
+    puts_candidate_before_client,
+    veto_for_candidate_stage,
 )
 from app.services.pipeline_eligibility import (
     assert_candidate_move_eligible,
@@ -499,6 +505,7 @@ async def move_candidate(
             candidate_id=data.candidate_id,
             job=job,
             now=datetime.now(timezone.utc),
+            enforce_manager_verdict=puts_candidate_before_client(legacy_enum),
         )
 
     # Terminal-move validation: require rejection_reason_id
@@ -1011,6 +1018,14 @@ async def get_kanban(
         for uid, uname in urows.all():
             user_name_by_id[uid] = uname
 
+    # Standing rejections by this job's hiring manager, one batched query for
+    # the whole board (none at all when the job has no manager set). Lets the
+    # recruiter see the block before dragging a card into it, instead of
+    # discovering it as a 409 halfway through the move.
+    manager_verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=candidate_ids
+    )
+
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
         first = earliest.get(e.candidate_id)
@@ -1020,13 +1035,25 @@ async def get_kanban(
             else None
         )
         added_at = first.moved_at if first is not None else None
-        return _stage_response(
+        payload = _stage_response(
             e,
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
             added_to_job_at=added_at,
         )
+        verdict = manager_verdicts.get(e.candidate_id)
+        if verdict is not None:
+            payload["hm_veto"] = HiringManagerVetoBrief(
+                hiring_manager_contact_id=verdict.hiring_manager_contact_id,
+                hiring_manager_name=verdict.hiring_manager_name,
+                source_job_id=verdict.source_job_id,
+                source_job_title=verdict.source_job_title,
+                rejected_at=verdict.rejected_at,
+                rejection_reason_name=verdict.rejection_reason_name,
+                rejection_note=verdict.rejection_note,
+            )
+        return payload
 
     # Resolve target template
     template_id = job.pipeline_template_id or await _default_template_id(db)
@@ -1233,6 +1260,14 @@ async def create_share_token(
     stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
+
+    # Same outbound gate as the CV share link — this card goes to the client too.
+    verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
+    if verdict is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{verdict.as_polish_detail()} Nie wysyłaj mu go ponownie.",
+        )
 
     # v2: the secret lives only in the URL and as a SHA-256 digest in the DB.
     # The PK holds a non-secret revoke key, so a DB leak yields no working link.
@@ -1910,6 +1945,7 @@ async def bulk_move_candidates(
         candidate_ids=unique_ids,
         job=job,
         now=datetime.now(timezone.utc),
+        enforce_manager_verdict=puts_candidate_before_client(data.stage),
     )
 
     moved = 0

@@ -22,6 +22,19 @@ const resp: BulkProposalsResponse = {
 };
 
 describe("summarizeBulkResult", () => {
+  it("labels a hiring-manager veto instead of leaving it blank", () => {
+    const withVeto: BulkProposalsResponse = {
+      added: [],
+      skipped: [{ candidate_id: 9, reason: "rejected_by_hiring_manager" }],
+      warnings: [],
+      total_added: 0,
+      total_skipped: 1,
+    };
+    expect(summarizeBulkResult(withVeto).skipped).toEqual([
+      { label: "hiring manager odrzucił po rozmowie", count: 1 },
+    ]);
+  });
+
   it("tallies skipped rows by reason with PL labels", () => {
     const s = summarizeBulkResult(resp);
     expect(s.added).toBe(3);

@@ -204,3 +204,94 @@ class TestEligibleBaseline:
         )
         assert d.eligible
         assert d.reason_code is EligibilityReason.eligible
+
+
+class TestHiringManagerVeto:
+    """The manager who interviewed and rejected this candidate must not be
+    offered them again — but the recruiter must still see why."""
+
+    def test_veto_blocks_assignment_yet_stays_visible(self):
+        d = _eval(
+            candidate_status="active",
+            job_client_id=5,
+            rejected_by_hiring_manager=True,
+        )
+        assert not d.eligible
+        assert not d.assignment_allowed
+        assert d.severity is Severity.hard
+        assert d.reason_code is EligibilityReason.rejected_by_hiring_manager
+        # Visible, never hidden: hiding sends the recruiter hunting for the
+        # same person again and reads to them as data loss.
+        assert d.visibility is Visibility.warn
+
+    def test_veto_is_not_overridable(self):
+        # An override would recreate the very irritation this rule prevents.
+        d = _eval(
+            candidate_status="active",
+            job_client_id=5,
+            rejected_by_hiring_manager=True,
+        )
+        assert not d.override_allowed
+
+    def test_label_names_the_manager_not_the_blacklist(self):
+        d = _eval(
+            candidate_status="active",
+            job_client_id=5,
+            rejected_by_hiring_manager=True,
+        )
+        assert "Hiring manager" in d.reason
+        assert "czarnej liście" not in d.reason
+
+    def test_absent_veto_changes_nothing(self):
+        d = _eval(candidate_status="active", job_client_id=5)
+        assert d.eligible
+        assert d.reason_code is EligibilityReason.eligible
+
+    def test_global_blacklist_still_wins(self):
+        d = _eval(
+            candidate_status="blacklisted",
+            job_client_id=5,
+            rejected_by_hiring_manager=True,
+        )
+        assert d.reason_code is EligibilityReason.blacklisted
+        assert d.visibility is Visibility.hidden
+
+    def test_hard_client_conflict_still_wins_but_veto_is_carried(self):
+        d = _eval(
+            candidate_status="active",
+            job_client_id=5,
+            conflicts=(ConflictInput(type="nda", client_id=5),),
+            rejected_by_hiring_manager=True,
+        )
+        assert d.reason_code is EligibilityReason.client_nda
+        # The badge must survive the harder block outranking it.
+        assert EligibilityReason.rejected_by_hiring_manager in d.secondary_reasons
+
+    def test_already_in_job_outranks_veto(self):
+        # Otherwise a candidate merely already in this job would lose `hidden`
+        # and reappear in the "add candidate" search as a duplicate.
+        d = _eval(
+            candidate_status="active",
+            job_client_id=5,
+            already_in_job=True,
+            rejected_by_hiring_manager=True,
+        )
+        assert d.reason_code is EligibilityReason.already_in_job
+        assert d.visibility is Visibility.hidden
+        assert EligibilityReason.rejected_by_hiring_manager in d.secondary_reasons
+
+    def test_veto_outranks_soft_warnings(self):
+        d = _eval(
+            candidate_status="active",
+            job_client_id=5,
+            conflicts=(ConflictInput(type="current_employment", client_id=5),),
+            excluded_client_ids=frozenset({5}),
+            rejected_by_hiring_manager=True,
+        )
+        assert d.reason_code is EligibilityReason.rejected_by_hiring_manager
+        assert not d.assignment_allowed
+        # ...and the soft signals ride along, minus the dominant one.
+        assert EligibilityReason.client_current_employment in d.secondary_reasons
+        assert (
+            EligibilityReason.rejected_by_hiring_manager not in d.secondary_reasons
+        )

@@ -1683,6 +1683,11 @@ export interface RejectionReasonDef {
   order: number;
   category: "hired" | "rejected" | "withdrawn";
   active: boolean;
+  /**
+   * Whether this reason is a verdict about the *person*. Only flagged reasons
+   * block re-submitting a candidate to the hiring manager who rejected them.
+   */
+  disqualifies_person: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1734,6 +1739,15 @@ export const pipelineTemplatesApi = {
     id: number,
     data: { name: string; category: "hired" | "rejected" | "withdrawn"; order?: number; stage_def_id?: number | null }
   ) => api.post<RejectionReasonDef>(`/api/pipeline-templates/${id}/rejection-reasons`, data),
+  updateRejectionReason: (
+    id: number,
+    reasonId: number,
+    data: { name?: string; order?: number; active?: boolean; disqualifies_person?: boolean }
+  ) =>
+    api.patch<RejectionReasonDef>(
+      `/api/pipeline-templates/${id}/rejection-reasons/${reasonId}`,
+      data
+    ),
   deactivateRejectionReason: (id: number, reasonId: number) =>
     api.delete(`/api/pipeline-templates/${id}/rejection-reasons/${reasonId}`),
   assignToJob: (jobId: number, templateId: number) =>

@@ -364,6 +364,9 @@ async def clone_template(
                 order=r.order,
                 category=r.category,
                 active=r.active,
+                # Bez tego sklonowany szablon cicho gubi blokadę hiring managera
+                # — ten sam powód przestawałby dyskwalifikować na nowym procesie.
+                disqualifies_person=r.disqualifies_person,
             )
         )
 
