@@ -578,9 +578,10 @@ async def test_invite_source_label_resolves_on_encrypted_v2_path(
     Pinned to v2 regardless of `M365_TOKEN_ENCRYPTION_KEY` so the branch stays
     covered even when the suite runs without a key — production runs *with* one,
     and on that branch the `token` PK is a non-secret ``v2$…`` revoke key. The
-    label lookup used to prefix-match the raw secret against that PK, matched
-    nothing, and the badge silently rendered blank. Every other test here reads
-    the same on both branches, so nothing else pins this.
+    label lookup used to prefix-match the raw secret against that PK and matched
+    nothing, so `label` came back None and the campaign suffix on the candidate
+    profile badge (`· <label>`) silently disappeared. Every other test here
+    reads the same on both branches, so nothing else pins this one.
     """
     from cryptography.fernet import Fernet
 
