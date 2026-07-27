@@ -450,7 +450,7 @@ export function RecruitmentTeamManager() {
                     key={g.dl_id}
                     className="border border-border rounded-lg overflow-hidden"
                   >
-                    <div className="bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30 px-4 py-2 border-b border-border flex items-center justify-between">
+                    <div className="bg-linear-to-r from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30 px-4 py-2 border-b border-border flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Crown className="w-4 h-4 text-teal-600" />
                         <span className="font-semibold text-sm">{g.dl_name}</span>
@@ -606,7 +606,7 @@ export function RecruitmentTeamManager() {
                     key={g.sourcer_id}
                     className="border border-border rounded-lg overflow-hidden"
                   >
-                    <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 px-4 py-2 border-b border-border flex items-center justify-between">
+                    <div className="bg-linear-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 px-4 py-2 border-b border-border flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Layers className="w-4 h-4 text-indigo-600" />
                         <span className="font-semibold text-sm">

@@ -72,14 +72,14 @@ export function ActiveJobsTab({ deliveryLeadId }: ActiveJobsTabProps) {
 
   if (isLoading) {
     return (
-      <Card className="!p-4 text-sm text-muted-foreground">
+      <Card className="p-4! text-sm text-muted-foreground">
         Ładowanie aktywnych jobów…
       </Card>
     )
   }
   if (isError) {
     return (
-      <Card className="!p-4 text-sm text-rose-700 bg-rose-50 border border-rose-200">
+      <Card className="p-4! text-sm text-rose-700 bg-rose-50 border border-rose-200">
         Nie udało się pobrać jobów.
       </Card>
     )
@@ -87,7 +87,7 @@ export function ActiveJobsTab({ deliveryLeadId }: ActiveJobsTabProps) {
   const items = data?.items ?? []
   if (items.length === 0) {
     return (
-      <Card className="!p-8 text-center text-sm text-muted-foreground">
+      <Card className="p-8! text-center text-sm text-muted-foreground">
         <Inbox className="h-10 w-10 mx-auto mb-3 opacity-40" />
         Brak aktywnych jobów przypisanych do Ciebie jako DL.
       </Card>
@@ -106,7 +106,7 @@ export function ActiveJobsTab({ deliveryLeadId }: ActiveJobsTabProps) {
           return aT ? 1 : -1
         })
         return (
-          <Card key={job.id} className="!p-3">
+          <Card key={job.id} className="p-3!">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0 flex-1">
                 <Link

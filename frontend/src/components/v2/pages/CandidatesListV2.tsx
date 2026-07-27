@@ -215,7 +215,7 @@ function FilterSection({
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+    <section className="space-y-3 rounded-xl border border-border bg-card p-4 shadow-xs">
       <h3 className="flex items-center gap-2.5 text-sm font-semibold tracking-tight text-foreground">
         {icon ? (
           <span
@@ -355,7 +355,7 @@ function PresetChip({
       className={cn(
         "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors",
         active
-          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+          ? "bg-primary text-primary-foreground border-primary shadow-xs"
           : "bg-card text-foreground border-border hover:bg-accent",
       )}
     >
@@ -862,7 +862,7 @@ function CandidateCell({
  <button
  type="button"
  onClick={onOpenDetail}
- className="flex min-w-0 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+ className="flex min-w-0 items-center gap-3 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
  >
  <Avatar size={density === "compact" ?"sm" :"md"}>
  <AvatarFallback className={avatarColorClass(candidate.id)}>{initials}</AvatarFallback>
@@ -1167,12 +1167,12 @@ function CandidateCell({
  // rekrutera wylewał się poza wiersz i nachodził na sąsiednie rzędy
  // (nieczytelne). `line-clamp-2` przycina do 2 linii w obrębie wiersza,
  // a pełna treść zostaje w tooltipie (`title`) i po kliknięciu w profil.
- // `break-words` zabezpiecza długie ciągłe tokeny.
+ // `wrap-break-word` zabezpiecza długie ciągłe tokeny.
  return (
  <div className="flex items-start gap-1.5 min-w-0">
  <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
  <span
- className="text-xs text-foreground line-clamp-2 break-words"
+ className="text-xs text-foreground line-clamp-2 wrap-break-word"
  title={reason}
  >
  {reason}
@@ -2219,7 +2219,7 @@ export function CandidatesListV2() {
       {/* Toolbar — odchudzony pasek: szukaj + jeden przycisk „Filtry"
           (cała konfiguracja w bocznym panelu) + zapisane wyszukiwania,
           a po prawej sterowanie widokiem (sortowanie, kolumny, układ). */}
-      <div className="sticky top-2 z-30 rounded-xl border border-border bg-card/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
+      <div className="sticky top-2 z-30 rounded-xl border border-border bg-card/95 p-3 shadow-xs backdrop-blur-sm supports-backdrop-filter:bg-card/85">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex-1 min-w-[240px] max-w-lg">
             <Input
@@ -2277,7 +2277,7 @@ export function CandidatesListV2() {
                 setSortBy(value as CandidateFilters["sort"])
               }
             >
-              <SelectTrigger className="w-[160px] h-9 rounded-md shadow-sm font-medium">
+              <SelectTrigger className="w-[160px] h-9 rounded-md shadow-xs font-medium">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2406,7 +2406,7 @@ export function CandidatesListV2() {
  e.target.value as UserRole |"_global"
  )
  }
- className="text-xs rounded-md border border-border bg-card px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary"
+ className="text-xs rounded-md border border-border bg-card px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-primary"
  >
  {SAVE_ROLE_OPTIONS.map((opt) => (
  <option key={opt.value} value={opt.value}>
@@ -2519,7 +2519,7 @@ export function CandidatesListV2() {
             {/* Wyszukiwanie zaawansowane (boolean ALL / ANY / NONE) — na górze,
                 bo to najczęściej używany sposób zawężania wyników.
                 Karta bez własnego nagłówka — popover renderuje swój h3. */}
-            <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <section className="rounded-xl border border-border bg-card p-4 shadow-xs">
               <AdvancedSearchPopover
                 value={{ all: qAll, any: qAny, none: qNone }}
                 onChange={(next) => {
@@ -3199,7 +3199,7 @@ export function CandidatesListV2() {
  virtualRow.index % 2 === 0 ? "bg-card" : "bg-muted/30 dark:bg-muted/20",
  isNewMatch && "bg-success-muted/70 border-l-success",
  "hover:bg-muted/60 hover:border-l-primary/50",
- isSelected && "!bg-primary/10 !border-l-primary"
+ isSelected && "bg-primary/10! border-l-primary!"
  )}
  >
  <div
@@ -3222,7 +3222,7 @@ export function CandidatesListV2() {
  className={cn(
  "min-w-0 overflow-hidden",
  col.id === "candidate" &&
- "sticky left-16 z-10 -ml-1 bg-card/95 py-1 pl-1 backdrop-blur-sm",
+ "sticky left-16 z-10 -ml-1 bg-card/95 py-1 pl-1 backdrop-blur-xs",
  )}
  >
  {/* overflow-hidden → grid item ma auto-min-width:0, więc kolumna kurczy
@@ -3424,7 +3424,7 @@ export function CandidatesListV2() {
  open={detailId !== null}
  onOpenChange={(v) => !v && setDetailId(null)}
  >
- <SheetContent side="right" size="2xl" className="!p-0" hideClose>
+ <SheetContent side="right" size="2xl" className="p-0!" hideClose>
  {detailId !== null && (
  <CandidateQuickView
  candidateId={detailId}
@@ -3459,7 +3459,7 @@ export function CandidatesListV2() {
  </Sheet>
 
  {showToast && (
- <div className="fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
+ <div className="fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
  {showToast}
  </div>
  )}
@@ -3546,15 +3546,15 @@ function BulkAddToPoolModal({
  className="w-full text-left text-sm px-3 py-2 rounded hover:bg-muted dark:hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between gap-2"
  >
  <span className="flex items-center gap-1.5 min-w-0">
- {!usable && <Lock className="w-3 h-3 flex-shrink-0 text-muted-foreground" />}
+ {!usable && <Lock className="w-3 h-3 shrink-0 text-muted-foreground" />}
  <span className="truncate">{p.name}</span>
  {p.is_personal && p.owner_name && (
- <span className="text-[11px] text-muted-foreground flex-shrink-0">
+ <span className="text-[11px] text-muted-foreground shrink-0">
  · {p.owner_name}
  </span>
  )}
  </span>
- <span className="text-xs text-muted-foreground flex-shrink-0">
+ <span className="text-xs text-muted-foreground shrink-0">
  {p.candidate_count} {p.candidate_count === 1 ?"kandydat" :"kandydatów"}
  </span>
  </button>

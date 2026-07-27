@@ -525,7 +525,7 @@ function SelectField({
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+        className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
       >
         <option value="">— wybierz —</option>
         {options.map((opt) => (
@@ -562,7 +562,7 @@ function TextAreaField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={3}
-        className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
+        className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring resize-none"
       />
     </div>
   );

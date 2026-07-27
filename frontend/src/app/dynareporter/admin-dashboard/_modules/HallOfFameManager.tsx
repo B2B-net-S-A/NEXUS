@@ -118,7 +118,7 @@ function formatPeriod(period: string, type: CompType): string {
 function RankBadge({ rank, type }: { rank: number; type: CompType }) {
   if (type.startsWith("monthly_")) {
     return (
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center">
+      <div className="w-8 h-8 rounded-full bg-linear-to-br from-yellow-400 to-amber-500 flex items-center justify-center">
         <Trophy className="w-4 h-4 text-yellow-900" aria-hidden="true" />
       </div>
     );
@@ -126,19 +126,19 @@ function RankBadge({ rank, type }: { rank: number; type: CompType }) {
   switch (rank) {
     case 1:
       return (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center shadow-lg">
+        <div className="w-8 h-8 rounded-full bg-linear-to-br from-yellow-400 to-amber-500 flex items-center justify-center shadow-lg">
           <Crown className="w-4 h-4 text-yellow-900" aria-hidden="true" />
         </div>
       );
     case 2:
       return (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-300 to-gray-400 flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full bg-linear-to-br from-gray-300 to-gray-400 flex items-center justify-center">
           <Medal className="w-4 h-4 text-gray-700" aria-hidden="true" />
         </div>
       );
     case 3:
       return (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full bg-linear-to-br from-amber-500 to-amber-700 flex items-center justify-center">
           <Medal className="w-4 h-4 text-amber-100" aria-hidden="true" />
         </div>
       );
@@ -370,7 +370,7 @@ export function HallOfFameManager() {
       )}
 
       {/* Winners table */}
-      <div className="bg-card rounded-xl shadow-sm overflow-hidden border border-border">
+      <div className="bg-card rounded-xl shadow-xs overflow-hidden border border-border">
         <div className="overflow-x-auto">
           {winnersQuery.isLoading ? (
             <div className="py-12 text-center">

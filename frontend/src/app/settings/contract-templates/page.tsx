@@ -75,7 +75,7 @@ function TemplateEditor({
         setError(null);
         saveMutation.mutate(form);
       }}
-      className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3"
+      className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3"
     >
       {error && (
         <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded px-3 py-2 whitespace-pre-wrap">
@@ -196,7 +196,7 @@ export default function ContractTemplatesPage() {
         )}
 
         {!editing && (
-          <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
             {!data || data.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground italic">
                 Brak szablonów — utwórz pierwszy, żeby TAC mógł generować umowy z 1 kliknięcia.

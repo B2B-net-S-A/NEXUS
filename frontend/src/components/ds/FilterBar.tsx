@@ -66,13 +66,13 @@ export function FilterBar({
         "flex flex-col gap-3",
         variant === "surface" && "rounded-lg border border-border bg-card p-3",
         variant === "sticky" &&
-          "sticky top-0 z-20 border-b border-border bg-background/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80",
+          "sticky top-0 z-20 border-b border-border bg-background/95 py-3 backdrop-blur-sm supports-backdrop-filter:bg-background/80",
         className,
       )}
     >
       <div className="flex flex-wrap items-center gap-3">
         {search ? (
-          <div className="relative min-w-[12rem] flex-1 sm:max-w-sm">
+          <div className="relative min-w-48 flex-1 sm:max-w-sm">
             <Search
               aria-hidden
               className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -98,7 +98,7 @@ export function FilterBar({
                 "Szukaj"
               }
               className={cn(
-                "h-9 w-full appearance-none rounded-md border border-input bg-background pl-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0 [&::-webkit-search-cancel-button]:hidden",
+                "h-9 w-full appearance-none rounded-md border border-input bg-background pl-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-0 [&::-webkit-search-cancel-button]:hidden",
                 search.onClear && search.value ? "pr-9" : "pr-3",
                 search.inputProps?.className,
               )}
@@ -108,7 +108,7 @@ export function FilterBar({
                 type="button"
                 onClick={search.onClear}
                 aria-label="Wyczyść wyszukiwanie"
-                className="absolute right-2 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="absolute right-2 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
               >
                 <X aria-hidden className="size-3.5" />
               </button>
@@ -146,7 +146,7 @@ export function FilterBar({
                 type="button"
                 onClick={chip.onRemove}
                 aria-label={`Usuń filtr: ${chip.label}`}
-                className="inline-flex size-4 items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="inline-flex size-4 items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
               >
                 <X aria-hidden className="size-3" />
               </button>

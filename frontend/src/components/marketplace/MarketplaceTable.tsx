@@ -86,7 +86,7 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
               setQ(e.target.value);
               setPage(1);
             }}
-            className="h-10 w-full pl-10 pr-3 border border-border dark:border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-card dark:bg-muted"
+            className="h-10 w-full pl-10 pr-3 border border-border dark:border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-card dark:bg-muted"
           />
         </div>
         <div className="text-xs text-muted-foreground">

@@ -272,7 +272,7 @@ function NewContractForm() {
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Kontrakty
         </Link>
-        <h1 className="text-2xl font-bold tracking-[-0.02em] text-foreground">
+        <h1 className="text-2xl font-bold tracking-heading-tight text-foreground">
           Nowy kontrakt
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -321,7 +321,7 @@ function NewContractForm() {
                     </PopoverTrigger>
                     <PopoverContent
                       align="start"
-                      className="w-[--radix-popover-trigger-width] p-0"
+                      className="w-(--radix-popover-trigger-width) p-0"
                     >
                       <Command shouldFilter={false}>
                         <CommandInput
@@ -410,7 +410,7 @@ function NewContractForm() {
                     </PopoverTrigger>
                     <PopoverContent
                       align="start"
-                      className="w-[--radix-popover-trigger-width] p-0"
+                      className="w-(--radix-popover-trigger-width) p-0"
                     >
                       <Command shouldFilter={false}>
                         <CommandInput

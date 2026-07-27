@@ -103,7 +103,7 @@ function CreateClientForm({ scopes, onCreated, onCancel }: CreateClientFormProps
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="np. n8n Production / ChatGPT"
-            className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
           />
         </div>
 

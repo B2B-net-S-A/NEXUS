@@ -98,7 +98,7 @@ export default function EmailTemplatesCard() {
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
           <FileText className="w-6 h-6 text-primary" />
         </div>
         <div className="flex-1">
@@ -116,7 +116,7 @@ export default function EmailTemplatesCard() {
             setCreating(true);
           }}
           size="sm"
-          className="flex-shrink-0"
+          className="shrink-0"
         >
           <Plus className="h-4 w-4" />
           Nowy szablon
@@ -232,7 +232,7 @@ function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none min-h-[240px] focus:outline-none border border-border rounded-lg px-3 py-2 bg-card",
+          "prose prose-sm max-w-none min-h-[240px] focus:outline-hidden border border-border rounded-lg px-3 py-2 bg-card",
       },
     },
     onUpdate: ({ editor: ed }) => {

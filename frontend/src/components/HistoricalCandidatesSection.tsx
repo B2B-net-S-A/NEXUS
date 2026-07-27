@@ -196,7 +196,7 @@ function CandidateRow({
           disabled={inPipeline}
           onChange={() => onToggleSelect(candidate.candidate_id)}
           aria-label={`Zaznacz ${fullName}`}
-          className="h-4 w-4 flex-shrink-0 rounded border-slate-300 accent-indigo-600 disabled:opacity-40"
+          className="h-4 w-4 shrink-0 rounded border-slate-300 accent-indigo-600 disabled:opacity-40"
         />
         <button
           type="button"
@@ -204,8 +204,8 @@ function CandidateRow({
           aria-expanded={open}
           className="flex flex-1 items-center gap-3 text-left min-w-0 rounded-md hover:opacity-80"
         >
-          <Icon className="h-4 w-4 text-slate-400 flex-shrink-0" />
-          <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center flex-shrink-0">
+          <Icon className="h-4 w-4 text-slate-400 shrink-0" />
+          <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center shrink-0">
             {candidate.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -266,7 +266,7 @@ function CandidateRow({
               </p>
             ) : null}
           </div>
-          <div className="text-right flex-shrink-0">
+          <div className="text-right shrink-0">
             <div className="text-xs text-slate-500">Historical score</div>
             <div className="text-sm font-semibold text-slate-900">
               {candidate.historical_score.toFixed(2)}
@@ -284,7 +284,7 @@ function CandidateRow({
               ? "Kandydat jest w pipeline tej rekrutacji"
               : "Dodaj kandydata do pipeline tej rekrutacji"
           }
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg flex-shrink-0 whitespace-nowrap transition-colors disabled:cursor-default ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg shrink-0 whitespace-nowrap transition-colors disabled:cursor-default ${
             inPipeline
               ? "bg-green-100 text-green-700 border border-green-200"
               : "bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"

@@ -7,7 +7,7 @@ export default function ApplyNotFound() {
  <div className="mx-auto h-14 w-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
  <AlertTriangle className="h-7 w-7" />
  </div>
- <h1 className="font-semibold text-2xl font-extrabold tracking-[-0.02em] text-foreground">
+ <h1 className="font-semibold text-2xl font-extrabold tracking-heading-tight text-foreground">
  Ten link już nie działa
  </h1>
  <p className="text-sm text-muted-foreground">

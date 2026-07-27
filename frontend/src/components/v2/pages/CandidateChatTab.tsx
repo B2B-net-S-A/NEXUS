@@ -387,7 +387,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
         <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 space-y-1">
           {pinned.map((p) => (
             <div key={p.id} className="flex items-start gap-2 text-xs">
-              <Pin className="w-3 h-3 mt-0.5 text-amber-600 flex-shrink-0" />
+              <Pin className="w-3 h-3 mt-0.5 text-amber-600 shrink-0" />
               <div className="flex-1 truncate">
                 <span className="font-medium">{p.author?.name ?? "?"}: </span>
                 <span className="text-foreground dark:text-muted-foreground">
@@ -591,7 +591,7 @@ function MessageRow({
       )}
     >
       {/* Avatar (initials) */}
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold">
+      <div className="shrink-0 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold">
         {(message.author?.name ?? "?").slice(0, 2).toUpperCase()}
       </div>
 
@@ -618,7 +618,7 @@ function MessageRow({
 
         <div
           className={cn(
-            "mt-0.5 text-sm whitespace-pre-wrap break-words",
+            "mt-0.5 text-sm whitespace-pre-wrap wrap-break-word",
             message.is_deleted && "italic text-muted-foreground",
           )}
         >

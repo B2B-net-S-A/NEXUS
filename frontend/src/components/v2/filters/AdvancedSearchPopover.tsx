@@ -289,7 +289,7 @@ export function AdvancedSearchPopover({
             {gi > 0 && (
               <div className="flex items-center gap-2 py-0.5">
                 <div className="h-px flex-1 bg-border" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   oraz
                 </span>
                 <div className="h-px flex-1 bg-border" />

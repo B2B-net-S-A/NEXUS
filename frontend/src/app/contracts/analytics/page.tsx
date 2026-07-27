@@ -67,7 +67,7 @@ function MetricCard({
   sub?: string;
 }) {
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-5">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-5">
       <div className="flex items-center gap-2 text-xs text-muted-foreground dark:text-muted-foreground">
         <Icon className="w-4 h-4" />
         {label}
@@ -94,7 +94,7 @@ function MarginLeaderboard({
   linkPrefix: string;
 }) {
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
       <h2 className="px-4 py-3 text-sm font-semibold border-b border-border dark:border-border">
         {title}
       </h2>
@@ -161,7 +161,7 @@ function ForecastChart({ forecast }: { forecast: Forecast | undefined }) {
   }
   const maxRev = Math.max(...forecast.months.map((m) => m.revenue), 1);
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 overflow-x-auto">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 overflow-x-auto">
       <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
         <LineChart className="w-4 h-4" /> Prognoza przychodu i marży (12 mies.)
       </h2>
@@ -329,14 +329,14 @@ function RoleClientMixCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola × klient…
       </div>
     );
   }
   if (!data || data.rows.length === 0) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <div className="flex items-center gap-2 mb-2">
           <Target className="w-4 h-4" />
           <h3 className="font-semibold">Rola × Klient</h3>
@@ -354,7 +354,7 @@ function RoleClientMixCard() {
   }
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
       <div className="flex items-center gap-2 mb-3">
         <Target className="w-4 h-4" />
         <h3 className="font-semibold">Rola × Klient ({data.total_active} aktywnych)</h3>
@@ -429,7 +429,7 @@ function LocationDistributionCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie lokalizacji…
       </div>
     );
@@ -437,7 +437,7 @@ function LocationDistributionCard() {
   if (!data) return null;
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
       <div className="flex items-center gap-2 mb-3">
         <MapPin className="w-4 h-4 text-primary" />
         <h3 className="font-semibold">
@@ -494,7 +494,7 @@ function TerminationAnalysisCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie analizy
         zakończeń…
       </div>
@@ -507,7 +507,7 @@ function TerminationAnalysisCard() {
   const maxCount = Math.max(1, ...data.by_reason.map((r) => r.count));
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
       <div className="flex items-center gap-2 mb-3">
         <AlertTriangle className="w-4 h-4 text-amber-500" />
         <h3 className="font-semibold">

@@ -118,10 +118,10 @@ export function HelpPageV2() {
  {/* Header */}
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  System · Pomoc
  </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
  FAQ z procedurami
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
@@ -250,7 +250,7 @@ export function HelpPageV2() {
  {toast && (
  <div
  role="status"
- className="fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground"
+ className="fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground"
  >
  {toast}
  </div>
@@ -285,7 +285,7 @@ function ProcedureContent({
  <article className="p-6 md:p-8">
  <header className="flex items-start justify-between gap-4 flex-wrap mb-5">
  <div className="min-w-0">
- <h2 className="font-semibold text-2xl font-bold tracking-[-0.01em] text-foreground">
+ <h2 className="font-semibold text-2xl font-bold tracking-heading text-foreground">
  {procedure.title}
  </h2>
  <p className="text-xs text-muted-foreground mt-1">

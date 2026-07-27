@@ -62,7 +62,7 @@ export function ClientStackPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
         <div className="flex flex-wrap items-center gap-4">
           <div>
             <h3 className="font-semibold text-sm">Klient × stack</h3>
@@ -158,7 +158,7 @@ function ClientCard({ group }: { group: ClientGroup }) {
     <div className="rounded-xl border border-border p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary flex-shrink-0">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary shrink-0">
             <Building2 className="h-3.5 w-3.5" />
           </span>
           <span className="font-medium text-sm text-foreground truncate">

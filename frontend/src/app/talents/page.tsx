@@ -108,7 +108,7 @@ function PoolCard({
     >
       <span
         className={cn(
-          "w-8 h-8 rounded-lg bg-gradient-to-br flex items-center justify-center flex-shrink-0",
+          "w-8 h-8 rounded-lg bg-linear-to-br flex items-center justify-center shrink-0",
           color,
         )}
       >
@@ -124,7 +124,7 @@ function PoolCard({
           </span>
         )}
       </span>
-      <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground tabular-nums flex-shrink-0">
+      <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground tabular-nums shrink-0">
         <Users className="w-3.5 h-3.5" />
         {pool.candidate_count}
       </span>
@@ -188,7 +188,7 @@ function CreatePoolModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 shrink-0" />
               {error}
             </div>
           )}
@@ -207,7 +207,7 @@ function CreatePoolModal({
                   ? "np. Moi React seniorzy, Do zaproszenia na meetup"
                   : "np. Senior Angular, DevOps Cloud, QA Automation"
               }
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             />
           </div>
 
@@ -218,7 +218,7 @@ function CreatePoolModal({
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               placeholder="Opisz kryteria przynależności do tej puli..."
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             />
           </div>
 
@@ -333,7 +333,7 @@ function PoolDetailView({
 
       <div
         className={cn(
-          "bg-gradient-to-r rounded-2xl p-6 text-white shadow-sm",
+          "bg-linear-to-r rounded-2xl p-6 text-white shadow-xs",
           poolColor,
         )}
       >
@@ -372,7 +372,7 @@ function PoolDetailView({
       </div>
 
       {/* Candidates */}
-      <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm">
+      <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
           <h2 className="font-semibold text-foreground dark:text-foreground">
             Kandydaci w puli ({total})
@@ -418,7 +418,7 @@ function PoolDetailView({
                 >
                   <div className="flex items-center gap-4">
                     {/* Avatar */}
-                    <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white text-sm font-bold shrink-0">
                       {c.name.charAt(0)}
                       {c.lastname.charAt(0)}
                     </div>
@@ -462,7 +462,7 @@ function PoolDetailView({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="flex items-center gap-3 shrink-0">
                     {c.source_event === "cv_sent" && (
                       c.source_job_id ? (
                         <Link
@@ -701,7 +701,7 @@ function TalentsPageContent() {
           )}
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-xs"
           >
             <Plus className="w-4 h-4" />
             Nowa pula
@@ -716,7 +716,7 @@ function TalentsPageContent() {
           className={cn(
             "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
             view === "company"
-              ? "bg-card text-foreground shadow-sm"
+              ? "bg-card text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -730,7 +730,7 @@ function TalentsPageContent() {
           className={cn(
             "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
             view === "personal"
-              ? "bg-card text-foreground shadow-sm"
+              ? "bg-card text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -760,7 +760,7 @@ function TalentsPageContent() {
                   ? "Szukaj puli, np. Java, DevOps, Data Scientist…"
                   : "Szukaj puli lub właściciela…"
               }
-              className="w-full pl-9 pr-9 py-2.5 bg-card border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full pl-9 pr-9 py-2.5 bg-card border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             />
             {search && (
               <button

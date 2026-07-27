@@ -170,7 +170,7 @@ function FilterToggle({
  title={title}
  className={cn("px-3 h-9 rounded-lg text-sm font-medium transition-all border whitespace-nowrap",
  active
- ?"bg-primary text-white border-primary shadow-sm"
+ ?"bg-primary text-white border-primary shadow-xs"
  :"bg-card text-foreground border-border hover:text-foreground"
  )}
  >
@@ -410,10 +410,10 @@ export function JobsListV2() {
  {/* Header */}
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Pipeline · Oferty
  </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
  Oferty pracy
  </h1>
  <p className="text-sm text-muted-foreground mt-1" aria-live="polite">
@@ -478,7 +478,7 @@ export function JobsListV2() {
  }}
  className={cn("px-4 py-1.5 rounded-md text-sm font-medium transition-all",
  typeFilter === tab.value
- ?"bg-primary text-white shadow-sm"
+ ?"bg-primary text-white shadow-xs"
  :"text-muted-foreground hover:text-foreground"
  )}
  >

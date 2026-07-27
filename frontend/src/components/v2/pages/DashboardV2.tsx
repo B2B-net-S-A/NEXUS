@@ -99,7 +99,7 @@ interface StatProps {
 
 function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href }: StatProps) {
  const inner = (
- <Card variant="default" size="md" className={href ?"hover:shadow-sm transition-all": undefined}>
+ <Card variant="default" size="md" className={href ?"hover:shadow-xs transition-all": undefined}>
  <div className="flex items-start justify-between gap-2 mb-3">
  <div className="min-w-0">
  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -113,7 +113,7 @@ function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href
  </span>
  </div>
  </div>
- <div className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground leading-none">
+ <div className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground leading-none">
  {value}
  </div>
  <div className="flex items-center justify-between gap-2 mt-2">
@@ -179,7 +179,7 @@ function FunnelV2({ data }: { data?: any }) {
  </span>
  <div className="flex-1 h-5 rounded-full bg-[hsl(var(--border))]/60 overflow-hidden">
  <div
- className="h-full rounded-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--card))] transition-all duration-500"
+ className="h-full rounded-full bg-linear-to-r from-[hsl(var(--primary))] to-[hsl(var(--card))] transition-all duration-500"
  style={{ width: `${pct}%` }}
  />
  </div>
@@ -355,7 +355,7 @@ function PlacementsV2({
  <CardTitle>Placements — ten miesiąc</CardTitle>
  <CardDescription>zatrudnienia B2B.net</CardDescription>
  </div>
- <span className="font-semibold text-3xl font-extrabold text-foreground tracking-[-0.02em]">
+ <span className="font-semibold text-3xl font-extrabold text-foreground tracking-heading-tight">
  {placements ?? "—"}
  </span>
  </div>
@@ -396,7 +396,7 @@ function ContractorDraftsWidget() {
  className="block group"
  aria-label={`${incomplete} draftów do uzupełnienia`}
  >
- <Card className="border-amber-200 bg-amber-50 !p-4 flex items-center gap-3 transition-colors group-hover:bg-amber-100">
+ <Card className="border-amber-200 bg-amber-50 p-4! flex items-center gap-3 transition-colors group-hover:bg-amber-100">
  <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
  <UserCog className="h-5 w-5 text-amber-700" />
  </div>
@@ -520,7 +520,7 @@ export function DashboardV2() {
  {/* Hero header */}
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Nexus · B2B.net S.A.
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">

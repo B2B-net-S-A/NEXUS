@@ -38,7 +38,7 @@ const TONE_STYLES: Record<
 > = {
   praise: {
     wrapper:
-      "bg-gradient-to-br from-emerald-50 to-green-100 border-emerald-300 " +
+      "bg-linear-to-br from-emerald-50 to-green-100 border-emerald-300 " +
       "text-emerald-900 dark:from-emerald-900/40 dark:to-green-900/40 " +
       "dark:border-emerald-700 dark:text-emerald-100",
     accent: "text-emerald-600 dark:text-emerald-300",
@@ -46,7 +46,7 @@ const TONE_STYLES: Record<
   },
   remind: {
     wrapper:
-      "bg-gradient-to-br from-amber-50 to-orange-100 border-amber-300 " +
+      "bg-linear-to-br from-amber-50 to-orange-100 border-amber-300 " +
       "text-amber-900 dark:from-amber-900/40 dark:to-orange-900/40 " +
       "dark:border-amber-700 dark:text-amber-100",
     accent: "text-amber-600 dark:text-amber-300",
@@ -54,7 +54,7 @@ const TONE_STYLES: Record<
   },
   summary: {
     wrapper:
-      "bg-gradient-to-br from-sky-50 to-blue-100 border-sky-300 " +
+      "bg-linear-to-br from-sky-50 to-blue-100 border-sky-300 " +
       "text-sky-900 dark:from-sky-900/40 dark:to-blue-900/40 " +
       "dark:border-sky-700 dark:text-sky-100",
     accent: "text-sky-600 dark:text-sky-300",
@@ -105,7 +105,7 @@ export function KpiNudgeToaster() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-20 right-4 z-[10000] flex flex-col gap-3 pointer-events-none max-w-sm">
+    <div className="fixed top-20 right-4 z-10000 flex flex-col gap-3 pointer-events-none max-w-sm">
       {toasts.map((toast) => {
         const style = TONE_STYLES[toast.tone] ?? TONE_STYLES.praise;
         return (
@@ -120,7 +120,7 @@ export function KpiNudgeToaster() {
               style.wrapper,
             )}
           >
-            <div className={cn("flex-shrink-0 mt-0.5", style.accent)}>
+            <div className={cn("shrink-0 mt-0.5", style.accent)}>
               <span className="text-2xl leading-none select-none">
                 {toast.emoji}
               </span>
@@ -153,7 +153,7 @@ export function KpiNudgeToaster() {
             <button
               onClick={() => dismiss(toast.localId)}
               aria-label="Zamknij"
-              className="text-current opacity-50 hover:opacity-100 transition-opacity flex-shrink-0"
+              className="text-current opacity-50 hover:opacity-100 transition-opacity shrink-0"
             >
               <X className="w-4 h-4" />
             </button>

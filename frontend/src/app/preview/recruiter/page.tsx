@@ -156,7 +156,7 @@ export default function RecruiterPreview() {
         {/* KPI row */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {KPIS.map((k) => (
-            <Card key={k.label} className="p-5 transition-shadow duration-200 hover:shadow-sm">
+            <Card key={k.label} className="p-5 transition-shadow duration-200 hover:shadow-xs">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">

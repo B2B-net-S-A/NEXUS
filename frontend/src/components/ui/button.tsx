@@ -11,17 +11,17 @@ const buttonVariants = cva(
     "inline-flex items-center justify-center gap-2 whitespace-nowrap",
     "font-medium transition-colors duration-150",
     "disabled:opacity-50 disabled:pointer-events-none",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+    "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     "select-none",
   ],
   {
     variants: {
       variant: {
-        primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+        primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "bg-transparent text-foreground hover:bg-muted",
         tertiary: "bg-transparent text-primary hover:text-primary/80 underline-offset-4 hover:underline",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-xs",
         outline: "bg-transparent border border-border text-foreground hover:bg-muted",
       },
       size: {

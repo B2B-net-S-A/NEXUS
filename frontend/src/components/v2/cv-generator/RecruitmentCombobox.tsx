@@ -92,7 +92,7 @@ export function RecruitmentCombobox({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-[--radix-popover-trigger-width] p-0"
+        className="w-(--radix-popover-trigger-width) p-0"
       >
         <Command shouldFilter={false}>
           <div className="flex items-center border-b border-border px-3">

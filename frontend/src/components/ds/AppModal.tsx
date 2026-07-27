@@ -15,8 +15,8 @@ type AppModalSize = "sm" | "md" | "lg";
 
 const sizeClasses: Record<AppModalSize, string> = {
   sm: "max-w-[24rem]",
-  md: "max-w-[32rem]",
-  lg: "max-w-[42rem]",
+  md: "max-w-lg",
+  lg: "max-w-2xl",
 };
 
 export interface AppModalProps {

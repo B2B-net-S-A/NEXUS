@@ -126,7 +126,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
           po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
       >
         Przejdź do treści
       </a>
@@ -162,7 +162,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
         {/* `tabIndex={-1}` — bez tego część przeglądarek przewinie do kotwicy,
             ale nie przeniesie fokusu, więc skip link byłby pozorny. */}
-        <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
+        <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-hidden">
           <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
         </main>
       </div>

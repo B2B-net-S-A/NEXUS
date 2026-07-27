@@ -769,7 +769,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {backJobId != null ? (
  <Link
  href={`/jobs/${backJobId}`}
- className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary min-w-0 max-w-[22rem]"
+ className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary min-w-0 max-w-88"
  title={backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` :"Wróć do rekrutacji"}
  >
  <ArrowLeft className="h-4 w-4 shrink-0" />
@@ -819,9 +819,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  ) : null}
 
  {/* ── HERO CARD ── */}
- <Card variant="default" size="md" className="!p-0 overflow-hidden">
+ <Card variant="default" size="md" className="p-0! overflow-hidden">
  {/* Top accent bar */}
- <div className="h-1 bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--card))]" />
+ <div className="h-1 bg-linear-to-r from-[hsl(var(--primary))] to-[hsl(var(--card))]" />
  <div className="p-6">
  <div className="flex items-start gap-4 flex-wrap">
  <Avatar size="xl">
@@ -837,7 +837,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  ) : (
  <>
  <div className="flex items-center gap-2 flex-wrap">
- <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-[-0.02em] text-foreground">
+ <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-heading-tight text-foreground">
  {fullName}
  </h1>
  {candidate.status && STATUS_LABELS[candidate.status] && (
@@ -1052,13 +1052,13 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  )}
  >
  <div className="min-w-0 space-y-5">
- <Card variant="default" size="md" className="!p-0 overflow-hidden">
+ <Card variant="default" size="md" className="p-0! overflow-hidden">
  <TabbedNav
  value={activeTab}
  onValueChange={setActiveTab}
  ariaLabel="Sekcje profilu kandydata"
  overflow="scroll"
- listClassName="hidden max-w-full justify-start px-4 pt-2 md:flex [&>*]:shrink-0"
+ listClassName="hidden max-w-full justify-start px-4 pt-2 md:flex *:shrink-0"
  tabs={[
  { value: "summary", label: "Podsumowanie", icon: User },
  {
@@ -1080,7 +1080,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  id="candidate-profile-section"
  value={activeTab}
  onChange={(event) => setActiveTab(event.target.value)}
- className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+ className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
  >
  {Object.entries(PROFILE_SECTION_LABELS).map(([value, label]) => (
  <option key={value} value={value}>
@@ -1318,7 +1318,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  ) : (
  <>
  {aiProfile?.summary ? (
- <Card variant="default" size="md" className="!py-4">
+ <Card variant="default" size="md" className="py-4!">
  <div className="flex items-start gap-2">
  <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
  <div className="min-w-0 flex-1">
@@ -1466,9 +1466,9 @@ function SubsectionNav({
  aria-selected={active}
  onClick={() => onChange(item.value)}
  className={cn(
- "shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ "shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
  active
- ? "bg-card text-foreground shadow-sm"
+ ? "bg-card text-foreground shadow-xs"
  : "text-muted-foreground hover:bg-accent hover:text-foreground",
  )}
  >
@@ -1553,7 +1553,7 @@ function JDGPanel({
 
  return (
  <Card variant="default" size="md">
- <CardHeader className="!pb-2">
+ <CardHeader className="pb-2!">
  <CardTitle className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground flex items-center gap-2">
  <FileSignature className="h-3.5 w-3.5" />
  Dane do umowy (JDG / firma)
@@ -1952,7 +1952,7 @@ function DraftEditor({
  content: "",
  editorProps: {
  attributes: {
- class: "prose prose-sm max-w-none min-h-[400px] focus:outline-none border border-border rounded-lg bg-card p-4",
+ class: "prose prose-sm max-w-none min-h-[400px] focus:outline-hidden border border-border rounded-lg bg-card p-4",
  },
  },
  });
@@ -3057,7 +3057,7 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
     : null;
   const isStage = item.type === "stage_change";
   return (
-    <div className="flex gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-sm transition-shadow hover:shadow-md">
+    <div className="flex gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-xs transition-shadow hover:shadow-md">
       {useAvatar ? (
         <Avatar className="h-8 w-8 shrink-0">
           <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
@@ -3275,7 +3275,7 @@ function EditableRateCell({
  value={value}
  onChange={(e) => setValue(e.target.value)}
  placeholder="np. 22000"
- className="w-24 h-8 px-2 rounded border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+ className="w-24 h-8 px-2 rounded border border-border bg-card text-sm focus:outline-hidden focus:ring-2 focus:ring-primary"
  autoFocus
  data-testid={`${testIdPrefix}-input`}
  />
@@ -3860,7 +3860,7 @@ function NoteComposer({
  </label>
  <select
  id="note-recruitment-select"
- className="rounded-lg border border-border bg-card px-2 py-1 text-xs max-w-[22rem] truncate"
+ className="rounded-lg border border-border bg-card px-2 py-1 text-xs max-w-88 truncate"
  value={selectedJobId ?? ""}
  onChange={(e) => {
  const v = e.target.value;
@@ -4607,7 +4607,7 @@ function ScreeningSummary({
  <Card
  variant="default"
  size="md"
- className={cn("!py-3 shadow-smd","bg-card/95 backdrop-blur-sm"
+ className={cn("py-3! shadow-smd","bg-card/95 backdrop-blur-xs"
  )}
  >
  {/* Header */}

@@ -34,7 +34,7 @@ const RANK_STYLE = {
  1: {
  icon: Crown,
  border: "border-amber-400",
- bg: "bg-gradient-to-br from-amber-50 to-amber-100",
+ bg: "bg-linear-to-br from-amber-50 to-amber-100",
  text: "text-amber-600",
  medal: "🥇",
  height: "h-36",
@@ -42,7 +42,7 @@ const RANK_STYLE = {
  2: {
  icon: Medal,
  border: "border-slate-300",
- bg: "bg-gradient-to-br from-slate-50 to-slate-100",
+ bg: "bg-linear-to-br from-slate-50 to-slate-100",
  text: "text-slate-500",
  medal: "🥈",
  height: "h-32",
@@ -50,7 +50,7 @@ const RANK_STYLE = {
  3: {
  icon: Medal,
  border: "border-orange-300",
- bg: "bg-gradient-to-br from-orange-50 to-orange-100",
+ bg: "bg-linear-to-br from-orange-50 to-orange-100",
  text: "text-orange-600",
  medal: "🥉",
  height: "h-28",

@@ -595,7 +595,7 @@ function ConfirmFullySignedDialog({
                 </PopoverTrigger>
                 <PopoverContent
                   align="start"
-                  className="w-[--radix-popover-trigger-width] p-0"
+                  className="w-(--radix-popover-trigger-width) p-0"
                 >
                   <Command shouldFilter={false}>
                     <CommandInput
@@ -980,7 +980,7 @@ export function GeneratedContractsTab() {
                       </td>
                       <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
                       <td className="py-2 pr-4">
-                        <div className="flex min-w-[12rem] flex-col items-start gap-1.5">
+                        <div className="flex min-w-48 flex-col items-start gap-1.5">
                           <Badge
                             variant={signed ? "success" : "outline"}
                             size="md"
@@ -1044,7 +1044,7 @@ export function GeneratedContractsTab() {
                               Oznacz jako podpisaną
                             </Button>
                           ) : r.blocked_reason ? (
-                            <span className="max-w-[15rem] text-xs text-muted-foreground">
+                            <span className="max-w-60 text-xs text-muted-foreground">
                               {r.blocked_reason}
                             </span>
                           ) : null}
@@ -1806,7 +1806,7 @@ function GeneratorForm() {
                   </PopoverTrigger>
                   <PopoverContent
                     align="start"
-                    className="w-[--radix-popover-trigger-width] p-0"
+                    className="w-(--radix-popover-trigger-width) p-0"
                   >
                     <Command shouldFilter={false}>
                       <CommandInput
@@ -2067,7 +2067,7 @@ function GeneratorForm() {
               </PopoverTrigger>
               <PopoverContent
                 align="start"
-                className="w-[--radix-popover-trigger-width] p-0"
+                className="w-(--radix-popover-trigger-width) p-0"
               >
                 <Command shouldFilter={false}>
                   <CommandInput

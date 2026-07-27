@@ -180,7 +180,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
       {showForm && (
         <form
           onSubmit={handleSave}
-          className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3 border border-purple-200 dark:border-purple-900"
+          className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3 border border-purple-200 dark:border-purple-900"
         >
           <h3 className="text-sm font-semibold">
             {editingId ? `Edytuj cennik #${editingId}` : "Nowy wpis cennika"}

@@ -119,7 +119,7 @@ export default function CloudTalkSettingsCard() {
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border p-6">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
           <Phone className="w-6 h-6 text-primary" />
         </div>
         <div className="flex-1">

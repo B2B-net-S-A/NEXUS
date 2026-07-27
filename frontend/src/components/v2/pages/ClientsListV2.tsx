@@ -189,10 +189,10 @@ export function ClientsListV2() {
  {/* Header */}
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Delivery · Klienci
  </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
  Klienci
  </h1>
  <p className="text-sm text-muted-foreground mt-1" aria-live="polite">
@@ -371,7 +371,7 @@ export function ClientsListV2() {
 
  {showAdd && <AddClientModal onClose={() => setShowAdd(false)} onSuccess={onAdded} />}
  {toast && (
- <div className="fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
+ <div className="fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
  {toast}
  </div>
  )}

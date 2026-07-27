@@ -33,12 +33,12 @@ export function MyClientsTab() {
 
   if (isLoading) {
     return (
-      <Card className="!p-4 text-sm text-muted-foreground">Ładowanie klientów…</Card>
+      <Card className="p-4! text-sm text-muted-foreground">Ładowanie klientów…</Card>
     )
   }
   if (isError) {
     return (
-      <Card className="!p-4 text-sm text-rose-700 bg-rose-50 border border-rose-200">
+      <Card className="p-4! text-sm text-rose-700 bg-rose-50 border border-rose-200">
         Nie udało się pobrać listy klientów.
       </Card>
     )
@@ -46,7 +46,7 @@ export function MyClientsTab() {
   const rows = data ?? []
   if (rows.length === 0) {
     return (
-      <Card className="!p-8 text-center text-sm text-muted-foreground">
+      <Card className="p-8! text-center text-sm text-muted-foreground">
         <Inbox className="h-10 w-10 mx-auto mb-3 opacity-40" />
         Brak przypisanych klientów. Skontaktuj się z HoR aby dostać przypisanie.
       </Card>

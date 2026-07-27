@@ -83,7 +83,7 @@ export function AddCandidateToJobModal({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Szukaj po imieniu, emailu, skillu..."
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
         />
       </div>
 
@@ -116,7 +116,7 @@ export function AddCandidateToJobModal({
                     .join(" · ") || "—"}
                 </p>
               </div>
-              <span className="text-xs text-purple-600 font-semibold flex-shrink-0">
+              <span className="text-xs text-purple-600 font-semibold shrink-0">
                 Dodaj →
               </span>
             </button>

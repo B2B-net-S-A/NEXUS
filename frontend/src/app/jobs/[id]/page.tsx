@@ -62,7 +62,7 @@ const PORTAL_CONFIG: Record<Portal, { label: string; color: string; dotColor: st
   pracuj_pl:   { label: "Pracuj.pl",    color: "bg-orange-100 text-orange-700",  dotColor: "bg-orange-500" },
   justjoinit:  { label: "JustJoinIT",   color: "bg-green-100 text-green-700",    dotColor: "bg-green-500" },
   linkedin:    { label: "LinkedIn",     color: "bg-primary/15 text-primary",      dotColor: "bg-primary" },
-  nofluffjobs: { label: "NoFluffJobs",  color: "bg-destructive/15 text-destructive",        dotColor: "bg-destructive/100" },
+  nofluffjobs: { label: "NoFluffJobs",  color: "bg-destructive/15 text-destructive",        dotColor: "bg-destructive" },
   bulldogjob:  { label: "BulldogJob",   color: "bg-yellow-100 text-yellow-700",  dotColor: "bg-yellow-500" },
 };
 
@@ -136,7 +136,7 @@ function PublishModal({
                   onChange={() => !isActive && toggle(p)}
                   className="accent-blue-600"
                 />
-                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${config.dotColor}`} />
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${config.dotColor}`} />
                 <span className="text-sm font-medium">{config.label}</span>
                 {isActive && (
                   <span className="ml-auto text-xs text-green-600 font-medium">Już aktywne</span>
@@ -276,7 +276,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
                   <tr key={posting.id} className="border-b border-gray-50 hover:bg-muted">
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${portalCfg.dotColor}`} />
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${portalCfg.dotColor}`} />
                         <span className="font-medium">{portalCfg.label}</span>
                       </div>
                     </td>
@@ -402,7 +402,7 @@ function AIJobWriterModal({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="np. Angular Developer"
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               />
             </div>
             <div>
@@ -411,7 +411,7 @@ function AIJobWriterModal({
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 placeholder="np. Nordea"
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               />
             </div>
           </div>
@@ -444,7 +444,7 @@ function AIJobWriterModal({
               onChange={(e) => setRequirements(e.target.value)}
               rows={4}
               placeholder="Angular 14+&#10;RxJS&#10;TypeScript&#10;Agile/Scrum&#10;Komunikatywny angielski"
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             />
             <p className="text-xs text-muted-foreground mt-0.5">Wpisz wymagania po jednym w linii</p>
           </div>
@@ -620,7 +620,7 @@ function MatchScoreBar({ score }: { score: number | null }) {
     );
   }
   const pct = Math.round(score * 100);
-  const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-yellow-500" : "bg-destructive/100";
+  const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-yellow-500" : "bg-destructive";
   const textColor = pct >= 80 ? "text-green-700" : pct >= 60 ? "text-yellow-700" : "text-destructive";
   return (
     <div className="flex items-center gap-2">
@@ -793,7 +793,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <div className="w-52">
             <LocationInput
               value={locationFilter}
@@ -862,14 +862,14 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
             const avatarColor = getAvatarColor(fullName);
 
             return (
-              <div key={c.id} className="flex items-start gap-4 p-4 bg-card dark:bg-muted rounded-xl border border-border dark:border-border hover:shadow-sm transition-shadow">
+              <div key={c.id} className="flex items-start gap-4 p-4 bg-card dark:bg-muted rounded-xl border border-border dark:border-border hover:shadow-xs transition-shadow">
                 {/* Rank */}
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-muted dark:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                <div className="shrink-0 w-6 h-6 rounded-full bg-muted dark:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                   {idx + 1}
                 </div>
 
                 {/* Avatar */}
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 ${avatarColor}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shrink-0 ${avatarColor}`}>
                   {initials || "?"}
                 </div>
 
@@ -885,12 +885,12 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                       )}
                       {formatCandidateLocation(c.location) && (
                         <p className="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-1">
-                          <MapPin className="w-3 h-3 flex-shrink-0" />
+                          <MapPin className="w-3 h-3 shrink-0" />
                           {formatCandidateLocation(c.location)}
                         </p>
                       )}
                     </div>
-                    <div className="w-32 flex-shrink-0">
+                    <div className="w-32 shrink-0">
                       <MatchScoreBar score={match.match_score} />
                     </div>
                   </div>
@@ -1179,7 +1179,7 @@ export default function JobDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <ActiveViewers
               resourceType="job"
               resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
@@ -1189,7 +1189,7 @@ export default function JobDetailPage() {
               <>
                 <button
                   onClick={() => setShowAddCandidates(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-xs"
                   data-testid="open-add-candidates"
                   title="Wyszukaj kandydatów po imieniu i nazwisku i dodaj ich do pipeline"
                 >
@@ -1198,14 +1198,14 @@ export default function JobDetailPage() {
                 </button>
                 <button
                   onClick={() => setShowEditJob(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-xs"
                 >
                   <PencilLine className="w-3.5 h-3.5 text-muted-foreground" />
                   Edytuj
                 </button>
                 <button
                   onClick={() => setShowAIWriter(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-xs"
                 >
                   <Wand2 className="w-3.5 h-3.5" />
                   AI Ogłoszenie
@@ -1213,7 +1213,7 @@ export default function JobDetailPage() {
                 {job.status === "published" && canCreateInviteLink && (
                   <button
                     onClick={() => setShowInviteLink(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-xs"
                     title="Wygeneruj indywidualny link aplikacyjny dla tej oferty"
                   >
                     <Link2 className="w-3.5 h-3.5 text-primary" />
@@ -1418,7 +1418,7 @@ export default function JobDetailPage() {
             <MessageCircle className="w-4 h-4" />
             Chat
             {chatUnread && chatUnread.unread_count > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-destructive/100 text-white">
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-destructive text-white">
                 {chatUnread.unread_count > 99 ? "99+" : chatUnread.unread_count}
               </span>
             )}

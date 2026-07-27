@@ -60,7 +60,7 @@ export function CoverageView({ data }: { data: CortexCoverage }) {
       </StatCardGrid>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
           <h3 className="font-semibold text-sm flex items-center gap-2">
             <Gauge className="w-4 h-4" />
             Świeżość faktów (kiedy sygnał był prawdziwy)
@@ -119,7 +119,7 @@ export function CoverageView({ data }: { data: CortexCoverage }) {
           </div>
         </div>
 
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
           <h3 className="font-semibold text-sm">Procesy zbierania powodów</h3>
           <ProcessRow
             label="Powód zamknięcia rekrutacji (close_reason)"

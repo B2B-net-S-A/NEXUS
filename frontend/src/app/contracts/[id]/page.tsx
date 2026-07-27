@@ -799,7 +799,7 @@ export default function ContractDetailPage() {
           <div className="lg:col-span-2 space-y-4">
             {/* View mode */}
             {!editing && (
-              <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-1">
+              <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-1">
                 <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">
                   Informacje o kontrakcie
                 </h2>
@@ -904,7 +904,7 @@ export default function ContractDetailPage() {
 
             {/* Assignment context */}
             {!editing && (contract.client_pm_name || contract.line_manager || contract.work_mode || contract.project_name || contract.team_name || contract.office_location) && (
-              <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-1">
+              <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-1">
                 <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">
                   Osadzenie u klienta
                 </h2>
@@ -958,7 +958,7 @@ export default function ContractDetailPage() {
             {editing && form && (
               <form
                 onSubmit={handleSave}
-                className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4"
+                className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4"
               >
                 <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground">
                   Edycja kontraktu
@@ -1720,7 +1720,7 @@ export default function ContractDetailPage() {
 
           {/* Right sidebar: rates & margin */}
           <div className="space-y-4">
-            <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+            <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
               <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground flex items-center gap-2">
                 <Banknote className="w-4 h-4" /> Stawki finansowe
               </h2>
@@ -1863,7 +1863,7 @@ export default function ContractDetailPage() {
               </div>
             </div>
 
-            <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-xs text-muted-foreground dark:text-muted-foreground space-y-1">
+            <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-xs text-muted-foreground dark:text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>
               <div>Aktualizacja: {formatDate(contract.updated_at)}</div>
             </div>
@@ -1882,14 +1882,14 @@ export default function ContractDetailPage() {
 
       {/* Tab: Sprzęt */}
       {activeTab === "equipment" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
           <ContractEquipmentTab contractId={id} />
         </div>
       )}
 
       {/* Tab: Notatki / rozmowy */}
       {activeTab === "notes" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
           <ContractNotesTab contractId={id} />
         </div>
       )}
@@ -1899,7 +1899,7 @@ export default function ContractDetailPage() {
 
       {/* Tab: Rate history */}
       {activeTab === "rateHistory" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
           {!rateHistory || rateHistory.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
               Brak historii stawek dla tego kandydata i klienta.
@@ -1942,7 +1942,7 @@ export default function ContractDetailPage() {
 
       {/* Tab: Timeline (activity log) */}
       {activeTab === "timeline" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
           {!activities || activities.length === 0 ? (
             <div className="text-center text-sm text-muted-foreground dark:text-muted-foreground py-6">
               Brak wpisów w historii.

@@ -110,7 +110,7 @@ function AddFieldForm({
             value={key}
             onChange={(e) => setKey(e.target.value)}
             placeholder="np. preferred_locations"
-            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-ring"
           />
         </div>
         <div>
@@ -121,7 +121,7 @@ function AddFieldForm({
             value={labelPl}
             onChange={(e) => setLabelPl(e.target.value)}
             placeholder="np. Preferowane lokalizacje"
-            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
           />
         </div>
         <div>
@@ -131,7 +131,7 @@ function AddFieldForm({
           <select
             value={fieldType}
             onChange={(e) => setFieldType(e.target.value as FieldType)}
-            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
           >
             {fieldTypes.map((ft) => (
               <option key={ft.value} value={ft.value}>
@@ -147,7 +147,7 @@ function AddFieldForm({
           <select
             value={section}
             onChange={(e) => setSection(e.target.value)}
-            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
           >
             {SECTIONS.map((s) => (
               <option key={s.id} value={s.id}>

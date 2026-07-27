@@ -82,7 +82,7 @@ export function Alert({
     <div className={cn(alertVariants({ variant }), className)} {...props}>
       <Icon
         className={cn(
-          "w-4 h-4 flex-shrink-0 mt-0.5",
+          "w-4 h-4 shrink-0 mt-0.5",
           spinning && "animate-spin"
         )}
       />
@@ -91,7 +91,7 @@ export function Alert({
         {description ? (
           <p
             className={cn(
-              "text-xs break-words",
+              "text-xs wrap-break-word",
               title && "mt-0.5",
               "opacity-90"
             )}

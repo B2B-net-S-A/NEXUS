@@ -246,7 +246,7 @@ export function QuickAssignV2({
  <SheetBody>
  {risk?.level === "high" && (
  <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
- <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+ <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
  <div>
  <strong>Wysokie ryzyko wycofania.</strong> Kandydat ma{""}
  {risk.breakdown.early +
@@ -262,7 +262,7 @@ export function QuickAssignV2({
 
  {assignError && (
  <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
- <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+ <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
  <div>{assignError}</div>
  </div>
  )}

@@ -154,7 +154,7 @@ export function SkillCandidatesDrawer({
         {/* Header */}
         <div className="sticky top-0 flex items-center justify-between px-5 py-3.5 border-b border-border bg-card z-10">
           <div className="flex items-center gap-2 min-w-0">
-            <Users className="w-5 h-5 text-primary flex-shrink-0" aria-hidden />
+            <Users className="w-5 h-5 text-primary shrink-0" aria-hidden />
             <div className="min-w-0">
               <h2
                 id="skill-candidates-drawer-title"
@@ -172,7 +172,7 @@ export function SkillCandidatesDrawer({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md flex-shrink-0"
+            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md shrink-0"
             aria-label="Zamknij"
           >
             <X className="w-4 h-4" />
@@ -357,7 +357,7 @@ function CandidateRow({ candidate }: { candidate: CortexSkillCandidate }) {
             ) : null}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <div className="flex flex-col items-end gap-1 shrink-0">
           <span
             className="text-sm font-semibold tabular-nums text-foreground"
             title="Pewność najsilniejszego faktu"

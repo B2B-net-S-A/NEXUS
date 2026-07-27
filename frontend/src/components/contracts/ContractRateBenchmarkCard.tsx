@@ -42,7 +42,7 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
       : null;
 
   return (
-    <div className="rounded-lg border border-border dark:border-border p-4 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-950/20">
+    <div className="rounded-lg border border-border dark:border-border p-4 bg-linear-to-br from-blue-50/50 to-transparent dark:from-blue-950/20">
       <div className="flex items-center gap-2 mb-3">
         <TrendingUp className="w-4 h-4 text-primary" />
         <h3 className="text-sm font-semibold">Benchmark stawki</h3>

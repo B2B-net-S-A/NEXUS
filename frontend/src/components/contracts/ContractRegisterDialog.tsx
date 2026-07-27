@@ -303,7 +303,7 @@ export function ContractRegisterDialog({
                   </PopoverTrigger>
                   <PopoverContent
                     align="start"
-                    className="w-[--radix-popover-trigger-width] p-0"
+                    className="w-(--radix-popover-trigger-width) p-0"
                   >
                     <Command shouldFilter={false}>
                       <CommandInput

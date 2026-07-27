@@ -369,10 +369,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
 
  return (
  <div
- className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-sm hover:border-primary/40",
+ className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
  density === "compact" ?"p-2" :"p-5",
- isPending &&"opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40",
+ isPending &&"opacity-70 grayscale-40 border-amber-300 bg-amber-50/40",
  // Świadomie bez grayscale/opacity — to sygnatura „pending" i czytałaby
  // się jako „nieaktywny". Ten kandydat jest aktywny, tylko nie dla tego
  // managera.
@@ -481,7 +481,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onRemoveFromRecruitment(item);
  }}
- className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground opacity-0 transition-opacity","hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none",
+ className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground opacity-0 transition-opacity","hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden",
  density === "compact" ?"h-5 w-5" :"h-6 w-6",
  isPending ?"top-7" :"top-1"
  )}
@@ -575,11 +575,11 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  return (
  <div
  data-colid={dropId}
- className={cn("flex flex-col flex-shrink-0 rounded-lg bg-background/60 border border-border",
+ className={cn("flex flex-col shrink-0 rounded-lg bg-background/60 border border-border",
  density === "compact" ?"w-60" :"w-96"
  )}
  >
- <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-sm border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3")}>
+ <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
@@ -1473,7 +1473,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  {/* Bulk action bar */}
  {selected.size > 0 && (
- <Card className="!p-3 flex items-center gap-3 flex-wrap bg-card text-foreground border-white/10">
+ <Card className="p-3! flex items-center gap-3 flex-wrap bg-card text-foreground border-white/10">
  <Flag className="h-4 w-4" />
  <span className="text-sm font-medium">
  Wybrano: <strong>{selected.size}</strong>
@@ -1759,7 +1759,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  }
  placeholder="np. Stawka za wysoka, max 22000 PLN"
  rows={4}
- className="w-full px-3 py-2 rounded-md border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary"
+ className="w-full px-3 py-2 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
  autoFocus
  />
  </FormField>

@@ -111,7 +111,7 @@ export function BoardKPI() {
       </div>
 
       {lastTwo.length === 2 && (
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
           <h3 className="text-sm font-semibold text-foreground mb-4">
             Porównanie miesiąc do miesiąca
           </h3>
@@ -179,7 +179,7 @@ export function BoardKPI() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
           <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc — przychód</h3>
           <div className="flex items-end gap-1 h-32">
             {data.trends.map((t) => (
@@ -201,7 +201,7 @@ export function BoardKPI() {
           </div>
         </div>
 
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
           <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc — placements</h3>
           <div className="flex items-end gap-1 h-32">
             {data.trends.map((t) => (

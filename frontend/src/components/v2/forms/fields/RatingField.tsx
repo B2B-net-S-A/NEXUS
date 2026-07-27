@@ -38,7 +38,7 @@ export function RatingField({ name, max = 5, size ="md" }: Props) {
  aria-checked={active}
  aria-label={`${n} z ${max}`}
  onClick={() => field.onChange(n)}
- className={cn("transition-colors focus:outline-none",
+ className={cn("transition-colors focus:outline-hidden",
  active
  ?"text-amber-500"
  :"text-[hsl(var(--border))] hover:text-amber-300"

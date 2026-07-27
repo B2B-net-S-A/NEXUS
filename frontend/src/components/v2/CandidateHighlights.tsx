@@ -260,7 +260,7 @@ export function AtOurClientBanner({
  return (
  <div
  role="alert"
- className={cn("rounded-lg border border-primary bg-primary text-primary-foreground shadow-sm","animate-pulse-subtle px-4 py-3",
+ className={cn("rounded-lg border border-primary bg-primary text-primary-foreground shadow-xs","animate-pulse-subtle px-4 py-3",
  className
  )}
  >
@@ -278,7 +278,7 @@ export function AtOurClientBanner({
  <Link
  href={`/contracts/${employment.contract_id}?from=candidate`}
  className={cn("inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-md border border-primary-foreground/30 px-3 py-1.5 sm:w-auto",
- "text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground"
+ "text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-foreground"
  )}
  >
  Przejdź do kontraktora

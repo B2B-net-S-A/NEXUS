@@ -67,7 +67,7 @@ const EVENT_TYPE_CONFIG: Record<
     color: "text-destructive",
     bgColor: "bg-destructive/15",
     borderColor: "border-red-300",
-    dotColor: "bg-destructive/100",
+    dotColor: "bg-destructive",
   },
 };
 
@@ -235,7 +235,7 @@ export default function CalendarPage() {
       {/* ── Main calendar ── */}
       <div className="flex-1 flex flex-col overflow-hidden bg-card dark:bg-muted border border-border dark:border-border rounded-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border dark:border-border flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border dark:border-border shrink-0">
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-bold text-foreground dark:text-foreground capitalize">{monthLabel}</h1>
             <div className="flex items-center gap-1">
@@ -285,7 +285,7 @@ export default function CalendarPage() {
         </div>
 
         {/* Day headers */}
-        <div className="grid grid-cols-[48px_repeat(7,1fr)] border-b border-border dark:border-border flex-shrink-0">
+        <div className="grid grid-cols-[48px_repeat(7,1fr)] border-b border-border dark:border-border shrink-0">
           <div className="border-r border-border" />
           {weekDays.map((day, i) => {
             const isToday = isSameDay(day, today);
@@ -430,7 +430,7 @@ function WeekGrid({
                 style={{ top: `${nowTop}px` }}
               >
                 <div className="flex items-center">
-                  <div className="w-2 h-2 rounded-full bg-destructive/100 -ml-1" />
+                  <div className="w-2 h-2 rounded-full bg-destructive -ml-1" />
                   <div className="flex-1 h-px bg-red-400" />
                 </div>
               </div>
@@ -458,7 +458,7 @@ function WeekGrid({
                   key={ev.id}
                   title={conflictTooltip}
                   className={cn(
-                    "absolute left-1 right-1 rounded-lg border px-2 py-1 cursor-pointer overflow-hidden shadow-sm hover:shadow-md transition-shadow z-5",
+                    "absolute left-1 right-1 rounded-lg border px-2 py-1 cursor-pointer overflow-hidden shadow-xs hover:shadow-md transition-shadow z-5",
                     cfg.bgColor,
                     cfg.borderColor,
                     ev.status === "cancelled" && "opacity-50 line-through",
@@ -523,11 +523,11 @@ function CalendarSidebar({
     .slice(0, 5);
 
   return (
-    <div className="w-64 flex-shrink-0 mr-4 flex flex-col gap-4">
+    <div className="w-64 shrink-0 mr-4 flex flex-col gap-4">
       {/* Create button */}
       <button
         onClick={onCreateClick}
-        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl transition-colors shadow-sm"
+        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl transition-colors shadow-xs"
       >
         <Plus className="w-4 h-4" />
         Nowe wydarzenie
@@ -553,7 +553,7 @@ function CalendarSidebar({
               const d = new Date(ev.start_time);
               return (
                 <div key={ev.id} className="flex items-start gap-2">
-                  <div className={cn("w-2 h-2 rounded-full mt-1.5 flex-shrink-0", cfg.dotColor)} />
+                  <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", cfg.dotColor)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-foreground truncate">{ev.title}</p>
                     <p className="text-xs text-muted-foreground">
@@ -577,7 +577,7 @@ function CalendarSidebar({
         <div className="space-y-2">
           {Object.entries(EVENT_TYPE_CONFIG).map(([key, cfg]) => (
             <div key={key} className="flex items-center gap-2">
-              <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", cfg.dotColor)} />
+              <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", cfg.dotColor)} />
               <span className="text-xs text-muted-foreground">{cfg.label}</span>
             </div>
           ))}
@@ -736,7 +736,7 @@ function CreateEventModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 shrink-0" />
               {error}
             </div>
           )}
@@ -748,7 +748,7 @@ function CreateEventModal({
               required
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               placeholder="np. Rozmowa z kandydatem"
             />
           </div>
@@ -784,7 +784,7 @@ function CreateEventModal({
                 type="datetime-local"
                 value={form.start_time}
                 onChange={(e) => setForm({ ...form, start_time: e.target.value })}
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               />
             </div>
             <div>
@@ -793,7 +793,7 @@ function CreateEventModal({
                 type="datetime-local"
                 value={form.end_time}
                 onChange={(e) => setForm({ ...form, end_time: e.target.value })}
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               />
             </div>
           </div>
@@ -804,7 +804,7 @@ function CreateEventModal({
             <select
               value={form.candidate_id}
               onChange={(e) => setForm({ ...form, candidate_id: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
               <option value="">— Wybierz kandydata —</option>
               {candidates.map((c: any) => (
@@ -821,7 +821,7 @@ function CreateEventModal({
             <input
               value={form.location}
               onChange={(e) => setForm({ ...form, location: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               placeholder="np. Google Meet, Telefon, Biuro..."
             />
           </div>
@@ -832,7 +832,7 @@ function CreateEventModal({
             <input
               value={form.teams_link}
               onChange={(e) => setForm({ ...form, teams_link: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               placeholder="https://..."
             />
           </div>
@@ -845,7 +845,7 @@ function CreateEventModal({
             <input
               value={form.attendees_raw}
               onChange={(e) => setForm({ ...form, attendees_raw: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               placeholder="jan@email.com, anna@email.com"
             />
           </div>
@@ -857,7 +857,7 @@ function CreateEventModal({
               rows={2}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring resize-none"
             />
           </div>
 
@@ -867,7 +867,7 @@ function CreateEventModal({
             <select
               value={form.reminder_minutes}
               onChange={(e) => setForm({ ...form, reminder_minutes: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
               <option value="5">5 minut przed</option>
               <option value="10">10 minut przed</option>
@@ -953,7 +953,7 @@ function EventDetailModal({
               </div>
               <h2 className="text-lg font-bold text-foreground">{event.title}</h2>
             </div>
-            <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground flex-shrink-0">
+            <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground shrink-0">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -962,7 +962,7 @@ function EventDetailModal({
           <div className="space-y-3">
             {/* Time */}
             <div className="flex items-center gap-3 text-sm text-foreground">
-              <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
               <span>
                 {start.toLocaleDateString("pl-PL", {
                   weekday: "long",
@@ -985,7 +985,7 @@ function EventDetailModal({
             {/* Candidate */}
             {event.candidate_name && (
               <div className="flex items-center gap-3 text-sm text-foreground">
-                <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <User className="w-4 h-4 text-muted-foreground shrink-0" />
                 <span>{event.candidate_name}</span>
               </div>
             )}
@@ -993,7 +993,7 @@ function EventDetailModal({
             {/* Job */}
             {event.job_title && (
               <div className="flex items-center gap-3 text-sm text-foreground">
-                <Briefcase className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <Briefcase className="w-4 h-4 text-muted-foreground shrink-0" />
                 <span>{event.job_title}</span>
               </div>
             )}
@@ -1001,7 +1001,7 @@ function EventDetailModal({
             {/* Location */}
             {event.location && (
               <div className="flex items-center gap-3 text-sm text-foreground">
-                <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
                 <span>{event.location}</span>
               </div>
             )}
@@ -1009,7 +1009,7 @@ function EventDetailModal({
             {/* Teams link */}
             {event.teams_link && (
               <div className="flex items-center gap-3 text-sm">
-                <Video className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <Video className="w-4 h-4 text-muted-foreground shrink-0" />
                 <a
                   href={event.teams_link}
                   target="_blank"
@@ -1028,7 +1028,7 @@ function EventDetailModal({
             {/* Attendees */}
             {event.attendees && event.attendees.length > 0 && (
               <div className="flex items-start gap-3 text-sm text-foreground">
-                <Users className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                <Users className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                 <div className="flex flex-wrap gap-1">
                   {event.attendees.map((email, i) => (
                     <span
@@ -1104,7 +1104,7 @@ function RecordingBlock({ event }: RecordingBlockProps) {
   if (event.recording_url) {
     return (
       <div className="flex items-center gap-3 text-sm rounded-md border border-violet-500/30 bg-violet-500/5 px-3 py-2">
-        <PlayCircle className="w-4 h-4 text-violet-600 flex-shrink-0" />
+        <PlayCircle className="w-4 h-4 text-violet-600 shrink-0" />
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-xs font-medium text-violet-700 dark:text-violet-300">
             Nagranie z interview
@@ -1136,7 +1136,7 @@ function RecordingBlock({ event }: RecordingBlockProps) {
 
   return (
     <div className="flex items-start gap-3 text-xs text-muted-foreground rounded-md border border-muted bg-muted/30 px-3 py-2">
-      <Loader2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 animate-spin opacity-60" />
+      <Loader2 className="w-3.5 h-3.5 shrink-0 mt-0.5 animate-spin opacity-60" />
       <span>
         Nagranie nie zostało jeszcze znalezione. Sprawdź folder Recordings na
         OneDrive organizatora.

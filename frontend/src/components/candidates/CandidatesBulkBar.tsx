@@ -162,7 +162,7 @@ export function CandidatesBulkBar({
                 if (e.key === "Escape") setActiveAction(null);
               }}
               placeholder="senior, python, remote — oddziel przecinkami, Enter aby zapisać"
-              className="flex-1 bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="flex-1 bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
               autoFocus
             />
             <button

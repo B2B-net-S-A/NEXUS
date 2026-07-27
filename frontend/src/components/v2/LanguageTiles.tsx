@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 export type CvLanguage = "pl" | "en";
 
 const FLAG_CLASS =
-  "h-5 w-7 shrink-0 overflow-hidden rounded-[2px] shadow-sm ring-1 ring-black/10";
+  "h-5 w-7 shrink-0 overflow-hidden rounded-[2px] shadow-xs ring-1 ring-black/10";
 
 /** Polska flaga — biel u góry, czerwień u dołu. */
 function FlagPL() {
@@ -63,7 +63,7 @@ function LanguageTile({
       onClick={onSelect}
       className={cn(
         "relative flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         selected
           ? "border-primary bg-primary/5 ring-1 ring-primary"
           : "border-border bg-card hover:bg-accent",

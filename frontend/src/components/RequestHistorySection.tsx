@@ -329,7 +329,7 @@ function RequestHistoryRow({
           </div>
           <MetaRow entry={entry} fee={fee} />
         </div>
-        <div className="flex flex-col gap-1.5 flex-shrink-0">
+        <div className="flex flex-col gap-1.5 shrink-0">
           <button
             type="button"
             onClick={onOpen}

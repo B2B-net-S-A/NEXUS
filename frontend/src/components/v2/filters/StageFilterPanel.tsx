@@ -103,7 +103,7 @@ export function StageFilterPanel({ value, onChange }: StageFilterPanelProps) {
           size="md"
           variant="outline"
           className={cn(
-            "justify-between gap-1.5 bg-card shadow-sm w-[180px]",
+            "justify-between gap-1.5 bg-card shadow-xs w-[180px]",
             "hover:bg-violet-50 hover:border-violet-300 dark:hover:bg-violet-950/30 dark:hover:border-violet-700",
             isActive &&
               "border-violet-400 bg-violet-50 text-violet-700 font-semibold dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-200",
@@ -112,7 +112,7 @@ export function StageFilterPanel({ value, onChange }: StageFilterPanelProps) {
           title="Filtruj po etapie pipeline'u — etap, klient, kto i kiedy przeniósł kandydata"
         >
           <span className="flex items-center gap-2 truncate">
-            <Layers className="h-4 w-4 flex-shrink-0" />
+            <Layers className="h-4 w-4 shrink-0" />
             {triggerText}
           </span>
           {count > 1 ? (
@@ -120,7 +120,7 @@ export function StageFilterPanel({ value, onChange }: StageFilterPanelProps) {
               {count}
             </Badge>
           ) : (
-            <ChevronDown className="h-4 w-4 opacity-60 flex-shrink-0" />
+            <ChevronDown className="h-4 w-4 opacity-60 shrink-0" />
           )}
         </Button>
       </PopoverTrigger>

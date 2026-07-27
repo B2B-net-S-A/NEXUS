@@ -42,9 +42,9 @@ export function PowerCallingSection({
  highlightUserId,
 }: PowerCallingSectionProps) {
  return (
- <div className="rounded-lg overflow-hidden border border-border shadow-sm bg-card">
+ <div className="rounded-lg overflow-hidden border border-border shadow-xs bg-card">
  {/* Orange gradient header */}
- <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 px-4 py-3 text-white">
+ <div className="bg-linear-to-r from-orange-500 via-amber-500 to-orange-600 px-4 py-3 text-white">
  <div className="flex items-center justify-between flex-wrap gap-2">
  <div className="flex items-center gap-2">
  <Phone className="h-5 w-5" />

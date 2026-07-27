@@ -141,7 +141,7 @@ export function AutentiSendDialog({
                 <label
                   key={opt.value}
                   htmlFor={`sigtype-${opt.value}`}
-                  className="flex gap-3 rounded-md border border-border p-3 hover:border-primary cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-accent/40"
+                  className="flex gap-3 rounded-md border border-border p-3 hover:border-primary cursor-pointer has-checked:border-primary has-checked:bg-accent/40"
                 >
                   <RadioGroupItem
                     id={`sigtype-${opt.value}`}
@@ -184,7 +184,7 @@ export function AutentiSendDialog({
               onChange={(e) =>
                 setExpiresInDays(Number.parseInt(e.target.value, 10) || 14)
               }
-              className="w-32 h-10 px-3 rounded-md border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-32 h-10 px-3 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
             />
             <span className="ml-2 text-xs text-muted-foreground">
               dni od wysłania (1–90)

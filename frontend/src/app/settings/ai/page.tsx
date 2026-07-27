@@ -81,7 +81,7 @@ function MasterToggle({ enabled, onChange, disabled }: MasterToggleProps) {
         disabled={disabled}
         className={cn(
           "relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           "disabled:cursor-not-allowed disabled:opacity-50",
           enabled ? "bg-emerald-500" : "bg-muted",
         )}
@@ -227,7 +227,7 @@ function FeatureCard({
                   min={0}
                   value={limitDraft}
                   onChange={(e) => setLimitDraft(e.target.value)}
-                  className="w-24 px-2 py-1 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-24 px-2 py-1 text-sm bg-background border border-input rounded-md focus:outline-hidden focus:ring-2 focus:ring-ring"
                   autoFocus
                 />
                 <button
@@ -272,7 +272,7 @@ function FeatureCard({
             disabled={isPending || !masterEnabled}
             className={cn(
               "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "disabled:cursor-not-allowed disabled:opacity-50",
               config.enabled && masterEnabled ? "bg-primary" : "bg-muted",
             )}

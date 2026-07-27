@@ -23,9 +23,9 @@ export const CandidateCard = memo(function CandidateCard({ candidateId, stage, r
 
   return (
     <Link href={`/candidates/${candidateId}`}>
-      <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-lg p-3 hover:border-primary/30 dark:hover:border-primary hover:shadow-sm transition-all cursor-pointer">
+      <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-lg p-3 hover:border-primary/30 dark:hover:border-primary hover:shadow-xs transition-all cursor-pointer">
         <div className="flex items-start gap-2">
-          <div className="w-7 h-7 rounded-full bg-primary/15 dark:bg-primary/40 text-primary dark:text-primary flex items-center justify-center flex-shrink-0 text-xs font-medium">
+          <div className="w-7 h-7 rounded-full bg-primary/15 dark:bg-primary/40 text-primary dark:text-primary flex items-center justify-center shrink-0 text-xs font-medium">
             {candidate ? candidate.name.charAt(0) : <User className="w-3.5 h-3.5" />}
           </div>
           <div className="flex-1 min-w-0">

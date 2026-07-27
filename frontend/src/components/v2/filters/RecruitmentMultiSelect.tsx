@@ -68,7 +68,7 @@ export function RecruitmentMultiSelect({
           <span className="flex items-center gap-2 truncate">
             <Briefcase className="h-4 w-4" /> {label}
           </span>
-          <ChevronDown className="h-4 w-4 opacity-60 flex-shrink-0" />
+          <ChevronDown className="h-4 w-4 opacity-60 shrink-0" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-0">
