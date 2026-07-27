@@ -2603,16 +2603,30 @@ async def _resolve_invite_source(
 
     details = activity.details or {}
     token_prefix = details.get("invite_token")  # first 8 chars only
+    token_digest = details.get("invite_token_sha256")
 
-    # Best-effort label lookup from the invite link record. Prefix LIKE
-    # query; 48-bit entropy makes collisions a non-issue in practice.
+    # Best-effort label lookup from the invite link record. Dual-read, matching
+    # the way /apply resolves a link (`_load_valid_link` in api/public_share).
+    # Since migration 0183 a v2 link keeps a non-secret ``v2$…`` revoke key in
+    # the `token` PK and the secret's SHA-256 in `token_sha256`, so the raw
+    # prefix LIKE can never match one — only the digest does. Legacy links
+    # (``token_sha256 IS NULL``) still hold the raw secret as PK, so the prefix
+    # stays the only way to resolve them and any activity row written before
+    # the digest was recorded.
     label: Optional[str] = None
+    conditions = []
+    if isinstance(token_digest, str) and token_digest:
+        conditions.append(CandidateInviteLink.token_sha256 == token_digest)
     if isinstance(token_prefix, str) and token_prefix:
-        link = await db.scalar(
-            select(CandidateInviteLink).where(
-                CandidateInviteLink.token.like(f"{token_prefix}%")
+        # 48-bit entropy makes prefix collisions a non-issue in practice.
+        conditions.append(
+            and_(
+                CandidateInviteLink.token.like(f"{token_prefix}%"),
+                CandidateInviteLink.token_sha256.is_(None),
             )
         )
+    if conditions:
+        link = await db.scalar(select(CandidateInviteLink).where(or_(*conditions)))
         if link is not None:
             label = link.label
 

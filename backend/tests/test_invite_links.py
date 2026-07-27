@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import hashlib
 import io
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -21,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -80,6 +81,58 @@ async def _login(client: AsyncClient, email: str, password: str) -> dict[str, st
     )
     assert resp.status_code == 200, f"login failed: {resp.text}"
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+def _invite_match(token: str):
+    """Match the row behind a raw invite token the way production reads it.
+
+    Since migration 0183 the raw secret is only the `token` PK on the legacy
+    path. When `M365_TOKEN_ENCRYPTION_KEY` is configured — which production has
+    — minting takes the v2 branch: the PK becomes a non-secret ``v2$…`` revoke
+    key and the secret survives only as `token_sha256` (lookup) plus `token_ct`
+    (Fernet, so the list can rebuild the URL).
+
+    A bare ``token == <raw secret>`` therefore matches nothing on the path prod
+    actually runs, and the assertions built on it degrade into assertions about
+    ``None`` rather than failing. Mirrors `_load_valid_link` in
+    app/api/public_share.py so the tests follow the product, not the reverse.
+    """
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    return (CandidateInviteLink.token_sha256 == digest) | (
+        (CandidateInviteLink.token == token)
+        & (CandidateInviteLink.token_sha256.is_(None))
+    )
+
+
+async def _load_link(token: str) -> CandidateInviteLink:
+    """Load the invite link for a raw token, failing loudly if it is missing."""
+    async with AsyncSessionLocal() as db:
+        link = await db.scalar(select(CandidateInviteLink).where(_invite_match(token)))
+    assert link is not None, (
+        "no invite link matched the issued token — the assertions below would "
+        "have silently tested nothing"
+    )
+    return link
+
+
+async def _expire_link(token: str) -> None:
+    """Backdate the link behind a raw token so it reads as expired.
+
+    The rowcount guard is the point: an UPDATE that matches zero rows fails
+    silently, leaving the link live and turning the 404 assertion downstream
+    into an assertion about a link that was never expired.
+    """
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(
+            update(CandidateInviteLink)
+            .where(_invite_match(token))
+            .values(expires_at=datetime.now(timezone.utc) - timedelta(hours=1))
+        )
+        await db.commit()
+    assert res.rowcount == 1, (
+        f"expiry precondition matched {res.rowcount} rows — the test would have "
+        "asserted against a link that was never expired"
+    )
 
 
 @pytest_asyncio.fixture
@@ -236,10 +289,9 @@ async def test_public_apply_creates_candidate_with_ownership(inv_client: AsyncCl
         )
         assert stage is not None
 
-        link = await db.scalar(
-            select(CandidateInviteLink).where(CandidateInviteLink.token == token)
-        )
-        assert link and link.use_count == 1 and link.last_used_at is not None
+    link = await _load_link(token)
+    assert link.use_count == 1
+    assert link.last_used_at is not None
 
 
 @pytest.mark.asyncio
@@ -364,11 +416,8 @@ async def test_public_apply_is_multi_use_until_expiry(inv_client: AsyncClient):
         )
         assert resp.status_code == 201, resp.text
 
-    async with AsyncSessionLocal() as db:
-        link = await db.scalar(
-            select(CandidateInviteLink).where(CandidateInviteLink.token == token)
-        )
-        assert link and link.use_count == 2
+    link = await _load_link(token)
+    assert link.use_count == 2
 
 
 @pytest.mark.asyncio
@@ -406,12 +455,13 @@ async def test_public_apply_rejects_expired_link(inv_client: AsyncClient):
         )
     ).json()["token"]
 
-    async with AsyncSessionLocal() as db:
-        link = await db.scalar(
-            select(CandidateInviteLink).where(CandidateInviteLink.token == token)
-        )
-        link.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await db.commit()
+    # Positive control: the link must serve before backdating. Without it a 404
+    # could equally mean "expiry works" or "the link never resolved at all",
+    # and only expiry is under test here.
+    live = await inv_client.get(f"/api/public/apply/{token}")
+    assert live.status_code == 200, live.text
+
+    await _expire_link(token)
 
     meta = await inv_client.get(f"/api/public/apply/{token}")
     assert meta.status_code == 404
@@ -517,6 +567,79 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
     assert body["invite_source"]["label"] == "LI kwiecień"
     assert body["invite_source"]["created_by_name"]  # recruiter name filled
     assert body["invite_source"]["previous_created_by_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_invite_source_label_resolves_on_encrypted_v2_path(
+    inv_client: AsyncClient, monkeypatch
+):
+    """The invite-source label must survive the v2 (encrypted) mint path.
+
+    Pinned to v2 regardless of `M365_TOKEN_ENCRYPTION_KEY` so the branch stays
+    covered even when the suite runs without a key — production runs *with* one,
+    and on that branch the `token` PK is a non-secret ``v2$…`` revoke key. The
+    label lookup used to prefix-match the raw secret against that PK, matched
+    nothing, and the badge silently rendered blank. Every other test here reads
+    the same on both branches, so nothing else pins this.
+    """
+    from cryptography.fernet import Fernet
+
+    from app.core.encryption import TokenCipher
+
+    cipher = TokenCipher(Fernet.generate_key().decode())
+    monkeypatch.setattr("app.core.encryption.get_token_cipher", lambda: cipher)
+
+    _, recruiter_email, recruiter_password = await _seed_user(
+        UserRole.recruiter, "v2src"
+    )
+    headers = await _login(inv_client, recruiter_email, recruiter_password)
+    job_id = await _seed_job()
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin, "v2src-admin")
+    admin_headers = await _login(inv_client, admin_email, admin_pass)
+
+    token = (
+        await inv_client.post(
+            "/api/invite-links",
+            json={
+                "job_id": job_id,
+                "label": "v2 kampania",
+                "expires_in_days": 30,
+            },
+            headers=headers,
+        )
+    ).json()["token"]
+
+    # Guard the guard: prove the mint really took the v2 branch, so a green run
+    # cannot mean "silently fell back to legacy and asserted nothing new".
+    link = await _load_link(token)
+    assert link.token.startswith("v2$"), f"expected a v2 mint, got PK {link.token!r}"
+    assert link.token_sha256 is not None
+    assert link.token != token  # the raw secret is not the PK
+
+    applicant_email = f"v2src-{uuid.uuid4().hex[:6]}@example.com"
+    apply_resp = await inv_client.post(
+        f"/api/public/apply/{token}",
+        data={
+            "first_name": "Ewa",
+            "last_name": "Szyfrowana",
+            "email": applicant_email,
+        },
+        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+    )
+    assert apply_resp.status_code == 201, apply_resp.text
+
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(
+            select(Candidate).where(Candidate.email == applicant_email)
+        )
+        assert cand is not None
+        cand_id = cand.id
+
+    detail = await inv_client.get(
+        f"/api/candidates/{cand_id}", headers=admin_headers
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["invite_source"]["label"] == "v2 kampania"
 
 
 @pytest.mark.asyncio
