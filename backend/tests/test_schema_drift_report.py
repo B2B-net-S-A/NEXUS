@@ -31,8 +31,9 @@ def test_schema_drift_route_is_gated() -> None:
     """The route must sit behind _snapshot_auth — not merely behind a login."""
     from app.api.admin_snapshot import _snapshot_auth
     from app.main import app
+    from tests._route_introspection import iter_api_routes
 
-    routes = [r for r in app.routes if getattr(r, "path", "") == "/api/admin/schema-drift"]
+    routes = [r for p, r in iter_api_routes(app) if p == "/api/admin/schema-drift"]
     assert routes, "schema-drift route is not registered"
 
     gated = False

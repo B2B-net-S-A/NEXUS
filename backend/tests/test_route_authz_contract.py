@@ -141,9 +141,10 @@ def _routes() -> list[tuple[str, str, str]]:
     """-> [(method, path, classification)] for every API route."""
     from app.main import app
 
+    from tests._route_introspection import iter_api_routes
+
     found: list[tuple[str, str, str]] = []
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    for path, route in iter_api_routes(app):
         methods = getattr(route, "methods", None)
         if not path.startswith("/api/") or not methods:
             continue

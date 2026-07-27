@@ -24,9 +24,10 @@ from httpx import AsyncClient
 def test_route_is_gated() -> None:
     from app.api.admin_snapshot import _snapshot_auth
     from app.main import app
+    from tests._route_introspection import iter_api_routes
 
     routes = [
-        r for r in app.routes if getattr(r, "path", "") == "/api/admin/candidate-pii-orphans"
+        r for p, r in iter_api_routes(app) if p == "/api/admin/candidate-pii-orphans"
     ]
     assert routes, "candidate-pii-orphans route is not registered"
     gated = any(
