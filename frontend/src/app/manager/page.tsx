@@ -79,7 +79,10 @@ export default function ManagerDashboard() {
   const { data, isLoading, error } = useQuery<OverviewData>({
     queryKey: ["pipeline-overview"],
     queryFn: () => api.get("/api/pipeline/overview").then(r => r.data),
-    refetchInterval: 30_000,
+    // 5 min zamiast 30 s: /api/pipeline/overview agreguje CAŁY pipeline.
+    // Co 30 s każda otwarta zakładka managera mieliła go bez przerwy, a dane
+    // (obłożenie rekruterów, wąskie gardła) nie zmieniają się w tym tempie.
+    refetchInterval: 300_000,
   });
 
   if (isLoading) return (

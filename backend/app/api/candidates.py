@@ -98,10 +98,10 @@ from app.schemas.candidate import (
 from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
+from app.services.match_score_cache import bulk_get_or_compute
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
-    rank_jobs_for_candidate,
     resolve_active_profile,
     summarize_match_stats,
 )
@@ -1558,12 +1558,33 @@ async def list_candidates(
         open_jobs = list((await db.execute(open_jobs_stmt)).scalars().all())
         total_open = len(open_jobs)
         if total_open:
+            # Optymalizacja 2026-07-27: dawniej pętla
+            # `for cand in items: rank_jobs_for_candidate(cand, open_jobs)` —
+            # page_size × 50 ofert sekwencyjnych `score_candidate_job`, każdy
+            # z własnymi round-tripami (`_score_champion_fit` + `_check_penalties`).
+            # Przy 50 kandydatach na stronę to ~2500 wywołań ≈ 5000 zapytań.
+            # Teraz transpozycja pętli: JEDNO `bulk_get_or_compute` per oferta,
+            # które czyta cache match-score jednym zapytaniem dla całej strony
+            # (wzorzec z `api/recommendations.py`) — na ciepłym cache 50 zapytań.
+            #
+            # `allow_cache_write=False` — świadomie (M3-CACHE-01): ta ścieżka nie
+            # ma similarity_map z Qdranta, więc świeżo policzone składowe mają
+            # neutralną (zerową) warstwę semantyczną. Wolno je pokazać, ale NIE
+            # wolno ich utrwalić jako świeżych wpisów cache, bo zaniżony wynik
+            # przeżyłby w cache i wyciekł na `/api/recommendations`.
+            per_candidate: dict[int, list] = {c.id: [] for c in items}
+            for job in open_jobs:
+                for breakdown in await bulk_get_or_compute(
+                    job, items, db, profile=profile, allow_cache_write=False
+                ):
+                    bucket = per_candidate.get(breakdown.candidate_id)
+                    if bucket is not None:
+                        bucket.append(breakdown)
             for cand in items:
-                breakdowns = await rank_jobs_for_candidate(
-                    cand, open_jobs, db, profile=profile
-                )
                 stats = summarize_match_stats(
-                    breakdowns, total_open=total_open, min_score=match_threshold
+                    per_candidate[cand.id],
+                    total_open=total_open,
+                    min_score=match_threshold,
                 )
                 match_stats_by_candidate[cand.id] = MatchStats(**stats)
         else:

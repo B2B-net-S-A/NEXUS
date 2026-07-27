@@ -35,31 +35,82 @@ _DEFAULT_INTERVAL_MINUTES = 30
 
 
 async def _compute_breaches(db: AsyncSession) -> list[dict]:
-    """Re-implement the overview-sla logic for task use (no HTTP self-call)."""
-    q = await db.execute(
-        select(CandidateStage).order_by(
-            CandidateStage.candidate_id,
-            CandidateStage.job_id,
-            CandidateStage.moved_at.desc(),
-        )
-    )
-    latest: dict[tuple[int, int], CandidateStage] = {}
-    for s in q.scalars().all():
-        key = (s.candidate_id, s.job_id)
-        if key not in latest:
-            latest[key] = s
+    """Re-implement the overview-sla logic for task use (no HTTP self-call).
 
-    stage_def_ids = {s.stage_def_id for s in latest.values() if s.stage_def_id}
-    stage_defs: dict[int, PipelineStageDef] = {}
-    if stage_def_ids:
-        sd_rows = await db.execute(
-            select(PipelineStageDef).where(PipelineStageDef.id.in_(stage_def_ids))
+    Optymalizacja 2026-07-27: ta funkcja była trzecią kopią pełnego skanu
+    `candidate_stages` (~158k obiektów ORM z JSONB/Text) — kopiowaną, jak
+    przyznawał docstring, ze stanu SPRZED optymalizacji `api/phase3.py`.
+    Teraz ten sam wzorzec co `phase3.py::sla_alerts`:
+
+    1. Najpierw `PipelineStageDef` z `sla_max_days IS NOT NULL` i nie-terminalne
+       (kilkanaście wpisów) — tylko one MOGĄ w ogóle wygenerować breach.
+    2. `candidate_stages` filtrowane po tej puli `stage_def_id`.
+    3. `DISTINCT ON (candidate_id, job_id)` w Postgresie zamiast dedupe w Pythonie.
+    4. Kontrola, czy najnowszy stage pary NAPRAWDĘ należy do puli SLA — para może
+       mieć nowszy wpis w etapie terminalnym/bez SLA (np. `hired`).
+    """
+    sla_defs = (
+        (
+            await db.execute(
+                select(PipelineStageDef).where(
+                    PipelineStageDef.sla_max_days.isnot(None),
+                    PipelineStageDef.is_terminal.is_(False),
+                )
+            )
         )
-        stage_defs = {sd.id: sd for sd in sd_rows.scalars().all()}
+        .scalars()
+        .all()
+    )
+    if not sla_defs:
+        return []
+    stage_defs: dict[int, PipelineStageDef] = {sd.id: sd for sd in sla_defs}
+
+    candidate_rows = (
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(CandidateStage.stage_def_id.in_(list(stage_defs.keys())))
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                    CandidateStage.id.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not candidate_rows:
+        return []
+
+    truly_latest = (
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(
+                    CandidateStage.candidate_id.in_(
+                        list({s.candidate_id for s in candidate_rows})
+                    ),
+                    CandidateStage.job_id.in_(list({s.job_id for s in candidate_rows})),
+                )
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                    CandidateStage.id.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     now = datetime.now(timezone.utc)
     breaches: list[dict] = []
-    for s in latest.values():
+    for s in truly_latest:
         sd = stage_defs.get(s.stage_def_id or 0)
         if not sd or not sd.sla_max_days or sd.is_terminal:
             continue
