@@ -59,6 +59,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
+from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.recruitment_pipeline import CandidateStage, VerificationStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus
@@ -3657,6 +3658,53 @@ async def remove_candidate_from_recruitment(
 
     job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
     removed_stages = [s.stage.value for s in stage_rows]
+
+    # Zarchiwizuj PRZED skasowaniem. Korekta nadal usuwa kandydata z pipeline'u
+    # — to jej cel i UX się nie zmienia — ale dowód przebiegu procesu zostaje.
+    # Dotąd po tej operacji nie dało się odtworzyć, przez jakie etapy kandydat
+    # przeszedł ani kto go przesuwał; zostawało zbiorcze `Activity` niżej, bez
+    # treści decyzji.
+    #
+    # Archiwum, a nie flaga `voided` na `candidate_stages`: flagę trzeba by
+    # filtrować w 132 zapytaniach w 64 plikach, a pierwsze pominięte pokazywałoby
+    # skasowaną rekrutację jako żywą. Tu zmienia się jedno miejsce zapisu i zero
+    # ścieżek odczytu.
+    ordered = sorted(stage_rows, key=lambda s: (s.moved_at or s.created_at, s.id))
+    db.add(
+        CandidateStageRemoval(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            removed_by=current_user.id,
+            reason=f"remove_from_recruitment: {job_title or job_id}",
+            # `if not stage_rows` wyżej zwraca 404, więc lista jest niepusta.
+            last_stage=ordered[-1].stage.value,
+            stage_count=len(stage_rows),
+            stages_snapshot=[
+                {
+                    "id": s.id,
+                    "stage": s.stage.value,
+                    "stage_def_id": s.stage_def_id,
+                    "moved_at": s.moved_at.isoformat() if s.moved_at else None,
+                    "moved_by": s.moved_by,
+                    "notes": s.notes,
+                    "rejection_reason_id": s.rejection_reason_id,
+                    "client_rate_value": (
+                        float(s.client_rate_value)
+                        if s.client_rate_value is not None
+                        else None
+                    ),
+                    "expected_rate_value": (
+                        float(s.expected_rate_value)
+                        if s.expected_rate_value is not None
+                        else None
+                    ),
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in ordered
+            ],
+        )
+    )
+    await db.flush()
 
     await db.execute(
         delete(CandidateStage).where(
