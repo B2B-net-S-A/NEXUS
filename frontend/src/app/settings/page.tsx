@@ -39,7 +39,6 @@ import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
-import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
 
 // Lazy-load heavy tabs — content loaded only when tab activated.
 // AdminUsersTab pulls ~30kB+ chunk (user mgmt + modals + import).
@@ -586,7 +585,7 @@ function OnboardingSettings() {
   const [shown, setShown] = useState(false);
 
   const handleReset = () => {
-    clearOnboardingCompleted();
+    localStorage.removeItem("onboarding_completed");
     setShown(true);
     setTimeout(() => {
       window.location.reload();

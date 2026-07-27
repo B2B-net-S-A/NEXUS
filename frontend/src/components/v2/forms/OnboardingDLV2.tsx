@@ -11,7 +11,6 @@ import { cn } from"@/lib/utils"
 import { Button } from"@/components/ui/button"
 import { Checkbox } from"@/components/ui/checkbox"
 import { Input } from"@/components/ui/input"
-import { markOnboardingCompleted } from "@/lib/onboarding-storage"
 
 interface JobListItem {
  id: number
@@ -101,7 +100,11 @@ export function OnboardingDLV2() {
  token,
  )
  // Auto-dismiss the old tutorial walkthrough so it does not pile on top.
- markOnboardingCompleted()
+ try {
+ localStorage.setItem("onboarding_completed","true")
+ } catch {
+ /* non-browser env */
+ }
  router.replace("/")
  },
  })

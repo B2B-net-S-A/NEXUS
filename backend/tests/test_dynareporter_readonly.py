@@ -40,9 +40,10 @@ async def client() -> AsyncClient:
 
 def _dyna_write_routes() -> list[tuple[str, str]]:
     """Wszystkie zarejestrowane mutujące trasy ``/api/dynareporter``."""
+    from tests._route_introspection import iter_api_routes
+
     out: set[tuple[str, str]] = set()
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    for path, route in iter_api_routes(app):
         methods = getattr(route, "methods", None) or set()
         if not path.startswith("/api/dynareporter"):
             continue

@@ -24,6 +24,8 @@ from app.api.recruitment_access import (
     RecruitmentAssessmentWriteAccess,
     RecruitmentReadAccess,
     ensure_job_membership,
+    ensure_optional_job_membership,
+    job_scope_clause,
 )
 from app.core.database import get_db
 from app.models.calendar_event import CalendarEvent
@@ -234,7 +236,13 @@ async def list_feedback(
     job_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> list[InterviewFeedbackOut]:
-    stmt = select(InterviewFeedback)
+    # Resource scope: bez tego `GET /interview-feedback` BEZ filtrów zwracał
+    # ostatnie 200 feedbacków ze WSZYSTKICH rekrutacji — czyli oceny kandydatów
+    # z ofert, do których wołający nie należy. Zawężamy zapytanie zamiast
+    # odrzucać request, żeby trasa dalej działała dla swoich rekrutacji.
+    stmt = select(InterviewFeedback).where(
+        job_scope_clause(current_user, InterviewFeedback.job_id)
+    )
     if calendar_event_id is not None:
         stmt = stmt.where(InterviewFeedback.calendar_event_id == calendar_event_id)
     if candidate_id is not None:
@@ -258,6 +266,7 @@ async def get_feedback(
     fb = await db.get(InterviewFeedback, feedback_id)
     if fb is None:
         raise HTTPException(status_code=404, detail="Feedback nie istnieje")
+    await ensure_optional_job_membership(db, current_user, fb.job_id)
     return _to_out(fb)
 
 
@@ -274,6 +283,7 @@ async def update_feedback(
     fb = await db.get(InterviewFeedback, feedback_id)
     if fb is None:
         raise HTTPException(status_code=404, detail="Feedback nie istnieje")
+    await ensure_optional_job_membership(db, current_user, fb.job_id)
     if not _can_edit(current_user, fb):
         raise HTTPException(
             status_code=403, detail="Brak uprawnień do edycji tego feedbacku"
@@ -310,6 +320,7 @@ async def delete_feedback(
     fb = await db.get(InterviewFeedback, feedback_id)
     if fb is None:
         raise HTTPException(status_code=404, detail="Feedback nie istnieje")
+    await ensure_optional_job_membership(db, current_user, fb.job_id)
     if not _can_edit(current_user, fb):
         raise HTTPException(status_code=403, detail="Brak uprawnień do usunięcia")
     await db.delete(fb)

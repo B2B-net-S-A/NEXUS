@@ -69,9 +69,10 @@ def test_fireflies_sync_not_reachable_by_viewer() -> None:
     from app.main import app
 
     guarded_paths = {"/api/fireflies/sync", "/api/fireflies/status"}
+    from tests._route_introspection import iter_api_routes
+
     seen = set()
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    for path, route in iter_api_routes(app):
         if path not in guarded_paths:
             continue
         seen.add(path)

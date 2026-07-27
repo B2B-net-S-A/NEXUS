@@ -87,7 +87,9 @@ async def _seed_candidate() -> int:
         return c.id
 
 
-async def _seed_job(salary_max: int | None = None) -> tuple[int, int]:
+async def _seed_job(
+    salary_max: int | None = None, recruiter_id: int | None = None
+) -> tuple[int, int]:
     """Returns (job_id, client_id)."""
     from app.models.client import Client
     from app.models.job import Job, JobStatus
@@ -102,6 +104,7 @@ async def _seed_job(salary_max: int | None = None) -> tuple[int, int]:
             status=JobStatus.published,
             client_id=cli.id,
             salary_max=salary_max,
+            recruiter_id=recruiter_id,
         )
         db.add(j)
         await db.commit()
@@ -532,7 +535,15 @@ async def test_bulk_dedupes_and_validates(app_client: AsyncClient, app_auth_head
 # ── P0.8: hard delete guard ──────────────────────────────────────────────────
 
 
-async def _login_as(app_client: AsyncClient, role_value: str) -> dict[str, str]:
+async def _login_as(
+    app_client: AsyncClient, role_value: str
+) -> tuple[dict[str, str], int]:
+    """Zwraca (nagłówki, user_id).
+
+    ``user_id`` jest potrzebny, bo trasy pipeline'u sprawdzają teraz nie samą
+    rolę, ale przynależność do KONKRETNEJ rekrutacji — test musi więc umieć
+    przypisać zalogowanego rekrutera do oferty, na której działa.
+    """
     from app.core.security import hash_password
     from app.models.user import User, UserRole
 
@@ -540,26 +551,27 @@ async def _login_as(app_client: AsyncClient, role_value: str) -> dict[str, str]:
     email = f"int-{role_value}-{unique}@example.com"
     password = f"T3st_{unique}!In"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Int {role_value}",
-                role=UserRole(role_value),
-                is_active=True,
-            )
+        actor = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Int {role_value}",
+            role=UserRole(role_value),
+            is_active=True,
         )
+        db.add(actor)
         await db.commit()
+        await db.refresh(actor)
+        actor_id = actor.id
     resp = await app_client.post(
         "/api/auth/login", json={"email": email, "password": password}
     )
     assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}, actor_id
 
 
 async def test_hard_delete_blocked_for_hired_history(app_client: AsyncClient):
-    headers = await _login_as(app_client, "recruiter")
-    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    headers, actor_id = await _login_as(app_client, "recruiter")
+    cand, (job, _) = await _seed_candidate(), await _seed_job(recruiter_id=actor_id)
     await _seed_stage(cand, job, "hired")
     r = await app_client.delete(
         f"/api/candidates/{cand}/recruitments/{job}", headers=headers
@@ -570,8 +582,10 @@ async def test_hard_delete_blocked_for_hired_history(app_client: AsyncClient):
 async def test_hard_delete_blocked_for_contract_pair(app_client: AsyncClient):
     from app.models.contract import Contract
 
-    headers = await _login_as(app_client, "recruiter")
-    cand, (job, client_id) = await _seed_candidate(), await _seed_job()
+    headers, actor_id = await _login_as(app_client, "recruiter")
+    cand, (job, client_id) = await _seed_candidate(), await _seed_job(
+        recruiter_id=actor_id
+    )
     await _seed_stage(cand, job, "screening")
     async with AsyncSessionLocal() as db:
         db.add(Contract(candidate_id=cand, client_id=client_id, job_id=job))
@@ -593,8 +607,10 @@ async def test_hard_delete_admin_override_and_plain_pair(
     )
     assert r.status_code == 200, r.text
     # …a recruiter zwykłą parę bez hired/kontraktu.
-    headers = await _login_as(app_client, "recruiter")
-    cand2, (job2, _) = await _seed_candidate(), await _seed_job()
+    headers, actor_id = await _login_as(app_client, "recruiter")
+    cand2, (job2, _) = await _seed_candidate(), await _seed_job(
+        recruiter_id=actor_id
+    )
     await _seed_stage(cand2, job2, "screening")
     r = await app_client.delete(
         f"/api/candidates/{cand2}/recruitments/{job2}", headers=headers

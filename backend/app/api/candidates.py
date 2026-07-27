@@ -133,7 +133,10 @@ from app.api.financial_access import (
     has_financial_access,
     redact_financial_fields,
 )
-from app.api.recruitment_access import RecruitmentRateEditAccess
+from app.api.recruitment_access import (
+    RecruitmentRateEditAccess,
+    ensure_job_membership,
+)
 from app.services import candidate_audit
 from app.api import ws as ws_manager
 
@@ -3352,6 +3355,13 @@ async def set_recruitment_client_rate(
     # stawki wysyłki do klienta (patrz test_client_rate_requires_finance_capability),
     # nawet jeśli `/history` redaguje samą WARTOŚĆ dla ról spoza `has_financial_access`.
     # Zmiana jest audytowana old→new poniżej (`CLIENT_RATE_CHANGED`).
+    #
+    # Resource scope: rola mówi tylko „wolno ci ustawiać stawki do klienta",
+    # nie „wolno ci ustawiać je w TEJ rekrutacji". Cena wysyłki kandydata do
+    # klienta to dane finansowe konkretnej oferty — bez tej bramki TAC spoza
+    # zespołu oferty mógł je odczytać (przez odpowiedź) i nadpisać.
+    await ensure_job_membership(db, current_user, job_id)
+
     latest = await db.scalar(
         select(CandidateStage)
         .where(
@@ -3454,6 +3464,10 @@ async def set_recruitment_expected_rate(
     verification) — ten pozostaje na poziomie ruchu na etap `verified`, gdzie
     jest jego pierwotny cel.
     """
+    # Resource scope — jak w `client-rate` wyżej: rola dopuszcza edycję stawek
+    # w ogóle, membership decyduje o KTÓREJ rekrutacji.
+    await ensure_job_membership(db, current_user, job_id)
+
     latest = await db.scalar(
         select(CandidateStage)
         .where(
@@ -3577,6 +3591,14 @@ async def remove_candidate_from_recruitment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Brak rekrutacji dla tego kandydata i tej oferty.",
         )
+
+    # Resource scope: to najbardziej destrukcyjna trasa w module — kasuje
+    # WSZYSTKIE `CandidateStage` pary, a kaskadą snapshoty CV, share-tokeny i
+    # zaplanowane maile odrzucenia. Guard `hired`/kontrakt niżej ogranicza CO
+    # wolno skasować, ale nie ograniczał CZYJĄ rekrutację — dowolny
+    # `RecruiterPlus` mógł wyczyścić historię oferty, z którą nie ma nic
+    # wspólnego. Membership domyka to pytanie.
+    await ensure_job_membership(db, current_user, job_id)
 
     # ── M4 PR-02 (audyt P0.8): historia z hired / z kontraktem nie znika ────
     # zwykłym API. Fizyczny DELETE kasuje audit trail zatrudnienia (baseline

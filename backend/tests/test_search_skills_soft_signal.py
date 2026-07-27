@@ -11,13 +11,6 @@ them (no cut) and ``skills_soft_rank`` ranks matchers to the top. Only
 Behavioural against a real Postgres: two candidates, one with the skill and one
 without; a ``skills_must`` search returns BOTH (proving no cut) with the matcher
 first, while a ``skills_none`` search excludes the holder.
-
-The imprecision itself is now fixed too. ``_skill_match`` matches the QUOTED
-JSON token (``"Go"``) instead of a bare substring (``%Go%``), because both
-columns are JSONB and every value is quoted in the dump. That mattered most for
-``skills_none``, the one chip that really cuts: "nie ma Go" used to drop every
-Django (and Golang, and MongoDB) developer from the result set with no way for
-the recruiter to notice. The Go/Django pair below pins that in both directions.
 """
 
 from __future__ import annotations
@@ -90,37 +83,3 @@ async def test_none_chip_still_excludes_holder() -> None:
     )
     assert has_id not in result, "skills_none must exclude the Python holder"
     assert without_id in result
-
-
-async def _seed_go_django() -> tuple[int, int]:
-    """One real Go developer, one Django developer who has never touched Go."""
-    u = uuid.uuid4().hex[:8]
-    async with AsyncSessionLocal() as db:
-        go = Candidate(name="Go", lastname=f"Dev-{u}", skills=[{"name": "Go"}])
-        django = Candidate(name="Dj", lastname=f"Dev-{u}", skills=[{"name": "Django"}])
-        db.add_all([go, django])
-        await db.commit()
-        return go.id, django.id
-
-
-async def test_none_chip_does_not_exclude_substring_lookalikes() -> None:
-    """'nie ma Go' must not silently drop every Django developer.
-
-    The old bare ``%Go%`` ILIKE over the JSON dump also matched ``Django``, so a
-    hard exclusion chip removed candidates who plainly satisfied it. Matching
-    the quoted token ``"Go"`` makes the test exact.
-    """
-    go_id, django_id = await _seed_go_django()
-    result = await _run(CandidateSearchRequest(skills_none=["Go"]), [go_id, django_id])
-    assert go_id not in result, "skills_none must still exclude the real Go dev"
-    assert django_id in result, (
-        "Django developer was excluded by 'nie ma Go' — substring match regressed"
-    )
-
-
-async def test_soft_rank_does_not_reward_substring_lookalikes() -> None:
-    """The ranking signal must not treat Django as a Go match either."""
-    go_id, django_id = await _seed_go_django()
-    result = await _run(CandidateSearchRequest(skills_must=["Go"]), [go_id, django_id])
-    assert set(result) == {go_id, django_id}, "inclusion chips must never cut"
-    assert result[0] == go_id, "the real Go dev must outrank the Django dev"

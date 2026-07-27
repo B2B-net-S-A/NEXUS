@@ -1261,6 +1261,11 @@ async def create_share_token(
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
 
+    # Resource scope: wystawienie linku dla klienta to działanie NA rekrutacji,
+    # nie ogólna operacja rekrutera. Bez tego członek zespołu oferty A mógł
+    # wygenerować działający, publiczny link do karty kandydata z oferty B.
+    await ensure_job_membership(db, current_user, stage.job_id)
+
     # Same outbound gate as the CV share link — this card goes to the client too.
     verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
     if verdict is not None:
@@ -1327,6 +1332,18 @@ async def revoke_share_token(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Token not found")
+
+    # Resource scope — token adresuje zasób bez `stage_id` w ścieżce, więc
+    # rekrutację wyprowadzamy z `candidate_stage_id` tokenu. Odwołanie cudzego
+    # linku to zmiana stanu w cudzej rekrutacji (i sygnał, że taki link
+    # istnieje), więc podlega tej samej bramce co jego wystawienie.
+    job_id = await db.scalar(
+        select(CandidateStage.job_id).where(CandidateStage.id == row.candidate_stage_id)
+    )
+    if job_id is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+    await ensure_job_membership(db, current_user, job_id)
+
     row.revoked = True
     await db.commit()
     return {"status": "revoked", "token": token}
