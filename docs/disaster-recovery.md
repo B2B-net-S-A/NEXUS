@@ -159,28 +159,51 @@ immediately. The destination bucket already exists: Backblaze B2
      the CV corpus is not backed up and every run fails loudly.
    - `BACKUP_RUN_ON_START=true` for the first deploy, so a misconfiguration
      surfaces in minutes rather than at 02:00 UTC.
-3. Set `BACKUP_ENABLED=true` and redeploy.
-4. **Expect the first run to be long.** The initial CV seed transfers ~37 GB /
-   ~136k objects through the container. `BACKUP_CV_MAX_DURATION` defaults to
+3. **Raise the Backblaze caps FIRST — a fresh account cannot hold this dataset.**
+   The free tier stops at 10 GB of storage, and B2 enforces caps by *refusing
+   the request*, not by billing: uploads answer
+   `403 AccessDenied: Cannot upload files, storage cap exceeded` and reads answer
+   `403 … transaction (Class B) cap exceeded`. Both were hit on the first real
+   run (2026-07-27) — the storage one only became visible after the Class B one
+   was fixed, so expect to clear them in that order.
+
+   Measured 2026-07-27, and the corpus grows — re-measure before trusting these:
+
+   | | objects | GB |
+   |---|---:|---:|
+   | CV corpus (source bucket) | 139 094 | 41.2 |
+   | Postgres dump, per run | 1 | 0.29 |
+   | Uploads archive, per run | 1 | 0.41 |
+   | Qdrant snapshots, per run | 4 | 0.33 |
+
+   Steady state at 30-day retention ≈ **72 GB** (41 GB mirror + ~31 GB of
+   rotating dumps). Set the **storage cap around 100 GB** for headroom, and the
+   **Class B / download cap above zero** — without the latter no restore is
+   possible, which is the failure mode that makes a backup worthless precisely
+   when it is needed. At B2 list price that is roughly **$0.45/month**; the cap
+   exists to stop runaway bills, not to be left at the default.
+4. Set `BACKUP_ENABLED=true` and redeploy.
+5. **Expect the first run to be long.** The initial CV seed transfers ~41 GB /
+   ~139k objects through the container. `BACKUP_CV_MAX_DURATION` defaults to
    `6h`; if the first run trips it, the artefact is recorded as failed (on
    purpose — an incomplete corpus is not a backup) and the next run resumes
    where it stopped. Raise the cap or let it finish over two nights.
-5. Confirm in the bucket that `LATEST.json` has `failures: 0` and that the
+6. Confirm in the bucket that `LATEST.json` has `failures: 0` and that the
    `cv_corpus` artefact's `objects` count matches the source bucket. Then set
    `BACKUP_RUN_ON_START=false`.
-6. **GitHub — repository secrets** (`artur-t-96/Nexus`):
+7. **GitHub — repository secrets** (`artur-t-96/Nexus`):
    `BACKUP_AGE_PRIVATE_KEY` (contents of `nexus-backup-drill.key`, *not* the
    master), `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY`.
    **Repository variables:** `BACKUP_S3_BUCKET`, `BACKUP_S3_ENDPOINT`,
    `BACKUP_S3_REGION`, and `BACKUP_MONITORING_ENABLED=true`.
-7. Run `.github/workflows/backup-drill.yml` manually (`workflow_dispatch`). It
+8. Run `.github/workflows/backup-drill.yml` manually (`workflow_dispatch`). It
    fetches the real off-site dump, decrypts it, restores it, runs `alembic
    upgrade head`, checks five tables are non-empty, and samples 25 `storage_key`
    values against the CV mirror.
-8. Turn off the legacy host script (`/root/nexus-offsite-backup.sh` and the
+9. Turn off the legacy host script (`/root/nexus-offsite-backup.sh` and the
    local `/var/backups/nexus` cron) once the drill has passed, so the two do not
    compete for disk.
-9. Only after step 7 has genuinely passed may the status block at the top of
+10. Only after step 8 has genuinely passed may the status block at the top of
    this document be replaced with a verified date.
 
 > Until `BACKUP_MONITORING_ENABLED` is `true`, the freshness job in
