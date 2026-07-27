@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from"react";
 import Link from"next/link";
 import { useRouter } from"next/navigation";
-import { useQuery, useQueryClient } from"@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  Briefcase,
  Building2,
@@ -20,6 +20,7 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatRelativeTime } from"@/lib/utils";
+import { useDebouncedValue } from"@/lib/use-debounced-value";
 import { resolveViewState } from"@/lib/view-state";
 import { useCapabilities } from"@/hooks/useCapability";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
@@ -333,6 +334,10 @@ export function JobsListV2() {
  const jobsView = useUiStore((s) => s.jobsView);
  const setJobsView = useUiStore((s) => s.setJobsView);
 
+ // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
+ // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
+ const debouncedSearch = useDebouncedValue(search, 300);
+
  const dl = deadlineParams(deadlinePreset);
 
  // Jeden rejestr capability dla nagłówka, pustego stanu i akcji w wierszach
@@ -343,7 +348,7 @@ export function JobsListV2() {
 
  const { data, isLoading, isError, error, refetch } = useQuery({
  queryKey: ["jobs-v2",
- search,
+ debouncedSearch,
  statusFilter,
  typeFilter,
  mine ? 1 : 0,
@@ -361,7 +366,7 @@ export function JobsListV2() {
  api
  .get("/api/jobs", {
  params: {
- q: search || undefined,
+ q: debouncedSearch || undefined,
  status: statusFilter.length ? statusFilter : undefined,
  recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
  mine: mine ? true : undefined,
@@ -378,6 +383,9 @@ export function JobsListV2() {
  paramsSerializer: { indexes: null },
  })
  .then((r) => r.data),
+ // Poprzednia strona wyników zostaje na ekranie do czasu przyjścia nowej —
+ // bez tego lista migocze pustym stanem ładowania przy każdej zmianie filtra.
+ placeholderData: keepPreviousData,
  });
 
  const items = data?.items ?? [];

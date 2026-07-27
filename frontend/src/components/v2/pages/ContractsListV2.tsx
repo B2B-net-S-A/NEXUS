@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from"react";
 import Link from"next/link";
-import { useQuery, useQueryClient } from"@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
  Calendar,
@@ -15,6 +15,7 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import { useDebouncedValue } from"@/lib/use-debounced-value";
 import { resolveViewState } from"@/lib/view-state";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { useCapability } from"@/hooks/useCapability";
@@ -112,6 +113,11 @@ export function ContractsListV2() {
  const [exporting, setExporting] = useState(false);
  const queryClient = useQueryClient();
 
+ // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
+ // naciśnięcie klawisza wysyłało request (a zapytanie listy robi sześć
+ // `selectinload`) i przerzucało tabelę w stan ładowania.
+ const debouncedSearch = useDebouncedValue(search, 300);
+
  const toggleId = (id: number) => {
  setSelectedIds((prev) => {
  const next = new Set(prev);
@@ -142,7 +148,9 @@ export function ContractsListV2() {
  setExporting(true);
  try {
  const params = new URLSearchParams();
- if (search) params.set("q", search);
+ // Zdebouncowana fraza, ta sama którą karmiona jest lista — inaczej w oknie
+ // 300 ms eksport dostawałby inne `q` niż to, co widać na ekranie.
+ if (debouncedSearch) params.set("q", debouncedSearch);
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("expiring_in_days", "30");
@@ -181,12 +189,12 @@ export function ContractsListV2() {
  const canCreateContract = useCapability("contract.create");
 
  const { data, isLoading, isError, error, refetch } = useQuery({
- queryKey: ["contracts-v2", search, statusFilter, typeFilter, endingSoon, page],
+ queryKey: ["contracts-v2", debouncedSearch, statusFilter, typeFilter, endingSoon, page],
  queryFn: () =>
  api
  .get("/api/contracts", {
  params: {
- q: search || undefined,
+ q: debouncedSearch || undefined,
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  expiring_in_days: endingSoon ? 30 : undefined,
@@ -195,6 +203,9 @@ export function ContractsListV2() {
  paramsSerializer: { indexes: null },
  })
  .then((r) => r.data),
+ // Poprzednia strona wyników zostaje na ekranie do czasu przyjścia nowej —
+ // bez tego lista migocze pustym stanem ładowania przy każdej zmianie filtra.
+ placeholderData: keepPreviousData,
  });
 
  const { data: expiring } = useQuery({
