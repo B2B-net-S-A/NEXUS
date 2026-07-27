@@ -22,7 +22,7 @@ Append-only z założenia: brak API, które by tu kasowało lub aktualizowało.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -61,7 +61,7 @@ class CandidateStageRemoval(Base):
     stage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Pełne wiersze ``candidate_stages`` w chwili usunięcia (lista obiektów).
-    stages_snapshot: Mapped[list] = mapped_column(JSONB, nullable=False)
+    stages_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
 
     def __repr__(self) -> str:  # pragma: no cover — debug helper
         return (

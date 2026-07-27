@@ -3676,13 +3676,14 @@ async def remove_candidate_from_recruitment(
             job_id=job_id,
             removed_by=current_user.id,
             reason=f"remove_from_recruitment: {job_title or job_id}",
-            last_stage=ordered[-1].stage.value if ordered else None,
+            # `if not stage_rows` wyżej zwraca 404, więc lista jest niepusta.
+            last_stage=ordered[-1].stage.value,
             stage_count=len(stage_rows),
             stages_snapshot=[
                 {
                     "id": s.id,
                     "stage": s.stage.value,
-                    "stage_def_id": getattr(s, "stage_def_id", None),
+                    "stage_def_id": s.stage_def_id,
                     "moved_at": s.moved_at.isoformat() if s.moved_at else None,
                     "moved_by": s.moved_by,
                     "notes": s.notes,
