@@ -119,6 +119,57 @@ def test_clean_phase_blocks_nothing() -> None:
     assert _blocking_errors(0, [], {}, 5) == 0
 
 
+def test_one_row_failing_twice_does_not_invent_a_phantom_error() -> None:
+    """Regresja z review #968 — mechanizm był cicho martwy.
+
+    Jeden wiersz potrafi paść dwa razy w jednym runie (dotykają go dwie fazy
+    albo jest ponowienie). Wtedy ``errors == 2``, a zbiór referencji ma JEDEN
+    wpis. Liczenie ``total - len(error_refs)`` robiło z tego fantomowy błąd
+    „nieprzypisany", który blokuje watermark ZAWSZE — więc kwarantanna nigdy
+    by się nie zwolniła i cała ta maszyneria nie robiłaby nic.
+    """
+    refs = ["candidate:48895"]
+    quarantined = {"candidate:48895": 9}
+
+    # Bez poprawki: 2 - 1 = 1 → wiecznie zablokowane.
+    assert _blocking_errors(2, refs, quarantined, 5, attributed_errors=2) == 0, (
+        "zaparkowany wiersz, który padł dwukrotnie, nadal blokuje watermark"
+    )
+
+    # I ta sama para PONIŻEJ limitu wciąż blokuje — poprawka nie rozluźnia reguły.
+    assert (
+        _blocking_errors(2, refs, {"candidate:48895": 1}, 5, attributed_errors=2) == 1
+    )
+
+
+def test_attributed_count_is_taken_from_the_progress_not_the_set() -> None:
+    """``PhaseProgress`` liczy przypisania osobno od zbioru referencji."""
+    p = PhaseProgress(phase="candidates")
+    p.add_error("upsert candidate ext=48895: boom")
+    p.add_error("upsert candidate ext=48895: boom again")
+    assert p.errors == 2
+    assert p.error_refs == {"candidate:48895"}
+    assert p.attributed_errors == 2, (
+        "drugi błąd tego samego wiersza nie został policzony jako przypisany"
+    )
+
+
+def test_overflow_past_the_ref_cap_counts_as_unattributable() -> None:
+    """500+ padających wierszy to awaria systemowa — watermark ma stać.
+
+    Po przekroczeniu limitu referencji świadomie NIE zwiększamy licznika
+    przypisań, więc nadmiar liczy się jako nieprzypisany i blokuje.
+    """
+    p = PhaseProgress(phase="stages")
+    for i in range(600):
+        p.add_error(f"upsert stage ext={i}: boom")
+    assert p.attributed_errors == 500
+    blocking = _blocking_errors(
+        p.errors, sorted(p.error_refs), {}, 5, attributed_errors=p.attributed_errors
+    )
+    assert blocking > 0
+
+
 def test_production_shape_unblocks_after_five_runs() -> None:
     """End-to-end on the measured prod case: 1 poison row, nothing else.
 
