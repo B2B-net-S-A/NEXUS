@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { isAxiosError } from "axios";
 import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
-import { clearSessionArtifacts } from "@/lib/session";
+import { clearSessionArtifacts, hasAuthCookie } from "@/lib/session";
 import { requiresOnboarding, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,8 +77,13 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
+  // Trwa weryfikacja zastanej sesji przez /api/auth/me — chowamy drogi wejścia,
+  // żeby użytkownik z ważną sesją nie zaczął wpisywać hasła w formularz, który
+  // zaraz zniknie pod nim wraz z przekierowaniem.
+  const [checkingSession, setCheckingSession] = useState(false);
   const [methods, setMethods] = useState<AuthMethods>(LOCKED_DOWN);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -85,25 +91,99 @@ function LoginForm() {
   const ssoErrorRaw = searchParams.get("error");
   const sessionReason = sessionReasonMessage(searchParams.get("reason"));
   const { setAuth, token } = useAuthStore();
+  // Komunikat z weryfikacji zastanej sesji wygrywa z ogólnym `?reason=` —
+  // jest bardziej konkretny (np. token unieważniony serwerowo).
+  const infoMessage = notice ?? sessionReason;
 
-  // Auto-redirect osób, które mają JESZCZE ważną sesję — ale TYLKO wtedy.
-  // Wcześniej wystarczyła sama OBECNOŚĆ tokenu (`storedToken || token`), więc
-  // wygasły JWT gnijący w localStorage odbijał usera z /login z powrotem do
-  // aplikacji, gdzie middleware/API natychmiast wykopywały go na /login →
-  // pętla. Gdy token jest wygasły albo uszkodzony, sprzątamy resztki sesji
-  // (JWT, cache usera, markery podglądu „jako") i ZOSTAJEMY na /login.
+  // Auto-redirect osób, które mają JESZCZE ważną sesję — ale dopiero po
+  // POTWIERDZENIU jej u backendu i po odtworzeniu cookie routingowego.
+  //
+  // Historia dwóch pętli, które ten efekt zamyka:
+  //
+  //  1. Kiedyś wystarczała sama OBECNOŚĆ tokenu (`storedToken || token`), więc
+  //     wygasły JWT gnijący w localStorage odbijał usera z /login do aplikacji,
+  //     skąd middleware natychmiast wykopywał go z powrotem.
+  //  2. Sprawdzanie samego `exp` (poprzednia wersja) nie wystarczyło, bo
+  //     middleware bramkuje po **cookie** `nexus_access`, a nie po localStorage.
+  //     Gdy cookie zniknęło (wyczyszczone/zablokowane przez przeglądarkę), a w
+  //     localStorage siedział niewygasły JWT, obie warstwy trwale się nie
+  //     zgadzały: /login → replace(next) → middleware → /login → …
+  //     Handler 401 z lib/api.ts (jedyne miejsce, które sprząta martwą sesję)
+  //     nigdy się nie odpalał, bo w tej pętli NIE LECI żaden request do API —
+  //     a na ścieżce /login* i tak robi early-return.
+  //
+  // Dlatego: (a) predykat wejściowy jest LUSTREM bramki z middleware.ts
+  // (payload + nieprzeterminowany `exp` + obecny claim `role`) — inaczej token
+  // bez roli przechodziłby tutaj, a middleware kasowałby cookie i zawracał;
+  // (b) token jest walidowany przez GET /api/auth/me, więc JWT unieważniony
+  // serwerowo (users.tokens_valid_after, PR #906) nie udaje żywej sesji;
+  // (c) cookie jest odtwarzane RAZ przez setAuth i sprawdzane — bez tego
+  // przeglądarka blokująca cookies dawała pętlę mimo poprawnego tokenu;
+  // (d) każda porażka kończy się sprzątnięciem sesji i POZOSTANIEM na /login.
+  const sessionProbed = useRef(false);
+  // Odrzucaj wynik sondy TYLKO po realnym odmontowaniu. Sprzątaczka zwykłego
+  // efektu odpalałaby się przy każdym ponownym renderze (identyczność `router`
+  // / `setAuth` nie jest gwarantowana), więc anulowałaby własny, jeszcze
+  // lecący request — sesja nigdy nie zostałaby ani potwierdzona, ani
+  // sprzątnięta, i pętla wróciłaby tylnymi drzwiami.
+  const disposed = useRef(false);
+  useEffect(
+    () => () => {
+      disposed.current = true;
+    },
+    [],
+  );
   useEffect(() => {
+    if (sessionProbed.current) return;
     const storedToken =
       typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     const activeToken = token ?? storedToken;
     if (!activeToken) return;
+    sessionProbed.current = true;
+
     const payload = decodeJwtPayload(activeToken);
-    if (payload && !isJwtExpired(payload.exp)) {
-      router.replace(nextPath);
+    if (!payload || isJwtExpired(payload.exp) || !payload.role) {
+      clearSessionArtifacts();
       return;
     }
-    clearSessionArtifacts();
-  }, [token, router, nextPath]);
+
+    setCheckingSession(true);
+    api
+      .get("/api/auth/me", {
+        // Jawny nagłówek — request-interceptor go NIE nadpisuje (patrz komentarz
+        // w lib/api.ts) i to jest dokładnie ten kontrakt, na którym stoimy.
+        headers: { Authorization: `Bearer ${activeToken}` },
+      })
+      .then(({ data }) => {
+        if (disposed.current) return;
+        // Persystuje usera i ODTWARZA cookie `nexus_access`.
+        setAuth(data, activeToken);
+        if (!hasAuthCookie()) {
+          clearSessionArtifacts();
+          setCheckingSession(false);
+          setError(
+            "Twoja przeglądarka blokuje pliki cookie dla tej strony, więc sesja nie może zostać utrzymana. Włącz obsługę cookies i zaloguj się ponownie.",
+          );
+          return;
+        }
+        router.replace(nextPath);
+      })
+      .catch((err: unknown) => {
+        if (disposed.current) return;
+        setCheckingSession(false);
+        // 401 = sesja martwa → sprzątamy. 403 = „jesteś zalogowany, ale nie
+        // wolno Ci tego zasobu" — nie kasujemy sesji (kontrakt 401 vs 403).
+        // Błąd sieci / 5xx też nie kasuje: chwilowa awaria backendu nie może
+        // niszczyć poprawnej sesji. W ŻADNYM z tych przypadków nie
+        // przekierowujemy, więc pętla jest niemożliwa.
+        if (isAxiosError(err) && err.response?.status === 401) {
+          clearSessionArtifacts();
+          setNotice(
+            "Twoja sesja wygasła lub została unieważniona. Zaloguj się ponownie.",
+          );
+        }
+      });
+  }, [token, router, nextPath, setAuth]);
 
   useEffect(() => {
     const msg = ssoErrorMessage(ssoErrorRaw);
@@ -174,13 +254,13 @@ function LoginForm() {
         widoczne także gdy logowanie hasłem jest wyłączone i formularza nie ma.
       */}
       <div className="space-y-4">
-            {sessionReason && !error && (
+            {infoMessage && !error && (
               <div
                 role="status"
                 className="flex items-start gap-2 text-sm text-foreground bg-muted/60 border border-border rounded-md px-3 py-2"
               >
                 <Info className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                <span>{sessionReason}</span>
+                <span>{infoMessage}</span>
               </div>
             )}
             {error && (
@@ -194,7 +274,16 @@ function LoginForm() {
             )}
       </div>
 
-      {methods.password && (
+      {checkingSession && (
+        <p
+          role="status"
+          className="pt-6 text-center text-sm text-muted-foreground"
+        >
+          Sprawdzam zapisaną sesję…
+        </p>
+      )}
+
+      {!checkingSession && methods.password && (
           <form onSubmit={handleSubmit} className="space-y-4 pt-4">
             <FormField label="Email" htmlFor="login-email" required>
               <Input
@@ -238,7 +327,7 @@ function LoginForm() {
       )}
 
       {/* Separator ma sens tylko gdy realnie są dwie drogi do wyboru. */}
-      {methods.password && methods.microsoft && (
+      {!checkingSession && methods.password && methods.microsoft && (
           <div className="relative my-5">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-border" />
@@ -249,7 +338,7 @@ function LoginForm() {
           </div>
       )}
 
-      {methods.microsoft && (
+      {!checkingSession && methods.microsoft && (
           <button
             type="button"
             onClick={handleMicrosoftLogin}
@@ -277,7 +366,7 @@ function LoginForm() {
           </button>
       )}
 
-      {methods.self_registration ? (
+      {checkingSession ? null : methods.self_registration ? (
           <p className="text-center text-sm text-muted-foreground pt-5">
             Nie masz konta?{" "}
             <Link

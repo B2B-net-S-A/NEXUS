@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
-import { clearSessionArtifacts } from "@/lib/session";
+import {
+  clearSessionArtifacts,
+  hasAuthCookie,
+  writeAuthCookie,
+} from "@/lib/session";
 
 describe("clearSessionArtifacts", () => {
   beforeEach(() => {
@@ -28,5 +32,41 @@ describe("clearSessionArtifacts", () => {
     document.cookie = "nexus_access=abc; path=/";
     clearSessionArtifacts();
     expect(document.cookie).not.toContain("nexus_access=abc");
+  });
+});
+
+describe("writeAuthCookie / hasAuthCookie", () => {
+  beforeEach(() => {
+    clearSessionArtifacts();
+  });
+
+  it("zapisuje cookie i potwierdza zapis", () => {
+    expect(hasAuthCookie()).toBe(false);
+    expect(writeAuthCookie("token-abc")).toBe(true);
+    expect(hasAuthCookie()).toBe(true);
+    expect(document.cookie).toContain("nexus_access=token-abc");
+  });
+
+  it("zwraca false, gdy przeglądarka blokuje cookies (cichy no-op)", () => {
+    // Bez tego sygnału warstwa kliencka uznaje sesję za kompletną, a middleware
+    // widzi brak cookie — i mamy nieskończoną pętlę /login ↔ chroniona trasa.
+    const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
+    Object.defineProperty(document, "cookie", {
+      configurable: true,
+      get: () => "",
+      set: () => {},
+    });
+    try {
+      expect(writeAuthCookie("token-abc")).toBe(false);
+      expect(hasAuthCookie()).toBe(false);
+    } finally {
+      delete (document as unknown as Record<string, unknown>).cookie;
+      if (descriptor) Object.defineProperty(Document.prototype, "cookie", descriptor);
+    }
+  });
+
+  it("nie myli cookie o nazwie będącej sufiksem", () => {
+    document.cookie = "other_nexus_access=x; path=/";
+    expect(hasAuthCookie()).toBe(false);
   });
 });

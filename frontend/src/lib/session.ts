@@ -23,6 +23,38 @@ const SESSION_STORAGE_KEYS = [
 /** Cookie czytane przez routing-gate w middleware Next.js (src/middleware.ts). */
 const AUTH_COOKIE_NAME = "nexus_access";
 
+/** 8h — spójne z ACCESS_TOKEN_EXPIRE_MINUTES po stronie backendu. */
+const AUTH_COOKIE_MAX_AGE = 60 * 60 * 8;
+
+/**
+ * Zapisz cookie routingowe. Zwraca `true` TYLKO gdy cookie realnie wylądowało
+ * w przeglądarce.
+ *
+ * Zwracany boolean nie jest ozdobnikiem: `document.cookie = ...` jest **cichym
+ * no-opem**, gdy przeglądarka blokuje cookies (ustawienie „blokuj wszystkie",
+ * rozszerzenie typu Cookie AutoDelete, tryb prywatny z twardą polityką).
+ * localStorage w takiej konfiguracji dalej działa, więc bez tego sprawdzenia
+ * warstwa kliencka jest przekonana, że sesja jest kompletna, a middleware
+ * widzi brak cookie i zawraca na /login — w nieskończoność.
+ */
+export function writeAuthCookie(token: string): boolean {
+  if (typeof document === "undefined") return false;
+  // SameSite=Lax wystarcza — logowanie nie jest cross-site, CSRF surface nikła.
+  // Bez httpOnly (świadoma decyzja — patrz plan/docs/SUPABASE_ANALYSIS.md).
+  document.cookie = `${AUTH_COOKIE_NAME}=${encodeURIComponent(
+    token,
+  )}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; samesite=lax`;
+  return hasAuthCookie();
+}
+
+/** Czy cookie routingowe istnieje — czyli czy middleware wpuści nas dalej. */
+export function hasAuthCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie
+    .split(";")
+    .some((part) => part.trimStart().startsWith(`${AUTH_COOKIE_NAME}=`));
+}
+
 /** Usuń wszystkie persystowane artefakty sesji. Bezpieczne poza przeglądarką. */
 export function clearSessionArtifacts(): void {
   if (typeof window !== "undefined") {
