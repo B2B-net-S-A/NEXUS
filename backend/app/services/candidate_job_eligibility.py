@@ -30,7 +30,9 @@ this is a consolidation, not a behaviour change:
 * active ``current_employment`` conflict → soft warning, assignment allowed;
 * candidate-declared ``excluded_clients`` → soft warning, assignment allowed;
 * already in this job (any stage) → duplicate, hidden from the job search and
-  blocked from re-assignment.
+  blocked from re-assignment;
+* rejected after an interview by *this job's* hiring manager → hard block on
+  assignment, visible-with-warning, **not** overridable.
 
 Which rules are *legal* hard blocks vs. warnings is ultimately a process-owner
 decision; the mapping here is the documented default and is easy to adjust.
@@ -67,6 +69,9 @@ class EligibilityReason(str, Enum):
     client_current_employment = "client_current_employment"
     client_excluded_by_candidate = "client_excluded_by_candidate"  # preferences
     already_in_job = "already_in_job"
+    # This job's hiring manager already interviewed and rejected the candidate
+    # on an earlier recruitment (see ``services.hiring_manager_verdicts``).
+    rejected_by_hiring_manager = "rejected_by_hiring_manager"
 
 
 # Conflict types that block assignment to the client (visible-with-warning).
@@ -85,6 +90,9 @@ _REASON_LABELS_PL: dict[EligibilityReason, str] = {
     EligibilityReason.client_current_employment: "Kandydat obecnie pracuje u tego klienta",
     EligibilityReason.client_excluded_by_candidate: "Kandydat wykluczył tego klienta",
     EligibilityReason.already_in_job: "Kandydat jest już w tej rekrutacji",
+    EligibilityReason.rejected_by_hiring_manager: (
+        "Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie"
+    ),
 }
 
 
@@ -133,6 +141,11 @@ class EligibilityInput:
     conflicts: tuple[ConflictInput, ...] = ()
     excluded_client_ids: frozenset[int] = field(default_factory=frozenset)
     already_in_job: bool = False
+    # This job's hiring manager rejected the candidate after meeting them on a
+    # *different* recruitment, for a reason flagged as disqualifying the person.
+    # A bare bool by design: the caller loads the details (who, when, why) and
+    # carries them separately, so ``EligibilityDecision`` keeps its shape.
+    rejected_by_hiring_manager: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,8 +191,8 @@ def evaluate_eligibility(inp: EligibilityInput, now: datetime) -> EligibilityDec
     and deterministic for tests. Priority, most-blocking first:
 
     1. global blacklist, 2. hard client conflict, 3. already-in-job,
-    4. current-employment warning, 5. candidate-excluded-client warning,
-    6. eligible.
+    3.5 rejected by this job's hiring manager, 4. current-employment warning,
+    5. candidate-excluded-client warning, 6. eligible.
     """
     # 1. Global blacklist — non-overridable hard block, hidden everywhere.
     if inp.candidate_status == "blacklisted":
@@ -203,6 +216,10 @@ def evaluate_eligibility(inp: EligibilityInput, now: datetime) -> EligibilityDec
 
     # Secondary (warning-level) signals recorded even when a harder block wins.
     secondary: list[EligibilityReason] = []
+    if inp.rejected_by_hiring_manager:
+        # Recorded first so a badge survives even when blacklist / NDA /
+        # already-in-job outranks it — the recruiter still needs to know.
+        secondary.append(EligibilityReason.rejected_by_hiring_manager)
     if "current_employment" in active_types:
         secondary.append(EligibilityReason.client_current_employment)
     if inp.job_client_id is not None and inp.job_client_id in inp.excluded_client_ids:
@@ -233,6 +250,29 @@ def evaluate_eligibility(inp: EligibilityInput, now: datetime) -> EligibilityDec
             severity=Severity.warning,
             override_allowed=False,
             secondary_reasons=tuple(secondary),
+        )
+
+    # 3.5 This job's hiring manager already met this candidate and rejected
+    #     them. Hard block on assignment, but deliberately **visible**: hiding
+    #     the candidate would make the recruiter hunt for the same person again
+    #     and reads to them as data loss. Not overridable — an override would
+    #     recreate the exact irritation this rule exists to prevent.
+    #
+    #     Ranked below `already_in_job` on purpose: otherwise a candidate who is
+    #     merely already in this job would lose `hidden` and reappear in the
+    #     "add candidate" search as a duplicate.
+    if inp.rejected_by_hiring_manager:
+        rest = tuple(
+            r for r in secondary if r != EligibilityReason.rejected_by_hiring_manager
+        )
+        return _decision(
+            EligibilityReason.rejected_by_hiring_manager,
+            eligible=False,
+            visibility=Visibility.warn,
+            assignment_allowed=False,
+            severity=Severity.hard,
+            override_allowed=False,
+            secondary_reasons=rest,
         )
 
     # 4. Current employment at this client — soft warning, assignment allowed.
