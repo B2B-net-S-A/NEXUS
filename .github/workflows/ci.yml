@@ -245,6 +245,7 @@ jobs:
                  tests/test_traffit_watermark_on_failure.py \
                  tests/test_traffit_integration_models.py \
                  tests/test_traffit_merge.py \
+                 tests/test_traffit_pipelines_withdrawn_fallback.py \
                  tests/test_client_access_matrix.py \
                  tests/test_notifications_unread.py \
                  tests/test_template_render_access.py \

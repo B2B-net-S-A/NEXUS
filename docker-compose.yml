@@ -215,6 +215,17 @@ services:
       BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-nexus}
       BACKUP_QDRANT_URL: ${BACKUP_QDRANT_URL:-http://qdrant:6333}
       BACKUP_UPLOADS_DIR: /data/uploads
+      # Source of the candidate CV corpus — the SAME bucket the backend reads
+      # through app/services/object_storage.py. Without these the sidecar cannot
+      # see ~136k CV files (~37 GB) that exist in no other place: `pg_dump`
+      # preserves only `candidate_documents.storage_key`, i.e. pointers to files
+      # it does not contain. backup.sh records a hard failure when they are
+      # unset rather than silently skipping the artefact.
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-}
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-nexus-candidate-documents}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-eu-central-1}
       POSTGRES_HOST: postgres
       POSTGRES_USER: ${POSTGRES_USER:-nexus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
@@ -222,6 +233,17 @@ services:
     volumes:
       # Read-only: the sidecar must never be able to modify application data.
       - uploads_data:/data/uploads:ro
+    # Without this the container reported "Up N weeks" whether the scheduler was
+    # alive, dead, or stuck halfway through an rclone transfer. Checks liveness
+    # only — success/failure of the backups themselves is monitored off-host
+    # from LATEST.json, since a probe running on the machine being backed up
+    # cannot survive the disaster it is meant to warn about.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     logging: *default-logging
 
 volumes:

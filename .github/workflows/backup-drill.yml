@@ -1,5 +1,19 @@
 name: Backup Restore Drill
 
+# Restores the ACTUAL off-site backup produced by the `backup` compose service.
+#
+# It used to `scp` a dump from /var/backups/nexus on the VPS — the legacy,
+# unversioned, same-disk-as-production copy that docs/disaster-recovery.md
+# itself says "Do not rely on it". So the drill and the backup system were two
+# unrelated things, and a green drill said nothing whatsoever about whether the
+# off-site copy could be restored.
+#
+# It also never decrypted anything, which is the failure mode with no external
+# symptom: a typo in BACKUP_AGE_PUBLIC_KEY, or a recipient whose private half is
+# lost, produces backups that upload cleanly, pass every size check, and are
+# permanently unreadable. `age -d` below is the only thing in this repository
+# that proves otherwise.
+
 on:
   schedule:
     # Monday 04:00 UTC
@@ -11,8 +25,33 @@ permissions:
 
 jobs:
   drill:
-    name: pg_restore dry-run + alembic upgrade
+    name: off-site fetch + age decrypt + pg_restore + alembic
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Private half of an age recipient. This MUST NOT be the master key: the
+      # master key's loss is unrecoverable, and a copy of it here would put the
+      # entire backup history behind GitHub's security boundary permanently.
+      # backup.sh accepts several comma-separated recipients precisely so a
+      # dedicated drill key can be added — and later rotated or dropped —
+      # without re-encrypting a single stored object.
+      BACKUP_AGE_PRIVATE_KEY: ${{ secrets.BACKUP_AGE_PRIVATE_KEY }}
+      BACKUP_S3_ACCESS_KEY: ${{ secrets.BACKUP_S3_ACCESS_KEY }}
+      BACKUP_S3_SECRET_KEY: ${{ secrets.BACKUP_S3_SECRET_KEY }}
+      BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}
+      BACKUP_S3_ENDPOINT: ${{ vars.BACKUP_S3_ENDPOINT }}
+      BACKUP_S3_REGION: ${{ vars.BACKUP_S3_REGION }}
+      BACKUP_S3_PREFIX: ${{ vars.BACKUP_S3_PREFIX || 'nexus' }}
+      # rclone is configured entirely from the environment, so no config file
+      # (and no secret) is ever written to the runner's disk.
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${{ vars.BACKUP_S3_PROVIDER || 'Other' }}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${{ vars.BACKUP_S3_ENDPOINT }}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY }}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_KEY }}
+      RCLONE_CONFIG_OFFSITE_REGION: ${{ vars.BACKUP_S3_REGION }}
+      RCLONE_S3_NO_CHECK_BUCKET: "true"
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -29,51 +68,112 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Not configured — drill cannot run (FAIL)
+        if: env.BACKUP_AGE_PRIVATE_KEY == '' || env.BACKUP_S3_ACCESS_KEY == '' || env.BACKUP_S3_BUCKET == ''
+        run: |
+          echo "::error::The drill has no way to reach or decrypt the off-site backup,"
+          echo "::error::so every step that verifies anything would be skipped."
+          echo ""
+          echo "Required repository secrets:  BACKUP_AGE_PRIVATE_KEY,"
+          echo "                              BACKUP_S3_ACCESS_KEY, BACKUP_S3_SECRET_KEY"
+          echo "Required repository variables: BACKUP_S3_BUCKET, BACKUP_S3_ENDPOINT,"
+          echo "                               BACKUP_S3_REGION"
+          echo ""
+          echo "This step exits non-zero on purpose. A previous version emitted a"
+          echo "warning and let the job pass, so the drill reported GREEN every week"
+          echo "while restoring nothing — and docs/disaster-recovery.md cited those"
+          echo "green runs as proof the restore path worked."
+          echo ""
+          echo "A disaster-recovery drill that cannot run is a FAILING drill."
+          exit 1
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install rclone + age
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends rclone age
+          rclone version | head -1
+          age --version
+
+      - name: Install backend dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Setup SSH to backup host
-        if: env.BACKUP_DRILL_SSH_KEY != ''
-        env:
-          BACKUP_DRILL_SSH_KEY: ${{ secrets.BACKUP_DRILL_SSH_KEY }}
+      - name: Inspect LATEST.json (manifest must be fresh and clean)
         run: |
-          mkdir -p ~/.ssh
-          echo "$BACKUP_DRILL_SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.BACKUP_DRILL_HOST || '91.99.199.112' }} >> ~/.ssh/known_hosts
+          set -euo pipefail
+          DEST="offsite:${BACKUP_S3_BUCKET}/${BACKUP_S3_PREFIX}"
+          rclone cat "${DEST}/LATEST.json" > /tmp/manifest.json
+          cat /tmp/manifest.json | jq .
 
-      - name: Fetch latest backup from VPS
-        if: env.BACKUP_DRILL_SSH_KEY != ''
-        env:
-          BACKUP_DRILL_SSH_KEY: ${{ secrets.BACKUP_DRILL_SSH_KEY }}
+          # Restoring a three-week-old dump and calling the drill green would be
+          # the same class of lie the SSH-less drill told: the restore works, the
+          # backup pipeline behind it has been dead for a fortnight.
+          finished="$(jq -r '.finished_at' /tmp/manifest.json)"
+          age_h=$(( ( $(date -u +%s) - $(date -u -d "$finished" +%s) ) / 3600 ))
+          echo "manifest is ${age_h}h old (finished_at=${finished})"
+          if [ "$age_h" -gt "${BACKUP_MAX_AGE_HOURS:-36}" ]; then
+            echo "::error::last backup finished ${age_h}h ago — the backup service has stopped producing."
+            exit 1
+          fi
+
+          failures="$(jq -r '.failures' /tmp/manifest.json)"
+          if [ "$failures" != "0" ]; then
+            echo "::error::last run recorded ${failures} failed artefact(s):"
+            jq -r '.artefacts[] | select(.status != "ok") | "  \(.artefact): \(.status) — \(.detail)"' /tmp/manifest.json
+            exit 1
+          fi
+
+      - name: Fetch + decrypt the newest Postgres dump
         run: |
-          scp -q root@${{ secrets.BACKUP_DRILL_HOST || '91.99.199.112' }}:/var/backups/nexus/postgres/$(date -u +%Y-%m-%d).dump /tmp/latest.dump \
-            || scp -q root@${{ secrets.BACKUP_DRILL_HOST || '91.99.199.112' }}:/var/backups/nexus/postgres/$(date -u -d 'yesterday' +%Y-%m-%d).dump /tmp/latest.dump
+          set -euo pipefail
+          DEST="offsite:${BACKUP_S3_BUCKET}/${BACKUP_S3_PREFIX}"
+
+          newest="$(rclone lsjson -R "${DEST}/postgres" \
+            | jq -r '[.[] | select(.IsDir == false)] | sort_by(.ModTime) | last | .Path')"
+          if [ -z "$newest" ] || [ "$newest" = "null" ]; then
+            echo "::error::no Postgres dump found under ${DEST}/postgres"
+            exit 1
+          fi
+          echo "restoring: ${newest}"
+
+          echo "$BACKUP_AGE_PRIVATE_KEY" > /tmp/drill.key
+          chmod 600 /tmp/drill.key
+
+          # THE check this workflow exists for. An unreadable archive fails
+          # here, loudly, instead of being discovered during an actual outage.
+          rclone cat "${DEST}/postgres/${newest}" | age -d -i /tmp/drill.key > /tmp/latest.dump
+          rm -f /tmp/drill.key
+
           ls -lh /tmp/latest.dump
+          # `pg_restore -l` parses the archive header + TOC without touching a
+          # database: proves the plaintext is a real custom-format dump and not,
+          # say, 300 MB of correctly-decrypted garbage.
+          docker run --rm -v /tmp:/tmp postgres:16-alpine \
+            pg_restore -l /tmp/latest.dump > /tmp/toc.txt
+          echo "archive TOC entries: $(wc -l < /tmp/toc.txt)"
+          test "$(wc -l < /tmp/toc.txt)" -gt 100
 
       - name: Restore dump into ephemeral Postgres
-        if: env.BACKUP_DRILL_SSH_KEY != '' && success()
-        env:
-          PGPASSWORD: drill-password
         run: |
-          # A drill that swallows ALL pg_restore output (the old `|| echo …
-          # continuing`) reports green even when the restore genuinely failed —
-          # the exact class of fake-green this whole workflow exists to kill.
-          # Instead: capture the exit code, print the stderr, and fail UNLESS the
-          # only diagnostics are the known-harmless DROP / extension noise a
-          # clean-restore into a vanilla postgres:16-alpine always emits.
+          set -euo pipefail
+          # pg_restore is run from postgres:16-alpine, not from the runner's own
+          # client: a client older than the server refuses the archive header
+          # outright ("unsupported version"), and the runner image's PostgreSQL
+          # version is not something this workflow should depend on.
           set +e
-          pg_restore --clean --if-exists --no-owner --no-privileges \
-            -h localhost -U drill -d nexus_drill /tmp/latest.dump 2>/tmp/restore.err
+          docker run --rm --network host -v /tmp:/tmp -e PGPASSWORD=drill-password \
+            postgres:16-alpine \
+            pg_restore --clean --if-exists --no-owner --no-privileges \
+              -h localhost -U drill -d nexus_drill /tmp/latest.dump 2>/tmp/restore.err
           rc=$?
           set -e
           echo "----- pg_restore stderr -----"
@@ -83,57 +183,128 @@ jobs:
             echo "pg_restore exited 0 — clean restore."
             exit 0
           fi
-          # Non-zero exit. Keep only lines pg_restore itself flagged as error/
-          # warning, then drop the ones that are expected and harmless here:
-          #   • DROP of an object that does not exist yet (fresh DB + --clean)
-          #   • CREATE/COMMENT on an extension not bundled in the drill image
-          #   • the trailing "errors ignored on restore: N" summary line
-          # Anything left is a real restore failure and must turn the drill red.
-          unexpected="$(grep -E '^pg_restore: (error|warning):' /tmp/restore.err \
-            | grep -viE 'does not exist|already exists|errors ignored on restore|extension|EXTENSION' \
-            || true)"
-          if [ -n "$unexpected" ]; then
+
+          # Non-zero exit. The previous filter dropped every line matching
+          # "does not exist", which also silences the genuine failure mode:
+          #
+          #   pg_restore: error: ... ERROR:  relation "candidates" does not exist
+          #   Command was: COPY public.candidates ...
+          #
+          # i.e. a COPY into a table whose CREATE failed — a dump that restores
+          # into an empty schema while the drill calls it harmless noise.
+          #
+          # Classify by the COMMAND instead of by the message. pg_restore prints
+          # the offending statement on a following "Command was:" line, so only
+          # a DROP (expected on --clean against a fresh DB) or an extension
+          # statement (not bundled in every image) is forgiven. Everything else
+          # is a real restore failure.
+          awk '
+            { line[NR] = $0 }
+            END {
+              for (i = 1; i <= NR; i++) {
+                if (line[i] !~ /^pg_restore: (error|warning): /) continue
+                if (line[i] ~ /errors ignored on restore/) continue
+                cmd = ""
+                for (j = i + 1; j <= NR && j <= i + 4; j++) {
+                  if (line[j] ~ /^Command was: /) { cmd = line[j]; break }
+                  if (line[j] ~ /^pg_restore: /) break
+                }
+                if (cmd ~ /^Command was: *DROP /) continue
+                if (cmd ~ /^Command was: *ALTER TABLE .* DROP /) continue
+                if (cmd ~ /^Command was: *(CREATE|COMMENT ON) EXTENSION /) continue
+                print line[i] (cmd == "" ? "" : "   <<< " cmd)
+              }
+            }
+          ' /tmp/restore.err > /tmp/unexpected.txt
+
+          if [ -s /tmp/unexpected.txt ]; then
             echo "::error::pg_restore reported errors beyond harmless DROP/extension noise:"
-            echo "$unexpected"
+            cat /tmp/unexpected.txt
             exit 1
           fi
           echo "pg_restore reported only harmless DROP/extension warnings; continuing."
 
       - name: Alembic upgrade head on restored DB
-        if: env.BACKUP_DRILL_SSH_KEY != '' && success()
         working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://drill:drill-password@localhost:5432/nexus_drill
           SECRET_KEY: drill-only-not-for-production-at-least-48-chars-long
         run: alembic -c alembic/alembic.ini upgrade head
 
-      - name: Sample query (smoke — restored data must be non-empty)
-        if: env.BACKUP_DRILL_SSH_KEY != '' && success()
-        env:
-          PGPASSWORD: drill-password
+      - name: Validate restored data
         run: |
-          # A restore that leaves the candidates table present but EMPTY is a
-          # silent failure: the schema arrived, the data did not. Counting is not
-          # enough — assert the count is actually > 0 so an empty dump fails loud.
-          count="$(psql -tAc 'SELECT count(*) FROM candidates' -h localhost -U drill -d nexus_drill)"
-          echo "candidates restored: ${count}"
-          test "${count}" -gt 0
+          set -euo pipefail
+          q() {
+            docker run --rm --network host -e PGPASSWORD=drill-password postgres:16-alpine \
+              psql -tAc "$1" -h localhost -U drill -d nexus_drill
+          }
 
-      - name: No SSH key — drill cannot run (FAIL)
-        if: env.BACKUP_DRILL_SSH_KEY == ''
+          # A restore that leaves the schema present but the tables EMPTY is a
+          # silent failure. One table was not enough: a dump can plausibly carry
+          # candidates and nothing else. These five span the domains an ATS is
+          # useless without.
+          fail=0
+          for table in candidates jobs users clients candidate_documents; do
+            count="$(q "SELECT count(*) FROM ${table}")"
+            echo "${table}: ${count}"
+            if [ "$count" -le 0 ]; then
+              echo "::error::${table} restored empty"
+              fail=1
+            fi
+          done
+
+          # Referential sanity. FKs are enforced, so this is really a check that
+          # pg_restore did not stop partway through the data with constraints
+          # still deferred — a partially-loaded dump shows up here as orphans.
+          orphans="$(q "SELECT count(*) FROM candidate_documents d
+                        LEFT JOIN candidates c ON c.id = d.candidate_id
+                        WHERE c.id IS NULL")"
+          echo "orphan candidate_documents: ${orphans}"
+          [ "$orphans" -eq 0 ] || { echo "::error::${orphans} orphan candidate_documents rows"; fail=1; }
+
+          # The dump must still describe a corpus that lives in object storage.
+          # If this ever hits 0, either the migration was rolled back or the
+          # storage_key column stopped being populated — and the CV mirror below
+          # is then backing up something nobody reads.
+          externalised="$(q "SELECT count(*) FROM candidate_documents WHERE storage_key IS NOT NULL")"
+          echo "documents with storage_key: ${externalised}"
+          [ "$externalised" -gt 0 ] || { echo "::error::no candidate_documents carry a storage_key"; fail=1; }
+
+          echo "alembic head in restored DB: $(q "SELECT version_num FROM alembic_version")"
+          exit "$fail"
+
+      - name: Spot-check the CV corpus mirror against restored rows
         run: |
-          echo "::error::BACKUP_DRILL_SSH_KEY is not configured, so every step that"
-          echo "::error::actually verifies anything was skipped: fetch, restore,"
-          echo "::error::alembic upgrade and smoke query never ran."
-          echo ""
-          echo "This step used to emit a warning and let the job pass. That made the"
-          echo "drill report GREEN every week while restoring nothing — the worst"
-          echo "possible signal, because docs/disaster-recovery.md then cited this"
-          echo "workflow as proof the restore path was verified."
-          echo ""
-          echo "A disaster-recovery drill that cannot run is a FAILING drill."
-          echo "There is currently no evidence that a NEXUS backup can be restored."
-          echo ""
-          echo "To make this green, the drill has to genuinely pass — see"
-          echo "docs/disaster-recovery.md for what is still missing."
-          exit 1
+          set -euo pipefail
+          # The end-to-end check that the whole PR is about: a dump preserves
+          # `storage_key` only — pointers. Unless the objects those pointers name
+          # exist in the off-site mirror, a "successful" restore reconstitutes a
+          # database full of dead links to ~136k CVs that no longer exist.
+          DEST="offsite:${BACKUP_S3_BUCKET}/${BACKUP_S3_PREFIX}/candidate-documents/current"
+
+          docker run --rm --network host -e PGPASSWORD=drill-password postgres:16-alpine \
+            psql -tAc "SELECT storage_key FROM candidate_documents
+                       WHERE storage_key IS NOT NULL
+                       ORDER BY random() LIMIT ${CV_SAMPLE:-25}" \
+            -h localhost -U drill -d nexus_drill > /tmp/keys.txt
+
+          total=0; missing=0
+          while IFS= read -r key; do
+            [ -n "$key" ] || continue
+            total=$((total + 1))
+            if ! rclone size "${DEST}/${key}" --json >/dev/null 2>&1; then
+              echo "MISSING: ${key}"
+              missing=$((missing + 1))
+            fi
+          done < /tmp/keys.txt
+
+          echo "sampled ${total} storage_key(s); ${missing} missing from the mirror"
+          if [ "$total" -eq 0 ]; then
+            echo "::error::no storage_key sampled — cannot verify the CV mirror"
+            exit 1
+          fi
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::${missing}/${total} sampled CV files are absent from the off-site mirror."
+            echo "::error::A restore from this backup would produce candidates with unreadable CVs."
+            exit 1
+          fi
