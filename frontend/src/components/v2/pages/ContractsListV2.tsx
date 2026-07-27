@@ -52,6 +52,7 @@ import {
  type ContractStatusValue,
  type ContractTypeValue,
 } from"@/lib/filter-options";
+import { getAccessToken } from "@/lib/session";
 
 interface ContractRow {
  id: number;
@@ -156,10 +157,7 @@ export function ContractsListV2() {
  if (endingSoon) params.set("expiring_in_days", "30");
  params.set("format", format);
  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
- const token =
- typeof window !== "undefined"
- ? localStorage.getItem("access_token")
- : null;
+ const token = getAccessToken();
  const res = await fetch(`${apiBase}/api/contracts/export?${params}`, {
  headers: token ? { Authorization: `Bearer ${token}` } : {},
  });

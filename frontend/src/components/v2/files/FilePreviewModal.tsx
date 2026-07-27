@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { getAccessToken } from "@/lib/session";
 
 export interface CandidateDocument {
   id: number;
@@ -87,8 +88,7 @@ export async function fetchDocumentBlob(
   disposition: "attachment" | "inline",
 ): Promise<Blob> {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  const token = getAccessToken();
   const url = `${apiBase}/api/candidates/${candidateId}/documents/${docId}/content?disposition=${disposition}`;
   const res = await fetch(url, {
     method: "GET",

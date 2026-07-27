@@ -1,6 +1,6 @@
 import axios, { AxiosError } from "axios";
 
-import { clearSessionArtifacts } from "./session";
+import { clearSessionArtifacts, getAccessToken } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -129,7 +129,7 @@ export function extractErrorMsg(error: unknown): string {
 // stored the SSO user's token.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("access_token");
+    const token = getAccessToken();
     const headers = config.headers as unknown as {
       has?: (name: string) => boolean;
       Authorization?: unknown;
