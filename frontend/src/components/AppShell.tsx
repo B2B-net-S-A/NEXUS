@@ -24,6 +24,7 @@ import api, {
   requestHistoryApi,
 } from "@/lib/api";
 import type { RequestHistoryResponse } from "@/lib/api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
 import { AutoAssignedCollaborators } from "@/components/jobs/AutoAssignedCollaborators";
 
@@ -899,22 +900,6 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
       </form>
     </Modal>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Lightweight `useDebouncedValue` — kept inline because we don't want to
- * pull in a new shared hook for one call site. 500ms is enough to avoid
- * banging the preview endpoint on every keystroke.
- */
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState<T>(value);
-  useEffect(() => {
-    const handle = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(handle);
-  }, [value, delayMs]);
-  return debounced;
 }
 
 // ── Modal: Dodaj / Edytuj ofertę ─────────────────────────────────────────────
