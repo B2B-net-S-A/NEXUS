@@ -2273,6 +2273,20 @@ async def create_candidate(
     except Exception as exc:  # noqa: BLE001 — never block create on a notifier
         logger.warning("Teams notify (candidate_added) scheduling failed: %s", exc)
 
+    # Index the new candidate. Without this the record exists, shows up in the
+    # list, and is invisible to recommendations, hybrid search and Marketplace
+    # matching — all of which read ids out of Qdrant. The manual create path
+    # never indexed (measured 2026-07-27: 8 272 of 55 217 candidates missing
+    # from the collection), while PATCH and the CV paths always did.
+    # Best-effort exactly like those: an embedding hiccup must not fail a
+    # create that already committed.
+    try:
+        from app.services.index_outbox_service import schedule_or_embed_candidate
+
+        await schedule_or_embed_candidate(candidate.id, db)
+    except Exception as exc:  # noqa: BLE001 — indexing is best-effort
+        logger.warning("Indexing new candidate %s failed: %s", candidate.id, exc)
+
     # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
     reloaded = await db.execute(
         select(Candidate)
@@ -2560,6 +2574,16 @@ async def create_candidate_from_linkedin(
 
     await db.commit()
     await db.refresh(candidate)
+
+    # Same gap as the manual create above: a candidate imported from LinkedIn
+    # was never indexed, so the extension could add someone the recruiter then
+    # could not find through matching.
+    try:
+        from app.services.index_outbox_service import schedule_or_embed_candidate
+
+        await schedule_or_embed_candidate(candidate.id, db)
+    except Exception as exc:  # noqa: BLE001 — indexing is best-effort
+        logger.warning("Indexing LinkedIn candidate %s failed: %s", candidate.id, exc)
 
     # Background enrichment — runs AFTER the response is returned to the client.
     background_tasks.add_task(_enrich_linkedin_background, candidate.id)

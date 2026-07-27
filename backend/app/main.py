@@ -64,7 +64,7 @@ from app.api import admin_snapshot
 from app.api import admin_pipeline_inventory
 from app.api import admin_engagement_inventory
 from app.api import admin_candidate_pii_orphans
-from app.api import admin_schema_drift
+from app.api import admin_index_coverage, admin_schema_drift
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
@@ -660,6 +660,11 @@ app.include_router(
     admin_schema_drift.router,
     prefix="/api/admin",
     tags=["admin-schema-drift"],
+)
+app.include_router(
+    admin_index_coverage.router,
+    prefix="/api/admin",
+    tags=["admin-index-coverage"],
 )
 app.include_router(
     admin_candidate_pii_orphans.router,
