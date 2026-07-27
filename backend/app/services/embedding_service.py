@@ -52,6 +52,17 @@ def _jobs_collection() -> str:
     return getattr(settings, "QDRANT_JOBS_COLLECTION", None) or JOBS_COLLECTION
 
 
+# Publiczne aliasy — moduły spoza embeddingu (np. raport pokrycia indeksu)
+# potrzebują NAZW kolekcji, nie wnętrzności tego serwisu. Bez nich każdy taki
+# konsument importował `_collection` i wiązał się z prywatnym API.
+def candidates_collection_name() -> str:
+    return _collection()
+
+
+def jobs_collection_name() -> str:
+    return _jobs_collection()
+
+
 # ---------------------------------------------------------------------------
 # Qdrant helpers
 # ---------------------------------------------------------------------------

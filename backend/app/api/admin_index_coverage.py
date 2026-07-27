@@ -81,7 +81,14 @@ async def index_coverage(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Pokrycie indeksu semantycznego + zaległości kolejki reindeksu."""
-    candidates_total = (
+    # Dwie liczby, bo odpowiadają na różne pytania i mylenie ich daje bzdury.
+    # Kolekcja Qdranta trzyma punkty również dla kandydatów zablokowanych po
+    # zaindeksowaniu (nic ich stamtąd nie usuwa), więc porównanie
+    # `points / active` potrafiło dać pokrycie powyżej 100% i wyglądać jak błąd
+    # pomiaru. Mianownikiem jest całość, a `active` zostaje jako kontekst
+    # „ilu z nich ma się realnie wyszukiwać".
+    candidates_total = (await db.scalar(select(func.count(Candidate.id)))) or 0
+    candidates_active = (
         await db.scalar(
             select(func.count(Candidate.id)).where(
                 Candidate.status != CandidateStatus.blacklisted
@@ -92,11 +99,14 @@ async def index_coverage(
 
     # Nazwy kolekcji z konfiguracji, nie zahardkodowane — inaczej raport
     # pokazywałby 0 na środowisku z własnym prefiksem i wyglądałby jak awaria.
-    from app.services.embedding_service import _collection, _jobs_collection
+    from app.services.embedding_service import (
+        candidates_collection_name,
+        jobs_collection_name,
+    )
 
     candidate_points, job_points = await asyncio.gather(
-        _collection_points(_collection()),
-        _collection_points(_jobs_collection()),
+        _collection_points(candidates_collection_name()),
+        _collection_points(jobs_collection_name()),
     )
 
     # Zaległości kolejki. `pending` rośnie, gdy intencje są zapisywane, ale
@@ -111,7 +121,10 @@ async def index_coverage(
 
     return {
         "auth_mode": auth_mode,
-        "candidates": _gap(candidates_total, candidate_points),
+        "candidates": {
+            **_gap(candidates_total, candidate_points),
+            "active": candidates_active,
+        },
         "jobs": _gap(jobs_total, job_points),
         "outbox": {
             "pending": outbox.get("pending", 0),
