@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useThemeStore } from "@/store/theme";
+import { prefersReducedMotion } from "@/lib/prefers-reduced-motion";
 
 interface FloatItem {
   emoji: string;
@@ -41,7 +42,7 @@ export function KidsBackdrop() {
   useEffect(() => {
     if (!kidsMode) return;
     if (typeof window === "undefined") return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (prefersReducedMotion()) return;
 
     const onMove = (e: MouseEvent) => {
       if (frame.current != null) return;

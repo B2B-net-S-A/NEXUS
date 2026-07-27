@@ -6,7 +6,7 @@ import Link from "next/link";
 import { isAxiosError } from "axios";
 import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
-import { clearSessionArtifacts, hasAuthCookie } from "@/lib/session";
+import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/session";
 import { requiresOnboarding, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -135,8 +135,7 @@ function LoginForm() {
   );
   useEffect(() => {
     if (sessionProbed.current) return;
-    const storedToken =
-      typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const storedToken = getAccessToken();
     const activeToken = token ?? storedToken;
     if (!activeToken) return;
     sessionProbed.current = true;
