@@ -17,6 +17,7 @@ import {
   Handshake,
   Heart,
   HelpCircle,
+  Inbox,
   Lightbulb,
   Settings,
   Sparkles,
@@ -39,6 +40,7 @@ type BadgeCounts = {
   candidates?: number;
   jobs?: number;
   pendingVerifications?: number;
+  applicationSubmissions?: number;
 };
 
 type NavItem = {
@@ -93,6 +95,13 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/sourcing/marketplace",
         label: "Targ / Dostępni",
         icon: Store,
+        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+      },
+      {
+        href: "/applications",
+        label: "Zgłoszenia",
+        icon: Inbox,
+        badgeKey: "applicationSubmissions",
         roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
       },
     ],
@@ -391,10 +400,19 @@ export function SidebarV2({
       if (isApproverForBadge) {
         promises.push(api.get("/api/pipeline/pending-verifications"));
       }
+      // Zgłoszenia z publicznych aplikacji czekające na decyzję. Bez licznika
+      // ekran kolejki istnieje, ale nikt na niego nie wchodzi — a zgłoszenie,
+      // którego nikt nie widzi, jest tym samym co zgłoszenie utracone.
+      promises.push(
+        api.get("/api/application-submissions", {
+          params: { status: "pending_review", limit: 200 },
+        }),
+      );
       const settled = await Promise.allSettled(promises);
       const candidatesRes = settled[0];
       const jobsRes = settled[1];
       const pendingRes = isApproverForBadge ? settled[2] : null;
+      const submissionsRes = settled[isApproverForBadge ? 3 : 2];
 
       const pendingCount =
         pendingRes && pendingRes.status === "fulfilled"
@@ -413,6 +431,10 @@ export function SidebarV2({
             ? ((jobsRes.value as { data?: { total?: number } }).data?.total ?? 0)
             : 0,
         pendingVerifications: pendingCount,
+        applicationSubmissions:
+          submissionsRes && submissionsRes.status === "fulfilled"
+            ? (((submissionsRes.value as { data?: unknown[] }).data ?? []).length)
+            : 0,
       } as BadgeCounts;
     },
     staleTime: 60_000,
