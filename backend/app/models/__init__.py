@@ -158,6 +158,7 @@ from app.models.engagement_token import EngagementDeclarationToken
 from app.models.note_mention import NoteMention
 from app.models.screening_note_mention import ScreeningNoteMention
 from app.models.candidate_stage_cv import CandidateStageCV
+from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.candidate_document import CandidateDocument
 from app.models.cv_share_token import CVShareToken
 from app.models.recruitment_process import (  # noqa: F401
@@ -354,6 +355,7 @@ __all__ = [
     "NoteMention",
     "ScreeningNoteMention",
     "CandidateStageCV",
+    "CandidateStageRemoval",
     "CandidateDocument",
     "CVShareToken",
     "RequiredDocumentTemplate",

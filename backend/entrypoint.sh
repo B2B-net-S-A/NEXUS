@@ -551,6 +551,25 @@ _COLUMN_STATEMENTS = [
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )""",
+    # 0199: archiwum historii rekrutacji usuniętej korekcyjnie. Musi istnieć
+    # ZANIM ktokolwiek wywoła DELETE /candidates/{id}/recruitments/{job_id} —
+    # brak tabeli zamieniłby archiwizację w błąd, a alternatywą byłby powrót do
+    # kasowania bez śladu.
+    """CREATE TABLE IF NOT EXISTS candidate_stage_removals (
+        id BIGSERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL,
+        job_id INTEGER NOT NULL,
+        removed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        removed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        reason TEXT,
+        last_stage VARCHAR(64),
+        stage_count INTEGER NOT NULL DEFAULT 0,
+        stages_snapshot JSONB NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_stage_removals_pair "
+    "ON candidate_stage_removals (candidate_id, job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_stage_removals_removed_at "
+    "ON candidate_stage_removals (removed_at)",
     "CREATE INDEX IF NOT EXISTS ix_match_index_outbox_pending ON match_index_outbox (status, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_match_index_outbox_entity ON match_index_outbox (entity_type, entity_id)",
     "CREATE INDEX IF NOT EXISTS ix_match_index_outbox_status ON match_index_outbox (status)",
