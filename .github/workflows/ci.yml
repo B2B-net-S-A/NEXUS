@@ -99,6 +99,15 @@ jobs:
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
           # Ensure live-server tests are skipped — our CI uses app_client fixture
           RUN_LIVE_TESTS: "0"
+          # Production HAS this set, so every token path that branches on it
+          # (invite links mint v2 hash-at-rest instead of a plaintext PK, M365
+          # tokens encrypt) took the *other* branch in CI. Green CI then proved
+          # a code path prod does not run. Value is a deliberately zero-entropy
+          # dummy — a valid 32-byte urlsafe-b64 Fernet key, obviously fake, and
+          # never a real secret. Same constant as scripts/schema_inventory.py.
+          # tests/test_ci_token_encryption_parity.py fails if this line is
+          # dropped or the value stops being a usable key.
+          M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
         run: |
           # Auto-discovery: pytest collects EVERY module under tests/, minus the
           # explicit exceptions below. This replaced a hand-enumerated list of ~285
