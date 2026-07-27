@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -1312,36 +1312,39 @@ async def pipeline_overview(
     dashboard. The bare ``CurrentUser`` let a QC/client viewer read it all.
     """
 
-    # Get latest stage per candidate per job
-    result = await db.execute(
-        select(CandidateStage).order_by(
-            CandidateStage.candidate_id,
-            CandidateStage.job_id,
-            CandidateStage.moved_at.desc(),
+    # Optymalizacja 2026-07-27: dawniej `select(CandidateStage)` bez WHERE i bez
+    # LIMIT (pełna hydratacja ~158k obiektów ORM z JSONB `scorecard_answers` /
+    # `screening_answers` + Text `notes`) i dedupe pętlą w Pythonie, bez cache.
+    # Teraz agregaty liczy Postgres na widoku `analytics_current_pipeline`
+    # (DISTINCT ON per para, indeks `ix_analytics_cs_cand_job_moved`) — wzorzec
+    # z `api/dashboard.py::pipeline_funnel`. Kształt odpowiedzi bez zmian.
+    BOTTLENECK_THRESHOLD = 3  # More than 3 candidates in prep_call/screening → alert
+    AGING_THRESHOLD_DAYS = 5  # Candidate stuck > 5 days → aging alert
+
+    # ── Per-job breakdown (GROUP BY job_id, stage) ──
+    # `first_candidate` = MIN(candidate_id): odtwarza kolejność pierwszego
+    # wystąpienia joba przy dawnym skanie posortowanym po (candidate_id, job_id).
+    per_job_rows = (
+        await db.execute(
+            text(
+                "SELECT job_id, stage::text AS stage, COUNT(*)::int AS cnt, "
+                "MIN(candidate_id) AS first_candidate "
+                "FROM analytics_current_pipeline GROUP BY job_id, stage"
+            )
         )
-    )
-    all_entries = result.scalars().all()
+    ).all()
 
-    # Deduplicate: latest stage per (candidate, job) pair
-    seen_keys: set[tuple[int, int]] = set()
-    latest: list[CandidateStage] = []
-    for entry in all_entries:
-        key = (entry.candidate_id, entry.job_id)
-        if key not in seen_keys:
-            seen_keys.add(key)
-            latest.append(entry)
-
-    # ── Per-job breakdown ──
     jobs_data: dict[int, dict] = {}
-    for entry in latest:
-        jid = entry.job_id
-        if jid not in jobs_data:
-            jobs_data[jid] = {"stages": {}, "total": 0}
-        stage_val = entry.stage.value
-        jobs_data[jid]["stages"][stage_val] = (
-            jobs_data[jid]["stages"].get(stage_val, 0) + 1
-        )
-        jobs_data[jid]["total"] += 1
+    job_first_seen: dict[int, int] = {}
+    for row in per_job_rows:
+        jid = row.job_id
+        bucket = jobs_data.setdefault(jid, {"stages": {}, "total": 0})
+        bucket["stages"][row.stage] = bucket["stages"].get(row.stage, 0) + row.cnt
+        bucket["total"] += row.cnt
+        prev = job_first_seen.get(jid)
+        if prev is None or row.first_candidate < prev:
+            job_first_seen[jid] = row.first_candidate
+    ordered_job_ids = sorted(jobs_data, key=lambda j: (job_first_seen[j], j))
 
     # Fetch job titles
     job_ids = list(jobs_data.keys())
@@ -1354,29 +1357,44 @@ async def pipeline_overview(
             job_recruiters[job.id] = job.recruiter_id
 
     # ── Bottleneck detection ──
-    BOTTLENECK_THRESHOLD = 3  # More than 3 candidates in prep_call/screening → alert
-    AGING_THRESHOLD_DAYS = 5  # Candidate stuck > 5 days → aging alert
     bottlenecks = []
-    aging_alerts = []
 
-    for entry in latest:
-        days = _days_in_stage(entry.moved_at)
-        if days > AGING_THRESHOLD_DAYS and entry.stage not in (
-            PipelineStage.hired,
-            PipelineStage.rejected,
-            PipelineStage.withdrawn,
-        ):
-            aging_alerts.append(
-                {
-                    "candidate_id": entry.candidate_id,
-                    "job_id": entry.job_id,
-                    "stage": entry.stage.value,
-                    "days": days,
-                    "job_title": job_titles.get(entry.job_id, "?"),
-                }
-            )
+    # ── Aging alerts (top 20 wg dni w etapie) ──
+    # `days` liczone w SQL identycznie jak `_days_in_stage`: floor po dniach,
+    # ucięte do 0. Sortowanie `days DESC, candidate_id, job_id` odtwarza stabilny
+    # `sort(key=-days)` na liście, która była już posortowana po parze.
+    aging_rows = (
+        await db.execute(
+            text(
+                "WITH cur AS ("
+                "  SELECT candidate_id, job_id, stage::text AS stage,"
+                "         GREATEST(0, FLOOR("
+                "             EXTRACT(EPOCH FROM (now() - moved_at)) / 86400"
+                "         ))::int AS days"
+                "  FROM analytics_current_pipeline"
+                ") "
+                "SELECT candidate_id, job_id, stage, days FROM cur "
+                "WHERE stage NOT IN ('hired', 'rejected', 'withdrawn') "
+                "  AND days > :aging_threshold "
+                "ORDER BY days DESC, candidate_id, job_id "
+                "LIMIT 20"
+            ),
+            {"aging_threshold": AGING_THRESHOLD_DAYS},
+        )
+    ).all()
+    aging_alerts = [
+        {
+            "candidate_id": row.candidate_id,
+            "job_id": row.job_id,
+            "stage": row.stage,
+            "days": row.days,
+            "job_title": job_titles.get(row.job_id, "?"),
+        }
+        for row in aging_rows
+    ]
 
-    for jid, data in jobs_data.items():
+    for jid in ordered_job_ids:
+        data = jobs_data[jid]
         for stage_key in ["prep_call", "screening", "cv_sent"]:
             count = data["stages"].get(stage_key, 0)
             if count >= BOTTLENECK_THRESHOLD:
@@ -1393,17 +1411,24 @@ async def pipeline_overview(
     # ── Workload per recruiter (by moved_by of latest entries) ──
     from app.models.user import User
 
-    recruiter_load: dict[int, int] = {}
-    for entry in latest:
-        if entry.stage not in (
-            PipelineStage.hired,
-            PipelineStage.rejected,
-            PipelineStage.withdrawn,
-        ):
-            rid = entry.moved_by or 0
-            recruiter_load[rid] = recruiter_load.get(rid, 0) + 1
+    # `moved_by IS NULL` → bucket 0 ("Nieprzypisany"), jak w dawnej pętli.
+    # Tie-break przy równym `cnt`: pierwsze wystąpienie rekrutera w skanie
+    # posortowanym po (candidate_id, job_id) — stąd MIN(candidate_id), MIN(job_id).
+    workload_rows = (
+        await db.execute(
+            text(
+                "SELECT COALESCE(moved_by, 0) AS rid, COUNT(*)::int AS cnt, "
+                "       MIN(candidate_id) AS first_candidate, "
+                "       MIN(job_id) AS first_job "
+                "FROM analytics_current_pipeline "
+                "WHERE stage::text NOT IN ('hired', 'rejected', 'withdrawn') "
+                "GROUP BY COALESCE(moved_by, 0) "
+                "ORDER BY cnt DESC, first_candidate, first_job"
+            )
+        )
+    ).all()
 
-    recruiter_ids = [r for r in recruiter_load if r > 0]
+    recruiter_ids = [row.rid for row in workload_rows if row.rid > 0]
     recruiter_names: dict[int, str] = {}
     if recruiter_ids:
         users_result = await db.execute(select(User).where(User.id.in_(recruiter_ids)))
@@ -1412,16 +1437,17 @@ async def pipeline_overview(
 
     workload = [
         {
-            "recruiter_id": rid,
-            "name": recruiter_names.get(rid, "Nieprzypisany"),
-            "active_candidates": count,
+            "recruiter_id": row.rid,
+            "name": recruiter_names.get(row.rid, "Nieprzypisany"),
+            "active_candidates": row.cnt,
         }
-        for rid, count in sorted(recruiter_load.items(), key=lambda x: -x[1])
+        for row in workload_rows
     ]
 
     # ── Opportunity alerts (acceptance/negotiation → help close!) ──
     opportunities = []
-    for jid, data in jobs_data.items():
+    for jid in ordered_job_ids:
+        data = jobs_data[jid]
         acceptance_count = data["stages"].get("acceptance", 0) + data["stages"].get(
             "negotiation", 0
         )
@@ -1435,22 +1461,19 @@ async def pipeline_overview(
                 }
             )
 
-    # Sort aging by days desc
-    aging_alerts.sort(key=lambda x: -x["days"])
-
     return {
         "jobs": [
             {
                 "job_id": jid,
                 "title": job_titles.get(jid, "?"),
                 "recruiter_id": job_recruiters.get(jid),
-                "stages": data["stages"],
-                "total": data["total"],
+                "stages": jobs_data[jid]["stages"],
+                "total": jobs_data[jid]["total"],
             }
-            for jid, data in jobs_data.items()
+            for jid in ordered_job_ids
         ],
         "bottlenecks": bottlenecks,
-        "aging_alerts": aging_alerts[:20],  # Top 20
+        "aging_alerts": aging_alerts,  # Top 20 (LIMIT w SQL)
         "opportunities": opportunities,
         "workload": workload,
         "stage_labels": {s.value: STAGE_LABELS[s] for s in PipelineStage},
