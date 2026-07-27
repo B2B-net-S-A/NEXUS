@@ -4581,6 +4581,41 @@ export interface TeamsChannelTestResponse {
   detail?: string | null;
 }
 
+// ── Traffit — stan zaplanowanego importu Traffit → NEXUS (admin) ────────────
+
+export interface TraffitPhaseState {
+  phase: string;
+  last_synced_at: string | null;
+  last_run_started_at: string | null;
+  last_run_finished_at: string | null;
+  last_status: string | null;
+  stats: Record<string, unknown> | null;
+}
+
+/** Wiersz, który nie zaimportował się N razy z rzędu i przestał blokować
+ *  znacznik delty. Wymaga ręcznego rozstrzygnięcia — nie zniknie sam. */
+export interface TraffitQuarantinedRow {
+  phase: string;
+  ref: string;
+  attempts: number | null;
+  last_seen: string | null;
+}
+
+export interface TraffitSyncStatus {
+  enabled: boolean;
+  running: boolean;
+  max_row_attempts: number;
+  quarantined: TraffitQuarantinedRow[];
+  states: TraffitPhaseState[];
+}
+
+export const traffitSyncApi = {
+  status: () =>
+    api
+      .get<TraffitSyncStatus>("/api/admin/traffit/sync/status")
+      .then((r) => r.data),
+};
+
 export const teamsChannelsApi = {
   list: () => api.get<TeamsChannel[]>("/api/teams-channels").then((r) => r.data),
   create: (data: TeamsChannelCreateInput) =>

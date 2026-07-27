@@ -36,6 +36,7 @@ import Link from "next/link";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
+import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
@@ -427,6 +428,7 @@ export default function SettingsPage() {
           <FirefliesCard />
           <CloudTalkSettingsCard />
           <TeamsNotificationsCard />
+          <TraffitSyncCard />
 
           <div className="bg-muted dark:bg-muted/50 rounded-2xl border border-dashed border-border dark:border-border p-8 text-center">
             <Plug className="w-8 h-8 text-muted-foreground mx-auto mb-2" />

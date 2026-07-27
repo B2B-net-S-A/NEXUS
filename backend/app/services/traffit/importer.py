@@ -73,6 +73,20 @@ def _traffit_document_kind(filename: str, *, is_primary: bool) -> str:
     return "other"
 
 
+# Every row-level error message in this module is built as
+# ``"<verb> <entity> ext=<id>: <error>"`` (or ``id=``), e.g.
+# ``"upsert candidate ext=48895: IntegrityError(...)"``. Reading the key back
+# out of the message keeps the 41 ``add_error`` call sites untouched — adding a
+# parameter to all of them would be a large diff whose only failure mode is the
+# one call site somebody forgets.
+_ERROR_REF_RE = re.compile(r"\b(\w+)\s+(?:ext|id)=([^\s:,]+)")
+
+# Refs are tiny strings, but a systemically broken phase must not balloon the
+# stats JSONB. Past this many distinct failing rows the problem is not a poison
+# row and quarantine is the wrong tool anyway.
+_MAX_ERROR_REFS = 500
+
+
 @dataclass
 class PhaseProgress:
     phase: str
@@ -86,6 +100,11 @@ class PhaseProgress:
     # phase). Surfaced so the daily sync can report "no notatka missing".
     notes_promoted: int = 0
     error_samples: list[str] = field(default_factory=list)
+    # Stable per-row keys ("candidate:48895") for the errors we could attribute
+    # to a specific source record. Consumed by the quarantine in
+    # ``app/tasks/traffit_sync.py``: a row that fails the same way run after run
+    # must stop freezing the delta watermark for everything else.
+    error_refs: set[str] = field(default_factory=set)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
@@ -93,6 +112,11 @@ class PhaseProgress:
         self.errors += 1
         if len(self.error_samples) < 20:
             self.error_samples.append(msg)
+        match = _ERROR_REF_RE.search(msg)
+        if match and len(self.error_refs) < _MAX_ERROR_REFS:
+            # Entity is part of the key so `candidate ext=7` and `stage ext=7`
+            # never collide into one quarantine entry.
+            self.error_refs.add(f"{match.group(1)}:{match.group(2)}")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +129,7 @@ class PhaseProgress:
             "total_source": self.total_source,
             "notes_promoted": self.notes_promoted,
             "error_samples": self.error_samples[:20],
+            "error_refs": sorted(self.error_refs),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
