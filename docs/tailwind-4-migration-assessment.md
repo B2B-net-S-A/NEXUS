@@ -234,16 +234,34 @@ zmergowały się automatycznie.
    z Compass/Atlas może zawierać klasy w składni v3 (`shadow-sm` o innym znaczeniu,
    `!flex` zamiast `flex!`). Do rozważenia: migracja pozostałych trzech w ślad za tym.
 2. **Tailwind Plus** daje kod już w v4 — to po migracji **ułatwienie**, nie problem.
-3. **`space-x-*`/`space-y-*` (665 użyć)** — zmieniony selektor. Nie dał różnicy na
-   zbadanych ekranach, ale różnice ujawniają się dopiero przy `hidden` dzieciach lub
-   `flex-row-reverse`. Nie da się tego wyczerpać bez przejścia po ekranach za logowaniem
-   (harness `/preview/*` jest chroniony middlewarem, wymaga realnego JWT).
-4. **Ekrany za logowaniem nie zostały porównane wizualnie** — patrz wyżej. Pokrycie daje
-   pośrednio macierz 56 kombinacji × 67 elementów tokenowych (§5.3), która obejmuje
-   wszystkie tokeny używane przez te ekrany.
+3. **`space-y-*` — jedyna realna, scharakteryzowana rozbieżność.** Zmiana selektora
+   nie jest kosmetyczna: v3 nakłada `margin-top` na wszystkie dzieci poza pierwszym
+   (`> :not([hidden]) ~ :not([hidden])`), v4 nakłada `margin-bottom` na wszystkie poza
+   ostatnim (`> :not(:last-child)`).
+
+   Przetestowano 6 scenariuszy w przeglądarce. **Odstęp między widocznymi elementami
+   jest zawsze identyczny.** Różnica pojawia się w **jednym** przypadku:
+
+   > Gdy **ostatnie** dziecko kontenera `space-y-*` jest `display:none`
+   > (`hidden`/`md:hidden`/atrybut `hidden`), v4 zostawia `margin-bottom` na
+   > przedostatnim dziecku → **dodatkowy pusty odstęp na dole kontenera**.
+   > v3 tego nie robił.
+
+   Skala: 661 kontenerów `space-y-*`, z czego **102 pliki** zawierają jednocześnie
+   `space-y` i klasę `hidden` (górna granica — większość to nietrafienia, bo `hidden`
+   jest zwykle na innym elemencie niż ostatnie dziecko).
+
+   **To defekt wyłącznie kosmetyczny** — nadmiarowy odstęp, nigdy nachodzenie treści
+   ani przesunięcie elementu. Warunkowe renderowanie React (`{cond && <X/>}`) jest
+   **bezpieczne**, bo nie zostawia węzła w DOM, więc `:last-child` trafia poprawnie.
+
+4. **Ekrany za logowaniem nie zostały porównane wizualnie** — harness `/preview/*` jest
+   chroniony middlewarem (deny-by-default, wymaga realnego JWT). Pokrycie daje pośrednio
+   macierz 56 kombinacji × 67 elementów tokenowych (§5.3), obejmująca wszystkie tokeny
+   używane przez te ekrany.
 
 ## 8. Zalecenie przed mergem
 
 Przejść ręcznie (zalogowany) po: liście kandydatów, tablicy Kanban, generatorze CV,
-modalach i trybie Kids — z naciskiem na odstępy (`space-y`) i wskaźnik myszy na
-przyciskach. To jedyny obszar, którego nie dało się domknąć automatycznie.
+modalach i trybie Kids. Konkretnie szukać **nadmiarowego odstępu na dole** list i paneli
+(ryzyko #3) — reszta jest domknięta pomiarowo.
