@@ -94,8 +94,26 @@ def _pytest_step() -> str:
     declared exception.
     """
     text = CI_YML.read_text(encoding="utf-8")
-    start = text.index("- name: Pytest (unit + in-process integration)")
-    nxt = text.index("\n      - name:", start + 1)
+    # A bare `.index()` would raise ValueError with no context, and this file's
+    # entire job is to fail informatively: whoever renames the step should be
+    # told that is what broke, not handed a traceback into a helper.
+    step_name = "- name: Pytest (unit + in-process integration)"
+    try:
+        start = text.index(step_name)
+    except ValueError:
+        raise AssertionError(
+            f"Could not find {step_name!r} in {CI_YML}. If the step was renamed, "
+            "update this constant — otherwise the coverage contract silently "
+            "stops checking the step it exists to check."
+        ) from None
+    try:
+        nxt = text.index("\n      - name:", start + 1)
+    except ValueError:
+        raise AssertionError(
+            f"Found {step_name!r} in {CI_YML} but no following step at the same "
+            "indent, so the step's extent cannot be determined. If it is now the "
+            "last step in the job, this helper needs to fall back to end-of-file."
+        ) from None
     return "\n".join(
         line
         for line in text[start:nxt].splitlines()
