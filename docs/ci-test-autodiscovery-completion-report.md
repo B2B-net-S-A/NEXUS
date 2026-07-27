@@ -103,8 +103,12 @@ zmigrowana baza (`alembic upgrade heads`, head `0198`), `DATABASE_URL` +
   `--ignore`, usunięty `--ignore` wciąż-czerwonego pliku, powrót do wyliczania
   celów) łapane przez dokładnie tę asercję, która ma je łapać.
 - **Pełny przebieg** — komenda parsowana wprost z `ci.yml`, żeby weryfikacja
-  odpalała to, co odpali CI. Wynik: **3504 passed, 14 skipped, 0 failed**
-  (21 min) — zero z 10 wyjściowych awarii, zero nowych regresji.
+  odpalała to, co odpali CI. Wynik: **3535 passed, 14 skipped, 0 failed** —
+  zero z 10 wyjściowych awarii, zero nowych regresji.
+- **Potwierdzenie na GitHub Actions** — job „Backend (ruff + pytest)" dał
+  **dokładnie te same 3535 passed / 14 skipped**, na czystym runnerze ze świeżą
+  instalacją `requirements.txt` (a nie z lokalnego obrazu). To domyka jedyną
+  realną lukę harnessu — dryf wersji pakietów między obrazem a `requirements.txt`.
 - `ruff check app/` + `ruff format --check app/` — czyste.
 - Narzut `_isolate_skill_taxonomy` — **niemierzalny** (`test_scoring_service.py`:
   66 testów w 1,15 s). Kontenery są puste w ~każdym teście, więc snapshot to
@@ -127,3 +131,25 @@ W trakcie prac `docker kill` filtrowany po obrazie ubił 3 kontenery
 (`ecstatic_wescoff` działał już na starcie). Nic produkcyjnego — to obraz
 lokalny/dev — ale jeśli w innej sesji przerwał się przebieg testów, to stąd.
 Dalej używane były wyłącznie nazwane kontenery.
+
+
+## Uwaga o rebase (dwa incydenty)
+
+`main` rusza się co kilka minut, a `ci.yml` jest gorącym plikiem. **Dwa razy**
+rozwiązanie konfliktu „po stronie tej gałęzi" cicho cofnęłoby cudzą pracę:
+
+1. **#941** — podpięcie `test_candidate_stage_cv_branded` i
+   `test_engagement_magic_link` + piny akcji (checkout v6.0.2, setup-node 6.4.0,
+   cache 5.0.5). Wyłapane przed pushem.
+2. **#949** — `M365_TOKEN_ENCRYPTION_KEY` w kroku pytest. Rebase wykonany poza
+   moją turą cofnął tę linię i **trafiła na origin**; naprawione w `d80866ec`
+   (blok `env` przywrócony dosłownie z `origin/main`).
+
+Reguła na przyszłość: **bierz `ci.yml` z `main` i ODTWÓRZ na nim transformację**,
+nigdy nie forsuj swojej wersji pliku. Po rebase sprawdź niezmienniki:
+`grep -c M365_TOKEN_ENCRYPTION_KEY` = 1, liczba `--ignore=` = liczba wpisów
+baseline'u, `pytest tests/` obecne.
+
+Incydent #2 pokazał przy okazji, że guardrail działa: `test_ci_token_encryption_parity.py`
+jest zbierany automatycznie **dzięki temu PR-owi**, więc skasowanie tej linii to
+czerwony build, a nie ciche cofnięcie.
