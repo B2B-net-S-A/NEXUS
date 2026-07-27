@@ -1,14 +1,13 @@
 """Every test file must actually run in CI — or be a declared, reasoned exception.
 
 The meta-cause behind this whole hardening effort: CI runs a hand-enumerated
-list of ~137 test files out of 263 on disk. Every quality and security guardrail
-is therefore opt-in — it only protects anything if whoever added it also
-remembered to append the filename to `.github/workflows/ci.yml`. That is exactly
-how a guardrail silently dies: the test exists, passes locally, and never runs.
-126 files are already in that limbo.
+list of test files, so every quality and security guardrail is opt-in — it only
+protects anything if whoever added it also remembered to append the filename to
+`.github/workflows/ci.yml`. That is exactly how a guardrail silently dies: the
+test exists, passes locally, and never runs.
 
-This contract inverts the default for NEW files: a `test_*.py` that is neither in
-the CI list nor in the explicit exception baseline below fails this test. The
+This contract inverts the default for NEW files: a test module that is neither
+in the CI list nor in the explicit exception baseline below fails this test. The
 hole becomes a visible red build instead of an invisible gap.
 
 The baseline is a burn-down list, not a target. Each category says why the file
@@ -19,9 +18,20 @@ is not yet wired in, and the list should only ever shrink:
   fixing first.
 - LIVE — needs a running server (uses the `client` fixture, skipped unless
   RUN_LIVE_TESTS=1). These are genuinely out of scope for the in-process job.
-- UNWIRED — collects fine and is plausibly runnable, but has never been added to
-  the CI list. This is the real debt; move files from here into ci.yml as they
-  are confirmed green.
+- FAILING — collects fine, but red on its own today. Almost all of these are
+  stale: the test never ran, so nobody noticed when a schema column went NOT
+  NULL or a request contract gained a required field underneath it.
+- SUITE_INTERFERENCE — green in isolation, red inside the full suite. These
+  assume they own the database (e.g. asserting their own row id appears in an
+  unpaginated global listing), which stops holding once sibling tests populate
+  it. Fixing them means making the assertions local, not re-ordering CI.
+
+Status 2026-07-27: 313 test modules on disk, 281 wired into ci.yml, 32 in the
+baseline below (2 + 4 + 22 + 4). The previous 115-file UNWIRED backlog was
+measured file-by-file in the prod image against a migrated database, and the 89
+confirmed-green ones were wired into ci.yml — first as single files, then
+re-confirmed in one combined 281-file invocation so cross-file interference
+could not hide.
 """
 
 from __future__ import annotations
@@ -30,20 +40,37 @@ import re
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
+TESTS = BACKEND / "tests"
 CI_YML = BACKEND.parent / ".github" / "workflows" / "ci.yml"
+
+# What counts as a test module, by either naming convention. The CI parser and
+# the disk scanner share this so a file cannot be visible to one and invisible
+# to the other — that asymmetry is itself a way around the contract.
+_MODULE = r"(?:test_[A-Za-z0-9_]+|[A-Za-z0-9_]+_test)\.py"
+_CI_PATH_RE = re.compile(rf"tests/((?:[A-Za-z0-9_]+/)*{_MODULE})")
 
 
 def _ci_listed_files() -> set[str]:
-    text = CI_YML.read_text(encoding="utf-8")
-    return set(re.findall(r"tests/(test_[a-z0-9_]+\.py)", text))
+    return set(_CI_PATH_RE.findall(CI_YML.read_text(encoding="utf-8")))
 
 
 def _disk_files() -> set[str]:
-    return {p.name for p in (BACKEND / "tests").glob("test_*.py")}
+    """Every test module under backend/tests/, relative to that directory.
+
+    `rglob` rather than `glob`, and both naming conventions: the previous
+    non-recursive `glob("test_*.py")` could not see a test in a subdirectory nor
+    one named `*_test.py`, so either was a free pass around this contract.
+    """
+    found: set[Path] = set()
+    for pattern in ("test_*.py", "*_test.py"):
+        found.update(TESTS.rglob(pattern))
+    return {
+        p.relative_to(TESTS).as_posix() for p in found if "__pycache__" not in p.parts
+    }
 
 
-# Files not in the CI list, frozen 2026-07-21. Categorised so the reason is
-# argued here, not hidden. Burn these down — do not add to them without cause.
+# Files not in the CI list. Categorised so the reason is argued here, not
+# hidden. Burn these down — do not add to them without cause.
 _COLLECTION_ERRORS = {
     # Cannot be collected without eval/backfill fixture data present. Not yet
     # wired into CI; the three eval/merge siblings ARE in CI (they have the data
@@ -60,142 +87,87 @@ _LIVE = {
     "test_pipeline.py",
 }
 
-# The real debt: collects fine, never wired into CI. Frozen list; shrink it by
-# moving confirmed-green files into ci.yml's pytest invocation.
-#
-# Measured 2026-07-21 by running all 120 in the prod image against a test DB:
-# ~897 passed, 127 failed, 278 errored. So most work, but ~30% are red — many
-# are stale tests from earlier sessions. Do NOT bulk-add this list to ci.yml: a
-# file with one failing test turns CI red. Burn down per file, confirming each
-# is fully green first.
-_UNWIRED: set[str] = {
-    "test_admin_clients_overview_head_dl.py",
-    "test_admin_snapshot.py",
-    "test_ai_health.py",
-    "test_ai_provider_health.py",
-    "test_ai_settings_schemas.py",
-    "test_auto_assign_owners.py",
-    "test_auto_cc_collaborators.py",
-    "test_backfill_candidate_stage_cv.py",
-    "test_backfill_rejection_reasons.py",
+# Red on their own. Measured 2026-07-27 in the prod image against a freshly
+# migrated database, with the same environment CI uses (DATABASE_URL, SECRET_KEY,
+# RUN_LIVE_TESTS=0 and nothing else). Each line is the actual failure, so the
+# next person can pick one up without re-running the whole sweep. Fixing these
+# is deliberately NOT part of the wiring change — a test that has been wrong for
+# months deserves its own diff.
+_FAILING = {
+    # 1 fail — writes its path-traversal probe outside the upload dir:
+    # FileNotFoundError '/tmp/nexus/uploads/candidate_N_../../etc/passwd.pdf'.
     "test_bulk_cv_download.py",
-    "test_candidate_engagement.py",
-    "test_candidate_risk_service.py",
-    "test_candidate_sources_schemas.py",
+    # 1 fail — expired public CV link answers 200, test expects 410.
     "test_candidate_stage_cv_branded.py",
-    "test_candidate_stage_cv_model.py",
-    "test_candidate_stage_cv_snapshot.py",
-    "test_candidates_api_recent_job_change.py",
-    "test_candidates_bulk_schemas.py",
-    "test_candidates_export_v2.py",
+    # 1 fail — hardcoded force.test@example.com collides with candidates_email_key
+    # on any re-run; the test never cleans up after itself.
     "test_candidates_from_cv.py",
-    "test_candidates_from_linkedin.py",
-    "test_candidates_position_filters.py",
-    "test_candidates_recruitment_filter.py",
-    "test_candidates_sort.py",
-    "test_candidates_stage_filter.py",
-    "test_cc_classifier.py",
-    "test_cc_endpoints.py",
+    # 2 fails — endpoint answers {"status":"dry-run","enabled":false}; the test
+    # assumes the Champion AI intake flag is on.
     "test_champion_ai_intake.py",
-    "test_champion_historical_jobs.py",
-    "test_claude_client.py",
-    "test_client_materials.py",
-    "test_client_profile.py",
-    "test_clients_team.py",
-    "test_cloudtalk_api.py",
-    "test_cloudtalk_client.py",
-    # test_cloudtalk_webhook.py + test_cloudtalk_webhook_verify.py wired into
-    # ci.yml by #876 (M6-P0.12) — removed from burn-down baseline.
-    # test_contract_alerts_expansion.py wired into ci.yml by the P1-NOTIFY-01 fix —
-    # removed from this burn-down baseline (extended with episode-aware dedup tests).
-    "test_contract_analytics.py",
-    "test_contract_analytics_expansion.py",
-    "test_contract_templates.py",
-    "test_contractors_api.py",
-    "test_contracts.py",
-    "test_contracts_draft.py",
-    "test_contracts_expansion.py",
-    "test_contracts_filters_multi.py",
-    "test_contracts_search.py",
-    "test_cv_backfill.py",
+    # 2 fails — summary is now concatenated with extra fields, expected strings stale.
     "test_cv_enrichment.py",
+    # 1 fail — parsed-CV dict gained current_position_started_at_precision.
     "test_cv_parser.py",
-    "test_cv_parser_linkedin_extraction.py",
-    "test_cv_text_extractor.py",
-    "test_cv_upload_preview.py",
+    # 7 fails — fixture inserts candidates without lastname, now NOT NULL.
     "test_dl_portal.py",
+    # 1 fail — fixture inserts client_orders without contract_id, now NOT NULL.
     "test_dl_portal_scheduler.py",
+    # 1 fail — expired magic link answers 200, test expects 410.
     "test_engagement_magic_link.py",
-    "test_entity_fields_schemas.py",
-    "test_fx.py",
-    "test_http_headers.py",
-    "test_interview_questions.py",
-    # test_invite_links.py wired into ci.yml by the P0-CAND-01 containment PR
-    # (public /apply duplicate-email no longer overwrites a candidate) — removed
-    # from this burn-down baseline so test_baseline_has_no_stale_entries stays green.
-    "test_invoices.py",
-    "test_job_cc.py",
-    "test_job_chat.py",
-    "test_job_close.py",
-    "test_job_to_pool.py",
+    # 1 fail — client_id is now required, so the invalid payload 422s where the
+    # test expects 400.
     "test_jobs_auto_assign.py",
-    "test_jobs_client_name.py",
-    "test_jobs_filters_multi.py",
-    "test_jobs_orphan_guard.py",
-    "test_jobs_ownership.py",
-    "test_kpi_coach_service.py",
-    "test_kpi_engine.py",
-    "test_kpi_messages.py",
-    "test_logging_redaction.py",
+    # 2 fails — name folding returns 'aka zow kowalski' where the test expects
+    # 'laka zolw kowalski' (leading character dropped).
     "test_m365_matcher.py",
-    "test_m365_recording_discovery.py",
+    # 3 fails — two same-day notifications of one type hit ix_notif_dedup_daily.
     "test_marketplace_flow.py",
+    # 1 fail — is_significant_job_update({'must_skills': None}, {'must_skills': []})
+    # is now True, the test expects False.
     "test_marketplace_service.py",
-    "test_matching_location.py",
-    "test_matching_skills.py",
+    # 2 fails — endpoint now validates and answers 422 where the test expects 201.
     "test_new_endpoints.py",
-    "test_note_mentions.py",
+    # 1 fail — trigger set gained post_interview_t15.
     "test_notification_triggers.py",
-    "test_oauth_clients_schemas.py",
-    "test_oauth_token_schemas.py",
-    "test_onboarding.py",
+    # 10 fails (whole file) — the job team-membership gate answers 403; the
+    # fixture user is not on the recruitment's team.
     "test_pending_verification.py",
-    "test_presence_api.py",
+    # 3 fails — production calls accept(subprotocol=...), the test's
+    # FakeWebSocket.accept() takes no such keyword.
     "test_presence_manager.py",
+    # 1 fail — test_search_matches_title_and_content finds no match.
     "test_procedures.py",
+    # 6 fails — must_skills.level is now an enum ('junior'..'expert'), the test
+    # still sends the integer 4 and gets 422.
     "test_proposals.py",
-    "test_proxycurl_client.py",
-    "test_proxycurl_diff.py",
-    "test_rate_benchmarks.py",
-    "test_rate_cards.py",
-    "test_recommendation_competence_category_multi.py",
+    # 1 fail — _competence_category_matches is now True for a case the test
+    # expects False.
     "test_recommendation_filters.py",
-    # test_rejection_email_integration.py wired into ci.yml by #870 — removed
-    # from this burn-down baseline so test_baseline_has_no_stale_entries stays green.
-    "test_rejection_email_scheduler.py",
-    "test_reports_clients.py",
-    "test_reports_invite_links.py",
-    "test_reports_mrr_snapshot.py",
-    "test_request_history.py",
-    "test_scheduling.py",
-    "test_screening_mentions.py",
-    "test_seeking_contractors.py",
-    "test_settings_candidates_columns.py",
+    # 7 fails (whole file) — fixture inserts jobs without client_id, now NOT NULL.
     "test_shortlist_and_proposal.py",
-    "test_similar_job_candidates.py",
-    "test_similar_job_notify.py",
-    "test_stage_notification_rules.py",
-    "test_talent_pool_auto_add.py",
-    "test_talent_pool_bulk_add.py",
-    "test_talent_pool_cc.py",
-    "test_talent_pools_api.py",
+    # 1 fail — diacritic dedup returns 2 rows, the test expects 1.
     "test_team_structure_dl_clients_dedup.py",
-    "test_team_structure_my_team.py",
-    "test_teams_notifications.py",
-    "test_user_multi_role.py",
 }
 
-_BASELINE = _COLLECTION_ERRORS | _LIVE | _UNWIRED
+# Green alone, red in the full suite — measured in the same combined run. These
+# assume an empty or exclusively-theirs database. Wiring them in as-is would
+# make CI red for reasons unrelated to whatever a PR changed.
+_SUITE_INTERFERENCE = {
+    # test_revenue_forecast_shape: TypeError "'<' not supported between instances
+    # of 'NoneType' and 'datetime.date'" once a sibling test leaves a contract
+    # with a null date behind — arguably a real robustness gap in the forecast.
+    "test_contract_analytics.py",
+    # test_terminate_sets_reason_and_amendment: assert 'active' == 'ended'.
+    "test_contracts_expansion.py",
+    # asserts its own contract id is present in a global listing
+    # (assert 145 in {1, 2, 4, ...}) — false as soon as the list is longer.
+    "test_contracts_filters_multi.py",
+    # same global-listing assumption (assert 154 in {...}).
+    "test_contracts_search.py",
+}
+
+_BASELINE = _COLLECTION_ERRORS | _LIVE | _FAILING | _SUITE_INTERFERENCE
 
 
 def test_no_new_test_file_escapes_ci() -> None:
