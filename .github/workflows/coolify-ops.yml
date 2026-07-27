@@ -24,7 +24,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel]
+        options: [list, cancel, cron-list]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
@@ -81,3 +81,70 @@ jobs:
             fi
           done
           exit $rc
+
+      # ─── Scheduled-task audit ────────────────────────────────────────────
+      # Added 2026-07-27 after Compass turned out to have had every cron job dying
+      # silently since May. Two independent causes, both invisible from the app side:
+      #
+      #   1. `container` empty while the compose stack has more than one service →
+      #      "More than one container exists but no container name was provided",
+      #      the job aborts before running anything.
+      #   2. the command uses `curl`, which the app image does not ship →
+      #      "sh: curl: not found".
+      #
+      # In both cases the scheduler itself is healthy and fires on time, the run is
+      # recorded as `failed`, and nothing reaches the application — so the only way
+      # to notice is to look here. This stack also has multiple services, hence the
+      # check. Read-only.
+      - name: Audit scheduled tasks
+        if: inputs.action == 'cron-list'
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          api() {
+            curl -sS -H "Authorization: Bearer $CO_TOKEN" -H "Accept: application/json" "$CO_URL/api/v1$1"
+          }
+
+          tasks=$(api "/applications/$APP_UUID/scheduled-tasks")
+          if ! echo "$tasks" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "::error::Unexpected response from scheduled-tasks endpoint"
+            echo "$tasks" | head -c 400
+            exit 1
+          fi
+
+          total=$(echo "$tasks" | jq 'length')
+          echo "=== $total scheduled task(s) ==="
+          # Deliberately NOT printing `command`: it carries the app's own bearer token,
+          # which GitHub does not mask (it is not a repo secret). The HTTP client is the
+          # only part that matters here, so derive it and drop the rest.
+          echo "$tasks" | jq -r '
+            .[] | [
+              .name,
+              "freq=" + (.frequency // "?"),
+              "enabled=" + (.enabled | tostring),
+              "container=" + (if (.container // "") == "" then "*** EMPTY ***" else .container end),
+              "client=" + (if (.command // "") | startswith("curl") then "curl"
+                           elif (.command // "") | startswith("wget") then "wget"
+                           else "other" end)
+            ] | @tsv' | column -t -s "$(printf '\t')"
+
+          echo ""
+          no_container=$(echo "$tasks" | jq '[.[] | select((.container // "") == "")] | length')
+          uses_curl=$(echo "$tasks" | jq '[.[] | select((.command // "") | startswith("curl"))] | length')
+          echo "Tasks with no container name: $no_container"
+          echo "Tasks invoking curl:          $uses_curl"
+
+          echo ""
+          echo "=== recent executions (up to 3 per task) ==="
+          for u in $(echo "$tasks" | jq -r '.[].uuid'); do
+            name=$(echo "$tasks" | jq -r --arg u "$u" '.[] | select(.uuid == $u) | .name')
+            echo "--- $name"
+            api "/applications/$APP_UUID/scheduled-tasks/$u/executions" \
+              | jq -r 'if type == "array" then
+                         (if length == 0 then "  (never executed)"
+                          else (.[0:3][] | "  \(.status)  \(.started_at // .created_at // "?")  \((.message // "")[0:140])")
+                          end)
+                       else "  (no data)" end' 2>/dev/null || echo "  (request failed)"
+          done
