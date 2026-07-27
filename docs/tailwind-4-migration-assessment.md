@@ -260,7 +260,36 @@ zmergowały się automatycznie.
    macierz 56 kombinacji × 67 elementów tokenowych (§5.3), obejmująca wszystkie tokeny
    używane przez te ekrany.
 
-## 8. Zalecenie przed mergem
+## 8. Odpowiedź na uwagi automatycznego review
+
+Review (`claude-code-action`) dał ✅ *Approve with notes* i zgłosił 3 uwagi. Sprawdzone:
+
+**Uwaga 1 — zdublowany `@keyframes fadeIn`.** Potwierdzone: kodmod zostawił definicję
+w `@theme inline` (dla zmiennej `--animate-fadeIn`) i w `@layer utilities` (dla ręcznie
+pisanej klasy). W zbudowanym CSS obie definicje są **znakowo identyczne**, obie reguły
+`.animate-fadeIn` dają `animation: fadeIn 200ms ease-out both`. Zero różnicy w działaniu.
+
+**Zostawione świadomie.** Klasy `.animate-in` i `.fade-in` odwołują się do `fadeIn` przez
+`animation-name`, a klatki z `@theme` są emitowane **tylko** gdy użyta jest odpowiadająca
+im utility `animate-*`. Usunięcie jawnej definicji z `@layer utilities` sprawiłoby, że
+zniknięcie ostatniego użycia `animate-fadeIn` po cichu urwałoby `.fade-in`. Redundancja
+jest tu tańsza niż to ryzyko — i tak czy tak jest to sprzątanie do osobnego PR-a, nie do
+bumpa zależności.
+
+**Uwaga 2 — czy `--color-gray-200` jest w ogóle emitowane przy `@theme inline`?**
+Sprawdzone w zbudowanym CSS: **jest** — `--color-gray-200: oklch(92.8% 0.006 264.531)`.
+`@theme inline` z własną paletą nie wyłącza domyślnej palety v4, więc shim
+`border-color: var(--color-gray-200, currentcolor)` działa jak zamierzono i nie degraduje
+się cicho do `currentcolor`. **Uwaga bezpodstawna.**
+
+> Poboczna obserwacja: dla samego `*` shim i tak jest bezprzedmiotowy, bo
+> `* { @apply border-border }` (linia 503, ta sama warstwa, dalej w pliku) go nadpisuje.
+> Shim pozostaje operatywny dla `::before`/`::after`/`::backdrop`, których `*` nie łapie.
+
+**Uwaga 3 — `space-y-*`.** Zgodna z §7.3, gdzie rozbieżność jest już scharakteryzowana
+pomiarowo (jedyny przypadek: ostatnie dziecko `display:none` → nadmiarowy odstęp na dole).
+
+## 9. Zalecenie przed mergem
 
 Przejść ręcznie (zalogowany) po: liście kandydatów, tablicy Kanban, generatorze CV,
 modalach i trybie Kids. Konkretnie szukać **nadmiarowego odstępu na dole** list i paneli
