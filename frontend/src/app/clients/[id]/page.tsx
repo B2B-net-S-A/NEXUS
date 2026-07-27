@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
+import { resolveViewState } from "@/lib/view-state";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
   ArrowLeft,
   Building2,
@@ -758,7 +760,13 @@ export default function ClientDetailPage() {
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
 
-  const { data: client, isLoading } = useQuery({
+  const {
+    data: client,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["client", id],
     queryFn: () => api.get(`/api/clients/${id}`).then((r) => r.data),
   });
@@ -769,15 +777,35 @@ export default function ClientDetailPage() {
     }
   }, [client, id, openTab]);
 
-  if (isLoading)
+  // 403 (brak uprawnień do klienta) i 5xx NIE mogą udawać „nie znaleziono"
+  // (audyt F-20) — użytkownik czytał to jako skasowanie rekordu.
+  const clientViewState = resolveViewState({
+    isLoading,
+    isError,
+    error,
+    isEmpty: !client,
+  });
+  if (clientViewState === "loading")
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <div className="w-6 h-6 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mr-3" />
         Ładowanie klienta...
       </div>
     );
-  if (!client)
-    return <div className="p-6 text-destructive">Nie znaleziono klienta</div>;
+  if (clientViewState !== "ready")
+    return (
+      <div className="p-6">
+        <QueryStateNotice
+          state={clientViewState === "empty" ? "not_found" : clientViewState}
+          description={
+            clientViewState === "forbidden"
+              ? "Nie masz uprawnień do tego klienta. Rekord istnieje — poproś administratora o dostęp."
+              : undefined
+          }
+          onRetry={() => void refetch()}
+        />
+      </div>
+    );
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },

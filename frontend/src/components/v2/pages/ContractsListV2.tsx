@@ -15,6 +15,8 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import { resolveViewState } from"@/lib/view-state";
+import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { RequireRole } from"@/components/RequireRole";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -173,7 +175,7 @@ export function ContractsListV2() {
  }
  };
 
- const { data, isLoading } = useQuery({
+ const { data, isLoading, isError, error, refetch } = useQuery({
  queryKey: ["contracts-v2", search, statusFilter, typeFilter, endingSoon, page],
  queryFn: () =>
  api
@@ -201,6 +203,19 @@ export function ContractsListV2() {
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+ // 403 (stawki = TacPlus na backendzie) i 5xx NIE mogą renderować się jako
+ // „Brak kontraktów spełniających kryteria" (audyt F-20).
+ const viewState = resolveViewState({
+ isLoading,
+ isError,
+ error,
+ isEmpty: items.length === 0,
+ });
+ const failed =
+ viewState === "forbidden" ||
+ viewState === "not_found" ||
+ viewState === "error";
+
  // "All selected" is derived by comparing the SET of selected ids against the
  // set of currently-visible ids — never by count equality (which is fragile
  // against stale ids from a previous page/filter). Computed inline (page size
@@ -227,7 +242,11 @@ export function ContractsListV2() {
  Kontrakty
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- {isLoading ?"Ładowanie…" : `${total} kontraktów w systemie`}
+ {isLoading
+ ?"Ładowanie…"
+ : failed
+ ?"Nie udało się pobrać listy"
+ : `${total} kontraktów w systemie`}
  </p>
  </div>
  <div className="flex items-center gap-2">
@@ -409,13 +428,28 @@ export function ContractsListV2() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {isLoading ? (
+ {viewState === "loading" ? (
  <TableRow>
  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
  Ładowanie…
  </TableCell>
  </TableRow>
- ) : items.length === 0 ? (
+ ) : failed ? (
+ <TableRow>
+ <TableCell colSpan={8} className="p-0">
+ <QueryStateNotice
+ state={viewState as "forbidden" | "not_found" | "error"}
+ className="border-0"
+ description={
+ viewState === "forbidden"
+ ?"Twoja rola nie ma dostępu do rejestru kontraktów (stawki i marże). Rejestr NIE jest pusty."
+ : undefined
+ }
+ onRetry={() => void refetch()}
+ />
+ </TableCell>
+ </TableRow>
+ ) : viewState === "empty" ? (
  <TableRow>
  <TableCell colSpan={8} className="text-center py-10">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
@@ -497,7 +531,7 @@ export function ContractsListV2() {
  )}
 
  {/* Pagination */}
- {!isLoading && total > pageSize && (
+ {viewState === "ready" && total > pageSize && (
  <div className="flex items-center justify-between text-sm">
  <span className="text-muted-foreground">
  Strona <strong className="text-foreground">{page}</strong> z {totalPages}

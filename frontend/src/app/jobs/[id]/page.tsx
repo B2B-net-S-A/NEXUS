@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { resolveViewState } from "@/lib/view-state";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { getAvatarColor } from "@/lib/colors";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -1057,7 +1059,13 @@ export default function JobDetailPage() {
     };
   }, [searchParams, pathname, router]);
 
-  const { data: job, isLoading: jobLoading } = useQuery({
+  const {
+    data: job,
+    isLoading: jobLoading,
+    isError: jobIsError,
+    error: jobError,
+    refetch: refetchJob,
+  } = useQuery({
     queryKey: ["job", id],
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
   });
@@ -1101,8 +1109,31 @@ export default function JobDetailPage() {
     }
   }, [id, queryClient]);
 
-  if (jobLoading) return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
-  if (!job) return <div className="p-6 text-destructive">Nie znaleziono oferty</div>;
+  // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
+  // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
+  // danych (audyt F-20).
+  const jobViewState = resolveViewState({
+    isLoading: jobLoading,
+    isError: jobIsError,
+    error: jobError,
+    isEmpty: !job,
+  });
+  if (jobViewState === "loading")
+    return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
+  if (jobViewState !== "ready")
+    return (
+      <div className="p-6">
+        <QueryStateNotice
+          state={jobViewState === "empty" ? "not_found" : jobViewState}
+          description={
+            jobViewState === "forbidden"
+              ? "Nie masz uprawnień do tej oferty. Oferta istnieje — poproś o dodanie Cię do jej zespołu albo o rozszerzenie roli."
+              : undefined
+          }
+          onRetry={() => void refetchJob()}
+        />
+      </div>
+    );
 
   return (
     <div className="space-y-2">
