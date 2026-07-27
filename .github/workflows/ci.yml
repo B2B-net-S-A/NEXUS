@@ -165,9 +165,11 @@ jobs:
                  tests/test_candidate_remove_from_recruitment.py \
                  tests/test_pipeline_inventory.py \
                  tests/test_engagement_inventory.py \
+                 tests/test_engagement_magic_link.py \
                  tests/test_recruitment_module_access.py \
                  tests/test_pipeline_integrity.py \
                  tests/test_cv_share_security.py \
+                 tests/test_candidate_stage_cv_branded.py \
                  tests/test_workflow_registry.py \
                  tests/test_process_backfill.py \
                  tests/test_candidate_delete.py \

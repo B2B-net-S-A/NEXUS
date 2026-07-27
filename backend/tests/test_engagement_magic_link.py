@@ -42,17 +42,42 @@ async def _cleanup_candidate(cid: int) -> None:
 
 
 async def _expire_token(token_str: str) -> None:
+    """Przestaw ``expires_at`` w przeszłość dla wiersza kryjącego się za sekretem.
+
+    Od hash-at-rest v2 (migracja 0182) kolumna ``token`` NIE trzyma sekretu —
+    leży w niej nie-sekretny revoke-key ``v2$<hex>``, a sekret istnieje wyłącznie
+    jako SHA-256 w ``token_sha256``. Dopasowanie ``token == token_str`` (jak
+    robił ten helper przed poprawką) aktualizowało zero wierszy, więc setup po
+    cichu stawał się no-opem: token nigdy nie wygasał, a 200 z endpointu było
+    POPRAWNĄ odpowiedzią dla wciąż ważnego linku. Poniższy WHERE odwzorowuje
+    dual-read z ``_resolve_token``, a assert na ``rowcount`` sprawia, że przy
+    kolejnej zmianie schematu test padnie głośno na setupie zamiast udawać
+    regresję w API.
+    """
+    import hashlib
+
     from app.core.database import AsyncSessionLocal
     from app.models.engagement_token import EngagementDeclarationToken
     from sqlalchemy import update
 
+    digest = hashlib.sha256(token_str.encode()).hexdigest()
     async with AsyncSessionLocal() as db:
-        await db.execute(
+        res = await db.execute(
             update(EngagementDeclarationToken)
-            .where(EngagementDeclarationToken.token == token_str)
+            .where(
+                (EngagementDeclarationToken.token_sha256 == digest)
+                | (
+                    (EngagementDeclarationToken.token == token_str)
+                    & (EngagementDeclarationToken.token_sha256.is_(None))
+                )
+            )
             .values(expires_at=datetime.now(timezone.utc) - timedelta(days=1))
         )
         await db.commit()
+    assert res.rowcount == 1, (
+        "setup nie trafił w żaden wiersz engagement_declaration_tokens — token "
+        "NIE został wygaszony, więc test nie sprawdziłby niczego"
+    )
 
 
 @pytest.mark.asyncio

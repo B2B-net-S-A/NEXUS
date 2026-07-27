@@ -97,8 +97,6 @@ _FAILING = {
     # 1 fail — writes its path-traversal probe outside the upload dir:
     # FileNotFoundError '/tmp/nexus/uploads/candidate_N_../../etc/passwd.pdf'.
     "test_bulk_cv_download.py",
-    # 1 fail — expired public CV link answers 200, test expects 410.
-    "test_candidate_stage_cv_branded.py",
     # 1 fail — hardcoded force.test@example.com collides with candidates_email_key
     # on any re-run; the test never cleans up after itself.
     "test_candidates_from_cv.py",
@@ -113,8 +111,6 @@ _FAILING = {
     "test_dl_portal.py",
     # 1 fail — fixture inserts client_orders without contract_id, now NOT NULL.
     "test_dl_portal_scheduler.py",
-    # 1 fail — expired magic link answers 200, test expects 410.
-    "test_engagement_magic_link.py",
     # 1 fail — client_id is now required, so the invalid payload 422s where the
     # test expects 400.
     "test_jobs_auto_assign.py",

@@ -38,6 +38,7 @@ Pokrycie:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -485,6 +486,38 @@ async def test_public_cv_404_when_revoked(
     assert pub.status_code == 404
 
 
+async def _force_expire_share_token(raw_token: str) -> None:
+    """Przestaw ``expires_at`` w przeszłość dla wiersza kryjącego się za sekretem.
+
+    Od tokenu v2 (migracja 0176) kolumna ``token`` NIE trzyma sekretu — leży w
+    niej nie-sekretny revoke-key ``v2$<hex>``, a sam sekret istnieje wyłącznie
+    jako SHA-256 w ``token_sha256``. Dopasowanie ``token == raw`` (jak robił ten
+    test przed poprawką) aktualizowało zero wierszy, więc setup po cichu stawał
+    się no-opem: token nigdy nie wygasał, a 200 z endpointu było POPRAWNĄ
+    odpowiedzią dla wciąż ważnego linku. Poniższy WHERE odwzorowuje dual-read z
+    ``get_public_cv``, a assert na ``rowcount`` sprawia, że gdyby schemat znów
+    się zmienił, test padnie głośno na setupie zamiast udawać regresję w API.
+    """
+    digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(
+            update(CVShareToken)
+            .where(
+                (CVShareToken.token_sha256 == digest)
+                | (
+                    (CVShareToken.token == raw_token)
+                    & (CVShareToken.token_sha256.is_(None))
+                )
+            )
+            .values(expires_at=datetime.now(timezone.utc) - timedelta(days=1))
+        )
+        await db.commit()
+    assert res.rowcount == 1, (
+        "setup nie trafił w żaden wiersz cv_share_tokens — token NIE został "
+        "wygaszony, więc test nie sprawdziłby niczego"
+    )
+
+
 @pytest.mark.asyncio
 async def test_public_cv_410_when_expired(
     app_client: AsyncClient, app_auth_headers: dict
@@ -504,13 +537,7 @@ async def test_public_cv_410_when_expired(
         )
     ).json()["token"]
 
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            update(CVShareToken)
-            .where(CVShareToken.token == tok)
-            .values(expires_at=datetime.now(timezone.utc) - timedelta(days=1))
-        )
-        await db.commit()
+    await _force_expire_share_token(tok)
 
     pub = await app_client.get(f"/api/public/cv/{tok}")
     assert pub.status_code == 410
