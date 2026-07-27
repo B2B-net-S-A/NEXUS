@@ -15,9 +15,15 @@ import re
 import sys
 
 try:
-    from pythonjsonlogger import jsonlogger  # type: ignore
-except ImportError:  # pragma: no cover
-    jsonlogger = None
+    # python-json-logger >= 3.1 moved the formatter to `pythonjsonlogger.json`.
+    # The old `pythonjsonlogger.jsonlogger` path still resolves in 4.x but emits a
+    # DeprecationWarning on import, so prefer the new one.
+    from pythonjsonlogger.json import JsonFormatter
+except ImportError:  # pragma: no cover — python-json-logger < 3.1
+    try:
+        from pythonjsonlogger.jsonlogger import JsonFormatter  # type: ignore
+    except ImportError:
+        JsonFormatter = None  # type: ignore[assignment]
 
 
 # ── PII / secret redaction ───────────────────────────────────────────────────
@@ -91,7 +97,7 @@ def configure_json_logging(debug: bool = False) -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    if debug or jsonlogger is None:
+    if debug or JsonFormatter is None:
         # Keep default formatter — easier to read during local dev
         return
 
@@ -100,8 +106,14 @@ def configure_json_logging(debug: bool = False) -> None:
         root.removeHandler(h)
 
     handler = logging.StreamHandler(sys.stdout)
-    formatter = jsonlogger.JsonFormatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s",
+    # `taskName` is listed explicitly on purpose. Under python-json-logger 2.0.7 it
+    # leaked into every record as an "extra" (that release's reserved-attrs list
+    # predates the Python 3.12 LogRecord attribute), so prod logs in Loki already
+    # carry it. Versions >= 3 correctly treat it as reserved and drop it, which
+    # would silently change the log contract — naming it here keeps the emitted key
+    # set identical (null outside a task, the task name inside one).
+    formatter = JsonFormatter(
+        "%(asctime)s %(levelname)s %(name)s %(taskName)s %(message)s",
         rename_fields={"asctime": "timestamp", "levelname": "level"},
     )
     handler.setFormatter(formatter)
