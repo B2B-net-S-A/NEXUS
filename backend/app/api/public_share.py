@@ -459,6 +459,12 @@ async def submit_public_apply(
     content = await cv.read()
     _validate_cv_file(cv, content)
 
+    # Identifies the link in rows that must not carry the raw secret. Both
+    # branches below stamp it: a v2 link's `token` PK is a non-secret revoke
+    # key, so the raw-token prefix they also record resolves nothing on its own.
+    # Read side: `_resolve_invite_source` in api/candidates.
+    token_digest = hashlib.sha256(token.encode()).hexdigest()
+
     # Duplicate-by-email — case-insensitive match.
     normalized_email = str(email).strip().lower()
     existing = await db.scalar(
@@ -467,12 +473,11 @@ async def submit_public_apply(
 
     if existing is not None:
         # ── Branch B: park the submission, never mutate the candidate ──────
-        link_digest = hashlib.sha256(token.encode()).hexdigest()
         object_key, cv_bytes, submission_raw_text = await _persist_submission_cv(
             cv, content
         )
         submission = ApplicationSubmission(
-            invite_link_token_sha256=link_digest,
+            invite_link_token_sha256=token_digest,
             job_id=link.job_id,
             status=ApplicationSubmissionStatus.pending_review.value,
             submitted_first_name=first_name.strip(),
@@ -517,7 +522,7 @@ async def submit_public_apply(
                 user_id=link.created_by,
                 details={
                     "invite_token": token[:8],
-                    "invite_token_sha256": link_digest,
+                    "invite_token_sha256": token_digest,
                     "job_id": link.job_id,
                     "matched_candidate_id": existing.id,
                 },
@@ -589,11 +594,6 @@ async def submit_public_apply(
         await create_original_cv_snapshot(db, new_stage)
 
     # Audit trail — link the Activity to the inviting recruiter.
-    # `invite_token_sha256` is what makes the row resolvable back to its link:
-    # a v2 link's `token` PK is a non-secret revoke key, so the raw-token prefix
-    # below matches nothing. The prefix stays for legacy links, whose PK still
-    # is the raw secret. Read side: `_resolve_invite_source` in api/candidates.
-    applied_digest = hashlib.sha256(token.encode()).hexdigest()
     db.add(
         Activity(
             entity_type="candidate",
@@ -602,7 +602,7 @@ async def submit_public_apply(
             user_id=link.created_by,
             details={
                 "invite_token": token[:8],
-                "invite_token_sha256": applied_digest,
+                "invite_token_sha256": token_digest,
                 "job_id": link.job_id,
                 "was_duplicate": False,
             },
@@ -618,7 +618,7 @@ async def submit_public_apply(
                 "name": f"{candidate.name} {candidate.lastname}",
                 "source": "invite_link",
                 "invite_token": token[:8],
-                "invite_token_sha256": applied_digest,
+                "invite_token_sha256": token_digest,
                 "was_duplicate": False,
             },
         )
