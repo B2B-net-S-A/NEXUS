@@ -5,12 +5,35 @@ Polls pipeline overview-sla logic every N minutes, finds new breaches since
 the last check, and posts them to SLACK_WEBHOOK_URL (if configured).
 
 Dedup: DURABLE + ATOMIC (audyt P1 restart-safety). Each alerted CandidateStage
-row is stamped with `sla_alerted_at` inside the same transaction as a successful
-Slack POST, under a `SELECT ... FOR UPDATE SKIP LOCKED` claim. A CandidateStage
-row is a single stage-entry (a stage move creates a new row), so one durable
-stamp = exactly one alert, ever. This replaces the old in-process set that reset
-on every restart (Coolify rebuilds on each push) and diverged per uvicorn worker
-→ re-alerting every breach on restart / duplicate alerts across workers.
+row is stamped with `sla_alerted_at`. A CandidateStage row is a single
+stage-entry (a stage move creates a new row), so one durable stamp = exactly one
+alert, ever. This replaces the old in-process set that reset on every restart
+(Coolify rebuilds on each push) and diverged per uvicorn worker → re-alerting
+every breach on restart / duplicate alerts across workers.
+
+Kolejność (F-11, 2026-07-27): stempel jest **commitowany PRZED** POST-em na
+webhook, nie po nim. Wcześniej POST szedł wewnątrz otwartej transakcji, a
+`sla_alerted_at` lądowało dopiero po nim — twardy crash w tym oknie (prod
+restartuje się przy każdym deployu, rolling overlap) cofał transakcję, więc nic
+nie odnotowywało, że alert już wyszedł, i kolejny przebieg wysyłał go DRUGI RAZ.
+
+Wybór strony okna jest świadomy. POST na Slacka nie jest ani idempotentny, ani
+transakcyjny, więc „dokładnie raz" jest nieosiągalne — można tylko wybrać, po
+której stronie leży ryzyko. Tu wybieramy **at-most-once** (najwyżej raz):
+zgubiony push zamiast zdublowanego. Jest to możliwe do zaakceptowania tylko
+dlatego, że breach SLA **nie jest informacją, którą tracimy** —
+`api/phase3.py::sla_alerts` liczy breache na żywo z `candidate_stages` i w ogóle
+nie czyta `sla_alerted_at`, więc przypadek zostaje na stałe widoczny w przeglądzie
+pipeline'u. Zgubiony push = pominięte szturchnięcie dla sprawy, która i tak jest
+na ekranie; zdublowany push = szum, który podkopuje zaufanie do kanału alertów.
+Ten sam porządek ma już `tasks/contract_alerts.py`: najpierw commit trwałego
+stanu, potem Slack jako best-effort fan-out.
+
+Świadomie NIE stosujemy tu wzorca rezerwacji z `tasks/chat_email_fallback.py`
+(`email_send_started_at` → efekt → `email_sent_at`, z odzyskiwaniem wiszącej
+rezerwacji). Tamten wzorzec istnieje po to, by pracy NIGDY nie zgubić kosztem
+ewentualnego duplikatu — czyli daje dokładnie ten tryb awarii, od którego tu
+uciekamy. Ponowienie niepotwierdzonej próby z definicji odtwarza okno duplikatu.
 """
 
 from __future__ import annotations
@@ -21,7 +44,7 @@ import os
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import select, tuple_
+from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -138,31 +161,72 @@ async def _compute_breaches(db: AsyncSession) -> list[dict]:
     return breaches
 
 
-async def _dispatch_alert(webhook: str, breach: dict) -> bool:
-    """Claim one breach row and, if un-alerted, post to Slack + stamp it.
+async def _claim_breach(db: AsyncSession, candidate_stage_id: int) -> bool:
+    """Atomically stamp ``sla_alerted_at`` — and commit it BEFORE any POST.
 
-    Uses `SELECT ... FOR UPDATE SKIP LOCKED` so parallel workers can't both
-    alert the same CandidateStage. Only stamps `sla_alerted_at` when Slack
-    accepts (2xx); a failed POST rolls back un-stamped so the next tick retries.
-    Returns True only when an alert was actually sent + persisted.
+    A single ``UPDATE ... WHERE sla_alerted_at IS NULL ... RETURNING id`` guarded
+    by the row lock Postgres takes for the write. Returns True only for the
+    caller that flipped the row from NULL. A concurrent/overlapping pass
+    (multi-worker or a rolling-deploy restart overlap) blocks on the lock, then
+    re-evaluates the WHERE against the committed stamp, matches zero rows and
+    returns False — so the alert is posted at most once.
+
+    This replaces a ``SELECT ... FOR UPDATE SKIP LOCKED`` whose transaction — and
+    row lock — stayed open across the whole Slack call (up to the 10s timeout).
+    The claim now commits immediately: no idle-in-transaction connection held
+    hostage by a remote HTTP round trip, and the record of the alert survives a
+    crash during that round trip.
+    """
+    result = await db.execute(
+        update(CandidateStage)
+        .where(
+            CandidateStage.id == candidate_stage_id,
+            CandidateStage.sla_alerted_at.is_(None),
+        )
+        .values(sla_alerted_at=func.now())
+        .returning(CandidateStage.id)
+    )
+    claimed = result.scalar_one_or_none() is not None
+    await db.commit()
+    return claimed
+
+
+async def _release_claim(db: AsyncSession, candidate_stage_id: int) -> None:
+    """Hand a claimed breach back so the next tick retries it.
+
+    Only ever called when the POST failed *cleanly* — a non-2xx response or a
+    transport error, both of which ``_post_to_slack`` turns into False. That is
+    the case where we know for certain Slack did not accept the message, so
+    re-alerting is not a duplicate.
+
+    Deliberately NOT reached via ``try/finally``: a hard crash (the container
+    being killed mid-POST) runs no cleanup, which is the whole point — the stamp
+    stands and the alert is never sent twice.
+    """
+    await db.execute(
+        update(CandidateStage)
+        .where(CandidateStage.id == candidate_stage_id)
+        .values(sla_alerted_at=None)
+    )
+    await db.commit()
+
+
+async def _dispatch_alert(webhook: str, breach: dict) -> bool:
+    """Claim one breach row, then post it to Slack.
+
+    Order is load-bearing (see module docstring): the claim is committed first,
+    so a crash between the claim and Slack accepting the message can only ever
+    drop the alert — never send it twice. Returns True only when an alert was
+    actually accepted by Slack.
     """
     async with AsyncSessionLocal() as db:
-        row = await db.scalar(
-            select(CandidateStage)
-            .where(CandidateStage.id == breach["candidate_stage_id"])
-            .with_for_update(skip_locked=True)
-        )
-        if row is None:
-            # Locked by another worker, or the stage row is gone.
-            return False
-        if row.sla_alerted_at is not None:
-            # Another worker won the race and already alerted this row.
+        if not await _claim_breach(db, breach["candidate_stage_id"]):
+            # Already alerted, claimed by another worker, or the row is gone.
             return False
         if not await _post_to_slack(webhook, breach):
-            # Leave un-stamped so the next tick retries this breach.
+            # Slack explicitly refused it — give the breach back for a retry.
+            await _release_claim(db, breach["candidate_stage_id"])
             return False
-        row.sla_alerted_at = datetime.now(timezone.utc)
-        await db.commit()
         return True
 
 
