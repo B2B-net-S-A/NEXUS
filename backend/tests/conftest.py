@@ -35,9 +35,60 @@ def event_loop():
     yield loop
     loop.close()
 
+
 BASE_URL = "http://localhost:8000"
 TEST_EMAIL = "artur@b2bnet.pl"
 TEST_PASSWORD = "admin123"
+
+
+# ── Process-global state isolation ───────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _restore_skill_taxonomy_globals():
+    """Undo, after every test, any hydration of the in-memory skill taxonomy.
+
+    ``skill_taxonomy_loader.refresh_alias_map()`` replaces five module-level
+    containers — ``scoring_service.ALIAS_MAP`` plus its cached champion regex,
+    and ``skill_normalize``'s three taxonomy maps — with whatever the ``skills``
+    / ``skill_aliases`` tables hold. Production calls it at startup and after
+    every Cortex curation edit, so a test that drives one of those endpoints
+    (``test_cortex_api.py``) leaves the taxonomy loaded for the entire remaining
+    pytest process.
+
+    That made collection order a hidden input. ``test_scoring_service.py``
+    pins the taxonomy-free contract — an empty ALIAS_MAP means no raw-CV skill
+    extraction and no champion/JD-derived ``must_skills`` — and it only held
+    because ci.yml happens to list that file first. Running the same 288 files
+    in alphabetical order puts ``test_cortex_api.py`` ahead of it and three of
+    its tests turn red, which is why CI still enumerates files by hand instead
+    of letting pytest discover them.
+
+    Snapshot/restore rather than a hard clear: a test that hydrates the taxonomy
+    on purpose still sees it for its own duration, and this fixture is autouse
+    so it is set up before the test's own fixtures and therefore torn down after
+    them — it has the last word on the globals either way.
+    """
+    from app.services import scoring_service as _ss
+    from app.services import skill_normalize as _sn
+
+    alias_map = dict(_ss.ALIAS_MAP)
+    champion_pattern = _ss._CHAMPION_ALIAS_PATTERN
+    tech_canonicals = set(_sn.TECH_CANONICALS)
+    alias_to_canonical = dict(_sn.ALIAS_TO_CANONICAL)
+    canonical_to_aliases = {k: list(v) for k, v in _sn.CANONICAL_TO_ALIASES.items()}
+    try:
+        yield
+    finally:
+        _ss.ALIAS_MAP.clear()
+        _ss.ALIAS_MAP.update(alias_map)
+        _ss._CHAMPION_ALIAS_PATTERN = champion_pattern
+        _sn.TECH_CANONICALS.clear()
+        _sn.TECH_CANONICALS.update(tech_canonicals)
+        _sn.ALIAS_TO_CANONICAL.clear()
+        _sn.ALIAS_TO_CANONICAL.update(alias_to_canonical)
+        _sn.CANONICAL_TO_ALIASES.clear()
+        _sn.CANONICAL_TO_ALIASES.update(canonical_to_aliases)
 
 
 # ── Legacy live-server fixtures ─────────────────────────────────────────────

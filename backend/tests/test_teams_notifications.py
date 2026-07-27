@@ -18,6 +18,7 @@ patches on ``settings.TEAMS_NOTIFICATIONS_ENABLED``.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
@@ -28,7 +29,9 @@ from httpx import AsyncClient
 from sqlalchemy import delete
 
 from app.core.database import AsyncSessionLocal
+from app.core.security import hash_password
 from app.models.teams_channel import TeamsNotificationChannel
+from app.models.user import User, UserRole
 from app.services import teams_notifications
 from app.services.teams_notifications import (
     NOTIFICATION_TYPES,
@@ -318,6 +321,29 @@ async def cleanup_teams_channels() -> AsyncIterator[None]:
         await db.commit()
 
 
+@pytest_asyncio.fixture
+async def teams_channel_owner_id() -> int:
+    """Create the user that owns the channels inserted directly by a test.
+
+    ``created_by_user_id`` is NOT NULL and a FK to ``users``. Hardcoding id 1
+    only worked while some earlier test in the same run happened to leave a
+    user with that id behind — reorder the suite and the insert dies on
+    ``teams_notification_channels_created_by_user_id_fkey``. The row a test
+    depends on is the test's own responsibility.
+    """
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"teams-owner-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password("x"),
+            name="Teams Owner",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        return user.id
+
+
 @pytest.mark.asyncio
 async def test_list_channels_empty(
     app_client: AsyncClient,
@@ -489,6 +515,7 @@ async def test_test_endpoint_reports_killswitch_off(
 @pytest.mark.asyncio
 async def test_notify_teams_fans_out_to_subscribed_channels(
     cleanup_teams_channels: None,
+    teams_channel_owner_id: int,
     monkeypatch,
 ) -> None:
     """Two enabled channels subscribed to `candidate_added` → two sends.
@@ -509,7 +536,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-a",
                 notification_types=["candidate_added"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=teams_channel_owner_id,
             )
         )
         db.add(
@@ -519,7 +546,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-b",
                 notification_types=["candidate_added", "contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=teams_channel_owner_id,
             )
         )
         db.add(
@@ -529,7 +556,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-c",
                 notification_types=["contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=teams_channel_owner_id,
             )
         )
         db.add(
@@ -539,7 +566,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-d",
                 notification_types=["candidate_added"],
                 enabled=False,
-                created_by_user_id=1,
+                created_by_user_id=teams_channel_owner_id,
             )
         )
         await db.commit()
