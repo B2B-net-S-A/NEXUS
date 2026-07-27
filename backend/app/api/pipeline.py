@@ -35,6 +35,7 @@ from app.models.pipeline_template import (
 from app.models.user import User, UserRole
 from app.schemas.pipeline import (
     CandidateStageResponse,
+    HiringManagerVetoBrief,
     KanbanColumn,
     KanbanView,
     PendingVerificationListItem,
@@ -51,6 +52,7 @@ from app.api.recruitment_access import (
     user_can_terminal_transition,
 )
 from app.services.hiring_manager_verdicts import (
+    load_manager_rejections,
     puts_candidate_before_client,
     veto_for_candidate_stage,
 )
@@ -1016,6 +1018,14 @@ async def get_kanban(
         for uid, uname in urows.all():
             user_name_by_id[uid] = uname
 
+    # Standing rejections by this job's hiring manager, one batched query for
+    # the whole board (none at all when the job has no manager set). Lets the
+    # recruiter see the block before dragging a card into it, instead of
+    # discovering it as a 409 halfway through the move.
+    manager_verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=candidate_ids
+    )
+
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
         first = earliest.get(e.candidate_id)
@@ -1025,13 +1035,25 @@ async def get_kanban(
             else None
         )
         added_at = first.moved_at if first is not None else None
-        return _stage_response(
+        payload = _stage_response(
             e,
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
             added_to_job_at=added_at,
         )
+        verdict = manager_verdicts.get(e.candidate_id)
+        if verdict is not None:
+            payload["hm_veto"] = HiringManagerVetoBrief(
+                hiring_manager_contact_id=verdict.hiring_manager_contact_id,
+                hiring_manager_name=verdict.hiring_manager_name,
+                source_job_id=verdict.source_job_id,
+                source_job_title=verdict.source_job_title,
+                rejected_at=verdict.rejected_at,
+                rejection_reason_name=verdict.rejection_reason_name,
+                rejection_note=verdict.rejection_note,
+            )
+        return payload
 
     # Resolve target template
     template_id = job.pipeline_template_id or await _default_template_id(db)

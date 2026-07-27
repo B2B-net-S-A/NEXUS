@@ -67,6 +67,18 @@ class ClientRateUpdate(BaseModel):
     rate_currency: Optional[str] = Field(default="PLN", max_length=3)
 
 
+class HiringManagerVetoBrief(BaseModel):
+    """A standing rejection by the hiring manager of the job being viewed."""
+
+    hiring_manager_contact_id: int
+    hiring_manager_name: Optional[str] = None
+    source_job_id: int
+    source_job_title: Optional[str] = None
+    rejected_at: datetime
+    rejection_reason_name: str
+    rejection_note: Optional[str] = None
+
+
 class CandidateStageResponse(BaseModel):
     id: int
     candidate_id: int
@@ -92,6 +104,11 @@ class CandidateStageResponse(BaseModel):
     # Set when this move caused a rejection email to be queued; lets the FE
     # show a "Cofnij wysyłkę" toast and anchor the cancel link.
     scheduled_rejection_email_id: Optional[int] = None
+    # This job's hiring manager already rejected the candidate after an
+    # interview elsewhere. Populated by the Kanban endpoint only — the manager
+    # is implicit there (it is this job's), so the card needs no name, and the
+    # recruiter learns *before* dragging the card rather than from a 409.
+    hm_veto: Optional["HiringManagerVetoBrief"] = None
 
     # ── Pending verification (migracja 0056) ──────────────────────────────
     verification_status: VerificationStatus = VerificationStatus.active
