@@ -335,8 +335,21 @@ async def _cleanup_contract(user_id: int, contract_id: int) -> None:
         await db.commit()
 
 
-def _stub_autenti(monkeypatch, *, payload: bytes) -> None:
-    """Replace the Autenti client/config so the sweeper needs no network."""
+async def _process_ids(*sig_ids: int) -> list[str]:
+    """Autenti process ids for the given signatures, in the order asked for."""
+    from app.models.document_signature import DocumentSignature
+
+    async with AsyncSessionLocal() as db:
+        out = []
+        for sid in sig_ids:
+            sig = await db.get(DocumentSignature, sid)
+            assert sig is not None
+            out.append(sig.autenti_process_id)
+        return out
+
+
+def _install_autenti_stub(monkeypatch, download) -> None:
+    """Point the sweeper at an offline client driven by ``download``."""
     from app.tasks import autenti_expiry_sweeper as sweeper_mod
 
     class _Config:
@@ -354,8 +367,8 @@ def _stub_autenti(monkeypatch, *, payload: bytes) -> None:
         async def __aexit__(self, *_exc):
             return False
 
-        async def download_signed_file(self, _process_id):
-            return payload
+        async def download_signed_file(self, process_id):
+            return download(process_id)
 
     monkeypatch.setattr(sweeper_mod, "AutentiConfig", _Config)
     monkeypatch.setattr(sweeper_mod, "AutentiClient", _Client)
@@ -367,11 +380,23 @@ async def test_rejected_db_write_leaves_no_orphaned_pdf(monkeypatch, tmp_path) -
     from app.models.document_signature import DocumentSignature
     from app.tasks import autenti_expiry_sweeper as sweeper_mod
 
+    from app.services.autenti.client import AutentiError
+
     _isolate_storage(monkeypatch, tmp_path)
-    _stub_autenti(monkeypatch, payload=b"%PDF-signed")
 
     user_id, contract_id, sig_id = await _seed_contract_and_signature()
     try:
+        (mine,) = await _process_ids(sig_id)
+
+        def download(process_id):
+            # The sweeper scans the whole table and CI shares one database, so
+            # anything that is not our own row is waved off down the handled
+            # error path instead of being dragged into this scenario.
+            if process_id != mine:
+                raise AutentiError(503, "not part of this test")
+            return b"%PDF-signed"
+
+        _install_autenti_stub(monkeypatch, download)
 
         def rejected_doc(**kwargs):
             # Dangling FK → the flush is refused by Postgres.
@@ -405,6 +430,7 @@ async def test_crash_mid_batch_keeps_the_signature_already_attached(
     """
     from app.models.contract_document import ContractDocument
     from app.models.document_signature import DocumentSignature
+    from app.services.autenti.client import AutentiError
     from app.tasks import autenti_expiry_sweeper as sweeper_mod
 
     _isolate_storage(monkeypatch, tmp_path)
@@ -412,37 +438,27 @@ async def test_crash_mid_batch_keeps_the_signature_already_attached(
     user_a, contract_a, sig_a = await _seed_contract_and_signature()
     user_b, contract_b, sig_b = await _seed_contract_and_signature()
     try:
+        ours = set(await _process_ids(sig_a, sig_b))
+        served: set[str] = set()
 
-        class _Config:
-            @staticmethod
-            def from_settings():
-                return object()
+        def download(process_id):
+            # Row order is not guaranteed and CI shares one database with every
+            # other test file, so key the behaviour off *our* two rows: the
+            # first of ours to arrive succeeds, the second kills the process.
+            # Anything else is waved off down the handled error path.
+            if process_id not in ours:
+                raise AutentiError(503, "not part of this test")
+            if not served:
+                served.add(process_id)
+                return b"%PDF-first"
+            raise _SimulatedCrash("container killed mid-batch")
 
-        class _DyingClient:
-            def __init__(self, _config):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *_exc):
-                return False
-
-            async def download_signed_file(self, _process_id):
-                # First signature downloads fine; the process dies on the next.
-                if not self.__class__.served:
-                    self.__class__.served = True
-                    return b"%PDF-first"
-                raise _SimulatedCrash("container killed mid-batch")
-
-        _DyingClient.served = False
-        monkeypatch.setattr(sweeper_mod, "AutentiConfig", _Config)
-        monkeypatch.setattr(sweeper_mod, "AutentiClient", _DyingClient)
+        _install_autenti_stub(monkeypatch, download)
 
         with pytest.raises(_SimulatedCrash):
             await sweeper_mod._retry_signed_downloads()
 
-        # Exactly one signature got served; whichever it was must be durable.
+        # Exactly one of ours got served; whichever it was must be durable.
         async with AsyncSessionLocal() as db:
             rows = (
                 (

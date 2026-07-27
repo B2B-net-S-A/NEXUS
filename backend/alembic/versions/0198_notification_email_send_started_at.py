@@ -13,15 +13,15 @@ reservation, which the next pass re-claims and delivers.
 Additive and nullable — existing rows keep NULL, which reads as "not reserved"
 and behaves exactly as before for anything already sent.
 
-Revision ID: 0197_notification_email_send_started_at
+Revision ID: 0198_notification_email_send_started_at
 Revises: 0196_b2b_signature_automation
 """
 
 from alembic import op
 
 
-revision = "0197_notification_email_send_started_at"
-down_revision = "0196_b2b_signature_automation"
+revision = "0198_notification_email_send_started_at"
+down_revision = "0197_rejection_reason_disqualifies_person"
 branch_labels = None
 depends_on = None
 

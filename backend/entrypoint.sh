@@ -1863,7 +1863,7 @@ _COLUMN_STATEMENTS = [
     # tokens_valid_after => UndefinedColumn i każda zmiana hasła zwraca 500.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMPTZ",
     # Chat email fallback reservation (migracja
-    # 0197_notification_email_send_started_at): background task rezerwuje
+    # 0198_notification_email_send_started_at): background task rezerwuje
     # wiersz TUTAJ przed wysyłką SMTP, a `email_sent_at` stempluje dopiero po
     # potwierdzonej wysyłce. Bez tej kolumny UPDATE notifications z
     # email_send_started_at => UndefinedColumn i cała pętla fallbacku pada
