@@ -1,6 +1,6 @@
 import { create } from "zustand"
 
-import { clearSessionArtifacts } from "@/lib/session"
+import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
 
 // ── Role model ──────────────────────────────────────────────────────────────
 //
@@ -208,18 +208,9 @@ interface AuthState {
   logout: () => void
 }
 
-// Nazwa cookie musi pasować do odczytu w Next.js middleware.
-const COOKIE_NAME = "nexus_access"
-const COOKIE_MAX_AGE = 60 * 60 * 8 // 8h, spójne z ACCESS_TOKEN_EXPIRE_MINUTES
-
-function writeAuthCookie(token: string): void {
-  if (typeof document === "undefined") return
-  // SameSite=Lax wystarcza — logowanie nie jest cross-site, CSRF surface nikła.
-  // Bez httpOnly (świadoma decyzja — patrz plan/docs/SUPABASE_ANALYSIS.md).
-  document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
-    token
-  )}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`
-}
+// Nazwa/TTL cookie i jego zapis mieszkają w lib/session.ts — tam, gdzie już
+// jest teardown sesji. Jedna definicja = brak dryfu między zapisem (setAuth)
+// a kasowaniem (clearSessionArtifacts).
 
 // Bezpieczne odczyty z localStorage — w środowisku testowym (jsdom/Vitest)
 // localStorage może być niedostępny lub częściowo inicjowany.
