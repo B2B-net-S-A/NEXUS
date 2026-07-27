@@ -28,13 +28,16 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import api from "@/lib/api";
-import { useAuthStore, hasRole } from "@/store/auth";
+import type { Capability } from "@/lib/capabilities";
+import { useCapabilities } from "@/hooks/useCapability";
 
 interface Props {
+  /** `undefined` = user nie ma capability `candidate.create` (patrz AppShellV2). */
+  onNewCandidate?: () => void;
+  /** Jw. dla `job.create`. */
+  onNewJob?: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onNewCandidate?: () => void;
-  onNewJob?: () => void;
 }
 
 type QuickResult =
@@ -63,10 +66,14 @@ export function CommandPaletteV2({
   onNewJob,
 }: Props) {
   const router = useRouter();
-  const user = useAuthStore((s) => s.user);
+  const can = useCapabilities();
+  const canSearchCandidates = can["nav.candidates"];
+  const canSearchClients = can["nav.clients"];
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QuickResult[]>([]);
   const [searching, setSearching] = useState(false);
+  /** Każde dozwolone zapytanie padło → awaria, NIE „brak wyników" (F-20). */
+  const [searchFailed, setSearchFailed] = useState(false);
 
   // Debounced multi-entity search.
   //
@@ -85,6 +92,7 @@ export function CommandPaletteV2({
     if (term.length < 2) {
       setResults([]);
       setSearching(false);
+      setSearchFailed(false);
       return;
     }
 
@@ -102,27 +110,37 @@ export function CommandPaletteV2({
 
     setResults([]);
     setSearching(true);
+    setSearchFailed(false);
 
     const timer = setTimeout(() => {
-      const requests = [
-        api
-          .get("/api/candidates", {
-            params: { q: term, page_size: 5 },
-            signal: ctrl.signal,
-          })
-          .then((res) => {
-            buckets.candidate = ((res.data?.items ?? []) as RawSearchItem[]).map(
-              (c) => ({
-                type: "candidate" as const,
-                id: c.id,
-                title:
-                  `${c.name ?? ""} ${c.lastname ?? ""}`.trim() ||
-                  `Kandydat #${c.id}`,
-                subtitle: c.position ?? c.current_role ?? null,
-              }),
-            );
-            flush();
-          }),
+      // Zapytania wysyłamy WYŁĄCZNIE dla zasobów, do których user ma
+      // capability (audyt F-19). Bez tego rola `user` (read-only viewer)
+      // strzelała w /api/candidates i /api/clients tylko po to, żeby dostać
+      // 403 połknięte przez `allSettled` — i zobaczyć „Brak wyników".
+      const requests: Array<Promise<unknown>> = [];
+      if (canSearchCandidates) {
+        requests.push(
+          api
+            .get("/api/candidates", {
+              params: { q: term, page_size: 5 },
+              signal: ctrl.signal,
+            })
+            .then((res) => {
+              buckets.candidate = ((res.data?.items ?? []) as RawSearchItem[]).map(
+                (c) => ({
+                  type: "candidate" as const,
+                  id: c.id,
+                  title:
+                    `${c.name ?? ""} ${c.lastname ?? ""}`.trim() ||
+                    `Kandydat #${c.id}`,
+                  subtitle: c.position ?? c.current_role ?? null,
+                }),
+              );
+              flush();
+            }),
+        );
+      }
+      requests.push(
         api
           .get("/api/jobs", {
             params: { q: term, page_size: 5 },
@@ -139,28 +157,36 @@ export function CommandPaletteV2({
             );
             flush();
           }),
-        api
-          .get("/api/clients", {
-            params: { q: term, page_size: 5 },
-            signal: ctrl.signal,
-          })
-          .then((res) => {
-            buckets.client = ((res.data?.items ?? []) as RawSearchItem[]).map(
-              (cl) => ({
-                type: "client" as const,
-                id: cl.id,
-                title: cl.name ?? `Klient #${cl.id}`,
-                subtitle: cl.industry ?? null,
-              }),
-            );
-            flush();
-          }),
-      ];
+      );
+      if (canSearchClients) {
+        requests.push(
+          api
+            .get("/api/clients", {
+              params: { q: term, page_size: 5 },
+              signal: ctrl.signal,
+            })
+            .then((res) => {
+              buckets.client = ((res.data?.items ?? []) as RawSearchItem[]).map(
+                (cl) => ({
+                  type: "client" as const,
+                  id: cl.id,
+                  title: cl.name ?? `Klient #${cl.id}`,
+                  subtitle: cl.industry ?? null,
+                }),
+              );
+              flush();
+            }),
+        );
+      }
       // Clear the "searching…" hint only once every request has settled
-      // (resolved, rejected, or aborted). A slow or failing endpoint just
-      // contributes no rows — the others still render as they arrive.
-      void Promise.allSettled(requests).then(() => {
-        if (!cancelled) setSearching(false);
+      // (resolved, rejected, or aborted). Odróżniamy przy tym awarię od pustki:
+      // gdy KAŻDE zapytanie padło, pokazujemy komunikat o błędzie zamiast
+      // „Brak wyników" (audyt F-20 — 5xx nie może udawać zera trafień).
+      void Promise.allSettled(requests).then((settled) => {
+        if (cancelled) return;
+        setSearching(false);
+        const failed = settled.filter((s) => s.status === "rejected");
+        setSearchFailed(failed.length > 0 && failed.length === settled.length);
       });
     }, 250);
 
@@ -169,30 +195,39 @@ export function CommandPaletteV2({
       ctrl.abort();
       clearTimeout(timer);
     };
-  }, [query, open]);
+  }, [query, open, canSearchCandidates, canSearchClients]);
 
   const go = (href: string) => {
     onOpenChange(false);
     router.push(href);
   };
 
-  const navItems = useMemo(
+  // Bramki nawigacji pochodzą z tego samego rejestru co sidebar i middleware
+  // (audyt F-19). Wcześniej paleta miała własną, uboższą listę — pokazywała
+  // „Kandydaci"/„Klienci"/„Kontrakty"/„Talenty" rolom, które middleware
+  // odbijał na /403.
+  const navItems: Array<{
+    href: string;
+    label: string;
+    icon: typeof LayoutDashboard;
+    capability?: Capability;
+  }> = useMemo(
     () => [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/candidates", label: "Kandydaci", icon: Users },
+      { href: "/candidates", label: "Kandydaci", icon: Users, capability: "nav.candidates" },
       { href: "/jobs", label: "Oferty", icon: Briefcase },
-      { href: "/clients", label: "Klienci", icon: Building2 },
-      { href: "/contracts", label: "Kontrakty", icon: FileText },
-      { href: "/talents", label: "Talenty", icon: Star },
+      { href: "/clients", label: "Klienci", icon: Building2, capability: "nav.clients" },
+      { href: "/contracts", label: "Kontrakty", icon: FileText, capability: "nav.contracts" },
+      { href: "/talents", label: "Talenty", icon: Star, capability: "nav.talents" },
       { href: "/calendar", label: "Kalendarz", icon: Calendar },
       { href: "/insights", label: "Insights", icon: Lightbulb },
       { href: "/settings", label: "Ustawienia", icon: Settings },
-      { href: "/manager", label: "Panel managera", icon: GitBranch, roles: ["admin", "delivery_lead"] as const },
+      { href: "/manager", label: "Panel managera", icon: GitBranch, capability: "nav.manager" },
     ],
     []
   );
 
-  const visibleNav = navItems.filter((i) => !i.roles || hasRole(user, ...i.roles));
+  const visibleNav = navItems.filter((i) => !i.capability || can[i.capability]);
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
@@ -207,7 +242,9 @@ export function CommandPaletteV2({
             ? "Zacznij pisać, aby wyszukać."
             : searching
               ? "Szukam…"
-              : "Brak wyników."}
+              : searchFailed
+                ? "Nie udało się wyszukać — spróbuj ponownie za chwilę."
+                : "Brak wyników."}
         </CommandEmpty>
 
         {results.length > 0 && (

@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { resolveViewState } from "@/lib/view-state";
+import { useCapability } from "@/hooks/useCapability";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { getAvatarColor } from "@/lib/colors";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -981,6 +984,10 @@ export default function JobDetailPage() {
   // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
   const authUser = useAuthStore((s) => s.user);
   const isAdmin = hasRole(authUser, "admin");
+  // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
+  // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
+  // prosto w 403 (audyt F-19).
+  const canCreateInviteLink = useCapability("invite_link.create");
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
@@ -1057,7 +1064,13 @@ export default function JobDetailPage() {
     };
   }, [searchParams, pathname, router]);
 
-  const { data: job, isLoading: jobLoading } = useQuery({
+  const {
+    data: job,
+    isLoading: jobLoading,
+    isError: jobIsError,
+    error: jobError,
+    refetch: refetchJob,
+  } = useQuery({
     queryKey: ["job", id],
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
   });
@@ -1101,8 +1114,31 @@ export default function JobDetailPage() {
     }
   }, [id, queryClient]);
 
-  if (jobLoading) return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
-  if (!job) return <div className="p-6 text-destructive">Nie znaleziono oferty</div>;
+  // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
+  // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
+  // danych (audyt F-20).
+  const jobViewState = resolveViewState({
+    isLoading: jobLoading,
+    isError: jobIsError,
+    error: jobError,
+    isEmpty: !job,
+  });
+  if (jobViewState === "loading")
+    return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
+  if (jobViewState !== "ready")
+    return (
+      <div className="p-6">
+        <QueryStateNotice
+          state={jobViewState === "empty" ? "not_found" : jobViewState}
+          description={
+            jobViewState === "forbidden"
+              ? "Nie masz uprawnień do tej oferty. Oferta istnieje — poproś o dodanie Cię do jej zespołu albo o rozszerzenie roli."
+              : undefined
+          }
+          onRetry={() => void refetchJob()}
+        />
+      </div>
+    );
 
   return (
     <div className="space-y-2">
@@ -1170,7 +1206,7 @@ export default function JobDetailPage() {
                   <Wand2 className="w-3.5 h-3.5" />
                   AI Ogłoszenie
                 </button>
-                {job.status === "published" && (
+                {job.status === "published" && canCreateInviteLink && (
                   <button
                     onClick={() => setShowInviteLink(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"

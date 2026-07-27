@@ -31,6 +31,7 @@ import {
 
 import { jobChatApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { httpStatusFromError, isForbiddenError } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
   CHAT_BUS_EVENT,
@@ -44,6 +45,15 @@ import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏", "🔥"];
 
 const PAGE_LIMIT = 50;
+
+// 403 (brak członkostwa w czacie oferty) i 404 nie są błędami przejściowymi —
+// nie ponawiaj, żeby nie zasypywać backendu i nie migotać UI. Inne błędy:
+// krótki retry. Bliźniacze z CandidateChatTab.
+function chatQueryRetry(failureCount: number, err: unknown): boolean {
+  const s = httpStatusFromError(err);
+  if (s === 403 || s === 404) return false;
+  return failureCount < 2;
+}
 
 interface JobChatTabProps {
   jobId: number;
@@ -61,10 +71,11 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
 
   // ── Members (do wyświetlenia licznika "X członków" w headerze) ────────────
   // Autocomplete @mention używa hook'a w MentionTextarea, niezwiązanego z tym query.
-  const { data: members = [] } = useQuery({
+  const { data: members = [], error: membersError } = useQuery({
     queryKey: ["job-chat-members", jobId],
     queryFn: async () => (await jobChatApi.getMembers(jobId)).data,
     staleTime: 60_000,
+    retry: chatQueryRetry,
   });
 
   // ── Pinned ────────────────────────────────────────────────────────────────
@@ -72,6 +83,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     queryKey: ["job-chat-pinned", jobId],
     queryFn: async () => (await jobChatApi.getPinned(jobId)).data,
     staleTime: 30_000,
+    retry: chatQueryRetry,
   });
 
   // ── Messages — infinite scroll w stronę "starsze" ─────────────────────────
@@ -92,6 +104,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     },
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? (lastPage.next_before_id ?? undefined) : undefined,
+    retry: chatQueryRetry,
   });
 
   // Merge wszystkich page'y w jedną listę i odwróć (najstarsza pierwsza, dla UI od dołu).
@@ -289,6 +302,50 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     setEditingId(null);
     setText("");
   };
+
+  // Zakładka odpala kilka zapytań naraz (members / pinned / messages) i część
+  // 403 była połykana — czat renderował się jako pusty, jakby po prostu nie
+  // było wiadomości (audyt F-20). Brak członkostwa → jasny komunikat; awaria
+  // (5xx) → komunikat o błędzie z ponowieniem, NIGDY pusty czat.
+  const accessDenied =
+    isForbiddenError(messagesQuery.error) || isForbiddenError(membersError);
+  const loadFailed = !accessDenied && !!messagesQuery.error;
+
+  if (accessDenied) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center gap-2 h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6">
+        <MessageCircle className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
+        <p className="text-sm text-muted-foreground max-w-sm">
+          Czat tej oferty jest dostępny tylko dla osób z jej zespołu (rekruter,
+          DL, TAC lub współpracownik oferty). To nie znaczy, że czat jest pusty.
+        </p>
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-col items-center justify-center text-center gap-2 h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6"
+      >
+        <MessageCircle className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Nie udało się wczytać czatu</h2>
+        <p className="text-sm text-muted-foreground max-w-sm">
+          Wystąpił błąd po stronie serwera. Wiadomości mogą istnieć — spróbuj
+          ponownie za chwilę.
+        </p>
+        <button
+          type="button"
+          onClick={() => void messagesQuery.refetch()}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          Spróbuj ponownie
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">

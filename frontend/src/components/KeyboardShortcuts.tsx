@@ -3,17 +3,27 @@
 import { useEffect, useState, useCallback } from "react";
 import { X, Keyboard } from "lucide-react";
 
+import type { Capability } from "@/lib/capabilities";
+import { useCapabilities } from "@/hooks/useCapability";
+
 // ── Shortcuts help modal ──────────────────────────────────────────────────────
 
-const SHORTCUTS = [
-  { keys: ["n"], description: "Nowy kandydat" },
-  { keys: ["j"], description: "Nowa oferta pracy" },
+// `capability` — skrót jest wypisany w legendzie tylko gdy user faktycznie może
+// wykonać akcję (audyt F-19: legenda też jest wejściem do funkcji, tyle że
+// informacyjnym; obiecywanie skrótu, który nic nie robi, myli użytkownika).
+const SHORTCUTS: Array<{
+  keys: string[];
+  description: string;
+  capability?: Capability;
+}> = [
+  { keys: ["n"], description: "Nowy kandydat", capability: "candidate.create" },
+  { keys: ["j"], description: "Nowa oferta pracy", capability: "job.create" },
   { keys: ["/"], description: "Szukaj" },
   { keys: ["?"], description: "Pokaż skróty klawiszowe" },
   { keys: ["Esc"], description: "Zamknij modal / anuluj" },
   { keys: ["⌘", "K"], description: "Globalne wyszukiwanie" },
-  { keys: ["⌘", "N"], description: "Szybki nowy kandydat" },
-  { keys: ["⌘", "J"], description: "Szybka nowa oferta" },
+  { keys: ["⌘", "N"], description: "Szybki nowy kandydat", capability: "candidate.create" },
+  { keys: ["⌘", "J"], description: "Szybka nowa oferta", capability: "job.create" },
   { keys: ["↑ / ↓"], description: "Nawigacja w wynikach wyszukiwania" },
   { keys: ["Enter"], description: "Wybierz wynik wyszukiwania" },
 ];
@@ -27,6 +37,11 @@ function ShortcutKey({ k }: { k: string }) {
 }
 
 function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  const can = useCapabilities();
+  const visibleShortcuts = SHORTCUTS.filter(
+    (s) => !s.capability || can[s.capability],
+  );
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -48,7 +63,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="p-6 space-y-3">
-          {SHORTCUTS.map((shortcut, i) => (
+          {visibleShortcuts.map((shortcut, i) => (
             <div key={i} className="flex items-center justify-between gap-4">
               <span className="text-sm text-foreground dark:text-muted-foreground">{shortcut.description}</span>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -87,8 +102,11 @@ export function isInputActive(): boolean {
 }
 
 interface UseKeyboardShortcutsOptions {
-  onNewCandidate: () => void;
-  onNewJob: () => void;
+  /** Pominięty (`undefined`) = user nie ma capability `candidate.create`.
+   *  Skrót wtedy w ogóle nie reaguje — nie przechwytuje nawet klawisza. */
+  onNewCandidate?: () => void;
+  /** Jw. dla `job.create`. */
+  onNewJob?: () => void;
   onFocusSearch: () => void;
 }
 
@@ -103,12 +121,14 @@ export function useKeyboardShortcuts({
     (e: KeyboardEvent) => {
       // Cmd+N → new candidate
       if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+        if (!onNewCandidate) return;
         e.preventDefault();
         onNewCandidate();
         return;
       }
       // Cmd+J → new job
       if ((e.metaKey || e.ctrlKey) && e.key === "j") {
+        if (!onNewJob) return;
         e.preventDefault();
         onNewJob();
         return;
@@ -119,10 +139,12 @@ export function useKeyboardShortcuts({
 
       switch (e.key) {
         case "n":
+          if (!onNewCandidate) break;
           e.preventDefault();
           onNewCandidate();
           break;
         case "j":
+          if (!onNewJob) break;
           e.preventDefault();
           onNewJob();
           break;
