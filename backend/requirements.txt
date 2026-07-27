@@ -1,6 +1,14 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-sqlalchemy==2.0.36
+# The `[asyncio]` extra is LOAD-BEARING from Python 3.13 onwards, do not drop it.
+# SQLAlchemy 2.0.36 declares its greenlet dependency as
+#   `greenlet!=0.4.17; python_version < "3.13" and (platform_machine == ...)`
+# so on 3.13 a bare `sqlalchemy==2.0.36` installs NO greenlet at all. The image
+# still builds and `import app.main` still succeeds — it only blows up at the
+# first async DB call with "the greenlet library is required to use this
+# function", i.e. every request. The `asyncio` extra declares greenlet without
+# the python_version marker, which is the whole point of using it here.
+sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 pydantic[email]==2.10.3
@@ -10,7 +18,13 @@ python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 httpx==0.28.1
-voyageai==0.3.2
+# 0.3.2 declares `Requires-Python >=3.9,<3.13` — it alone capped the whole
+# backend image at Python 3.12. 0.3.3 is the first release that lifts the cap
+# (patch bump, no API change). The SDK is not imported anywhere in the code
+# base: `app/services/embedding_service.py` and `reranker_service.py` talk to
+# api.voyageai.com directly over httpx, so this pin is inert at runtime.
+# For Python 3.14 this needs >=0.4.0 (0.3.x is capped `<3.14`).
+voyageai==0.3.3
 qdrant-client==1.12.1
 anthropic>=0.40,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
