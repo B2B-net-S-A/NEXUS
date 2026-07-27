@@ -1,5 +1,5 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
+fastapi==0.140.0
+uvicorn[standard]==0.51.0
 # The `[asyncio]` extra is LOAD-BEARING from Python 3.13 onwards, do not drop it.
 # SQLAlchemy 2.0.36 declares its greenlet dependency as
 #   `greenlet!=0.4.17; python_version < "3.13" and (platform_machine == ...)`
@@ -8,38 +8,39 @@ uvicorn[standard]==0.34.0
 # first async DB call with "the greenlet library is required to use this
 # function", i.e. every request. The `asyncio` extra declares greenlet without
 # the python_version marker, which is the whole point of using it here.
-sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-alembic==1.14.0
-pydantic[email]==2.10.3
-pydantic-settings==2.7.0
-email-validator==2.1.0
-python-jose[cryptography]==3.4.0
+sqlalchemy[asyncio]==2.0.51
+asyncpg==0.31.0
+alembic==1.18.5
+pydantic[email]==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.3.0
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 httpx==0.28.1
-qdrant-client==1.12.1
+qdrant-client==1.18.0
 anthropic>=0.40,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
 #   pdfplumber 0.11.4/0.11.5 -> 20231228 | 0.11.6 -> 20250327 | 0.11.7 -> 20250506
-#   pdfplumber 0.11.8        -> 20251107 | 0.11.9 -> 20251230 (najnowsze)
-# 20251230 zawiera fix CVE-2025-64512 (RCE przez pickle w składnicy CMap).
-# Nowszy pdfminer.six 20260107 jest NIEOSIĄGALNY — żaden release pdfplumbera go
-# nie pinuje, pip kończy ResolutionImpossible (build obrazu by padł).
-pdfminer.six==20251230
-pdfplumber==0.11.9
+#   pdfplumber 0.11.8        -> 20251107 | 0.11.9 -> 20251230
+#   pdfplumber 0.11.10       -> 20260107 (najnowsze)
+# Oba zawierają fix CVE-2025-64512 (RCE przez pickle w składnicy CMap), który
+# wszedł w 20251230. Wcześniejszy komentarz twierdził, że 20260107 jest
+# nieosiągalny, bo żaden pdfplumber go nie pinuje — 0.11.10 to unieważnił.
+pdfminer.six==20260107
+pdfplumber==0.11.10
 pytesseract==0.3.13
 pdf2image==1.17.0
-python-docx==1.1.2
+python-docx==1.2.0
 # Generator Umów B2B — wypełnianie szablonu .docx placeholderami Jinja
 # (na bazie python-docx; zachowuje formatowanie prawne umowy).
 docxtpl==0.20.2
 python-dotenv==1.2.2
-python-multipart==0.0.31
+python-multipart==0.0.32
 aiofiles==25.1.0
 jinja2==3.1.6
-psycopg2-binary==2.9.10
+psycopg2-binary==2.9.12
 openpyxl==3.1.5
 icalendar==7.0.3
 python-json-logger==4.1.0
