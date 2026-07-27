@@ -3,11 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { X, ArrowRight, LayoutDashboard, Users, Briefcase, Sparkles, CheckCircle2 } from "lucide-react";
-import {
-  clearOnboardingCompleted,
-  isOnboardingCompleted,
-  markOnboardingCompleted,
-} from "@/lib/onboarding-storage";
 
 // ── Steps config ──────────────────────────────────────────────────────────────
 
@@ -46,23 +41,28 @@ const STEPS = [
   },
 ];
 
+// ── Storage key ───────────────────────────────────────────────────────────────
+
+const STORAGE_KEY = "onboarding_completed";
+
 export function useOnboarding() {
   const [shouldShow, setShouldShow] = useState(false);
 
   useEffect(() => {
-    if (!isOnboardingCompleted()) {
+    const completed = localStorage.getItem(STORAGE_KEY);
+    if (!completed) {
       // Slight delay so the page loads first
       setTimeout(() => setShouldShow(true), 800);
     }
   }, []);
 
   const dismiss = () => {
-    markOnboardingCompleted();
+    localStorage.setItem(STORAGE_KEY, "true");
     setShouldShow(false);
   };
 
   const resetOnboarding = () => {
-    clearOnboardingCompleted();
+    localStorage.removeItem(STORAGE_KEY);
     setShouldShow(true);
   };
 
