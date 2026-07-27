@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search, X, Users, Briefcase, Building2, Sparkles } from "lucide-react";
 import api from "@/lib/api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useClickOutside } from "@/lib/use-click-outside";
 
 interface SearchResult {
   id: number;
@@ -131,17 +132,10 @@ export function GlobalSearchBar() {
     return () => { cancelled = true; };
   }, [debouncedQuery, aiMode]);
 
-  // Close on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setActiveIndex(-1);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  useClickOutside(containerRef, () => {
+    setOpen(false);
+    setActiveIndex(-1);
+  });
 
   // Global Escape key
   useEffect(() => {

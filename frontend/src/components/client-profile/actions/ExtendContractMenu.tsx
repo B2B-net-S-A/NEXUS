@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import api from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { cn } from "@/lib/utils";
+import { useClickOutside } from "@/lib/use-click-outside";
 
 interface Props {
   contractId: number;
@@ -20,16 +21,9 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
+  // `open` jako `enabled`: przycisk otwierający leży poza containerRef, więc
+  // listener podpięty na stałe zamknąłby menu tym samym mousedown, który je otwiera.
+  useClickOutside(containerRef, () => setOpen(false), open);
 
   const mutation = useMutation({
     mutationFn: (months: number) =>

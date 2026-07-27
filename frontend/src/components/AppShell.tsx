@@ -25,6 +25,7 @@ import api, {
 } from "@/lib/api";
 import type { RequestHistoryResponse } from "@/lib/api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useClickOutside } from "@/lib/use-click-outside";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
 import { AutoAssignedCollaborators } from "@/components/jobs/AutoAssignedCollaborators";
 
@@ -2020,13 +2021,7 @@ function QuickActionsButton({
   const queryClient = useQueryClient();
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useClickOutside(ref, () => setOpen(false));
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
