@@ -199,6 +199,7 @@ jobs:
                  tests/test_analytics_release_gates.py \
                  tests/test_recommendation_status_filter.py \
                  tests/test_pipeline_templates_reorder.py \
+                 tests/test_rejection_reason_disqualifies.py \
                  tests/test_marketplace_api.py \
                  tests/test_b2b_contract_generator.py \
                  tests/test_b2b_signature_automation.py \
