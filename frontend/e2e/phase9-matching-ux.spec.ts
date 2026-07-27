@@ -5,10 +5,10 @@
  *  - Match stats badge on candidate list
  *  - Quick assign modal from candidate row
  *  - Suggested jobs widget on candidate profile
- *  - Job card chips + Sparkles drawer on jobs list
- *  - Advanced filter bar: skill autocomplete → chip → narrowed result
+ *  - Rekomendowani kandydaci widget on job detail (zakładka AI Matching)
  *  - Threshold slider + profile selector reflected in URL
  *  - /settings/scoring CRUD
+ *  - Phase 10: Champion Profile + screening
  *
  * Runs against a live Nexus instance. Default E2E_BASE_URL in playwright.config.
  */
@@ -25,46 +25,24 @@ test.describe("Phase 9 — matching UX", () => {
 
   test("match stats badge renders with include_match_stats=true", async ({ page }) => {
     await page.goto("/candidates?match_threshold=35");
-    // Badge text pattern: "N otwarte · top XX"
-    const badge = page.getByText(/\d+\s+otwarte\s+·\s+top\s+\d+/i).first();
+    // Kolumna "match" (domyślnie widoczna) renderuje <MatchScoreBadge> obok
+    // licznika "<dopasowane>/<wszystkie otwarte> ofert".
+    const badge = page.getByText(/\d+\/\d+\s+ofert/i).first();
     await expect(badge).toBeVisible({ timeout: 15_000 });
-  });
-
-  test("clicking match badge opens breakdown popover", async ({ page }) => {
-    await page.goto("/candidates?match_threshold=35");
-    const badge = page.getByText(/\d+\s+otwarte\s+·\s+top\s+\d+/i).first();
-    await badge.click();
-    await expect(page.getByText(/TOP DOPASOWANE REKRUTACJE/i)).toBeVisible({
-      timeout: 5_000,
-    });
   });
 
   test("Przypisz button on candidate row opens QuickAssignModal", async ({ page }) => {
     await page.goto("/candidates");
-    const firstAssign = page.getByRole("button", { name: /Przypisz kandydata/i }).first();
+    // aria-label budowany per kandydat: "Przypisz <imię nazwisko> do oferty"
+    // (widok tabeli) / "... do rekrutacji" (kafelki).
+    const firstAssign = page
+      .getByRole("button", { name: /^Przypisz .+ do (oferty|rekrutacji)$/i })
+      .first();
     await firstAssign.click();
     await expect(
       page.getByRole("heading", { name: /Przypisz do rekrutacji/i })
     ).toBeVisible();
     await page.keyboard.press("Escape");
-  });
-
-  test("AdvancedFilterBar autocompletes skills and narrows results", async ({ page }) => {
-    await page.goto("/candidates");
-    const input = page.getByPlaceholder(/Umiejętności/i);
-    await input.fill("pyth");
-    // Autocomplete option appears
-    const option = page.getByRole("button", { name: /Python/i }).first();
-    await expect(option).toBeVisible({ timeout: 5_000 });
-    await option.click();
-    // Chip visible
-    await expect(page.getByText(/^python$/i)).toBeVisible();
-  });
-
-  test("remote filter button toggles and reflects in URL", async ({ page }) => {
-    await page.goto("/candidates");
-    await page.getByRole("button", { name: /^Zdalna$/i }).click();
-    await expect(page).toHaveURL(/remote=remote/);
   });
 
   test("threshold slider + profile selector in URL", async ({ page }) => {
@@ -82,25 +60,12 @@ test.describe("Phase 9 — matching UX", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test("JobCard shows skill chips and Sparkles button", async ({ page }) => {
-    await page.goto("/jobs");
-    // At least one job with must_skills should show a chip like "Angular" / "Python"
+  test("job detail AI Matching tab shows SuggestedCandidatesWidget", async ({ page }) => {
+    await page.goto("/jobs/2");
+    await page.getByRole("button", { name: /AI Matching/i }).click();
     await expect(
-      page
-        .getByRole("button", { name: /Sugerowani kandydaci/i })
-        .first()
-    ).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("Sparkles button opens SuggestedCandidatesDrawer", async ({ page }) => {
-    await page.goto("/jobs");
-    await page
-      .getByRole("button", { name: /Sugerowani kandydaci/i })
-      .first()
-      .click();
-    await expect(
-      page.getByRole("heading", { name: /Sugerowani kandydaci/i })
-    ).toBeVisible();
+      page.getByRole("heading", { name: /Rekomendowani kandydaci/i })
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test("/settings/scoring lists profiles + shows Nowy profil CTA", async ({ page }) => {
