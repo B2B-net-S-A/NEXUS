@@ -1940,6 +1940,7 @@ class TraffitImporter:
         # dla 152k rekordów = ~85 min API-bound i tak).
         commit_every = 1
         since_commit = 0
+        unresolved_withdrawn = 0
 
         async for raw in self.traffit.get_paginated(
             "/employees/recruitment_history",
@@ -1979,7 +1980,11 @@ class TraffitImporter:
                 # powodem — NIE błąd: wiersz i tak padłby na constraincie,
                 # a `errors>0` blokuje watermark i trzyma health=degraded.
                 progress.skipped += 1
-                if progress.skipped <= 5:
+                unresolved_withdrawn += 1
+                # Własny licznik, nie progress.skipped — ten drugi zbiera też
+                # rekordy spoza Nexusa (na prodzie 224), więc guard na nim
+                # nigdy by nie wypuścił tego logu.
+                if unresolved_withdrawn <= 5:
                     logger.warning(
                         "Pipelines skip ext=%s: withdrawn bez fallback reason "
                         "(brak seeda legacy_unknown w rejection_reasons)",
