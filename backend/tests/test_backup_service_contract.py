@@ -19,7 +19,12 @@ import pytest
 
 yaml = pytest.importorskip("yaml")
 
-_COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+_REPO = Path(__file__).resolve().parents[2]
+_COMPOSE = _REPO / "docker-compose.yml"
+_BACKUP_SH = _REPO / "backup" / "backup.sh"
+_LOOP_SH = _REPO / "backup" / "loop.sh"
+_DRILL = _REPO / ".github" / "workflows" / "backup-drill.yml"
+_UPTIME = _REPO / ".github" / "workflows" / "uptime-probe.yml"
 
 
 def _backup_service() -> dict:
@@ -66,6 +71,8 @@ def test_no_credentials_are_hardcoded() -> None:
         "BACKUP_S3_SECRET_KEY",
         "BACKUP_AGE_PUBLIC_KEY",
         "POSTGRES_PASSWORD",
+        "OBJECT_STORAGE_ACCESS_KEY",
+        "OBJECT_STORAGE_SECRET_KEY",
     ):
         value = str(env.get(key, ""))
         assert value.startswith("${"), (
@@ -101,9 +108,198 @@ def test_scripts_refuse_to_run_without_configuration() -> None:
 
 def test_retention_is_gated_on_a_clean_run() -> None:
     """Never delete old backups on a night the new ones failed."""
-    script = (_COMPOSE.parent / "backup" / "backup.sh").read_text(encoding="utf-8")
+    script = _BACKUP_SH.read_text(encoding="utf-8")
     assert 'if [ "$FAILURES" -eq 0 ]; then' in script, (
         "retention must be conditional on zero failures, otherwise a failing "
         "run prunes the last known-good backups and turns this into a "
         "data-loss system."
+    )
+
+
+# ── The candidate CV corpus ──────────────────────────────────────────────────
+# Everything below exists because this dataset — ~136k files, ~37 GB, living
+# only in the OBJECT_STORAGE bucket — was backed up by nothing at all while
+# docs/disaster-recovery.md claimed it was covered. `pg_dump` preserves
+# `candidate_documents.storage_key` and not one byte of the files it points at.
+
+
+def test_cv_corpus_is_a_backed_up_artefact() -> None:
+    script = _BACKUP_SH.read_text(encoding="utf-8")
+    assert '"cv_corpus"' in script, (
+        "backup.sh no longer records a `cv_corpus` artefact. The candidate CV "
+        "files exist in exactly one place; without this the database restores "
+        "into rows pointing at documents that no longer exist anywhere."
+    )
+    assert "cvsrc:" in script, (
+        "the CV corpus must be mirrored from the application's own object "
+        "storage bucket (rclone remote `cvsrc`); tarring the uploads volume "
+        "does NOT cover it — that volume holds generated contract documents."
+    )
+
+
+def test_cv_corpus_credentials_reach_the_sidecar() -> None:
+    """A missing variable here silently drops the irreplaceable dataset."""
+    env = _backup_service().get("environment") or {}
+    for key in (
+        "OBJECT_STORAGE_ENDPOINT",
+        "OBJECT_STORAGE_ACCESS_KEY",
+        "OBJECT_STORAGE_SECRET_KEY",
+        "OBJECT_STORAGE_BUCKET",
+    ):
+        assert key in env, (
+            f"{key} is not passed to the backup service, so it cannot read the "
+            "CV corpus bucket. The sidecar would back up everything except the "
+            "one dataset that cannot be regenerated."
+        )
+
+
+def test_missing_object_storage_config_is_a_failure_not_a_skip() -> None:
+    script = _BACKUP_SH.read_text(encoding="utf-8")
+    assert 'record "cv_corpus" "error"' in script, (
+        "unconfigured object storage must be recorded as a FAILED artefact. "
+        "Skipping it quietly reproduces the original bug: a green run whose "
+        "manifest simply does not mention the CV files."
+    )
+
+
+def test_cv_mirror_is_not_deleted_by_retention() -> None:
+    """The mirror is a live copy of immutable objects, not dated snapshots."""
+    script = _BACKUP_SH.read_text(encoding="utf-8")
+    assert "--exclude" in script and "candidate-documents/current" in script, (
+        "the retention pass deletes by age. Without excluding the CV mirror it "
+        "would erase every CV older than the retention window — the backup "
+        "would erode into uselessness one day at a time."
+    )
+
+
+def test_cv_sync_cannot_propagate_deletions() -> None:
+    script = _BACKUP_SH.read_text(encoding="utf-8")
+    assert "--backup-dir" in script, (
+        "`rclone sync` mirrors deletions. Without --backup-dir, purging the "
+        "source bucket (by accident or otherwise) destroys the only off-site "
+        "copy on the very next run."
+    )
+
+
+# ── Failure must be visible ──────────────────────────────────────────────────
+
+
+def test_every_artefact_has_a_size_gate() -> None:
+    """Qdrant shipped without one and recorded a missing object as ok/0 bytes."""
+    script = _BACKUP_SH.read_text(encoding="utf-8")
+    for artefact, obj in (
+        ("postgres", "$pg_object"),
+        ("uploads", "$up_object"),
+        ("qdrant:${c}", "$q_object"),
+    ):
+        assert f'gate_and_record "{artefact}" "{obj}"' in script, (
+            f"the {artefact} artefact does not run through the shared size "
+            "gate. `remote_size` returns 0 when the object is absent, so an "
+            "ungated artefact records `ok` with `bytes: 0` — and that clean "
+            "run then unblocks retention, deleting the last good copies."
+        )
+    assert 'record "qdrant:${c}" "ok"' not in script, (
+        "the Qdrant branch is recording success without checking the uploaded "
+        "object's size."
+    )
+
+
+def test_manifest_upload_failure_is_not_swallowed() -> None:
+    script = _BACKUP_SH.read_text(encoding="utf-8")
+    assert 'echo "$manifest" | rclone rcat "${DEST}/LATEST.json"' in script
+    assert "could not write ${DEST}/LATEST.json" in script, (
+        "a failed manifest upload must affect the exit code. Monitoring alarms "
+        "on this object's age, so losing it looks identical to the backup "
+        "service having died — hours later and with the wrong cause."
+    )
+
+
+def test_loop_retries_before_giving_up_for_the_day() -> None:
+    loop = _LOOP_SH.read_text(encoding="utf-8")
+    assert "run_backup_with_retries" in loop, (
+        "one transient S3 blip must not cost a whole day of backups; the run "
+        "is attempted several times before the loop sleeps until tomorrow."
+    )
+    assert "BACKUP_RETRY_DELAY_SECONDS" in loop, "retries must be spaced out, not immediate"
+
+
+def test_backup_service_has_a_healthcheck() -> None:
+    """A dead scheduler and a hung rclone both showed as `Up N weeks`."""
+    service = _backup_service()
+    healthcheck = service.get("healthcheck") or {}
+    test = healthcheck.get("test") or []
+    assert test, (
+        "the backup sidecar declares no healthcheck, so neither a dead "
+        "scheduler loop nor a run hung inside rclone is visible anywhere."
+    )
+    assert any("healthcheck.sh" in str(part) for part in test), (
+        f"unexpected healthcheck command {test!r}; expected backup/healthcheck.sh"
+    )
+    assert (_REPO / "backup" / "healthcheck.sh").is_file()
+
+
+# ── The drill must exercise the real system ──────────────────────────────────
+
+
+def _uncommented(text: str) -> str:
+    """Drop `#` comment lines so prose about a mistake does not read as the mistake."""
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+def test_drill_restores_the_offsite_backup_not_the_legacy_vps_copy() -> None:
+    drill = _uncommented(_DRILL.read_text(encoding="utf-8"))
+    assert "/var/backups/nexus" not in drill, (
+        "the drill is reading the legacy VPS-local dump again. That copy lives "
+        "on the same disk as production and is explicitly disowned by "
+        "docs/disaster-recovery.md — restoring it proves nothing about the "
+        "off-site backup this repository actually produces."
+    )
+    assert "LATEST.json" in drill, "the drill must assert the backup is recent and clean"
+
+
+def test_drill_actually_decrypts() -> None:
+    """Encryption is the failure mode with no other symptom."""
+    drill = _uncommented(_DRILL.read_text(encoding="utf-8"))
+    assert "age -d" in drill, (
+        "the drill must decrypt a real artefact. A wrong or lost recipient key "
+        "produces backups that upload cleanly, pass every size check, and are "
+        "permanently unreadable — `age -d` is the only thing that catches it."
+    )
+    assert "BACKUP_AGE_PRIVATE_KEY" not in _BACKUP_SH.read_text(encoding="utf-8"), (
+        "the private key must never reach the server: the sidecar encrypts to a "
+        "public recipient and must not be able to read its own backups."
+    )
+
+
+def test_drill_verifies_the_cv_mirror_against_restored_rows() -> None:
+    drill = _uncommented(_DRILL.read_text(encoding="utf-8"))
+    assert "storage_key" in drill, (
+        "restoring the database proves nothing about the CV files it references. "
+        "The drill must sample storage_keys and confirm those objects exist in "
+        "the off-site mirror."
+    )
+
+
+def test_drill_fails_when_it_cannot_run() -> None:
+    drill = _DRILL.read_text(encoding="utf-8")
+    assert "drill cannot run (FAIL)" in drill and "exit 1" in drill, (
+        "an unconfigured drill must fail. It previously warned and passed, so "
+        "it reported green weekly while restoring nothing, and the DR document "
+        "cited those runs as proof the restore path worked."
+    )
+
+
+def test_manifest_has_a_consumer() -> None:
+    """LATEST.json with no reader is a log line, not monitoring."""
+    uptime = _UPTIME.read_text(encoding="utf-8")
+    assert "LATEST.json" in uptime, (
+        "nothing reads the backup manifest. 'The backups stopped' must have a "
+        "symptom somewhere; without a consumer it has none at all."
+    )
+    assert "cv_corpus" in uptime, (
+        "monitoring must assert the CV corpus artefact is PRESENT, not merely "
+        "that the run had no failures — a manifest missing a whole dataset is "
+        "otherwise indistinguishable from a clean one."
     )

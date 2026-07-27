@@ -24,7 +24,8 @@ RUN apk add --no-cache \
 
 COPY backup.sh /usr/local/bin/backup.sh
 COPY loop.sh /usr/local/bin/loop.sh
-RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/loop.sh
+COPY healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/loop.sh /usr/local/bin/healthcheck.sh
 
 # Never run as root: the sidecar only ever reads data volumes.
 USER postgres
