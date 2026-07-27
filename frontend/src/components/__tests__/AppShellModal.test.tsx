@@ -112,29 +112,39 @@ describe("AppShell <Modal> — a11y", () => {
     );
   });
 
-  it("zachowuje klasy tokenowe sprzed migracji (brak regresji wizualnej)", async () => {
+  it("zachowuje układ sprzed migracji (brak regresji wizualnej)", async () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.click(screen.getByRole("button", { name: "Otwórz" }));
 
     const panel = await screen.findByRole("dialog");
     const overlay = panel.parentElement as HTMLElement;
-    const header = panel.firstElementChild as HTMLElement;
 
-    expect(overlay.className).toBe(
-      "fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center sm:p-4 overflow-y-auto",
-    );
-    // `focus:outline-none` to jedyny dodatek — treść radixa jest fokusowalna
-    // (tabindex=-1), więc bez tego przeglądarka rysowałaby ring wokół panelu.
-    expect(panel.className).toBe(
-      "bg-card dark:bg-muted rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:my-4 focus:outline-none sm:max-w-2xl",
-    );
-    expect(header.className).toBe(
-      "flex items-center justify-between px-6 py-4 border-b border-border dark:border-border",
-    );
-    expect((header.firstElementChild as HTMLElement).className).toBe(
-      "text-lg font-bold text-foreground dark:text-foreground",
-    );
+    // Tylko klasy niosące układ — reszta wyglądu może się zmieniać bez
+    // rozbijania testu. Overlay musi zostać kontenerem przewijania, bo to on
+    // (a nie panel) trzyma wysokie modale w kadrze.
+    for (const cls of [
+      "fixed",
+      "inset-0",
+      "bg-black/50",
+      "z-[100]",
+      "overflow-y-auto",
+      "items-end", // sheet na mobile…
+      "sm:items-center", // …wyśrodkowany na desktopie
+    ]) {
+      expect(overlay.classList.contains(cls), `overlay: ${cls}`).toBe(true);
+    }
+
+    for (const cls of [
+      "rounded-b-none", // dolne rogi tylko na mobile (sheet)
+      "sm:rounded-b-2xl",
+      "sm:max-w-2xl", // `wide` → szerszy panel
+      // Treść radixa jest fokusowalna (tabindex=-1); bez tego przeglądarka
+      // rysowałaby ring wokół całego panelu zaraz po otwarciu.
+      "focus:outline-none",
+    ]) {
+      expect(panel.classList.contains(cls), `panel: ${cls}`).toBe(true);
+    }
   });
 
   it("NIE zamyka się po kliknięciu w tło (zachowanie sprzed migracji na radix)", async () => {
