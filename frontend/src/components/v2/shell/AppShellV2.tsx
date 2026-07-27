@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
+import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
@@ -77,9 +78,16 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
     setCommandOpen(true);
   }, []);
 
+  // Skróty klawiszowe `n` / `j` i akcje w Command Palette to alternatywne
+  // wejścia do tych samych operacji co Quick Actions — muszą przechodzić przez
+  // TEN SAM rejestr capability (audyt F-19), inaczej omijają bramkę.
+  const can = useCapabilities();
+  const openNewCandidate = useCallback(() => setPendingModal("candidate"), []);
+  const openNewJob = useCallback(() => setPendingModal("job"), []);
+
   const { showHelp, setShowHelp } = useKeyboardShortcuts({
-    onNewCandidate: useCallback(() => setPendingModal("candidate"), []),
-    onNewJob: useCallback(() => setPendingModal("job"), []),
+    onNewCandidate: can["candidate.create"] ? openNewCandidate : undefined,
+    onNewJob: can["job.create"] ? openNewJob : undefined,
     onFocusSearch: focusSearch,
   });
 
@@ -152,8 +160,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       <CommandPaletteV2
         open={commandOpen}
         onOpenChange={setCommandOpen}
-        onNewCandidate={() => setPendingModal("candidate")}
-        onNewJob={() => setPendingModal("job")}
+        onNewCandidate={can["candidate.create"] ? openNewCandidate : undefined}
+        onNewJob={can["job.create"] ? openNewJob : undefined}
       />
 
       {/* Keyboard shortcuts help */}

@@ -29,10 +29,9 @@ import {
   X,
 } from "lucide-react";
 
-import type { AxiosError } from "axios";
-
 import { candidateChatApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { httpStatusFromError, isForbiddenError } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
   CANDIDATE_CHAT_BUS_EVENT,
@@ -47,15 +46,11 @@ const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏
 
 const PAGE_LIMIT = 50;
 
-/** 403 = użytkownik jest zalogowany, ale nie jest członkiem czatu kandydata. */
-function isForbidden(err: unknown): boolean {
-  return (err as AxiosError | undefined)?.response?.status === 403;
-}
-
 // 403 (brak członkostwa) i 404 nie są błędami przejściowymi — nie ponawiaj,
 // żeby nie zasypywać backendu i nie migotać UI. Inne błędy: krótki retry.
+// Rozpoznawanie statusu HTTP: wspólny helper z `lib/view-state` (audyt F-20).
 function chatQueryRetry(failureCount: number, err: unknown): boolean {
-  const s = (err as AxiosError | undefined)?.response?.status;
+  const s = httpStatusFromError(err);
   if (s === 403 || s === 404) return false;
   return failureCount < 2;
 }
@@ -308,7 +303,8 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
   // Pokazujemy czysty komunikat zamiast pustego/zepsutego czatu (i — co
   // najważniejsze — nie wylogowujemy użytkownika; patrz interceptor w lib/api).
   const accessDenied =
-    isForbidden(messagesQuery.error) || isForbidden(membersError);
+    isForbiddenError(messagesQuery.error) || isForbiddenError(membersError);
+  const loadFailed = !accessDenied && !!messagesQuery.error;
 
   if (accessDenied) {
     return (
@@ -320,6 +316,30 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
           rekrutacje (twórca profilu, rekruter/DL/TAC oferty lub jej
           współpracownik).
         </p>
+      </div>
+    );
+  }
+
+  // Awaria (5xx / brak sieci) też nie może udawać pustego czatu (audyt F-20).
+  if (loadFailed) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-col items-center justify-center text-center gap-2 h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6"
+      >
+        <MessageCircle className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Nie udało się wczytać czatu</h2>
+        <p className="text-sm text-muted-foreground max-w-sm">
+          Wystąpił błąd po stronie serwera. Wiadomości mogą istnieć — spróbuj
+          ponownie za chwilę.
+        </p>
+        <button
+          type="button"
+          onClick={() => void messagesQuery.refetch()}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          Spróbuj ponownie
+        </button>
       </div>
     );
   }

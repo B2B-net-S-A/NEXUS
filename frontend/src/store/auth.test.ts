@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest"
 
+import { hasCapability } from "@/lib/capabilities"
+
 import { hasRole, hasMinRole, ROLE_RANK, UserRole } from "./auth"
 
+// Komplet ról z backendu (backend/app/models/user.py). `head_of_recruitment`
+// był tu wcześniej pominięty — czyli jedyna rola, której hierarchia rang
+// NIE odwzorowuje poprawnie, nie była w ogóle przemiatana testami (audyt F-19).
 const ALL_ROLES: UserRole[] = [
   "admin",
+  "head_of_recruitment",
   "delivery_lead",
   "tac",
   "recruiter",
@@ -91,6 +97,24 @@ describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () 
   it("hasMinRole BŁĘDNIE przepuszczał HoR przez bramki DL/TAC", () => {
     expect(hasMinRole(hor, "delivery_lead")).toBe(true)
     expect(hasMinRole(hor, "tac")).toBe(true)
+  })
+
+  // Dlatego bramki akcji NIE liczą rang, tylko czytają rejestr capability
+  // (`lib/capabilities.ts`) — pełna macierz w `lib/__tests__/capabilities.test.ts`.
+  it("HoR nie przechodzi bramek RecruiterPlus (kandydat / kalendarz / link)", () => {
+    expect(hasCapability(hor, "candidate.create")).toBe(false)
+    expect(hasCapability(hor, "calendar_event.create")).toBe(false)
+    expect(hasCapability(hor, "invite_link.create")).toBe(false)
+    expect(hasCapability(hor, "job.create")).toBe(false)
+    expect(hasCapability(hor, "client.create")).toBe(false)
+    // ...ale kontakty klienta (ADMIN_LIKE) już tak.
+    expect(hasCapability(hor, "contact.create")).toBe(true)
+  })
+
+  it("ranga HoR nadal jest wyższa od DL — dlatego capability, nie ranga", () => {
+    expect(ROLE_RANK.head_of_recruitment).toBeGreaterThan(ROLE_RANK.delivery_lead)
+    expect(hasCapability(hor, "job.create")).toBe(false)
+    expect(hasCapability(dl, "job.create")).toBe(true)
   })
 
   it("bramka pin/reassign (admin+delivery_lead) wyklucza HoR i TAC", () => {

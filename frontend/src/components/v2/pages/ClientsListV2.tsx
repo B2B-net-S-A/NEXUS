@@ -6,8 +6,10 @@ import { useQuery } from"@tanstack/react-query";
 import { ArrowDown, ArrowUp, Building2, Plus, Search, Shield, ShieldCheck } from"lucide-react";
 import api from"@/lib/api";
 import { formatRelativeTime } from"@/lib/utils";
+import { resolveViewState } from"@/lib/view-state";
+import { useCapability } from"@/hooks/useCapability";
 import { AddClientModal } from"@/components/AppShell";
-import { RequireRole } from"@/components/RequireRole";
+import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -96,7 +98,13 @@ export function ClientsListV2() {
  const [toast, setToast] = useState<string | null>(null);
  const [hitSort, setHitSort] = useState<HitSortDir>(null);
 
- const { data, isLoading } = useQuery({
+ // Bramka „Nowy klient" = POST /api/clients (TacPlus). Ta sama capability
+ // steruje przyciskiem w nagłówku i akcją w pustym stanie — wcześniej empty
+ // state był nieobramkowany i rekruter dostawał tam „Dodaj pierwszego"
+ // prowadzące w 403 (audyt F-19).
+ const canCreateClient = useCapability("client.create");
+
+ const { data, isLoading, isError, error, refetch } = useQuery({
  queryKey: ["clients-v2", search, page],
  queryFn: () =>
  api
@@ -147,6 +155,18 @@ export function ClientsListV2() {
  const pageSize = data?.page_size ?? 50;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+ // 403/404/5xx NIE mogą renderować się jako pusta lista (audyt F-20).
+ const viewState = resolveViewState({
+ isLoading,
+ isError,
+ error,
+ isEmpty: items.length === 0,
+ });
+ const failed =
+ viewState === "forbidden" ||
+ viewState === "not_found" ||
+ viewState === "error";
+
  const toggleHitSort = () =>
  setHitSort((prev) => (prev === "desc" ?"asc" : prev === "asc" ? null : "desc"));
 
@@ -167,18 +187,22 @@ export function ClientsListV2() {
  <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
  Klienci
  </h1>
- <p className="text-sm text-muted-foreground mt-1">
- {isLoading ?"Ładowanie…" : `${total} firm w portfelu`}
+ <p className="text-sm text-muted-foreground mt-1" aria-live="polite">
+ {isLoading
+ ?"Ładowanie…"
+ : failed
+ ?"Nie udało się pobrać listy"
+ : `${total} firm w portfelu`}
  </p>
  </div>
- {/* Exact-role, NIE ranga: minRole="tac" (hasMinRole) przepuszczał
-    head_of_recruitment (ROLE_RANK 4.5 > tac), który po stronie backendu NIE
-    zakłada klientów. Zakładanie firmy = admin + delivery_lead + tac. */}
- <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+ {/* Capability `client.create` = backendowy TacPlus. Świadomie NIE ranga:
+    head_of_recruitment (ROLE_RANK 4.5 > tac) przechodził przez hasMinRole,
+    a backend firm mu zakładać nie pozwala. */}
+ {canCreateClient && (
  <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
  <Plus className="h-4 w-4" /> Nowy klient
  </Button>
- </RequireRole>
+ )}
  </div>
 
  {/* Search */}
@@ -217,18 +241,35 @@ export function ClientsListV2() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {isLoading ? (
+ {viewState === "loading" ? (
  <TableRow>
  <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
  Ładowanie…
  </TableCell>
  </TableRow>
- ) : items.length === 0 ? (
+ ) : failed ? (
+ <TableRow>
+ <TableCell colSpan={7} className="p-0">
+ <QueryStateNotice
+ state={viewState as "forbidden" | "not_found" | "error"}
+ className="border-0"
+ description={
+ viewState === "forbidden"
+ ?"Twoja rola nie ma dostępu do bazy klientów. Lista NIE jest pusta — poproś administratora o uprawnienia."
+ : undefined
+ }
+ onRetry={() => void refetch()}
+ />
+ </TableCell>
+ </TableRow>
+ ) : viewState === "empty" ? (
  <TableRow>
  <TableCell colSpan={7} className="text-center py-10">
  <Building2 className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
- Brak klientów.{""}
+ Brak klientów.{" "}
+ {canCreateClient && (
+ <>
  <button
  onClick={() => setShowAdd(true)}
  className="text-primary hover:underline"
@@ -236,6 +277,8 @@ export function ClientsListV2() {
  Dodaj pierwszego
  </button>
  .
+ </>
+ )}
  </p>
  </TableCell>
  </TableRow>
@@ -292,7 +335,7 @@ export function ClientsListV2() {
  </Table>
 
  {/* Pagination */}
- {!isLoading && total > pageSize && (
+ {viewState === "ready" && total > pageSize && (
  <div className="flex items-center justify-between text-sm">
  <span className="text-muted-foreground">
  Strona <strong className="text-foreground">{page}</strong> z {totalPages}
