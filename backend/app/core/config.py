@@ -721,6 +721,15 @@ class Settings(BaseSettings):
     # everything changed in Traffit since the one-time migration. After that,
     # the watermark drives the cutoff.
     TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
+    # Consecutive failures after which ONE source row stops holding back the
+    # delta watermark for every other row (see `_blocking_errors`). The retry
+    # policy is deliberate: keep re-covering a failed record while it might be
+    # transient, then park it explicitly rather than freezing the pipeline.
+    # Measured on prod 2026-07-27: one candidate with a colliding e-mail had
+    # frozen the daily watermark for 7 days, so `traffit=degraded` was permanent
+    # and any NEW failure was invisible behind it. 5 runs ≈ 5 days at the daily
+    # cadence — long enough that a real outage recovers on its own first.
+    TRAFFIT_MAX_ROW_ATTEMPTS: int = 5
 
     # ── Traffit bidirectional integration (plan 2026-07-16) ────────────────
     # Twarde kill-switche środowiskowe. Runtime control w tabeli

@@ -276,6 +276,35 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _next_quarantine(
+    previous: Optional[dict[str, Any]], error_refs: list[str]
+) -> dict[str, int]:
+    """Consecutive-failure counter per source row.
+
+    Rows that failed again keep counting up; rows absent from this run's errors
+    are dropped, because "it imported this time" is exactly the recovery signal
+    — a row must not accumulate credit towards quarantine across unrelated runs.
+    """
+    prev = previous or {}
+    return {ref: int(prev.get(ref, 0)) + 1 for ref in error_refs}
+
+
+def _blocking_errors(
+    total_errors: int, error_refs: list[str], quarantine: dict[str, int], limit: int
+) -> int:
+    """How many of this phase's errors may still hold back the watermark.
+
+    Quarantined rows (``attempts >= limit``) stop blocking. Everything else
+    does — including errors we could NOT attribute to a row
+    (``total_errors > len(error_refs)``, e.g. "total_count failed"), because an
+    unattributable error might be a brand-new fault and we refuse to let it
+    ride in on a known-bad row's exemption.
+    """
+    unattributable = max(0, total_errors - len(error_refs))
+    still_retrying = sum(1 for ref in error_refs if quarantine.get(ref, 0) < limit)
+    return unattributable + still_retrying
+
+
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
 
@@ -331,21 +360,69 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                     try:
                         progress = await factory()
                         pd = progress.as_dict()
-                        results[name] = _summarize(pd)
-                        # Advance the per-phase watermark only on a fully clean
-                        # phase. Row-level errors (progress.errors > 0) mean some
-                        # records did not import, so we keep the prior watermark
-                        # (last_synced_at=None → UPSERT COALESCE preserves it) to
-                        # stay honest — mirrors the global delta gate below
-                        # (M2-IMP-01).
+                        summary = _summarize(pd)
+
+                        # Advance the per-phase watermark only when nothing is
+                        # still failing. Row-level errors mean records did not
+                        # import, so we keep the prior watermark
+                        # (last_synced_at=None → UPSERT COALESCE preserves it)
+                        # and the next delta re-covers them (M2-IMP-01).
+                        #
+                        # …with a bound. Without one, a row that can NEVER
+                        # import freezes the watermark forever: measured on prod
+                        # 2026-07-27, ONE candidate with a colliding e-mail had
+                        # held `__daily__` at 2026-07-20 for 7 days. The delta
+                        # window grows every night, `traffit=degraded` becomes
+                        # permanent, and — worst of all — a genuinely new error
+                        # is invisible because the status is already "errors".
+                        # After TRAFFIT_MAX_ROW_ATTEMPTS consecutive failures a
+                        # row is parked: recorded, surfaced to the operator, and
+                        # no longer holding back the other 179 287 records. That
+                        # is not silent loss (which M2-IMP-01 rightly forbids) —
+                        # it is explicit, countable, and owned.
+                        prev = await _get_state(db, name)
+                        prev_stats = (prev.stats if prev is not None else None) or {}
+                        quarantine = _next_quarantine(
+                            prev_stats.get("quarantine"), pd.get("error_refs") or []
+                        )
+                        blocking = _blocking_errors(
+                            progress.errors,
+                            pd.get("error_refs") or [],
+                            quarantine,
+                            settings.TRAFFIT_MAX_ROW_ATTEMPTS,
+                        )
+                        parked = {
+                            ref: n
+                            for ref, n in quarantine.items()
+                            if n >= settings.TRAFFIT_MAX_ROW_ATTEMPTS
+                        }
+                        if blocking:
+                            # Read by the global gate below. Absent when zero so
+                            # the stats stay quiet on a clean phase.
+                            summary["blocking_errors"] = blocking
+                        if quarantine:
+                            summary["quarantine"] = quarantine
+                        if parked:
+                            summary["quarantined"] = sorted(parked)
+                            logger.warning(
+                                "Traffit phase %s: %d row(s) quarantined after "
+                                "%d consecutive failures and no longer blocking "
+                                "the watermark: %s",
+                                name,
+                                len(parked),
+                                settings.TRAFFIT_MAX_ROW_ATTEMPTS,
+                                sorted(parked),
+                            )
+
+                        results[name] = summary
                         await _upsert_state(
                             db,
                             name,
-                            last_synced_at=None if progress.errors else run_start,
+                            last_synced_at=None if blocking else run_start,
                             last_run_started_at=progress.started_at,
                             last_run_finished_at=progress.finished_at,
-                            last_status="errors" if progress.errors else "ok",
-                            stats=_summarize(pd),
+                            last_status="errors" if blocking else "ok",
+                            stats=summary,
                         )
                         logger.info("Traffit phase %s: %s", name, results[name])
                     except asyncio.CancelledError:
@@ -365,8 +442,12 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                         )
 
                 finished = datetime.now(timezone.utc)
+                # Same definition as the per-phase gate above: a quarantined row
+                # is NOT a blocker. Reading `v.get("errors")` here instead would
+                # re-freeze the daily watermark on the very rows the phase just
+                # decided to park, and the whole mechanism would be a no-op.
                 any_error = any(
-                    isinstance(v, dict) and ("error" in v or v.get("errors"))
+                    isinstance(v, dict) and ("error" in v or v.get("blocking_errors"))
                     for v in results.values()
                 )
                 status = "errors" if any_error else "ok"
