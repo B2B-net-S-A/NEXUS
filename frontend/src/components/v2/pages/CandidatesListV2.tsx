@@ -163,6 +163,7 @@ import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
 import { ROLE_LABELS, type UserRole } from"@/store/auth";
+import { getAccessToken } from "@/lib/session";
 
 const STATUS_LABELS: Record<string, string> = {
  active: "Aktywny",
@@ -638,10 +639,7 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
     setLoading(true);
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
-      const token =
-        typeof window !== "undefined"
-          ? localStorage.getItem("access_token")
-          : null;
+      const token = getAccessToken();
       const authHeaders: HeadersInit = token
         ? { Authorization: `Bearer ${token}` }
         : {};

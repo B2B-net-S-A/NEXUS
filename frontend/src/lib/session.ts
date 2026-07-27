@@ -12,9 +12,18 @@
  *     X-Impersonate-User-Id jechał dalej z każdym requestem).
  */
 
+/**
+ * Klucz JWT — wydzielony ze zbioru poniżej, bo czyta go nie tylko teardown,
+ * ale i każde pobranie pliku idące `fetch`em z pominięciem axiosa (podgląd CV,
+ * eksporty, dokumenty kontraktów). Zanim tu trafił, nazwa `"access_token"`
+ * żyła zahardkodowana w 9 miejscach naraz — zmiana klucza w tym pliku
+ * zostawiłaby je wszystkie po cichu czytające martwy klucz.
+ */
+const ACCESS_TOKEN_KEY = "access_token";
+
 /** Klucze localStorage, które RAZEM stanowią sesję. */
 const SESSION_STORAGE_KEYS = [
-  "access_token",
+  ACCESS_TOKEN_KEY,
   "nexus_user",
   "nexus_real_user",
   "nexus_impersonate_id",
@@ -53,6 +62,22 @@ export function hasAuthCookie(): boolean {
   return document.cookie
     .split(";")
     .some((part) => part.trimStart().startsWith(`${AUTH_COOKIE_NAME}=`));
+}
+
+/**
+ * Odczytaj JWT sesji. Zwraca `null` poza przeglądarką ORAZ gdy storage jest
+ * niedostępny — `localStorage` rzuca `SecurityError`, gdy przeglądarka blokuje
+ * dane witryn (tryb prywatny z twardą polityką, rozszerzenia). Wołający i tak
+ * traktują brak tokenu jako „leć bez nagłówka Authorization", więc rzucenie
+ * wyjątkiem tylko wywróciłoby pobieranie pliku zamiast dać czyste 401.
+ */
+export function getAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ACCESS_TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 /** Usuń wszystkie persystowane artefakty sesji. Bezpieczne poza przeglądarką. */
