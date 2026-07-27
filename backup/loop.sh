@@ -14,15 +14,60 @@ set -o pipefail
 
 HOUR="${BACKUP_HOUR_UTC:-2}"
 RUN_ON_START="${BACKUP_RUN_ON_START:-false}"
+RETRIES="${BACKUP_RETRIES:-3}"
+RETRY_DELAY="${BACKUP_RETRY_DELAY_SECONDS:-900}"
 
-echo "[backup-loop] started; daily at ${HOUR}:00 UTC; enabled=${BACKUP_ENABLED:-false}"
+HEARTBEAT=/tmp/backup-heartbeat
+RUN_MARKER=/tmp/backup-run-started
+
+# Liveness signal for the compose healthcheck (backup/healthcheck.sh). A
+# detached ticker rather than a touch inside the main loop, because the main
+# loop spends ~24h in a single `sleep` and hours inside a run: without an
+# independent tick, "container wedged" and "container waiting, as designed"
+# look identical from outside, which is why a hung rclone was invisible.
+: > "$HEARTBEAT"
+while true; do
+    : > "$HEARTBEAT"
+    sleep 30
+done &
+
+# A run in progress is marked with a file, so the healthcheck can distinguish
+# "working" from "stuck working" (see BACKUP_MAX_RUN_SECONDS).
+run_backup() {
+    date -u +%s > "$RUN_MARKER"
+    _rc=0
+    /usr/local/bin/backup.sh || _rc=$?
+    rm -f "$RUN_MARKER"
+    return "$_rc"
+}
+
+# One night's transient failure (S3 blip, Qdrant restarting mid-snapshot) used
+# to cost a whole day of backups: the run was attempted exactly once and the
+# loop then slept until tomorrow. Retry a few times before giving up.
+run_backup_with_retries() {
+    _attempt=1
+    while true; do
+        if run_backup; then
+            return 0
+        fi
+        if [ "$_attempt" -ge "$RETRIES" ]; then
+            echo "[backup-loop] run failed after ${_attempt} attempt(s); giving up until tomorrow" >&2
+            return 1
+        fi
+        echo "[backup-loop] attempt ${_attempt}/${RETRIES} failed; retrying in ${RETRY_DELAY}s" >&2
+        sleep "$RETRY_DELAY"
+        _attempt=$((_attempt + 1))
+    done
+}
+
+echo "[backup-loop] started; daily at ${HOUR}:00 UTC; enabled=${BACKUP_ENABLED:-false}; retries=${RETRIES}"
 
 # Running once at boot makes a misconfiguration visible within minutes of the
 # deploy rather than at 02:00, when nobody is looking. Off by default so a
 # routine redeploy does not trigger a full backup every time.
 if [ "$RUN_ON_START" = "true" ]; then
     echo "[backup-loop] BACKUP_RUN_ON_START=true — running immediately"
-    /usr/local/bin/backup.sh || echo "[backup-loop] initial run failed (see above)" >&2
+    run_backup_with_retries || echo "[backup-loop] initial run failed (see above)" >&2
 fi
 
 while true; do
@@ -45,7 +90,7 @@ while true; do
     # A failing backup must not kill the scheduler, or one bad night silently
     # ends all future backups -- the container would sit "restarting" or exited
     # and the next failure would never even be attempted.
-    /usr/local/bin/backup.sh || echo "[backup-loop] run failed; will retry tomorrow" >&2
+    run_backup_with_retries || echo "[backup-loop] run failed; will retry tomorrow" >&2
 
     # Guard against drift: if the run finished within the same hour, wait past
     # it so the loop cannot fire twice in one day.
