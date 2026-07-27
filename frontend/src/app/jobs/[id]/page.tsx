@@ -5,6 +5,7 @@ import { usePathname, useParams, useRouter, useSearchParams } from "next/navigat
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { getAvatarColor } from "@/lib/colors";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
@@ -983,6 +984,10 @@ export default function JobDetailPage() {
   // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
   const authUser = useAuthStore((s) => s.user);
   const isAdmin = hasRole(authUser, "admin");
+  // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
+  // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
+  // prosto w 403 (audyt F-19).
+  const canCreateInviteLink = useCapability("invite_link.create");
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
@@ -1201,7 +1206,7 @@ export default function JobDetailPage() {
                   <Wand2 className="w-3.5 h-3.5" />
                   AI Ogłoszenie
                 </button>
-                {job.status === "published" && (
+                {job.status === "published" && canCreateInviteLink && (
                   <button
                     onClick={() => setShowInviteLink(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"

@@ -17,7 +17,7 @@ import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
 import { resolveViewState } from"@/lib/view-state";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
-import { RequireRole } from"@/components/RequireRole";
+import { useCapability } from"@/hooks/useCapability";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -175,6 +175,11 @@ export function ContractsListV2() {
  }
  };
 
+ // Bramka „Nowy kontrakt" = POST /api/contracts (TacPlus). Z rejestru, NIE
+ // z lokalnej listy ról — to właśnie ten wzorzec rozjeżdżał się z backendem
+ // (audyt F-19).
+ const canCreateContract = useCapability("contract.create");
+
  const { data, isLoading, isError, error, refetch } = useQuery({
  queryKey: ["contracts-v2", search, statusFilter, typeFilter, endingSoon, page],
  queryFn: () =>
@@ -276,13 +281,13 @@ export function ContractsListV2() {
  </button>
  </PopoverContent>
  </Popover>
- <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+ {canCreateContract && (
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">
  <Plus className="h-4 w-4" /> Nowy kontrakt
  </Button>
  </Link>
- </RequireRole>
+ )}
  </div>
  </div>
 

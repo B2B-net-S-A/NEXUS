@@ -33,6 +33,7 @@ export type Capability =
   | "candidate.create"
   | "job.create"
   | "client.create"
+  | "contract.create"
   | "contact.create"
   | "calendar_event.create"
   | "invite_link.create"
@@ -77,6 +78,8 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "job.create": TAC_PLUS,
   // POST /api/clients → TacPlus (backend/app/api/clients.py)
   "client.create": TAC_PLUS,
+  // POST /api/contracts → TacPlus (backend/app/api/contracts.py)
+  "contract.create": TAC_PLUS,
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts =
   // ADMIN_LIKE_ROLES ∪ CLIENT_TEAM_ROLES (backend/app/services/client_access.py)
   "contact.create": ["admin", "head_of_recruitment", "delivery_lead", "tac"],

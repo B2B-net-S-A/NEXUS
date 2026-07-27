@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
+import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
   ArrowLeft,
@@ -431,6 +432,10 @@ function ContactsTab({ clientId }: { clientId: number }) {
   });
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
+  // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts
+  // (admin/HoR/DL/TAC). Recruiter i sourcer mają dostęp do klienta, ale nie
+  // do edycji kontaktów — bez bramki widzieli przycisk wiodący w 403 (F-19).
+  const canCreateContact = useCapability("contact.create");
 
   const { data: rawContacts = [] } = useQuery<Contact[]>({
     queryKey: ["client-contacts", clientId],
@@ -502,13 +507,15 @@ function ContactsTab({ clientId }: { clientId: number }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Osoby kontaktowe</p>
-        <button
-          onClick={() => { setShowAdd(true); setEditContact(null); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Dodaj kontakt
-        </button>
+        {canCreateContact && (
+          <button
+            onClick={() => { setShowAdd(true); setEditContact(null); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Dodaj kontakt
+          </button>
+        )}
       </div>
 
       {showAdd && !editContact && (

@@ -61,6 +61,16 @@ const EXPECTED: Record<Capability, Record<UserRole, boolean>> = {
     sourcer: false,
     user: false,
   },
+  // POST /api/contracts → TacPlus
+  "contract.create": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   // ClientAccess.can_edit_contacts → ADMIN_LIKE ∪ CLIENT_TEAM
   "contact.create": {
     admin: true,
@@ -290,5 +300,48 @@ describe("regresja F-19: Quick Actions nie pokazuje akcji bez capability", () =>
       hasCapability(mkUser("head_of_recruitment"), c)
     )
     expect(visible).toEqual(["contact.create"])
+  })
+})
+
+describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
+  // Komplet capability typu `*.create` — także tych bramkowanych poza Quick
+  // Actions (nagłówki list, zakładki profilu klienta, strona szczegółów oferty).
+  const CREATE_CAPABILITIES = ALL_CAPABILITIES.filter((c) =>
+    c.endsWith(".create")
+  )
+
+  it("każda akcja tworzenia ma wpis w rejestrze", () => {
+    expect(CREATE_CAPABILITIES).toEqual([
+      "candidate.create",
+      "job.create",
+      "client.create",
+      "contract.create",
+      "contact.create",
+      "calendar_event.create",
+      "invite_link.create",
+    ])
+  })
+
+  it("read-only viewer nie tworzy NICZEGO", () => {
+    for (const capability of CREATE_CAPABILITIES) {
+      expect(hasCapability(mkUser("user"), capability)).toBe(false)
+    }
+  })
+
+  it("recruiter/sourcer nie tworzą kontraktów, ofert, firm ani kontaktów", () => {
+    for (const role of ["recruiter", "sourcer"] as UserRole[]) {
+      expect(hasCapability(mkUser(role), "contract.create")).toBe(false)
+      expect(hasCapability(mkUser(role), "job.create")).toBe(false)
+      expect(hasCapability(mkUser(role), "client.create")).toBe(false)
+      expect(hasCapability(mkUser(role), "contact.create")).toBe(false)
+    }
+  })
+
+  it("kontrakt, oferta i firma dzielą tę samą bramkę (TacPlus)", () => {
+    for (const role of ALL_ROLES) {
+      const contract = hasCapability(mkUser(role), "contract.create")
+      expect(hasCapability(mkUser(role), "job.create")).toBe(contract)
+      expect(hasCapability(mkUser(role), "client.create")).toBe(contract)
+    }
   })
 })
