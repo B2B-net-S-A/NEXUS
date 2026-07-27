@@ -19,7 +19,6 @@ import {
   Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AppModal } from "@/components/ds/AppModal";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,25 +91,28 @@ function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose:
       api.post(`/api/email-templates/${template.id}/preview`).then((r) => r.data),
   });
 
-  // Escape, focus-trap, klik w tło i aria-* obsługuje Radix (AppModal → Dialog).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   return (
-    <AppModal
-      open
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-      title={`Podgląd: ${template.name}`}
-      size="lg"
-      footer={
-        <button
-          onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-foreground dark:text-muted-foreground bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:bg-muted dark:hover:bg-gray-600 transition-colors"
-        >
-          Zamknij
-        </button>
-      }
-    >
-      <div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+          <div className="flex items-center gap-2">
+            <Eye className="w-5 h-5 text-violet-500" />
+            <h2 className="text-lg font-bold text-foreground dark:text-foreground">
+              Podgląd: {template.name}
+            </h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
           {isLoading ? (
             <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
               <Loader2 className="w-5 h-5 animate-spin" /> Generowanie podglądu...
@@ -134,8 +136,18 @@ function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose:
               </div>
             </div>
           )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-border dark:border-border flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-foreground dark:text-muted-foreground bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:bg-muted dark:hover:bg-gray-600 transition-colors"
+          >
+            Zamknij
+          </button>
+        </div>
       </div>
-    </AppModal>
+    </div>
   );
 }
 
@@ -153,7 +165,7 @@ function DeleteConfirmModal({
   isDeleting: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
       <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-sm p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 bg-destructive/15 dark:bg-red-900/30 rounded-full flex items-center justify-center">
@@ -367,7 +379,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="np. Zaproszenie na rozmowę"
-              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
+              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent"
             />
           </div>
           <div>
@@ -377,7 +389,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             <select
               value={form.category}
               onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as EmailCategory }))}
-              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
+              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent"
             >
               {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -396,7 +408,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             value={form.subject}
             onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
             placeholder="np. Zaproszenie na rozmowę — {{job_title}}"
-            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
+            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent"
           />
         </div>
 
@@ -431,7 +443,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
             placeholder="Wpisz treść emaila..."
             rows={14}
-            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm resize-y bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent font-mono leading-relaxed"
+            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm resize-y bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent font-mono leading-relaxed"
           />
           <p className="text-xs text-muted-foreground mt-1">{form.body.length} znaków</p>
         </div>
@@ -470,7 +482,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
         <button
           type="submit"
           disabled={saveMutation.isPending}
-          className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-sm"
+          className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-xs"
         >
           {saveMutation.isPending ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -483,7 +495,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
 
       {/* Preview Modal */}
       {showPreview && preview && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
           <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
               <div className="flex items-center gap-2">
@@ -603,7 +615,7 @@ export default function EmailTemplatesPage() {
           )}
           <button
             onClick={() => setSelectedTemplate(null)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors shadow-xs"
           >
             <Plus className="w-4 h-4" />
             Nowy szablon
@@ -630,7 +642,7 @@ export default function EmailTemplatesPage() {
       {/* Master-detail layout */}
       <div className="flex-1 flex gap-4 min-h-0">
         {/* Left panel: template list */}
-        <div className="w-80 shrink-0 flex flex-col bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="w-80 shrink-0 flex flex-col bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
           {/* Category tabs */}
           <div className="flex flex-wrap gap-1 p-3 border-b border-border dark:border-border">
             {ALL_CATEGORIES.map(({ value, label }) => (
@@ -729,7 +741,7 @@ export default function EmailTemplatesPage() {
         </div>
 
         {/* Right panel: editor or empty state */}
-        <div className="flex-1 bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="flex-1 bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
           {selectedTemplate === undefined && (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
               <Mail className="w-16 h-16 mb-4 opacity-20" />

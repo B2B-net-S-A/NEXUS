@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { X, Keyboard } from "lucide-react";
 
 import type { Capability } from "@/lib/capabilities";
 import { useCapabilities } from "@/hooks/useCapability";
-import { AppModal } from "@/components/ds/AppModal";
 
 // ── Shortcuts help modal ──────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ const SHORTCUTS: Array<{
 
 function ShortcutKey({ k }: { k: string }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 bg-muted dark:bg-muted border border-border dark:border-border rounded text-xs font-mono font-semibold text-foreground dark:text-muted-foreground shadow-sm">
+    <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 bg-muted dark:bg-muted border border-border dark:border-border rounded text-xs font-mono font-semibold text-foreground dark:text-muted-foreground shadow-xs">
       {k}
     </kbd>
   );
@@ -42,37 +42,48 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
     (s) => !s.capability || can[s.capability],
   );
 
-  // Escape, focus-trap, klik w tło i aria-* obsługuje Radix (AppModal → Dialog).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   return (
-    <AppModal
-      open
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-      title="Skróty klawiszowe"
-      size="md"
-    >
-      <div className="space-y-3">
-        {visibleShortcuts.map((shortcut, i) => (
-          <div key={i} className="flex items-center justify-between gap-4">
-            <span className="text-sm text-foreground dark:text-muted-foreground">{shortcut.description}</span>
-            <div className="flex items-center gap-1 shrink-0">
-              {shortcut.keys.map((k, j) => (
-                <span key={j} className="flex items-center gap-1">
-                  <ShortcutKey k={k} />
-                  {j < shortcut.keys.length - 1 && (
-                    <span className="text-xs text-muted-foreground dark:text-muted-foreground">+</span>
-                  )}
-                </span>
-              ))}
-            </div>
+    <div className="fixed inset-0 bg-black/50 z-100 flex items-center justify-center p-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+          <div className="flex items-center gap-2">
+            <Keyboard className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-bold text-foreground dark:text-foreground">Skróty klawiszowe</h2>
           </div>
-        ))}
-        <p className="pt-1 text-xs text-muted-foreground dark:text-muted-foreground">
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-6 space-y-3">
+          {visibleShortcuts.map((shortcut, i) => (
+            <div key={i} className="flex items-center justify-between gap-4">
+              <span className="text-sm text-foreground dark:text-muted-foreground">{shortcut.description}</span>
+              <div className="flex items-center gap-1 shrink-0">
+                {shortcut.keys.map((k, j) => (
+                  <span key={j} className="flex items-center gap-1">
+                    <ShortcutKey k={k} />
+                    {j < shortcut.keys.length - 1 && (
+                      <span className="text-xs text-muted-foreground dark:text-muted-foreground">+</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-6 pb-4 text-xs text-muted-foreground dark:text-muted-foreground">
           Skróty są nieaktywne gdy kursor jest w polu tekstowym.
-        </p>
+        </div>
       </div>
-    </AppModal>
+    </div>
   );
 }
 
