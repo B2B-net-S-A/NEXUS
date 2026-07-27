@@ -34,6 +34,7 @@ import {
   type ApplicationSubmission,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
 /** Zgłoszenie starsze niż to jest sygnałem, że kolejka nie ma właściciela. */
@@ -260,17 +261,39 @@ export default function ApplicationsQueuePage() {
                     {s.cv_filename}
                   </span>
                 )}
-                {s.submitted_linkedin && (
-                  <a
-                    href={s.submitted_linkedin}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="inline-flex items-center gap-1 hover:text-foreground"
-                  >
-                    <Link2 className="h-3.5 w-3.5" />
-                    LinkedIn
-                  </a>
-                )}
+                {/* Adres z NIEUWIERZYTELNIONEGO formularza publicznego —
+                    walidowany na backendzie tylko po długości. Bez sprawdzenia
+                    schematu `javascript:` wykonałby się w sesji rekrutera,
+                    który kliknie. Gdy adres nie jest http(s), pokazujemy samą
+                    informację, że aplikant coś podał, ale nie linkujemy. */}
+                {(() => {
+                  const href = safeExternalHref(s.submitted_linkedin);
+                  if (href) {
+                    return (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="inline-flex items-center gap-1 hover:text-foreground"
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                        LinkedIn
+                      </a>
+                    );
+                  }
+                  if (s.submitted_linkedin) {
+                    return (
+                      <span
+                        className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400"
+                        title="Aplikant podał adres, który nie jest poprawnym linkiem http(s) — nie linkujemy go."
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                        LinkedIn (niepoprawny adres)
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
                 {s.matched_candidate_id !== null ? (
                   <a
                     href={`/candidates/${s.matched_candidate_id}`}
