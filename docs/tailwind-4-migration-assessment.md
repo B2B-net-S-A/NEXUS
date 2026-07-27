@@ -205,13 +205,25 @@ przez kolejność w pliku — czyli pewniej.
 
 ## 6. Weryfikacja
 
+Zmierzone po rebase na `main` z recharts 3.x (#946), refaktorem `useClickOutside`
+(#936) i usunięciem `@vitest/ui` (#945) — Tailwind 4 współistnieje z nimi bez zmian:
+
 | krok | wynik |
 |---|---|
-| `npm run type-check` | ✅ czysty (przed korektą #3: 31 błędów) |
+| `npm run type-check` | ✅ czysty (przed korektą #2: 31 błędów) |
 | `npm run lint` | ✅ **215 ostrzeżeń = baseline 215, pliki bit-w-bit identyczne, zero nowych** |
 | `npm run build` | ✅ skompilowany, 87/87 stron statycznych |
-| `npx vitest run` | ✅ **63 pliki, 728/728 testów** |
+| `npx vitest run` | ✅ **65 plików, 737/737 testów** |
 | Dockerfile | ✅ `npm install --legacy-peer-deps` (devDeps dostępne), brak odwołań do `tailwind.config.ts` |
+
+Pomiary wizualne (§5) wykonano przed rebase, na 63 plikach / 728 testach — dotyczą
+warstwy CSS, której późniejsze commity na `main` nie ruszają.
+
+### Konflikt rebase
+
+Jedyny realny konflikt: `package.json` — `main` usunął `@vitest/ui`, ta gałąź usunęła
+`autoprefixer`. Rozwiązanie: obie zależności usunięte. Wszystkie pliki `.tsx`
+zmergowały się automatycznie.
 
 ---
 
