@@ -21,7 +21,7 @@ import os
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -90,10 +90,13 @@ async def _compute_breaches(db: AsyncSession) -> list[dict]:
             await db.execute(
                 select(CandidateStage)
                 .where(
-                    CandidateStage.candidate_id.in_(
-                        list({s.candidate_id for s in candidate_rows})
-                    ),
-                    CandidateStage.job_id.in_(list({s.job_id for s in candidate_rows})),
+                    # Filtr PO PARACH, nie dwa osobne `IN` — te dawałyby iloczyn
+                    # kartezjański (para (A,X) + (B,Y) wciągałaby też (A,Y) i (B,X)),
+                    # czyli skanowałyby wiersze, których cała optymalizacja miała
+                    # nie dotykać.
+                    tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(
+                        [(s.candidate_id, s.job_id) for s in candidate_rows]
+                    )
                 )
                 .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
                 .order_by(

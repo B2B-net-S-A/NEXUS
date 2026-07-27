@@ -431,6 +431,70 @@ async def test_pipeline_overview_matches_full_scan_oracle(
     assert got_workload.get(0, 0) >= 1
 
 
+async def test_match_stats_uses_one_bulk_call_per_job_without_cache_writes(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Kolumna dopasowań: 1 wywołanie na OFERTĘ, nie na parę kandydat × oferta.
+
+    Dawniej `for cand in items: rank_jobs_for_candidate(cand, open_jobs)` —
+    page_size × 50 ofert sekwencyjnych `score_candidate_job`, każdy z własnymi
+    round-tripami. Test pilnuje transpozycji pętli ORAZ tego, że ta ścieżka
+    NIGDY nie zapisuje do cache match-score: nie ma similarity_map z Qdranta,
+    więc świeże wyniki mają neutralną semantykę i utrwalone zaniżyłyby
+    `/api/recommendations` (M3-CACHE-01).
+    """
+    import app.api.candidates as candidates_api
+
+    await _seed_fixtures()
+
+    calls: list[dict] = []
+    original = candidates_api.bulk_get_or_compute
+
+    async def _spy(job, candidates, db, **kwargs):
+        calls.append(
+            {
+                "job_id": job.id,
+                "candidate_ids": [c.id for c in candidates],
+                "allow_cache_write": kwargs.get("allow_cache_write"),
+            }
+        )
+        return await original(job, candidates, db, **kwargs)
+
+    candidates_api.bulk_get_or_compute = _spy
+    try:
+        resp = await app_client.get(
+            "/api/candidates?include_match_stats=true&page_size=3",
+            headers=app_auth_headers,
+        )
+    finally:
+        candidates_api.bulk_get_or_compute = original
+
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    assert items, "potrzebny co najmniej jeden kandydat na stronie"
+    assert calls, "match-stats nie policzone — brak opublikowanych ofert?"
+
+    # Jedno wywołanie per oferta — żadna oferta nie powtarza się.
+    job_ids = [c["job_id"] for c in calls]
+    assert len(job_ids) == len(set(job_ids)), (
+        f"oferta punktowana wielokrotnie: {job_ids}"
+    )
+
+    page_ids = [i["id"] for i in items]
+    for call in calls:
+        # Każde wywołanie dostaje CAŁĄ stronę kandydatów, nie pojedynczego.
+        assert call["candidate_ids"] == page_ids
+        assert call["allow_cache_write"] is False, (
+            "ta ścieżka nie może utrwalać wyników z neutralną semantyką"
+        )
+
+    # Kontrakt odpowiedzi bez zmian.
+    for item in items:
+        stats = item.get("match_stats")
+        if stats is not None:
+            assert set(stats.keys()) >= {"open_count", "total_open", "top_score"}
+
+
 async def test_slack_sla_breaches_match_full_scan_oracle():
     """`_compute_breaches` po prefiltrze == wynik dawnego pełnego skanu."""
     from app.models.pipeline_template import PipelineStageDef
