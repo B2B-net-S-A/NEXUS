@@ -189,6 +189,27 @@ immediately. The destination bucket already exists: Backblaze B2
 
 ### Restoring from an off-site copy
 
+> **FIRST, before anything else: raise the Backblaze caps.** Every read from B2 —
+> `rclone cat`, `rclone copy`, even a `HEAD` — is a **Class B** transaction,
+> billed and *capped daily*. A fresh account sits at the free-tier default, and
+> once that cap is hit B2 answers every download with
+> `403 AccessDenied: Cannot download file, download bandwidth or transaction
+> (Class B) cap exceeded`. Uploads are Class A: free and uncapped, which is why
+> backups can keep succeeding for weeks while restores are silently impossible.
+>
+> This is not hypothetical — it happened on the very first seeding run
+> (2026-07-27) and is what `RCLONE_S3_NO_HEAD` in `backup/backup.sh` works
+> around. **Go to secure.backblaze.com → Caps & Alerts and set a daily cap above
+> zero *before* starting a restore.** The real cost is negligible (the full
+> 37 GB corpus is well under a euro); the cap exists to prevent runaway bills,
+> not to be left at the default. Verify with a single object first:
+>
+> ```bash
+> rclone copy offsite:dynaminds-nexus-offsite/nexus/LATEST.json /tmp/
+> ```
+>
+> If that returns 403, the cap is still blocking you — no other step will work.
+
 ```bash
 # Postgres
 rclone cat offsite:dynaminds-nexus-offsite/nexus/postgres/YYYY-MM-DD/<file>.dump.age \
