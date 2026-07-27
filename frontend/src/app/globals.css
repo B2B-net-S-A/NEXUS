@@ -159,15 +159,9 @@
     }
   }
 
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-
+  /* @keyframes fadeIn żyje w @theme inline powyżej — Tailwind v4 wynosi je
+     na poziom dokumentu, więc obsługuje i --animate-fadeIn, i .animate-fadeIn.
+     Druga, identyczna definicja była tu redundantna (build i tak emitował jedną). */
   .animate-in {
     animation-fill-mode: both;
   }
