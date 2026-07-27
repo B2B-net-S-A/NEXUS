@@ -23,6 +23,7 @@ import {
   sanitizeDecimalInput,
 } from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
+import { getAccessToken } from "@/lib/session";
 import {
   ArrowLeft,
   Pencil,
@@ -197,7 +198,7 @@ function GenerateDocumentButton({
   if (!templates || templates.length === 0) return null;
 
   const openRendered = async (templateId: number) => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const token = getAccessToken();
     const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const url = `${base}/api/contract-templates/${templateId}/render?contract_id=${contractId}`;
     try {

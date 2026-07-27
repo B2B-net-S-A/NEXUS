@@ -1,5 +1,14 @@
 # syntax=docker/dockerfile:1
-FROM python:3.12-slim@sha256:9d3abd9fc11d06998ccdbdd93b4dd49b5ad7d67fcbbc11c016eb0eb2c2194891
+# Python 3.13 is a deliberate INTERMEDIATE step — 3.14 is not reachable yet.
+# Blockers measured against this requirements.txt (2026-07-27):
+#   pydantic-core  (via pydantic 2.10.3) no cp314 wheel; building from source
+#                  fails hard — PyO3 0.22.6 caps at 3.13. Needs pydantic >=2.12.
+#   asyncpg 0.30.0        no cp314 wheel  -> needs 0.31.0
+#   psycopg2-binary 2.9.10 no cp314 wheel -> needs 2.9.11
+#   rapidfuzz 3.10.1      no cp314 wheel  -> needs 3.14.0
+#   voyageai 0.3.x        Requires-Python <3.14 -> needs >=0.4.0
+# Keep this digest in sync with `python-version` in .github/workflows/*.yml.
+FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91
 
 WORKDIR /app
 

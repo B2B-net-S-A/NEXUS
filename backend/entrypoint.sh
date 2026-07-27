@@ -452,9 +452,83 @@ _ENUM_STATEMENTS = [
     # docelowo właściwą naprawą jest values_callable na kolumnie, żeby ORM
     # wysyłał wartość zamiast nazwy — ale to zmiana kodu, nie schematu.
     "ALTER TYPE nextsteppreference ADD VALUE IF NOT EXISTS 'pass_'",
+    # Contract lifecycle invariant (migracja 0190_contract_lifecycle_invariant):
+    # dwie nowe wartości contractstatus. Bez nich guarded lifecycle
+    # (app/services/contract_lifecycle.py) crashuje na INSERT/UPDATE contracts z
+    # tymi statusami (InvalidTextRepresentationError):
+    #   ready_for_signature — sfinalizowany, niepodpisany draft (NIE 'active'),
+    #   void                — soft-delete/annulacja zamiast hard DELETE.
+    "ALTER TYPE contractstatus ADD VALUE IF NOT EXISTS 'ready_for_signature'",
+    "ALTER TYPE contractstatus ADD VALUE IF NOT EXISTS 'void'",
 ]
 
 _COLUMN_STATEMENTS = [
+    # Restart-safe background loops (migracja 0186, audyt P1/P2). Durable dedup
+    # markers dla pętli tła — bez nich pętla po restarcie (Coolify rebuild na
+    # każdym pushu) i przy >1 workerze duplikuje wysyłki:
+    #   calendar_reminder_loop  → reminder_sent_at (NULL = nie przypomniano)
+    #   slack_sla_alerts_loop   → sla_alerted_at   (NULL = nie zaalarmowano)
+    # linkedin_sync NIE wymaga kolumny (reużywa candidates.linkedin_synced_at
+    # + FOR UPDATE SKIP LOCKED).
+    """ALTER TABLE calendar_events
+       ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ NULL""",
+    """ALTER TABLE candidate_stages
+       ADD COLUMN IF NOT EXISTS sla_alerted_at TIMESTAMPTZ NULL""",
+    # Generated B2B contract signature automation (migration 0196). Historical
+    # rows remain unsigned; entity links are filled explicitly, never guessed
+    # from partner/client names.
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS signature_status VARCHAR(32)
+       NOT NULL DEFAULT 'unsigned'""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS signature_source VARCHAR(32) NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS candidate_id INTEGER NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS job_id INTEGER NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS client_id INTEGER NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS contract_id INTEGER NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS signed_at TIMESTAMPTZ NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS signed_by_user_id INTEGER NULL""",
+    """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_candidate_id
+       ON b2b_generated_contracts (candidate_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_job_id
+       ON b2b_generated_contracts (job_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_client_id
+       ON b2b_generated_contracts (client_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_contract_id
+       ON b2b_generated_contracts (contract_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_signed_by_user_id
+       ON b2b_generated_contracts (signed_by_user_id)""",
+    # candidate_invite_links: token_sha256 + token_ct — hash+encrypt v2
+    # (migracja 0183). Bez nich mint v2 wywala UndefinedColumn.
+    """ALTER TABLE candidate_invite_links
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """ALTER TABLE candidate_invite_links
+       ADD COLUMN IF NOT EXISTS token_ct TEXT""",
+    """CREATE INDEX IF NOT EXISTS ix_candidate_invite_links_token_sha256
+       ON candidate_invite_links (token_sha256)""",
+    # signature_links.token_sha256 + engagement_declaration_tokens.token_sha256
+    # — hash-at-rest v2 (migracja 0182). Bez tego mint v2 wywala UndefinedColumn.
+    """ALTER TABLE signature_links
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """CREATE INDEX IF NOT EXISTS ix_signature_links_token_sha256
+       ON signature_links (token_sha256)""",
+    """ALTER TABLE engagement_declaration_tokens
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """CREATE INDEX IF NOT EXISTS ix_engagement_declaration_tokens_token_sha256
+       ON engagement_declaration_tokens (token_sha256)""",
+    # champion_card_share_tokens.token_sha256 — hash-at-rest v2 (migracja 0181).
+    # Bez tej kolumny mint v2 (token_sha256=digest) wywala UndefinedColumn i cały
+    # generator linku do karty champion pada. Idempotentne.
+    """ALTER TABLE champion_card_share_tokens
+       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
+    """CREATE INDEX IF NOT EXISTS ix_champion_card_share_tokens_token_sha256
+       ON champion_card_share_tokens (token_sha256)""",
     # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
     # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
     # UndefinedColumnError gdyby app wystartował przed alembic upgrade.
@@ -486,7 +560,29 @@ _COLUMN_STATEMENTS = [
     # AI_SCORING_CONTRACT_V2 auto-invalidates. Backfill to 'score-v1-legacy'
     # (== the flag-off version) so nothing recomputes on deploy. Without the
     # column the recommendations read 500s (UndefinedColumn) under multi-head.
-    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS scoring_algorithm_version VARCHAR(32) NOT NULL DEFAULT 'score-v1-legacy'",
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS scoring_algorithm_version VARCHAR(64) NOT NULL DEFAULT 'score-v1-legacy'",
+    # Widen 32→64: the version now folds in the embedding model name (AI-P0-06,
+    # migration 0185). At 32 every cache INSERT failed silently (value too long)
+    # → the match-score cache stopped persisting. Idempotent — no-op once wide.
+    "ALTER TABLE candidate_job_match_scores ALTER COLUMN scoring_algorithm_version TYPE VARCHAR(64)",
+    # candidate_job_match_scores.invalidated_at (migration 0189_match_score_cache_cas,
+    # audyt P1-MATCH-02) — compare-and-swap fence so a score compute that started
+    # before a mark_stale_* cannot resurrect stale=False on write-back. NULL =
+    # never invalidated since last fresh compute. Without the column the write-back
+    # 500s (UndefinedColumn) under multi-head. Nullable, idempotent.
+    "ALTER TABLE candidate_job_match_scores ADD COLUMN IF NOT EXISTS invalidated_at TIMESTAMPTZ NULL",
+    # match_score_invalidations (migration 0194_match_score_invalidations, audyt F-28)
+    # — persistent invalidation ledger. The invalidated_at column above only fences
+    # the CONFLICT (row-exists) write-back; the MISS path has no row to stamp, so
+    # mark_stale_* UPSERTs a watermark here and the miss-path INSERT reads it to
+    # decide stale. Without the table mark_stale_*/write-back 500s (UndefinedTable)
+    # under prod's chronic alembic multi-head drift. Idempotent.
+    """CREATE TABLE IF NOT EXISTS match_score_invalidations (
+        entity_type VARCHAR(16) NOT NULL,
+        entity_id INTEGER NOT NULL,
+        last_invalidated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT pk_match_score_invalidations PRIMARY KEY (entity_type, entity_id)
+    )""",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS notify_new_matches BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_seen_candidate_id INTEGER",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS unseen_count INTEGER NOT NULL DEFAULT 0",
@@ -506,6 +602,17 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_saved_search_id ON saved_search_alert_log (saved_search_id)",
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_candidate_id ON saved_search_alert_log (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidates_updated_at ON candidates (updated_at)",
+    # contract_alerts atomic dedup (migration 0186_contract_alert_dedup) —
+    # contract_alerts_loop claimuje (kategoria, próg, encja) przez INSERT ...
+    # ON CONFLICT DO NOTHING, więc nakładające się / równoległe przebiegi pętli
+    # nie duplikują notyfikacji. Tabela musi istnieć zanim loop wystartuje,
+    # inaczej claim 500s pod chronicznym multi-head driftem alembica na prod.
+    """CREATE TABLE IF NOT EXISTS contract_alert_dedup (
+        id SERIAL PRIMARY KEY,
+        dedup_key VARCHAR(128) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_contract_alert_dedup_key UNIQUE (dedup_key)
+    )""",
     # match telemetry (migration 0169_match_telemetry) — append-only impression
     # + outcome logs. No FKs (analytics survive candidate hard-delete; purged by
     # retention/DSAR). Writer is flag-gated (AI_MATCH_TELEMETRY_ENABLED) so these
@@ -634,6 +741,28 @@ _COLUMN_STATEMENTS = [
     # notes + calls contract_id FK (migration 0037_contracts_expansion)
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
     "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    # calls.candidate_id NULL — unassigned inbound CloudTalk calls (F-12,
+    # migracja 0192). Ambiguous inbound (dwóch+ kandydatów o tych samych
+    # ostatnich 9 cyfrach telefonu) NIE jest przypisywany na ślepo do
+    # najnowszego kandydata — wiersz Call powstaje z candidate_id NULL do
+    # ręcznej atrybucji. Bez tego INSERT unassigned-a padnie na NOT NULL.
+    # DROP NOT NULL jest idempotentny (no-op gdy kolumna już nullable).
+    "ALTER TABLE calls ALTER COLUMN candidate_id DROP NOT NULL",
+    # Atomic dedup dla notatek Fireflies (migracja 0186). services/fireflies_sync.py
+    # robił nieatomowy SELECT-then-INSERT po nie-unikalnym source_ref
+    # ('fireflies:<id>') → dwa równoległe syncy wstawiały duplikaty. Kod używa
+    # teraz INSERT ... ON CONFLICT DO NOTHING, który potrzebuje unikalnego indeksu
+    # arbitra. Indeks jest CZĘŚCIOWY (tylko fireflies:) więc NIE dotyka Traffita
+    # ('traffit:activity:<id>') ani NULL-owych source_ref. Dedup MUSI iść przed
+    # CREATE (inaczej padnie na istniejących duplikatach); note_mentions.note_id
+    # to ON DELETE CASCADE, więc kasowanie duplikatu sprząta ewentualne dzieci.
+    """DELETE FROM notes a
+        USING notes b
+        WHERE a.source_ref LIKE 'fireflies:%'
+          AND b.source_ref = a.source_ref
+          AND b.id < a.id""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_notes_source_ref_fireflies "
+    "ON notes (source_ref) WHERE source_ref LIKE 'fireflies:%'",
     # talent_pools centroid cache (pre-existing model fields — no dedicated migration)
     "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS centroid_vector_id VARCHAR(100)",
     "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS centroid_updated_at TIMESTAMPTZ",
@@ -1360,6 +1489,17 @@ _COLUMN_STATEMENTS = [
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS content_sha256 VARCHAR(64)',
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS source_manifest_fingerprint VARCHAR(64)',
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS source_deleted_at TIMESTAMPTZ',
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_type WHERE typname = 'candidatedocumentkind'
+        ) THEN
+            CREATE TYPE candidatedocumentkind AS ENUM (
+                'cv', 'cover_letter', 'certificate', 'other'
+            );
+        END IF;
+    END $$""",
+    "ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS document_kind candidatedocumentkind NOT NULL DEFAULT 'other'",
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_documents_candidate_sha ON candidate_documents (candidate_id, content_sha256) WHERE content_sha256 IS NOT NULL AND source_deleted_at IS NULL',
     'CREATE INDEX IF NOT EXISTS ix_candidate_documents_manifest ON candidate_documents (candidate_id, source_manifest_fingerprint)',
     'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS external_source VARCHAR(50)',
@@ -1367,6 +1507,9 @@ _COLUMN_STATEMENTS = [
     'CREATE INDEX IF NOT EXISTS ix_rejection_reasons_external_source ON rejection_reasons (external_source)',
     'CREATE INDEX IF NOT EXISTS ix_rejection_reasons_external_id ON rejection_reasons (external_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_rejection_reasons_external_source_id ON rejection_reasons (external_source, external_id) WHERE external_id IS NOT NULL',
+    # 0197: bez tej kolumny każdy SELECT z rejection_reasons po dodaniu pola do
+    # ORM leci UndefinedColumn — a to ścieżka KAŻDEGO terminalnego ruchu w pipeline.
+    'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS disqualifies_person BOOLEAN NOT NULL DEFAULT false',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_at TIMESTAMPTZ',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_external_id VARCHAR(255)',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_payload JSONB',
@@ -1429,6 +1572,11 @@ _COLUMN_STATEMENTS = [
                 'verified', 'cv_sent', 'interview', 'client_interview',
                 'acceptance', 'hired'
             )
+            -- Odrzucone/oczekujące weryfikacje NIE liczą się jako kamień
+            -- milowy ani nie kotwiczą kredytu (M7-P0.8). Liczy się tylko
+            -- zaakceptowana ('active') weryfikacja. Pozostałe stage'y mają
+            -- default verification_status='active', więc filtr ich nie dotyka.
+            AND (cs.stage <> 'verified' OR cs.verification_status = 'active')
         ) ranked
         WHERE rn = 1""",
     # ── Snapshoty + cutover (0177, plan analytics PR 7) ─────────────────
@@ -1654,12 +1802,159 @@ _COLUMN_STATEMENTS = [
     "ON recruitment_processes (job_id, status)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_process_one_open "
     "ON recruitment_processes (candidate_id, job_id) WHERE status = 'open'",
+    # application_submissions (migration 0189, P0-CAND-01) — parks public
+    # /apply/{token} submissions that matched an existing candidate, instead of
+    # OVERWRITING that candidate. Table must exist before submit_public_apply's
+    # INSERT runs or a duplicate-email apply 500s under prod's chronic alembic
+    # multi-head drift. DDL 1:1 with 0189.
+    """CREATE TABLE IF NOT EXISTS application_submissions (
+        id SERIAL PRIMARY KEY,
+        invite_link_token_sha256 VARCHAR(64),
+        job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending_review',
+        submitted_first_name VARCHAR(100) NOT NULL,
+        submitted_last_name VARCHAR(100) NOT NULL,
+        submitted_email VARCHAR(255) NOT NULL,
+        submitted_phone VARCHAR(30),
+        submitted_linkedin VARCHAR(500),
+        submitted_message TEXT,
+        matched_candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        cv_object_key VARCHAR(500),
+        cv_filename VARCHAR(500),
+        cv_content_type VARCHAR(100),
+        cv_size_bytes INTEGER,
+        cv_file_content BYTEA,
+        raw_cv_text TEXT,
+        raw_payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at TIMESTAMPTZ,
+        CONSTRAINT ck_application_submissions_status CHECK (
+            status IN ('pending_review','linked','merged','created','rejected')
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_status "
+    "ON application_submissions (status)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_matched_candidate_id "
+    "ON application_submissions (matched_candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_link "
+    "ON application_submissions (invite_link_token_sha256)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_submitted_email "
+    "ON application_submissions (submitted_email)",
+    "CREATE INDEX IF NOT EXISTS ix_application_submissions_job_id "
+    "ON application_submissions (job_id)",
+    # Contract lifecycle invariant (migracja 0190_contract_lifecycle_invariant):
+    # void metadata na contracts. Ustawiane przez POST /api/contracts/{id}/void
+    # (soft-delete). Bez kolumn UPDATE/INSERT contracts z voided_* => UndefinedColumn.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS voided_by INTEGER NULL",
+    # F-01: idempotent guarded ADD instead of DROP+ADD on every boot. The old
+    # DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT recreated the FK on every
+    # restart (Coolify rebuilds each push) — pointless churn, plus a window
+    # where the FK is briefly absent under concurrent writes. Add only if
+    # missing; identical semantics (voided_by → users(id) ON DELETE SET NULL).
+    """DO $$ BEGIN
+        ALTER TABLE contracts ADD CONSTRAINT fk_contracts_voided_by
+            FOREIGN KEY (voided_by) REFERENCES users(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # Session-revocation floor (migracja 0192_user_tokens_valid_after, F-05):
+    # po zmianie/resecie hasła backend ustawia tokens_valid_after=now() i odrzuca
+    # (401) tokeny z wcześniejszym iat. Bez tej kolumny UPDATE users z
+    # tokens_valid_after => UndefinedColumn i każda zmiana hasła zwraca 500.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMPTZ",
+    # Chat email fallback reservation (migracja
+    # 0198_notification_email_send_started_at): background task rezerwuje
+    # wiersz TUTAJ przed wysyłką SMTP, a `email_sent_at` stempluje dopiero po
+    # potwierdzonej wysyłce. Bez tej kolumny UPDATE notifications z
+    # email_send_started_at => UndefinedColumn i cała pętla fallbacku pada
+    # w każdej iteracji (zero maili do offline'owych userów).
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "
+    "email_send_started_at TIMESTAMPTZ NULL",
 ]
 
 _DATA_STATEMENTS = [
     # 0173: rejection_reasons.external_source backfill (integracja Traffit).
     "UPDATE rejection_reasons SET external_source = 'manual' "
     "WHERE external_source IS NULL",
+    # 0197: jednorazowy seed „powód dyskwalifikuje osobę". Ta lista leci przy
+    # KAŻDYM starcie kontenera, więc bez guardu przywracałaby flagi po każdym
+    # deployu i kasowała świadome zmiany admina w panelu. Marker w app_settings
+    # jest wstawiany TYM SAMYM statementem, co seed — więc seed odpala się
+    # wyłącznie na runie, który ten marker zajął.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('rejection_reason_disqualifies_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE rejection_reasons SET disqualifies_person = true "
+    "WHERE category = 'rejected' "
+    "AND name IN ('Brak doświadczenia', 'Nie spełnia wymagań technicznych', "
+    "'Nie pasuje kulturowo') "
+    "AND EXISTS (SELECT 1 FROM marker)",
+    """UPDATE candidate_documents AS document
+       SET document_kind = 'cv'
+       FROM candidates AS candidate
+       WHERE document.candidate_id = candidate.id
+         AND document.source_deleted_at IS NULL
+         AND (
+             document.is_primary IS TRUE
+             OR document.external_source = 'apply_submission'
+             OR (
+                 candidate.cv_filename IS NOT NULL
+                 AND lower(document.filename) = lower(candidate.cv_filename)
+             )
+             OR document.filename ~* '(^|[^a-z])(cv|resume|curriculum)([^a-z]|$)'
+         )""",
+    """INSERT INTO candidate_documents (
+           candidate_id, filename, file_content, storage_key, size_bytes,
+           document_kind, is_primary, uploaded_at, external_source,
+           created_at, updated_at
+       )
+       SELECT candidate.id,
+              candidate.cv_filename,
+              CASE WHEN candidate.cv_storage_key IS NULL
+                   THEN candidate.cv_file_content ELSE NULL END,
+              candidate.cv_storage_key,
+              CASE WHEN candidate.cv_storage_key IS NULL
+                   THEN octet_length(candidate.cv_file_content) ELSE NULL END,
+              'cv',
+              TRUE,
+              COALESCE(candidate.cv_parsed_at, candidate.updated_at),
+              'legacy_backfill',
+              NOW(),
+              NOW()
+       FROM candidates AS candidate
+       WHERE candidate.cv_filename IS NOT NULL
+         AND btrim(candidate.cv_filename) <> ''
+         AND (
+             candidate.cv_storage_key IS NOT NULL
+             OR candidate.cv_file_content IS NOT NULL
+         )
+         AND NOT EXISTS (
+             SELECT 1
+             FROM candidate_documents AS document
+             WHERE document.candidate_id = candidate.id
+               AND document.source_deleted_at IS NULL
+               AND (
+                   document.is_primary IS TRUE
+                   OR lower(document.filename) = lower(candidate.cv_filename)
+               )
+         )""",
+    """WITH ranked AS (
+           SELECT id,
+                  row_number() OVER (
+                      PARTITION BY candidate_id
+                      ORDER BY uploaded_at DESC NULLS LAST, created_at DESC, id DESC
+                  ) AS position
+           FROM candidate_documents
+           WHERE document_kind = 'cv'
+             AND is_primary IS TRUE
+             AND source_deleted_at IS NULL
+       )
+       UPDATE candidate_documents AS document
+       SET is_primary = FALSE
+       FROM ranked
+       WHERE document.id = ranked.id
+         AND ranked.position > 1""",
     # Backfill closed_at for historical closed rows so reports sort by "real
     # close date" instead of NULL. Safe because only touches NULL rows.
     "UPDATE jobs SET closed_at = updated_at WHERE status = 'closed' AND closed_at IS NULL",
@@ -1770,6 +2065,49 @@ _CONSTRAINT_STATEMENTS = [
             FOREIGN KEY (competence_category_id)
             REFERENCES competence_categories (id) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_signature_status
+            CHECK (signature_status IN ('unsigned', 'signed_both')) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_signature_source
+            CHECK (
+                signature_source IS NULL OR
+                signature_source IN ('manual_confirmation', 'validated_upload')
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT fk_b2b_generated_contracts_candidate_id
+            FOREIGN KEY (candidate_id) REFERENCES candidates (id)
+            ON DELETE SET NULL NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT fk_b2b_generated_contracts_job_id
+            FOREIGN KEY (job_id) REFERENCES jobs (id)
+            ON DELETE SET NULL NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT fk_b2b_generated_contracts_client_id
+            FOREIGN KEY (client_id) REFERENCES clients (id)
+            ON DELETE SET NULL NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT fk_b2b_generated_contracts_contract_id
+            FOREIGN KEY (contract_id) REFERENCES contracts (id)
+            ON DELETE RESTRICT NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT fk_b2b_generated_contracts_signed_by_user_id
+            FOREIGN KEY (signed_by_user_id) REFERENCES users (id)
+            ON DELETE SET NULL NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
 ]
 
 # ── Indeksy zadeklarowane w ORM (index=True), których nie tworzy żadna migracja ──
@@ -1801,6 +2139,11 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calendar_events_external_source ON calendar_events (external_source)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_contract_id ON calls (contract_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_external_id ON candidate_stages (external_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_rejection_reason_id ON candidate_stages (rejection_reason_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_document_kind ON candidate_documents (document_kind)",
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_documents_active_primary_cv "
+    "ON candidate_documents (candidate_id) WHERE is_primary IS TRUE "
+    "AND source_deleted_at IS NULL AND document_kind = 'cv'",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_availability_status ON candidates (availability_status)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_competence_category_id ON candidates (competence_category_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_created_by ON candidates (created_by)",

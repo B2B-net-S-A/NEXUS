@@ -501,6 +501,19 @@ class Settings(BaseSettings):
     # owak nie zalogują się hasłem — break-glass wymaga konta z hasłem.
     PASSWORD_LOGIN_ENABLED: bool = True
 
+    # ── Break-glass dla logowania hasłem ─────────────────────────────────────
+    # CSV adresów email, które NADAL mogą zalogować się hasłem, gdy
+    # ``PASSWORD_LOGIN_ENABLED=False``. Bez tego wyłączenie flagi na produkcji
+    # (tryb SSO-only) zablokowałoby na stałe każdego admina, który ma tylko
+    # hasło i żadnej ścieżki SSO — a wtedy awaria Azure/SSO = brak wejścia dla
+    # nikogo. Ta wąska lista dopuszczeń trzyma logowanie ORAZ odzyskiwanie hasła
+    # (/forgot-password, /reset-password) żywe dla wskazanych kont, reszta dalej
+    # dostaje 503. Trzymany jako ``str`` (nie ``List[str]``) z tego samego
+    # powodu co ``SSO_ALLOWED_DOMAINS`` — pydantic-settings v2 wymuszałby JSON.
+    # Użyj ``settings.password_login_break_glass_email_set``. Pusta (domyślnie)
+    # = brak wyjątku, zachowanie sprzed zmiany (wszyscy zablokowani).
+    PASSWORD_LOGIN_BREAK_GLASS_EMAILS: str = ""
+
     # ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────
     # Kill-switch. When False the SSO callback skips Graph /me/memberOf entirely
     # and falls back to legacy behaviour (new SSO users land as ``recruiter``,
@@ -592,6 +605,17 @@ class Settings(BaseSettings):
     # to >=300s in the loop.
     SIGNING_SWEEPER_INTERVAL_SECONDS: int = 3600
 
+    # ── Signature dispatch reconciler (M5-P0.9, restart-safe recovery) ──────
+    # Every signature sender persists a `draft` row and hands the actual send
+    # to a background task. A restart between the 202 and completion orphans
+    # the row at draft/sending forever — the expiry sweepers only touch
+    # sent/in_progress. This reconciler marks such rows `failed` + notifies the
+    # sender to resend. Covers all rails; each row gated by its provider's
+    # kill-switch (AUTENTI_ENABLED / SIGNING_ENABLED). Loop no-ops when both off.
+    # Interval clamped >=300s; grace clamped >=60s in the loop.
+    SIGNATURE_RECONCILE_INTERVAL_SECONDS: int = 600
+    SIGNATURE_RECONCILE_GRACE_SECONDS: int = 600
+
     # KIR Szafir SDK (pas główny — podpis kartą client-side). Asset/licence
     # config filled from KIR onboarding (Faza 0). Web Module JS URL is served
     # to the /sign page; empty = SDK pas unavailable (UI hides it).
@@ -650,6 +674,18 @@ class Settings(BaseSettings):
     # → Signing secret. Generated locally via `openssl rand -hex 32`; not
     # derived from the API key pair.
     CLOUDTALK_WEBHOOK_SECRET: str = ""
+    # ── Webhook replay protection (M6-P0.12) ────────────────────────────────
+    # When an inbound webhook carries an ``X-CloudTalk-Timestamp`` header, the
+    # timestamp is folded into the HMAC-signed material and the request is
+    # rejected if the timestamp is outside ±TOLERANCE seconds of now — a
+    # captured request cannot be replayed once it ages past the window.
+    CLOUDTALK_WEBHOOK_TOLERANCE_SECONDS: int = 300
+    # When True the webhook REQUIRES a fresh ``X-CloudTalk-Timestamp`` header
+    # and rejects any request without one (401). Default False so the
+    # integration keeps accepting CloudTalk's legacy body-only signature; flip
+    # True once you confirm your CloudTalk plan sends signed timestamps (see
+    # the CloudTalk activation checklist in CLAUDE.md).
+    CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP: bool = False
     # Background sync loop cadence (Phase 5 — historical backfill + catch-up
     # after webhook downtime). Clamped to >=300s in the loop.
     CLOUDTALK_SYNC_INTERVAL_SECONDS: int = 3600
@@ -762,6 +798,22 @@ class Settings(BaseSettings):
         return [
             d.strip().lower() for d in self.SSO_ALLOWED_DOMAINS.split(",") if d.strip()
         ]
+
+    @property
+    def password_login_break_glass_email_set(self) -> set[str]:
+        """Parse PASSWORD_LOGIN_BREAK_GLASS_EMAILS CSV into a lowercased set.
+
+        Emails here bypass the ``PASSWORD_LOGIN_ENABLED=False`` gate on /login,
+        /forgot-password and /reset-password. Empty (default) → empty set → no
+        exception (every password login stays blocked when the flag is off).
+        """
+        if not self.PASSWORD_LOGIN_BREAK_GLASS_EMAILS:
+            return set()
+        return {
+            e.strip().lower()
+            for e in self.PASSWORD_LOGIN_BREAK_GLASS_EMAILS.split(",")
+            if e.strip()
+        }
 
     @property
     def aad_group_role_map(self) -> dict[str, str]:

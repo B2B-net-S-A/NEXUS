@@ -29,9 +29,16 @@ class ContractType(str, enum.Enum):
 
 class ContractStatus(str, enum.Enum):
     draft = "draft"
+    # Draft finalized into an immutable snapshot and waiting for a qualified
+    # signature. A NON-active gate: an unsigned contract may never skip straight
+    # to `active` — it lands here first (see ``app.services.contract_lifecycle``).
+    ready_for_signature = "ready_for_signature"
     active = "active"
     ending = "ending"  # < 30 dni do końca
     ended = "ended"
+    # Soft-deleted / annulled. Terminal. Used instead of a hard DELETE for
+    # executed contracts so documents + signature evidence are preserved.
+    void = "void"
 
 
 class RateUnit(str, enum.Enum):
@@ -191,6 +198,16 @@ class Contract(Base, TimestampMixin):
     )
     termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
+    # Soft-delete / void metadata — populated when status flips to `void` via
+    # the lifecycle service. A void keeps documents + signature evidence (unlike
+    # a hard DELETE), so an executed contract stays auditable after annulment.
+    voided_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    voided_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Desired rate range we want to achieve on this contract (used by benchmark
     # comparison and by sales during renegotiation). Numeric(12,2) — grosze jak

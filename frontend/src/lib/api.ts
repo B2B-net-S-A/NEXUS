@@ -1,5 +1,7 @@
 import axios, { AxiosError } from "axios";
 
+import { clearSessionArtifacts, getAccessToken } from "./session";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // 30s global request timeout. Before this was unset → axios default = infinite
@@ -62,6 +64,17 @@ export function extractErrorMsg(error: unknown): string {
       }
       // FastAPI HTTPException(detail="...") → string detail
       if (typeof data.detail === "string") return data.detail;
+      // Domenowe konflikty mogą zwracać ustrukturyzowany detail, np.
+      // {message, contract_ids}. Użytkownik powinien zobaczyć komunikat, nie
+      // "[object Object]" ani ogólny status HTTP.
+      if (
+        data.detail &&
+        typeof data.detail === "object" &&
+        !Array.isArray(data.detail) &&
+        typeof (data.detail as { message?: unknown }).message === "string"
+      ) {
+        return (data.detail as { message: string }).message;
+      }
       // FastAPI Pydantic ValidationError → list of { msg, loc, ... }
       if (Array.isArray(data.detail) && data.detail.length > 0) {
         const first = data.detail[0];
@@ -116,7 +129,7 @@ export function extractErrorMsg(error: unknown): string {
 // stored the SSO user's token.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("access_token");
+    const token = getAccessToken();
     const headers = config.headers as unknown as {
       has?: (name: string) => boolean;
       Authorization?: unknown;
@@ -131,8 +144,16 @@ api.interceptors.request.use((config) => {
     // Admin „podgląd jako użytkownik": gdy aktywny, dokleja nagłówek z id
     // podglądanego usera. Backend (admin-only, read-only) podmienia wtedy
     // efektywnego current_user — patrz backend/app/api/deps.py.
+    //
+    // NIGDY nie doklejaj podglądu do endpointów uwierzytelniania (/api/auth/*):
+    // login, /me, verify, refresh itd. muszą działać na tożsamości zalogowanego
+    // admina, a nie podglądanego usera — inaczej „podgląd jako" wyciekłby do
+    // samego uwierzytelniania (np. /api/auth/me opisałoby podglądanego usera).
     const impersonateId = localStorage.getItem("nexus_impersonate_id");
-    if (impersonateId) config.headers["X-Impersonate-User-Id"] = impersonateId;
+    const isAuthEndpoint = (config.url ?? "").startsWith("/api/auth/");
+    if (impersonateId && !isAuthEndpoint) {
+      config.headers["X-Impersonate-User-Id"] = impersonateId;
+    }
   }
   return config;
 });
@@ -192,13 +213,12 @@ function triggerSessionExpiredRedirect(): void {
   // Already on the login flow (or any /login/* sub-route) — nothing to do.
   if (window.location.pathname.startsWith("/login")) return;
   sessionRedirectInFlight = true;
-  try {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("nexus_user");
-    document.cookie = "nexus_access=; path=/; max-age=0; samesite=lax";
-  } catch {
-    /* non-browser env */
-  }
+  // Wyczyść WSZYSTKIE artefakty sesji (JWT, cache usera ORAZ markery podglądu
+  // „jako użytkownik") — inaczej nexus_impersonate_id/nexus_real_user przeżyłyby
+  // martwą sesję i wyciekły do następnego logowania (nagłówek impersonacji
+  // jechałby dalej). clearSessionArtifacts jest no-op poza przeglądarką i sam
+  // łapie wyjątki storage.
+  clearSessionArtifacts();
   const next = encodeURIComponent(
     window.location.pathname + window.location.search,
   );
@@ -1065,7 +1085,11 @@ export const autentiApi = {
 
 // ── Contractors (Delivery module) ───────────────────────────────────────────
 
-export type ContractorStatus = "draft" | "active" | "ending";
+export type ContractorStatus =
+  | "draft"
+  | "ready_for_signature"
+  | "active"
+  | "ending";
 
 export interface ContractorCandidateRef {
   id: number;
@@ -1659,6 +1683,11 @@ export interface RejectionReasonDef {
   order: number;
   category: "hired" | "rejected" | "withdrawn";
   active: boolean;
+  /**
+   * Whether this reason is a verdict about the *person*. Only flagged reasons
+   * block re-submitting a candidate to the hiring manager who rejected them.
+   */
+  disqualifies_person: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1710,6 +1739,15 @@ export const pipelineTemplatesApi = {
     id: number,
     data: { name: string; category: "hired" | "rejected" | "withdrawn"; order?: number; stage_def_id?: number | null }
   ) => api.post<RejectionReasonDef>(`/api/pipeline-templates/${id}/rejection-reasons`, data),
+  updateRejectionReason: (
+    id: number,
+    reasonId: number,
+    data: { name?: string; order?: number; active?: boolean; disqualifies_person?: boolean }
+  ) =>
+    api.patch<RejectionReasonDef>(
+      `/api/pipeline-templates/${id}/rejection-reasons/${reasonId}`,
+      data
+    ),
   deactivateRejectionReason: (id: number, reasonId: number) =>
     api.delete(`/api/pipeline-templates/${id}/rejection-reasons/${reasonId}`),
   assignToJob: (jobId: number, templateId: number) =>
@@ -2192,6 +2230,8 @@ export const signingApi = {
 };
 
 export interface B2BRenderPayload {
+  candidate_id?: number | null;
+  job_id?: number | null;
   role_id?: number | null;
   language: string;
   gender?: string;
@@ -2293,11 +2333,26 @@ export const b2bGeneratorApi = {
     api.get(`/api/b2b-generator/generated/${id}/docx`, {
       responseType: "blob",
     }),
+  confirmFullySigned: (
+    id: number,
+    body: B2BConfirmFullySignedRequest = {},
+  ) =>
+    api
+      .post<B2BConfirmFullySignedResult>(
+        `/api/b2b-generator/generated/${id}/confirm-fully-signed`,
+        body,
+      )
+      .then((r) => r.data),
   checkUop: (body: { text: string; language: string }) =>
     api
       .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body)
       .then((r) => r.data),
 };
+
+export type B2BSignatureStatus = "unsigned" | "signed_both";
+export type B2BSignatureSource =
+  | "manual_confirmation"
+  | "validated_upload";
 
 export interface B2BGeneratedContractRow {
   id: number;
@@ -2308,9 +2363,38 @@ export interface B2BGeneratedContractRow {
   signing_date: string | null;
   created_at: string | null;
   created_by_name: string | null;
+  signature_status: B2BSignatureStatus;
+  signature_source: B2BSignatureSource | null;
+  candidate_id: number | null;
+  job_id: number | null;
+  client_id: number | null;
+  contract_id: number | null;
+  candidate_name: string | null;
+  job_title: string | null;
+  canonical_client_name: string | null;
+  signed_at: string | null;
+  signed_by_name: string | null;
+  can_confirm_signed: boolean;
+  blocked_reason: string | null;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;
+}
+
+export interface B2BConfirmFullySignedRequest {
+  candidate_id?: number;
+  job_id?: number;
+}
+
+export interface B2BConfirmFullySignedResult {
+  outcome: "created" | "linked_existing" | "already_processed";
+  contract_id: number;
+  order_id: number | null;
+  candidate_id: number;
+  job_id: number;
+  client_id: number;
+  message: string;
+  generated_contract: B2BGeneratedContractRow;
 }
 
 export interface B2BUopIssue {

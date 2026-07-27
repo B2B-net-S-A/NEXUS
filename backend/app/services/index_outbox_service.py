@@ -119,8 +119,7 @@ async def schedule_or_embed_candidate(candidate_id: int, db: AsyncSession) -> bo
 
     entity = await db.get(Candidate, candidate_id)
     if entity is None:
-        await enqueue(
-            db,
+        await _enqueue_isolated(
             entity_type=CANDIDATE,
             entity_id=candidate_id,
             revision=0,
@@ -129,14 +128,12 @@ async def schedule_or_embed_candidate(candidate_id: int, db: AsyncSession) -> bo
         )
     else:
         st = desired_state(CANDIDATE, entity)
-        await enqueue(
-            db,
+        await _enqueue_isolated(
             entity_type=CANDIDATE,
             entity_id=candidate_id,
             revision=st.revision,
             desired_hash=st.desired_hash,
         )
-    await _commit_enqueue(db)
     return True
 
 
@@ -150,8 +147,7 @@ async def schedule_or_embed_job(job_id: int, db: AsyncSession) -> bool:
 
     entity = await db.get(Job, job_id)
     if entity is None:
-        await enqueue(
-            db,
+        await _enqueue_isolated(
             entity_type=JOB,
             entity_id=job_id,
             revision=0,
@@ -160,24 +156,56 @@ async def schedule_or_embed_job(job_id: int, db: AsyncSession) -> bool:
         )
     else:
         st = desired_state(JOB, entity)
-        await enqueue(
-            db,
+        await _enqueue_isolated(
             entity_type=JOB,
             entity_id=job_id,
             revision=st.revision,
             desired_hash=st.desired_hash,
         )
-    await _commit_enqueue(db)
     return True
 
 
-async def _commit_enqueue(db: AsyncSession) -> None:
-    """Persist a wrapper-enqueued event best-effort (call sites run post-write)."""
+async def _enqueue_isolated(
+    *,
+    entity_type: str,
+    entity_id: int,
+    revision: int,
+    desired_hash: str,
+    operation: str = "upsert",
+) -> None:
+    """Persist one pending reindex event on a DEDICATED session (M3-TX-01).
+
+    The enqueue runs post-write on the hot path (candidate edit / CV upload /
+    job save) and is strictly best-effort — those call-sites document that a
+    reindex failure must never surface to, or roll back, the business write.
+
+    The previous wrapper committed the CALLER's request session and, on failure,
+    ``rollback()``-ed it, so a transient outbox hiccup could discard the
+    unrelated edit that the endpoint had only flushed (it relies on
+    ``get_db``'s end-of-request commit). Inserting on its own
+    ``AsyncSessionLocal`` fully isolates the failure (mirroring
+    :func:`_default_reindex`) and keeps the durable-at-return semantics the
+    call-sites expect. No-op when the outbox flag is off.
+    """
+    if not outbox_enabled():
+        return
+    from app.core.database import AsyncSessionLocal
+
     try:
-        await db.commit()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[index-outbox] enqueue commit failed: %s", exc)
-        await db.rollback()
+        async with AsyncSessionLocal() as s:
+            s.add(
+                IndexOutboxEvent(
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    entity_revision=revision,
+                    desired_hash=desired_hash,
+                    operation=operation,
+                    status="pending",
+                )
+            )
+            await s.commit()
+    except Exception as exc:  # noqa: BLE001 — enqueue is best-effort
+        logger.warning("[index-outbox] enqueue failed: %s", exc)
 
 
 # ── Worker side ───────────────────────────────────────────────────────────────
@@ -260,6 +288,14 @@ async def process_event(
             ev.indexed_hash = ev.desired_hash
             ev.indexed_revision = ev.entity_revision
             ev.last_error = None
+            # A candidate's semantic vector just changed → any cached match
+            # score for that candidate now embeds a stale semantic layer
+            # (AI-P0-06 b). Invalidate so the next read recomputes. Local import
+            # avoids an import cycle (match_score_cache → scoring_service).
+            if ev.entity_type == CANDIDATE and ev.operation == "upsert":
+                from app.services.match_score_cache import mark_stale_for_candidate
+
+                await mark_stale_for_candidate(db, ev.entity_id)
         else:
             raise RuntimeError("reindex returned False")
     except Exception as exc:  # noqa: BLE001

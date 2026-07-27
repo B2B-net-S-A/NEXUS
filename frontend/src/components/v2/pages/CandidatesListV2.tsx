@@ -163,6 +163,7 @@ import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
 import { ROLE_LABELS, type UserRole } from"@/store/auth";
+import { getAccessToken } from "@/lib/session";
 
 const STATUS_LABELS: Record<string, string> = {
  active: "Aktywny",
@@ -623,7 +624,8 @@ const COLUMN_PRESETS: ReadonlyArray<{
  *  Modal współdzielony z `CandidateDetailV2` (PlikiTab) — components/v2/files. */
 function CandidateCvCell({ candidate }: { candidate: Candidate }) {
   const [loading, setLoading] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
+  const [previewDocumentId, setPreviewDocumentId] = useState<number | null>(null);
+  const [documents, setDocuments] = useState<CandidateDocument[]>([]);
   if (!candidate.cv_filename) {
     return (
       <span className="text-xs text-muted-foreground" aria-label="Brak CV">
@@ -637,22 +639,20 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
     setLoading(true);
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
-      const token =
-        typeof window !== "undefined"
-          ? localStorage.getItem("access_token")
-          : null;
+      const token = getAccessToken();
       const authHeaders: HeadersInit = token
         ? { Authorization: `Bearer ${token}` }
         : {};
       const docsRes = await fetch(
-        `${apiBase}/api/candidates/${candidate.id}/documents`,
+        `${apiBase}/api/candidates/${candidate.id}/documents?kind=cv`,
         { headers: authHeaders },
       );
       if (!docsRes.ok) throw new Error(`documents HTTP ${docsRes.status}`);
       const docs: CandidateDocument[] = await docsRes.json();
       const primary = docs.find((d) => d.is_primary) ?? docs[0];
       if (!primary) throw new Error("no document");
-      setPreviewDoc(primary);
+      setDocuments(docs);
+      setPreviewDocumentId(primary.id);
     } catch {
       // Cicho — kandydat nie ma CV / pliku, fallback na detail przez klik wiersza.
     } finally {
@@ -676,16 +676,15 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
         )}
         <span>CV</span>
       </button>
-      {previewDoc && (
-        <FilePreviewModal
-          doc={previewDoc}
-          candidateId={candidate.id}
-          onClose={() => setPreviewDoc(null)}
-          onDownload={(d) =>
-            downloadDocumentBlob(candidate.id, d).catch(() => {})
-          }
-        />
-      )}
+      <FilePreviewModal
+        documents={documents}
+        initialDocumentId={previewDocumentId}
+        candidateId={candidate.id}
+        onClose={() => setPreviewDocumentId(null)}
+        onDownload={(d) =>
+          downloadDocumentBlob(candidate.id, d).catch(() => {})
+        }
+      />
     </>
   );
 }
@@ -3425,7 +3424,7 @@ export function CandidatesListV2() {
  open={detailId !== null}
  onOpenChange={(v) => !v && setDetailId(null)}
  >
- <SheetContent side="right" size="xl" className="!p-0" hideClose>
+ <SheetContent side="right" size="2xl" className="!p-0" hideClose>
  {detailId !== null && (
  <CandidateQuickView
  candidateId={detailId}

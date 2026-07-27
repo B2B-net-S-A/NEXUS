@@ -15,6 +15,8 @@ export const ASSIGN_BLOCKED_LABELS: Record<string, string> = {
   client_current_employment: "Kandydat jest obecnie zatrudniony u tego klienta.",
   client_excluded_by_candidate: "Kandydat wykluczył tego klienta w preferencjach.",
   already_in_job: "Kandydat jest już w tej rekrutacji.",
+  rejected_by_hiring_manager:
+    "Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie.",
 };
 
 /** Human-readable (PL) message for a failed assign-to-job call. */

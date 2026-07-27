@@ -7,7 +7,7 @@ Coverage:
   PATCH /api/contracts/{id}/draft      — save edited content_html
   PATCH /api/contracts/{id}/draft      — switch template (re-render)
   PATCH /api/contracts/{id}/draft      — 422 when neither field provided
-  POST /api/contracts/{id}/draft/finalize — flips draft → active + creates document
+  POST /api/contracts/{id}/draft/finalize — draft → ready_for_signature + document
   POST /api/contracts/{id}/draft/finalize — 409 when required fields missing
 
 Each test seeds its own candidate + client + template + draft contract so
@@ -318,7 +318,7 @@ async def test_patch_draft_rejects_empty_payload(
 
 
 @pytest.mark.asyncio
-async def test_finalize_draft_flips_to_active(
+async def test_finalize_draft_moves_to_ready_for_signature(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cand_id = await _seed_candidate()
@@ -346,7 +346,9 @@ async def test_finalize_draft_flips_to_active(
     )
     assert finalize.status_code == 200, finalize.text
     body = finalize.json()
-    assert body["status"] == "active"
+    # Finalizing an unsigned draft parks it at `ready_for_signature`, never
+    # `active` (P1-CONTRACT-01) — reaching `active` requires signed evidence.
+    assert body["status"] == "ready_for_signature"
     assert body["document_id"] is not None
     assert body["document_filename"].endswith(".html")
 

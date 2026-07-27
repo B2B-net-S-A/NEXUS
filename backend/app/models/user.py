@@ -112,6 +112,19 @@ class User(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # Server-side session-revocation floor (F-05, migracja 0192).
+    # NULL = brak floora → każdy ważny (niewygasły) token jest akceptowany
+    # (tak jak dotąd — istniejący userzy nie są dotknięci). Ustawiane na
+    # ``now()`` przy KAŻDYM zdarzeniu zmiany hasła: self-service change-password,
+    # reset przez token z maila oraz admin-reset. ``get_current_user`` i ścieżka
+    # ``/refresh`` odrzucają (401) token, którego ``iat`` jest ściśle wcześniejszy
+    # niż ta wartość — dzięki temu wykradziony/wyciekły token NIE przeżywa
+    # resetu hasła. Świadomie unieważnia też bieżącą sesję właściciela (musi się
+    # zalogować ponownie) — to zamierzone przy „invalidate existing sessions".
+    tokens_valid_after: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Last time this user had an active WS connection. Updated by
     # `ConnectionManager.connect/disconnect` in `app.api.ws`. Used by the
     # email-fallback background task: when a chat notification is older

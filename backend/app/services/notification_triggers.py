@@ -20,6 +20,7 @@ Triggery:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
@@ -122,23 +123,73 @@ async def emit(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True, slots=True)
+class LatestStage:
+    """Lekki snapshot najnowszego `CandidateStage` dla pary (kandydat, oferta).
+
+    Triggery używają wyłącznie tych pięciu pól. Pełny obiekt ORM ciągnie też
+    `notes` (Text) + `scorecard_answers`/`screening_answers` (JSONB) — przy
+    ~158k wierszy to setki MB w kontenerze z limitem ~1 GB.
+    """
+
+    id: int
+    candidate_id: int
+    job_id: int
+    stage: PipelineStage
+    moved_at: datetime
+
+
+LatestStageMap = dict[tuple[int, int], LatestStage]
+
+
 async def _latest_stage_per_pair(
     db: AsyncSession,
-) -> dict[tuple[int, int], CandidateStage]:
-    """Najnowszy CandidateStage per (candidate_id, job_id). Single scan."""
+    latest: Optional[LatestStageMap] = None,
+) -> LatestStageMap:
+    """Najnowszy stage per (candidate_id, job_id) — dedupe w Postgresie.
+
+    Optymalizacja 2026-07-27: dawniej `select(CandidateStage)` bez `WHERE`
+    i bez `LIMIT` (pełna hydratacja ~158k obiektów ORM z JSONB/Text) + dedupe
+    pętlą w Pythonie. Ten sam skan mierzono na >15 s (patrz `api/phase3.py`),
+    a leciał 2-6× na każdy tick loopa co 5 min — czyli ≥24 pełne skany/h bez
+    ani jednego zalogowanego użytkownika.
+
+    Teraz `DISTINCT ON (candidate_id, job_id)` na pięciu kolumnach, obsłużone
+    indeksem `ix_analytics_cs_cand_job_moved (candidate_id, job_id, moved_at
+    DESC, id DESC)` — ta sama definicja "najnowszego", co widok
+    `analytics_current_pipeline` (migracja 0174).
+
+    `latest` — gotowa mapa policzona raz na tick przez `run_all_triggers`.
+    Podana => zwracana bez dotykania bazy.
+    """
+    if latest is not None:
+        return latest
     rows = await db.execute(
-        select(CandidateStage).order_by(
+        select(
+            CandidateStage.id,
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            CandidateStage.stage,
+            CandidateStage.moved_at,
+        )
+        .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+        .order_by(
             CandidateStage.candidate_id,
             CandidateStage.job_id,
             CandidateStage.moved_at.desc(),
+            CandidateStage.id.desc(),
         )
     )
-    latest: dict[tuple[int, int], CandidateStage] = {}
-    for stage in rows.scalars().all():
-        key = (stage.candidate_id, stage.job_id)
-        if key not in latest:
-            latest[key] = stage
-    return latest
+    return {
+        (row.candidate_id, row.job_id): LatestStage(
+            id=row.id,
+            candidate_id=row.candidate_id,
+            job_id=row.job_id,
+            stage=row.stage,
+            moved_at=row.moved_at,
+        )
+        for row in rows
+    }
 
 
 async def _jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
@@ -171,7 +222,7 @@ async def _delivery_lead_targets(db: AsyncSession, job: Job) -> list[int]:
     return list(rows.scalars().all())
 
 
-def _moved_at_utc(stage: CandidateStage) -> datetime:
+def _moved_at_utc(stage: LatestStage) -> datetime:
     """`CandidateStage.moved_at` jako aware UTC."""
     moved = stage.moved_at
     if moved.tzinfo is None:
@@ -187,9 +238,11 @@ def _date_as_int(moment: datetime) -> int:
 # ── Trigger 1: DL_STAGE_STALE_6H ──────────────────────────────────────────────
 
 
-async def check_dl_stage_stale_6h(db: AsyncSession, now: datetime) -> int:
+async def check_dl_stage_stale_6h(
+    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
+) -> int:
     """Kandydat w `cv_sent` od ≥6h (ale nie starszy niż MAX_DAYS) → alert do DL."""
-    latest = await _latest_stage_per_pair(db)
+    latest = await _latest_stage_per_pair(db, latest)
     now_utc = now.astimezone(timezone.utc)
     cutoff = now_utc - timedelta(hours=settings.DL_STAGE_STALE_HOURS)
     floor = now_utc - timedelta(days=settings.DL_STAGE_STALE_MAX_DAYS)
@@ -240,7 +293,9 @@ async def check_dl_stage_stale_6h(db: AsyncSession, now: datetime) -> int:
 # ── Trigger 2: CLIENT_FEEDBACK_EOBD ───────────────────────────────────────────
 
 
-async def check_client_feedback_eobd(db: AsyncSession, now: datetime) -> int:
+async def check_client_feedback_eobd(
+    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
+) -> int:
     """O 16:30 — brak feedbacku klienta po interview z klientem dziś → alert DL."""
     if not is_within_window(
         now,
@@ -266,7 +321,7 @@ async def check_client_feedback_eobd(db: AsyncSession, now: datetime) -> int:
     if not events:
         return 0
 
-    latest = await _latest_stage_per_pair(db)
+    latest = await _latest_stage_per_pair(db, latest)
     emitted = 0
     jobs = await _jobs_by_id(db, (e.job_id for e in events))
     for event in events:
@@ -461,9 +516,11 @@ async def check_candidate_feedback_1h(db: AsyncSession, now: datetime) -> int:
 # ── Trigger 5: STAGE_STUCK_7D ─────────────────────────────────────────────────
 
 
-async def check_stage_stuck_7d(db: AsyncSession, now: datetime) -> int:
+async def check_stage_stuck_7d(
+    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
+) -> int:
     """Kandydat na nieterminalnym etapie od ≥7 dni → alert do rekrutera."""
-    latest = await _latest_stage_per_pair(db)
+    latest = await _latest_stage_per_pair(db, latest)
     cutoff = now.astimezone(timezone.utc) - timedelta(days=settings.STAGE_STUCK_DAYS)
     stale = [
         s
@@ -552,7 +609,7 @@ async def _feedback_exists(
     return (res.scalar() or 0) > 0
 
 
-def _is_client_side(stage: CandidateStage | None) -> bool:
+def _is_client_side(stage: LatestStage | None) -> bool:
     return stage is not None and stage.stage == PipelineStage.client_interview
 
 
@@ -584,7 +641,9 @@ async def _post_interview_emit(
     return emitted
 
 
-async def check_post_interview_t15(db: AsyncSession, now: datetime) -> int:
+async def check_post_interview_t15(
+    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
+) -> int:
     """15 min po interview bez feedbacku → ping rekruterowi (+ DL dla client-side)."""
     events = await _events_in_post_interview_window(
         db, now, settings.POST_INTERVIEW_T15_MINUTES
@@ -592,7 +651,7 @@ async def check_post_interview_t15(db: AsyncSession, now: datetime) -> int:
     if not events:
         return 0
 
-    latest = await _latest_stage_per_pair(db)
+    latest = await _latest_stage_per_pair(db, latest)
     jobs = await _jobs_by_id(db, (e.job_id for e in events))
     emitted = 0
     for event in events:
@@ -629,7 +688,9 @@ async def check_post_interview_t15(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-async def check_post_interview_t45(db: AsyncSession, now: datetime) -> int:
+async def check_post_interview_t45(
+    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
+) -> int:
     """45 min po interview bez feedbacku → drugi ping do tych samych adresatów."""
     events = await _events_in_post_interview_window(
         db, now, settings.POST_INTERVIEW_T45_MINUTES
@@ -637,7 +698,7 @@ async def check_post_interview_t45(db: AsyncSession, now: datetime) -> int:
     if not events:
         return 0
 
-    latest = await _latest_stage_per_pair(db)
+    latest = await _latest_stage_per_pair(db, latest)
     jobs = await _jobs_by_id(db, (e.job_id for e in events))
     emitted = 0
     for event in events:
@@ -673,7 +734,9 @@ async def check_post_interview_t45(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-async def check_post_interview_t2h_escalation(db: AsyncSession, now: datetime) -> int:
+async def check_post_interview_t2h_escalation(
+    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
+) -> int:
     """2h po interview bez feedbacku → eskalacja do DL + czerwona flaga na evencie."""
     events = await _events_in_post_interview_window(
         db, now, settings.POST_INTERVIEW_T2H_MINUTES
@@ -681,7 +744,7 @@ async def check_post_interview_t2h_escalation(db: AsyncSession, now: datetime) -
     if not events:
         return 0
 
-    latest = await _latest_stage_per_pair(db)
+    latest = await _latest_stage_per_pair(db, latest)
     jobs = await _jobs_by_id(db, (e.job_id for e in events))
     emitted = 0
     for event in events:
@@ -731,21 +794,28 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
     # w output (bo to nie emission).
     await mark_ended_interviews_completed(db, now)
 
+    # Snapshot pipeline'u liczony RAZ na tick i przekazywany w dół. Dawniej
+    # każdy z 6 triggerów robił własny pełny skan `candidate_stages` — 6 skanów
+    # ~158k wierszy co 5 min, czyli ≥24 pełne skany na godzinę. Teraz jeden.
+    latest = await _latest_stage_per_pair(db)
+
     return {
-        "dl_stage_stale_6h": await check_dl_stage_stale_6h(db, now),
-        "stage_stuck_7d": await check_stage_stuck_7d(db, now),
+        "dl_stage_stale_6h": await check_dl_stage_stale_6h(db, now, latest),
+        "stage_stuck_7d": await check_stage_stuck_7d(db, now, latest),
         "candidate_feedback_1h": await check_candidate_feedback_1h(db, now),
         "powercalling_kpi": await check_powercalling_kpi(db, now),
-        "client_feedback_eobd": await check_client_feedback_eobd(db, now),
-        "post_interview_t15": await check_post_interview_t15(db, now),
-        "post_interview_t45": await check_post_interview_t45(db, now),
+        "client_feedback_eobd": await check_client_feedback_eobd(db, now, latest),
+        "post_interview_t15": await check_post_interview_t15(db, now, latest),
+        "post_interview_t45": await check_post_interview_t45(db, now, latest),
         "post_interview_t2h_escalation": await check_post_interview_t2h_escalation(
-            db, now
+            db, now, latest
         ),
     }
 
 
 __all__ = [
+    "LatestStage",
+    "LatestStageMap",
     "check_candidate_feedback_1h",
     "check_client_feedback_eobd",
     "check_dl_stage_stale_6h",

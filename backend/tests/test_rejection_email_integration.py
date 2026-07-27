@@ -39,6 +39,7 @@ from app.models.rejection_email import (
 from app.models.user import User, UserRole
 from app.services.rejection_email_scheduler import (
     _load_other_active_processes,
+    dispatch,
     maybe_schedule,
 )
 
@@ -78,31 +79,47 @@ async def seeded_entities():
         db.add(candidate)
         await db.flush()
 
-        # Raw SQL for jobs — bypasses ORM drift. Only populate required columns.
+        # Raw SQL for jobs/client — bypasses ORM drift. Only populate required
+        # columns. `jobs.client_id` is NOT NULL (migration schema), so we seed
+        # a throwaway client first.
+        client_id = (
+            await db.execute(
+                text("INSERT INTO clients (name) VALUES (:name) RETURNING id"),
+                {"name": f"Client {suffix}"},
+            )
+        ).scalar_one()
         job_primary_id = (
             await db.execute(
                 text(
                     "INSERT INTO jobs "
-                    "(title, status, priority, recruiter_id, "
+                    "(title, status, priority, recruiter_id, client_id, "
                     " recruitment_type, remote_policy) "
-                    "VALUES (:title, 'published', 'medium', :rec, "
+                    "VALUES (:title, 'published', 'medium', :rec, :client, "
                     "        'body_leasing', 'hybrid') "
                     "RETURNING id"
                 ),
-                {"title": f"Primary Role {suffix}", "rec": recruiter.id},
+                {
+                    "title": f"Primary Role {suffix}",
+                    "rec": recruiter.id,
+                    "client": client_id,
+                },
             )
         ).scalar_one()
         job_other_id = (
             await db.execute(
                 text(
                     "INSERT INTO jobs "
-                    "(title, status, priority, recruiter_id, "
+                    "(title, status, priority, recruiter_id, client_id, "
                     " recruitment_type, remote_policy) "
-                    "VALUES (:title, 'published', 'medium', :rec, "
+                    "VALUES (:title, 'published', 'medium', :rec, :client, "
                     "        'body_leasing', 'hybrid') "
                     "RETURNING id"
                 ),
-                {"title": f"Other Active Role {suffix}", "rec": recruiter.id},
+                {
+                    "title": f"Other Active Role {suffix}",
+                    "rec": recruiter.id,
+                    "client": client_id,
+                },
             )
         ).scalar_one()
 
@@ -111,6 +128,7 @@ async def seeded_entities():
         ids = {
             "recruiter_id": recruiter.id,
             "candidate_id": candidate.id,
+            "client_id": client_id,
             "job_primary_id": job_primary_id,
             "job_other_id": job_other_id,
             "recruiter_email": recruiter.email,
@@ -159,6 +177,10 @@ async def seeded_entities():
         await db.execute(
             text("DELETE FROM jobs WHERE id = ANY(:ids)"),
             {"ids": [ids["job_primary_id"], ids["job_other_id"]]},
+        )
+        await db.execute(
+            text("DELETE FROM clients WHERE id = :client_id"),
+            {"client_id": ids["client_id"]},
         )
         await db.execute(
             text("DELETE FROM users WHERE id = :uid"),
@@ -484,3 +506,105 @@ async def test_get_endpoint_returns_snapshot(
     assert body["subject"]
     assert body["body_html"]
     assert isinstance(body["other_processes"], list)
+
+
+# ── Tests: dispatch() restore guard (audyt P1.7) ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_dispatch_cancels_when_candidate_restored_off_rejected(seeded_entities):
+    """Audyt P1.7 (defense-in-depth): kandydat PRZYWRÓCONY z odrzucenia zanim
+    scheduler zdążył wysłać (np. przez `/bulk-move`, który NIE anuluje pending
+    maili) — dispatch() musi wykryć, że aktualny etap pary to już nie
+    `rejected`, oznaczyć mail jako `cancelled` i NIC nie wysłać."""
+    ids = seeded_entities
+    # 1) cv_sent -> rejected, zaplanuj mail (pending).
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db,
+            stage=rejected_stage,
+            job=job,
+            recruiter_id=ids["recruiter_id"],
+        )
+        assert scheduled is not None
+        assert scheduled.status == RejectionEmailStatus.pending
+        await db.commit()
+        row_id = scheduled.id
+
+    # 2) Restore: ruch na etap NIEterminalny (jak robi `/bulk-move`, który sam
+    #    nie anuluje pending maila).
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.screening,
+            moved_by=ids["recruiter_id"],
+        )
+        await db.commit()
+
+    # 3) Dispatcher odpala — musi anulować, nie wysłać.
+    async with AsyncSessionLocal() as db:
+        await dispatch(db, row_id)
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(ScheduledRejectionEmail, row_id)
+        assert row.status == RejectionEmailStatus.cancelled
+        assert row.cancelled_at is not None
+        assert row.email_id is None  # nic nie zostało wysłane
+
+
+@pytest.mark.asyncio
+async def test_dispatch_does_not_cancel_when_still_rejected(seeded_entities):
+    """Kontrola pozytywna: kandydat NADAL odrzucony → guard nie anuluje.
+    Bez podłączonej skrzynki M365 dispatch kończy się `skipped` (nie
+    `cancelled`), co dowodzi, że guard nie nad-anulowuje legalnych odrzuceń."""
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db,
+            stage=rejected_stage,
+            job=job,
+            recruiter_id=ids["recruiter_id"],
+        )
+        await db.commit()
+        row_id = scheduled.id
+
+    async with AsyncSessionLocal() as db:
+        await dispatch(db, row_id)
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(ScheduledRejectionEmail, row_id)
+        # Guard przepuścił (wciąż rejected); brak skrzynki → skipped, nie sent.
+        assert row.status == RejectionEmailStatus.skipped
+        assert row.status != RejectionEmailStatus.cancelled

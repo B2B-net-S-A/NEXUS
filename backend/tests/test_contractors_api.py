@@ -80,7 +80,12 @@ async def test_list_contractors_returns_envelope(
         assert "contract_id" in item
         assert "candidate" in item and "id" in item["candidate"]
         assert "status" in item
-        assert item["status"] in ("draft", "active", "ending")
+        assert item["status"] in (
+            "draft",
+            "ready_for_signature",
+            "active",
+            "ending",
+        )
         # missing_fields is always present (empty list for non-drafts)
         assert isinstance(item.get("missing_fields"), list)
 
@@ -98,12 +103,8 @@ async def test_list_contractors_filter_by_status(
 
 
 @pytest.mark.asyncio
-async def test_contractor_stats_shape(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    resp = await app_client.get(
-        "/api/contractors/stats", headers=app_auth_headers
-    )
+async def test_contractor_stats_shape(app_client: AsyncClient, app_auth_headers: dict):
+    resp = await app_client.get("/api/contractors/stats", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert set(body.keys()) == {"draft", "drafts_incomplete", "active", "ending"}
@@ -117,9 +118,7 @@ async def test_contractor_stats_shape(
 # ── Integration: activate endpoint ──────────────────────────────────────────
 
 
-async def _find_or_create_draft(
-    app_client: AsyncClient, headers: dict
-) -> dict | None:
+async def _find_or_create_draft(app_client: AsyncClient, headers: dict) -> dict | None:
     """Return a draft contract dict — find first, else create one.
 
     Creating a draft requires a candidate + client + job. Keep the setup
@@ -200,13 +199,16 @@ async def test_activate_draft_happy_path(
     # Margin was recomputed by the model-level before_update listener
     assert body["margin"] == 5000
 
-    # Revert so subsequent runs stay idempotent — flip back to draft
-    revert = await app_client.patch(
-        f"/api/contracts/{draft['id']}",
-        json={"status": "draft"},
+    # Revert so subsequent runs stay idempotent — via the audited /reopen
+    # transition (free `PATCH {status: draft}` writes are no longer accepted;
+    # P1-CONTRACT-01).
+    revert = await app_client.post(
+        f"/api/contracts/{draft['id']}/reopen",
+        json={"reason": "test idempotency"},
         headers=app_auth_headers,
     )
     assert revert.status_code == 200
+    assert revert.json()["status"] == "draft"
 
 
 @pytest.mark.asyncio

@@ -50,14 +50,33 @@ def _build_url(token: str) -> str:
     return f"{base}/apply/{token}"
 
 
+def _invite_raw_token(link: CandidateInviteLink) -> Optional[str]:
+    """The secret that goes into the /apply URL.
+
+    v2 rows keep it only as Fernet ciphertext (token_ct); legacy rows kept the
+    raw value in the PK. Returns None if a v2 ciphertext cannot be decrypted
+    (e.g. the key was rotated) so the list renders without crashing — the link
+    is simply no longer reconstructible and the recruiter must reissue it.
+    """
+    if link.token_ct:
+        from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
+
+        try:
+            return get_token_cipher().decrypt(link.token_ct)
+        except TokenCipherNotConfigured:
+            return None
+    return link.token  # legacy plaintext PK
+
+
 def _to_response(
     link: CandidateInviteLink,
     job: Job,
     creator: Optional[User],
 ) -> InviteLinkResponse:
+    raw = _invite_raw_token(link)
     return InviteLinkResponse(
-        token=link.token,
-        url=_build_url(link.token),
+        token=raw or "",
+        url=_build_url(raw) if raw else "",
         job=InviteLinkJobBrief(id=job.id, title=job.title),
         label=link.label,
         expires_at=link.expires_at,
@@ -94,15 +113,35 @@ async def create_invite_link(
             detail="Job must be published to generate an invite link",
         )
 
-    token = secrets.token_urlsafe(36)
+    import hashlib
+
+    from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
+
+    raw_token = secrets.token_urlsafe(36)
     expires_at = datetime.now(timezone.utc) + timedelta(days=data.expires_in_days)
-    link = CandidateInviteLink(
-        token=token,
-        created_by=current_user.id,
-        job_id=job.id,
-        label=data.label,
-        expires_at=expires_at,
-    )
+    # v2 when an encryption key is configured: PK = non-secret revoke key, the
+    # secret lives only as a SHA-256 (for lookup) and Fernet ciphertext (so the
+    # list can rebuild the URL). Fall back to the legacy plaintext PK if no key
+    # is set, so invite creation never breaks on a missing secret.
+    try:
+        ciphertext = get_token_cipher().encrypt(raw_token)
+        link = CandidateInviteLink(
+            token=f"v2${secrets.token_hex(16)}",
+            token_sha256=hashlib.sha256(raw_token.encode()).hexdigest(),
+            token_ct=ciphertext,
+            created_by=current_user.id,
+            job_id=job.id,
+            label=data.label,
+            expires_at=expires_at,
+        )
+    except TokenCipherNotConfigured:
+        link = CandidateInviteLink(
+            token=raw_token,
+            created_by=current_user.id,
+            job_id=job.id,
+            label=data.label,
+            expires_at=expires_at,
+        )
     db.add(link)
     await db.commit()
     await db.refresh(link)
@@ -153,8 +192,17 @@ async def revoke_invite_link(
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete an invite link. Owner or admin/delivery_lead only."""
+    import hashlib
+
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row = await db.scalar(
-        select(CandidateInviteLink).where(CandidateInviteLink.token == token)
+        select(CandidateInviteLink).where(
+            (CandidateInviteLink.token_sha256 == digest)
+            | (
+                (CandidateInviteLink.token == token)
+                & (CandidateInviteLink.token_sha256.is_(None))
+            )
+        )
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Link not found")

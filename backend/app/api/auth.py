@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,7 @@ from app.core.security import (
     hash_password,
     verify_password,
     decode_token,
+    token_is_revoked,
 )
 from app.models.activity import Activity
 from app.models.user import User, UserRole
@@ -81,6 +84,35 @@ _EMAIL_NOT_VERIFIED_DETAIL = (
 _PASSWORD_LOGIN_DISABLED_DETAIL = (
     "Logowanie hasłem jest wyłączone. Zaloguj się przez Microsoft."
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _password_login_break_glass(email: str | None) -> bool:
+    """True if password login is disabled but ``email`` is on the break-glass list.
+
+    Break-glass exists so that flipping ``PASSWORD_LOGIN_ENABLED`` off on prod
+    (SSO-only mode) can never permanently lock out a password-only admin: if
+    Azure/SSO breaks and that admin has no SSO path, their address on
+    ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS`` keeps login and password recovery
+    working while everyone else still gets the 503. Empty allowlist (the default)
+    → always False → prior behaviour (every password login blocked when off).
+
+    Callers gate this behind ``not settings.PASSWORD_LOGIN_ENABLED`` so the
+    audit warning only fires on an actual break-glass use, never in normal
+    (flag-on) operation.
+    """
+    normalized = (email or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized in settings.password_login_break_glass_email_set:
+        logger.warning(
+            "password_break_glass_login: password login is disabled but %s is on "
+            "PASSWORD_LOGIN_BREAK_GLASS_EMAILS — bypassing the flag gate.",
+            normalized,
+        )
+        return True
+    return False
 
 
 router = APIRouter()
@@ -169,7 +201,13 @@ async def login(
     # mechanizm utrzymania poświadczenia awaryjnego (rotacja hasła admina,
     # gdy logowanie hasłem jest wyłączone). Konta SSO-only mają
     # ``password_hash IS NULL``, więc i tak go nie użyją.
-    if not settings.PASSWORD_LOGIN_ENABLED:
+    #
+    # Break-glass: konta z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS`` przechodzą przez
+    # bramkę mimo wyłączonej flagi (dalej zwykłe sprawdzenie poświadczeń niżej) —
+    # inaczej wyłączenie flagi zamknęłoby admina bez ścieżki SSO na stałe.
+    if not settings.PASSWORD_LOGIN_ENABLED and not _password_login_break_glass(
+        data.email
+    ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
@@ -438,6 +476,13 @@ async def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
+    # Session-revocation floor (F-05): refresh token wybity przed ostatnią
+    # zmianą hasła jest martwy — 401. Bez tego wykradziony refresh token
+    # wybijałby świeże access tokeny mimo resetu hasła.
+    if token_is_revoked(payload, user.tokens_valid_after):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
     return TokenResponse(
         access_token=create_access_token(
             user.id,
@@ -491,6 +536,9 @@ async def change_password(
     current_user.password_hash = hash_password(data.new_password)
     current_user.force_password_change = False
     current_user.force_password_change_at = None
+    # F-05: unieważnij wszystkie wcześniej wybite tokeny (także bieżący —
+    # user zaloguje się ponownie). Wykradziony token nie przeżywa zmiany hasła.
+    current_user.tokens_valid_after = func.now()
 
     db.add(
         Activity(
@@ -530,8 +578,13 @@ async def forgot_password(
 
     Rate-limited 3/min per IP. Activity audit log dla każdego requestu
     (nawet nieznany email — ślad dla analizy bezpieczeństwa).
+
+    Break-glass: adres z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS`` pomija bramkę,
+    żeby admin awaryjny mógł odzyskać hasło mimo wyłączonej flagi.
     """
-    if not settings.PASSWORD_LOGIN_ENABLED:
+    if not settings.PASSWORD_LOGIN_ENABLED and not _password_login_break_glass(
+        data.email
+    ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
@@ -599,8 +652,15 @@ async def reset_password_with_token(
 
     Wyłączone razem z logowaniem hasłem (``PASSWORD_LOGIN_ENABLED``) — domyka
     ścieżkę także dla linków resetowych wysłanych zanim flagę wyłączono.
+
+    Break-glass: żądanie niesie tylko token (bez emaila), więc decyzję o
+    wyjątku odraczamy do momentu ustalenia konta. Gdy lista break-glass jest
+    pusta, zachowanie jest jak dawniej — 503 bez zużywania tokenu. Gdy jest
+    skonfigurowana, zużywamy token i dopuszczamy tylko konto z listy; pozostałe
+    dalej dostają 503, żeby admin awaryjny mógł dokończyć odzyskiwanie hasła.
     """
-    if not settings.PASSWORD_LOGIN_ENABLED:
+    break_glass_configured = bool(settings.password_login_break_glass_email_set)
+    if not settings.PASSWORD_LOGIN_ENABLED and not break_glass_configured:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
@@ -611,10 +671,19 @@ async def reset_password_with_token(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Link resetowy jest nieprawidłowy lub wygasł. Poproś o nowy link.",
         )
+    if not settings.PASSWORD_LOGIN_ENABLED and not _password_login_break_glass(
+        user.email
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
+        )
 
     user.password_hash = hash_password(data.new_password)
     user.force_password_change = False
     user.force_password_change_at = None
+    # F-05: reset przez link z maila też unieważnia wcześniejsze tokeny.
+    user.tokens_valid_after = func.now()
 
     db.add(
         Activity(

@@ -104,8 +104,19 @@ const ChartTooltip = RechartsPrimitive.Tooltip
 
 const ChartTooltipContent = React.forwardRef<
   HTMLDivElement,
-  React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
+  // recharts 3 renamed the props injected into `<Tooltip content={...} />` from
+  // `TooltipProps` to `TooltipContentProps`; `payload`/`label` are no longer part
+  // of the `<Tooltip>` component props. They are `Partial` here because recharts
+  // injects them at render time, not at the JSX call site.
+  Partial<
+    Pick<
+      RechartsPrimitive.TooltipContentProps,
+      "active" | "payload" | "label" | "labelFormatter" | "formatter"
+    >
+  > &
     React.ComponentProps<"div"> & {
+      labelClassName?: string
+      color?: string
       hideLabel?: boolean
       hideIndicator?: boolean
       indicator?: "line" | "dot" | "dashed"
@@ -194,7 +205,9 @@ const ChartTooltipContent = React.forwardRef<
 
               return (
                 <div
-                  key={item.dataKey}
+                  // recharts 3 widened `dataKey` to include the accessor-function
+                  // form, which is not a valid React key.
+                  key={`${item.dataKey}`}
                   className={cn(
                     "flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground",
                     indicator === "dot" && "items-center"
@@ -263,7 +276,13 @@ const ChartLegend = RechartsPrimitive.Legend
 const ChartLegendContent = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> &
-    Pick<RechartsPrimitive.LegendProps, "payload" | "verticalAlign"> & {
+    // recharts 3 removed `payload` from `LegendProps` (it is injected into the
+    // `content` render prop, not passed to `<Legend>`); it now lives on
+    // `DefaultLegendContentProps`.
+    Pick<
+      RechartsPrimitive.DefaultLegendContentProps,
+      "payload" | "verticalAlign"
+    > & {
       hideIcon?: boolean
       nameKey?: string
     }

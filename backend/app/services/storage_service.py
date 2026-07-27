@@ -39,17 +39,30 @@ def _sanitize_filename(name: str) -> str:
 
 
 def save_contract_document(
-    contract_id: int, upload_filename: str, source: BinaryIO
+    contract_id: int,
+    upload_filename: str,
+    source: BinaryIO,
+    stored_name: str | None = None,
 ) -> tuple[str, int]:
     """Save a file stream under /{contract_id}/{uuid}-{safe_filename}.
 
     Returns (relative_path, size_bytes).
+
+    ``stored_name`` overrides the random prefix with a caller-chosen, stable
+    key. Use it for machine-generated documents that a background job may have
+    to write more than once (crash between the file write and the DB commit):
+    the retry then overwrites the same path instead of leaving the first,
+    unreferenced copy orphaned in storage. Human uploads leave it None — two
+    uploads of ``umowa.pdf`` are genuinely two documents.
     """
     safe = _sanitize_filename(upload_filename)
     target_dir = CONTRACTS_DIR / str(contract_id)
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    stored_name = f"{uuid.uuid4().hex[:8]}-{safe}"
+    if stored_name is not None:
+        stored_name = _sanitize_filename(stored_name)
+    else:
+        stored_name = f"{uuid.uuid4().hex[:8]}-{safe}"
     target_path = target_dir / stored_name
 
     size = 0

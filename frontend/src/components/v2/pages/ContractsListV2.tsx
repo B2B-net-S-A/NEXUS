@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from"react";
+import { useEffect, useMemo, useState } from"react";
 import Link from"next/link";
-import { useQuery, useQueryClient } from"@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
  Calendar,
@@ -15,7 +15,10 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
-import { RequireRole } from"@/components/RequireRole";
+import { useDebouncedValue } from"@/lib/use-debounced-value";
+import { resolveViewState } from"@/lib/view-state";
+import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
+import { useCapability } from"@/hooks/useCapability";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -49,6 +52,7 @@ import {
  type ContractStatusValue,
  type ContractTypeValue,
 } from"@/lib/filter-options";
+import { getAccessToken } from "@/lib/session";
 
 interface ContractRow {
  id: number;
@@ -110,6 +114,11 @@ export function ContractsListV2() {
  const [exporting, setExporting] = useState(false);
  const queryClient = useQueryClient();
 
+ // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
+ // naciśnięcie klawisza wysyłało request (a zapytanie listy robi sześć
+ // `selectinload`) i przerzucało tabelę w stan ładowania.
+ const debouncedSearch = useDebouncedValue(search, 300);
+
  const toggleId = (id: number) => {
  setSelectedIds((prev) => {
  const next = new Set(prev);
@@ -118,6 +127,14 @@ export function ContractsListV2() {
  return next;
  });
  };
+
+ // Selection is scoped to the currently-visible result set. Reset it whenever
+ // the filters, search, or page change so a bulk action can never target rows
+ // the user can no longer see. (Functional guard avoids a needless re-render
+ // when nothing is selected.)
+ useEffect(() => {
+ setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
+ }, [search, statusFilter, typeFilter, endingSoon, page]);
 
  const flashToast = (msg: string) => {
  setToast(msg);
@@ -132,16 +149,15 @@ export function ContractsListV2() {
  setExporting(true);
  try {
  const params = new URLSearchParams();
- if (search) params.set("q", search);
+ // Zdebouncowana fraza, ta sama którą karmiona jest lista — inaczej w oknie
+ // 300 ms eksport dostawałby inne `q` niż to, co widać na ekranie.
+ if (debouncedSearch) params.set("q", debouncedSearch);
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("expiring_in_days", "30");
  params.set("format", format);
  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
- const token =
- typeof window !== "undefined"
- ? localStorage.getItem("access_token")
- : null;
+ const token = getAccessToken();
  const res = await fetch(`${apiBase}/api/contracts/export?${params}`, {
  headers: token ? { Authorization: `Bearer ${token}` } : {},
  });
@@ -165,13 +181,18 @@ export function ContractsListV2() {
  }
  };
 
- const { data, isLoading } = useQuery({
- queryKey: ["contracts-v2", search, statusFilter, typeFilter, endingSoon, page],
+ // Bramka „Nowy kontrakt" = POST /api/contracts (TacPlus). Z rejestru, NIE
+ // z lokalnej listy ról — to właśnie ten wzorzec rozjeżdżał się z backendem
+ // (audyt F-19).
+ const canCreateContract = useCapability("contract.create");
+
+ const { data, isLoading, isError, error, refetch } = useQuery({
+ queryKey: ["contracts-v2", debouncedSearch, statusFilter, typeFilter, endingSoon, page],
  queryFn: () =>
  api
  .get("/api/contracts", {
  params: {
- q: search || undefined,
+ q: debouncedSearch || undefined,
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  expiring_in_days: endingSoon ? 30 : undefined,
@@ -180,6 +201,9 @@ export function ContractsListV2() {
  paramsSerializer: { indexes: null },
  })
  .then((r) => r.data),
+ // Poprzednia strona wyników zostaje na ekranie do czasu przyjścia nowej —
+ // bez tego lista migocze pustym stanem ładowania przy każdej zmianie filtra.
+ placeholderData: keepPreviousData,
  });
 
  const { data: expiring } = useQuery({
@@ -192,6 +216,28 @@ export function ContractsListV2() {
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+ // 403 (stawki = TacPlus na backendzie) i 5xx NIE mogą renderować się jako
+ // „Brak kontraktów spełniających kryteria" (audyt F-20).
+ const viewState = resolveViewState({
+ isLoading,
+ isError,
+ error,
+ isEmpty: items.length === 0,
+ });
+ const failed =
+ viewState === "forbidden" ||
+ viewState === "not_found" ||
+ viewState === "error";
+
+ // "All selected" is derived by comparing the SET of selected ids against the
+ // set of currently-visible ids — never by count equality (which is fragile
+ // against stale ids from a previous page/filter). Computed inline (page size
+ // is small, and it's only read in render + handlers, never a dep array).
+ const visibleIds = items.map((i) => i.id);
+ const allVisibleSelected =
+ visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+ const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
 
  const expiringCount = useMemo(
  () => (Array.isArray(expiring) ? expiring.length : expiring?.total ?? 0),
@@ -210,7 +256,11 @@ export function ContractsListV2() {
  Kontrakty
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- {isLoading ?"Ładowanie…" : `${total} kontraktów w systemie`}
+ {isLoading
+ ?"Ładowanie…"
+ : failed
+ ?"Nie udało się pobrać listy"
+ : `${total} kontraktów w systemie`}
  </p>
  </div>
  <div className="flex items-center gap-2">
@@ -240,13 +290,13 @@ export function ContractsListV2() {
  </button>
  </PopoverContent>
  </Popover>
- <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+ {canCreateContract && (
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">
  <Plus className="h-4 w-4" /> Nowy kontrakt
  </Button>
  </Link>
- </RequireRole>
+ )}
  </div>
  </div>
 
@@ -351,11 +401,7 @@ export function ContractsListV2() {
  selectedIds={selectedIds}
  onClear={() => setSelectedIds(new Set())}
  onSelectAllVisible={() =>
- setSelectedIds(
- selectedIds.size === items.length
- ? new Set()
- : new Set(items.map((i) => i.id))
- )
+ setSelectedIds(allVisibleSelected ? new Set() : new Set(visibleIds))
  }
  visibleCount={items.length}
  onDone={(msg) => {
@@ -374,14 +420,14 @@ export function ContractsListV2() {
  <TableHead className="w-8">
  <Checkbox
  checked={
- items.length > 0 && items.every((i) => selectedIds.has(i.id))
+ allVisibleSelected
  ? true
- : selectedIds.size > 0
+ : someVisibleSelected
  ?"indeterminate"
  : false
  }
  onCheckedChange={(v) =>
- setSelectedIds(v ? new Set(items.map((i) => i.id)) : new Set())
+ setSelectedIds(v ? new Set(visibleIds) : new Set())
  }
  aria-label="Zaznacz wszystkie"
  />
@@ -396,13 +442,28 @@ export function ContractsListV2() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {isLoading ? (
+ {viewState === "loading" ? (
  <TableRow>
  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
  Ładowanie…
  </TableCell>
  </TableRow>
- ) : items.length === 0 ? (
+ ) : failed ? (
+ <TableRow>
+ <TableCell colSpan={8} className="p-0">
+ <QueryStateNotice
+ state={viewState as "forbidden" | "not_found" | "error"}
+ className="border-0"
+ description={
+ viewState === "forbidden"
+ ?"Twoja rola nie ma dostępu do rejestru kontraktów (stawki i marże). Rejestr NIE jest pusty."
+ : undefined
+ }
+ onRetry={() => void refetch()}
+ />
+ </TableCell>
+ </TableRow>
+ ) : viewState === "empty" ? (
  <TableRow>
  <TableCell colSpan={8} className="text-center py-10">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
@@ -484,7 +545,7 @@ export function ContractsListV2() {
  )}
 
  {/* Pagination */}
- {!isLoading && total > pageSize && (
+ {viewState === "ready" && total > pageSize && (
  <div className="flex items-center justify-between text-sm">
  <span className="text-muted-foreground">
  Strona <strong className="text-foreground">{page}</strong> z {totalPages}

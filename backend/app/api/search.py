@@ -33,6 +33,7 @@ from app.services.ai_health import ai_status
 from app.services.structured_candidate_search import (
     build_filter_groups,
     build_structured_filter,
+    skills_soft_rank,
 )
 
 router = APIRouter()
@@ -282,6 +283,7 @@ async def advanced_candidate_search(
     # === Layer 3: free-text — FTS or hybrid (BM25+dense+RRF+rerank) ==========
     q_text = (body.q or "").strip() if body.q else ""
     hybrid_order: list[int] = []
+    search_degraded = False
     use_hybrid = body.search_mode == "hybrid" and bool(q_text)
     if use_hybrid:
         # Pull a generous pool so multi-page results stay consistent without
@@ -289,10 +291,14 @@ async def advanced_candidate_search(
         # the first 4 pages at default page_size=50.
         from app.services.hybrid_search import hybrid_candidates  # noqa: PLC0415
 
-        pairs = await hybrid_candidates(
+        hybrid = await hybrid_candidates(
             db, q_text, pool=200, final_top_k=200, use_rerank=None
         )
-        hybrid_order = [cid for cid, _ in pairs]
+        # Outage on the semantic leg: results fell back to BM25 alone. Surface
+        # it in meta so the UI can say "semantic search unavailable" — an empty
+        # or short list here must never read as "the database has no one".
+        search_degraded = hybrid.degraded
+        hybrid_order = [cid for cid, _ in hybrid.pairs]
         if hybrid_order:
             clauses.append(Candidate.id.in_(hybrid_order))
         else:
@@ -338,12 +344,21 @@ async def advanced_candidate_search(
             candidates = []
     else:
         base = select(Candidate).where(where_clause)
+        order_cols: list[Any] = []
+        # SEARCH-P0-03: skill chips are a soft signal — they no longer cut, so
+        # rank matchers to the top. Leads the sort whenever skill chips are
+        # present (a skill search wants skill-relevant results first); the
+        # requested sort is the tie-break below.
+        skill_rank = skills_soft_rank(body)
+        if skill_rank is not None:
+            order_cols.append(skill_rank.desc())
         if body.sort == "relevance" and q_text:
-            base = base.order_by(_fts_rank_order(), Candidate.updated_at.desc())
+            order_cols.extend([_fts_rank_order(), Candidate.updated_at.desc()])
         elif body.sort == "name":
-            base = base.order_by(Candidate.lastname.asc(), Candidate.name.asc())
+            order_cols.extend([Candidate.lastname.asc(), Candidate.name.asc()])
         else:
-            base = base.order_by(Candidate.updated_at.desc())
+            order_cols.append(Candidate.updated_at.desc())
+        base = base.order_by(*order_cols)
 
         base = base.offset((body.page - 1) * body.page_size).limit(body.page_size)
         if q_text:
@@ -371,7 +386,9 @@ async def advanced_candidate_search(
         page_size=body.page_size,
         items=items,
         facets=facets,
-        meta=SearchMeta(ai_status=ai_status(), took_ms=took_ms),
+        meta=SearchMeta(
+            ai_status=ai_status(), took_ms=took_ms, search_degraded=search_degraded
+        ),
     )
 
 
@@ -539,26 +556,32 @@ async def global_search(
         for c in clients_result.scalars().all()
     ]
 
-    # Contacts
-    contacts_result = await db.execute(
-        select(Contact)
-        .where(
-            or_(
-                Contact.name.ilike(f"%{q}%"),
-                Contact.email.ilike(f"%{q}%"),
+    # Contacts — same containment as candidates above. Contact rows carry
+    # client-side hiring-manager names, e-mails and phone numbers (PII), and
+    # the candidates section is already skipped for the viewer/client role;
+    # leaving contacts open would let the same role enumerate people from the
+    # search bar through a different section.
+    contacts_list: list[dict[str, Any]] = []
+    if user_has_candidate_read(current_user):
+        contacts_result = await db.execute(
+            select(Contact)
+            .where(
+                or_(
+                    Contact.name.ilike(f"%{q}%"),
+                    Contact.email.ilike(f"%{q}%"),
+                )
             )
+            .limit(LIMIT)
         )
-        .limit(LIMIT)
-    )
-    contacts_list = [
-        {
-            "id": c.id,
-            "name": c.name,
-            "subtitle": c.email or c.position or "",
-            "url": "/contacts",
-        }
-        for c in contacts_result.scalars().all()
-    ]
+        contacts_list = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "subtitle": c.email or c.position or "",
+                "url": "/contacts",
+            }
+            for c in contacts_result.scalars().all()
+        ]
 
     return {
         "query": q,

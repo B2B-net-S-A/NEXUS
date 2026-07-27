@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -43,7 +43,17 @@ async def _load_valid_link(
     db: AsyncSession, token: str, *, require_unused: bool
 ) -> SignatureLink:
     """Load a usable link or raise the uniform 404 (no-info-leak)."""
-    link = await db.scalar(select(SignatureLink).where(SignatureLink.token == token))
+    # Dual-read: v2 rows match the SHA-256 of the incoming secret; legacy rows
+    # kept the raw secret in the PK (token_sha256 NULL) and age out on expiry.
+    import hashlib
+
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    link = await db.scalar(
+        select(SignatureLink).where(
+            (SignatureLink.token_sha256 == digest)
+            | ((SignatureLink.token == token) & (SignatureLink.token_sha256.is_(None)))
+        )
+    )
     now = datetime.now(timezone.utc)
     if (
         link is None
@@ -138,12 +148,32 @@ async def submit_signed_pdf(
     if not pdf_bytes.startswith(b"%PDF"):
         raise HTTPException(status_code=422, detail="To nie jest plik PDF")
 
-    verdict = await finalize_signed_pdf(db, sig, pdf_bytes, moved_by=sig.sender_user_id)
-
+    # Atomic single-use claim BEFORE finalize. finalize_signed_pdf attaches the
+    # PDF and advances the pipeline stage — running it twice (two concurrent
+    # submits that both passed the require_unused read in _load_valid_link)
+    # would double-attach and double-advance. The guarded UPDATE lets one win;
+    # the loser gets 410 before any effect. Same transaction → rolls back on a
+    # later failure.
     now = datetime.now(timezone.utc)
-    link.used_at = now
-    link.use_count = (link.use_count or 0) + 1
-    link.last_used_at = now
+    claimed = (
+        await db.execute(
+            update(SignatureLink)
+            .where(
+                SignatureLink.token == link.token,
+                SignatureLink.used_at.is_(None),
+            )
+            .values(
+                used_at=now,
+                use_count=(link.use_count or 0) + 1,
+                last_used_at=now,
+            )
+            .returning(SignatureLink.token)
+        )
+    ).first()
+    if claimed is None:
+        raise HTTPException(status_code=410, detail="Link już został użyty.")
+
+    verdict = await finalize_signed_pdf(db, sig, pdf_bytes, moved_by=sig.sender_user_id)
 
     await db.commit()
     return verdict

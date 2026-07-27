@@ -106,7 +106,9 @@ class ContractCreate(BaseModel):
     # the framework rate over time; `framework_rate` is derived from it.
     framework_rate_schedule: Optional[list[ContractFrameworkRateInput]] = None
     contract_type: ContractType = ContractType.b2b
-    status: ContractStatus = ContractStatus.draft
+    # `status` is intentionally NOT accepted here. A contract is always born a
+    # `draft`; reaching `active` is guarded by ``contract_lifecycle`` (requires
+    # signed evidence). Any `status` in the request body is ignored server-side.
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
@@ -151,7 +153,10 @@ class ContractUpdate(BaseModel):
     rate_unit: Optional[RateUnit] = None
     billing_hours_per_month: Optional[int] = None
     contract_type: Optional[ContractType] = None
-    status: Optional[ContractStatus] = None
+    # `status` is intentionally NOT accepted here — free status writes are the
+    # bug this hardening closes. Status changes go through the dedicated
+    # lifecycle endpoints (`/activate`, `/reopen`, `/void`, `/terminate`,
+    # `/draft/finalize`). Any `status` in the request body is ignored.
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
@@ -321,7 +326,9 @@ class ContractActivityEntry(BaseModel):
 
 class ContractRateHistoryEntry(BaseModel):
     id: int
-    rate: float
+    # ``None`` when redacted for non-VIEW_FINANCE readers (P0.12) — the amount is
+    # the sensitive field; ``currency`` stays as metadata.
+    rate: Optional[float] = None
     currency: str
     contract_type: str
     start_date: date
@@ -346,6 +353,26 @@ class ContractActivateRequest(BaseModel):
     and flips the status. A future iteration may accept inline field updates
     here to collapse PATCH+activate into one call.
     """
+
+
+class ContractReopenRequest(BaseModel):
+    """Payload for POST /api/contracts/{id}/reopen — audited revert to `draft`.
+
+    Replaces the removed free ``PATCH {status: draft}`` write. The optional
+    reason is recorded in the audit trail.
+    """
+
+    reason: Optional[str] = None
+
+
+class ContractVoidRequest(BaseModel):
+    """Payload for POST /api/contracts/{id}/void — soft-delete (annul).
+
+    Used instead of a hard DELETE for executed/active contracts so documents and
+    signature evidence are preserved.
+    """
+
+    reason: Optional[str] = None
 
 
 # ── Editable draft (migracja 0058) ───────────────────────────────────────

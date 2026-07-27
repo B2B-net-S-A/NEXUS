@@ -144,6 +144,7 @@ import {
 } from"@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from"@/components/RateHistoryWidget";
 import { ConflictsWidget } from"@/components/ConflictsWidget";
+import { HiringManagerVetoesWidget } from"@/components/HiringManagerVetoesWidget";
 import { AddToMarketplaceButton } from"@/components/marketplace/AddToMarketplaceButton";
 import {
  AtOurClientBanner,
@@ -1105,6 +1106,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  </DeferUntilVisible>
  <DeferUntilVisible minHeight={44}>
  <ConflictsWidget candidateId={Number(id)} hideWhenEmpty />
+ </DeferUntilVisible>
+ <DeferUntilVisible minHeight={44}>
+ <HiringManagerVetoesWidget candidateId={Number(id)} hideWhenEmpty />
  </DeferUntilVisible>
  </div>
  </section>
@@ -2389,10 +2393,10 @@ function ProfilTab({
  // FilePreviewModal dla głównego dokumentu kandydata.
  const { showError } = useToast();
  const { data: cvDocs } = useQuery<CandidateDocument[]>({
- queryKey: candidateQueryKeys.documents(candidate.id),
+ queryKey: candidateQueryKeys.cvDocuments(candidate.id),
  queryFn: async () => {
  const res = await api.get<CandidateDocument[]>(
- `/api/candidates/${candidate.id}/documents`,
+ `/api/candidates/${candidate.id}/documents?kind=cv`,
  );
  return res.data;
  },
@@ -2792,7 +2796,8 @@ function ProfilTab({
  </section>
  </div>
  <FilePreviewModal
- doc={previewDoc}
+ documents={cvDocs ?? []}
+ initialDocumentId={previewDoc?.id ?? null}
  candidateId={candidate.id}
  onClose={() => setPreviewDoc(null)}
  onDownload={(d) =>
@@ -3943,10 +3948,10 @@ function PipelinePane({
 }) {
  const { showError } = useToast();
  const { data: documents } = useQuery<CandidateDocument[]>({
- queryKey: candidateQueryKeys.documents(candidateId),
+ queryKey: candidateQueryKeys.cvDocuments(candidateId),
  queryFn: async () => {
  const res = await api.get<CandidateDocument[]>(
- `/api/candidates/${candidateId}/documents`,
+ `/api/candidates/${candidateId}/documents?kind=cv`,
  );
  return res.data;
  },
@@ -4271,6 +4276,16 @@ function NotatkiTab({
 
 function PlikiTab({ candidateId }: { candidateId: number }) {
  const { showError, showToast } = useToast();
+ const queryClient = useQueryClient();
+ const currentUser = useAuthStore((state) => state.user);
+ const canEditDocuments = hasRole(
+ currentUser,
+ "admin",
+ "delivery_lead",
+ "tac",
+ "recruiter",
+ "sourcer",
+ );
  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
  queryKey: candidateQueryKeys.documents(candidateId),
@@ -4281,6 +4296,38 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  return res.data;
  },
  staleTime: 30_000,
+ });
+ const metadataMutation = useMutation({
+ mutationFn: ({
+ docId,
+ documentKind,
+ isPrimary,
+ }: {
+ docId: number;
+ documentKind?: CandidateDocument["document_kind"];
+ isPrimary?: boolean;
+ }) =>
+ api.patch(`/api/candidates/${candidateId}/documents/${docId}`, {
+ ...(documentKind ? { document_kind: documentKind } : {}),
+ ...(isPrimary !== undefined ? { is_primary: isPrimary } : {}),
+ }),
+ onSuccess: () => {
+ void queryClient.invalidateQueries({
+ queryKey: candidateQueryKeys.documents(candidateId),
+ });
+ void queryClient.invalidateQueries({
+ queryKey: candidateQueryKeys.cvDocuments(candidateId),
+ });
+ void queryClient.invalidateQueries({
+ queryKey: candidateQueryKeys.quickView(candidateId),
+ });
+ showToast("Metadane dokumentu zaktualizowane.", "success");
+ },
+ onError: (mutationError) =>
+ showError(
+ extractErrorMsg(mutationError) ||
+ "Nie udało się zaktualizować metadanych dokumentu.",
+ ),
  });
 
  function handlePreview(doc: CandidateDocument) {
@@ -4351,6 +4398,15 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  primary
  </Badge>
  )}
+ <Badge size="sm" variant="neutral">
+ {doc.document_kind === "cv"
+ ? "CV"
+ : doc.document_kind === "cover_letter"
+ ? "list motywacyjny"
+ : doc.document_kind === "certificate"
+ ? "certyfikat"
+ : "inny"}
+ </Badge>
  {doc.external_source === "traffit" && (
  <Badge size="sm" variant="info">
  z Traffita
@@ -4376,6 +4432,38 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  </div>
  </div>
  <div className="flex items-center gap-3 shrink-0">
+ {canEditDocuments ? (
+ <select
+ value={doc.document_kind}
+ onChange={(event) =>
+ metadataMutation.mutate({
+ docId: doc.id,
+ documentKind: event.target
+ .value as CandidateDocument["document_kind"],
+ })
+ }
+ disabled={metadataMutation.isPending}
+ aria-label={`Rodzaj dokumentu ${doc.filename}`}
+ className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+ >
+ <option value="cv">CV</option>
+ <option value="cover_letter">List motywacyjny</option>
+ <option value="certificate">Certyfikat</option>
+ <option value="other">Inny</option>
+ </select>
+ ) : null}
+ {canEditDocuments && doc.document_kind === "cv" && !doc.is_primary ? (
+ <button
+ type="button"
+ onClick={() =>
+ metadataMutation.mutate({ docId: doc.id, isPrimary: true })
+ }
+ disabled={metadataMutation.isPending}
+ className="text-xs font-medium text-[hsl(var(--accent-primary))] hover:underline disabled:opacity-50"
+ >
+ Ustaw jako primary
+ </button>
+ ) : null}
  <button
  type="button"
  onClick={() => handlePreview(doc)}
@@ -4399,7 +4487,15 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  ))}
  </div>
  <FilePreviewModal
- doc={previewDoc}
+ doc={previewDoc?.document_kind === "cv" ? undefined : previewDoc}
+ documents={
+ previewDoc?.document_kind === "cv"
+ ? docs.filter((document) => document.document_kind === "cv")
+ : undefined
+ }
+ initialDocumentId={
+ previewDoc?.document_kind === "cv" ? previewDoc.id : null
+ }
  candidateId={candidateId}
  onClose={() => setPreviewDoc(null)}
  onDownload={handleDownload}

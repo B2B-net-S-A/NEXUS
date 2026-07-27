@@ -15,15 +15,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from datetime import date, timedelta
 from typing import Iterable
 
 import httpx
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_alert_dedup import ContractAlertDedup
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.notification import Notification, NotificationType
@@ -79,27 +82,84 @@ async def _staff_user_ids(db: AsyncSession) -> list[int]:
     return [row[0] for row in res.all()]
 
 
-async def _contract_ids_already_notified(db: AsyncSession, threshold: int) -> set[int]:
-    """Find contract_ids that already have a contract_ending notification for this threshold."""
-    # We use a deterministic title prefix per threshold for dedup without schema change.
-    title_prefix = f"[{threshold}d]"
+async def _claim_alert(db: AsyncSession, dedup_key: str) -> bool:
+    """Atomically claim a dedup key. ``INSERT ... ON CONFLICT DO NOTHING``.
+
+    Returns ``True`` if THIS pass inserted the row (fresh — go create the
+    notifications), ``False`` if the key was already claimed (skip). The
+    ``_already_notified`` SELECT helpers stay as a cheap pre-filter (and keep
+    all-time dedup semantics across the pre-ledger transition), but they are
+    NOT atomic on their own: two overlapping / concurrent loop passes (restart,
+    multi-worker) could both pass the SELECT before either committed and then
+    insert DUPLICATE notifications. This claim closes that race — the UNIQUE
+    constraint serializes the two passes so exactly one wins the key. The claim
+    is committed in the SAME transaction as the notifications, so a rollback
+    drops both together.
+    """
+    stmt = (
+        pg_insert(ContractAlertDedup)
+        .values(dedup_key=dedup_key)
+        .on_conflict_do_nothing(constraint="uq_contract_alert_dedup_key")
+        .returning(ContractAlertDedup.id)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none() is not None
+
+
+def _end_date_from_title(title: str | None) -> str | None:
+    """Pull the episode discriminator encoded as ``[tag|<value>]`` from an alert title.
+
+    Shared by every episode-aware family (F-29): ending ``[Nd|<end_date>]``, compliance
+    ``[compliance|<expiry>]``, equipment ``[eq_ret|<due>]``, client order
+    ``[client_order|<order_end>]``. Returns ``None`` for legacy ``[tag]`` titles that
+    carry no discriminator — those never match an episode, so an entity still inside a
+    window at ship time may re-alert once (an acceptable one-off, not a silent gap).
+    """
+    if not title or not title.startswith("["):
+        return None
+    close = title.find("]")
+    if close == -1:
+        return None
+    _, sep, episode = title[1:close].partition("|")  # "30d|2026-09-01" -> "2026-09-01"
+    if not sep:
+        return None
+    return episode.strip() or None
+
+
+async def _contract_ids_already_notified(
+    db: AsyncSession, threshold: int
+) -> set[tuple[int, str]]:
+    """Return ``(contract_id, end_date_iso)`` episodes already alerted at this threshold.
+
+    Episode-aware dedup (P1-NOTIFY-01): the title encodes the current deadline as
+    ``[Nd|<end_date>]``, so a bulk-extend to a new ``end_date`` is a NEW episode — the
+    pair no longer matches and every threshold re-arms. A contract counts as
+    already-notified for a threshold ONLY when a prior ``[Nd]`` notification exists for
+    the SAME end_date (keyed without a schema change).
+    """
+    # Prefix without the closing bracket so both legacy ``[Nd]`` and new ``[Nd|..]``
+    # titles are fetched; legacy rows then drop out via the None end_date parse.
+    title_prefix = f"[{threshold}d"
     res = await db.execute(
-        select(Notification.link).where(
+        select(Notification.link, Notification.title).where(
             Notification.notification_type == NotificationType.contract_ending,
             Notification.title.like(f"{title_prefix}%"),
         )
     )
-    ids: set[int] = set()
-    for (link,) in res.all():
+    episodes: set[tuple[int, str]] = set()
+    for link, title in res.all():
         if not link:
+            continue
+        end_iso = _end_date_from_title(title)
+        if end_iso is None:
             continue
         # link format: /contracts/<id>
         try:
             cid = int(link.rstrip("/").split("/")[-1])
-            ids.add(cid)
         except ValueError:
             continue
-    return ids
+        episodes.add((cid, end_iso))
+    return episodes
 
 
 async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Contract]:
@@ -123,9 +183,16 @@ async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Cont
     return list(res.scalars().all())
 
 
-async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) -> None:
+async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) -> bool:
+    """Post the expiry summary to Slack. Returns ``True`` only on a 2xx response.
+
+    httpx does not raise on 4xx/5xx by default, so a failed webhook must never be
+    counted as sent (mirrors ``slack_sla_alerts._post_to_slack``). On an HTTP error
+    status or a transport error we log a warning and return ``False`` so the caller
+    leaves ``stats['slack_sent']`` at 0.
+    """
     if not webhook or not events:
-        return
+        return False
     lines = []
     for threshold, c in events:
         lines.append(
@@ -138,9 +205,12 @@ async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) 
     )
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(webhook, json={"text": text})
+            resp = await client.post(webhook, json={"text": text})
+            resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
         logger.warning("contract_alerts: slack post failed %s", e)
+        return False
+    return True
 
 
 async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocument]:
@@ -158,26 +228,33 @@ async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocum
     return list(res.scalars().all())
 
 
-async def _compliance_already_notified(db: AsyncSession) -> set[int]:
-    """Find contract_document ids already reported."""
+async def _compliance_already_notified(db: AsyncSession) -> set[tuple[int, str]]:
+    """Return ``(doc_id, expiry_iso)`` compliance episodes already reported.
+
+    Episode-aware dedup (F-29): the title encodes the document's current expiry as
+    ``[compliance|<expiry>]``, so a renewed document with a fresh ``expiry_date`` is a
+    NEW episode — the pair no longer matches and the alert re-arms. A document counts
+    as already-notified ONLY when a prior notification exists for the SAME expiry. The
+    ``[compliance%`` prefix also catches legacy ``[compliance]`` rows; those parse to a
+    ``None`` expiry and drop out (a doc still in-window at ship time may re-alert once).
+    """
     res = await db.execute(
-        select(Notification.message).where(
+        select(Notification.message, Notification.title).where(
             Notification.notification_type == NotificationType.contract_ending,
-            Notification.title.like("[compliance]%"),
+            Notification.title.like("[compliance%"),
         )
     )
-    ids: set[int] = set()
-    for (msg,) in res.all():
-        # Message encodes the doc id in the form 'doc_id=<N>'
-        if not msg:
+    episodes: set[tuple[int, str]] = set()
+    for msg, title in res.all():
+        expiry_iso = _end_date_from_title(title)
+        if expiry_iso is None or not msg:
             continue
-        for tok in msg.split():
-            if tok.startswith("doc_id="):
-                try:
-                    ids.add(int(tok.split("=", 1)[1].rstrip(".")))
-                except ValueError:
-                    pass
-    return ids
+        # Message encodes the doc id as '(doc_id=<N>)'; match anywhere so the
+        # surrounding parens do not defeat the parse.
+        m = re.search(r"doc_id=(\d+)", msg)
+        if m:
+            episodes.add((int(m.group(1)), expiry_iso))
+    return episodes
 
 
 async def _equipment_due_for_return(db: AsyncSession) -> list[ContractEquipment]:
@@ -193,14 +270,27 @@ async def _equipment_due_for_return(db: AsyncSession) -> list[ContractEquipment]
     return list(res.scalars().all())
 
 
-async def _equipment_already_notified(db: AsyncSession) -> set[int]:
+async def _equipment_already_notified(db: AsyncSession) -> set[tuple[int, str]]:
+    """Return ``(equipment_id, due_iso)`` return episodes already reported.
+
+    Episode-aware dedup (F-29): the title encodes the current ``return_due_date`` as
+    ``[eq_ret|<due>]``, so a piece of equipment re-flagged ``pending`` with a fresh due
+    date is a NEW episode and re-arms — the old, id-only key permanently suppressed it.
+    Legacy ``[eq_ret]`` rows carry no due date and drop out (may re-alert once).
+    """
     res = await db.execute(
-        select(Notification.related_entity_id).where(
+        select(Notification.related_entity_id, Notification.title).where(
             Notification.notification_type == NotificationType.equipment_return_due_14d,
             Notification.related_entity_type == "contract_equipment",
         )
     )
-    return {row[0] for row in res.all() if row[0] is not None}
+    episodes: set[tuple[int, str]] = set()
+    for entity_id, title in res.all():
+        due_iso = _end_date_from_title(title)
+        if entity_id is None or due_iso is None:
+            continue
+        episodes.add((entity_id, due_iso))
+    return episodes
 
 
 async def _client_orders_ending(db: AsyncSession) -> list[Contract]:
@@ -217,14 +307,27 @@ async def _client_orders_ending(db: AsyncSession) -> list[Contract]:
     return list(res.scalars().all())
 
 
-async def _client_order_already_notified(db: AsyncSession) -> set[int]:
+async def _client_order_already_notified(db: AsyncSession) -> set[tuple[int, str]]:
+    """Return ``(contract_id, order_end_iso)`` client-order episodes already reported.
+
+    Episode-aware dedup (F-29): the title encodes the current ``client_order_end_date``
+    as ``[client_order|<order_end>]``, so a client order extended to a fresh end date is
+    a NEW episode and re-arms — the old, id-only key permanently suppressed it. Legacy
+    ``[client_order]`` rows carry no date and drop out (may re-alert once).
+    """
     res = await db.execute(
-        select(Notification.related_entity_id).where(
+        select(Notification.related_entity_id, Notification.title).where(
             Notification.notification_type == NotificationType.client_order_ending_30d,
             Notification.related_entity_type == "contract",
         )
     )
-    return {row[0] for row in res.all() if row[0] is not None}
+    episodes: set[tuple[int, str]] = set()
+    for entity_id, title in res.all():
+        order_iso = _end_date_from_title(title)
+        if entity_id is None or order_iso is None:
+            continue
+        episodes.add((entity_id, order_iso))
+    return episodes
 
 
 async def run_contract_alerts_cycle() -> dict:
@@ -253,14 +356,26 @@ async def run_contract_alerts_cycle() -> dict:
         for threshold in THRESHOLDS_DAYS:
             already = await _contract_ids_already_notified(db, threshold)
             contracts = await _contracts_at_threshold(db, threshold)
-            fresh = [c for c in contracts if c.id not in already]
+            # Episode-aware: a contract re-alerts once its CURRENT deadline forms a
+            # new (id, end_date) pair — bulk-extend to a fresh end_date re-arms it.
+            fresh = [
+                c for c in contracts if (c.id, c.end_date.isoformat()) not in already
+            ]
             notif_type = (
                 NotificationType.contract_ending_90d
                 if threshold == 90
                 else NotificationType.contract_ending
             )
             for c in fresh:
-                title = f"[{threshold}d] Kontrakt #{c.id} wygasa"
+                # Claim key carries the end_date too, so the atomic ledger re-arms on
+                # extend just like the SELECT pre-filter above.
+                if not await _claim_alert(
+                    db, f"ending:{threshold}:{c.id}:{c.end_date.isoformat()}"
+                ):
+                    continue
+                title = (
+                    f"[{threshold}d|{c.end_date.isoformat()}] Kontrakt #{c.id} wygasa"
+                )
                 message = (
                     f"Kontrakt #{c.id} kończy się {c.end_date} — "
                     f"zostało {threshold} dni. Rozważ przedłużenie lub kontakt z klientem."
@@ -291,9 +406,22 @@ async def run_contract_alerts_cycle() -> dict:
         if staff_ids:
             expiring = await _compliance_documents_expiring(db)
             already = await _compliance_already_notified(db)
-            fresh = [d for d in expiring if d.id not in already]
+            # Episode-aware: a renewed document re-alerts once its CURRENT expiry forms
+            # a new (id, expiry) pair. ``_compliance_documents_expiring`` guarantees a
+            # non-null expiry_date, so the isoformat() is always available.
+            fresh = [
+                d
+                for d in expiring
+                if d.expiry_date is not None
+                and (d.id, d.expiry_date.isoformat()) not in already
+            ]
             for doc in fresh:
-                title = f"[compliance] Dokument #{doc.id} wygasa"
+                episode = doc.expiry_date.isoformat()
+                # Claim key carries the expiry too, so the atomic ledger re-arms on
+                # renewal just like the SELECT pre-filter above.
+                if not await _claim_alert(db, f"compliance:{doc.id}:{episode}"):
+                    continue
+                title = f"[compliance|{episode}] Dokument #{doc.id} wygasa"
                 message = (
                     f"Dokument {doc.doc_type.value} (doc_id={doc.id}) kontraktu "
                     f"#{doc.contract_id} wygasa {doc.expiry_date}. "
@@ -321,14 +449,23 @@ async def run_contract_alerts_cycle() -> dict:
         if staff_ids:
             due = await _equipment_due_for_return(db)
             already = await _equipment_already_notified(db)
-            fresh = [item for item in due if item.id not in already]
+            # Episode-aware: equipment re-flagged pending with a fresh return_due_date
+            # forms a new (id, due) pair and re-arms. ``_equipment_due_for_return``
+            # guarantees a non-null return_due_date.
+            fresh = [
+                item
+                for item in due
+                if item.return_due_date is not None
+                and (item.id, item.return_due_date.isoformat()) not in already
+            ]
             for item in fresh:
-                days_left = (
-                    (item.return_due_date - date.today()).days
-                    if item.return_due_date
-                    else None
-                )
-                title = f"[eq_ret] Sprzęt do zwrotu — item #{item.id}"
+                episode = item.return_due_date.isoformat()
+                # Claim key carries the due date too, so the atomic ledger re-arms on a
+                # new due date just like the SELECT pre-filter above.
+                if not await _claim_alert(db, f"equipment:{item.id}:{episode}"):
+                    continue
+                days_left = (item.return_due_date - date.today()).days
+                title = f"[eq_ret|{episode}] Sprzęt do zwrotu — item #{item.id}"
                 message = (
                     f"Sprzęt {item.item_type.value} "
                     f"(serial={item.serial_number or '—'}) z kontraktu "
@@ -359,15 +496,25 @@ async def run_contract_alerts_cycle() -> dict:
         if staff_ids:
             orders = await _client_orders_ending(db)
             already = await _client_order_already_notified(db)
-            fresh = [c for c in orders if c.id not in already]
+            # Episode-aware: a client order extended to a fresh client_order_end_date
+            # forms a new (id, order_end) pair and re-arms. ``_client_orders_ending``
+            # guarantees a non-null client_order_end_date.
+            fresh = [
+                c
+                for c in orders
+                if c.client_order_end_date is not None
+                and (c.id, c.client_order_end_date.isoformat()) not in already
+            ]
             for c in fresh:
-                days_left = (
-                    (c.client_order_end_date - date.today()).days
-                    if c.client_order_end_date
-                    else None
-                )
+                episode = c.client_order_end_date.isoformat()
+                # Claim key carries the order end date too, so the atomic ledger re-arms
+                # on an extended order just like the SELECT pre-filter above.
+                if not await _claim_alert(db, f"client_order:{c.id}:{episode}"):
+                    continue
+                days_left = (c.client_order_end_date - date.today()).days
                 title = (
-                    f"[client_order] Kontrakt #{c.id} — zamówienie klienta kończy się"
+                    f"[client_order|{episode}] Kontrakt #{c.id} — "
+                    f"zamówienie klienta kończy się"
                 )
                 message = (
                     f"Zamówienie klienta dla kontraktu #{c.id} wygasa "
@@ -390,8 +537,8 @@ async def run_contract_alerts_cycle() -> dict:
         await db.commit()
 
     webhook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
-    if webhook and to_slack:
-        await _post_slack_summary(webhook, to_slack)
+    if webhook and to_slack and await _post_slack_summary(webhook, to_slack):
+        # Only count as sent on a 2xx — a 4xx/5xx webhook must not inflate the stat.
         stats["slack_sent"] = len(to_slack)
 
     logger.info("contract_alerts: cycle done %s", stats)

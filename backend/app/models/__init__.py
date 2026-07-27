@@ -10,6 +10,10 @@ from app.models.competence_category import (
 )
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
 from app.models.invite_link import CandidateInviteLink
+from app.models.application_submission import (  # noqa: F401
+    ApplicationSubmission,
+    ApplicationSubmissionStatus,
+)
 from app.models.client import Client
 from app.models.candidate_risk import (
     CandidateOfferResponse,
@@ -33,6 +37,7 @@ from app.models.contract_amendment import ContractAmendment, ContractAmendmentTy
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
 from app.models.contract_framework_rate import ContractFrameworkRate
+from app.models.contract_alert_dedup import ContractAlertDedup  # noqa: F401
 from app.models.contract_onboarding import (
     ContractOnboardingItem,
     OnboardingItemStatus,
@@ -214,6 +219,8 @@ __all__ = [
     "CcSuggestionOverride",
     "JobSecondaryCc",
     "CandidateInviteLink",
+    "ApplicationSubmission",
+    "ApplicationSubmissionStatus",
     "Client",
     "CandidateStage",
     "Note",
@@ -271,6 +278,7 @@ __all__ = [
     "TalentPool",
     "TalentPoolMembership",
     "MarketplaceAlertLog",
+    "ContractAlertDedup",
     "CalendarEvent",
     "Notification",
     "PasswordResetToken",

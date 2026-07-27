@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.note import Note, NoteType
-from app.api.deps import CurrentUser, OperationalUser
+from app.api.deps import OperationalUser
 from app.services.fireflies_sync import sync_fireflies_transcripts, get_sync_status
 
 router = APIRouter()
@@ -21,12 +21,16 @@ router = APIRouter()
 
 @router.get("/fireflies/sync")
 async def trigger_fireflies_sync(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Manually trigger a Fireflies transcript sync.
     Best-effort: returns result even if partial failure.
+
+    Mutating (writes meeting notes, hits the external Fireflies API), so gated
+    to OperationalUser — the read-only ``user`` viewer must not be able to
+    kick off a global sync (M6-P0.11).
     """
     result = await sync_fireflies_transcripts(db)
     return result
@@ -68,7 +72,7 @@ async def list_fireflies_transcripts(
 
 @router.get("/fireflies/status")
 async def fireflies_status(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """

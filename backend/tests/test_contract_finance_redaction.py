@@ -44,6 +44,25 @@ async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, st
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
+async def _seed_candidate_client() -> tuple[int, int]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Fin",
+            lastname=f"C-{uuid.uuid4().hex[:6]}",
+            email=f"finc-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=f"FinClient-{uuid.uuid4().hex[:6]}")
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+        return cand.id, client.id
+
+
 async def _seed_contract() -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -125,3 +144,75 @@ async def test_tac_gets_redacted_contractor_list(app_client: AsyncClient):
     assert row is not None, "seeded contractor not in list"
     assert row["rate_candidate"] is None
     assert row["margin"] is None
+
+
+async def test_tac_create_returns_redacted_but_persists_rate(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """POST redacts finance in the RESPONSE for TAC, yet the write persists.
+
+    Guards against a regression of #874: TAC keeps the client-rate WRITE
+    allowance; only what comes back is stripped. Admin re-fetch proves the value
+    was genuinely stored.
+    """
+    cand_id, client_id = await _seed_candidate_client()
+    tac = await _headers_for(app_client, "tac")
+    body = {
+        "candidate_id": cand_id,
+        "client_id": client_id,
+        "start_date": (_TODAY - timedelta(days=1)).isoformat(),
+        "end_date": (_TODAY + timedelta(days=120)).isoformat(),
+        "rate_candidate": 111.0,
+        "rate_client": 222.0,
+        "status": "active",
+    }
+    r = await app_client.post("/api/contracts", json=body, headers=tac)
+    assert r.status_code == 201, r.text
+    created = r.json()
+    assert created["rate_candidate"] is None
+    assert created["rate_client"] is None
+    assert created["margin"] is None
+    # The write itself was NOT reversed — admin (VIEW_FINANCE) sees the stored rate.
+    r_admin = await app_client.get(
+        f"/api/contracts/{created['id']}", headers=app_auth_headers
+    )
+    assert r_admin.status_code == 200, r_admin.text
+    assert r_admin.json()["rate_client"] == 222.0
+
+
+async def test_tac_expiring_list_redacted(app_client: AsyncClient):
+    cid = await _seed_contract()  # end_date = today + 90, status active
+    tac = await _headers_for(app_client, "tac")
+    r = await app_client.get("/api/contracts/expiring?days=90", headers=tac)
+    assert r.status_code == 200, r.text
+    row = next((i for i in r.json() if i["id"] == cid), None)
+    assert row is not None, "seeded contract missing from expiring list"
+    assert row["rate_candidate"] is None
+    assert row["rate_client"] is None
+    assert row["margin"] is None
+
+
+async def test_finance_expiring_list_shows_rates(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    cid = await _seed_contract()
+    r = await app_client.get(
+        "/api/contracts/expiring?days=90", headers=app_auth_headers
+    )
+    assert r.status_code == 200, r.text
+    row = next((i for i in r.json() if i["id"] == cid), None)
+    assert row is not None
+    assert row["rate_client"] is not None
+
+
+async def test_tac_patch_returns_redacted(app_client: AsyncClient):
+    cid = await _seed_contract()
+    tac = await _headers_for(app_client, "tac")
+    r = await app_client.patch(
+        f"/api/contracts/{cid}", json={"rate_client": 321.0}, headers=tac
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rate_candidate"] is None
+    assert body["rate_client"] is None
+    assert body["margin"] is None

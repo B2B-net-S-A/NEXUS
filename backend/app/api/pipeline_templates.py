@@ -345,6 +345,10 @@ async def clone_template(
                 tracker_enabled=s.tracker_enabled,
                 tracker_public_name=s.tracker_public_name,
                 sla_max_days=s.sla_max_days,
+                # M4-P0.2: carry the per-stage scorecard so a cloned template
+                # keeps its evaluation rubric (was silently dropped → custom
+                # processes lost their scorecards on clone).
+                scorecard_schema=s.scorecard_schema,
                 # legacy_enum_value intentionally NOT copied — only default template has it
             )
         )
@@ -360,6 +364,9 @@ async def clone_template(
                 order=r.order,
                 category=r.category,
                 active=r.active,
+                # Bez tego sklonowany szablon cicho gubi blokadę hiring managera
+                # — ten sam powód przestawałby dyskwalifikować na nowym procesie.
+                disqualifies_person=r.disqualifies_person,
             )
         )
 

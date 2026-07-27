@@ -1,12 +1,12 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pydantic import BaseModel
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -24,15 +24,18 @@ from app.models.notification import Notification, NotificationType
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+from app.services.b2b_contract_automation import ensure_b2b_employment_draft
 from app.models.job import Job
 from app.models.pipeline_template import (
     PipelineStageDef,
     PipelineTemplate,
     RejectionReason,
+    TerminalType,
 )
 from app.models.user import User, UserRole
 from app.schemas.pipeline import (
     CandidateStageResponse,
+    HiringManagerVetoBrief,
     KanbanColumn,
     KanbanView,
     PendingVerificationListItem,
@@ -42,10 +45,20 @@ from app.schemas.pipeline import (
     STAGE_LABELS,
 )
 from app.api.candidate_access import CandidatePIIAccess
-from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
+from app.api.deps import ApproverPlus, CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
+    ensure_job_membership,
     user_can_edit_rates,
     user_can_terminal_transition,
+)
+from app.services.hiring_manager_verdicts import (
+    load_manager_rejections,
+    puts_candidate_before_client,
+    veto_for_candidate_stage,
+)
+from app.services.pipeline_eligibility import (
+    assert_candidate_move_eligible,
+    assert_candidates_move_eligible,
 )
 from app.services.rate_normalization import (
     POLICY_VERSION as RATE_POLICY_VERSION,
@@ -323,6 +336,12 @@ async def move_candidate(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # ── P1-PIPE-01: resource scope ── a caller may only touch the pipeline of
+    # a job they belong to (owner/DL/TAC/collaborator) or oversee (admin/HoR).
+    # Runs before any target/capability work so a non-member learns nothing
+    # about the requested move.
+    await ensure_job_membership(db, current_user, job.id)
+
     stage_def = await _resolve_stage_def(
         db, job, stage_def_id=data.stage_def_id, legacy_stage=data.stage
     )
@@ -364,6 +383,16 @@ async def move_candidate(
             ),
         )
 
+    # Use the same first lock as the signed-contract automation. Besides
+    # serializing two pipeline moves, this prevents the inverse
+    # CandidateStage-FK → Candidate-FOR-UPDATE lock order that could deadlock
+    # with a concurrent signature confirmation.
+    locked_candidate_id = await db.scalar(
+        select(Candidate.id).where(Candidate.id == data.candidate_id).with_for_update()
+    )
+    if locked_candidate_id is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
     # Current row pary — kanoniczny tiebreaker (moved_at DESC, id DESC).
     # Reużywany niżej: pending-block, cancel maili przy restore, notyfikacje.
     previous_stage_row = await db.scalar(
@@ -398,6 +427,23 @@ async def move_candidate(
             legacy_enum = PipelineStage(stage_def.legacy_enum_value)
         except ValueError:
             legacy_enum = data.stage or PipelineStage.new
+    elif stage_def and stage_def.is_terminal and legacy_enum == PipelineStage.new:
+        # M4-P0.2: a CUSTOM terminal stage carries no legacy_enum_value (the
+        # StageDef schema has no such field and clone_template doesn't copy it),
+        # so it would fall through as `new` — a custom "Zatrudniony" would never
+        # trigger the auto-draft Contract (line ~700 keys on `hired`) and a
+        # custom "Odrzucony" would never fire the rejection mail. Derive the
+        # hire/reject/withdraw signal from terminal_type so those side effects
+        # fire. list_stages also can't return `hired` for custom stages, so the
+        # FE can't supply it either — this is the only place it can be inferred.
+        _terminal_to_legacy = {
+            TerminalType.hired: PipelineStage.hired,
+            TerminalType.rejected: PipelineStage.rejected,
+            TerminalType.withdrawn: PipelineStage.withdrawn,
+        }
+        mapped = _terminal_to_legacy.get(stage_def.terminal_type)
+        if mapped is not None:
+            legacy_enum = mapped
 
     # ── M4 PR-01: capability guard na ruchy terminalne i rate-bearing ──────
     # Terminal (po stage_def LUB legacy enum): sourcer nie zamyka rekrutacji
@@ -417,6 +463,19 @@ async def move_candidate(
                 "recruiter/tac/delivery_lead/admin."
             ),
         )
+    # A concurrent confirm or pipeline move may have completed while this
+    # request waited for the candidate lock. Treat an identical hired move as
+    # an idempotent replay instead of appending a second terminal stage.
+    if (
+        legacy_enum == PipelineStage.hired
+        and previous_stage_row is not None
+        and previous_stage_row.stage == PipelineStage.hired
+    ):
+        resp = _stage_response(previous_stage_row)
+        resp["scheduled_rejection_email_id"] = None
+        await db.commit()
+        return CandidateStageResponse(**resp)
+
     if legacy_enum == PipelineStage.verified and not user_can_edit_rates(current_user):
         raise HTTPException(
             status_code=403,
@@ -424,6 +483,29 @@ async def move_candidate(
                 "Ruch na etap 'Zweryfikowany' ustawia stawkę kandydata i wymaga "
                 "roli recruiter/tac/delivery_lead/admin."
             ),
+        )
+
+    # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
+    # enforce (global blacklist / active client blacklist·NDA·competitor) →
+    # 409 with the Polish reason. Skipped for terminal REMOVAL moves so a
+    # blacklisted/conflicted candidate can always be closed OUT (rejected /
+    # withdrawn); a forward or `hired` move of such a candidate is blocked.
+    is_removal_move = legacy_enum in (
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+    ) or bool(
+        stage_def
+        and stage_def.is_terminal
+        and stage_def.terminal_type
+        and stage_def.terminal_type.value in ("rejected", "withdrawn")
+    )
+    if not is_removal_move:
+        await assert_candidate_move_eligible(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            now=datetime.now(timezone.utc),
+            enforce_manager_verdict=puts_candidate_before_client(legacy_enum),
         )
 
     # Terminal-move validation: require rejection_reason_id
@@ -695,69 +777,46 @@ async def move_candidate(
     # Phase 9 A2 + DL portal refactor 2026-05-11:
     # Auto-create a draft Contract + draft ClientOrder when the candidate is
     # hired. DL fills in the rates/dates/PDF afterwards.
-    if legacy_enum == PipelineStage.hired:
-        from datetime import date as _date
-
-        from app.models.client_order import ClientOrder, ClientOrderStatus
-        from app.models.contract import Contract, ContractStatus
-        from app.models.user import User, UserRole
-
-        existing_draft = await db.scalar(
-            select(Contract).where(
-                Contract.candidate_id == data.candidate_id,
-                Contract.client_id == job.client_id,
-                Contract.job_id == job.id,
-                Contract.status == ContractStatus.draft,
-            )
+    if legacy_enum == PipelineStage.hired and job.client_id is not None:
+        employment = await ensure_b2b_employment_draft(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            actor_id=current_user.id,
+            default_start_date=date.today(),
+            ensure_order=True,
+            # The stage was inserted and flushed just above. The idempotent
+            # guard sees it as latest and never appends a duplicate.
+            ensure_hired=True,
+            require_b2b=False,
+            ensure_detail=False,
         )
-        if existing_draft is None and job.client_id:
-            draft = Contract(
-                candidate_id=data.candidate_id,
-                client_id=job.client_id,
-                job_id=job.id,
-                start_date=_date.today(),
-                status=ContractStatus.draft,
-            )
-            db.add(draft)
-            await db.flush()
-
-            # Order draft pod Contractem — DL uzupełni PDF + stawkę klienta
-            # + dokładne daty. status=draft + auto-link do Job.
-            cand = await db.scalar(
-                select(Candidate).where(Candidate.id == data.candidate_id)
-            )
-            cand_name = cand.name if cand else f"#{data.candidate_id}"
-            order_draft = ClientOrder(
-                client_id=job.client_id,
-                contract_id=draft.id,
-                job_id=job.id,
-                title=(
-                    f"{cand_name} — {job.title}" if cand else f"Zamówienie #{job.id}"
-                ),
-                status=ClientOrderStatus.draft,
-                start_date=_date.today(),
-                created_by_user_id=current_user.id,
-                notes=(
-                    "Auto-utworzone z pipeline (kandydat na stage 'hired'). "
-                    "Uzupełnij stawkę klienta, daty, i wgraj PDF zamówienia."
-                ),
-            )
-            db.add(order_draft)
-            await db.flush()
-
+        if employment.created_contract or employment.created_order:
             db.add(
                 Activity(
                     entity_type="contract",
-                    entity_id=draft.id,
-                    action="auto_drafted_from_pipeline",
+                    entity_id=employment.contract.id,
+                    action=(
+                        "auto_drafted_from_pipeline"
+                        if employment.created_contract
+                        else "order_auto_drafted_from_pipeline"
+                    ),
                     user_id=current_user.id,
                     details={
                         "candidate_id": data.candidate_id,
                         "job_id": job.id,
                         "stage": legacy_enum.value,
-                        "order_id": order_draft.id,
+                        "order_id": (employment.order.id if employment.order else None),
                     },
                 )
+            )
+            cand = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
+            cand_name = (
+                f"{cand.name} {cand.lastname}".strip()
+                if cand
+                else f"#{data.candidate_id}"
             )
             staff_ids_res = await db.execute(
                 select(User.id).where(
@@ -771,7 +830,10 @@ async def move_candidate(
                 db.add(
                     Notification(
                         user_id=uid,
-                        title=f"Nowy draft kontraktu + zamówienia #{draft.id}",
+                        title=(
+                            "Nowy draft kontraktu + zamówienia "
+                            f"#{employment.contract.id}"
+                        ),
                         message=(
                             f"Kandydat {cand_name} został zatrudniony na "
                             f"ofertę '{job.title}' (#{job.id}). Uzupełnij stawki, "
@@ -780,7 +842,7 @@ async def move_candidate(
                         link=f"/clients/{job.client_id}?tab=zamowienia",
                         notification_type=NotificationType.contract_activated,
                         related_entity_type="contract",
-                        related_entity_id=draft.id,
+                        related_entity_id=employment.contract.id,
                     )
                 )
 
@@ -893,7 +955,7 @@ async def move_candidate(
 @router.get("/kanban/{job_id}", response_model=KanbanView)
 async def get_kanban(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -905,6 +967,9 @@ async def get_kanban(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # P1-PIPE-01: reading a job's board is a pipeline ingress — members only.
+    await ensure_job_membership(db, current_user, job.id)
 
     # All CandidateStage rows for this job, newest→oldest per candidate.
     # Secondary id.desc() makes the per-candidate "first" (latest) and "last"
@@ -953,6 +1018,14 @@ async def get_kanban(
         for uid, uname in urows.all():
             user_name_by_id[uid] = uname
 
+    # Standing rejections by this job's hiring manager, one batched query for
+    # the whole board (none at all when the job has no manager set). Lets the
+    # recruiter see the block before dragging a card into it, instead of
+    # discovering it as a 409 halfway through the move.
+    manager_verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=candidate_ids
+    )
+
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
         first = earliest.get(e.candidate_id)
@@ -962,13 +1035,25 @@ async def get_kanban(
             else None
         )
         added_at = first.moved_at if first is not None else None
-        return _stage_response(
+        payload = _stage_response(
             e,
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
             added_to_job_at=added_at,
         )
+        verdict = manager_verdicts.get(e.candidate_id)
+        if verdict is not None:
+            payload["hm_veto"] = HiringManagerVetoBrief(
+                hiring_manager_contact_id=verdict.hiring_manager_contact_id,
+                hiring_manager_name=verdict.hiring_manager_name,
+                source_job_id=verdict.source_job_id,
+                source_job_title=verdict.source_job_title,
+                rejected_at=verdict.rejected_at,
+                rejection_reason_name=verdict.rejection_reason_name,
+                rejection_note=verdict.rejection_note,
+            )
+        return payload
 
     # Resolve target template
     template_id = job.pipeline_template_id or await _default_template_id(db)
@@ -1064,6 +1149,9 @@ async def get_stage_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Full stage history for a candidate in a specific job."""
+    # P1-PIPE-01: stage history is a per-job pipeline read — members only
+    # (same scope as the kanban board).
+    await ensure_job_membership(db, current_user, job_id)
     result = await db.execute(
         select(CandidateStage)
         .where(
@@ -1163,6 +1251,7 @@ async def create_share_token(
     expires_in_days: int = Query(30, ge=1, le=365),
 ):
     """Generate a shareable token for this CandidateStage's Champion card."""
+    import hashlib
     import secrets
     from datetime import timedelta
 
@@ -1172,10 +1261,24 @@ async def create_share_token(
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
 
-    token = secrets.token_urlsafe(36)
+    # Same outbound gate as the CV share link — this card goes to the client too.
+    verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
+    if verdict is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{verdict.as_polish_detail()} Nie wysyłaj mu go ponownie.",
+        )
+
+    # v2: the secret lives only in the URL and as a SHA-256 digest in the DB.
+    # The PK holds a non-secret revoke key, so a DB leak yields no working link.
+    raw_token = secrets.token_urlsafe(36)
+    revoke_key = f"v2${secrets.token_hex(16)}"
+    token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    token = raw_token  # goes into the share URL
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
     row = ChampionCardShareToken(
-        token=token,
+        token=revoke_key,
+        token_sha256=token_digest,
         candidate_stage_id=stage_id,
         created_by=current_user.id,
         expires_at=expires_at,
@@ -1205,10 +1308,22 @@ async def revoke_share_token(
     db: AsyncSession = Depends(get_db),
 ):
     """Revoke (soft-delete) a previously issued share token."""
+    import hashlib
+
     from app.models.champion_share import ChampionCardShareToken
 
+    # The caller holds the raw secret from the share URL, not the v2 PK
+    # (revoke_key), so match the same dual-read way the public lookup does —
+    # otherwise v2 tokens would be unrevocable.
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row = await db.scalar(
-        select(ChampionCardShareToken).where(ChampionCardShareToken.token == token)
+        select(ChampionCardShareToken).where(
+            (ChampionCardShareToken.token_sha256 == digest)
+            | (
+                (ChampionCardShareToken.token == token)
+                & (ChampionCardShareToken.token_sha256.is_(None))
+            )
+        )
     )
     if not row:
         raise HTTPException(status_code=404, detail="Token not found")
@@ -1219,44 +1334,52 @@ async def revoke_share_token(
 
 @router.get("/overview")
 async def pipeline_overview(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Manager dashboard: bird's eye view across ALL jobs.
     Returns per-job stage counts + bottleneck alerts + workload per recruiter.
+
+    F-07: gated to OperationalUser (excludes the read-only ``user`` viewer).
+    The overview aggregates pipeline data across every job — recruiter workload,
+    per-job candidate counts — which is operational intelligence, not a public
+    dashboard. The bare ``CurrentUser`` let a QC/client viewer read it all.
     """
 
-    # Get latest stage per candidate per job
-    result = await db.execute(
-        select(CandidateStage).order_by(
-            CandidateStage.candidate_id,
-            CandidateStage.job_id,
-            CandidateStage.moved_at.desc(),
+    # Optymalizacja 2026-07-27: dawniej `select(CandidateStage)` bez WHERE i bez
+    # LIMIT (pełna hydratacja ~158k obiektów ORM z JSONB `scorecard_answers` /
+    # `screening_answers` + Text `notes`) i dedupe pętlą w Pythonie, bez cache.
+    # Teraz agregaty liczy Postgres na widoku `analytics_current_pipeline`
+    # (DISTINCT ON per para, indeks `ix_analytics_cs_cand_job_moved`) — wzorzec
+    # z `api/dashboard.py::pipeline_funnel`. Kształt odpowiedzi bez zmian.
+    BOTTLENECK_THRESHOLD = 3  # More than 3 candidates in prep_call/screening → alert
+    AGING_THRESHOLD_DAYS = 5  # Candidate stuck > 5 days → aging alert
+
+    # ── Per-job breakdown (GROUP BY job_id, stage) ──
+    # `first_candidate` = MIN(candidate_id): odtwarza kolejność pierwszego
+    # wystąpienia joba przy dawnym skanie posortowanym po (candidate_id, job_id).
+    per_job_rows = (
+        await db.execute(
+            text(
+                "SELECT job_id, stage::text AS stage, COUNT(*)::int AS cnt, "
+                "MIN(candidate_id) AS first_candidate "
+                "FROM analytics_current_pipeline GROUP BY job_id, stage"
+            )
         )
-    )
-    all_entries = result.scalars().all()
+    ).all()
 
-    # Deduplicate: latest stage per (candidate, job) pair
-    seen_keys: set[tuple[int, int]] = set()
-    latest: list[CandidateStage] = []
-    for entry in all_entries:
-        key = (entry.candidate_id, entry.job_id)
-        if key not in seen_keys:
-            seen_keys.add(key)
-            latest.append(entry)
-
-    # ── Per-job breakdown ──
     jobs_data: dict[int, dict] = {}
-    for entry in latest:
-        jid = entry.job_id
-        if jid not in jobs_data:
-            jobs_data[jid] = {"stages": {}, "total": 0}
-        stage_val = entry.stage.value
-        jobs_data[jid]["stages"][stage_val] = (
-            jobs_data[jid]["stages"].get(stage_val, 0) + 1
-        )
-        jobs_data[jid]["total"] += 1
+    job_first_seen: dict[int, int] = {}
+    for row in per_job_rows:
+        jid = row.job_id
+        bucket = jobs_data.setdefault(jid, {"stages": {}, "total": 0})
+        bucket["stages"][row.stage] = bucket["stages"].get(row.stage, 0) + row.cnt
+        bucket["total"] += row.cnt
+        prev = job_first_seen.get(jid)
+        if prev is None or row.first_candidate < prev:
+            job_first_seen[jid] = row.first_candidate
+    ordered_job_ids = sorted(jobs_data, key=lambda j: (job_first_seen[j], j))
 
     # Fetch job titles
     job_ids = list(jobs_data.keys())
@@ -1269,29 +1392,44 @@ async def pipeline_overview(
             job_recruiters[job.id] = job.recruiter_id
 
     # ── Bottleneck detection ──
-    BOTTLENECK_THRESHOLD = 3  # More than 3 candidates in prep_call/screening → alert
-    AGING_THRESHOLD_DAYS = 5  # Candidate stuck > 5 days → aging alert
     bottlenecks = []
-    aging_alerts = []
 
-    for entry in latest:
-        days = _days_in_stage(entry.moved_at)
-        if days > AGING_THRESHOLD_DAYS and entry.stage not in (
-            PipelineStage.hired,
-            PipelineStage.rejected,
-            PipelineStage.withdrawn,
-        ):
-            aging_alerts.append(
-                {
-                    "candidate_id": entry.candidate_id,
-                    "job_id": entry.job_id,
-                    "stage": entry.stage.value,
-                    "days": days,
-                    "job_title": job_titles.get(entry.job_id, "?"),
-                }
-            )
+    # ── Aging alerts (top 20 wg dni w etapie) ──
+    # `days` liczone w SQL identycznie jak `_days_in_stage`: floor po dniach,
+    # ucięte do 0. Sortowanie `days DESC, candidate_id, job_id` odtwarza stabilny
+    # `sort(key=-days)` na liście, która była już posortowana po parze.
+    aging_rows = (
+        await db.execute(
+            text(
+                "WITH cur AS ("
+                "  SELECT candidate_id, job_id, stage::text AS stage,"
+                "         GREATEST(0, FLOOR("
+                "             EXTRACT(EPOCH FROM (now() - moved_at)) / 86400"
+                "         ))::int AS days"
+                "  FROM analytics_current_pipeline"
+                ") "
+                "SELECT candidate_id, job_id, stage, days FROM cur "
+                "WHERE stage NOT IN ('hired', 'rejected', 'withdrawn') "
+                "  AND days > :aging_threshold "
+                "ORDER BY days DESC, candidate_id, job_id "
+                "LIMIT 20"
+            ),
+            {"aging_threshold": AGING_THRESHOLD_DAYS},
+        )
+    ).all()
+    aging_alerts = [
+        {
+            "candidate_id": row.candidate_id,
+            "job_id": row.job_id,
+            "stage": row.stage,
+            "days": row.days,
+            "job_title": job_titles.get(row.job_id, "?"),
+        }
+        for row in aging_rows
+    ]
 
-    for jid, data in jobs_data.items():
+    for jid in ordered_job_ids:
+        data = jobs_data[jid]
         for stage_key in ["prep_call", "screening", "cv_sent"]:
             count = data["stages"].get(stage_key, 0)
             if count >= BOTTLENECK_THRESHOLD:
@@ -1308,17 +1446,24 @@ async def pipeline_overview(
     # ── Workload per recruiter (by moved_by of latest entries) ──
     from app.models.user import User
 
-    recruiter_load: dict[int, int] = {}
-    for entry in latest:
-        if entry.stage not in (
-            PipelineStage.hired,
-            PipelineStage.rejected,
-            PipelineStage.withdrawn,
-        ):
-            rid = entry.moved_by or 0
-            recruiter_load[rid] = recruiter_load.get(rid, 0) + 1
+    # `moved_by IS NULL` → bucket 0 ("Nieprzypisany"), jak w dawnej pętli.
+    # Tie-break przy równym `cnt`: pierwsze wystąpienie rekrutera w skanie
+    # posortowanym po (candidate_id, job_id) — stąd MIN(candidate_id), MIN(job_id).
+    workload_rows = (
+        await db.execute(
+            text(
+                "SELECT COALESCE(moved_by, 0) AS rid, COUNT(*)::int AS cnt, "
+                "       MIN(candidate_id) AS first_candidate, "
+                "       MIN(job_id) AS first_job "
+                "FROM analytics_current_pipeline "
+                "WHERE stage::text NOT IN ('hired', 'rejected', 'withdrawn') "
+                "GROUP BY COALESCE(moved_by, 0) "
+                "ORDER BY cnt DESC, first_candidate, first_job"
+            )
+        )
+    ).all()
 
-    recruiter_ids = [r for r in recruiter_load if r > 0]
+    recruiter_ids = [row.rid for row in workload_rows if row.rid > 0]
     recruiter_names: dict[int, str] = {}
     if recruiter_ids:
         users_result = await db.execute(select(User).where(User.id.in_(recruiter_ids)))
@@ -1327,16 +1472,17 @@ async def pipeline_overview(
 
     workload = [
         {
-            "recruiter_id": rid,
-            "name": recruiter_names.get(rid, "Nieprzypisany"),
-            "active_candidates": count,
+            "recruiter_id": row.rid,
+            "name": recruiter_names.get(row.rid, "Nieprzypisany"),
+            "active_candidates": row.cnt,
         }
-        for rid, count in sorted(recruiter_load.items(), key=lambda x: -x[1])
+        for row in workload_rows
     ]
 
     # ── Opportunity alerts (acceptance/negotiation → help close!) ──
     opportunities = []
-    for jid, data in jobs_data.items():
+    for jid in ordered_job_ids:
+        data = jobs_data[jid]
         acceptance_count = data["stages"].get("acceptance", 0) + data["stages"].get(
             "negotiation", 0
         )
@@ -1350,22 +1496,19 @@ async def pipeline_overview(
                 }
             )
 
-    # Sort aging by days desc
-    aging_alerts.sort(key=lambda x: -x["days"])
-
     return {
         "jobs": [
             {
                 "job_id": jid,
                 "title": job_titles.get(jid, "?"),
                 "recruiter_id": job_recruiters.get(jid),
-                "stages": data["stages"],
-                "total": data["total"],
+                "stages": jobs_data[jid]["stages"],
+                "total": jobs_data[jid]["total"],
             }
-            for jid, data in jobs_data.items()
+            for jid in ordered_job_ids
         ],
         "bottlenecks": bottlenecks,
-        "aging_alerts": aging_alerts[:20],  # Top 20
+        "aging_alerts": aging_alerts,  # Top 20 (LIMIT w SQL)
         "opportunities": opportunities,
         "workload": workload,
         "stage_labels": {s.value: STAGE_LABELS[s] for s in PipelineStage},
@@ -1774,6 +1917,12 @@ async def bulk_move_candidates(
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # P1-PIPE-01: bulk pipeline write — members only (same gate as /move).
+    # Runs after the pure-input terminal/gate 422s above (which reveal nothing
+    # job-specific) and before any candidate lookup.
+    await ensure_job_membership(db, current_user, job.id)
+
     existing_ids = set(
         (await db.execute(select(Candidate.id).where(Candidate.id.in_(unique_ids))))
         .scalars()
@@ -1785,6 +1934,19 @@ async def bulk_move_candidates(
             status_code=422,
             detail=f"Nieistniejący kandydaci: {missing[:20]}",
         )
+
+    # P1-PIPE-01: eligibility gate ── bulk-move only ever targets non-terminal
+    # stages (terminal/verified/hired 422 above), so every candidate is a
+    # forward move and the hard block applies to all. Fail-closed: any
+    # blacklisted / client-conflicted candidate rejects the batch (409),
+    # identical to the single /move contract.
+    await assert_candidates_move_eligible(
+        db,
+        candidate_ids=unique_ids,
+        job=job,
+        now=datetime.now(timezone.utc),
+        enforce_manager_verdict=puts_candidate_before_client(data.stage),
+    )
 
     moved = 0
     for cid in unique_ids:

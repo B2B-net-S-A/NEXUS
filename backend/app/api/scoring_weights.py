@@ -14,12 +14,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
+from app.services.match_score_cache import mark_stale_for_profile
 
 router = APIRouter()
 
@@ -116,7 +118,17 @@ async def create_profile(
         active=payload.active,
     )
     db.add(row)
-    await db.commit()
+    # The name check above is racy: two concurrent creates both pass it, then
+    # the UNIQUE constraint (uq_scoring_weight_profiles_name) rejects the second
+    # at commit. Catch it so the loser gets the same 409 as the read path,
+    # never a 500.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="profile name already exists"
+        ) from None
     await db.refresh(row)
     return row
 
@@ -138,6 +150,9 @@ async def update_profile(
     row.client_id = payload.client_id
     row.weights = payload.weights.model_dump()
     row.active = payload.active
+    # Editing weights in place would otherwise keep serving old-weight cached
+    # scores for this profile_id (AI-P0-06 a) — invalidate them in the same txn.
+    await mark_stale_for_profile(db, profile_id)
     await db.commit()
     await db.refresh(row)
     return row
@@ -154,5 +169,8 @@ async def delete_profile(
     )
     if not row:
         raise HTTPException(status_code=404, detail="not found")
+    # Drop any cached scores computed under this profile before it disappears
+    # (AI-P0-06 a) — otherwise they linger as dead, un-recomputable rows.
+    await mark_stale_for_profile(db, profile_id)
     await db.delete(row)
     await db.commit()

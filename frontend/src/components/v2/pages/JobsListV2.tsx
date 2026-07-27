@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from"react";
 import Link from"next/link";
 import { useRouter } from"next/navigation";
-import { useQuery, useQueryClient } from"@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  Briefcase,
  Building2,
@@ -20,9 +20,12 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatRelativeTime } from"@/lib/utils";
+import { useDebouncedValue } from"@/lib/use-debounced-value";
+import { resolveViewState } from"@/lib/view-state";
+import { useCapabilities } from"@/hooks/useCapability";
+import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { AddJobModal } from"@/components/AppShell";
 import { GenerateInviteLinkV2 } from"@/components/v2/modals/GenerateInviteLinkV2";
-import { RequireRole } from"@/components/RequireRole";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -184,7 +187,8 @@ function JobsTable({
 }: {
  items: any[];
  onOpen: (id: number) => void;
- onInvite: (id: number) => void;
+ /** `undefined` = brak capability `invite_link.create` — nie renderujemy akcji. */
+ onInvite?: (id: number) => void;
 }) {
  return (
  <Table>
@@ -286,7 +290,7 @@ function JobsTable({
  {job.created_at ? formatRelativeTime(job.created_at) :"—"}
  </TableCell>
  <TableCell>
- {job.status === "published" && (
+ {job.status === "published" && onInvite && (
  <button
  type="button"
  onClick={(e) => {
@@ -330,11 +334,21 @@ export function JobsListV2() {
  const jobsView = useUiStore((s) => s.jobsView);
  const setJobsView = useUiStore((s) => s.setJobsView);
 
+ // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
+ // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
+ const debouncedSearch = useDebouncedValue(search, 300);
+
  const dl = deadlineParams(deadlinePreset);
 
- const { data, isLoading } = useQuery({
+ // Jeden rejestr capability dla nagłówka, pustego stanu i akcji w wierszach
+ // (audyt F-19) — wcześniej gate'owany był tylko przycisk w nagłówku.
+ const can = useCapabilities();
+ const canCreateJob = can["job.create"];
+ const canInvite = can["invite_link.create"];
+
+ const { data, isLoading, isError, error, refetch } = useQuery({
  queryKey: ["jobs-v2",
- search,
+ debouncedSearch,
  statusFilter,
  typeFilter,
  mine ? 1 : 0,
@@ -352,7 +366,7 @@ export function JobsListV2() {
  api
  .get("/api/jobs", {
  params: {
- q: search || undefined,
+ q: debouncedSearch || undefined,
  status: statusFilter.length ? statusFilter : undefined,
  recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
  mine: mine ? true : undefined,
@@ -369,12 +383,27 @@ export function JobsListV2() {
  paramsSerializer: { indexes: null },
  })
  .then((r) => r.data),
+ // Poprzednia strona wyników zostaje na ekranie do czasu przyjścia nowej —
+ // bez tego lista migocze pustym stanem ładowania przy każdej zmianie filtra.
+ placeholderData: keepPreviousData,
  });
 
  const items = data?.items ?? [];
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+ // 403/404/5xx NIE mogą renderować się jako „Brak ofert" (audyt F-20).
+ const viewState = resolveViewState({
+ isLoading,
+ isError,
+ error,
+ isEmpty: items.length === 0,
+ });
+ const failed =
+ viewState === "forbidden" ||
+ viewState === "not_found" ||
+ viewState === "error";
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4">
@@ -387,8 +416,12 @@ export function JobsListV2() {
  <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
  Oferty pracy
  </h1>
- <p className="text-sm text-muted-foreground mt-1">
- {isLoading ?"Ładowanie…" : `${total} ofert`}
+ <p className="text-sm text-muted-foreground mt-1" aria-live="polite">
+ {isLoading
+ ?"Ładowanie…"
+ : failed
+ ?"Nie udało się pobrać listy"
+ : `${total} ofert`}
  </p>
  </div>
  <div className="flex items-center gap-2">
@@ -425,11 +458,12 @@ export function JobsListV2() {
  <List className="h-4 w-4" />
  </button>
  </div>
- <RequireRole roles={["admin","delivery_lead","tac"]}>
+ {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
+ {canCreateJob && (
  <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
  <Plus className="h-4 w-4" /> Nowa oferta
  </Button>
- </RequireRole>
+ )}
  </div>
  </div>
 
@@ -606,11 +640,23 @@ export function JobsListV2() {
  ))}
  </div>
  )
- ) : items.length === 0 ? (
+ ) : failed ? (
+ <QueryStateNotice
+ state={viewState as "forbidden" | "not_found" | "error"}
+ description={
+ viewState === "forbidden"
+ ?"Twoja rola nie ma dostępu do listy ofert. Lista NIE jest pusta — poproś administratora o uprawnienia."
+ : undefined
+ }
+ onRetry={() => void refetch()}
+ />
+ ) : viewState === "empty" ? (
  <div className="py-12 text-center">
  <Briefcase className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
- Brak ofert.{""}
+ Brak ofert.{" "}
+ {canCreateJob && (
+ <>
  <button
  onClick={() => setShowAdd(true)}
  className="text-primary hover:underline"
@@ -618,13 +664,15 @@ export function JobsListV2() {
  Utwórz pierwszą
  </button>
  .
+ </>
+ )}
  </p>
  </div>
  ) : jobsView === "list" ? (
  <JobsTable
  items={items}
  onOpen={(id) => router.push(`/jobs/${id}`)}
- onInvite={(id) => setInviteModalForJob(id)}
+ onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
  />
  ) : (
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -664,7 +712,7 @@ export function JobsListV2() {
  </div>
  </div>
  <div className="flex items-center gap-1 shrink-0">
- {job.status === "published" && (
+ {job.status === "published" && canInvite && (
  <button
  type="button"
  onClick={(e) => {
@@ -770,7 +818,7 @@ export function JobsListV2() {
  </div>
  )}
 
- {!isLoading && total > pageSize && (
+ {viewState === "ready" && total > pageSize && (
  <div className="flex items-center justify-between text-sm">
  <span className="text-muted-foreground">
  Strona <strong className="text-foreground">{page}</strong> z {totalPages}

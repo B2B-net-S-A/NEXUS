@@ -332,10 +332,16 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                         progress = await factory()
                         pd = progress.as_dict()
                         results[name] = _summarize(pd)
+                        # Advance the per-phase watermark only on a fully clean
+                        # phase. Row-level errors (progress.errors > 0) mean some
+                        # records did not import, so we keep the prior watermark
+                        # (last_synced_at=None → UPSERT COALESCE preserves it) to
+                        # stay honest — mirrors the global delta gate below
+                        # (M2-IMP-01).
                         await _upsert_state(
                             db,
                             name,
-                            last_synced_at=run_start,
+                            last_synced_at=None if progress.errors else run_start,
                             last_run_started_at=progress.started_at,
                             last_run_finished_at=progress.finished_at,
                             last_status="errors" if progress.errors else "ok",
@@ -365,13 +371,28 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                 )
                 status = "errors" if any_error else "ok"
 
-                # Advance markers. A full run also advances the daily watermark
-                # (it covers everything) so the next delta computes its cutoff
-                # from here and the daily gate resets.
+                # Advance the delta watermark (``last_synced_at``) ONLY on a
+                # clean run. If any phase raised or reported row-level errors we
+                # keep the previous watermark so the NEXT delta re-covers the
+                # failed range — otherwise a record that failed to import ages
+                # out of the ~48h overlap window and is silently lost forever,
+                # drifting Nexus away from Traffit (M2-IMP-01). Passing
+                # ``last_synced_at=None`` lets the UPSERT's COALESCE preserve the
+                # prior value; idempotent upserts + the lookback overlap make the
+                # re-cover safe.
+                #
+                # ``last_run_finished_at`` / ``last_status`` advance regardless,
+                # so the daily gate resets to the normal schedule (no hot-retry
+                # loop) and /api/health surfaces the failure as ``degraded``.
+                watermark = run_start if not any_error else None
+
+                # A full run also advances the daily watermark (it covers
+                # everything) so the next delta computes its cutoff from here and
+                # the daily gate resets.
                 await _upsert_state(
                     db,
                     FULL_MARKER if mode == "full" else DAILY_MARKER,
-                    last_synced_at=run_start,
+                    last_synced_at=watermark,
                     last_run_started_at=run_start,
                     last_run_finished_at=finished,
                     last_status=status,
@@ -381,7 +402,7 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                     await _upsert_state(
                         db,
                         DAILY_MARKER,
-                        last_synced_at=run_start,
+                        last_synced_at=watermark,
                         last_run_finished_at=finished,
                         last_status=status,
                         stats={"via": "full_reconcile"},

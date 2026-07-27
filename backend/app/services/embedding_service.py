@@ -23,6 +23,19 @@ VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings"
 JOBS_COLLECTION = "nexus_jobs"
 
 
+class SemanticSearchUnavailable(RuntimeError):
+    """The semantic retrieval provider (Voyage embed or Qdrant) FAILED.
+
+    Distinct from an empty-but-healthy result: it signals an *outage* (query
+    embedding could not be produced, or the Qdrant call raised), so callers can
+    surface a degraded state instead of silently rendering "no candidates".
+
+    Only raised when a caller opts in with ``raise_on_error=True``; the default
+    contract of the semantic helpers stays "return ``[]`` on failure" so the
+    other call sites (e.g. the ``/semantic`` ILIKE fallback) are unaffected.
+    """
+
+
 def _voyage_model() -> str:
     """Read Voyage embedding model from settings (default voyage-3-large)."""
     return getattr(settings, "VOYAGE_MODEL", None) or "voyage-3-large"
@@ -447,6 +460,8 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
 async def search_candidates_semantic(
     query: str,
     top_k: int = 20,
+    *,
+    raise_on_error: bool = False,
 ) -> list[dict]:
     """
     Embed *query* and search the Qdrant collection for the closest candidates.
@@ -455,6 +470,12 @@ async def search_candidates_semantic(
     Each call (including its embedding step) is recorded in the AI health
     tracker so ``meta.ai_status`` on candidate-search responses can flip the
     "manual search" banner when Voyage/Qdrant is degraded or down.
+
+    When ``raise_on_error`` is True, a provider *failure* (no query embedding or
+    a raised Qdrant call) raises :class:`SemanticSearchUnavailable` instead of
+    returning ``[]`` — letting callers distinguish an outage from a genuinely
+    empty result. A healthy search that simply matches nothing still returns
+    ``[]``. The default (False) keeps the swallow-to-``[]`` contract.
     """
     from app.services.ai_health import AiCallTimer
 
@@ -465,6 +486,8 @@ async def search_candidates_semantic(
             logger.warning(
                 "[Search] Could not generate query embedding — returning empty results."
             )
+            if raise_on_error:
+                raise SemanticSearchUnavailable("query embedding unavailable")
             return []
 
         def _search():
@@ -491,6 +514,8 @@ async def search_candidates_semantic(
         except Exception as e:
             timer.failed = True
             logger.error(f"[Search] Qdrant search error: {e}")
+            if raise_on_error:
+                raise SemanticSearchUnavailable("qdrant search failed") from e
             return []
 
 
@@ -713,7 +738,9 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
         return False
 
 
-async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
+async def search_jobs_semantic(
+    query: str, top_k: int = 20, *, raise_on_error: bool = False
+) -> list[dict]:
     """Embed *query* and return top-k closest job ids from nexus_jobs.
 
     The *query* text (candidate profile, CV extract or free-text search) is the
@@ -723,9 +750,15 @@ async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
     document (the old default) degraded reverse-match retrieval quality on
     every candidate/CV → jobs surface (recommendations, marketplace, CV
     preview, hybrid search).
+
+    ``raise_on_error`` mirrors :func:`search_candidates_semantic`: a provider
+    failure raises :class:`SemanticSearchUnavailable` instead of returning
+    ``[]``, so hybrid retrieval can flag an outage rather than "no jobs".
     """
     embedding = await generate_embedding(query, input_type="query")
     if embedding is None:
+        if raise_on_error:
+            raise SemanticSearchUnavailable("query embedding unavailable")
         return []
 
     def _search():
@@ -751,6 +784,8 @@ async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
         return await asyncio.to_thread(_search)
     except Exception as e:
         logger.error(f"[Search] Qdrant jobs search error: {e}")
+        if raise_on_error:
+            raise SemanticSearchUnavailable("qdrant jobs search failed") from e
         return []
 
 

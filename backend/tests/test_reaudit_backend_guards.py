@@ -1,0 +1,350 @@
+"""Re-audit backend guards — F-03 / F-07 / F-13 (2026-07-22).
+
+Covers three confirmed re-audit findings (F-01 is a shell/boot change with no
+in-process surface):
+
+- **F-03** — ``resolve_application_submission`` locks the submission row
+  (``SELECT ... FOR UPDATE``) before mutating its status, so two concurrent
+  resolves cannot both pass the ``pending_review`` check and double-process.
+- **F-07** — ``GET /api/pipeline/overview`` is gated to ``OperationalUser``:
+  the read-only ``user`` viewer gets 403; operational roles get 200.
+- **F-13** — the ``client_orders`` GET endpoints redact rate/margin fields for
+  callers without ``VIEW_FINANCE`` (admin + delivery_lead), and
+  ``list_contracts`` ignores rate/margin FILTERS for non-finance callers so the
+  filter cannot be used as an oracle to binary-search a hidden rate.
+
+Pattern mirrors ``test_contract_finance_redaction.py`` and
+``test_candidate_module_access.py``: run in-process via ``app_client``; for a
+denied role assert exactly 403, for an allowed role assert *not* 403.
+"""
+
+from __future__ import annotations
+
+import inspect
+import uuid
+from datetime import date, timedelta
+from decimal import Decimal
+
+from httpx import AsyncClient
+
+_TODAY = date.today()
+
+
+# ── Shared helpers ───────────────────────────────────────────────────────────
+
+
+async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, str]:
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    email = f"guard-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
+    password = f"P4ss_{uuid.uuid4().hex[:6]}!"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name=f"Guard {role_value}",
+                role=UserRole(role_value),
+                is_active=True,
+            )
+        )
+        await db.commit()
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+# ── F-03: resolve submission locks the row ───────────────────────────────────
+
+
+def test_resolve_submission_selects_for_update() -> None:
+    """The resolve handler must acquire a row lock before the read-check-write.
+
+    Without ``.with_for_update()`` two concurrent resolves both read status
+    ``pending_review``, both pass the guard, and both link/merge/create — the
+    submission is processed twice. A focused source assertion is enough: the
+    lock is on the single SELECT that feeds the status mutation.
+    """
+    from app.api import application_submissions
+
+    src = inspect.getsource(application_submissions.resolve_application_submission)
+    assert ".with_for_update()" in src, (
+        "resolve_application_submission must SELECT ... FOR UPDATE the submission "
+        "row before mutating its status (F-03 row-lock)"
+    )
+
+
+# ── F-07: /pipeline/overview gated to OperationalUser ────────────────────────
+
+_OVERVIEW_ROLES = [
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+    "recruiter",
+    "sourcer",
+    "user",
+]
+_OVERVIEW_OPERATIONAL = {
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+    "recruiter",
+    "sourcer",
+}
+
+
+async def test_pipeline_overview_viewer_forbidden(app_client: AsyncClient) -> None:
+    viewer = await _headers_for(app_client, "user")
+    resp = await app_client.get("/api/pipeline/overview", headers=viewer)
+    assert resp.status_code == 403, (
+        f"viewer must not read /pipeline/overview, got {resp.status_code}"
+    )
+
+
+async def test_pipeline_overview_operational_ok(app_client: AsyncClient) -> None:
+    recruiter = await _headers_for(app_client, "recruiter")
+    resp = await app_client.get("/api/pipeline/overview", headers=recruiter)
+    assert resp.status_code == 200, (
+        f"operational role must read /pipeline/overview, got {resp.status_code}: "
+        f"{resp.text}"
+    )
+    body = resp.json()
+    assert "jobs" in body and "stage_labels" in body
+
+
+async def test_pipeline_overview_role_matrix(app_client: AsyncClient) -> None:
+    for role in _OVERVIEW_ROLES:
+        headers = await _headers_for(app_client, role)
+        resp = await app_client.get("/api/pipeline/overview", headers=headers)
+        if role in _OVERVIEW_OPERATIONAL:
+            assert resp.status_code != 403, (
+                f"[{role}] /pipeline/overview unexpectedly forbidden"
+            )
+        else:
+            assert resp.status_code == 403, (
+                f"[{role}] /pipeline/overview expected 403, got {resp.status_code}"
+            )
+
+
+# ── F-13: client_orders redaction ────────────────────────────────────────────
+
+
+async def _seed_client_order() -> tuple[int, int, int]:
+    """Seed client + candidate + active contract + one order with amounts.
+
+    Returns (client_id, order_id, contract_id).
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus, RateUnit
+
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Ord",
+            lastname=f"C-{uuid.uuid4().hex[:6]}",
+            email=f"ordc-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=f"OrdClient-{uuid.uuid4().hex[:6]}")
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=_TODAY - timedelta(days=10),
+            end_date=_TODAY + timedelta(days=90),
+            rate_candidate=Decimal("100.000"),
+            rate_client=Decimal("150.000"),
+            rate_unit=RateUnit.monthly,
+            currency="PLN",
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+
+        order = ClientOrder(
+            client_id=client.id,
+            contract_id=contract.id,
+            title="PO-guard",
+            status=ClientOrderStatus.active,
+            start_date=_TODAY - timedelta(days=5),
+            end_date=_TODAY + timedelta(days=80),
+            rate_client=Decimal("150.000"),
+            total_value=Decimal("18000.00"),
+            currency="PLN",
+        )
+        db.add(order)
+        await db.commit()
+        await db.refresh(order)
+        return client.id, order.id, contract.id
+
+
+async def test_client_orders_list_redacted_for_non_finance(
+    app_client: AsyncClient,
+) -> None:
+    client_id, _order_id, contract_id = await _seed_client_order()
+    tac = await _headers_for(app_client, "tac")
+
+    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=tac)
+    assert resp.status_code == 200, resp.text
+    contractors = resp.json()["contractors"]
+    row = next((c for c in contractors if c["contract_id"] == contract_id), None)
+    assert row is not None, "seeded contractor missing from list"
+    # Record visible operationally, amounts nulled.
+    assert row["rate_candidate"] is None
+    assert row["latest_order_rate_client"] is None
+    assert row["latest_order_monthly_margin"] is None
+    assert row["orders"], "orders timeline should still be present"
+    order_row = row["orders"][0]
+    assert order_row["rate_client"] is None
+    assert order_row["total_value"] is None
+    assert order_row["monthly_margin"] is None
+
+
+async def test_client_orders_list_shows_finance_to_delivery_lead(
+    app_client: AsyncClient,
+) -> None:
+    client_id, _order_id, contract_id = await _seed_client_order()
+    dl = await _headers_for(app_client, "delivery_lead")
+
+    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=dl)
+    assert resp.status_code == 200, resp.text
+    row = next(
+        (c for c in resp.json()["contractors"] if c["contract_id"] == contract_id),
+        None,
+    )
+    assert row is not None
+    assert row["rate_candidate"] is not None
+    assert row["latest_order_rate_client"] is not None
+    assert row["latest_order_monthly_margin"] is not None
+
+
+async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> None:
+    client_id, order_id, _contract_id = await _seed_client_order()
+    tac = await _headers_for(app_client, "tac")
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/orders/{order_id}", headers=tac
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == order_id  # record visible
+    assert body["rate_client"] is None
+    assert body["total_value"] is None
+    assert body["monthly_margin"] is None
+
+
+async def test_get_order_shows_finance_to_delivery_lead(
+    app_client: AsyncClient,
+) -> None:
+    client_id, order_id, _contract_id = await _seed_client_order()
+    dl = await _headers_for(app_client, "delivery_lead")
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/orders/{order_id}", headers=dl
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["rate_client"] is not None
+    assert body["total_value"] is not None
+    assert body["monthly_margin"] is not None
+
+
+# ── F-13: list_contracts filters ignored for non-finance (no oracle) ─────────
+
+
+async def _seed_contract_for_client() -> tuple[int, int]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Flt",
+            lastname=f"C-{uuid.uuid4().hex[:6]}",
+            email=f"fltc-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=f"FltClient-{uuid.uuid4().hex[:6]}")
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=_TODAY - timedelta(days=10),
+            end_date=_TODAY + timedelta(days=90),
+            rate_candidate=Decimal("100.000"),
+            rate_client=Decimal("150.000"),
+            margin=Decimal("50.000"),
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+        return client.id, contract.id
+
+
+async def test_list_contracts_rate_filter_ignored_for_non_finance(
+    app_client: AsyncClient,
+) -> None:
+    """A rate filter that would exclude the contract must be IGNORED for TAC.
+
+    Otherwise TAC can binary-search the hidden ``rate_client`` by watching which
+    rows survive ``rate_client_min`` — the filter becomes an oracle.
+    """
+    client_id, contract_id = await _seed_contract_for_client()
+    tac = await _headers_for(app_client, "tac")
+
+    # rate_client_min far above the real rate (150): a finance caller would get
+    # zero rows, TAC must still see the contract because the filter is dropped.
+    resp = await app_client.get(
+        f"/api/contracts?client_id={client_id}&rate_client_min=999999",
+        headers=tac,
+    )
+    assert resp.status_code == 200, resp.text
+    ids = {c["id"] for c in resp.json()["items"]}
+    assert contract_id in ids, (
+        "rate_client_min must be ignored for non-finance — the contract is gone, "
+        "which leaks the hidden rate as an oracle"
+    )
+    # And the amounts are redacted in the payload.
+    row = next(c for c in resp.json()["items"] if c["id"] == contract_id)
+    assert row["rate_client"] is None
+    assert row["rate_candidate"] is None
+    assert row["margin"] is None
+
+
+async def test_list_contracts_rate_filter_applies_for_finance(
+    app_client: AsyncClient,
+) -> None:
+    """For delivery_lead (VIEW_FINANCE) the rate filter is honoured."""
+    client_id, contract_id = await _seed_contract_for_client()
+    dl = await _headers_for(app_client, "delivery_lead")
+
+    # Above the real rate → excluded.
+    excluded = await app_client.get(
+        f"/api/contracts?client_id={client_id}&rate_client_min=999999",
+        headers=dl,
+    )
+    assert excluded.status_code == 200, excluded.text
+    assert contract_id not in {c["id"] for c in excluded.json()["items"]}
+
+    # No rate filter → present, with rates visible.
+    present = await app_client.get(f"/api/contracts?client_id={client_id}", headers=dl)
+    assert present.status_code == 200, present.text
+    row = next((c for c in present.json()["items"] if c["id"] == contract_id), None)
+    assert row is not None
+    assert row["rate_client"] is not None

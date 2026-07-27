@@ -69,12 +69,14 @@ class RejectionReasonCreate(BaseModel):
     category: TerminalType
     order: int = 0
     stage_def_id: Optional[int] = None
+    disqualifies_person: bool = False
 
 
 class RejectionReasonUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     order: Optional[int] = None
     active: Optional[bool] = None
+    disqualifies_person: Optional[bool] = None
 
 
 class RejectionReasonResponse(BaseModel):
@@ -85,6 +87,7 @@ class RejectionReasonResponse(BaseModel):
     order: int
     category: TerminalType
     active: bool
+    disqualifies_person: bool
     created_at: datetime
     updated_at: datetime
 

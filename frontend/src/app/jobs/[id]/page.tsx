@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { resolveViewState } from "@/lib/view-state";
+import { useCapability } from "@/hooks/useCapability";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { getAvatarColor } from "@/lib/colors";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -33,6 +36,7 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -981,6 +985,13 @@ export default function JobDetailPage() {
   // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
   const authUser = useAuthStore((s) => s.user);
   const isAdmin = hasRole(authUser, "admin");
+  // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
+  // żeby nie hodować drugiej listy ról obok niego (F-19).
+  const canUpdateJob = useCapability("job.update");
+  // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
+  // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
+  // prosto w 403 (audyt F-19).
+  const canCreateInviteLink = useCapability("invite_link.create");
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
@@ -1057,7 +1068,13 @@ export default function JobDetailPage() {
     };
   }, [searchParams, pathname, router]);
 
-  const { data: job, isLoading: jobLoading } = useQuery({
+  const {
+    data: job,
+    isLoading: jobLoading,
+    isError: jobIsError,
+    error: jobError,
+    refetch: refetchJob,
+  } = useQuery({
     queryKey: ["job", id],
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
   });
@@ -1101,8 +1118,31 @@ export default function JobDetailPage() {
     }
   }, [id, queryClient]);
 
-  if (jobLoading) return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
-  if (!job) return <div className="p-6 text-destructive">Nie znaleziono oferty</div>;
+  // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
+  // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
+  // danych (audyt F-20).
+  const jobViewState = resolveViewState({
+    isLoading: jobLoading,
+    isError: jobIsError,
+    error: jobError,
+    isEmpty: !job,
+  });
+  if (jobViewState === "loading")
+    return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
+  if (jobViewState !== "ready")
+    return (
+      <div className="p-6">
+        <QueryStateNotice
+          state={jobViewState === "empty" ? "not_found" : jobViewState}
+          description={
+            jobViewState === "forbidden"
+              ? "Nie masz uprawnień do tej oferty. Oferta istnieje — poproś o dodanie Cię do jej zespołu albo o rozszerzenie roli."
+              : undefined
+          }
+          onRetry={() => void refetchJob()}
+        />
+      </div>
+    );
 
   return (
     <div className="space-y-2">
@@ -1170,7 +1210,7 @@ export default function JobDetailPage() {
                   <Wand2 className="w-3.5 h-3.5" />
                   AI Ogłoszenie
                 </button>
-                {job.status === "published" && (
+                {job.status === "published" && canCreateInviteLink && (
                   <button
                     onClick={() => setShowInviteLink(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
@@ -1214,23 +1254,14 @@ export default function JobDetailPage() {
               primaryOwner={job.primary_owner ?? null}
               collaborators={job.collaborators ?? []}
             />
-            {job.hiring_manager_name && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Hiring manager (klient):
-                </span>
-                {job.hiring_manager_contact_id && job.client_id ? (
-                  <Link
-                    href={`/clients/${job.client_id}?tab=zespol`}
-                    className="font-medium text-violet-600 hover:underline"
-                  >
-                    {job.hiring_manager_name}
-                  </Link>
-                ) : (
-                  <span className="font-medium">{job.hiring_manager_name}</span>
-                )}
-              </div>
-            )}
+            <HiringManagerPicker
+              jobId={Number(id)}
+              clientId={job.client_id ?? null}
+              value={job.hiring_manager_contact_id ?? null}
+              valueName={job.hiring_manager_name ?? null}
+              canEdit={canUpdateJob}
+              onSaved={() => queryClient.invalidateQueries({ queryKey: ["job", id] })}
+            />
           </div>
         )}
 
@@ -1488,6 +1519,9 @@ export default function JobDetailPage() {
 interface JobLite {
   id: number;
   title: string;
+  description?: string | null;
+  requirements?: string | null;
+  seniority?: string | null;
   must_skills?: unknown;
   nice_skills?: unknown;
   competence_category_id?: number | null;

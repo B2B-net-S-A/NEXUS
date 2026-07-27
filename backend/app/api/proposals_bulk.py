@@ -36,6 +36,7 @@ from app.models.recruitment_pipeline import (
     CandidateStage,
     PipelineStage,
 )
+from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
@@ -43,6 +44,7 @@ from app.services.candidate_job_eligibility import (
     evaluate_eligibility,
     extract_excluded_client_ids,
 )
+from app.services.hiring_manager_verdicts import load_manager_rejections
 
 router = APIRouter()
 
@@ -53,6 +55,7 @@ SkipReason = Literal[
     "client_blacklist",
     "client_nda",
     "client_competitor",
+    "rejected_by_hiring_manager",
 ]
 WarningReason = Literal["current_employment", "excluded_by_candidate"]
 
@@ -63,6 +66,9 @@ _SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
     EligibilityReason.client_nda: "client_nda",
     EligibilityReason.client_competitor: "client_competitor",
     EligibilityReason.already_in_job: "already_in_job",
+    # Missing entry here would fall through to the `"blacklisted"` default below
+    # and report a manager's rejection as a global blacklist.
+    EligibilityReason.rejected_by_hiring_manager: "rejected_by_hiring_manager",
 }
 # Eligibility reason → non-blocking warning surfaced on added candidates.
 _WARNING_REASON_BY_ELIGIBILITY: dict[EligibilityReason, WarningReason] = {
@@ -274,6 +280,12 @@ async def bulk_add_proposals(
                 expires_at=row.expires_at,
             )
         )
+
+    # Standing rejections by THIS job's hiring manager, batched once. Costs no
+    # query at all when the job has no hiring manager set.
+    manager_verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=body.candidate_ids
+    )
     now = datetime.now(timezone.utc)
 
     added: list[int] = []
@@ -298,17 +310,28 @@ async def bulk_add_proposals(
                 conflicts=tuple(conflicts_by_candidate.get(candidate_id, ())),
                 excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
                 already_in_job=candidate_id in already_in_job_set,
+                rejected_by_hiring_manager=candidate_id in manager_verdicts,
             ),
             now,
         )
         if not decision.assignment_allowed:
+            # Name the manager and the date when the veto is what blocked —
+            # "hiring manager already rejected" alone sends the recruiter
+            # digging through the candidate's history to find out who.
+            label = decision.reason
+            verdict = manager_verdicts.get(candidate_id)
+            if (
+                decision.reason_code is EligibilityReason.rejected_by_hiring_manager
+                and verdict is not None
+            ):
+                label = verdict.as_polish_detail()
             skipped.append(
                 BulkSkippedRow(
                     candidate_id=candidate_id,
                     reason=_SKIP_REASON_BY_ELIGIBILITY.get(
                         decision.reason_code, "blacklisted"
                     ),
-                    reason_label=decision.reason,
+                    reason_label=label,
                 )
             )
             continue
@@ -332,6 +355,14 @@ async def bulk_add_proposals(
             moved_by=current_user.id,
         )
         db.add(stage)
+        # M3-ACT-01: every stage-creating entry point must snapshot the CV that
+        # was current at assignment (the evidence of what was submitted) + emit
+        # the `snapshot_created` audit — same invariant the single-assign path
+        # (recommendations.assign_candidate_to_job) already holds. Bulk-add was
+        # skipping it, so a client dispute could lack the sent CV. Idempotent +
+        # fail-soft on a missing CV, so it never breaks the batch.
+        await db.flush()
+        await create_original_cv_snapshot(db, stage)
 
         # Optional shared note attached to every newly added candidate.
         if body.note:

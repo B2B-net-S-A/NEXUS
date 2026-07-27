@@ -1,9 +1,12 @@
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Literal, Optional
 import asyncio
+import hashlib
 import io
 import logging
 import re
+import tempfile
 import zipfile
 import aiofiles
 import os
@@ -34,6 +37,7 @@ from sqlalchemy import (
     or_,
     select,
     text,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -43,7 +47,10 @@ from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
-from app.models.candidate_document import CandidateDocument
+from app.models.candidate_document import (
+    CandidateDocument,
+    CandidateDocumentKind,
+)
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.activity import Activity
@@ -51,15 +58,17 @@ from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
-from app.models.pipeline_template import RejectionReason
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.pipeline_template import PipelineStageDef, RejectionReason
+from app.models.recruitment_pipeline import CandidateStage, VerificationStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User, UserRole
 from app.schemas.candidate import (
     CandidateCreate,
+    CandidateCvHighlights,
     CandidateDocumentOut,
+    CandidateDocumentUpdate,
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
     CandidateFromCVDuplicate,
@@ -69,6 +78,14 @@ from app.schemas.candidate import (
     CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationUpdate,
+    CandidateQuickViewAvailability,
+    CandidateQuickViewCandidate,
+    CandidateQuickViewCapabilities,
+    CandidateQuickViewNote,
+    CandidateQuickViewPosition,
+    CandidateQuickViewRecruitment,
+    CandidateQuickViewResponse,
+    CandidateQuickViewSource,
     CandidateResponse,
     CandidateUpdate,
     EmploymentInfo,
@@ -80,15 +97,20 @@ from app.schemas.candidate import (
 )
 from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
-from app.schemas.pipeline import ClientRateUpdate
+from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
+from app.services.match_score_cache import bulk_get_or_compute
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
-    rank_jobs_for_candidate,
     resolve_active_profile,
     summarize_match_stats,
 )
 from app.services.dedup_service import find_candidate_duplicates
+from app.schemas.pipeline import HiringManagerVetoBrief
+from app.services.hiring_manager_verdicts import (
+    load_all_vetoes_for_candidate,
+    load_manager_rejections,
+)
 from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
@@ -102,9 +124,15 @@ from app.api.candidate_access import (
     CandidateFinanceAccess,
     CandidatePIIAccess,
     CandidateSearchAccess,
+    CandidateWriteAccess,
+    CANDIDATE_DOCUMENT_ROLES,
+    CANDIDATE_WRITE_ROLES,
     privacy_workflow_unavailable,
 )
-from app.api.financial_access import has_financial_access, redact_financial_fields
+from app.api.financial_access import (
+    has_financial_access,
+    redact_financial_fields,
+)
 from app.api.recruitment_access import RecruitmentRateEditAccess
 from app.services import candidate_audit
 from app.api import ws as ws_manager
@@ -590,6 +618,8 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
             state=EmploymentState.employed_at_client,
             client_id=chosen.client_id,
             client_name=chosen.client.name if chosen.client else None,
+            contract_id=chosen.id,
+            job_id=chosen.job_id,
             contract_end_date=chosen.end_date,
             source="contract",
         )
@@ -623,10 +653,29 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     if hired_now:
         chosen = max(hired_now, key=lambda s: (s.moved_at, s.id))
         client = chosen.job.client if chosen.job else None
+        matching_contracts = [
+            contract
+            for contract in (candidate.contracts or [])
+            if contract.job_id == chosen.job_id
+            and contract.status
+            in (
+                ContractStatus.draft,
+                ContractStatus.ready_for_signature,
+                ContractStatus.active,
+                ContractStatus.ending,
+            )
+        ]
+        linked_contract = (
+            max(matching_contracts, key=lambda contract: contract.id)
+            if matching_contracts
+            else None
+        )
         return EmploymentInfo(
             state=EmploymentState.employed_at_client,
             client_id=client.id if client else None,
             client_name=client.name if client else None,
+            contract_id=linked_contract.id if linked_contract else None,
+            job_id=chosen.job_id,
             contract_end_date=None,
             source="pipeline",
         )
@@ -1514,12 +1563,33 @@ async def list_candidates(
         open_jobs = list((await db.execute(open_jobs_stmt)).scalars().all())
         total_open = len(open_jobs)
         if total_open:
+            # Optymalizacja 2026-07-27: dawniej pętla
+            # `for cand in items: rank_jobs_for_candidate(cand, open_jobs)` —
+            # page_size × 50 ofert sekwencyjnych `score_candidate_job`, każdy
+            # z własnymi round-tripami (`_score_champion_fit` + `_check_penalties`).
+            # Przy 50 kandydatach na stronę to ~2500 wywołań ≈ 5000 zapytań.
+            # Teraz transpozycja pętli: JEDNO `bulk_get_or_compute` per oferta,
+            # które czyta cache match-score jednym zapytaniem dla całej strony
+            # (wzorzec z `api/recommendations.py`) — na ciepłym cache 50 zapytań.
+            #
+            # `allow_cache_write=False` — świadomie (M3-CACHE-01): ta ścieżka nie
+            # ma similarity_map z Qdranta, więc świeżo policzone składowe mają
+            # neutralną (zerową) warstwę semantyczną. Wolno je pokazać, ale NIE
+            # wolno ich utrwalić jako świeżych wpisów cache, bo zaniżony wynik
+            # przeżyłby w cache i wyciekł na `/api/recommendations`.
+            per_candidate: dict[int, list] = {c.id: [] for c in items}
+            for job in open_jobs:
+                for breakdown in await bulk_get_or_compute(
+                    job, items, db, profile=profile, allow_cache_write=False
+                ):
+                    bucket = per_candidate.get(breakdown.candidate_id)
+                    if bucket is not None:
+                        bucket.append(breakdown)
             for cand in items:
-                breakdowns = await rank_jobs_for_candidate(
-                    cand, open_jobs, db, profile=profile
-                )
                 stats = summarize_match_stats(
-                    breakdowns, total_open=total_open, min_score=match_threshold
+                    per_candidate[cand.id],
+                    total_open=total_open,
+                    min_score=match_threshold,
                 )
                 match_stats_by_candidate[cand.id] = MatchStats(**stats)
         else:
@@ -2378,6 +2448,7 @@ async def create_candidate_from_linkedin(
         assert existing is not None  # find_candidate_duplicates just returned it
 
         assigned_job: Optional[int] = None
+        assignment_skipped: Optional[str] = None
         if data.job_id is not None:
             already = await db.scalar(
                 select(CandidateStage).where(
@@ -2386,14 +2457,30 @@ async def create_candidate_from_linkedin(
                 )
             )
             if already is None:
-                await _assign_candidate_to_job(
-                    db=db,
-                    candidate_id=existing_id,
-                    job_id=data.job_id,
-                    stage=target_stage,
-                    user_id=current_user.id,
-                )
-            assigned_job = data.job_id
+                # Dedup landed on someone we already have — so they may already
+                # carry a rejection from this job's hiring manager. Skip the
+                # assignment rather than 409 the whole request: the candidate
+                # data is still worth saving, and the extension has no sensible
+                # way to recover from a hard failure here.
+                job_row = await db.scalar(select(Job).where(Job.id == data.job_id))
+                verdict = None
+                if job_row is not None:
+                    verdicts = await load_manager_rejections(
+                        db, job=job_row, candidate_ids=[existing_id]
+                    )
+                    verdict = verdicts.get(existing_id)
+                if verdict is not None:
+                    assignment_skipped = verdict.as_polish_detail()
+                else:
+                    await _assign_candidate_to_job(
+                        db=db,
+                        candidate_id=existing_id,
+                        job_id=data.job_id,
+                        stage=target_stage,
+                        user_id=current_user.id,
+                    )
+            if assignment_skipped is None:
+                assigned_job = data.job_id
 
         resync = _is_sync_stale(existing.linkedin_synced_at)
         if resync:
@@ -2410,6 +2497,7 @@ async def create_candidate_from_linkedin(
             linkedin_sync_status=existing.linkedin_sync_status
             or LinkedinSyncStatus.disabled,
             assigned_to_job_id=assigned_job,
+            assignment_skipped_reason=assignment_skipped,
             profile_url_path=f"/candidates/{existing_id}",
             resync_scheduled=resync,
         )
@@ -2515,16 +2603,30 @@ async def _resolve_invite_source(
 
     details = activity.details or {}
     token_prefix = details.get("invite_token")  # first 8 chars only
+    token_digest = details.get("invite_token_sha256")
 
-    # Best-effort label lookup from the invite link record. Prefix LIKE
-    # query; 48-bit entropy makes collisions a non-issue in practice.
+    # Best-effort label lookup from the invite link record. Dual-read, matching
+    # the way /apply resolves a link (`_load_valid_link` in api/public_share).
+    # Since migration 0183 a v2 link keeps a non-secret ``v2$…`` revoke key in
+    # the `token` PK and the secret's SHA-256 in `token_sha256`, so the raw
+    # prefix LIKE can never match one — only the digest does. Legacy links
+    # (``token_sha256 IS NULL``) still hold the raw secret as PK, so the prefix
+    # stays the only way to resolve them and any activity row written before
+    # the digest was recorded.
     label: Optional[str] = None
+    conditions = []
+    if isinstance(token_digest, str) and token_digest:
+        conditions.append(CandidateInviteLink.token_sha256 == token_digest)
     if isinstance(token_prefix, str) and token_prefix:
-        link = await db.scalar(
-            select(CandidateInviteLink).where(
-                CandidateInviteLink.token.like(f"{token_prefix}%")
+        # 48-bit entropy makes prefix collisions a non-issue in practice.
+        conditions.append(
+            and_(
+                CandidateInviteLink.token.like(f"{token_prefix}%"),
+                CandidateInviteLink.token_sha256.is_(None),
             )
         )
+    if conditions:
+        link = await db.scalar(select(CandidateInviteLink).where(or_(*conditions)))
         if link is not None:
             label = link.label
 
@@ -2666,6 +2768,182 @@ async def get_candidate(
     )
 
 
+@router.get(
+    "/{candidate_id}/quick-view",
+    response_model=CandidateQuickViewResponse,
+)
+async def get_candidate_quick_view(
+    candidate_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Typed, bounded projection used by the candidate quick-view drawer.
+
+    The response contains no raw CV bytes and no note-author e-mail. Document
+    metadata/content stays behind the dedicated document capability routes.
+    """
+
+    from app.services.candidate_quick_view import (
+        format_quick_view_location,
+        format_quick_view_note_content,
+        resolve_current_position,
+        resolve_cv_highlights,
+        resolve_source,
+    )
+
+    candidate = (
+        await db.execute(
+            select(Candidate)
+            .options(*_candidate_list_options())
+            .where(Candidate.id == candidate_id)
+        )
+    ).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    latest_per_job = (
+        select(
+            CandidateStage.id.label("stage_id"),
+            CandidateStage.job_id,
+            CandidateStage.stage,
+            CandidateStage.stage_def_id,
+            CandidateStage.moved_at,
+            CandidateStage.moved_by,
+        )
+        .where(CandidateStage.candidate_id == candidate_id)
+        .distinct(CandidateStage.job_id)
+        .order_by(
+            CandidateStage.job_id,
+            CandidateStage.moved_at.desc(),
+            CandidateStage.id.desc(),
+        )
+        .subquery()
+    )
+    mover = aliased(User)
+    recruitment_rows = (
+        await db.execute(
+            select(
+                latest_per_job,
+                Job.title.label("job_title"),
+                Client.name.label("client_name"),
+                mover.name.label("moved_by_name"),
+                PipelineStageDef.name.label("stage_def_name"),
+                PipelineStageDef.is_terminal.label("stage_def_terminal"),
+            )
+            .select_from(latest_per_job)
+            .join(Job, Job.id == latest_per_job.c.job_id)
+            .outerjoin(Client, Client.id == Job.client_id)
+            .outerjoin(mover, mover.id == latest_per_job.c.moved_by)
+            .outerjoin(
+                PipelineStageDef,
+                PipelineStageDef.id == latest_per_job.c.stage_def_id,
+            )
+            .where(
+                or_(
+                    PipelineStageDef.is_terminal.is_(False),
+                    and_(
+                        PipelineStageDef.id.is_(None),
+                        latest_per_job.c.stage.notin_(
+                            [
+                                PipelineStage.rejected,
+                                PipelineStage.withdrawn,
+                                PipelineStage.hired,
+                            ]
+                        ),
+                    ),
+                )
+            )
+            .order_by(
+                latest_per_job.c.moved_at.desc(),
+                latest_per_job.c.stage_id.desc(),
+            )
+            .limit(3)
+        )
+    ).all()
+    current_recruitments = [
+        CandidateQuickViewRecruitment(
+            job_id=row.job_id,
+            job_title=row.job_title or f"Rekrutacja #{row.job_id}",
+            client_name=row.client_name,
+            stage_id=row.stage_id,
+            stage_name=row.stage_def_name
+            or STAGE_LABELS.get(
+                row.stage,
+                getattr(row.stage, "value", str(row.stage)),
+            ),
+            moved_at=row.moved_at,
+            moved_by_name=row.moved_by_name,
+        )
+        for row in recruitment_rows
+    ]
+
+    note_rows = (
+        await db.execute(
+            select(Note, User.name.label("author_name"))
+            .outerjoin(User, User.id == Note.author_id)
+            .where(
+                Note.candidate_id == candidate_id,
+                Note.source_deleted_at.is_(None),
+            )
+            .order_by(Note.created_at.desc(), Note.id.desc())
+            .limit(3)
+        )
+    ).all()
+    mention_labels = await build_traffit_user_label_map(
+        db, collect_traffit_user_ids(note.content for note, _ in note_rows)
+    )
+    recent_notes = [
+        CandidateQuickViewNote(
+            id=note.id,
+            content=format_quick_view_note_content(note.content, mention_labels),
+            created_at=note.created_at,
+            author_name=author_name,
+        )
+        for note, author_name in note_rows
+    ]
+
+    return CandidateQuickViewResponse(
+        candidate=CandidateQuickViewCandidate(
+            id=candidate.id,
+            name=candidate.name,
+            lastname=candidate.lastname,
+            email=candidate.email,
+            phone=candidate.phone,
+            city=candidate.city,
+            location=format_quick_view_location(
+                candidate.location,
+                city=candidate.city,
+            ),
+            status=candidate.status,
+            employment=_derive_employment(candidate),
+            competence_category_id=candidate.competence_category_id,
+            competence_category=candidate.competence_category,
+            skills=candidate.skills,
+        ),
+        current_position=CandidateQuickViewPosition(
+            **resolve_current_position(candidate)
+        ),
+        availability=CandidateQuickViewAvailability(
+            status=candidate.availability_status,
+            available_from=candidate.availability_date,
+            notice_period=candidate.notice_period,
+            notice_period_unit=candidate.notice_period_unit,
+        ),
+        source=CandidateQuickViewSource(**resolve_source(candidate)),
+        current_recruitments=current_recruitments,
+        recent_notes=recent_notes,
+        cv_highlights=CandidateCvHighlights(**resolve_cv_highlights(candidate)),
+        capabilities=CandidateQuickViewCapabilities(
+            can_assign=current_user.has_any_role(*CANDIDATE_WRITE_ROLES),
+            can_mark_employed=current_user.has_any_role(
+                UserRole.admin, UserRole.delivery_lead
+            ),
+            can_view_documents=current_user.has_any_role(*CANDIDATE_DOCUMENT_ROLES),
+            can_open_full_profile=True,
+        ),
+    )
+
+
 # Legacy `activities` actions z importu Traffita, które DUPLIKUJĄ realne wpisy
 # timeline (a same nie niosą czytelnej etykiety ani dodatkowego contentu), więc
 # w feedzie kandydata są tylko szumem. Filtrujemy je na poziomie zapytania —
@@ -2674,7 +2952,13 @@ async def get_candidate(
 #   - `traffit:Notatka`      (40k)  duplikuje realne wpisy `Note` ("Notatka — …")
 # Pozostałe `traffit:*` (Tag-dodany, Plik-dodany, Email, …) niosą content —
 # ich NIE ukrywamy. `activities.action` jest NOT NULL → notin_ bezpieczne.
-_HIDDEN_TIMELINE_ACTIONS = ("traffit:Zmiana etapu", "traffit:Notatka")
+_HIDDEN_TIMELINE_ACTIONS = (
+    "traffit:Zmiana etapu",
+    "traffit:Notatka",
+    # Financial audit event: its details carry the client rate, and the
+    # timeline feed is served to non-finance roles without redaction (P1-11).
+    candidate_audit.CLIENT_RATE_CHANGED,
+)
 
 
 @router.get("/{candidate_id}/timeline")
@@ -2856,6 +3140,36 @@ async def get_candidate_timeline(
     }
 
 
+@router.get(
+    "/{candidate_id}/hiring-manager-vetoes",
+    response_model=list[HiringManagerVetoBrief],
+)
+async def get_candidate_hiring_manager_vetoes(
+    candidate_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Managers who rejected this candidate after meeting them, newest first.
+
+    Job-scoped views can only name one manager; this is the whole picture —
+    "with whom must we not pair this person again", plus the reasons, without
+    opening every past recruitment.
+    """
+    verdicts = await load_all_vetoes_for_candidate(db, candidate_id=candidate_id)
+    return [
+        HiringManagerVetoBrief(
+            hiring_manager_contact_id=v.hiring_manager_contact_id,
+            hiring_manager_name=v.hiring_manager_name,
+            source_job_id=v.source_job_id,
+            source_job_title=v.source_job_title,
+            rejected_at=v.rejected_at,
+            rejection_reason_name=v.rejection_reason_name,
+            rejection_note=v.rejection_note,
+        )
+        for v in verdicts
+    ]
+
+
 @router.get("/{candidate_id}/history")
 async def get_candidate_history(
     candidate_id: int,
@@ -3033,6 +3347,11 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
+    # Zapis „stawki do klienta" jest bramkowany zależnością `CandidateFinanceAccess`
+    # (admin + delivery_lead + tac) — świadomy kontrakt: `tac` operacyjnie ustawia
+    # stawki wysyłki do klienta (patrz test_client_rate_requires_finance_capability),
+    # nawet jeśli `/history` redaguje samą WARTOŚĆ dla ról spoza `has_financial_access`.
+    # Zmiana jest audytowana old→new poniżej (`CLIENT_RATE_CHANGED`).
     latest = await db.scalar(
         select(CandidateStage)
         .where(
@@ -3048,6 +3367,15 @@ async def set_recruitment_client_rate(
             detail="Brak rekrutacji dla tego kandydata i tej oferty.",
         )
 
+    # Snapshot old value BEFORE mutation so the audit trail records old→new.
+    old_value = (
+        float(latest.client_rate_value)
+        if latest.client_rate_value is not None
+        else None
+    )
+    old_unit = latest.client_rate_unit
+    old_currency = latest.client_rate_currency
+
     if payload.rate_value is None:
         latest.client_rate_value = None
         latest.client_rate_unit = None
@@ -3056,6 +3384,32 @@ async def set_recruitment_client_rate(
         latest.client_rate_value = payload.rate_value
         latest.client_rate_unit = (payload.rate_unit or RateUnit.monthly).value
         latest.client_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
+
+    new_value = (
+        float(latest.client_rate_value)
+        if latest.client_rate_value is not None
+        else None
+    )
+
+    # Immutable audit trail (old→new). Kept out of the candidate timeline feed
+    # (`_HIDDEN_TIMELINE_ACTIONS`) because that feed is visible to non-finance
+    # roles without financial redaction — the rate value must not leak there.
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.CLIENT_RATE_CHANGED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={
+            "job_id": job_id,
+            "stage_id": latest.id,
+            "old_client_rate": old_value,
+            "old_client_rate_unit": old_unit,
+            "old_client_rate_currency": old_currency,
+            "new_client_rate": new_value,
+            "new_client_rate_unit": latest.client_rate_unit,
+            "new_client_rate_currency": latest.client_rate_currency,
+        },
+    )
 
     await db.commit()
     await db.refresh(latest)
@@ -3123,6 +3477,43 @@ async def set_recruitment_expected_rate(
         latest.expected_rate_value = payload.rate_value
         latest.expected_rate_unit = (payload.rate_unit or RateUnit.monthly).value
         latest.expected_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
+
+    # Rate-verification gate (M4-P0.4). Without this, a recruiter could move a
+    # candidate to `verified` within budget (→ verification_status=active, no
+    # approval), then PATCH an over-budget rate here — which previously just
+    # wrote the value and left the row `active`, so an over-budget candidate
+    # advanced with nobody's sign-off. Mirror the /move gate: on a `verified`
+    # stage, re-run the same normalized budget comparison; over budget (or a
+    # non-comparable rate) → `pending` + snapshot budget + notify approvers;
+    # within budget → `active`. RecruitmentRateEditAccess includes recruiter,
+    # but approval still needs ApproverPlus — separation of duties preserved.
+    if latest.stage == PipelineStage.verified:
+        from app.services.rate_normalization import normalize_rate_to_monthly
+
+        job = await db.scalar(select(Job).where(Job.id == job_id))
+        if (
+            job is not None
+            and job.salary_max is not None
+            and payload.rate_value is not None
+        ):
+            latest.budget_max_at_move = int(job.salary_max)
+            normalized, _note = normalize_rate_to_monthly(
+                Decimal(payload.rate_value),
+                (payload.rate_unit or RateUnit.monthly).value,
+                (payload.rate_currency or "PLN"),
+            )
+            if normalized is None or normalized > Decimal(job.salary_max):
+                latest.verification_status = VerificationStatus.pending
+                from app.api.pipeline import _notify_pending_verification
+
+                candidate = await db.scalar(
+                    select(Candidate).where(Candidate.id == candidate_id)
+                )
+                await _notify_pending_verification(
+                    db, stage=latest, candidate=candidate, job=job
+                )
+            else:
+                latest.verification_status = VerificationStatus.active
 
     await db.commit()
     await db.refresh(latest)
@@ -3260,6 +3651,7 @@ async def list_candidate_documents(
     candidate_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    document_kind: Optional[CandidateDocumentKind] = Query(default=None, alias="kind"),
 ):
     """List wszystkich plików kandydata (multi-file CV, Faza A migracji
     Traffit). Primary plik jest pierwszy w response (sortowanie po
@@ -3274,16 +3666,88 @@ async def list_candidate_documents(
     if cand is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
+    stmt = select(CandidateDocument).where(
+        CandidateDocument.candidate_id == candidate_id,
+        CandidateDocument.source_deleted_at.is_(None),
+    )
+    if document_kind is not None:
+        stmt = stmt.where(CandidateDocument.document_kind == document_kind)
     result = await db.execute(
-        select(CandidateDocument)
-        .where(CandidateDocument.candidate_id == candidate_id)
-        .order_by(
+        stmt.order_by(
             CandidateDocument.is_primary.desc(),
             CandidateDocument.uploaded_at.desc().nulls_last(),
             CandidateDocument.created_at.desc(),
         )
     )
     return list(result.scalars().all())
+
+
+@router.patch(
+    "/{candidate_id}/documents/{doc_id}",
+    response_model=CandidateDocumentOut,
+)
+async def update_candidate_document(
+    candidate_id: int,
+    doc_id: int,
+    payload: CandidateDocumentUpdate,
+    background_tasks: BackgroundTasks,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Classify a candidate attachment and/or set the active primary CV."""
+
+    await db.execute(
+        select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+    )
+    doc = (
+        await db.execute(
+            select(CandidateDocument).where(
+                CandidateDocument.id == doc_id,
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if payload.document_kind is not None:
+        doc.document_kind = CandidateDocumentKind(payload.document_kind)
+        if doc.document_kind != CandidateDocumentKind.cv:
+            doc.is_primary = False
+
+    if payload.is_primary is True:
+        if doc.document_kind != CandidateDocumentKind.cv:
+            raise HTTPException(
+                status_code=422,
+                detail="Only a document classified as CV can be primary",
+            )
+        await db.execute(
+            update(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.id != doc_id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+            .values(is_primary=False)
+        )
+        doc.is_primary = True
+    elif payload.is_primary is False:
+        doc.is_primary = False
+
+    await db.commit()
+    await db.refresh(doc)
+
+    if payload.is_primary is True:
+        background_tasks.add_task(
+            _enrich_candidate_from_document_task,
+            candidate_id,
+            doc_id,
+            doc.content_sha256,
+        )
+
+    return doc
 
 
 @router.get("/{candidate_id}/documents/{doc_id}/content")
@@ -3307,6 +3771,7 @@ async def download_candidate_document(
         select(CandidateDocument).where(
             CandidateDocument.id == doc_id,
             CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.source_deleted_at.is_(None),
         )
     )
     doc = result.scalar_one_or_none()
@@ -3401,6 +3866,7 @@ async def get_candidate_document_url(
         select(CandidateDocument).where(
             CandidateDocument.id == doc_id,
             CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.source_deleted_at.is_(None),
         )
     )
     doc = result.scalar_one_or_none()
@@ -3494,6 +3960,25 @@ _MATCH_CACHE_INVALIDATING_FIELDS = frozenset(
     }
 )
 
+# Fields that feed the candidate embedding text (``_build_candidate_text``). A
+# manual edit to any of them must re-embed, else vector search keeps matching on
+# months-stale content (AI-P0-04). Superset is safe — the outbox worker's
+# compare-and-set collapses a no-op re-embed by desired_hash.
+_EMBEDDING_TEXT_FIELDS = frozenset(
+    {
+        "skills",
+        "verified_tech",
+        "tags",
+        "experience",
+        "preferences",
+        "ai_summary",
+        "competence_category",
+        "name",
+        "lastname",
+        "years_it_experience",
+    }
+)
+
 
 @router.patch("/{candidate_id}", response_model=CandidateResponse)
 async def update_candidate(
@@ -3538,6 +4023,23 @@ async def update_candidate(
     # reload with eager-loaded relations so `_derive_employment` sees current
     # contracts/conflicts.
     await db.flush()
+
+    # Re-embed when embedding-text fields changed (AI-P0-04). Without this, the
+    # profile-edit PATCH updated the row but left the vector index on stale
+    # content — a candidate whose skills/experience were curated here stayed
+    # searchable on months-old text. Same best-effort call the CV paths use:
+    # outbox-on ⇒ fast durable enqueue (worker embeds async); outbox-off ⇒
+    # inline embed. Failures are logged, never surfaced to the edit.
+    if _EMBEDDING_TEXT_FIELDS & set(updates.keys()):
+        try:
+            from app.services.index_outbox_service import schedule_or_embed_candidate
+
+            await schedule_or_embed_candidate(candidate.id, db)
+        except Exception as e:  # noqa: BLE001 — reindex is best-effort
+            logger.warning(
+                "[update_candidate] re-embed failed id=%s: %s", candidate.id, e
+            )
+
     reloaded = await db.execute(
         select(Candidate)
         .options(*_candidate_list_options())
@@ -3612,7 +4114,198 @@ async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> Non
         logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, e)
 
 
-async def _enrich_candidate_cv_task(candidate_id: int) -> None:
+async def _store_candidate_cv_document(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    filename: str,
+    content: bytes,
+    content_type: Optional[str],
+    external_source: str,
+    is_primary: bool = True,
+) -> CandidateDocument:
+    """Persist one CV version with content-level deduplication."""
+
+    digest = hashlib.sha256(content).hexdigest()
+    if is_primary:
+        await db.execute(
+            select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+        )
+    existing = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.content_sha256 == digest,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if is_primary:
+        await db.execute(
+            update(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+            .values(is_primary=False)
+        )
+    if existing is not None:
+        existing.document_kind = CandidateDocumentKind.cv
+        existing.is_primary = is_primary
+        existing.filename = filename[:500]
+        existing.content_type = content_type or None
+        existing.size_bytes = len(content)
+        existing.uploaded_at = datetime.now(timezone.utc)
+        await db.flush()
+        return existing
+
+    storage_key: Optional[str] = None
+    file_content: Optional[bytes] = content
+    try:
+        from app.services.object_storage import (
+            is_available as object_storage_available,
+            upload_cv as upload_cv_to_storage,
+        )
+
+        if object_storage_available():
+            storage_key = await asyncio.to_thread(
+                upload_cv_to_storage,
+                content=content,
+                filename=filename[:500],
+                content_type=(content_type or None),
+            )
+            file_content = None
+    except Exception as exc:  # pragma: no cover - storage fallback
+        logger.warning(
+            "[candidate_documents] storage upload failed candidate=%s: %s",
+            candidate_id,
+            exc,
+        )
+
+    document = CandidateDocument(
+        candidate_id=candidate_id,
+        filename=filename[:500],
+        file_content=file_content,
+        storage_key=storage_key,
+        content_type=(content_type or None),
+        size_bytes=len(content),
+        document_kind=CandidateDocumentKind.cv,
+        is_primary=is_primary,
+        uploaded_at=datetime.now(timezone.utc),
+        external_source=external_source,
+        content_sha256=digest,
+    )
+    db.add(document)
+    await db.flush()
+    return document
+
+
+async def _candidate_document_bytes(
+    db: AsyncSession, document: CandidateDocument
+) -> bytes:
+    if document.storage_key:
+        from app.services.object_storage import download_cv, is_available
+
+        if is_available():
+            return await asyncio.to_thread(download_cv, document.storage_key)
+    await db.refresh(document, attribute_names=["file_content"])
+    return document.file_content or b""
+
+
+async def _enrich_candidate_from_document_task(
+    candidate_id: int,
+    document_id: int,
+    expected_hash: Optional[str] = None,
+) -> None:
+    """Extract and enrich from the still-current primary CV version."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.services import cv_text_extractor
+    from app.services.cv_parser import parse_cv
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    async with AsyncSessionLocal() as db:
+        temp_path: Optional[str] = None
+        try:
+            document = await db.scalar(
+                select(CandidateDocument).where(
+                    CandidateDocument.id == document_id,
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                    CandidateDocument.is_primary.is_(True),
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            candidate = await db.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            if document is None or candidate is None:
+                return
+            if (
+                expected_hash
+                and document.content_sha256
+                and document.content_sha256 != expected_hash
+            ):
+                return
+
+            content = await _candidate_document_bytes(db, document)
+            if not content:
+                return
+            suffix = os.path.splitext(document.filename)[1] or ".bin"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+                handle.write(content)
+                temp_path = handle.name
+            raw_text = await asyncio.to_thread(
+                cv_text_extractor.extract_text,
+                temp_path,
+                document.filename,
+            )
+            if not raw_text:
+                return
+            parsed = await parse_cv(raw_text)
+
+            current_primary = await db.scalar(
+                select(CandidateDocument.id).where(
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                    CandidateDocument.is_primary.is_(True),
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            if current_primary != document_id:
+                return
+
+            candidate.raw_cv_text = raw_text
+            candidate.cv_filename = document.filename
+            _apply_cv_enrichment(
+                candidate,
+                parsed,
+                source_document_id=document.id,
+                source_hash=document.content_sha256,
+            )
+            await db.commit()
+            await mark_stale_for_candidate(db, candidate_id)
+            await db.commit()
+        except Exception as exc:  # pragma: no cover - defensive background task
+            logger.warning(
+                "[cv_enrich] document task failed candidate=%s document=%s: %s",
+                candidate_id,
+                document_id,
+                exc,
+            )
+            await db.rollback()
+        finally:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+
+async def _enrich_candidate_cv_task(
+    candidate_id: int,
+    source_document_id: Optional[int] = None,
+    source_hash: Optional[str] = None,
+) -> None:
     """Background task: parse `raw_cv_text` and fan out to candidate fields.
 
     Runs with a fresh DB session because FastAPI's per-request session is
@@ -3625,6 +4318,25 @@ async def _enrich_candidate_cv_task(candidate_id: int) -> None:
 
     async with AsyncSessionLocal() as db:
         try:
+            if source_document_id is not None:
+                current_primary = (
+                    await db.execute(
+                        select(
+                            CandidateDocument.id,
+                            CandidateDocument.content_sha256,
+                        ).where(
+                            CandidateDocument.candidate_id == candidate_id,
+                            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                            CandidateDocument.is_primary.is_(True),
+                            CandidateDocument.source_deleted_at.is_(None),
+                        )
+                    )
+                ).first()
+                if current_primary is None or current_primary.id != source_document_id:
+                    return
+                if source_hash and current_primary.content_sha256 != source_hash:
+                    return
+
             result = await db.execute(
                 select(Candidate).where(Candidate.id == candidate_id)
             )
@@ -3633,7 +4345,31 @@ async def _enrich_candidate_cv_task(candidate_id: int) -> None:
                 return
 
             parsed = await parse_cv(candidate.raw_cv_text)
-            written = _apply_cv_enrichment(candidate, parsed)
+            if source_document_id is not None:
+                still_primary = (
+                    await db.execute(
+                        select(
+                            CandidateDocument.id,
+                            CandidateDocument.content_sha256,
+                        ).where(
+                            CandidateDocument.candidate_id == candidate_id,
+                            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                            CandidateDocument.is_primary.is_(True),
+                            CandidateDocument.source_deleted_at.is_(None),
+                        )
+                    )
+                ).first()
+                if still_primary is None or still_primary.id != source_document_id:
+                    return
+                if source_hash and still_primary.content_sha256 != source_hash:
+                    return
+
+            written = _apply_cv_enrichment(
+                candidate,
+                parsed,
+                source_document_id=source_document_id,
+                source_hash=source_hash,
+            )
             await db.commit()
 
             # v4: CC auto-classification after enrichment writes skills/summary.
@@ -3792,7 +4528,21 @@ async def create_candidate_from_cv(
         logger.warning("[from-cv] rename failed: %s", e)
     candidate.cv_filename = safe_name
 
-    _apply_cv_enrichment(candidate, parsed)
+    document = await _store_candidate_cv_document(
+        db,
+        candidate_id=candidate.id,
+        filename=safe_name,
+        content=content,
+        content_type=file.content_type,
+        external_source="from_cv",
+        is_primary=True,
+    )
+    _apply_cv_enrichment(
+        candidate,
+        parsed,
+        source_document_id=document.id,
+        source_hash=document.content_sha256,
+    )
 
     activity = Activity(
         entity_type="candidate",
@@ -3937,6 +4687,15 @@ async def upload_cv(
     # `UPLOAD_DIR/candidate_<id>_<cv_filename>`, so any directory components
     # left in cv_filename would re-introduce traversal on read.
     candidate.cv_filename = safe_filename
+    document = await _store_candidate_cv_document(
+        db,
+        candidate_id=candidate_id,
+        filename=safe_filename,
+        content=content,
+        content_type=file.content_type,
+        external_source="manual",
+        is_primary=True,
+    )
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate_id,
@@ -3970,7 +4729,12 @@ async def upload_cv(
     # Phase D4: schedule AI enrichment off the request path. Task runs in a
     # fresh DB session so it survives the response lifecycle.
     if candidate.raw_cv_text:
-        background_tasks.add_task(_enrich_candidate_cv_task, candidate_id)
+        background_tasks.add_task(
+            _enrich_candidate_cv_task,
+            candidate_id,
+            document.id,
+            document.content_sha256,
+        )
 
     # Re-fetch with eager-loaded relations so CandidateResponse can build
     # the derived `employment` field; upload_cv used to return the bare
@@ -4290,13 +5054,19 @@ async def create_engagement_declaration_link(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    token_str = secrets.token_urlsafe(24)  # ~32 chars urlsafe
+    import hashlib
+
+    # v2: sekret tylko w URL i jako digest; kolumna token = nie-sekretny revoke-key.
+    token_str = secrets.token_urlsafe(24)  # ~32 chars urlsafe, goes into URL
+    revoke_key = f"v2${secrets.token_hex(16)}"
+    token_digest = hashlib.sha256(token_str.encode()).hexdigest()
     now = datetime.now(timezone.utc)
     expires_at = now + _timedelta(days=30)
 
     row = EngagementDeclarationToken(
         candidate_id=candidate_id,
-        token=token_str,
+        token=revoke_key,
+        token_sha256=token_digest,
         created_at=now,
         expires_at=expires_at,
         created_by=current_user.id,

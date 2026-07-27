@@ -32,7 +32,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -380,12 +380,22 @@ async def callback(
     result = await db.execute(select(User).where(User.email == email_lower))
     user = result.scalar_one_or_none()
     if user is None:
+        # First-time SSO users self-provision as the least-privileged
+        # read-only viewer (``UserRole.user``), NOT an active recruiter.
+        # The domain whitelist only proves the email belongs to the corp
+        # tenant — it says nothing about whether that person should have
+        # candidate/RODO write access. AAD group RBAC (the authoritative
+        # role source) is deliberately hard-disabled, so a recruiter default
+        # would grant full write access gated by domain alone. An admin
+        # promotes real recruiters via Settings → Admin → Users. The account
+        # is still ``is_active=True`` so the viewer CAN log in (read-only),
+        # they are simply not blocked.
         user = User(
             email=email_lower,
             name=name,
             password_hash=None,  # SSO-only — no bcrypt hash.
-            role=UserRole.recruiter,
-            roles=[UserRole.recruiter.value],
+            role=UserRole.user,
+            roles=[UserRole.user.value],
             is_active=True,
             profile_completed=False,
             oauth_provider="microsoft",
@@ -401,6 +411,12 @@ async def callback(
         # MS account suddenly auto-provisioning into the ATS). Listing
         # placeholder user_id=0 (system action — no admin actor).
         await db.flush()  # populate user.id for the Activity FK
+        logger.info(
+            "sso new-user provisioned as read-only viewer: email=%s domain=%s role=%s",
+            email_lower,
+            domain,
+            UserRole.user.value,
+        )
         db.add(
             Activity(
                 entity_type="user",
@@ -412,7 +428,7 @@ async def callback(
                     "domain": domain,
                     "provider": "microsoft",
                     "azure_oid": azure_oid,
-                    "default_role": UserRole.recruiter.value,
+                    "default_role": UserRole.user.value,
                 },
             )
         )
@@ -611,26 +627,44 @@ async def exchange(
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeResponse:
     """Trade the one-time UUID code for the real Nexus JWTs."""
-    row = await db.scalar(
-        select(AuthExchangeCode).where(AuthExchangeCode.code == payload.code)
-    )
-    if row is None:
-        raise HTTPException(
-            status.HTTP_410_GONE, detail="Exchange code unknown or already consumed"
-        )
     now = datetime.now(timezone.utc)
-    if row.consumed_at is not None or row.expires_at <= now:
-        raise HTTPException(
-            status.HTTP_410_GONE, detail="Exchange code expired or already consumed"
+    # Atomic consume: DELETE the row and take its contents in one statement.
+    # Two wins over the previous read-then-stamp:
+    #  1. `WHERE consumed_at IS NULL` makes consumption single-flight — two
+    #     concurrent exchanges cannot both succeed (the loser deletes zero rows).
+    #  2. DELETE (not stamp consumed_at) removes the plaintext access/refresh
+    #     JWTs from the table the instant they are handed over. They were only
+    #     ever needed for the ~60s handoff; keeping consumed rows around left a
+    #     growing pile of live bearer tokens in cleartext at rest.
+    consumed = (
+        await db.execute(
+            delete(AuthExchangeCode)
+            .where(
+                AuthExchangeCode.code == payload.code,
+                AuthExchangeCode.consumed_at.is_(None),
+                AuthExchangeCode.expires_at > now,
+            )
+            .returning(
+                AuthExchangeCode.user_id,
+                AuthExchangeCode.access_token,
+                AuthExchangeCode.refresh_token,
+            )
         )
+    ).first()
+    if consumed is None:
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code unknown, expired or already consumed",
+        )
+    user_id, access, refresh = consumed
 
-    row.consumed_at = now
-    user = await db.scalar(select(User).where(User.id == row.user_id))
+    # Opportunistic cleanup: drop any codes that expired without being consumed,
+    # so abandoned handoffs do not accumulate plaintext JWTs indefinitely.
+    await db.execute(delete(AuthExchangeCode).where(AuthExchangeCode.expires_at <= now))
+
+    user = await db.scalar(select(User).where(User.id == user_id))
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="User no longer active")
-
-    access = row.access_token
-    refresh = row.refresh_token
     summary = SsoUserSummary(
         id=user.id,
         email=user.email,

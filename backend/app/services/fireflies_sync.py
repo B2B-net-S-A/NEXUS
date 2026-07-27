@@ -10,6 +10,7 @@ from typing import Optional
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -144,6 +145,46 @@ async def _find_candidate_by_emails(
     return None
 
 
+async def _insert_meeting_note_if_absent(
+    db: AsyncSession,
+    *,
+    content: str,
+    candidate_id: Optional[int],
+    job_id: Optional[int],
+    source_ref: Optional[str],
+    audio_url: Optional[str],
+) -> Optional[int]:
+    """Insert a Fireflies meeting note, atomically deduped by ``source_ref``.
+
+    Returns the new note id, or ``None`` when a concurrent sync already imported
+    a note with the same ``source_ref``. The dedup is race-proof: the partial
+    unique index ``ux_notes_source_ref_fireflies`` arbitrates the
+    ``INSERT ... ON CONFLICT DO NOTHING``, so two overlapping syncs can never
+    both insert (the pre-flight SELECT in the caller only handles the common
+    already-seen case + audio_url refresh, and by itself has a phantom-insert
+    window). A row with a NULL / non-``fireflies:`` ``source_ref`` falls outside
+    the partial index and always inserts.
+    """
+    stmt = (
+        pg_insert(Note)
+        .values(
+            content=content,
+            note_type=NoteType.meeting,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            author_id=None,  # system-generated
+            source_ref=source_ref,
+            audio_url=audio_url,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[Note.source_ref],
+            index_where=Note.source_ref.like("fireflies:%"),
+        )
+        .returning(Note.id)
+    )
+    return await db.scalar(stmt)
+
+
 async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
     """
     Main sync function. Best-effort: catches all errors gracefully.
@@ -239,16 +280,18 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                     if matches[0].score >= SCORE_AUTO:
                         auto_job_id = matches[0].job_id
 
-                note = Note(
+                note_id = await _insert_meeting_note_if_absent(
+                    db,
                     content=content,
-                    note_type=NoteType.meeting,
                     candidate_id=candidate.id if candidate else None,
                     job_id=auto_job_id,
-                    author_id=None,  # system-generated
                     source_ref=source_ref,
                     audio_url=audio_url,
                 )
-                db.add(note)
+                if note_id is None:
+                    # A concurrent sync already imported this transcript — skip
+                    # (its own pass counts + enriches it).
+                    continue
                 synced += 1
                 if candidate:
                     linked += 1

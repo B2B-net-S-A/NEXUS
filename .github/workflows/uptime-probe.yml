@@ -59,3 +59,102 @@ jobs:
               echo "::warning::$host TLS expires in $days_left days"
             fi
           done
+
+  # ── Backup freshness ────────────────────────────────────────────────────────
+  # Consumer for `LATEST.json`, the manifest backup/backup.sh writes after every
+  # run. Until now that object had NO reader anywhere in the repository: the
+  # script wrote it, nothing ever looked, so "the backup stopped running" had no
+  # symptom at all — exactly how the host's off-site script spent weeks exiting 0
+  # without copying a byte.
+  #
+  # Why here and not as `checks.backup` in /api/health (the other candidate):
+  #
+  #   1. It would not alarm. uptime-probe accepts anything except "unhealthy",
+  #      and a stale backup must NOT be "unhealthy" — that status gates HTTP 503,
+  #      which restarts containers and fails deploys. A backup problem would
+  #      resolve to "degraded" and be tolerated forever, i.e. another silent
+  #      green.
+  #   2. It would need the backend — the internet-facing service — to hold read
+  #      credentials for the backup bucket, widening what a compromise reaches
+  #      from "production data" to "production data plus its backups".
+  #   3. It would go down with the host. The scenario this monitors is losing
+  #      the VPS; an in-process check cannot report on the disaster it exists to
+  #      warn about. Here it runs on GitHub's infrastructure, from separate
+  #      credentials, on a schedule the VPS cannot influence.
+  backup-freshness:
+    name: Backup manifest is fresh and clean
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Off until the owner provisions the bucket credentials and flips this
+    # variable. Deliberately a skipped job rather than a passing one: this
+    # workflow claims the app is up, and never claims anything about backups it
+    # did not actually read.
+    if: vars.BACKUP_MONITORING_ENABLED == 'true'
+    env:
+      BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}
+      BACKUP_S3_PREFIX: ${{ vars.BACKUP_S3_PREFIX || 'nexus' }}
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${{ vars.BACKUP_S3_PROVIDER || 'Other' }}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${{ vars.BACKUP_S3_ENDPOINT }}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY }}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_KEY }}
+      RCLONE_CONFIG_OFFSITE_REGION: ${{ vars.BACKUP_S3_REGION }}
+      RCLONE_S3_NO_CHECK_BUCKET: "true"
+      # Daily run at 02:00 UTC, plus room for a long CV sync and the retry
+      # ladder in loop.sh before this is treated as "the backups have stopped".
+      MAX_AGE_HOURS: ${{ vars.BACKUP_MAX_AGE_HOURS || '30' }}
+    steps:
+      - name: Install rclone
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends rclone
+
+      - name: Read and validate LATEST.json
+        run: |
+          set -euo pipefail
+          DEST="offsite:${BACKUP_S3_BUCKET}/${BACKUP_S3_PREFIX}"
+
+          if ! rclone cat "${DEST}/LATEST.json" > /tmp/manifest.json; then
+            echo "::error::cannot read ${DEST}/LATEST.json — either no backup has ever"
+            echo "::error::completed, or the bucket/credentials are wrong. Both mean the"
+            echo "::error::off-site copy is not confirmed to exist."
+            exit 1
+          fi
+          jq . /tmp/manifest.json
+
+          finished="$(jq -r '.finished_at' /tmp/manifest.json)"
+          age_h=$(( ( $(date -u +%s) - $(date -u -d "$finished" +%s) ) / 3600 ))
+          echo "last completed backup: ${finished} (${age_h}h ago)"
+          if [ "$age_h" -gt "$MAX_AGE_HOURS" ]; then
+            echo "::error::no backup has completed for ${age_h}h (limit ${MAX_AGE_HOURS}h)."
+            exit 1
+          fi
+
+          failures="$(jq -r '.failures' /tmp/manifest.json)"
+          if [ "$failures" != "0" ]; then
+            echo "::error::last backup run recorded ${failures} failed artefact(s):"
+            jq -r '.artefacts[] | select(.status != "ok") | "  \(.artefact): \(.status) — \(.detail)"' /tmp/manifest.json
+            exit 1
+          fi
+
+          # Presence check, not just status. Dropping an artefact from backup.sh
+          # produces a manifest that is fresh, has zero failures, and is missing
+          # a whole dataset — which is precisely how ~136k CV files came to be
+          # backed up by nothing while every signal stayed green.
+          for required in postgres uploads cv_corpus; do
+            jq -e --arg a "$required" \
+              'any(.artefacts[]; .artefact == $a and .status == "ok")' \
+              /tmp/manifest.json > /dev/null || {
+                echo "::error::artefact '${required}' is missing from the manifest or not ok."
+                echo "::error::A backup missing one dataset is not a backup; see backup/backup.sh."
+                exit 1
+              }
+          done
+          jq -e 'any(.artefacts[]; (.artefact | startswith("qdrant")) and .status == "ok")' \
+            /tmp/manifest.json > /dev/null || {
+              echo "::error::no Qdrant collection was backed up successfully."
+              exit 1
+            }
+
+          objects="$(jq -r '.artefacts[] | select(.artefact == "cv_corpus") | .objects' /tmp/manifest.json)"
+          bytes="$(jq -r '.artefacts[] | select(.artefact == "cv_corpus") | .bytes' /tmp/manifest.json)"
+          echo "CV corpus mirrored: ${objects} objects / ${bytes} bytes"
+          echo "All artefacts present and ok."

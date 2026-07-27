@@ -198,6 +198,6 @@ Final Provisions</h2>
 <h2>Appendix No. 3 – template specifying the B2BNET Customer</h2>
 <h2>APPENDIX NO. 3 TO B2B AGREEMENT NO. {{ b2b.contract_number or '…' }}</h2>
 <h2>PROJECT CUSTOMER</h2>
-<table><tr><td>Element</td><td>Value</td></tr><tr><td>Project Customer Name:</td><td>{{ client.legal_name or client.name or '………' }}</td></tr><tr><td>Address (city):</td><td>{{ b2b.project_city or '………' }}</td></tr><tr><td>Project description and scope of services (if known):</td><td>{{ b2b.project_description or '………' }}</td></tr><tr><td>Start date of service provision:</td><td>{{ contract.start_date | pl_date }}</td></tr></table>
+<table><tr><td>Element</td><td>Value</td></tr><tr><td>Project Customer Name:</td><td>{{ client.legal_name or client.name or '………' }}</td></tr><tr><td>Address (city):</td><td>{{ b2b.project_city or '………' }}</td></tr><tr><td>Project description and scope of services (if known):</td><td>{{ b2b.project_description or '………' }}</td></tr><tr><td>Start date of service provision:</td><td>{{ b2b.start_clause }}</td></tr></table>
 <p>________________________						________________</p>
 <p>B2B.net S.A.								            Partner</p>

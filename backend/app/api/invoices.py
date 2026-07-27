@@ -1,13 +1,15 @@
 """Phase 9 C1 — invoice ledger + DSO reporting + CSV export."""
 
-from datetime import date
-from io import StringIO
 import csv
+import logging
+from datetime import date
+from decimal import Decimal
+from io import StringIO
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, PlainSerializer
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +19,27 @@ from app.models.client import Client
 from app.models.contract import Contract
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.user import User
+from app.services.fx_service import rates_to_pln
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _money_out(value: Decimal) -> float:
+    """Serialize a money Decimal as a JSON number (grosze precision).
+
+    A bare ``Decimal`` DTO field serializes as a JSON *string* under Pydantic v2,
+    which would make the frontend's numeric ``reduce()``/``sum()`` over these
+    totals concatenate strings and corrupt the figures. Emit a float instead.
+    """
+    return float(Decimal(value).quantize(Decimal("0.01")))
+
+
+# Exact Decimal internally; JSON number on the wire (see `_money_out`).
+MoneyPLN = Annotated[
+    Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
+]
 
 # P0.12: faktury to w całości dane finansowe (kwoty, DSO). Kanoniczna polityka
 # NEXUS (plan analytics R0) trzyma finanse za AnalyticsCapability.VIEW_FINANCE =
@@ -77,10 +98,16 @@ class DsoRow(BaseModel):
     client_id: int
     client_name: str
     invoices: int
-    total_amount: int
-    paid_amount: int
-    outstanding: int
+    total_amount: MoneyPLN
+    paid_amount: MoneyPLN
+    outstanding: MoneyPLN
     avg_dso_days: Optional[float]
+    # All amounts are normalised to PLN. `fx_incomplete` flags a client that has
+    # invoices in a currency with no cached FX rate — those amounts are excluded
+    # from the PLN totals rather than added at face value (additive fields; the
+    # frontend ignores unknown keys).
+    currency: str = "PLN"
+    fx_incomplete: bool = False
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -135,38 +162,90 @@ async def dso_by_client(
     current_user: FinanceUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Per-client Days Sales Outstanding aggregates (client-facing invoices)."""
-    res = await db.execute(
-        select(
-            Client.id,
-            Client.name,
-            func.count(Invoice.id).label("cnt"),
-            func.coalesce(func.sum(Invoice.amount), 0).label("total"),
+    """Per-client Days Sales Outstanding aggregates (client-facing invoices).
+
+    Amounts are normalised to PLN: each invoice carries its own ``currency``, so
+    summing the raw ``Invoice.amount`` integers across currencies is meaningless.
+    We aggregate per client × currency in SQL, then convert each subtotal to PLN
+    with today's report rate before folding into the per-client total.
+    """
+    today = date.today()
+
+    # Totals per client × currency (client-facing invoices).
+    total_rows = (
+        await db.execute(
+            select(
+                Client.id,
+                Client.name,
+                Invoice.currency,
+                func.count(Invoice.id).label("cnt"),
+                func.coalesce(func.sum(Invoice.amount), 0).label("total"),
+            )
+            .join(Contract, Contract.client_id == Client.id)
+            .join(Invoice, Invoice.contract_id == Contract.id)
+            .where(Invoice.direction == InvoiceDirection.to_client)
+            .group_by(Client.id, Client.name, Invoice.currency)
         )
-        .join(Contract, Contract.client_id == Client.id)
-        .join(Invoice, Invoice.contract_id == Contract.id)
-        .where(Invoice.direction == InvoiceDirection.to_client)
-        .group_by(Client.id, Client.name)
-        .order_by(func.count(Invoice.id).desc())
-    )
-    rows: list[DsoRow] = []
-    for r in res.all():
-        # Paid sum via a separate targeted query — simpler than CASE WHEN.
-        paid_res = await db.execute(
-            select(func.coalesce(func.sum(Invoice.amount), 0)).where(
-                Invoice.contract_id.in_(
-                    select(Contract.id).where(Contract.client_id == r.id)
-                ),
+    ).all()
+
+    # Paid totals per client × currency.
+    paid_rows = (
+        await db.execute(
+            select(
+                Client.id,
+                Invoice.currency,
+                func.coalesce(func.sum(Invoice.amount), 0).label("paid"),
+            )
+            .join(Contract, Contract.client_id == Client.id)
+            .join(Invoice, Invoice.contract_id == Contract.id)
+            .where(
                 Invoice.direction == InvoiceDirection.to_client,
                 Invoice.status == InvoiceStatus.paid,
             )
+            .group_by(Client.id, Invoice.currency)
         )
-        paid_sum = int(paid_res.scalar() or 0)
+    ).all()
+    paid_by: dict[tuple[int, str], int] = {
+        (r.id, (r.currency or "PLN").upper()): int(r.paid or 0) for r in paid_rows
+    }
 
+    currencies = {(r.currency or "PLN").upper() for r in total_rows}
+    rates = await rates_to_pln(db, currencies, today)
+
+    acc: dict[int, dict] = {}
+    for r in total_rows:
+        cur = (r.currency or "PLN").upper()
+        bucket = acc.setdefault(
+            r.id,
+            {
+                "client_name": r.name,
+                "invoices": 0,
+                "total": Decimal("0"),
+                "paid": Decimal("0"),
+                "fx_incomplete": False,
+            },
+        )
+        bucket["invoices"] += int(r.cnt or 0)
+        rate = rates.get(cur)
+        if rate is None:
+            bucket["fx_incomplete"] = True
+            logger.warning(
+                "invoices/dso: no FX rate for %s (client_id=%s) — excluded from PLN total",
+                cur,
+                r.id,
+            )
+            continue
+        bucket["total"] += Decimal(int(r.total or 0)) * rate
+        bucket["paid"] += Decimal(paid_by.get((r.id, cur), 0)) * rate
+
+    rows: list[DsoRow] = []
+    for client_id, bucket in acc.items():
+        # avg DSO days is a time metric — currency-agnostic, so it stays a plain
+        # per-client aggregate over all paid client-facing invoices.
         per_client = await db.execute(
             select(Invoice.issue_date, Invoice.paid_date).where(
                 Invoice.contract_id.in_(
-                    select(Contract.id).where(Contract.client_id == r.id)
+                    select(Contract.id).where(Contract.client_id == client_id)
                 ),
                 Invoice.direction == InvoiceDirection.to_client,
                 Invoice.paid_date.isnot(None),
@@ -178,18 +257,24 @@ async def dso_by_client(
             if paid is not None and issue is not None and paid >= issue
         ]
         avg_dso = round(sum(diffs) / len(diffs), 1) if diffs else None
-        total = int(r.total or 0)
+        outstanding = bucket["total"] - bucket["paid"]
+        if outstanding < 0:
+            outstanding = Decimal("0")
         rows.append(
             DsoRow(
-                client_id=r.id,
-                client_name=r.name,
-                invoices=r.cnt,
-                total_amount=total,
-                paid_amount=paid_sum,
-                outstanding=max(0, total - paid_sum),
+                client_id=client_id,
+                client_name=bucket["client_name"],
+                invoices=bucket["invoices"],
+                total_amount=bucket["total"],
+                paid_amount=bucket["paid"],
+                outstanding=outstanding,
                 avg_dso_days=avg_dso,
+                currency="PLN",
+                fx_incomplete=bucket["fx_incomplete"],
             )
         )
+    # Preserve the original ordering: most-invoiced clients first.
+    rows.sort(key=lambda x: x.invoices, reverse=True)
     return rows
 
 

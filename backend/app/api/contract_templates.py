@@ -9,7 +9,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
-from jinja2 import Environment, StrictUndefined, TemplateError, select_autoescape
+from jinja2 import StrictUndefined, TemplateError, select_autoescape
+from jinja2.sandbox import SandboxedEnvironment
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +56,11 @@ class TemplateResponse(TemplateBase):
 
 # ── Jinja sandbox ────────────────────────────────────────────────────────────
 
-_jinja_env = Environment(
+# Template source is user-supplied (recruiters author contract templates), so it
+# must render in a SandboxedEnvironment — a plain Environment allows SSTI
+# (``{{ ''.__class__.__mro__ ... }}`` → RCE). Mirrors user_email_templates.py
+# (M5-P0.10).
+_jinja_env = SandboxedEnvironment(
     autoescape=select_autoescape(["html", "xml"]),
     undefined=StrictUndefined,
     trim_blocks=True,
@@ -87,6 +92,9 @@ def _contract_vars(contract: Contract) -> dict:
     """Shape exposed to templates (keep stable — it's part of the contract)."""
     cand = contract.candidate
     cli = contract.client
+    candidate_full_name = (
+        f"{cand.name} {cand.lastname}".strip() if cand is not None else None
+    )
     # Generator Umów B2B — dane per-umowa (1:1) + wybrana rola (zakres usług).
     # `b2b_detail` musi być eager-loaded przy każdym wywołaniu (async).
     detail = getattr(contract, "b2b_detail", None)
@@ -152,7 +160,7 @@ def _contract_vars(contract: Contract) -> dict:
             "id": cand.id if cand else None,
             "name": cand.name if cand else None,
             "lastname": cand.lastname if cand else None,
-            "full_name": (f"{cand.name} {cand.lastname}" if cand else None),
+            "full_name": candidate_full_name,
             "email": cand.email if cand else None,
             "phone": cand.phone if cand else None,
             "address": cand.location if cand else None,
@@ -203,7 +211,7 @@ def _contract_vars(contract: Contract) -> dict:
                 lang,
             ),
             # Komparycja: ścieżka /generate nie odmienia (brak pola) → mianownik.
-            "partner_instrumental": cand.full_name if cand else None,
+            "partner_instrumental": candidate_full_name,
             # Formy gramatyczne płci: ścieżka /generate domyślnie męska
             # (B2BContractDetail nie ma kolumny płci) — standalone /render
             # podstawia właściwą formę z formularza.
@@ -348,4 +356,16 @@ async def render_template_for_contract(
         f"{rendered}"
         "</body></html>"
     )
-    return HTMLResponse(content=html)
+    # Rendered template HTML is authored by users and served same-origin — an
+    # explicit restrictive CSP blocks stored XSS (M5-P0.10). No legit script in
+    # this skeleton, so scripts are denied outright; inline styles + data:
+    # images are allowed so the formatting still renders.
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Content-Security-Policy": (
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "img-src data:; font-src data:"
+            )
+        },
+    )

@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -60,9 +60,17 @@ class PublicEngagementSubmitResponse(BaseModel):
 
 
 async def _resolve_token(token: str, db: AsyncSession) -> EngagementDeclarationToken:
+    import hashlib
+
+    # Dual-read: v2 by SHA-256 digest, legacy by raw token (token_sha256 NULL).
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row = await db.scalar(
         select(EngagementDeclarationToken).where(
-            EngagementDeclarationToken.token == token
+            (EngagementDeclarationToken.token_sha256 == digest)
+            | (
+                (EngagementDeclarationToken.token == token)
+                & (EngagementDeclarationToken.token_sha256.is_(None))
+            )
         )
     )
     if not row:
@@ -117,6 +125,27 @@ async def submit_engagement_form(
     candidate = row.candidate
 
     now = datetime.now(timezone.utc)
+    # Atomic single-use claim BEFORE any side effect. _resolve_token already
+    # rejected a used token, but two concurrent submits could both pass that
+    # read and then both append a duplicate note / double-write the flags. The
+    # guarded UPDATE lets exactly one win; the loser gets 410 and touches
+    # nothing. Same transaction, so a later failure rolls the claim back.
+    claimed = (
+        await db.execute(
+            update(EngagementDeclarationToken)
+            .where(
+                # row.token is the stored PK/revoke-key, not the raw secret —
+                # after v2 the incoming `token` no longer matches the column.
+                EngagementDeclarationToken.token == row.token,
+                EngagementDeclarationToken.used_at.is_(None),
+            )
+            .values(used_at=now)
+            .returning(EngagementDeclarationToken.token)
+        )
+    ).first()
+    if claimed is None:
+        raise HTTPException(status_code=410, detail="Link już został użyty.")
+
     # Update flagi + per-flag timestamps (replikacja logiki z PATCH /engagement)
     candidate.open_to_side_projects = data.open_to_side_projects
     candidate.open_to_sales_support = data.open_to_sales_support
@@ -129,8 +158,6 @@ async def submit_engagement_form(
         prev = (candidate.engagement_notes or "").strip()
         suffix = f"\n[deklaracja kandydata, {now:%Y-%m-%d}]: {data.notes.strip()}"
         candidate.engagement_notes = (prev + suffix).strip() if prev else suffix.strip()
-
-    row.used_at = now
 
     await db.commit()
 

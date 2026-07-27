@@ -15,6 +15,8 @@
  * `contract-documents`) na dowolny endpoint plikowy backendu.
  */
 
+import { getAccessToken } from "./session";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /**
@@ -24,8 +26,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
  * or an absolute `http(s)://` URL.
  */
 export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  const token = getAccessToken();
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},

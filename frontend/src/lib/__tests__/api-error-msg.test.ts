@@ -56,6 +56,21 @@ describe("extractErrorMsg — bramka ról (403)", () => {
   });
 });
 
+describe("extractErrorMsg — strukturalny konflikt domenowy", () => {
+  it("wyciąga detail.message z odpowiedzi zawierającej identyfikatory rekordów", () => {
+    const msg = extractErrorMsg(
+      axiosErrorWith(409, {
+        detail: {
+          message: "Istnieje więcej niż jeden pasujący kontrakt.",
+          contract_ids: [91, 92],
+        },
+      }),
+    );
+
+    expect(msg).toBe("Istnieje więcej niż jeden pasujący kontrakt.");
+  });
+});
+
 /**
  * Regresja: zgłoszenie Wiktorii Denki — „Pokazuje ten błąd - Request failed
  * with status code 429".

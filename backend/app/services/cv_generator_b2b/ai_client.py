@@ -328,7 +328,13 @@ def _call_model(
     raise _ModelExhausted(last_err, last_retryable)
 
 
-def analyze_with_ai(content: str, request_id: str, system: str | None = None) -> str:
+def analyze_with_ai(
+    content: str,
+    request_id: str,
+    system: str | None = None,
+    *,
+    model_override: str | None = None,
+) -> str:
     """Call Claude (with model fallback) and return the text of the first block.
 
     Args:
@@ -337,6 +343,9 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
         system: instruction prompt; sent via the ``system`` param with an
             ephemeral cache_control marker so the static instructions are
             prompt-cached between generations.
+        model_override: optional primary model for a non-CV caller. The shared
+            fallback chain remains active, but the caller does not inherit the
+            CV generator's independently tuned/overridable primary model.
 
     Raises:
         CVGeneratorTruncatedError: when the response hit the max_tokens limit.
@@ -350,6 +359,11 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
         raise CVGeneratorAIError("ANTHROPIC_API_KEY env var is not set")
 
     models = _models()
+    if model_override:
+        # UoP analysis and other small structured tasks may use a different
+        # current model than the quality-pinned CV generator. Preserve the
+        # configured fallback chain and de-duplicate it deterministically.
+        models = list(dict.fromkeys([model_override, *_fallback_models()]))
     if not models:
         raise CVGeneratorAIError(
             "Brak skonfigurowanego modelu Claude (CV_B2B_MODEL jest pusty)."

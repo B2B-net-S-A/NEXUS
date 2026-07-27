@@ -44,5 +44,12 @@ class EngagementDeclarationToken(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Hash-at-rest v2 (migracja 0182), wzorzec CVShareToken/champion 0176/0181.
+    # Nowe tokeny: `token` dostaje nie-sekretny `v2$<hex>`, sekret żyje tylko
+    # jako SHA-256 tutaj i w URL. Legacy (raw w `token`, sha256 NULL) w dual-read.
+    token_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+
     candidate: Mapped["Candidate"] = relationship("Candidate", lazy="joined")
     creator: Mapped[Optional["User"]] = relationship("User", lazy="joined")

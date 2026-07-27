@@ -13,6 +13,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess
@@ -20,7 +21,7 @@ from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.call import Call, CallDirection, CallStatus
-from app.services.cloudtalk import verify_signature
+from app.services.cloudtalk import timestamp_is_fresh, verify_signature
 from app.services.dedup_service import _normalize_phone
 
 router = APIRouter()
@@ -42,7 +43,7 @@ class CallCreate(BaseModel):
 
 class CallResponse(BaseModel):
     id: int
-    candidate_id: int
+    candidate_id: Optional[int]
     user_id: Optional[int]
     direction: CallDirection
     duration_seconds: Optional[int]
@@ -318,6 +319,43 @@ def _extract_call_fields(call_info: dict) -> dict:
     }
 
 
+def _apply_webhook_updates(
+    call_row: Optional[Call],
+    fields: dict,
+    transcript: str,
+    summary: str,
+    mapped_user_id: Optional[int],
+) -> None:
+    """Merge a later CloudTalk event into an existing ``Call`` row.
+
+    Only fills fields the event actually carries, and never regresses an
+    already-set identity field (agent/user/started_at) or a non-initiated
+    status. Shared by the normal replay path and the concurrent-insert
+    fallback so both apply identical merge semantics.
+    """
+    if call_row is None:
+        return
+    if transcript:
+        call_row.transcript = transcript
+    if summary:
+        call_row.summary = summary
+    if fields["recording_url"]:
+        call_row.recording_url = fields["recording_url"]
+    if fields["duration_seconds"] is not None:
+        call_row.duration_seconds = fields["duration_seconds"]
+    if fields["agent_id"] is not None and call_row.cloudtalk_agent_id is None:
+        call_row.cloudtalk_agent_id = fields["agent_id"]
+    if mapped_user_id is not None and call_row.user_id is None:
+        call_row.user_id = mapped_user_id
+    if fields["started_at"] is not None and call_row.started_at is None:
+        call_row.started_at = fields["started_at"]
+    if (
+        call_row.status == CallStatus.initiated
+        and fields["status"] != CallStatus.initiated
+    ):
+        call_row.status = fields["status"]
+
+
 async def _process_cloudtalk_payload(
     raw_body: bytes,
     db: AsyncSession,
@@ -325,12 +363,9 @@ async def _process_cloudtalk_payload(
 ) -> dict:
     """Parse a verified CloudTalk webhook body, upsert Call, run enrichment.
 
-    Shared between the HMAC-authenticated ``/api/calls/webhook`` endpoint
-    (used when CloudTalk signs requests with the shared secret) and the
-    URL-token ``/api/calls/webhook/{token}`` endpoint (used by CloudTalk
-    Workflow Automations, which cannot compute an HMAC over the body).
-    Both auth strategies funnel into this function with raw_body already
-    trusted.
+    Reached only after ``/api/calls/webhook`` has verified the
+    ``X-CloudTalk-Signature`` HMAC (and, when present, the fresh
+    ``X-CloudTalk-Timestamp``), so ``raw_body`` is already trusted here.
     """
     try:
         payload = await _safe_parse_json(raw_body)
@@ -356,18 +391,39 @@ async def _process_cloudtalk_payload(
     from app.models.candidate import Candidate
 
     candidate: Optional[Candidate] = None
+    ambiguous_match = False
     last9 = _normalize_phone(phone)
     if last9:
         normalized_col = func.right(
             func.regexp_replace(Candidate.phone, r"[^\d]", "", "g"), 9
         )
-        candidate = await db.scalar(
-            select(Candidate)
-            .where(Candidate.phone.isnot(None))
-            .where(normalized_col == last9)
-            .limit(1)
-        )
-        if candidate is None:
+        phone_match = (Candidate.phone.isnot(None)) & (normalized_col == last9)
+        matched_ids = (
+            await db.scalars(
+                select(Candidate.id).where(phone_match).order_by(Candidate.id)
+            )
+        ).all()
+        if len(matched_ids) > 1:
+            # F-12: two or more candidates share the same trailing-9 phone
+            # digits. Do NOT guess — auto-picking one (e.g. the newest id) would
+            # drop one person's recording/transcript onto an arbitrary other
+            # candidate's profile (privacy + data-integrity leak). Leave the call
+            # UNASSIGNED (candidate stays None → candidate_id NULL) so an operator
+            # can attribute it manually. The Call row is still upserted below so
+            # the event isn't lost, and candidate-dependent enrichment is skipped.
+            ambiguous_match = True
+            logger.warning(
+                "CloudTalk webhook: phone last-9=%s matched %d candidates "
+                "(ct_id=%s, candidate_ids=%s) — leaving call UNASSIGNED for "
+                "manual attribution (no auto-pick)",
+                last9,
+                len(matched_ids),
+                ct_id,
+                list(matched_ids),
+            )
+        elif matched_ids:
+            candidate = await db.get(Candidate, matched_ids[0])
+        else:
             logger.info(
                 "CloudTalk webhook: no candidate match for phone last-9=%s (ct_id=%s)",
                 last9,
@@ -389,9 +445,22 @@ async def _process_cloudtalk_payload(
                 fields["agent_id"],
             )
 
-    if call_row is None and candidate is not None:
-        call_row = Call(
-            candidate_id=candidate.id,
+    if call_row is None and (candidate is not None or ambiguous_match):
+        # Insert when we have a unique candidate OR the match was ambiguous
+        # (candidate is None → candidate_id NULL, unassigned) so the call is
+        # persisted for manual attribution instead of being dropped (F-12).
+        #
+        # Atomic insert-or-merge. CloudTalk delivers SEPARATE webhook POSTs per
+        # event (call-ended / transcript-ready / recording-ready) for the SAME
+        # call, plus retries. Two events that both SELECT null above would each
+        # try to INSERT the same unique ``cloudtalk_call_id`` — the loser raises
+        # IntegrityError. Wrap the INSERT in a SAVEPOINT (mirrors the Autenti
+        # webhook hardening, #859): on conflict, re-SELECT the row the racing
+        # event just committed and fall through to the same UPDATE path so THIS
+        # event's data (transcript/recording/status) still lands instead of
+        # surfacing a 500 — the transcript payload is exactly what would be lost.
+        new_row = Call(
+            candidate_id=candidate.id if candidate is not None else None,
             user_id=mapped_user_id,
             direction=fields["direction"],
             status=fields["status"],
@@ -403,35 +472,65 @@ async def _process_cloudtalk_payload(
             cloudtalk_agent_id=fields["agent_id"],
             started_at=fields["started_at"],
         )
-        db.add(call_row)
+        try:
+            async with db.begin_nested():
+                db.add(new_row)
+                await db.flush()
+            call_row = new_row
+        except IntegrityError:
+            # SAVEPOINT rolled back → ``new_row`` is expunged. Re-fetch the row
+            # the concurrent event created and merge our fields into it.
+            logger.info(
+                "CloudTalk webhook: concurrent insert for ct_id=%s — merging "
+                "into the existing row",
+                ct_id,
+            )
+            call_row = await db.scalar(
+                select(Call).where(Call.cloudtalk_call_id == ct_id)
+            )
+            _apply_webhook_updates(
+                call_row, fields, transcript, summary, mapped_user_id
+            )
     elif call_row is not None:
-        if transcript:
-            call_row.transcript = transcript
-        if summary:
-            call_row.summary = summary
-        if fields["recording_url"]:
-            call_row.recording_url = fields["recording_url"]
-        if fields["duration_seconds"] is not None:
-            call_row.duration_seconds = fields["duration_seconds"]
-        if fields["agent_id"] is not None and call_row.cloudtalk_agent_id is None:
-            call_row.cloudtalk_agent_id = fields["agent_id"]
-        if mapped_user_id is not None and call_row.user_id is None:
-            call_row.user_id = mapped_user_id
-        if fields["started_at"] is not None and call_row.started_at is None:
-            call_row.started_at = fields["started_at"]
-        if (
-            call_row.status == CallStatus.initiated
-            and fields["status"] != CallStatus.initiated
-        ):
-            call_row.status = fields["status"]
+        _apply_webhook_updates(call_row, fields, transcript, summary, mapped_user_id)
 
     await db.commit()
     if call_row is not None:
         await db.refresh(call_row)
 
     if transcript and candidate is not None:
+        from app.models.champion_suggestion import (
+            ChampionProfileSuggestion,
+            SuggestionSource,
+        )
         from app.models.recruitment_pipeline import CandidateStage
         from app.services.champion_draft_service import enrich_from_call
+
+        # Replay guard: CloudTalk redelivers the same transcript-ready webhook on
+        # retry. Enrichment is idempotent per call — if a suggestion sourced from
+        # THIS call (source_type=cloudtalk_call, source_ref=ct_id) already exists,
+        # skip re-running the LLM so a redelivery doesn't spawn duplicate drafts.
+        # The legit call-ended → transcript-ready flow is unaffected: call-ended
+        # carries no transcript, so this block only runs on the first transcript.
+        already_enriched = False
+        if ct_id:
+            already_enriched = bool(
+                await db.scalar(
+                    select(ChampionProfileSuggestion.id)
+                    .where(
+                        ChampionProfileSuggestion.source_type
+                        == SuggestionSource.cloudtalk_call,
+                        ChampionProfileSuggestion.source_ref == ct_id,
+                    )
+                    .limit(1)
+                )
+            )
+        if already_enriched:
+            logger.info(
+                "CloudTalk webhook: enrichment already exists for ct_id=%s — "
+                "skipping replay re-enrichment",
+                ct_id,
+            )
 
         stage_res = await db.execute(
             select(CandidateStage)
@@ -440,7 +539,7 @@ async def _process_cloudtalk_payload(
             .limit(1)
         )
         stage = stage_res.scalar_one_or_none()
-        if stage and stage.job_id:
+        if stage and stage.job_id and not already_enriched:
             try:
                 await enrich_from_call(
                     db,
@@ -462,45 +561,6 @@ async def _process_cloudtalk_payload(
     }
 
 
-@router.post("/calls/webhook/{token}")
-async def cloudtalk_webhook_url_token(
-    token: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """CloudTalk inbound webhook authenticated by a URL-path token.
-
-    Used by CloudTalk Workflow Automations → "API request" action, which
-    cannot compute an HMAC signature over the request body. The token in
-    the URL must match ``settings.CLOUDTALK_WEBHOOK_SECRET`` constant-time;
-    the rest of the processing is identical to the HMAC-signed variant.
-
-    Use HTTPS exclusively — the URL is private and never logged with the
-    full token (FastAPI access logs strip path query string but NOT path
-    segments, so prefer signed-HMAC where possible).
-    """
-    import hmac as _hmac
-    import logging
-
-    logger = logging.getLogger(__name__)
-    raw_body = await request.body()
-
-    if not settings.CLOUDTALK_ENABLED:
-        return {"status": "dry-run", "enabled": False}
-
-    if not settings.CLOUDTALK_WEBHOOK_SECRET:
-        logger.warning(
-            "CloudTalk webhook (URL-token): secret empty while enabled; rejecting"
-        )
-        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
-
-    if not _hmac.compare_digest(token, settings.CLOUDTALK_WEBHOOK_SECRET):
-        logger.warning("CloudTalk webhook (URL-token): token mismatch")
-        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
-
-    return await _process_cloudtalk_payload(raw_body, db, logger)
-
-
 @router.post("/calls/webhook")
 async def cloudtalk_webhook(
     request: Request,
@@ -508,12 +568,23 @@ async def cloudtalk_webhook(
 ):
     """CloudTalk inbound webhook (HMAC-signed).
 
+    This is the ONLY inbound webhook route. There is deliberately no
+    URL-path-token variant: putting the shared secret in the URL leaks it to
+    Cloudflare/Traefik/access logs, which strip the query string but NOT path
+    segments (M6-P0.12). CloudTalk Workflow Automations that cannot HMAC-sign
+    must instead be configured as a native signed webhook (dashboard →
+    Integrations → Webhooks).
+
     Flow:
       1. When ``settings.CLOUDTALK_ENABLED`` is False — DRY-RUN: returns 200
          with ``{"status":"dry-run"}`` and logs payload keys. No DB writes,
          no HMAC check (the secret may not be configured yet).
       2. When enabled — verifies ``X-CloudTalk-Signature`` HMAC-SHA256 against
          ``settings.CLOUDTALK_WEBHOOK_SECRET``. Rejects with 401 on mismatch.
+         Replay protection: when ``X-CloudTalk-Timestamp`` is present it is
+         folded into the signed material and must be fresh (±TOLERANCE); when
+         ``CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP`` is set a missing timestamp is
+         rejected outright.
       3. Parses payload defensively (call-ended / transcript-ready / recording-
          ready may differ slightly); failures to decode return 204.
       4. Looks up Candidate by phone (last-9-digits, reusing
@@ -522,9 +593,6 @@ async def cloudtalk_webhook(
          (transcript may arrive later than call-ended).
       6. If transcript is present and the call maps to a Candidate with an
          active Job, dispatches LLM enrichment (Champion Profile suggestion).
-
-    See :func:`cloudtalk_webhook_url_token` for the Workflow Automations
-    variant (URL-token auth instead of HMAC).
     """
     import logging
 
@@ -549,13 +617,30 @@ async def cloudtalk_webhook(
 
     # ── HMAC verification (enabled path) ────────────────────────────────────
     signature_header = request.headers.get("X-CloudTalk-Signature", "")
+    timestamp_header = request.headers.get("X-CloudTalk-Timestamp") or None
     if not settings.CLOUDTALK_WEBHOOK_SECRET:
         logger.warning(
             "CloudTalk webhook: CLOUDTALK_WEBHOOK_SECRET empty while enabled; rejecting"
         )
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    # ── Replay protection ────────────────────────────────────────────────────
+    if settings.CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP and timestamp_header is None:
+        logger.warning(
+            "CloudTalk webhook: missing X-CloudTalk-Timestamp while required; rejecting"
+        )
+        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+    if timestamp_header is not None and not timestamp_is_fresh(
+        timestamp_header, settings.CLOUDTALK_WEBHOOK_TOLERANCE_SECONDS
+    ):
+        logger.warning("CloudTalk webhook: stale/malformed timestamp — replay rejected")
+        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+
     if not verify_signature(
-        raw_body, signature_header, settings.CLOUDTALK_WEBHOOK_SECRET
+        raw_body,
+        signature_header,
+        settings.CLOUDTALK_WEBHOOK_SECRET,
+        timestamp=timestamp_header,
     ):
         logger.warning("CloudTalk webhook: signature mismatch")
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)

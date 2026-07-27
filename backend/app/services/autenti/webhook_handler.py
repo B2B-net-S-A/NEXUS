@@ -115,6 +115,21 @@ def _intermediate_status_for_event(event_type: str) -> Optional[SignatureStatus]
     return None
 
 
+# Settled states. Autenti webhooks are unordered, so once a signature reaches
+# one of these a later out-of-order event must never move it again (M5-P0.8) —
+# e.g. a delayed HANDED_OVER (→ in_progress) arriving after COMPLETED would
+# otherwise silently downgrade a finished signature.
+_TERMINAL_STATUSES = frozenset(
+    {
+        SignatureStatus.completed,
+        SignatureStatus.rejected,
+        SignatureStatus.withdrawn,
+        SignatureStatus.expired,
+        SignatureStatus.failed,
+    }
+)
+
+
 # ── Public entry point ────────────────────────────────────────────────────
 
 
@@ -178,9 +193,23 @@ async def handle_event(db: AsyncSession, claims: dict[str, Any]) -> HandlerOutco
         new_status = _intermediate_status_for_event(event_type)
 
     if new_status is not None and sig.status != new_status:
-        sig.status = new_status
-        if new_status == SignatureStatus.completed:
-            sig.completed_at = datetime.now(timezone.utc)
+        if sig.status in _TERMINAL_STATUSES:
+            # Monotonic guard (M5-P0.8): a settled signature never regresses on a
+            # late/out-of-order event. Record the event (audit row above) but do
+            # not touch sig.status. Side effects still run — they are keyed off
+            # event_type, not a status change, and are individually idempotent.
+            logger.info(
+                "Webhook event=%s would move terminal status %s→%s (sig=%s) — "
+                "ignoring transition",
+                event_type,
+                sig.status.value,
+                new_status.value,
+                sig.id,
+            )
+        else:
+            sig.status = new_status
+            if new_status == SignatureStatus.completed:
+                sig.completed_at = datetime.now(timezone.utc)
 
     # Per-event side effects: notification + activity + (for completed)
     # signed PDF download.

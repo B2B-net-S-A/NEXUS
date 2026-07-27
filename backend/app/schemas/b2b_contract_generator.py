@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -178,6 +178,11 @@ class B2BContractDetailResponse(BaseModel):
 class B2BRenderRequest(BaseModel):
     """Standalone render — wszystkie pola wprost z formularza (bez `Contract`)."""
 
+    # Source entity links are optional for truly standalone documents, but when
+    # one is supplied the pair is required and validated server-side against
+    # CandidateStage. They are never inferred from partner/client names.
+    candidate_id: Optional[int] = None
+    job_id: Optional[int] = None
     role_id: Optional[int] = None
     language: str = "pl"
     # Płeć Partnera — steruje formami gramatycznymi w komparycji/deklaracji
@@ -224,6 +229,14 @@ class B2BRenderRequest(BaseModel):
         cls, v: Optional[list[B2BRateStageInput]]
     ) -> Optional[list[B2BRateStageInput]]:
         return _normalize_rate_stages(v)
+
+    @model_validator(mode="after")
+    def _source_links_are_a_pair(self) -> "B2BRenderRequest":
+        if (self.candidate_id is None) != (self.job_id is None):
+            raise ValueError(
+                "candidate_id i job_id muszą być przekazane razem albo pominięte"
+            )
+        return self
 
 
 class B2BRenderHtmlResponse(BaseModel):
@@ -288,6 +301,21 @@ class B2BGeneratedContractItem(BaseModel):
     can_edit: bool = False
     # Czy umowę da się pobrać ponownie (jest zapisany payload do re-renderu).
     can_download: bool = False
+    signature_status: Literal["unsigned", "signed_both"] = "unsigned"
+    signature_source: Optional[Literal["manual_confirmation", "validated_upload"]] = (
+        None
+    )
+    candidate_id: Optional[int] = None
+    job_id: Optional[int] = None
+    client_id: Optional[int] = None
+    contract_id: Optional[int] = None
+    candidate_name: Optional[str] = None
+    job_title: Optional[str] = None
+    canonical_client_name: Optional[str] = None
+    signed_at: Optional[str] = None
+    signed_by_name: Optional[str] = None
+    can_confirm_signed: bool = False
+    blocked_reason: Optional[str] = None
 
 
 class B2BGeneratedContractUpdate(BaseModel):
@@ -299,3 +327,29 @@ class B2BGeneratedContractUpdate(BaseModel):
     Pusta/whitespace nazwa → ``None`` (kolumna jest nullowalna)."""
 
     client_name: Optional[str] = None
+
+
+class B2BConfirmFullySignedRequest(BaseModel):
+    """One-time legacy binding supplied only when the generated row lacks IDs."""
+
+    candidate_id: Optional[int] = None
+    job_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _source_links_are_a_pair(self) -> "B2BConfirmFullySignedRequest":
+        if (self.candidate_id is None) != (self.job_id is None):
+            raise ValueError(
+                "candidate_id i job_id muszą być przekazane razem albo pominięte"
+            )
+        return self
+
+
+class B2BConfirmFullySignedResponse(BaseModel):
+    outcome: Literal["created", "linked_existing", "already_processed"]
+    contract_id: int
+    order_id: Optional[int] = None
+    candidate_id: int
+    job_id: int
+    client_id: int
+    message: str
+    generated_contract: B2BGeneratedContractItem

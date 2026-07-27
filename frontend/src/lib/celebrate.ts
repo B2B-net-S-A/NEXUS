@@ -1,5 +1,6 @@
 import { useThemeStore } from "@/store/theme";
 import { playCelebrateSound } from "@/lib/kidsSound";
+import { prefersReducedMotion } from "@/lib/prefers-reduced-motion";
 
 /**
  * Light gamification for the "Kids / game world" mode.
@@ -23,13 +24,6 @@ interface CelebrateOptions {
   variant?: CelebrateVariant;
   /** Minor event — a small puff, no sound (keeps things "nie nachalne"). */
   small?: boolean;
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
-  );
 }
 
 const PALETTE = ["#ec4899", "#a855f7", "#38bdf8", "#facc15", "#34d399", "#fb7185"];

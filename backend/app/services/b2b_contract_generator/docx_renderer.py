@@ -45,7 +45,15 @@ def render_from_context(context: dict, *, language: str | None = "pl") -> bytes:
     if not path.is_file():
         raise FileNotFoundError(f"Brak szablonu DOCX: {path}")
     tpl = DocxTemplate(str(path))
-    tpl.render(context, jinja_env=_jinja_env())
+    # Binarny szablon prawny w Załączniku nr 3 ma historyczny placeholder
+    # ``contract.start_date``. Podstawiamy mu tę samą pełną frazę co w §13,
+    # dzięki czemu tryb „nie wcześniej/później niż" nie ginie w załączniku.
+    # Kopia zapobiega mutowaniu kontekstu używanego także przez podgląd HTML.
+    render_context = {**context, "contract": dict(context.get("contract") or {})}
+    start = (context.get("b2b") or {}).get("start_clause")
+    if start:
+        render_context["contract"]["start_date"] = start
+    tpl.render(render_context, jinja_env=_jinja_env())
     # Per-klient modyfikacje umowy (np. § 10 Centrum e-Zdrowia/PFRON, § 4 BNP,
     # Załączniki CA/BIK) — podmiana w już wyrenderowanym dokumencie; brak
     # operacji = render bez zmian.

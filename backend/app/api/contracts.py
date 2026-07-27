@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import hashlib
 import logging
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
@@ -60,11 +62,13 @@ from app.schemas.contract import (
     ContractDraftUpdate,
     ContractList,
     ContractRateHistoryEntry,
+    ContractReopenRequest,
     ContractResponse,
     ContractTemplateBrief,
     ContractTerminateRequest,
     ContractTimelineItem,
     ContractUpdate,
+    ContractVoidRequest,
 )
 from app.schemas.contract_amendment import (
     ContractAmendmentCreate,
@@ -85,9 +89,17 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import storage_service
+from app.services.contract_lifecycle import (
+    activate_contract as lifecycle_activate_contract,
+    can_hard_delete,
+    move_to_ready_for_signature,
+    revert_contract,
+    void_contract,
+)
 from app.services.contract_service import validate_ready_for_activation
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
+from app.api.financial_access import redact_feed_activity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -312,6 +324,10 @@ def _apply_contract_list_filters(
         )
     if status:
         query = query.where(Contract.status.in_(status))
+    else:
+        # Voided (soft-deleted) contracts are hidden from the default roster;
+        # ask for them explicitly (?status=void) to see them.
+        query = query.where(Contract.status != ContractStatus.void)
     if client_id:
         query = query.where(Contract.client_id == client_id)
     if candidate_id:
@@ -438,6 +454,16 @@ async def list_contracts(
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    if not finance_ok:
+        # F-13: the amount fields are redacted from the response below. The
+        # rate/margin FILTERS must be ignored too — otherwise a non-finance
+        # caller can binary-search a hidden rate/margin by watching which rows
+        # survive the filter (an oracle). Drop them before building the query.
+        rate_client_min = rate_client_max = margin_min = None
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -502,9 +528,7 @@ async def list_contracts(
         )
         for c in contracts
     ]
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    if not finance_ok:
         for item in items:
             _redact_contract_finance(item)
     return ContractList(items=items, total=total, page=page, page_size=page_size)
@@ -809,7 +833,14 @@ async def create_contract(
             selectinload(Contract.framework_rate_schedule),
         )
     )
-    return _to_detail(result.scalar_one())
+    detail = _to_detail(result.scalar_one())
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    # P0.12: writing a contract does not grant sight of its finances — TAC can
+    # create/PATCH (see #874) but the RESPONSE stays redacted for non-VIEW_FINANCE.
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 @router.post("/alerts/run", status_code=status.HTTP_200_OK)
@@ -939,7 +970,7 @@ async def expiring_contracts(
         )
     )
     today = date.today()
-    return [
+    items = [
         ContractResponse.model_validate(
             {
                 **{
@@ -953,6 +984,14 @@ async def expiring_contracts(
         )
         for c in result.scalars().all()
     ]
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    # P0.12: the expiry banner is operational — TAC sees which contracts end, but
+    # not the rates/margin (mirrors list_contracts + get_contract redaction).
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        for item in items:
+            _redact_contract_finance(item)
+    return items
 
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)
@@ -997,6 +1036,13 @@ async def contract_activities(
     if contract_exists.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Contract not found")
 
+    # P0.12: a contract ``updated`` audit row carries the changed rate fields
+    # (rate_candidate/rate_client/margin) in ``details`` — strip them for
+    # non-VIEW_FINANCE readers (TAC), mirroring `_redact_contract_finance`.
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+
     result = await db.execute(
         select(Activity, User.email)
         .outerjoin(User, Activity.user_id == User.id)
@@ -1006,11 +1052,16 @@ async def contract_activities(
     )
     entries: list[ContractActivityEntry] = []
     for activity, user_email in result.all():
+        details = redact_feed_activity(
+            activity.action, activity.details, finance_ok=finance_ok
+        )
+        if details is None:
+            continue
         entries.append(
             ContractActivityEntry(
                 id=activity.id,
                 action=activity.action,
-                details=activity.details,
+                details=details,
                 user_id=activity.user_id,
                 user_name=user_email,
                 created_at=activity.created_at,
@@ -1044,11 +1095,17 @@ async def contract_rate_history(
     )
     history_query = history_query.order_by(RateHistory.start_date.desc())
 
+    # P0.12: rate amounts are finance data — redacted (None) for non-VIEW_FINANCE
+    # readers (TAC), the same gate the contract list/detail rate reads use.
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+
     result = await db.execute(history_query)
     return [
         ContractRateHistoryEntry(
             id=r.id,
-            rate=r.rate,
+            rate=(r.rate if finance_ok else None),
             currency=r.currency,
             contract_type=r.contract_type.value
             if hasattr(r.contract_type, "value")
@@ -1181,9 +1238,17 @@ async def update_contract(
                 selectinload(Contract.framework_rate_schedule),
             )
         )
-        return _to_detail(reloaded.scalar_one())
-    await db.refresh(contract)
-    return _to_detail(contract)
+        detail = _to_detail(reloaded.scalar_one())
+    else:
+        await db.refresh(contract)
+        detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    # P0.12: TAC may PATCH (incl. client rate, #874) but the response stays
+    # redacted for non-VIEW_FINANCE — the write allowance is not sight of finances.
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 @router.post("/{contract_id}/activate", response_model=ContractDetailResponse)
@@ -1216,42 +1281,42 @@ async def activate_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
 
-    if contract.status != ContractStatus.draft:
+    if contract.status not in (
+        ContractStatus.draft,
+        ContractStatus.ready_for_signature,
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Contract is already {contract.status.value}, cannot activate",
         )
 
-    missing = validate_ready_for_activation(contract)
-    if missing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"message": "Missing required fields", "missing": missing},
-        )
+    # Single guarded path to `active`. Enforces field completeness AND, when a
+    # signature is required, a completed qualified signature — raises 409
+    # otherwise (missing fields / missing signed evidence). Deliberately no
+    # Notification row: the auto-draft hook in pipeline.py already fired a
+    # `contract_activated` notification when the candidate moved to `hired`
+    # (the per-day dedup index would collide). The lifecycle service writes the
+    # audit Activity row.
+    await lifecycle_activate_contract(db, contract, actor_id=current_user.id)
 
-    contract.status = ContractStatus.active
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=contract_id,
-            action="contract_activated",
-            user_id=current_user.id,
-            details={"from_status": "draft", "to_status": "active"},
-        )
-    )
-
-    # Deliberately no Notification row here — the auto-draft hook in
-    # pipeline.py already fired a `contract_activated` notification for this
-    # contract on the same day when the candidate moved to `hired`. The
-    # per-day dedup index (user_id, notification_type, related_entity_id,
-    # day) would collide. Activation is a routine follow-up to a draft
-    # that admins were already alerted about, so re-notifying adds no
-    # value. The Activity row above provides the audit trail.
-
+    # `flush` runs the before_update margin recompute; `refresh` eagerly reloads
+    # the server `onupdate` columns (updated_at, margin) in async context so the
+    # sync `_to_detail` serializer never triggers a lazy load. Serialize BEFORE
+    # the commit so the response is built while the connection is live.
     await db.flush()
     await db.refresh(contract)
+    detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
-    # Phase 7.6 — fire-and-forget Teams notification for contract_signed.
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+
+    # Outbox/side-effects AFTER the activation commit — the `contract_signed`
+    # Teams notification loads the contract in its own session, so it must not
+    # run before this transaction is durable. Committing here (rather than
+    # leaning on get_db's trailing commit) guarantees the ordering; get_db's
+    # later commit becomes a harmless no-op.
+    await db.commit()
     try:
         from app.services.teams_notifications import notify_contract_signed_by_id
 
@@ -1261,7 +1326,7 @@ async def activate_contract(
             "Teams notify (contract_signed via activate) scheduling failed: %s", exc
         )
 
-    return _to_detail(contract)
+    return detail
 
 
 # ── Editable draft (migracja 0058) ───────────────────────────────────────────
@@ -1308,6 +1373,27 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
 
 
+# Draft/contract HTML is authored by TacPlus (non-admin) users and served
+# same-origin for preview. An explicit restrictive CSP is the browser-side
+# trust boundary against stored XSS (M5-P0.10): every script is blocked EXCEPT
+# our own auto-print snippet, allowed by its SHA-256 hash. Inline styles +
+# data: images are permitted so the legal-document formatting still renders.
+# Set per-route so it holds even in DEBUG and independent of the incidental
+# global default. An injected `<script>`/`onerror=` in the draft body has no
+# matching hash → the browser refuses to run it.
+_AUTOPRINT_JS = (
+    "window.addEventListener('load',()=>setTimeout(()=>window.print(),300));"
+)
+_AUTOPRINT_HASH = "sha256-" + base64.b64encode(
+    hashlib.sha256(_AUTOPRINT_JS.encode("utf-8")).digest()
+).decode("ascii")
+_CONTRACT_PREVIEW_CSP = (
+    "default-src 'none'; "
+    f"script-src '{_AUTOPRINT_HASH}'; "
+    "style-src 'unsafe-inline'; img-src data:; font-src data:"
+)
+
+
 def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
     """Wrap raw body HTML with print-friendly stylesheet + auto-print script."""
     return (
@@ -1321,8 +1407,7 @@ def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
         "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}"
         "@media print{body{margin:0;padding:0}}"
         "</style>"
-        "<script>window.addEventListener('load',()=>setTimeout("
-        "()=>window.print(),300));</script>"
+        f"<script>{_AUTOPRINT_JS}</script>"
         "</head><body>"
         f"{body_html}"
         "</body></html>"
@@ -1491,7 +1576,10 @@ async def render_draft_for_print(
         contract.candidate
         and f"{contract.candidate.name} {contract.candidate.lastname}"
     ) or "Umowa"
-    return HTMLResponse(content=_wrap_printable(body, contract.id, title))
+    return HTMLResponse(
+        content=_wrap_printable(body, contract.id, title),
+        headers={"Content-Security-Policy": _CONTRACT_PREVIEW_CSP},
+    )
 
 
 @router.post(
@@ -1503,11 +1591,16 @@ async def finalize_contract_draft(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    """Snapshot the draft as a `ContractDocument(doc_type=contract)` and
-    flip the contract from `draft` to `active`.
+    """Snapshot the draft as a `ContractDocument(doc_type=contract)` and move
+    the contract from `draft` to `ready_for_signature`.
 
-    Reuses the same field-validation rule as `/activate` so the UI can
-    show a consistent missing-field list.
+    An unsigned finalized draft is NOT active — finalizing produces the immutable
+    snapshot that is then sent for a qualified signature, and the contract stops
+    at `ready_for_signature`. Reaching `active` still requires the guarded
+    `/activate` path (which enforces signed evidence). Reuses the same
+    field-validation rule as `/activate` so the UI can show a consistent
+    missing-field list. No `contract_signed` side effect fires here — the
+    contract is not signed yet.
     """
     contract = await _load_contract_with_relations(db, contract_id)
 
@@ -1523,6 +1616,8 @@ async def finalize_contract_draft(
             detail="Draft is empty — generate or paste content before finalizing.",
         )
 
+    # Validate required fields BEFORE writing the snapshot to storage, so a
+    # 409 never leaves an orphan file behind.
     missing = validate_ready_for_activation(contract)
     if missing:
         raise HTTPException(
@@ -1559,35 +1654,22 @@ async def finalize_contract_draft(
         uploaded_by=current_user.id,
     )
     db.add(doc)
-
-    contract.status = ContractStatus.active
     db.add(
         Activity(
             entity_type="contract",
             entity_id=contract.id,
             action="draft_finalized",
             user_id=current_user.id,
-            details={
-                "from_status": "draft",
-                "to_status": "active",
-                "snapshot_filename": filename,
-            },
+            details={"snapshot_filename": filename},
         )
     )
+
+    # Guarded transition to `ready_for_signature` (NOT `active`): the snapshot is
+    # unsigned. No `contract_signed` side effect — the contract is not signed.
+    await move_to_ready_for_signature(db, contract, actor_id=current_user.id)
+
     await db.flush()
     await db.refresh(doc)
-
-    # Phase 7.6 — fire-and-forget Teams notification for contract_signed.
-    # finalize_contract_draft is the "draft → active" transition for the
-    # editable contract draft flow; same business event as /activate.
-    try:
-        from app.services.teams_notifications import notify_contract_signed_by_id
-
-        asyncio.create_task(notify_contract_signed_by_id(contract.id))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "Teams notify (contract_signed via finalize) scheduling failed: %s", exc
-        )
 
     return ContractDraftFinalizeResponse(
         contract_id=contract.id,
@@ -1595,6 +1677,84 @@ async def finalize_contract_draft(
         document_id=doc.id,
         document_filename=doc.filename,
     )
+
+
+@router.post("/{contract_id}/reopen", response_model=ContractDetailResponse)
+async def reopen_contract_endpoint(
+    contract_id: int,
+    data: ContractReopenRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Audited revert to `draft` — the guarded replacement for free status writes.
+
+    Legitimate uses: a mistakenly activated/finalized/ended contract that needs
+    to go back to editing. Terminal metadata is cleared. Illegal transitions
+    (e.g. reopening a `void`) return 409.
+    """
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    await revert_contract(db, contract, actor_id=current_user.id, reason=data.reason)
+    await db.flush()
+    await db.refresh(contract)
+    detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
+
+
+@router.post("/{contract_id}/void", response_model=ContractDetailResponse)
+async def void_contract_endpoint(
+    contract_id: int,
+    data: ContractVoidRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete (annul) a contract, preserving documents + signature evidence.
+
+    The safe alternative to a hard DELETE for executed/active contracts.
+    """
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    await void_contract(db, contract, actor_id=current_user.id, reason=data.reason)
+    await db.flush()
+    await db.refresh(contract)
+    detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1605,6 +1765,24 @@ async def delete_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+
+    # Only a non-executed `draft` with no completed signature may be hard-deleted.
+    # Everything else must be voided (soft-delete) so a DELETE can never cascade
+    # away signature evidence for an executed/active contract.
+    if not await can_hard_delete(db, contract):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "Contract is executed, has signature evidence, or is linked "
+                    "to an audited bilateral-signature confirmation and cannot "
+                    "be hard-deleted; void it instead to preserve its history."
+                ),
+                "status": contract.status.value,
+                "void_endpoint": f"/api/contracts/{contract_id}/void",
+            },
+        )
+
     db.add(
         Activity(
             entity_type="contract",
@@ -2373,7 +2551,12 @@ async def terminate_contract(
     )
     await db.flush()
     await db.refresh(contract)
-    return _to_detail(contract)
+    detail = _to_detail(contract)
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+
+    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_contract_finance(detail)
+    return detail
 
 
 # ── Notes + Calls timeline per contract ──────────────────────────────────────

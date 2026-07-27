@@ -1,3 +1,5 @@
+import { getAccessToken } from "./session";
+
 export interface BulkCvDownloadResult {
   includedCount: number;
   skippedCount: number;
@@ -34,8 +36,7 @@ export async function downloadBulkCvs(
   }
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  const token = getAccessToken();
 
   const res = await fetch(`${apiBase}/api/candidates/bulk-cv-download`, {
     method: "POST",

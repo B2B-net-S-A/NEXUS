@@ -32,6 +32,8 @@ class EmploymentInfo(BaseModel):
     state: EmploymentState
     client_id: Optional[int] = None
     client_name: Optional[str] = None
+    contract_id: Optional[int] = None
+    job_id: Optional[int] = None
     contract_end_date: Optional[date] = None
     source: Literal["contract", "conflict", "pipeline", "none"] = "none"
 
@@ -417,6 +419,100 @@ class CandidateResponse(BaseModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
 
+class CandidateQuickViewPosition(BaseModel):
+    title: Optional[str] = None
+    started_at: Optional[str] = None
+    precision: Literal["date", "month", "year", "unknown"] = "unknown"
+
+
+class CandidateQuickViewAvailability(BaseModel):
+    status: AvailabilityStatus = AvailabilityStatus.unknown
+    available_from: Optional[date] = None
+    notice_period: Optional[int] = None
+    notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
+
+
+class CandidateQuickViewSource(BaseModel):
+    added_by_name: str
+    acquisition_source: Optional[str] = None
+    imported_via: Optional[str] = None
+
+
+class CandidateQuickViewRecruitment(BaseModel):
+    job_id: int
+    job_title: str
+    client_name: Optional[str] = None
+    stage_id: int
+    stage_name: str
+    moved_at: datetime
+    moved_by_name: Optional[str] = None
+
+
+class CandidateQuickViewNote(BaseModel):
+    id: int
+    content: str
+    created_at: datetime
+    author_name: Optional[str] = None
+
+
+class CandidateCvHighlights(BaseModel):
+    profile: Optional[str] = None
+    years_experience: Optional[int] = None
+    current_role: Optional[str] = None
+    current_role_started_at: Optional[str] = None
+    current_role_started_at_precision: Literal["date", "month", "year", "unknown"] = (
+        "unknown"
+    )
+    technologies: list[str] = Field(default_factory=list)
+    sectors: list[str] = Field(default_factory=list)
+    bullets: list[str] = Field(default_factory=list, max_length=4)
+    source_document_id: Optional[int] = None
+    source_hash: Optional[str] = None
+    extractor_version: Optional[str] = None
+    generated_at: Optional[datetime] = None
+
+
+class CandidateQuickViewCapabilities(BaseModel):
+    can_assign: bool
+    can_mark_employed: bool
+    can_view_documents: bool
+    can_open_full_profile: bool
+
+
+class CandidateQuickViewCandidate(BaseModel):
+    """Minimal candidate identity used by the quick-view drawer.
+
+    Deliberately excludes ``cv_extracted_data`` and all other full-profile
+    fields so this bounded endpoint never transports CV content.
+    """
+
+    id: int
+    name: str
+    lastname: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    location: Optional[str] = None
+    status: CandidateStatus
+    employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
+    competence_category_id: Optional[int] = None
+    competence_category: Optional[str] = None
+    skills: Optional[Any] = None
+
+
+class CandidateQuickViewResponse(BaseModel):
+    candidate: CandidateQuickViewCandidate
+    current_position: CandidateQuickViewPosition
+    availability: CandidateQuickViewAvailability
+    source: CandidateQuickViewSource
+    current_recruitments: list[CandidateQuickViewRecruitment] = Field(
+        default_factory=list
+    )
+    recent_notes: list[CandidateQuickViewNote] = Field(default_factory=list)
+    cv_highlights: CandidateCvHighlights
+    capabilities: CandidateQuickViewCapabilities
+
+
 class CandidateList(BaseModel):
     items: list[CandidateResponse]
     total: int
@@ -449,7 +545,7 @@ class CandidateFromCVResponse(BaseModel):
     candidate: CandidateResponse
     confidence: dict[str, float] = Field(default_factory=dict)
     duplicates: list[CandidateFromCVDuplicate] = Field(default_factory=list)
-    source: Optional[str] = None  # e.g. "claude:cv_enrichment:v4"
+    source: Optional[str] = None  # e.g. "claude:cv_enrichment:v5"
 
 
 class CandidateFromCVConflictResponse(BaseModel):
@@ -471,12 +567,20 @@ class CandidateDocumentOut(BaseModel):
     filename: str
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
+    document_kind: Literal["cv", "cover_letter", "certificate", "other"]
     is_primary: bool
     uploaded_at: Optional[datetime] = None
     external_source: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CandidateDocumentUpdate(BaseModel):
+    document_kind: Optional[Literal["cv", "cover_letter", "certificate", "other"]] = (
+        None
+    )
+    is_primary: Optional[bool] = None
 
 
 # ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
@@ -526,5 +630,10 @@ class CandidateFromLinkedInResponse(BaseModel):
     linkedin_url: str
     linkedin_sync_status: LinkedinSyncStatus
     assigned_to_job_id: Optional[int] = None
+    # Set when the candidate was saved but deliberately NOT put on the job —
+    # today only when the job's hiring manager already rejected them after an
+    # interview. Never fail the whole "add from LinkedIn" over it; the popup
+    # shows this instead of a silent no-op.
+    assignment_skipped_reason: Optional[str] = None
     profile_url_path: str
     resync_scheduled: bool = False

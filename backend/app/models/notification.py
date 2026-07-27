@@ -154,6 +154,15 @@ class Notification(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # Rezerwacja wiersza przez background task ZANIM poleci SMTP. Rozdzielona
+    # od `email_sent_at`, bo stemplowanie „wysłane" przed faktyczną wysyłką
+    # znaczy, że crash w tym oknie gubi maila na zawsze. Tutaj crash zostawia
+    # tylko wiszącą rezerwację — po `CLAIM_STALE_MIN` przejmuje ją kolejny
+    # przebieg i wysyła. NULL = wolny, wartość = wysyłka w toku.
+    email_send_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
 

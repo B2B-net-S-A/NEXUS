@@ -38,7 +38,7 @@ Pokrycie:
 
 from __future__ import annotations
 
-import json
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -56,6 +56,37 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+
+
+async def _expire_share_token(token: str) -> None:
+    """Backdate the row behind a raw share token so it reads as expired.
+
+    Matched the way production reads it (`get_public_cv`): since migration 0176
+    the secret is no longer stored — `token_sha256` holds its SHA-256 and the
+    `token` PK holds a non-secret ``v2$…`` revoke key. Matching the raw secret
+    against `token` updates zero rows, and an UPDATE that touches nothing fails
+    silently: the link stays valid and the 410 assertion below quietly becomes
+    an assertion about a live link. The rowcount guard makes that failure mode
+    loud instead.
+    """
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(
+            update(CVShareToken)
+            .where(
+                (CVShareToken.token_sha256 == digest)
+                | (
+                    (CVShareToken.token == token)
+                    & (CVShareToken.token_sha256.is_(None))
+                )
+            )
+            .values(expires_at=datetime.now(timezone.utc) - timedelta(days=1))
+        )
+        await db.commit()
+    assert res.rowcount == 1, (
+        f"expiry precondition matched {res.rowcount} rows — the test would have "
+        "asserted against a link that was never expired"
+    )
 
 
 async def _seed_full_stage(
@@ -504,13 +535,13 @@ async def test_public_cv_410_when_expired(
         )
     ).json()["token"]
 
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            update(CVShareToken)
-            .where(CVShareToken.token == tok)
-            .values(expires_at=datetime.now(timezone.utc) - timedelta(days=1))
-        )
-        await db.commit()
+    # Positive control: the same token, before backdating, must serve. Without it
+    # a 410 could equally mean "expiry works" or "the link was broken all along",
+    # and only expiry is under test here.
+    live = await app_client.get(f"/api/public/cv/{tok}")
+    assert live.status_code == 200, live.text
+
+    await _expire_share_token(tok)
 
     pub = await app_client.get(f"/api/public/cv/{tok}")
     assert pub.status_code == 410

@@ -30,12 +30,15 @@ from app.schemas.job_shortlist import (
     ShortlistPromoteResponse,
     ShortlistUpdateRequest,
 )
+from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
+    EligibilityReason,
     evaluate_eligibility,
     extract_excluded_client_ids,
 )
+from app.services.hiring_manager_verdicts import load_manager_rejections
 
 router = APIRouter()
 
@@ -266,6 +269,9 @@ async def promote_shortlist_entry(
         .scalars()
         .all()
     )
+    manager_verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=[candidate.id]
+    )
     decision = evaluate_eligibility(
         EligibilityInput(
             candidate_status=candidate.status.value,
@@ -281,11 +287,19 @@ async def promote_shortlist_entry(
             ),
             excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
             already_in_job=False,
+            rejected_by_hiring_manager=candidate.id in manager_verdicts,
         ),
         now,
     )
     if not decision.assignment_allowed:
-        raise HTTPException(status_code=409, detail=decision.reason)
+        detail = decision.reason
+        verdict = manager_verdicts.get(candidate.id)
+        if (
+            decision.reason_code is EligibilityReason.rejected_by_hiring_manager
+            and verdict is not None
+        ):
+            detail = verdict.as_polish_detail()
+        raise HTTPException(status_code=409, detail=detail)
 
     stage_def = await _resolve_initial_stage(db, job, None)
     legacy_enum = PipelineStage.new
@@ -303,6 +317,11 @@ async def promote_shortlist_entry(
         moved_by=current_user.id,
     )
     db.add(stage)
+    # M3-ACT-01: snapshot the CV current at promotion + emit the audit, the
+    # same invariant the single-assign path holds — shortlist promotion was
+    # skipping it. Idempotent + fail-soft.
+    await db.flush()
+    await create_original_cv_snapshot(db, stage)
     entry.promoted_to_pipeline_at = now
     entry.updated_by = current_user.id
     await db.commit()

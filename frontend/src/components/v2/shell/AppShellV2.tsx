@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
+import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
@@ -37,6 +38,13 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isApplyPage = pathname?.startsWith("/apply/") ?? false;
   // `/sign/{token}` — public consultant signing page, no internal app shell.
   const isSignPage = pathname?.startsWith("/sign/") ?? false;
+  // `/register`, `/register/verify` — public self-service registration (bare form).
+  const isRegisterPage = pathname?.startsWith("/register") ?? false;
+  // `/cv/{token}` — public CV preview. `startsWith("/cv/")` (trailing slash) żeby
+  // NIE złapać authed `/cv-generator`.
+  const isCvPreviewPage = pathname?.startsWith("/cv/") ?? false;
+  // `/engagement/{token}` — public magic-link engagement page, no internal shell.
+  const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<QuickActionModal>(null);
@@ -70,9 +78,16 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
     setCommandOpen(true);
   }, []);
 
+  // Skróty klawiszowe `n` / `j` i akcje w Command Palette to alternatywne
+  // wejścia do tych samych operacji co Quick Actions — muszą przechodzić przez
+  // TEN SAM rejestr capability (audyt F-19), inaczej omijają bramkę.
+  const can = useCapabilities();
+  const openNewCandidate = useCallback(() => setPendingModal("candidate"), []);
+  const openNewJob = useCallback(() => setPendingModal("job"), []);
+
   const { showHelp, setShowHelp } = useKeyboardShortcuts({
-    onNewCandidate: useCallback(() => setPendingModal("candidate"), []),
-    onNewJob: useCallback(() => setPendingModal("job"), []),
+    onNewCandidate: can["candidate.create"] ? openNewCandidate : undefined,
+    onNewJob: can["job.create"] ? openNewJob : undefined,
     onFocusSearch: focusSearch,
   });
 
@@ -87,6 +102,12 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isSharePage) return <>{children}</>;
   if (isApplyPage) return <>{children}</>;
   if (isSignPage) return <>{children}</>;
+  // Public/standalone routes — render children bare so the authed shell
+  // (sidebar, presence, notifications) never mounts and fires 401-noisy fetches
+  // for unauthenticated visitors.
+  if (isRegisterPage) return <>{children}</>;
+  if (isCvPreviewPage) return <>{children}</>;
+  if (isEngagementPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
   if (pathname?.startsWith("/preview")) return <>{children}</>;
 
@@ -101,6 +122,15 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell-root flex h-screen overflow-hidden bg-background text-foreground">
+      {/* Skip link — pierwszy element w kolejności tabulacji; widoczny dopiero
+          po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+      >
+        Przejdź do treści
+      </a>
+
       {/* Mobile backdrop */}
       {mobileSidebarOpen && (
         <div
@@ -130,7 +160,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
           onOpenCommandPalette={() => setCommandOpen(true)}
         />
 
-        <main className="flex-1 overflow-y-auto">
+        {/* `tabIndex={-1}` — bez tego część przeglądarek przewinie do kotwicy,
+            ale nie przeniesie fokusu, więc skip link byłby pozorny. */}
+        <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
           <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
         </main>
       </div>
@@ -139,8 +171,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       <CommandPaletteV2
         open={commandOpen}
         onOpenChange={setCommandOpen}
-        onNewCandidate={() => setPendingModal("candidate")}
-        onNewJob={() => setPendingModal("job")}
+        onNewCandidate={can["candidate.create"] ? openNewCandidate : undefined}
+        onNewJob={can["job.create"] ? openNewJob : undefined}
       />
 
       {/* Keyboard shortcuts help */}

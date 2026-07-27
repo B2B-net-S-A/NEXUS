@@ -268,6 +268,32 @@ export function PipelineTemplatesTab() {
     }
   };
 
+  const handleToggleDisqualifies = async (reason: RejectionReasonDef) => {
+    if (!detail) return;
+    const next = !reason.disqualifies_person;
+    // Turning it ON acts retroactively — every past rejection with this reason
+    // starts blocking. Turning it OFF only relaxes, so it needs no confirm.
+    if (
+      next &&
+      !confirm(
+        `Włączyć blokadę dla powodu "${reason.name}"?\n\n` +
+          "Zadziała wstecz — wszystkie dotychczasowe odrzucenia z tym powodem " +
+          "zaczną blokować ponowne zgłoszenie do tego samego hiring managera."
+      )
+    ) {
+      return;
+    }
+    try {
+      await pipelineTemplatesApi.updateRejectionReason(detail.id, reason.id, {
+        disqualifies_person: next,
+      });
+      await loadDetail(detail.id);
+    } catch (err) {
+      console.error(err);
+      alert("Nie udało się zmienić blokady dla tego powodu.");
+    }
+  };
+
   const handleDeactivateReason = async (reason: RejectionReasonDef) => {
     if (!detail) return;
     if (!confirm(`Wyłączyć powód "${reason.name}"?`)) return;
@@ -527,6 +553,16 @@ export function PipelineTemplatesTab() {
                   </button>
                 </div>
 
+                <p className="text-xs text-muted-foreground mb-3">
+                  <span className="font-medium">„Blokuje u tego managera"</span> —
+                  po odrzuceniu z tym powodem kandydat nie zostanie ponownie dodany
+                  do żadnej rekrutacji prowadzonej przez tego samego hiring managera.
+                  Blokada jest bezterminowa; kandydat pozostaje widoczny na listach.
+                  Zaznaczaj powody będące oceną osoby (np. „Nie spełnia wymagań
+                  technicznych"), a nie sytuacyjne (np. „Za wysokie oczekiwania
+                  finansowe").
+                </p>
+
                 {(["rejected", "withdrawn"] as const).map((cat) => {
                   const reasons = detail.rejection_reasons.filter(
                     (r) => r.category === cat
@@ -544,12 +580,36 @@ export function PipelineTemplatesTab() {
                             className="flex items-center justify-between rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-1.5 text-sm"
                           >
                             <span>{r.name}</span>
-                            <button
-                              onClick={() => handleDeactivateReason(r)}
-                              className="text-red-400 hover:text-destructive text-xs"
-                            >
-                              Wyłącz
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <label
+                                className={`flex items-center gap-1.5 text-xs ${
+                                  cat === "rejected"
+                                    ? "cursor-pointer text-muted-foreground"
+                                    : "cursor-not-allowed text-muted-foreground/50"
+                                }`}
+                                title={
+                                  cat === "rejected"
+                                    ? "Blokuje ponowne zgłoszenie do tego hiring managera"
+                                    : "Wycofanie to decyzja kandydata, nie werdykt managera"
+                                }
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={r.disqualifies_person}
+                                  disabled={cat !== "rejected"}
+                                  onChange={() => handleToggleDisqualifies(r)}
+                                  className="h-3.5 w-3.5 rounded border-border accent-primary disabled:opacity-40"
+                                  aria-label={`Blokuje ponowne zgłoszenie do tego hiring managera: ${r.name}`}
+                                />
+                                Blokuje u tego managera
+                              </label>
+                              <button
+                                onClick={() => handleDeactivateReason(r)}
+                                className="text-red-400 hover:text-destructive text-xs"
+                              >
+                                Wyłącz
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ul>

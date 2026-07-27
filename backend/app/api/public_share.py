@@ -38,7 +38,12 @@ from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
 from app.models.activity import Activity
+from app.models.application_submission import (
+    ApplicationSubmission,
+    ApplicationSubmissionStatus,
+)
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.champion_share import ChampionCardShareToken
 from app.models.cv_share_token import CVShareToken
@@ -67,8 +72,20 @@ async def get_public_champion_card(
     shape is slimmed down — no internal fields (scores, stage ids) — so that
     the client only sees what the recruiter meant to share.
     """
+    # Dual-read (same pattern as CVShareToken): v2 rows match the SHA-256 digest
+    # of the incoming secret; legacy rows kept the raw secret in the PK and are
+    # matched directly, scoped to token_sha256 IS NULL so they age out on expiry.
+    import hashlib
+
+    digest = hashlib.sha256(token.encode()).hexdigest()
     row: Optional[ChampionCardShareToken] = await db.scalar(
-        select(ChampionCardShareToken).where(ChampionCardShareToken.token == token)
+        select(ChampionCardShareToken).where(
+            (ChampionCardShareToken.token_sha256 == digest)
+            | (
+                (ChampionCardShareToken.token == token)
+                & (ChampionCardShareToken.token_sha256.is_(None))
+            )
+        )
     )
     if row is None or row.revoked:
         raise HTTPException(status_code=404, detail="Share link not found or revoked")
@@ -193,7 +210,14 @@ async def get_public_cv(
             entity_id=csv.id,
             action="cv_share_viewed",
             user_id=None,
-            details={"revoke_key": row.token, "view_no": int(claimed)},
+            # Never write the raw token here: for legacy rows row.token IS the
+            # secret, so this used to copy a live capability secret into the
+            # audit trail (widening its DB footprint). The SHA-256 digest is a
+            # safe stable reference; legacy rows without one fall back to the id.
+            details={
+                "revoke_key": row.token_sha256 or f"legacy-cv-share:{csv.id}",
+                "view_no": int(claimed),
+            },
         )
     )
     await db.commit()
@@ -233,8 +257,18 @@ async def _load_valid_link(token: str, db: AsyncSession) -> CandidateInviteLink:
 
     Shared by both GET and POST so failure modes stay consistent.
     """
+    import hashlib
+
+    # Dual-read: v2 by SHA-256 digest, legacy by raw token (token_sha256 NULL).
+    digest = hashlib.sha256(token.encode()).hexdigest()
     link = await db.scalar(
-        select(CandidateInviteLink).where(CandidateInviteLink.token == token)
+        select(CandidateInviteLink).where(
+            (CandidateInviteLink.token_sha256 == digest)
+            | (
+                (CandidateInviteLink.token == token)
+                & (CandidateInviteLink.token_sha256.is_(None))
+            )
+        )
     )
     if link is None or link.revoked:
         raise HTTPException(status_code=404, detail="Invite link not found or revoked")
@@ -327,6 +361,54 @@ async def _persist_cv(
     return filename, raw_text
 
 
+async def _persist_submission_cv(
+    upload: UploadFile, content: bytes
+) -> tuple[Optional[str], Optional[bytes], Optional[str]]:
+    """Store an applicant CV INERT — attached to no candidate.
+
+    Returns ``(object_key, file_bytes, raw_text)``. When object storage is
+    configured the bytes are uploaded there and ``file_bytes`` is None; in
+    dev/CI (no object storage) the bytes come back to be stored in the BYTEA
+    fallback column. ``raw_text`` is a best-effort text extraction kept for the
+    later resolve step. Nothing here writes to a candidate or the shared CV
+    upload dir — the CV stays inert until a recruiter resolves the submission.
+    """
+    filename = upload.filename or "cv.pdf"
+    object_key: Optional[str] = None
+    file_bytes: Optional[bytes] = content
+    try:
+        from app.services import object_storage
+
+        if object_storage.is_available():
+            object_key = await asyncio.to_thread(
+                object_storage.upload_cv, content, filename, upload.content_type
+            )
+            file_bytes = None
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning("[apply] inert CV object-store upload failed: %s", e)
+        object_key = None
+        file_bytes = content
+
+    raw_text: Optional[str] = None
+    try:
+        import tempfile
+
+        from app.services import cv_text_extractor
+
+        def _extract() -> Optional[str]:
+            suffix = os.path.splitext(filename)[1] or ".pdf"
+            with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+                tmp.write(content)
+                tmp.flush()
+                return cv_text_extractor.extract_text(tmp.name, filename)
+
+        raw_text = await asyncio.to_thread(_extract)
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning("[apply] inert CV text extraction failed: %s", e)
+
+    return object_key, file_bytes, raw_text
+
+
 @router.post(
     "/apply/{token}",
     status_code=status.HTTP_201_CREATED,
@@ -356,10 +438,18 @@ async def submit_public_apply(
 ) -> dict:
     """Accept a public application via an invite link.
 
-    Creates a new candidate (branch A) or merges into an existing one by
-    email (branch B, per user decision: "Zaktualizuj istniejący rekord").
-    Ownership (`created_by`) is reassigned to the inviting recruiter so the
-    candidate appears under their name in the list.
+    Two outcomes, both returning an identical generic 201 — the response never
+    reveals whether the e-mail already existed (the old ``created``/``updated``
+    discriminator, an account-enumeration oracle, is gone):
+
+    * **New e-mail (branch A)** — a fresh candidate is created and owned by the
+      inviting recruiter, exactly as before.
+    * **Duplicate e-mail (branch B, P0-CAND-01 containment)** — the existing
+      candidate is NOT touched (no name/CV/contact/ownership/stage mutation).
+      The applicant payload + CV are parked as a ``pending_review``
+      ``ApplicationSubmission`` for recruiter triage (link / merge / create /
+      reject) via ``/api/application-submissions``. A public, reusable invite
+      link plus a known e-mail can no longer poison a canonical profile.
     """
     link = await _load_valid_link(token, db)
 
@@ -369,58 +459,118 @@ async def submit_public_apply(
     content = await cv.read()
     _validate_cv_file(cv, content)
 
+    # Identifies the link in rows that must not carry the raw secret. Both
+    # branches below stamp it: a v2 link's `token` PK is a non-secret revoke
+    # key, so the raw-token prefix they also record resolves nothing on its own.
+    # Read side: `_resolve_invite_source` in api/candidates.
+    token_digest = hashlib.sha256(token.encode()).hexdigest()
+
     # Duplicate-by-email — case-insensitive match.
     normalized_email = str(email).strip().lower()
     existing = await db.scalar(
         select(Candidate).where(func.lower(Candidate.email) == normalized_email)
     )
 
-    branch: str  # "created" or "updated"
-    previous_created_by: Optional[int] = None
-    previous_cv_filename: Optional[str] = None
-
-    if existing is None:
-        candidate = Candidate(
-            name=first_name.strip(),
-            lastname=last_name.strip(),
-            email=str(email),
-            phone=phone.strip() if phone else None,
-            linkedin=linkedin.strip() if linkedin else None,
-            source=f"invite_link:{token[:8]}",
-            status=CandidateStatus.active,
-            created_by=link.created_by,
-            ai_summary=message.strip() if message else None,
+    if existing is not None:
+        # ── Branch B: park the submission, never mutate the candidate ──────
+        object_key, cv_bytes, submission_raw_text = await _persist_submission_cv(
+            cv, content
         )
-        db.add(candidate)
+        submission = ApplicationSubmission(
+            invite_link_token_sha256=token_digest,
+            job_id=link.job_id,
+            status=ApplicationSubmissionStatus.pending_review.value,
+            submitted_first_name=first_name.strip(),
+            submitted_last_name=last_name.strip(),
+            submitted_email=str(email),
+            submitted_phone=phone.strip() if phone else None,
+            submitted_linkedin=linkedin.strip() if linkedin else None,
+            submitted_message=message.strip() if message else None,
+            matched_candidate_id=existing.id,
+            cv_object_key=object_key,
+            cv_file_content=cv_bytes,
+            cv_filename=(cv.filename or "cv.pdf"),
+            cv_content_type=cv.content_type,
+            cv_size_bytes=len(content),
+            raw_cv_text=submission_raw_text,
+            raw_payload={
+                "first_name": first_name.strip(),
+                "last_name": last_name.strip(),
+                "email": str(email),
+                "phone": phone.strip() if phone else None,
+                "linkedin": linkedin.strip() if linkedin else None,
+                "message": message.strip() if message else None,
+                "utm": {
+                    "source": utm_source,
+                    "medium": utm_medium,
+                    "campaign": utm_campaign,
+                    "term": utm_term,
+                    "content": utm_content,
+                },
+            },
+        )
+        db.add(submission)
         await db.flush()
-        branch = "created"
-    else:
-        candidate = existing
-        previous_created_by = candidate.created_by
-        previous_cv_filename = candidate.cv_filename
-        # Name: always refresh to whatever the candidate just typed.
-        candidate.name = first_name.strip()
-        candidate.lastname = last_name.strip()
-        # Optional fields: only write when the existing value is empty.
-        if not candidate.phone and phone:
-            candidate.phone = phone.strip()
-        if not candidate.linkedin and linkedin:
-            candidate.linkedin = linkedin.strip()
-        if message:
-            # Append applicant message to ai_summary without destroying prior notes.
-            prefix = (
-                candidate.ai_summary.strip() + "\n\n" if candidate.ai_summary else ""
-            )
-            candidate.ai_summary = f"{prefix}[{datetime.now(timezone.utc).date().isoformat()}] {message.strip()}"
-        # Ownership: reassign to the recruiter who posted the link.
-        candidate.created_by = link.created_by
-        branch = "updated"
 
-    # Persist CV (always — both branches).
+        # Audit against the SUBMISSION, not the candidate (which is untouched):
+        # no candidate history is rewritten and no candidate PII is exposed.
+        db.add(
+            Activity(
+                entity_type="application_submission",
+                entity_id=submission.id,
+                action="submission_received",
+                user_id=link.created_by,
+                details={
+                    "invite_token": token[:8],
+                    "invite_token_sha256": token_digest,
+                    "job_id": link.job_id,
+                    "matched_candidate_id": existing.id,
+                },
+            )
+        )
+
+        # The link WAS used — count it, even though no candidate was created.
+        link.use_count += 1
+        link.last_used_at = datetime.now(timezone.utc)
+        await db.commit()
+
+        return {"ok": True, "status": "received"}
+
+    # ── Branch A: genuinely new applicant — create the candidate ──────────
+    candidate = Candidate(
+        name=first_name.strip(),
+        lastname=last_name.strip(),
+        email=str(email),
+        phone=phone.strip() if phone else None,
+        linkedin=linkedin.strip() if linkedin else None,
+        source=f"invite_link:{token[:8]}",
+        status=CandidateStatus.active,
+        created_by=link.created_by,
+        profile_about=message.strip() if message else None,
+    )
+    db.add(candidate)
+    await db.flush()
+
+    # Persist CV onto the new candidate.
     stored_filename, raw_text = await _persist_cv(candidate.id, cv, content)
     candidate.cv_filename = stored_filename
     if raw_text:
         candidate.raw_cv_text = raw_text
+    content_hash = hashlib.sha256(content).hexdigest()
+    document = CandidateDocument(
+        candidate_id=candidate.id,
+        filename=stored_filename,
+        file_content=content,
+        content_type=cv.content_type,
+        size_bytes=len(content),
+        document_kind=CandidateDocumentKind.cv,
+        is_primary=True,
+        uploaded_at=datetime.now(timezone.utc),
+        external_source="invite_link",
+        content_sha256=content_hash,
+    )
+    db.add(document)
+    await db.flush()
 
     # Ensure CandidateStage for (candidate, link.job_id) exists at stage="new".
     stage_exists = await db.scalar(
@@ -444,22 +594,18 @@ async def submit_public_apply(
         await create_original_cv_snapshot(db, new_stage)
 
     # Audit trail — link the Activity to the inviting recruiter.
-    activity_details: dict = {
-        "invite_token": token[:8],
-        "job_id": link.job_id,
-        "was_duplicate": branch == "updated",
-    }
-    if previous_created_by and previous_created_by != link.created_by:
-        activity_details["previous_created_by"] = previous_created_by
-    if previous_cv_filename and previous_cv_filename != stored_filename:
-        activity_details["previous_cv_filename"] = previous_cv_filename
     db.add(
         Activity(
             entity_type="candidate",
             entity_id=candidate.id,
             action="applied_via_invite",
             user_id=link.created_by,
-            details=activity_details,
+            details={
+                "invite_token": token[:8],
+                "invite_token_sha256": token_digest,
+                "job_id": link.job_id,
+                "was_duplicate": False,
+            },
         )
     )
     db.add(
@@ -472,7 +618,8 @@ async def submit_public_apply(
                 "name": f"{candidate.name} {candidate.lastname}",
                 "source": "invite_link",
                 "invite_token": token[:8],
-                "was_duplicate": branch == "updated",
+                "invite_token_sha256": token_digest,
+                "was_duplicate": False,
             },
         )
     )
@@ -522,10 +669,14 @@ async def submit_public_apply(
     # candidate sees a fast 201.
     background_tasks.add_task(_invite_post_apply_task, candidate.id)
 
-    return {"ok": True, "status": branch}
+    return {"ok": True, "status": "received"}
 
 
-async def _invite_post_apply_task(candidate_id: int) -> None:
+async def _invite_post_apply_task(
+    candidate_id: int,
+    source_document_id: Optional[int] = None,
+    source_hash: Optional[str] = None,
+) -> None:
     """After-response pipeline for invite-link applications.
 
     Steps:
@@ -545,7 +696,32 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
     try:
         from app.api.candidates import _enrich_candidate_cv_task
 
-        await _enrich_candidate_cv_task(candidate_id)
+        if source_document_id is None:
+            async with AsyncSessionLocal() as db:
+                primary = (
+                    await db.execute(
+                        select(
+                            CandidateDocument.id,
+                            CandidateDocument.content_sha256,
+                        ).where(
+                            CandidateDocument.candidate_id == candidate_id,
+                            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                            CandidateDocument.is_primary.is_(True),
+                            CandidateDocument.source_deleted_at.is_(None),
+                        )
+                    )
+                ).first()
+            if primary is not None:
+                source_document_id = primary.id
+                source_hash = primary.content_sha256
+        if source_document_id is None:
+            await _enrich_candidate_cv_task(candidate_id)
+        else:
+            await _enrich_candidate_cv_task(
+                candidate_id,
+                source_document_id,
+                source_hash,
+            )
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("[apply] CV enrichment failed candidate=%s: %s", candidate_id, e)
 

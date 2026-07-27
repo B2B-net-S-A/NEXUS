@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -58,6 +59,18 @@ logger = logging.getLogger(__name__)
 
 
 ORPHAN_CLIENT_NAME = "__traffit_orphans"
+_CV_FILENAME_RE = re.compile(
+    r"(^|[^a-z])(cv|resume|curriculum)([^a-z]|$)",
+    re.IGNORECASE,
+)
+
+
+def _traffit_document_kind(filename: str, *, is_primary: bool) -> str:
+    """Conservative classification: ambiguous Traffit attachments stay other."""
+
+    if is_primary or _CV_FILENAME_RE.search(filename):
+        return "cv"
+    return "other"
 
 
 @dataclass
@@ -95,6 +108,63 @@ class PhaseProgress:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
+
+
+@dataclass(frozen=True)
+class WithdrawnReasonFallback:
+    """Warstwowy fallback ``rejection_reason_id`` dla ruchów legacy ``withdrawn``.
+
+    DB wymusza ``ck_candidate_stages_withdrawn_requires_reason``
+    (stage='withdrawn' ⇒ rejection_reason_id NOT NULL, migracja 0068), a
+    Traffit ``recruitment_history`` nie niesie powodu.
+
+    Pierwotna wersja rozwiązywała powód WYŁĄCZNIE przez ``jobs.pipeline_template_id``.
+    Na produkcji 4058 z 4075 jobów ma ten FK NULL (99,6%), więc mapa pokrywała
+    17 jobów i praktycznie każdy ruch ``withdrawn`` padał na constraincie —
+    324 błędy fazy ``pipelines`` na KAŻDYM syncu i permanentny
+    ``checks.traffit=degraded``.
+
+    Kolejność rozwiązywania (pierwszy trafiony wygrywa):
+
+    1. ``by_job`` — template joba (zachowuje dotychczasową semantykę tam,
+       gdzie job faktycznie ma pipeline),
+    2. ``by_stage_def`` — template definicji etapu, z której przyszedł ruch
+       (workflow Traffita, w którym ten stan ``withdrawn`` istnieje),
+    3. ``default_id`` — ``legacy_unknown`` domyślnego template'u (globalna
+       siatka bezpieczeństwa).
+
+    Wszystkie warstwy wskazują ten sam seed co backfill 0068: ``legacy_unknown``
+    (category='withdrawn', ``active=false``, order 999), więc powód nigdy nie
+    trafia do pick-listy rekrutera ani nie udaje realnej przyczyny wycofania.
+    """
+
+    by_job: dict[int, int] = field(default_factory=dict)
+    by_stage_def: dict[int, int] = field(default_factory=dict)
+    default_id: Optional[int] = None
+
+    def resolve(
+        self,
+        legacy_enum: str,
+        job_id: Optional[int],
+        stage_def_id: Optional[int],
+    ) -> Optional[int]:
+        """Fallback TYLKO dla ``withdrawn`` (constraint tego wymaga).
+
+        ``rejected``/inne przechodzą z NULL — realny powód uzupełnia
+        ``rejection_backfill`` z activities, a ręczne ruchy rekruterów mają
+        własny wybór z UI.
+        """
+        if legacy_enum != "withdrawn":
+            return None
+        if job_id is not None:
+            hit = self.by_job.get(job_id)
+            if hit is not None:
+                return hit
+        if stage_def_id is not None:
+            hit = self.by_stage_def.get(stage_def_id)
+            if hit is not None:
+                return hit
+        return self.default_id
 
 
 # ── UPSERT statements (raw SQL — explicit DDL preference per repo style) ─────
@@ -175,7 +245,7 @@ _UPSERT_CANDIDATE = text(
     """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
-        location, status, ai_summary, languages, cv_filename,
+        location, status, profile_about, languages, cv_filename,
         cv_extracted_data, source, created_by,
         notes_count, champion, availability_status,
         linkedin_sync_status,
@@ -184,7 +254,7 @@ _UPSERT_CANDIDATE = text(
         :external_id, :external_source, :name, :lastname, :email, :phone,
         :linkedin, :location,
         CAST(:status AS candidatestatus),
-        :ai_summary,
+        :profile_about,
         CAST(:languages AS JSONB),
         :cv_filename,
         CAST(:cv_extracted_data AS JSONB),
@@ -203,7 +273,10 @@ _UPSERT_CANDIDATE = text(
         linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
         location          = COALESCE(EXCLUDED.location, candidates.location),
         status            = EXCLUDED.status,
-        ai_summary        = COALESCE(EXCLUDED.ai_summary, candidates.ai_summary),
+        profile_about     = COALESCE(
+            EXCLUDED.profile_about,
+            candidates.profile_about
+        ),
         languages         = EXCLUDED.languages,
         cv_filename       = COALESCE(EXCLUDED.cv_filename, candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data || EXCLUDED.cv_extracted_data,
@@ -228,6 +301,10 @@ _UPDATE_CANDIDATE_ADOPT = text(
         linkedin        = COALESCE(CAST(:linkedin AS varchar(255)), candidates.linkedin),
         location        = COALESCE(CAST(:location AS varchar(255)), candidates.location),
         status          = CAST(:status AS candidatestatus),
+        profile_about   = COALESCE(
+            CAST(:profile_about AS text),
+            candidates.profile_about
+        ),
         languages       = CAST(:languages AS JSONB),
         cv_filename     = COALESCE(CAST(:cv_filename AS varchar(255)),
                                    candidates.cv_filename),
@@ -362,7 +439,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
     """
     INSERT INTO candidate_documents (
         candidate_id, filename, storage_key, content_type,
-        size_bytes, is_primary, uploaded_at,
+        size_bytes, document_kind, is_primary, uploaded_at,
         external_id, external_source,
         created_at, updated_at
     ) VALUES (
@@ -371,6 +448,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         CAST(:storage_key AS varchar(500)),
         CAST(:content_type AS varchar(100)),
         CAST(:size_bytes AS integer),
+        CAST(:document_kind AS candidatedocumentkind),
         CAST(:is_primary AS boolean),
         :uploaded_at,
         CAST(:external_id AS varchar(100)),
@@ -383,6 +461,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         storage_key  = COALESCE(EXCLUDED.storage_key, candidate_documents.storage_key),
         content_type = COALESCE(EXCLUDED.content_type, candidate_documents.content_type),
         size_bytes   = COALESCE(EXCLUDED.size_bytes, candidate_documents.size_bytes),
+        document_kind = EXCLUDED.document_kind,
         is_primary   = EXCLUDED.is_primary,
         uploaded_at  = COALESCE(EXCLUDED.uploaded_at, candidate_documents.uploaded_at),
         updated_at   = NOW()
@@ -990,9 +1069,22 @@ class TraffitImporter:
         }
         logger.info("Candidates: existing email_to_id size=%d", len(email_to_id))
 
+        # ``(external_source, external_id)`` jest UNIQUE
+        # (``ux_candidates_external_source_id``). Ścieżka "adopt" stempluje
+        # external_id na wiersz dopasowany po mailu — jeśli ten external_id
+        # NALEŻY JUŻ do innego wiersza (Traffit dopisał maila pracownikowi,
+        # który w Nexusie istnieje też jako osobny rekord), UPDATE wywala
+        # UniqueViolation (prod: ``upsert candidate ext=48895``).
+        # Nie kradniemy cudzej tożsamości: aktualizujemy wtedy prawowitego
+        # właściciela external_id. Scalenie obu wierszy to decyzja dedupu
+        # (dedup_service), nie importera.
+        ext_to_id = await self._build_candidate_external_id_map()
+        logger.info("Candidates: existing ext_to_id size=%d", len(ext_to_id))
+
         commit_every = 100
         since_commit = 0
         adopted = 0
+        collisions = 0
 
         async for raw in self.traffit.get_paginated(
             "/employees/",
@@ -1011,6 +1103,25 @@ class TraffitImporter:
 
             email_lc = (payload.get("email") or "").strip().lower()
             existing_id = email_to_id.get(email_lc) if email_lc else None
+            owner_id = ext_to_id.get(str(payload["external_id"]))
+            if (
+                existing_id is not None
+                and owner_id is not None
+                and owner_id != existing_id
+            ):
+                # external_id ma już właściciela — adoptuj JEGO, nie wiersz
+                # dopasowany po mailu. _UPDATE_CANDIDATE_ADOPT nie rusza
+                # kolumny email, więc żaden unique index nie jest naruszany.
+                if collisions < 5:
+                    logger.warning(
+                        "Candidates ext=%s: email pasuje do id=%s, ale "
+                        "external_id należy do id=%s — aktualizuję właściciela",
+                        payload["external_id"],
+                        existing_id,
+                        owner_id,
+                    )
+                collisions += 1
+                existing_id = owner_id
 
             try:
                 if existing_id is not None:
@@ -1025,6 +1136,7 @@ class TraffitImporter:
                         "linkedin": payload.get("linkedin"),
                         "location": payload.get("location"),
                         "status": payload["status"],
+                        "profile_about": payload.get("profile_about"),
                         "languages": json.dumps(payload["languages"]),
                         "cv_filename": payload.get("cv_filename"),
                         "cv_extracted_data": json.dumps(payload["cv_extracted_data"]),
@@ -1048,6 +1160,9 @@ class TraffitImporter:
                         # Traffit candidates with the same email adopt it.
                         if email_lc:
                             email_to_id[email_lc] = row[0]
+                        # ...i jego external_id, żeby kolejny rekord o tym
+                        # samym ext nie próbował go ukraść innemu wierszowi.
+                        ext_to_id[str(payload["external_id"])] = row[0]
                     else:
                         progress.updated += 1
                 since_commit += 1
@@ -1056,12 +1171,14 @@ class TraffitImporter:
                     since_commit = 0
                     logger.info(
                         "Candidates progress: %d/%d "
-                        "(inserted=%d updated=%d adopted=%d errors=%d)",
+                        "(inserted=%d updated=%d adopted=%d ext_collisions=%d "
+                        "errors=%d)",
                         progress.processed,
                         progress.total_source,
                         progress.inserted,
                         progress.updated,
                         adopted,
+                        collisions,
                         progress.errors,
                     )
             except Exception as e:  # noqa: BLE001
@@ -1236,21 +1353,17 @@ class TraffitImporter:
 
     # ── Faza 5b helpers — lookup maps dla pipelines/activities/sources ──────
 
-    async def _build_withdrawn_fallback_reason_map(self) -> dict[int, int]:
-        """Mapa ``job_id → rejection_reason_id`` fallbacku dla ruchów withdrawn.
+    async def _build_withdrawn_fallback_reason_map(self) -> WithdrawnReasonFallback:
+        """Buduje warstwowy fallback powodu wycofania — patrz
+        :class:`WithdrawnReasonFallback`.
 
-        DB wymusza ``ck_candidate_stages_withdrawn_requires_reason``
-        (stage='withdrawn' ⇒ rejection_reason_id NOT NULL, migracja 0068), a
         Traffit ``recruitment_history`` nie niesie powodu — trafia on osobno do
-        ``rejection_note`` przez rejection_backfill (join po activities). Bez
-        fallbacku KAŻDY ruch na stan typu "wait" (legacy 'withdrawn') pada na
-        constraincie — to było źródło stałych ~311 błędów fazy pipelines i
-        permanentnego ``checks.traffit=degraded``.
+        ``rejection_note`` przez rejection_backfill (join po activities).
 
         Używamy dokładnie tego samego seeda co backfill 0068:
         ``legacy_unknown`` (category='withdrawn', inactive, order 999) per
         template. Templates utworzone PO 0068 mogą go nie mieć — dosiewamy
-        idempotentnie (poza dry-run), zanim zbudujemy mapę.
+        idempotentnie (poza dry-run), zanim zbudujemy mapy.
         """
         if not self.dry_run:
             await self.db.execute(
@@ -1267,7 +1380,7 @@ class TraffitImporter:
                 )
             )
             await self.db.commit()
-        result = await self.db.execute(
+        by_job_result = await self.db.execute(
             text(
                 """
                 SELECT j.id AS job_id, rr.id AS reason_id
@@ -1279,21 +1392,52 @@ class TraffitImporter:
                 """
             )
         )
-        return {row.job_id: row.reason_id for row in result}
+        # Warstwa 2: template definicji etapu. Job bez pipeline'u (99,6% bazy)
+        # nadal zna workflow Traffita, z którego przyszedł ruch.
+        by_stage_def_result = await self.db.execute(
+            text(
+                """
+                SELECT sd.id AS stage_def_id, rr.id AS reason_id
+                FROM pipeline_stage_defs sd
+                JOIN rejection_reasons rr
+                  ON rr.template_id = sd.template_id
+                WHERE rr.name = 'legacy_unknown'
+                  AND rr.category = 'withdrawn'
+                """
+            )
+        )
+        # Warstwa 3: globalna siatka bezpieczeństwa — domyślny template.
+        default_result = await self.db.execute(
+            text(
+                """
+                SELECT rr.id AS reason_id
+                FROM rejection_reasons rr
+                JOIN pipeline_templates pt ON pt.id = rr.template_id
+                WHERE rr.name = 'legacy_unknown'
+                  AND rr.category = 'withdrawn'
+                ORDER BY pt.is_default DESC, pt.id ASC
+                LIMIT 1
+                """
+            )
+        )
+        default_row = default_result.fetchone()
+        return WithdrawnReasonFallback(
+            by_job={row.job_id: row.reason_id for row in by_job_result},
+            by_stage_def={
+                row.stage_def_id: row.reason_id for row in by_stage_def_result
+            },
+            default_id=default_row.reason_id if default_row else None,
+        )
 
     @staticmethod
     def _fallback_rejection_reason_id(
         legacy_enum: str,
         job_id: Optional[int],
-        withdrawn_reason_map: dict[int, int],
+        stage_def_id: Optional[int],
+        withdrawn_fallback: WithdrawnReasonFallback,
     ) -> Optional[int]:
-        """Fallback reason TYLKO dla withdrawn (constraint tego wymaga);
-        rejected/inne przechodzą z NULL — realny powód uzupełnia
-        rejection_backfill z activities, a ręczne ruchy rekruterów mają
-        własny wybór z UI."""
-        if legacy_enum != "withdrawn" or job_id is None:
-            return None
-        return withdrawn_reason_map.get(job_id)
+        """Cienki wrapper na :meth:`WithdrawnReasonFallback.resolve`."""
+        return withdrawn_fallback.resolve(legacy_enum, job_id, stage_def_id)
 
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
@@ -1689,6 +1833,24 @@ class TraffitImporter:
                         content_type=content_type[:100] if content_type else None,
                     )
 
+                    if is_primary:
+                        await self.db.execute(
+                            text(
+                                """
+                                UPDATE candidate_documents
+                                SET is_primary = FALSE, updated_at = NOW()
+                                WHERE candidate_id = :candidate_id
+                                  AND document_kind = 'cv'
+                                  AND is_primary IS TRUE
+                                  AND source_deleted_at IS NULL
+                                  AND external_id IS DISTINCT FROM :external_id
+                                """
+                            ),
+                            {
+                                "candidate_id": row.id,
+                                "external_id": ext_id,
+                            },
+                        )
                     await self.db.execute(
                         _UPSERT_CANDIDATE_DOCUMENT,
                         {
@@ -1699,6 +1861,10 @@ class TraffitImporter:
                             if content_type
                             else None,
                             "size_bytes": len(file_bytes),
+                            "document_kind": _traffit_document_kind(
+                                filename,
+                                is_primary=is_primary,
+                            ),
                             "is_primary": is_primary,
                             "uploaded_at": uploaded_at,
                             "external_id": ext_id,
@@ -1753,15 +1919,17 @@ class TraffitImporter:
         job_map = await self._build_job_external_id_map()
         sd_id_map, sd_legacy_map = await self._build_stage_def_lookup()
         user_map = await self.build_user_id_map()
-        withdrawn_reason_map = await self._build_withdrawn_fallback_reason_map()
+        withdrawn_fallback = await self._build_withdrawn_fallback_reason_map()
         logger.info(
             "Pipelines lookups: candidates=%d jobs=%d stage_defs=%d users=%d "
-            "withdrawn_fallbacks=%d",
+            "withdrawn_fallbacks=by_job:%d/by_stage_def:%d/default:%s",
             len(cand_map),
             len(job_map),
             len(sd_id_map),
             len(user_map),
-            len(withdrawn_reason_map),
+            len(withdrawn_fallback.by_job),
+            len(withdrawn_fallback.by_stage_def),
+            withdrawn_fallback.default_id,
         )
 
         # Commit po każdym successful upsert (zamiast per-batch). Eliminuje
@@ -1772,6 +1940,7 @@ class TraffitImporter:
         # dla 152k rekordów = ~85 min API-bound i tak).
         commit_every = 1
         since_commit = 0
+        unresolved_withdrawn = 0
 
         async for raw in self.traffit.get_paginated(
             "/employees/recruitment_history",
@@ -1790,7 +1959,37 @@ class TraffitImporter:
                 progress.skipped += 1
                 continue
             if self.dry_run:
+                # Dry-run nie zasiewa legacy_unknown, więc nie ma sensu liczyć
+                # fallbacku — zachowujemy dotychczasowe zachowanie 1:1.
                 progress.inserted += 1
+                continue
+            # withdrawn wymaga powodu (constraint 0068); fallback
+            # 'legacy_unknown' — patrz WithdrawnReasonFallback.
+            rejection_reason_id = self._fallback_rejection_reason_id(
+                payload["stage_legacy_enum"],
+                payload["job_id"],
+                payload["stage_def_id"],
+                withdrawn_fallback,
+            )
+            if payload["stage_legacy_enum"] == "withdrawn" and (
+                rejection_reason_id is None
+            ):
+                # Nierozwiązywalne tylko gdy baza nie ma ANI JEDNEGO
+                # pipeline_template (a wtedy nie ma też stage_defs, więc ten
+                # ruch i tak nie byłby 'withdrawn'). Świadomy skip z jawnym
+                # powodem — NIE błąd: wiersz i tak padłby na constraincie,
+                # a `errors>0` blokuje watermark i trzyma health=degraded.
+                progress.skipped += 1
+                unresolved_withdrawn += 1
+                # Własny licznik, nie progress.skipped — ten drugi zbiera też
+                # rekordy spoza Nexusa (na prodzie 224), więc guard na nim
+                # nigdy by nie wypuścił tego logu.
+                if unresolved_withdrawn <= 5:
+                    logger.warning(
+                        "Pipelines skip ext=%s: withdrawn bez fallback reason "
+                        "(brak seeda legacy_unknown w rejection_reasons)",
+                        payload["external_id"],
+                    )
                 continue
             try:
                 result = await self.db.execute(
@@ -1838,13 +2037,7 @@ class TraffitImporter:
                         "stage": payload["stage_legacy_enum"],
                         "moved_at": payload["moved_at"],
                         "moved_by": payload["moved_by"],
-                        # withdrawn wymaga powodu (constraint 0068); fallback
-                        # 'legacy_unknown' per template — patrz helper.
-                        "rejection_reason_id": self._fallback_rejection_reason_id(
-                            payload["stage_legacy_enum"],
-                            payload["job_id"],
-                            withdrawn_reason_map,
-                        ),
+                        "rejection_reason_id": rejection_reason_id,
                     },
                 )
                 row = result.fetchone()

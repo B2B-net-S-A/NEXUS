@@ -168,11 +168,16 @@ class WeightProfile:
 # Version stamp for the match-score cache. Derives from the scoring-contract
 # flag so flipping AI_SCORING_CONTRACT_V2 changes the string, which the cache
 # treats as a full invalidation (old rows recompute under the new budget rule).
+#
+# The embedding model is folded in (AI-P0-06 part c): the cached semantic layer
+# is only comparable within one embedding space, so swapping VOYAGE_MODEL must
+# invalidate every cached score. Weight-profile edits are handled separately by
+# mark_stale_for_profile (parts a/b) — those don't change this global string.
 SCORING_ALGORITHM_VERSION: str = (
     "score-v2-budget100"
     if getattr(settings, "AI_SCORING_CONTRACT_V2", False)
     else "score-v1-legacy"
-)
+) + f"+emb-{getattr(settings, 'VOYAGE_MODEL', 'unknown')}"
 
 
 DEFAULT_PROFILE = WeightProfile()
@@ -1016,8 +1021,12 @@ async def score_candidate_job(
         )
 
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
-    # Structured event for log aggregation (JSON formatter reshapes extras)
-    logger.info(
+    # Structured event for log aggregation (JSON formatter reshapes extras).
+    # DEBUG, nie INFO (2026-07-27): to jest najgorętsza pętla w systemie —
+    # jedno wejście na listę kandydatów z kolumną dopasowań emitowało ~1000+
+    # linii, zapychając Loki i I/O kontenera. Włącz LOG_LEVEL=DEBUG, gdy
+    # naprawdę diagnozujesz scoring.
+    logger.debug(
         "score_computed",
         extra={
             "event": "score_computed",

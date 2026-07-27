@@ -1,5 +1,6 @@
 "use client";
 
+import Link from"next/link";
 import {
  AlertTriangle,
  Ban,
@@ -31,6 +32,8 @@ export interface EmploymentInfo {
  state: EmploymentState;
  client_id?: number | null;
  client_name?: string | null;
+ contract_id?: number | null;
+ job_id?: number | null;
  contract_end_date?: string | null;
  source?:"contract" |"conflict" |"pipeline" |"none";
 }
@@ -129,7 +132,8 @@ export function CandidateHighlights({
  }
  >
  <AlertTriangle className="h-3 w-3" />
- U KLIENTA{employment?.client_name ? `: ${employment.client_name}` :""}
+ {variant === "full" ?"ZATRUDNIONY U" :"U KLIENTA"}
+ {employment?.client_name ? `: ${employment.client_name}` :""}
  </Badge>
  )}
 
@@ -252,26 +256,35 @@ export function AtOurClientBanner({
  : employment.source === "pipeline"
  ?"Zatrudniony u klienta (etap „hired” w rekrutacji)"
  :"Ręcznie oznaczony jako zatrudniony u klienta";
- const clientLabel = employment.client_name
- ? `: ${employment.client_name.toUpperCase()}`
- :"";
+ const clientLabel = employment.client_name ??"naszego klienta";
  return (
  <div
  role="alert"
- className={cn("rounded-lg border border-[hsl(var(--primary))] bg-primary text-white shadow-sm","animate-pulse-subtle px-4 py-3",
+ className={cn("rounded-lg border border-primary bg-primary text-primary-foreground shadow-sm","animate-pulse-subtle px-4 py-3",
  className
  )}
  >
- <div className="flex items-start gap-3">
+ <div className="flex flex-wrap items-start gap-3 sm:flex-nowrap">
  <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
  <div className="flex-1 min-w-0">
  <p className="text-xs font-bold uppercase tracking-[0.12em]">
- Konsultant zatrudniony u naszego klienta{clientLabel}
+ Zatrudniony u: {clientLabel}
  </p>
- <p className="text-sm text-white/90 mt-1">
+ <p className="text-sm text-primary-foreground/90 mt-1">
  {endText} · Nie wysyłaj profilu bez konsultacji z delivery.
  </p>
  </div>
+ {employment.contract_id ? (
+ <Link
+ href={`/contracts/${employment.contract_id}?from=candidate`}
+ className={cn("inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-md border border-primary-foreground/30 px-3 py-1.5 sm:w-auto",
+ "text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground"
+ )}
+ >
+ Przejdź do kontraktora
+ <ExternalLink className="h-3.5 w-3.5" />
+ </Link>
+ ) : null}
  </div>
  </div>
  );

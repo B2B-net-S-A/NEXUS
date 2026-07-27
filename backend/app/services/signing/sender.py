@@ -204,11 +204,20 @@ def render_unsigned_pdf(sig: DocumentSignature) -> bytes:
 
 def mint_signature_link(
     db: AsyncSession, sig: DocumentSignature, *, party: str = "consultant"
-) -> SignatureLink:
-    """Create a single-use signing link tied to ``sig``."""
+) -> tuple[SignatureLink, str]:
+    """Create a single-use signing link tied to ``sig``.
+
+    Returns ``(link, raw_token)``. The raw token goes into the ``/sign/{token}``
+    URL and is never stored: the row keeps only its SHA-256 (v2 hash-at-rest),
+    with a non-secret ``v2$`` revoke key in the PK.
+    """
+    import hashlib
+
     purpose = "upload_signed" if sig.provider == "upload_validate" else "qes_signing"
+    raw_token = secrets.token_urlsafe(36)
     link = SignatureLink(
-        token=secrets.token_urlsafe(36),
+        token=f"v2${secrets.token_hex(16)}",
+        token_sha256=hashlib.sha256(raw_token.encode()).hexdigest(),
         signature_id=sig.id,
         party=party,
         purpose=purpose,
@@ -220,7 +229,7 @@ def mint_signature_link(
         ),
     )
     db.add(link)
-    return link
+    return link, raw_token
 
 
 async def prepare_and_send(
@@ -238,12 +247,12 @@ async def prepare_and_send(
     sig = await prepare_send(
         db, contract_id=contract_id, payload=payload, sender_user=sender_user
     )
-    link = mint_signature_link(db, sig)
+    _link, raw_token = mint_signature_link(db, sig)
     sig.status = SignatureStatus.sent
     sig.sent_at = datetime.now(timezone.utc)
 
     base = settings.PUBLIC_BASE_URL.rstrip("/")
-    sign_url = f"{base}/sign/{link.token}"
+    sign_url = f"{base}/sign/{raw_token}"
 
     db.add(
         Activity(
@@ -304,6 +313,19 @@ async def finalize_signed_pdf(
     company side, i.e. ``>= 2`` approval signatures). Does NOT commit (caller
     owns the transaction). Returns the validation verdict dict for the response.
     """
+    # Fail-closed on status (M5-P0.2). A withdrawn/expired/rejected — or already
+    # completed — signature must never be finalized, even if a still-live token
+    # survived (belt-and-braces with link revocation on withdraw). Only an
+    # in-flight signature (sent / in_progress) may be completed. Guards BOTH
+    # callers: public /sign/{token}/submit and recruiter /upload-signed.
+    if sig.status not in (SignatureStatus.sent, SignatureStatus.in_progress):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Podpis w statusie {sig.status.value} nie może zostać sfinalizowany"
+            ),
+        )
+
     provider = get_provider(sig.provider)
     report = await provider.validate(pdf_bytes)
 
@@ -311,14 +333,37 @@ async def finalize_signed_pdf(
         raise HTTPException(
             status_code=422, detail="Plik nie zawiera podpisu elektronicznego"
         )
-    if settings.DSS_VALIDATION_URL and not report.is_qes:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Podpis nie jest kwalifikowany (wymagany QES). "
-                f"Werdykt walidacji: {report.indication or 'nieokreślony'}"
-            ),
-        )
+
+    # Fail-closed for QES lanes (M5-P0.x): a qualified document may only be
+    # completed on an AUTHORITATIVE, positive DSS verdict. Previously the QES
+    # gate was skipped whenever ``DSS_VALIDATION_URL`` was unset — so with no
+    # validator configured, a non-qualified (or indeterminate) signature would
+    # silently complete on the non-authoritative pyHanko fallback. Now: no
+    # validator, or a timed-out / INDETERMINATE result, refuses completion and
+    # leaves the signature state unchanged (the caller does not commit on 4xx).
+    requires_qes = (sig.signature_type or "").upper() == "QES"
+    if requires_qes:
+        if not settings.DSS_VALIDATION_URL:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Brak autorytatywnej walidacji QES — DSS_VALIDATION_URL nie "
+                    "jest skonfigurowany, więc podpisu nie można potwierdzić jako "
+                    "kwalifikowanego. Dokument nie został sfinalizowany."
+                ),
+            )
+        indication = (report.indication or "").upper()
+        authoritative_qes = report.is_qes and not indication.startswith("INDETERMINATE")
+        if not authoritative_qes:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Walidacja QES nierozstrzygnięta lub negatywna (werdykt: "
+                    f"{report.indication or 'nieokreślony'}). Podpis nie jest "
+                    "kwalifikowany lub nie ma autorytatywnego potwierdzenia — "
+                    "dokument nie został sfinalizowany."
+                ),
+            )
 
     # Both parties signed (consultant + our company side) ⇒ the contract is
     # fully executed ⇒ the candidate is hired. Detected via the approval-

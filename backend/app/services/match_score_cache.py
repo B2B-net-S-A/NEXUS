@@ -23,15 +23,18 @@ worker (future) can sweep `stale=True` rows and refresh them in batch.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_score import CandidateJobMatchScore
+from app.models.match_score_invalidation import MatchScoreInvalidation
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     SCORING_ALGORITHM_VERSION,
@@ -78,18 +81,117 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
     )
 
 
-async def _upsert_breakdown(
-    db: AsyncSession, breakdown: ScoreBreakdown, *, profile_id: int
+def _ledger_invalidated_mid_compute(
+    *, candidate_id: int, job_id: int, profile_id: int, compute_start: datetime
+):
+    """SQL predicate: did a persisted invalidation land after ``compute_start``?
+
+    Reads the ledger's newest ``last_invalidated_at`` across the three keys that
+    make up the cache key — (candidate), (job), (profile) — as a scalar subquery.
+    ``NULL`` (no invalidation on record) compares to ``False``. Evaluated inside
+    the INSERT statement so the read is atomic with the row write on the miss path
+    (no separate SELECT-then-INSERT gap): the dominant race — an edit's
+    ``mark_stale_*`` committing the ledger BEFORE a late miss-compute writes back —
+    is caught here and the row is persisted stale instead of falsely fresh.
+    """
+    newest_invalidation = (
+        select(func.max(MatchScoreInvalidation.last_invalidated_at)).where(
+            or_(
+                and_(
+                    MatchScoreInvalidation.entity_type == "candidate",
+                    MatchScoreInvalidation.entity_id == candidate_id,
+                ),
+                and_(
+                    MatchScoreInvalidation.entity_type == "job",
+                    MatchScoreInvalidation.entity_id == job_id,
+                ),
+                and_(
+                    MatchScoreInvalidation.entity_type == "profile",
+                    MatchScoreInvalidation.entity_id == profile_id,
+                ),
+            )
+        )
+    ).scalar_subquery()
+    return newest_invalidation >= compute_start
+
+
+async def _touch_invalidation_ledger(
+    db: AsyncSession, entity_type: str, entity_ids: Iterable[int]
 ) -> None:
-    """Persist (insert-or-update) a computed breakdown; clears `stale`."""
+    """UPSERT ledger rows to ``now()`` for ``entity_ids`` — the miss-path trace.
+
+    Called by every ``mark_stale_*`` so an invalidation is durably recorded EVEN
+    WHEN no cache row exists yet (the exact hole the on-row ``invalidated_at``
+    fence cannot cover). Runs in the caller's transaction, committing atomically
+    with the accompanying cache ``UPDATE``.
+    """
+    ids = [i for i in dict.fromkeys(entity_ids) if i is not None]
+    if not ids:
+        return
+    stmt = pg_insert(MatchScoreInvalidation).values(
+        [{"entity_type": entity_type, "entity_id": i} for i in ids]
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[
+            MatchScoreInvalidation.entity_type,
+            MatchScoreInvalidation.entity_id,
+        ],
+        set_={"last_invalidated_at": func.now()},
+    )
+    await db.execute(stmt)
+
+
+async def _upsert_breakdown(
+    db: AsyncSession,
+    breakdown: ScoreBreakdown,
+    *,
+    profile_id: int,
+    compute_start: datetime,
+) -> None:
+    """Persist (insert-or-update) a computed breakdown; conditionally sets `stale`.
+
+    CAS fence (P1-MATCH-02 + F-28): a compute that STARTED before a concurrent
+    ``mark_stale_*`` must never persist a falsely fresh cache row. ``compute_start``
+    is the DB clock captured *before* scoring began.
+
+    - Conflict (row exists): ``mark_stale_*`` stamped ``invalidated_at`` on the row;
+      we clear ``stale`` only when the row was NOT invalidated after this compute
+      began (``invalidated_at IS NULL OR invalidated_at < compute_start``).
+    - Insert (miss, no row): there is no row to carry ``invalidated_at``, so we
+      consult the persistent invalidation LEDGER instead (F-28). If an invalidation
+      for this candidate/job/profile landed at or after ``compute_start``, the row
+      is inserted ``stale=True``; otherwise ``stale=False``.
+
+    The freshly computed breakdown is written either way — only the staleness
+    verdict is gated.
+    """
+    stale_on_insert = case(
+        (
+            _ledger_invalidated_mid_compute(
+                candidate_id=breakdown.candidate_id,
+                job_id=breakdown.job_id,
+                profile_id=profile_id,
+                compute_start=compute_start,
+            ),
+            True,
+        ),
+        else_=False,
+    )
     stmt = pg_insert(CandidateJobMatchScore).values(
         candidate_id=breakdown.candidate_id,
         job_id=breakdown.job_id,
         profile_id=profile_id,
         total_score=breakdown.total,
         breakdown=breakdown.as_dict(),
-        stale=False,
+        stale=stale_on_insert,
         scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
+    )
+    # Unqualified column refs in an ON CONFLICT DO UPDATE SET/predicate resolve to
+    # the EXISTING row, so this reads the invalidated_at written by any mark_stale
+    # that landed while this compute was in flight.
+    not_invalidated_mid_compute = or_(
+        CandidateJobMatchScore.invalidated_at.is_(None),
+        CandidateJobMatchScore.invalidated_at < compute_start,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=[
@@ -100,12 +202,41 @@ async def _upsert_breakdown(
         set_={
             "total_score": stmt.excluded.total_score,
             "breakdown": stmt.excluded.breakdown,
-            "scored_at": __import__("sqlalchemy").func.now(),
-            "stale": False,
+            "scored_at": func.now(),
+            "stale": case((not_invalidated_mid_compute, False), else_=True),
             "scoring_algorithm_version": SCORING_ALGORITHM_VERSION,
         },
     )
     await db.execute(stmt)
+
+
+async def _persist_breakdowns(
+    breakdowns: Sequence[ScoreBreakdown],
+    *,
+    profile_id: int,
+    compute_start: datetime,
+) -> None:
+    """Write computed breakdowns to the cache on a DEDICATED session (M3-TX-01).
+
+    The write-through cache is best-effort: persisting a freshly computed score
+    must never commit or roll back the CALLER's request transaction. The caller
+    owns its session via ``Depends(get_db)`` — a ``/recommendations`` read or a
+    justification generation must not be finalized (or discarded) as a side
+    effect of an unrelated cache write. Running the upsert on its own
+    ``AsyncSessionLocal`` fully isolates any failure, mirroring
+    :func:`index_outbox_service._default_reindex`.
+    """
+    if not breakdowns:
+        return
+    try:
+        async with AsyncSessionLocal() as s:
+            for b in breakdowns:
+                await _upsert_breakdown(
+                    s, b, profile_id=profile_id, compute_start=compute_start
+                )
+            await s.commit()
+    except Exception as e:  # pragma: no cover — write-through best-effort
+        logger.warning("match score cache upsert failed: %s", e)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -118,12 +249,19 @@ async def get_cached_or_compute(
     *,
     semantic_similarity: Optional[float] = None,
     profile: WeightProfile = DEFAULT_PROFILE,
+    allow_cache_write: bool = True,
 ) -> ScoreBreakdown:
     """
     Return a fresh ScoreBreakdown: hit the cache first, recompute on miss/stale.
 
     The cache is keyed by (candidate, job, profile) so different weight
     profiles don't trample each other's results.
+
+    ``allow_cache_write=False`` — degraded mode (M3-CACHE-01), mirroring
+    :func:`bulk_get_or_compute`: the caller computed with a neutral semantic
+    layer because Qdrant/Voyage were down, so the result is still returned for
+    display but must NOT be persisted as a fresh cache row — otherwise the wrong
+    score outlives the outage. Cache READS stay allowed (prior good rows are OK).
     """
     row = await db.scalar(
         select(CandidateJobMatchScore).where(
@@ -139,15 +277,16 @@ async def get_cached_or_compute(
     ):
         return _breakdown_from_row(row)
 
+    # Fence the write-back against invalidations that land while we compute
+    # (P1-MATCH-02): capture the DB clock BEFORE scoring starts.
+    compute_start = await db.scalar(select(func.now()))
     breakdown = await score_candidate_job(
         candidate, job, db, semantic_similarity=semantic_similarity, profile=profile
     )
-    try:
-        await _upsert_breakdown(db, breakdown, profile_id=profile.id)
-        await db.commit()
-    except Exception as e:  # pragma: no cover — write-through best-effort
-        logger.warning("match score cache upsert failed: %s", e)
-        await db.rollback()
+    if allow_cache_write:
+        await _persist_breakdowns(
+            [breakdown], profile_id=profile.id, compute_start=compute_start
+        )
     return breakdown
 
 
@@ -190,6 +329,12 @@ async def bulk_get_or_compute(
     )
     cached_by_cid = {r.candidate_id: r for r in cached_rows}
 
+    # Fence the write-back against invalidations that land while we compute
+    # (P1-MATCH-02): one DB-clock read BEFORE any scoring, only when we will
+    # actually compute at least one miss.
+    needs_compute = any(c.id not in cached_by_cid for c in candidates)
+    compute_start = await db.scalar(select(func.now())) if needs_compute else None
+
     results: list[ScoreBreakdown] = []
     pending_writes: list[ScoreBreakdown] = []
     for c in candidates:
@@ -203,36 +348,62 @@ async def bulk_get_or_compute(
         results.append(breakdown)
         pending_writes.append(breakdown)
 
-    if pending_writes and allow_cache_write:
-        try:
-            for b in pending_writes:
-                await _upsert_breakdown(db, b, profile_id=profile.id)
-            await db.commit()
-        except Exception as e:  # pragma: no cover
-            logger.warning("match score bulk cache upsert failed: %s", e)
-            await db.rollback()
+    if pending_writes and allow_cache_write and compute_start is not None:
+        await _persist_breakdowns(
+            pending_writes, profile_id=profile.id, compute_start=compute_start
+        )
 
     results.sort(key=lambda r: -r.total)
     return results
 
 
 async def mark_stale_for_candidate(db: AsyncSession, candidate_id: int) -> int:
-    """Mark all (candidate, *) cached rows stale. Returns row count affected."""
+    """Mark all (candidate, *) cached rows stale. Returns row count affected.
+
+    Also stamps the persistent invalidation ledger (F-28) so a concurrent
+    miss-compute that finds no cache row still learns this candidate was
+    invalidated and cannot persist a falsely fresh row.
+    """
     res = await db.execute(
         update(CandidateJobMatchScore)
         .where(CandidateJobMatchScore.candidate_id == candidate_id)
-        .values(stale=True)
+        .values(stale=True, invalidated_at=func.now())
     )
+    await _touch_invalidation_ledger(db, "candidate", [candidate_id])
     return res.rowcount or 0
 
 
 async def mark_stale_for_job(db: AsyncSession, job_id: int) -> int:
-    """Mark all (*, job) cached rows stale. Returns row count affected."""
+    """Mark all (*, job) cached rows stale. Returns row count affected.
+
+    Also stamps the persistent invalidation ledger (F-28) — see
+    :func:`mark_stale_for_candidate`.
+    """
     res = await db.execute(
         update(CandidateJobMatchScore)
         .where(CandidateJobMatchScore.job_id == job_id)
-        .values(stale=True)
+        .values(stale=True, invalidated_at=func.now())
     )
+    await _touch_invalidation_ledger(db, "job", [job_id])
+    return res.rowcount or 0
+
+
+async def mark_stale_for_profile(db: AsyncSession, profile_id: int) -> int:
+    """Mark all (*, *, profile) cached rows stale — call when a weight profile's
+    weights change or the profile is deleted (AI-P0-06 part a).
+
+    The cache key is (candidate, job, profile) + a global algorithm-version
+    string, but that string tracks only the scoring contract + embedding model,
+    NOT per-profile weights. So editing a profile's weights in place would keep
+    serving old-weight scores under the same profile_id. Invalidating by
+    profile_id closes that. Caller owns the transaction (no commit here).
+    """
+    res = await db.execute(
+        update(CandidateJobMatchScore)
+        .where(CandidateJobMatchScore.profile_id == profile_id)
+        .values(stale=True, invalidated_at=func.now())
+    )
+    await _touch_invalidation_ledger(db, "profile", [profile_id])
     return res.rowcount or 0
 
 
@@ -246,6 +417,7 @@ async def mark_stale_for_many_candidates(
     res = await db.execute(
         update(CandidateJobMatchScore)
         .where(CandidateJobMatchScore.candidate_id.in_(ids))
-        .values(stale=True)
+        .values(stale=True, invalidated_at=func.now())
     )
+    await _touch_invalidation_ledger(db, "candidate", ids)
     return res.rowcount or 0

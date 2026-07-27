@@ -221,19 +221,107 @@ def _regex_fallback(cv_text: str) -> dict[str, Any]:
         "city": None,
         "years_it_experience": years,
         "current_position": current_position,
+        "current_position_started_at": None,
+        "current_position_started_at_precision": "unknown",
         "skills": skills,
+        "technologies": [skill["name"] for skill in skills[:8]],
+        "sectors": [],
         "education": [],
         "languages": [],
         # Phase D4: schema consistency with Claude/Ollama output. The frontend
         # reads these fields via optional chaining, but an explicit empty list /
         # null lets UI tell "no data yet" from "legacy record, never enriched".
         "companies": [],
+        "professional_profile": None,
         "career_summary": None,
         "linkedin_url": _extract_linkedin_from_text(cv_text),
         "_confidence": {},
         "_source": "regex",
     }
     return _apply_contact_fallbacks(base, cv_text)
+
+
+def _unique_strings(values: Any, *, limit: int) -> list[str]:
+    """Normalize an LLM list to short, unique, non-empty strings."""
+
+    if not isinstance(values, list):
+        return []
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if isinstance(value, dict):
+            value = value.get("name")
+        if not isinstance(value, str):
+            continue
+        cleaned = " ".join(value.split()).strip()[:80]
+        key = cleaned.casefold()
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        output.append(cleaned)
+        if len(output) >= limit:
+            break
+    return output
+
+
+def _normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Validate/cap the v5 quick-view facts while preserving legacy fields."""
+
+    output = dict(parsed)
+    technologies = output.get("technologies")
+    if not isinstance(technologies, list):
+        technologies = output.get("skills")
+    output["technologies"] = _unique_strings(technologies, limit=8)
+    output["sectors"] = _unique_strings(
+        output.get("sectors") or output.get("industries"), limit=4
+    )
+
+    started_at = output.get("current_position_started_at")
+    if isinstance(started_at, str):
+        started_at = started_at.strip()[:10] or None
+    elif started_at is not None:
+        started_at = str(started_at)[:10]
+    if started_at and not any(
+        re.fullmatch(pattern, started_at)
+        for pattern in (r"\d{4}-\d{2}-\d{2}", r"\d{4}-\d{2}", r"\d{4}")
+    ):
+        started_at = None
+    output["current_position_started_at"] = started_at
+
+    precision = output.get("current_position_started_at_precision")
+    if precision not in {"date", "month", "year"}:
+        if isinstance(started_at, str) and re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}", started_at
+        ):
+            precision = "date"
+        elif isinstance(started_at, str) and re.fullmatch(r"\d{4}-\d{2}", started_at):
+            precision = "month"
+        elif isinstance(started_at, str) and re.fullmatch(r"\d{4}", started_at):
+            precision = "year"
+        else:
+            precision = "unknown"
+    output["current_position_started_at_precision"] = precision
+
+    current_position = output.get("current_position")
+    output["current_position"] = (
+        " ".join(current_position.split()).strip()[:160]
+        if isinstance(current_position, str) and current_position.strip()
+        else None
+    )
+    years = output.get("years_it_experience")
+    try:
+        years = int(years) if years is not None else None
+    except (TypeError, ValueError):
+        years = None
+    output["years_it_experience"] = years if years and 0 < years <= 60 else None
+
+    profile = output.get("professional_profile")
+    output["professional_profile"] = (
+        " ".join(profile.split()).strip()[:300]
+        if isinstance(profile, str) and profile.strip()
+        else None
+    )
+    return output
 
 
 def _strip_json_fences(raw: str) -> str:
@@ -362,20 +450,24 @@ async def parse_cv(cv_text: str, *, prefer_llm: bool = True) -> dict[str, Any]:
     the LLM left empty — LLM values always win.
     """
     if not cv_text or not cv_text.strip():
-        return _regex_fallback("")
+        return _normalize_cv_output(_regex_fallback(""))
 
     if prefer_llm:
         claude = await _parse_with_claude(cv_text)
         if claude is not None:
-            return _apply_contact_fallbacks(
-                _with_linkedin_fallback(claude, cv_text), cv_text
+            return _normalize_cv_output(
+                _apply_contact_fallbacks(
+                    _with_linkedin_fallback(claude, cv_text), cv_text
+                )
             )
         ollama = await _parse_with_ollama(cv_text)
         if ollama is not None:
-            return _apply_contact_fallbacks(
-                _with_linkedin_fallback(ollama, cv_text), cv_text
+            return _normalize_cv_output(
+                _apply_contact_fallbacks(
+                    _with_linkedin_fallback(ollama, cv_text), cv_text
+                )
             )
-    return _regex_fallback(cv_text)
+    return _normalize_cv_output(_regex_fallback(cv_text))
 
 
 def _with_linkedin_fallback(parsed: dict[str, Any], cv_text: str) -> dict[str, Any]:

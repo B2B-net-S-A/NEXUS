@@ -24,6 +24,16 @@ from app.api.recruitment_access import (
     CalendarWriteAccess,
     RecruitmentReadAccess,
 )
+from app.api.calendar_access import (
+    CALENDAR_EVENT_DELETED,
+    CALENDAR_EVENT_UPDATED,
+    event_visibility_filter,
+    project_event_fields,
+    record_calendar_audit,
+    user_can_mutate_event,
+    user_can_view_event,
+    user_is_override,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +117,13 @@ async def list_events(
     event_type: Optional[EventType] = Query(None),
     status: Optional[EventStatus] = Query(None),
 ):
-    """List calendar events. Optionally filter by date range, type, status."""
-    query = select(CalendarEvent)
+    """List calendar events the caller may see (owner / attendee / admin-HoR).
+
+    Resource scoping (P1-CALENDAR-01): the SQL query is filtered to events the
+    caller owns or attends before any row is read; admin/head_of_recruitment
+    see all. A non-owner participant receives a redacted projection.
+    """
+    query = select(CalendarEvent).where(event_visibility_filter(current_user))
     conditions = []
     if from_date:
         conditions.append(CalendarEvent.start_time >= from_date)
@@ -152,11 +167,12 @@ async def list_events(
             if cli:
                 client_name = cli.name
 
+        projected = project_event_fields(ev, current_user)
         output.append(
             CalendarEventResponse(
                 id=ev.id,
                 title=ev.title,
-                description=ev.description,
+                description=projected["description"],
                 event_type=ev.event_type.value,
                 start_time=ev.start_time,
                 end_time=ev.end_time,
@@ -167,7 +183,7 @@ async def list_events(
                 job_title=job_title,
                 client_id=ev.client_id,
                 client_name=client_name,
-                attendees=ev.attendees or [],
+                attendees=projected["attendees"],
                 location=ev.location,
                 teams_link=ev.teams_link,
                 online_meeting_url=ev.online_meeting_url,
@@ -269,7 +285,9 @@ async def get_event(
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
     event = result.scalar_one_or_none()
-    if not event:
+    # Anti-enumeration (P1-CALENDAR-01): a caller with no relationship to the
+    # event gets the same 404 as a non-existent id — existence is not revealed.
+    if not event or not user_can_view_event(event, current_user):
         raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
 
     candidate_name = None
@@ -296,10 +314,11 @@ async def get_event(
         if cli:
             client_name = cli.name
 
+    projected = project_event_fields(event, current_user)
     return CalendarEventResponse(
         id=event.id,
         title=event.title,
-        description=event.description,
+        description=projected["description"],
         event_type=event.event_type.value,
         start_time=event.start_time,
         end_time=event.end_time,
@@ -310,7 +329,7 @@ async def get_event(
         job_title=job_title,
         client_id=event.client_id,
         client_name=client_name,
-        attendees=event.attendees or [],
+        attendees=projected["attendees"],
         location=event.location,
         teams_link=event.teams_link,
         online_meeting_url=event.online_meeting_url,
@@ -331,12 +350,25 @@ async def update_event(
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
     event = result.scalar_one_or_none()
-    if not event:
+    # 404 when the caller may not even see it (anti-enumeration); 403 when they
+    # can see it (owner/attendee) but are not allowed to mutate — P1-CALENDAR-01.
+    if not event or not user_can_view_event(event, current_user):
         raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
+    if not user_can_mutate_event(event, current_user):
+        raise HTTPException(
+            status_code=403, detail="Brak uprawnień do edycji tego wydarzenia"
+        )
 
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(event, field, value)
 
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_UPDATED,
+        user_id=current_user.id,
+        event_id=event.id,
+        override=user_is_override(current_user),
+    )
     await db.commit()
     await db.refresh(event)
 
@@ -383,8 +415,20 @@ async def delete_event(
 ):
     result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
     event = result.scalar_one_or_none()
-    if not event:
+    # Same 404/403 contract as update — P1-CALENDAR-01.
+    if not event or not user_can_view_event(event, current_user):
         raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
+    if not user_can_mutate_event(event, current_user):
+        raise HTTPException(
+            status_code=403, detail="Brak uprawnień do usunięcia tego wydarzenia"
+        )
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_DELETED,
+        user_id=current_user.id,
+        event_id=event.id,
+        override=user_is_override(current_user),
+    )
     await db.delete(event)
     await db.commit()
 
@@ -731,15 +775,44 @@ async def create_m365_invite(
 # ── Background reminder task ──────────────────────────────────────────────────
 
 
-async def _send_reminder(event: CalendarEvent):
-    """Send 15-min reminder notification via WebSocket to the event creator."""
+async def _dispatch_reminder(event_id: int) -> None:
+    """Send one T-15min reminder, durably + atomically.
+
+    Restart-safety (audyt P1): the reminder is deduped by a persisted
+    `reminder_sent_at` stamp, not an in-memory set. We claim the row with
+    `SELECT ... FOR UPDATE SKIP LOCKED` so at most one worker sends per event
+    even with multiple uvicorn workers, then persist the Notification and the
+    stamp in the SAME transaction. A restart re-scans the table and skips any
+    event that already has a stamp — so no duplicate reminders.
+
+    The WebSocket push happens AFTER commit (best-effort): the Notification row
+    is already durable, so a dropped socket only means the user sees it in their
+    notification list instead of a live toast.
+    """
     # Import here to avoid circular imports
     from app.api import ws as ws_manager
 
-    if not event.created_by:
-        return
-
     async with AsyncSessionLocal() as db:
+        event = await db.scalar(
+            select(CalendarEvent)
+            .where(CalendarEvent.id == event_id)
+            .with_for_update(skip_locked=True)
+        )
+        if event is None:
+            # Locked by another worker or deleted between scan and claim.
+            return
+        # Re-check under the lock — status may have changed, or another worker
+        # may have won the race and already stamped it.
+        if event.status != EventStatus.scheduled or event.reminder_sent_at is not None:
+            return
+
+        now = datetime.now(timezone.utc)
+        if not event.created_by:
+            # Nothing to notify, but stamp so we don't re-examine it every tick.
+            event.reminder_sent_at = now
+            await db.commit()
+            return
+
         notif = Notification(
             user_id=event.created_by,
             title="Przypomnienie o wydarzeniu",
@@ -748,31 +821,33 @@ async def _send_reminder(event: CalendarEvent):
             notification_type=NotificationType.interview_scheduled,
         )
         db.add(notif)
+        event.reminder_sent_at = now
         await db.commit()
-        await db.refresh(notif)
 
-    await ws_manager.notify_user(
-        event.created_by,
-        {
-            "type": "notification",
-            "data": {
-                "id": notif.id,
-                "title": notif.title,
-                "message": notif.message,
-                "link": notif.link,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-        },
-    )
-    logger.info(f"Reminder sent for event {event.id} to user {event.created_by}")
+        # Capture scalars (session uses expire_on_commit=False, so these stay
+        # populated) for the post-commit WS push.
+        user_id = event.created_by
+        payload = {
+            "id": notif.id,
+            "title": notif.title,
+            "message": notif.message,
+            "link": notif.link,
+            "created_at": now.isoformat(),
+        }
+
+    await ws_manager.notify_user(user_id, {"type": "notification", "data": payload})
+    logger.info("Reminder sent for event %s to user %s", event_id, user_id)
 
 
 async def calendar_reminder_loop():
     """
     Background loop that checks every minute for events starting in ~15 minutes
     and sends reminder notifications to the event creator.
+
+    Dedup is durable (`calendar_events.reminder_sent_at`) and the per-event send
+    is atomic (`FOR UPDATE SKIP LOCKED`), so this is safe across restarts and
+    multiple uvicorn workers — see `_dispatch_reminder`.
     """
-    reminded_ids: set = set()
     while True:
         try:
             now = datetime.now(timezone.utc)
@@ -780,24 +855,30 @@ async def calendar_reminder_loop():
             window_end = now + timedelta(minutes=16)
 
             async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(CalendarEvent).where(
-                        CalendarEvent.start_time >= window_start,
-                        CalendarEvent.start_time <= window_end,
-                        CalendarEvent.status == EventStatus.scheduled,
+                due_ids = (
+                    await db.scalars(
+                        select(CalendarEvent.id).where(
+                            CalendarEvent.start_time >= window_start,
+                            CalendarEvent.start_time <= window_end,
+                            CalendarEvent.status == EventStatus.scheduled,
+                            CalendarEvent.reminder_sent_at.is_(None),
+                        )
                     )
-                )
-                events = result.scalars().all()
-                for event in events:
-                    if event.id not in reminded_ids:
-                        reminded_ids.add(event.id)
-                        asyncio.create_task(_send_reminder(event))
+                ).all()
 
-            # Clean up old IDs periodically (keep last 1000)
-            if len(reminded_ids) > 1000:
-                reminded_ids.clear()
+            for event_id in due_ids:
+                try:
+                    await _dispatch_reminder(event_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "calendar reminder dispatch failed for event %s", event_id
+                    )
 
-        except Exception as e:
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Calendar reminder loop error: {e}")
 
         await asyncio.sleep(60)

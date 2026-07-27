@@ -55,8 +55,9 @@ _START_PREFIX = {
 
 
 def start_clause(value: object, mode: str | None, language: str | None) -> str:
-    """„z dniem 01.04.2026" / „nie wcześniej niż …" / „nie później niż …"."""
+    """Pełna fraza daty startu, np. „nie wcześniej niż 01.04.2026 roku"."""
     lang = "en" if (language or "pl").lower().startswith("en") else "pl"
     prefixes = _START_PREFIX[lang]
     prefix = prefixes.get((mode or "exact"), prefixes["exact"])
-    return f"{prefix} {pl_date(value)}"
+    suffix = " roku" if lang == "pl" and value not in (None, "") else ""
+    return f"{prefix} {pl_date(value)}{suffix}"

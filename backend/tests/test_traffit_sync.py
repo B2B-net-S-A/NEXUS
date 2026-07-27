@@ -14,7 +14,11 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from app.services.traffit.client import TraffitClient, TraffitConfig
-from app.services.traffit.importer import _PROMOTE_NOTES_SQL, TraffitImporter
+from app.services.traffit.importer import (
+    _PROMOTE_NOTES_SQL,
+    TraffitImporter,
+    WithdrawnReasonFallback,
+)
 from app.tasks.traffit_sync import should_run_daily, should_run_full
 
 UTC = timezone.utc
@@ -199,23 +203,28 @@ def test_summarize_caps_sample_count_at_ten():
 def test_fallback_reason_only_for_withdrawn():
     # ck_candidate_stages_withdrawn_requires_reason: stage='withdrawn' ⇒
     # rejection_reason_id NOT NULL. Bez fallbacku każdy ruch Traffit "wait"
-    # padał na constraincie → stałe ~311 błędów fazy pipelines i permanentny
+    # padał na constraincie → stałe błędy fazy pipelines i permanentny
     # checks.traffit=degraded.
-    reason_map = {10: 77, 11: 78}
+    fallback = WithdrawnReasonFallback(
+        by_job={10: 77, 11: 78}, by_stage_def={20: 88}, default_id=99
+    )
     fb = TraffitImporter._fallback_rejection_reason_id
-    assert fb("withdrawn", 10, reason_map) == 77
-    assert fb("withdrawn", 11, reason_map) == 78
-    # Job bez template'u / spoza mapy → None (wiersz nadal będzie widoczny
-    # w error_samples zamiast cicho przejść z błędnym powodem).
-    assert fb("withdrawn", 999, reason_map) is None
-    assert fb("withdrawn", None, reason_map) is None
+    assert fb("withdrawn", 10, None, fallback) == 77
+    assert fb("withdrawn", 11, None, fallback) == 78
+    # Job bez template'u (99,6% prodowej bazy) NIE może już zwracać None —
+    # spadamy na template definicji etapu, a w ostateczności na domyślny.
+    # Szczegóły warstw: tests/test_traffit_pipelines_withdrawn_fallback.py.
+    assert fb("withdrawn", 999, 20, fallback) == 88
+    assert fb("withdrawn", None, None, fallback) == 99
 
 
 def test_fallback_reason_never_for_other_stages():
-    reason_map = {10: 77}
+    fallback = WithdrawnReasonFallback(
+        by_job={10: 77}, by_stage_def={20: 88}, default_id=99
+    )
     fb = TraffitImporter._fallback_rejection_reason_id
     for stage in ("rejected", "hired", "screening", "interview", "cv_sent"):
-        assert fb(stage, 10, reason_map) is None, stage
+        assert fb(stage, 10, 20, fallback) is None, stage
 
 
 def test_pipelines_upsert_carries_rejection_reason_and_never_clobbers():

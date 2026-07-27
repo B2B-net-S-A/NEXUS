@@ -30,10 +30,16 @@ router = APIRouter()
 
 @dataclass(frozen=True)
 class ViewerInfo:
+    """Minimum identity broadcast on a presence channel.
+
+    NEXUS-P1-12: deliberately only ``user_id`` + display ``name``. A colleague's
+    email and role are internal PII and must never be broadcast to everyone
+    viewing a candidate/job — so they are not even cached here, which makes a
+    future re-leak through the payload builder structurally impossible.
+    """
+
     user_id: int
     name: str
-    email: str
-    role: str
 
 
 ResourceType = str  # "candidate" | "job"
@@ -47,10 +53,6 @@ def _make_key(resource_type: str, resource_id: int) -> ResourceKey:
 def _parse_key(key: ResourceKey) -> Tuple[str, int]:
     rt, rid_str = key.split(":", 1)
     return rt, int(rid_str)
-
-
-def _role_to_str(role) -> str:
-    return role.value if hasattr(role, "value") else str(role)
 
 
 # ── Connection Manager ─────────────────────────────────────────────────────────
@@ -70,8 +72,14 @@ class ConnectionManager:
 
     # ── Notifications (existing API) ──────────────────────────────────────────
 
-    async def connect(self, user_id: int, websocket: WebSocket) -> None:
-        await websocket.accept()
+    async def connect(
+        self, user_id: int, websocket: WebSocket, *, subprotocol: Optional[str] = None
+    ) -> None:
+        # When the client carried the JWT on the WS subprotocol, RFC 6455 requires
+        # us to echo one of the offered subprotocols on accept or the browser
+        # aborts the handshake. `subprotocol=None` (legacy query-param path) is the
+        # plain-accept default.
+        await websocket.accept(subprotocol=subprotocol)
         if user_id not in self._connections:
             self._connections[user_id] = []
         self._connections[user_id].append(websocket)
@@ -129,8 +137,6 @@ class ConnectionManager:
             self._user_info[user.id] = ViewerInfo(
                 user_id=user.id,
                 name=user.name,
-                email=user.email,
-                role=_role_to_str(user.role),
             )
 
     async def subscribe(
@@ -267,10 +273,12 @@ class ConnectionManager:
                 {
                     "user_id": info.user_id,
                     "name": info.name,
-                    # P1.3: email removed — presence must not leak a colleague's
-                    # address to everyone viewing a candidate/job. The frontend
-                    # avatar falls back to `name`.
-                    "role": info.role,
+                    # NEXUS-P1-12 (extends P1.3): the payload carries only the
+                    # minimum identity needed to render "who is viewing/editing"
+                    # — user_id + display name. A colleague's email AND role are
+                    # internal PII and must not be broadcast to everyone on a
+                    # candidate/job channel. The frontend avatar falls back to
+                    # `name`; the role tooltip line degrades to empty.
                     "editing": sorted(editing_for_key.get(uid, set())),
                     "since": since_for_key.get(uid),
                 }
@@ -323,6 +331,39 @@ async def _stamp_last_seen(user_id: int) -> None:
 
 # ── Token auth helper ──────────────────────────────────────────────────────────
 
+# Sentinel subprotocol the client offers alongside the JWT, e.g.
+# ``new WebSocket(url, ["access_token", "<jwt>"])``. The server reads the JWT
+# from the paired value and echoes THIS sentinel as the negotiated subprotocol.
+_WS_TOKEN_SUBPROTOCOL = "access_token"
+
+
+def _extract_ws_token(
+    websocket: WebSocket, query_token: Optional[str]
+) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve the WS auth token, preferring the subprotocol over the query string.
+
+    NEXUS-P1-WS-01: a JWT in the ``?token=`` query string leaks into access /
+    proxy / trace logs. The client instead offers two subprotocols —
+    ``[_WS_TOKEN_SUBPROTOCOL, "<jwt>"]`` — so the token rides an ``Upgrade``
+    request header that is not logged as a URL. We read it from there and echo
+    the sentinel as the accepted subprotocol.
+
+    Returns ``(token, accepted_subprotocol)``. ``accepted_subprotocol`` is the
+    sentinel only when the token actually came from the subprotocol (so it can be
+    echoed on accept); it is ``None`` on the legacy query-param fallback, where no
+    subprotocol must be echoed. The ``?token=`` path is retained as a temporary
+    rollout fallback so in-flight clients on the old bundle keep working.
+    """
+    subprotocols = list(websocket.scope.get("subprotocols") or [])
+    if _WS_TOKEN_SUBPROTOCOL in subprotocols:
+        idx = subprotocols.index(_WS_TOKEN_SUBPROTOCOL)
+        # The JWT is the offer immediately following the sentinel.
+        if idx + 1 < len(subprotocols):
+            token = subprotocols[idx + 1]
+            if token:
+                return token, _WS_TOKEN_SUBPROTOCOL
+    return query_token, None
+
 
 async def _authenticate_ws_token(token: str) -> Optional[User]:
     """Validate JWT token and return User, or None on failure."""
@@ -349,6 +390,27 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
 _ALLOWED_RESOURCE_TYPES = {"candidate", "job"}
 
 
+def presence_subscribe_allowed(user: User) -> bool:
+    """Authorization gate for joining a candidate/job presence channel.
+
+    NEXUS-P1-12: the raw WebSocket path would otherwise bypass every HTTP
+    authorization guard, letting any authenticated account subscribe to an
+    arbitrary ``candidate:{id}`` / ``job:{id}`` channel and watch who is
+    editing it.
+
+    NEXUS candidate/job access is role-based (see ``app.api.candidate_access``):
+    the internal operational roles read the whole base, while the read-only
+    viewer/client ``user`` role does not. There is no per-resource ACL to
+    consult, so this capability check IS the containment for presence — it
+    reuses the same ``user_has_candidate_read`` capability the HTTP
+    ``RecruitmentReadAccess`` / candidate-read guards enforce (union of the
+    primary ``users.role`` and secondary ``users.roles`` via ``has_any_role``).
+    Applied identically to candidate and job channels; fail-closed (a viewer is
+    refused both subscribe and the ``presence:editing`` signal).
+    """
+    return user_has_candidate_read(user)
+
+
 async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) -> None:
     msg_type = msg.get("type")
     rt = msg.get("resource_type")
@@ -356,18 +418,18 @@ async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) 
     if rt not in _ALLOWED_RESOURCE_TYPES or not isinstance(rid, int):
         return
 
-    # P1.3: presence is an internal collaboration signal. A read-only viewer
+    # Presence is an internal collaboration signal. A read-only viewer
     # (UserRole.user) must not be able to see — or announce themselves in — the
     # viewer list of an arbitrary candidate/job. Unsubscribe stays open so a
     # role change can always tear a stale subscription down.
     if msg_type == "presence:subscribe":
-        if not user_has_candidate_read(user):
+        if not presence_subscribe_allowed(user):
             return
         await manager.subscribe(user, websocket, rt, rid)
     elif msg_type == "presence:unsubscribe":
         await manager.unsubscribe(user.id, websocket, rt, rid)
     elif msg_type == "presence:editing":
-        if not user_has_candidate_read(user):
+        if not presence_subscribe_allowed(user):
             return
         field = msg.get("field")
         active = bool(msg.get("active"))
@@ -378,11 +440,20 @@ async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) 
 @router.websocket("/ws/notifications")
 async def ws_notifications(
     websocket: WebSocket,
-    token: str = Query(..., description="JWT access token"),
+    token: Optional[str] = Query(
+        None,
+        description=(
+            "JWT access token (legacy fallback; prefer the WS subprotocol "
+            "['access_token', <jwt>] which keeps the token out of URLs/logs)"
+        ),
+    ),
 ):
     """
     WebSocket endpoint for real-time notifications + presence.
-    Connect with: ws://host/ws/notifications?token=<access_token>
+
+    Auth: connect with subprotocols ``["access_token", "<jwt>"]`` (preferred —
+    keeps the token off the URL) or, as a temporary rollout fallback, with
+    ``ws://host/ws/notifications?token=<access_token>``.
 
     Events sent to client:
       {type: "notification", data: {id, title, message, link, created_at}}
@@ -395,12 +466,16 @@ async def ws_notifications(
       {type: "presence:unsubscribe", resource_type, resource_id}
       {type: "presence:editing", resource_type, resource_id, field, active}
     """
-    user = await _authenticate_ws_token(token)
+    raw_token, accepted_subprotocol = _extract_ws_token(websocket, token)
+    if not raw_token:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+    user = await _authenticate_ws_token(raw_token)
     if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    await manager.connect(user.id, websocket)
+    await manager.connect(user.id, websocket, subprotocol=accepted_subprotocol)
 
     try:
         await websocket.send_json(

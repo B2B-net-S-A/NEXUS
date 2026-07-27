@@ -14,6 +14,7 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.models.activity import Activity
 from app.api.deps import CurrentUser, OperationalUser
+from app.api.financial_access import has_financial_access, redact_feed_activity
 from app.services.dashboard_metrics import compute_kpi_snapshot
 
 router = APIRouter()
@@ -140,18 +141,27 @@ async def recent_activity(
         select(Activity).order_by(Activity.created_at.desc()).limit(limit)
     )
     activities = result.scalars().all()
-    return [
-        {
-            "id": a.id,
-            "entity_type": a.entity_type,
-            "entity_id": a.entity_id,
-            "action": a.action,
-            "user_id": a.user_id,
-            "details": a.details,
-            "created_at": a.created_at,
-        }
-        for a in activities
-    ]
+    # Finance protection (P1): raw ``details`` can carry rate amounts. Non-finance
+    # readers get rate-change audit rows omitted + finance keys stripped, mirroring
+    # the candidate timeline redaction.
+    finance_ok = has_financial_access(current_user)
+    feed = []
+    for a in activities:
+        details = redact_feed_activity(a.action, a.details, finance_ok=finance_ok)
+        if details is None:
+            continue
+        feed.append(
+            {
+                "id": a.id,
+                "entity_type": a.entity_type,
+                "entity_id": a.entity_id,
+                "action": a.action,
+                "user_id": a.user_id,
+                "details": details,
+                "created_at": a.created_at,
+            }
+        )
+    return feed
 
 
 @router.get("/pipeline-funnel")

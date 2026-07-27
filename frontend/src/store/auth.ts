@@ -1,5 +1,7 @@
 import { create } from "zustand"
 
+import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
+
 // ── Role model ──────────────────────────────────────────────────────────────
 //
 // Jedna, skonsolidowana hierarchia. Odpowiada `UserRole` po stronie backendu
@@ -206,23 +208,9 @@ interface AuthState {
   logout: () => void
 }
 
-// Nazwa cookie musi pasować do odczytu w Next.js middleware.
-const COOKIE_NAME = "nexus_access"
-const COOKIE_MAX_AGE = 60 * 60 * 8 // 8h, spójne z ACCESS_TOKEN_EXPIRE_MINUTES
-
-function writeAuthCookie(token: string): void {
-  if (typeof document === "undefined") return
-  // SameSite=Lax wystarcza — logowanie nie jest cross-site, CSRF surface nikła.
-  // Bez httpOnly (świadoma decyzja — patrz plan/docs/SUPABASE_ANALYSIS.md).
-  document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
-    token
-  )}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`
-}
-
-function clearAuthCookie(): void {
-  if (typeof document === "undefined") return
-  document.cookie = `${COOKIE_NAME}=; path=/; max-age=0; samesite=lax`
-}
+// Nazwa/TTL cookie i jego zapis mieszkają w lib/session.ts — tam, gdzie już
+// jest teardown sesji. Jedna definicja = brak dryfu między zapisem (setAuth)
+// a kasowaniem (clearSessionArtifacts).
 
 // Bezpieczne odczyty z localStorage — w środowisku testowym (jsdom/Vitest)
 // localStorage może być niedostępny lub częściowo inicjowany.
@@ -430,14 +418,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   logout: () => {
-    try {
-      localStorage.removeItem("access_token")
-    } catch {
-      /* non-browser env */
-    }
-    persistUser(null)
-    clearImpersonation()
-    clearAuthCookie()
+    // Ten sam teardown co przy wygaśnięciu sesji (lib/api.ts) — jedno źródło
+    // prawdy o kluczach sesji: access_token, nexus_user, nexus_real_user,
+    // nexus_impersonate_id oraz cookie nexus_access.
+    clearSessionArtifacts()
     set({ user: null, token: null, realUser: null, hydrated: true })
     if (typeof window !== "undefined") {
       window.location.href = "/login"

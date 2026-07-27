@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest"
 
+import { hasCapability } from "@/lib/capabilities"
+
 import { hasRole, hasMinRole, ROLE_RANK, UserRole } from "./auth"
 
+// Komplet ról z backendu (backend/app/models/user.py). `head_of_recruitment`
+// był tu wcześniej pominięty — czyli jedyna rola, której hierarchia rang
+// NIE odwzorowuje poprawnie, nie była w ogóle przemiatana testami (audyt F-19).
 const ALL_ROLES: UserRole[] = [
   "admin",
+  "head_of_recruitment",
   "delivery_lead",
   "tac",
   "recruiter",
@@ -75,6 +81,54 @@ describe("hasMinRole", () => {
     expect(hasMinRole(user, "recruiter")).toBe(true)
     expect(hasMinRole(user, "sourcer")).toBe(true)
     expect(hasMinRole(user, "user")).toBe(true)
+  })
+})
+
+describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () => {
+  const hor = mkUser("head_of_recruitment")
+  const dl = mkUser("delivery_lead")
+  const tac = mkUser("tac")
+  const admin = mkUser("admin")
+
+  // Bug u źródła: ROLE_RANK.head_of_recruitment (4.5) > delivery_lead (4) i
+  // > tac (3), więc hasMinRole przepuszczał HoR przez bramki DL/TAC, których
+  // backend mu NIE daje. Dokumentujemy złe zachowanie, żeby regresja była
+  // widoczna, i dlatego bramki UI używają hasRole (exact), nie hasMinRole.
+  it("hasMinRole BŁĘDNIE przepuszczał HoR przez bramki DL/TAC", () => {
+    expect(hasMinRole(hor, "delivery_lead")).toBe(true)
+    expect(hasMinRole(hor, "tac")).toBe(true)
+  })
+
+  // Dlatego bramki akcji NIE liczą rang, tylko czytają rejestr capability
+  // (`lib/capabilities.ts`) — pełna macierz w `lib/__tests__/capabilities.test.ts`.
+  it("HoR nie przechodzi bramek RecruiterPlus (kandydat / kalendarz / link)", () => {
+    expect(hasCapability(hor, "candidate.create")).toBe(false)
+    expect(hasCapability(hor, "calendar_event.create")).toBe(false)
+    expect(hasCapability(hor, "invite_link.create")).toBe(false)
+    expect(hasCapability(hor, "job.create")).toBe(false)
+    expect(hasCapability(hor, "client.create")).toBe(false)
+    // ...ale kontakty klienta (ADMIN_LIKE) już tak.
+    expect(hasCapability(hor, "contact.create")).toBe(true)
+  })
+
+  it("ranga HoR nadal jest wyższa od DL — dlatego capability, nie ranga", () => {
+    expect(ROLE_RANK.head_of_recruitment).toBeGreaterThan(ROLE_RANK.delivery_lead)
+    expect(hasCapability(hor, "job.create")).toBe(false)
+    expect(hasCapability(dl, "job.create")).toBe(true)
+  })
+
+  it("bramka pin/reassign (admin+delivery_lead) wyklucza HoR i TAC", () => {
+    expect(hasRole(hor, "admin", "delivery_lead")).toBe(false)
+    expect(hasRole(tac, "admin", "delivery_lead")).toBe(false)
+    expect(hasRole(dl, "admin", "delivery_lead")).toBe(true)
+    expect(hasRole(admin, "admin", "delivery_lead")).toBe(true)
+  })
+
+  it("bramka Nowy klient (admin+delivery_lead+tac) wyklucza HoR, dopuszcza TAC", () => {
+    expect(hasRole(hor, "admin", "delivery_lead", "tac")).toBe(false)
+    expect(hasRole(tac, "admin", "delivery_lead", "tac")).toBe(true)
+    expect(hasRole(dl, "admin", "delivery_lead", "tac")).toBe(true)
+    expect(hasRole(admin, "admin", "delivery_lead", "tac")).toBe(true)
   })
 })
 

@@ -14,7 +14,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       # Replaced ``gitleaks/gitleaks-action@v2`` with a direct CLI install:
@@ -63,26 +63,31 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff pytest pytest-asyncio pytest-cov
+          pip install ruff==0.15.22 pytest pytest-asyncio pytest-cov
       - name: Ruff lint
         run: ruff check app/
       - name: Ruff format check
         run: ruff format --check app/
-      - name: Alembic migration dry-run
+      - name: Alembic legacy-row and retry probe
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
-        run: alembic -c alembic/alembic.ini upgrade heads
+        run: |
+          alembic -c alembic/alembic.ini upgrade 0195_candidate_document_kind
+          python scripts/verify_b2b_signature_migration.py seed
+          alembic -c alembic/alembic.ini upgrade heads
+          alembic -c alembic/alembic.ini upgrade heads
+          python scripts/verify_b2b_signature_migration.py verify
       - name: Import smoke check
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
@@ -94,6 +99,15 @@ jobs:
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
           # Ensure live-server tests are skipped — our CI uses app_client fixture
           RUN_LIVE_TESTS: "0"
+          # Production HAS this set, so every token path that branches on it
+          # (invite links mint v2 hash-at-rest instead of a plaintext PK, M365
+          # tokens encrypt) took the *other* branch in CI. Green CI then proved
+          # a code path prod does not run. Value is a deliberately zero-entropy
+          # dummy — a valid 32-byte urlsafe-b64 Fernet key, obviously fake, and
+          # never a real secret. Same constant as scripts/schema_inventory.py.
+          # tests/test_ci_token_encryption_parity.py fails if this line is
+          # dropped or the value stops being a usable key.
+          M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
         run: |
           pytest tests/test_scoring_service.py tests/test_dedup_service.py \
                  tests/test_embedding_correctness.py \
@@ -137,12 +151,18 @@ jobs:
                  tests/test_email_bulk_actions.py \
                  tests/test_auth_microsoft.py \
                  tests/test_calendar_conflicts.py \
+                 tests/test_calendar_access_policy.py \
                  tests/test_ical_ssrf.py \
                  tests/test_ical_uid_collision.py \
                  tests/test_schema_drift_report.py \
                  tests/test_backup_service_contract.py \
                  tests/test_route_authz_contract.py \
                  tests/test_multirole_authz_contract.py \
+                 tests/test_job_viewer_projection.py \
+                 tests/test_log_token_redaction.py \
+                 tests/test_ci_coverage_contract.py \
+                 tests/test_ci_token_encryption_parity.py \
+                 tests/test_candidate_pii_orphans.py \
                  tests/test_user_email_templates.py \
                  tests/test_actionable_messages.py \
                  tests/test_aad_groups.py \
@@ -162,6 +182,8 @@ jobs:
                  tests/test_process_backfill.py \
                  tests/test_candidate_delete.py \
                  tests/test_candidate_module_access.py \
+                 tests/test_candidate_quick_view_contract.py \
+                 tests/test_candidate_quick_view.py \
                  tests/test_candidate_pins.py \
                  tests/test_note_crud.py \
                  tests/test_compose_calls_access.py \
@@ -180,14 +202,18 @@ jobs:
                  tests/test_analytics_v1_api.py \
                  tests/test_kpi_canonical.py \
                  tests/test_analytics_finance.py \
+                 tests/test_finance_fx_precision.py \
                  tests/test_invoice_finance_access.py \
                  tests/test_contract_finance_redaction.py \
                  tests/test_analytics_snapshots.py \
                  tests/test_analytics_release_gates.py \
                  tests/test_recommendation_status_filter.py \
                  tests/test_pipeline_templates_reorder.py \
+                 tests/test_rejection_reason_disqualifies.py \
                  tests/test_marketplace_api.py \
                  tests/test_b2b_contract_generator.py \
+                 tests/test_b2b_signature_automation.py \
+                 tests/test_b2b_uop_check.py \
                  tests/test_contract_legal_access.py \
                  tests/test_client_amendment_access.py \
                  tests/test_cv_generator_b2b_headers.py \
@@ -208,27 +234,168 @@ jobs:
                  tests/test_contract_future_termination.py \
                  tests/test_contracts_expiring.py \
                  tests/test_contracts_export.py \
+                 tests/test_contract_alerts_expansion.py \
                  tests/test_match_justification.py \
                  tests/test_cortex_fact_store.py \
                  tests/test_cortex_traffit_extract.py \
                  tests/test_cortex_api.py \
                  tests/test_eval_candidate_search.py \
                  tests/test_structured_candidate_search.py \
+                 tests/test_language_level_binding.py \
                  tests/test_candidate_job_eligibility.py \
                  tests/test_proposals_bulk.py \
                  tests/test_assign_eligibility_gate.py \
+                 tests/test_hiring_manager_verdicts.py \
+                 tests/test_manager_rejection_gate.py \
                  tests/test_job_shortlist.py \
                  tests/test_candidate_search_v3.py \
                  tests/test_traffit_client.py \
                  tests/test_traffit_mappers.py \
                  tests/test_traffit_sync.py \
+                 tests/test_traffit_watermark_on_failure.py \
                  tests/test_traffit_integration_models.py \
                  tests/test_traffit_merge.py \
+                 tests/test_traffit_pipelines_withdrawn_fallback.py \
                  tests/test_client_access_matrix.py \
                  tests/test_notifications_unread.py \
                  tests/test_template_render_access.py \
                  tests/test_notes_access.py \
                  tests/test_emails_send_disabled.py \
+                 tests/test_signature_link_revocation.py \
+                 tests/test_kpi_accepted_verification_only.py \
+                 tests/test_match_cache_degraded_write.py \
+                 tests/test_prep_kit_fireflies_authz.py \
+                 tests/test_finance_point_in_time.py \
+                 tests/test_cache_key_invalidation.py \
+                 tests/test_candidate_edit_reembed.py \
+                 tests/test_expected_rate_verification_gate.py \
+                 tests/test_autenti_webhook_monotonic.py \
+                 tests/test_search_skills_soft_signal.py \
+                 tests/test_contract_html_trust_boundary.py \
+                 tests/test_workflow_terminal_semantics.py \
+                 tests/test_assign_snapshot_consistency.py \
+                 tests/test_eval_matching_leakage_gate.py \
+                 tests/test_slack_alert_http_status.py \
+                 tests/test_signature_reconciler.py \
+                 tests/test_hybrid_search_degraded.py \
+                 tests/test_rejection_email_integration.py \
+                 tests/test_presence_authz_p1_12.py \
+                 tests/test_cloudtalk_webhook_verify.py \
+                 tests/test_cloudtalk_webhook.py \
+                 tests/test_contract_analytics_fx.py \
+                 tests/test_aux_writer_txn_isolation.py \
+                 tests/test_champion_conflicts_authz.py \
+                 tests/test_cloudtalk_webhook_race.py \
+                 tests/test_bg_task_restart_safety.py \
+                 tests/test_chat_email_fallback_race.py \
+                 tests/test_fireflies_note_dedup.py \
+                 tests/test_cvsnapshot_txn_alerts_dedup.py \
+                 tests/test_finance_activity_leak.py \
+                 tests/test_m365_sync_timeout_recovery.py \
+                 tests/test_cloudtalk_enrichment_replay.py \
+                 tests/test_schema_inventory.py \
+                 tests/test_invite_links.py \
+                 tests/test_application_submissions.py \
+                 tests/test_ws_token_subprotocol.py \
+                 tests/test_match_cache_cas.py \
+                 tests/test_match_cache_invalidation_race.py \
+                 tests/test_contract_lifecycle_invariant.py \
+                 tests/test_pipeline_membership_gate.py \
+                 tests/test_reaudit_backend_guards.py \
+                 tests/test_session_revocation.py \
+                 tests/test_pipeline_scan_equivalence.py \
+                 tests/test_crash_window_durability.py \
+                 tests/test_admin_clients_overview_head_dl.py \
+                 tests/test_admin_snapshot.py \
+                 tests/test_ai_health.py \
+                 tests/test_ai_provider_health.py \
+                 tests/test_ai_settings_schemas.py \
+                 tests/test_auto_assign_owners.py \
+                 tests/test_auto_cc_collaborators.py \
+                 tests/test_backfill_candidate_stage_cv.py \
+                 tests/test_backfill_rejection_reasons.py \
+                 tests/test_candidate_engagement.py \
+                 tests/test_candidate_risk_service.py \
+                 tests/test_candidate_sources_schemas.py \
+                 tests/test_candidate_stage_cv_branded.py \
+                 tests/test_candidate_stage_cv_model.py \
+                 tests/test_candidate_stage_cv_snapshot.py \
+                 tests/test_candidates_api_recent_job_change.py \
+                 tests/test_candidates_bulk_schemas.py \
+                 tests/test_candidates_export_v2.py \
+                 tests/test_candidates_from_linkedin.py \
+                 tests/test_candidates_position_filters.py \
+                 tests/test_candidates_recruitment_filter.py \
+                 tests/test_candidates_sort.py \
+                 tests/test_candidates_stage_filter.py \
+                 tests/test_cc_classifier.py \
+                 tests/test_cc_endpoints.py \
+                 tests/test_champion_historical_jobs.py \
+                 tests/test_claude_client.py \
+                 tests/test_client_materials.py \
+                 tests/test_client_profile.py \
+                 tests/test_clients_team.py \
+                 tests/test_cloudtalk_api.py \
+                 tests/test_cloudtalk_client.py \
+                 tests/test_contract_analytics_expansion.py \
+                 tests/test_contract_templates.py \
+                 tests/test_contractors_api.py \
+                 tests/test_contracts.py \
+                 tests/test_contracts_draft.py \
+                 tests/test_cv_backfill.py \
+                 tests/test_cv_parser_linkedin_extraction.py \
+                 tests/test_cv_text_extractor.py \
+                 tests/test_cv_upload_preview.py \
+                 tests/test_engagement_magic_link.py \
+                 tests/test_entity_fields_schemas.py \
+                 tests/test_fx.py \
+                 tests/test_http_headers.py \
+                 tests/test_interview_questions.py \
+                 tests/test_invoices.py \
+                 tests/test_job_cc.py \
+                 tests/test_job_chat.py \
+                 tests/test_job_close.py \
+                 tests/test_job_to_pool.py \
+                 tests/test_jobs_client_name.py \
+                 tests/test_jobs_filters_multi.py \
+                 tests/test_jobs_orphan_guard.py \
+                 tests/test_jobs_ownership.py \
+                 tests/test_kpi_coach_service.py \
+                 tests/test_kpi_engine.py \
+                 tests/test_kpi_messages.py \
+                 tests/test_logging_redaction.py \
+                 tests/test_m365_recording_discovery.py \
+                 tests/test_matching_location.py \
+                 tests/test_matching_skills.py \
+                 tests/test_note_mentions.py \
+                 tests/test_oauth_clients_schemas.py \
+                 tests/test_oauth_token_schemas.py \
+                 tests/test_onboarding.py \
+                 tests/test_presence_api.py \
+                 tests/test_proxycurl_client.py \
+                 tests/test_proxycurl_diff.py \
+                 tests/test_rate_benchmarks.py \
+                 tests/test_rate_cards.py \
+                 tests/test_recommendation_competence_category_multi.py \
+                 tests/test_rejection_email_scheduler.py \
+                 tests/test_reports_clients.py \
+                 tests/test_reports_invite_links.py \
+                 tests/test_reports_mrr_snapshot.py \
+                 tests/test_request_history.py \
+                 tests/test_scheduling.py \
+                 tests/test_screening_mentions.py \
+                 tests/test_seeking_contractors.py \
+                 tests/test_settings_candidates_columns.py \
+                 tests/test_similar_job_candidates.py \
+                 tests/test_similar_job_notify.py \
+                 tests/test_stage_notification_rules.py \
+                 tests/test_talent_pool_auto_add.py \
+                 tests/test_talent_pool_bulk_add.py \
+                 tests/test_talent_pool_cc.py \
+                 tests/test_talent_pools_api.py \
+                 tests/test_team_structure_my_team.py \
+                 tests/test_teams_notifications.py \
+                 tests/test_user_multi_role.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
@@ -249,14 +416,14 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - name: Cache Next.js build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: frontend/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**/*.{ts,tsx,js,jsx}') }}
@@ -288,7 +455,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       # Report-only first pass — flip continue-on-error:false / exit-code:'1' after triaging findings.
       - name: Hadolint (backend)
         uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
