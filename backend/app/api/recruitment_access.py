@@ -196,6 +196,24 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
         return
     if await is_member_of_job(db, user, job_id):
         return
+    # Nieistniejąca oferta to 404, nie 403. `is_member_of_job` zwraca dla niej
+    # False (brak wiersza => brak członkostwa), więc bez tego rozgałęzienia
+    # bramka odpowiadałaby „nie należysz do zespołu" na ofertę, której nie ma —
+    # zlewając dwa różne stany i czyniąc „ta rola ma prawo" niesprawdzalnym bez
+    # pełnej fikstury (macierze ról sondują trasy identyfikatorem-wartownikiem).
+    #
+    # Tak, rozróżnienie 404/403 ujawnia, czy oferta istnieje. Jest to akceptowalne
+    # z tego samego powodu, dla którego docstring wyżej wybrał 403 zamiast 404 dla
+    # obcej oferty: istnienie oferty jest i tak odkrywalne dla każdej roli
+    # wewnętrznej przez listę ofert, więc nie ma tu powierzchni enumeracji do
+    # ochrony. Czego 404 NIE ujawnia — i to jest właściwość, która ma znaczenie —
+    # to niczego o ZAWARTOŚCI cudzej rekrutacji: oferta istniejąca, a wołający
+    # spoza jej zespołu, dalej dostaje 403 przed dotknięciem jakichkolwiek danych.
+    if await db.get(Job, job_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Rekrutacja nie istnieje.",
+        )
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=(

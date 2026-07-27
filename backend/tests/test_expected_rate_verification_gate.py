@@ -20,7 +20,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from types import SimpleNamespace
 
 from app.api.candidates import set_recruitment_expected_rate
 from app.core.database import AsyncSessionLocal
@@ -38,7 +37,7 @@ from app.schemas.contract import RateUnit
 from app.schemas.pipeline import ClientRateUpdate
 
 
-async def _seed_verified(db, *, salary_max: int) -> tuple[int, int, int, int]:
+async def _seed_verified(db, *, salary_max: int) -> tuple[int, int, User, int]:
     u = uuid.uuid4().hex[:8]
     client = Client(name=f"Rate {u}")
     cand = Candidate(name="Rate", lastname=f"Gate-{u}")
@@ -48,7 +47,14 @@ async def _seed_verified(db, *, salary_max: int) -> tuple[int, int, int, int]:
     )
     db.add_all([client, cand, user])
     await db.flush()
-    job = Job(title=f"Rate Job {u}", client_id=client.id, salary_max=salary_max)
+    # Rekruter musi NALEŻEĆ do oferty, której stawkę edytuje — bramka zakresu
+    # zasobu tego wymaga, a produkcja i tak nie zna innego przypadku.
+    job = Job(
+        title=f"Rate Job {u}",
+        client_id=client.id,
+        salary_max=salary_max,
+        recruiter_id=user.id,
+    )
     db.add(job)
     await db.flush()
     stage = CandidateStage(
@@ -62,7 +68,7 @@ async def _seed_verified(db, *, salary_max: int) -> tuple[int, int, int, int]:
     )
     db.add(stage)
     await db.commit()
-    return cand.id, job.id, user.id, stage.id
+    return cand.id, job.id, user, stage.id
 
 
 async def _status(db, stage_id: int) -> VerificationStatus:
@@ -72,12 +78,12 @@ async def _status(db, stage_id: int) -> VerificationStatus:
 
 async def test_over_budget_rate_edit_forces_pending() -> None:
     async with AsyncSessionLocal() as db:
-        cid, jid, uid, sid = await _seed_verified(db, salary_max=20000)
+        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
         await set_recruitment_expected_rate(
             cid,
             jid,
             ClientRateUpdate(rate_value=Decimal("30000"), rate_unit=RateUnit.monthly),
-            current_user=SimpleNamespace(id=uid),
+            current_user=actor,
             db=db,
         )
     async with AsyncSessionLocal() as db:
@@ -88,12 +94,12 @@ async def test_over_budget_rate_edit_forces_pending() -> None:
 
 async def test_within_budget_rate_edit_stays_active() -> None:
     async with AsyncSessionLocal() as db:
-        cid, jid, uid, sid = await _seed_verified(db, salary_max=20000)
+        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
         await set_recruitment_expected_rate(
             cid,
             jid,
             ClientRateUpdate(rate_value=Decimal("15000"), rate_unit=RateUnit.monthly),
-            current_user=SimpleNamespace(id=uid),
+            current_user=actor,
             db=db,
         )
     async with AsyncSessionLocal() as db:
@@ -103,14 +109,14 @@ async def test_within_budget_rate_edit_stays_active() -> None:
 async def test_non_pln_rate_is_non_comparable_so_pending() -> None:
     """A currency we can't convert must fail closed to pending, never auto-pass."""
     async with AsyncSessionLocal() as db:
-        cid, jid, uid, sid = await _seed_verified(db, salary_max=20000)
+        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
         await set_recruitment_expected_rate(
             cid,
             jid,
             ClientRateUpdate(
                 rate_value=Decimal("100"), rate_unit=RateUnit.monthly, rate_currency="EUR"
             ),
-            current_user=SimpleNamespace(id=uid),
+            current_user=actor,
             db=db,
         )
     async with AsyncSessionLocal() as db:

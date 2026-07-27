@@ -194,14 +194,9 @@ export function parseJobLocationCities(location?: string | null): string[] {
  * — otherwise a multi-sentence description would zero out results. See
  * ``buildJobSearchQueryText``.
  *
- * ``nice_skills`` are omitted for historical reasons: they used to be sent as
- * ``skills_any`` back when the backend turned that into a mandatory "at least
- * one" gate, which zeroed out results. That gate is GONE — since SEARCH-P0-03
- * both ``skills_must`` and ``skills_any`` are merged into one ranking signal
- * (``skills_soft_rank``) and neither can cut a candidate from the result set.
- * Sending ``nice_skills`` here is therefore safe again and would only improve
- * ordering; it stays out only because that is a product decision about prefill
- * behaviour, not a constraint of the search API. Do not re-add the old warning.
+ * ``nice_skills`` are deliberately omitted: they used to be sent as
+ * ``skills_any`` which the backend turns into a mandatory "at least one" gate,
+ * zeroing out results. Proper soft-preference weighting lands in Phase 4.
  * ``languages`` / ``notice_period_max`` / ``availability_date_before`` /
  * ``experience_years_min`` are intentionally NOT set here — a job has no
  * NULL-safe source/target for them, so setting them would invent a hard filter

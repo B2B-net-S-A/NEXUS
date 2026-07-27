@@ -37,7 +37,6 @@ import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
-import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1005,12 +1004,25 @@ export default function JobDetailPage() {
   // Zwijanie nagłówka oferty (przyciski + właściciele + opis) — daje pipeline'owi
   // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
   // ofertami i sesjami.
-  const [headerCollapsed, setHeaderCollapsed] = useLocalStorageFlag(
-    "nexus:jobHeaderCollapsed",
-  );
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setHeaderCollapsed(localStorage.getItem("nexus:jobHeaderCollapsed") === "1");
+    } catch {
+      // localStorage niedostępne (SSR / tryb prywatny) — zostaw domyślne
+    }
+  }, []);
   const toggleHeaderCollapsed = useCallback(() => {
-    setHeaderCollapsed((v) => !v);
-  }, [setHeaderCollapsed]);
+    setHeaderCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("nexus:jobHeaderCollapsed", next ? "1" : "0");
+      } catch {
+        // ignoruj — to tylko preferencja UI
+      }
+      return next;
+    });
+  }, []);
 
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
   // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
