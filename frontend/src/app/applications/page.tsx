@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import {
+  APPLICATION_SUBMISSIONS_PAGE_LIMIT,
   applicationSubmissionsApi,
   type ApplicationResolveAction,
   type ApplicationSubmission,
@@ -167,6 +168,15 @@ export default function ApplicationsQueuePage() {
           </span>
         )}
       </header>
+
+      {sorted.length >= APPLICATION_SUBMISSIONS_PAGE_LIMIT && (
+        <p className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Lista dobiła do limitu {APPLICATION_SUBMISSIONS_PAGE_LIMIT} pozycji —
+          starsze zgłoszenia mogą nie być widoczne. Rozstrzygnij zaległości albo
+          zgłoś potrzebę paginacji.
+        </p>
+      )}
 
       {stale.length > 0 && (
         <p className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">

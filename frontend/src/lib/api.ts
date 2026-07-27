@@ -4643,11 +4643,16 @@ export interface ApplicationResolveResult {
   candidate_id: number | null;
 }
 
+/** Backend twardo ogranicza `limit` do 500 (`Query(le=500)`). Bierzemy sufit,
+ *  a UI mówi wprost, gdy lista dobiła do limitu — cicha truncacja w kolejce,
+ *  której celem jest „nic nie ginie", byłaby sprzeczna sama ze sobą. */
+export const APPLICATION_SUBMISSIONS_PAGE_LIMIT = 500;
+
 export const applicationSubmissionsApi = {
   list: (status = "pending_review") =>
     api
       .get<ApplicationSubmission[]>("/api/application-submissions", {
-        params: { status, limit: 200 },
+        params: { status, limit: APPLICATION_SUBMISSIONS_PAGE_LIMIT },
       })
       .then((r) => r.data),
   resolve: (id: number, action: ApplicationResolveAction) =>
