@@ -174,6 +174,71 @@ async def load_manager_rejections(
     return verdicts
 
 
+async def load_all_vetoes_for_candidate(
+    db: AsyncSession, *, candidate_id: int
+) -> list[ManagerVerdict]:
+    """Every manager who has rejected this candidate after meeting them.
+
+    Job-agnostic, newest first, one entry per manager (their latest verdict).
+    The badge on a job-scoped view can only name one manager; a candidate turned
+    down by four of them needs the list — and the reasons — without opening
+    every past recruitment.
+    """
+    rejected = aliased(CandidateStage)
+    met = aliased(CandidateStage)
+
+    stmt = (
+        select(
+            rejected.job_id,
+            rejected.moved_at,
+            rejected.rejection_reason_id,
+            rejected.rejection_note,
+            RejectionReason.name,
+            Job.title,
+            Job.hiring_manager_contact_id,
+            Contact.name.label("manager_name"),
+        )
+        .select_from(rejected)
+        .join(Job, Job.id == rejected.job_id)
+        .join(RejectionReason, RejectionReason.id == rejected.rejection_reason_id)
+        .outerjoin(Contact, Contact.id == Job.hiring_manager_contact_id)
+        .where(
+            rejected.candidate_id == candidate_id,
+            rejected.stage == PipelineStage.rejected,
+            Job.hiring_manager_contact_id.is_not(None),
+            RejectionReason.disqualifies_person.is_(True),
+            exists().where(
+                met.candidate_id == rejected.candidate_id,
+                met.job_id == rejected.job_id,
+                met.stage.in_(tuple(MANAGER_MET_STAGES)),
+                met.moved_at <= rejected.moved_at,
+            ),
+        )
+        .order_by(rejected.moved_at.desc())
+    )
+
+    out: list[ManagerVerdict] = []
+    seen_managers: set[int] = set()
+    for row in (await db.execute(stmt)).all():
+        if row.hiring_manager_contact_id in seen_managers:
+            continue
+        seen_managers.add(row.hiring_manager_contact_id)
+        out.append(
+            ManagerVerdict(
+                candidate_id=candidate_id,
+                hiring_manager_contact_id=row.hiring_manager_contact_id,
+                hiring_manager_name=row.manager_name,
+                source_job_id=row.job_id,
+                source_job_title=row.title,
+                rejected_at=row.moved_at,
+                rejection_reason_id=row.rejection_reason_id,
+                rejection_reason_name=row.name,
+                rejection_note=row.rejection_note,
+            )
+        )
+    return out
+
+
 async def veto_for_candidate_stage(
     db: AsyncSession, *, candidate_stage_id: int
 ) -> Optional[ManagerVerdict]:

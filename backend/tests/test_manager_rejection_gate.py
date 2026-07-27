@@ -35,8 +35,10 @@ async def _seed_vetoed_candidate(*, disqualifying: bool = True) -> dict:
     from app.models.contact import Contact
     from app.models.job import Job, JobStatus
     from app.models.pipeline_template import (
+        PipelineStageDef,
         PipelineTemplate,
         RejectionReason,
+        StageCategoryEnum,
         TerminalType,
     )
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -83,7 +85,31 @@ async def _seed_vetoed_candidate(*, disqualifying: bool = True) -> dict:
             email=f"gate-{tag}@example.com",
             status=CandidateStatus.active,
         )
-        db.add_all([source, target, reason, candidate])
+        # The board renders columns from the template — without stage defs the
+        # job has no columns at all and cards are simply not returned.
+        stage_defs = [
+            PipelineStageDef(
+                template_id=template.id,
+                name=stage_name,
+                order=order,
+                category=category,
+                legacy_enum_value=stage_name,
+                is_terminal=terminal_type is not None,
+                terminal_type=terminal_type,
+            )
+            for order, (stage_name, category, terminal_type) in enumerate(
+                [
+                    ("new", StageCategoryEnum.internal, None),
+                    ("screening", StageCategoryEnum.internal, None),
+                    ("cv_sent", StageCategoryEnum.internal, None),
+                    ("client_interview", StageCategoryEnum.external, None),
+                    ("negotiation", StageCategoryEnum.external, None),
+                    ("hired", StageCategoryEnum.terminal, TerminalType.hired),
+                    ("rejected", StageCategoryEnum.terminal, TerminalType.rejected),
+                ]
+            )
+        ]
+        db.add_all([source, target, reason, candidate, *stage_defs])
         await db.commit()
         await db.refresh(source)
         await db.refresh(target)
@@ -370,3 +396,83 @@ async def test_move_on_the_job_that_rejected_them_is_not_self_blocked(
     )
 
     assert resp.status_code == 200, resp.text
+
+
+# ── Seeing the veto before hitting it ───────────────────────────────────────
+
+
+async def test_kanban_card_carries_the_veto(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """The board is how a recruiter learns about it before dragging a card."""
+    world = await _seed_vetoed_candidate()
+    await _place_in_target(world)
+
+    resp = await app_client.get(
+        f"/api/pipeline/kanban/{world['target_job_id']}", headers=app_auth_headers
+    )
+
+    assert resp.status_code == 200, resp.text
+    cards = [
+        card
+        for column in resp.json()["columns"]
+        for card in column["items"]
+        if card["candidate_id"] == world["candidate_id"]
+    ]
+    assert len(cards) == 1
+    veto = cards[0]["hm_veto"]
+    assert veto is not None
+    assert veto["hiring_manager_name"] == world["manager_name"]
+    assert veto["source_job_id"] == world["source_job_id"]
+
+
+async def test_kanban_card_has_no_veto_without_one(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _seed_vetoed_candidate(disqualifying=False)
+    await _place_in_target(world)
+
+    resp = await app_client.get(
+        f"/api/pipeline/kanban/{world['target_job_id']}", headers=app_auth_headers
+    )
+
+    assert resp.status_code == 200, resp.text
+    cards = [
+        card
+        for column in resp.json()["columns"]
+        for card in column["items"]
+        if card["candidate_id"] == world["candidate_id"]
+    ]
+    assert cards and cards[0]["hm_veto"] is None
+
+
+async def test_profile_lists_every_manager_who_rejected_them(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """One badge can name one manager; the profile has to show them all."""
+    world = await _seed_vetoed_candidate()
+
+    resp = await app_client.get(
+        f"/api/candidates/{world['candidate_id']}/hiring-manager-vetoes",
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["hiring_manager_name"] == world["manager_name"]
+    assert rows[0]["source_job_id"] == world["source_job_id"]
+
+
+async def test_profile_list_is_empty_for_a_situational_rejection(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _seed_vetoed_candidate(disqualifying=False)
+
+    resp = await app_client.get(
+        f"/api/candidates/{world['candidate_id']}/hiring-manager-vetoes",
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []

@@ -106,7 +106,11 @@ from app.services.scoring_service import (
     summarize_match_stats,
 )
 from app.services.dedup_service import find_candidate_duplicates
-from app.services.hiring_manager_verdicts import load_manager_rejections
+from app.schemas.pipeline import HiringManagerVetoBrief
+from app.services.hiring_manager_verdicts import (
+    load_all_vetoes_for_candidate,
+    load_manager_rejections,
+)
 from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
@@ -3099,6 +3103,36 @@ async def get_candidate_timeline(
         "count": len(timeline),
         "timeline": timeline[:limit],
     }
+
+
+@router.get(
+    "/{candidate_id}/hiring-manager-vetoes",
+    response_model=list[HiringManagerVetoBrief],
+)
+async def get_candidate_hiring_manager_vetoes(
+    candidate_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Managers who rejected this candidate after meeting them, newest first.
+
+    Job-scoped views can only name one manager; this is the whole picture —
+    "with whom must we not pair this person again", plus the reasons, without
+    opening every past recruitment.
+    """
+    verdicts = await load_all_vetoes_for_candidate(db, candidate_id=candidate_id)
+    return [
+        HiringManagerVetoBrief(
+            hiring_manager_contact_id=v.hiring_manager_contact_id,
+            hiring_manager_name=v.hiring_manager_name,
+            source_job_id=v.source_job_id,
+            source_job_title=v.source_job_title,
+            rejected_at=v.rejected_at,
+            rejection_reason_name=v.rejection_reason_name,
+            rejection_note=v.rejection_note,
+        )
+        for v in verdicts
+    ]
 
 
 @router.get("/{candidate_id}/history")
