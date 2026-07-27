@@ -272,6 +272,83 @@ async def test_candidate_can_always_be_closed_out(
     assert resp.status_code == 200, resp.text
 
 
+async def test_add_from_history_is_blocked(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """"Dodaj championa z historii" is the flow that resurrects rejected people."""
+    world = await _seed_vetoed_candidate()
+
+    resp = await app_client.post(
+        f"/api/jobs/{world['target_job_id']}/candidates",
+        headers=app_auth_headers,
+        json={"candidate_id": world["candidate_id"]},
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert world["manager_name"] in resp.json()["detail"]
+
+
+# ── Going out to the client ─────────────────────────────────────────────────
+
+
+async def test_champion_share_token_is_blocked(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """The outbound gate catches pipelines that predate the assignment gate.
+
+    The candidate is placed on the target job directly in the DB — exactly like
+    every row that already existed when this feature shipped.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from sqlalchemy import select
+
+    world = await _seed_vetoed_candidate()
+    await _place_in_target(world, stage="cv_sent")
+
+    async with AsyncSessionLocal() as db:
+        stage_id = await db.scalar(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == world["candidate_id"],
+                CandidateStage.job_id == world["target_job_id"],
+                CandidateStage.stage == PipelineStage.cv_sent,
+            )
+        )
+
+    resp = await app_client.post(
+        f"/api/pipeline/stages/{stage_id}/share-token", headers=app_auth_headers
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert world["manager_name"] in resp.json()["detail"]
+
+
+async def test_champion_share_token_works_without_a_veto(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from sqlalchemy import select
+
+    world = await _seed_vetoed_candidate(disqualifying=False)
+    await _place_in_target(world, stage="cv_sent")
+
+    async with AsyncSessionLocal() as db:
+        stage_id = await db.scalar(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == world["candidate_id"],
+                CandidateStage.job_id == world["target_job_id"],
+                CandidateStage.stage == PipelineStage.cv_sent,
+            )
+        )
+
+    resp = await app_client.post(
+        f"/api/pipeline/stages/{stage_id}/share-token", headers=app_auth_headers
+    )
+
+    assert resp.status_code == 200, resp.text
+
+
 async def test_move_on_the_job_that_rejected_them_is_not_self_blocked(
     app_client: AsyncClient, app_auth_headers: dict
 ):

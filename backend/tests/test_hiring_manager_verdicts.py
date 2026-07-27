@@ -331,6 +331,44 @@ async def test_acceptance_and_hired_also_count_as_having_met():
     assert world["candidate_id"] in verdicts
 
 
+async def test_veto_for_candidate_stage_resolves_through_the_row():
+    """Powers the outbound gates (CV share link, Champion card)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.hiring_manager_verdicts import veto_for_candidate_stage
+    from sqlalchemy import select
+
+    world = await _seed_world()
+    await _reject_after_interview(world, reason_key="disqualifying_reason_id")
+    await _seed_stage(
+        candidate_id=world["candidate_id"],
+        job_id=world["target_job_id"],
+        stage="cv_sent",
+        moved_at=NOW - timedelta(days=1),
+    )
+
+    async with AsyncSessionLocal() as db:
+        stage_id = await db.scalar(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == world["candidate_id"],
+                CandidateStage.job_id == world["target_job_id"],
+                CandidateStage.stage == PipelineStage.cv_sent,
+            )
+        )
+        verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
+
+    assert verdict is not None
+    assert verdict.source_job_id == world["source_job_id"]
+
+
+async def test_veto_for_missing_stage_is_none():
+    from app.core.database import AsyncSessionLocal
+    from app.services.hiring_manager_verdicts import veto_for_candidate_stage
+
+    async with AsyncSessionLocal() as db:
+        assert await veto_for_candidate_stage(db, candidate_stage_id=-1) is None
+
+
 async def test_met_stages_exclude_cv_sent():
     """Guards the stage set itself, so a future reorder can't widen it."""
     from app.models.recruitment_pipeline import PipelineStage

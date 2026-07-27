@@ -172,3 +172,35 @@ async def load_manager_rejections(
             rejection_note=row.rejection_note,
         )
     return verdicts
+
+
+async def veto_for_candidate_stage(
+    db: AsyncSession, *, candidate_stage_id: int
+) -> Optional[ManagerVerdict]:
+    """Veto standing against the candidate on this pipeline row's own job.
+
+    Used on the paths where a candidate goes *out* to the client. Blocking at
+    assignment time only protects rows created after this feature shipped: every
+    pipeline that already existed is past that gate, flipping
+    ``disqualifies_person`` on turns historical rejections into verdicts
+    retroactively, and ``Job.hiring_manager_contact_id`` can be edited to
+    someone who vetoed the candidate long ago.
+    """
+    row = (
+        await db.execute(
+            select(CandidateStage.candidate_id, CandidateStage.job_id).where(
+                CandidateStage.id == candidate_stage_id
+            )
+        )
+    ).first()
+    if row is None:
+        return None
+
+    job = await db.scalar(select(Job).where(Job.id == row.job_id))
+    if job is None:
+        return None
+
+    verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=[row.candidate_id]
+    )
+    return verdicts.get(row.candidate_id)

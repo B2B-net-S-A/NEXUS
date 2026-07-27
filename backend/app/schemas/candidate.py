@@ -630,5 +630,10 @@ class CandidateFromLinkedInResponse(BaseModel):
     linkedin_url: str
     linkedin_sync_status: LinkedinSyncStatus
     assigned_to_job_id: Optional[int] = None
+    # Set when the candidate was saved but deliberately NOT put on the job —
+    # today only when the job's hiring manager already rejected them after an
+    # interview. Never fail the whole "add from LinkedIn" over it; the popup
+    # shows this instead of a silent no-op.
+    assignment_skipped_reason: Optional[str] = None
     profile_url_path: str
     resync_scheduled: bool = False

@@ -50,7 +50,10 @@ from app.api.recruitment_access import (
     user_can_edit_rates,
     user_can_terminal_transition,
 )
-from app.services.hiring_manager_verdicts import puts_candidate_before_client
+from app.services.hiring_manager_verdicts import (
+    puts_candidate_before_client,
+    veto_for_candidate_stage,
+)
 from app.services.pipeline_eligibility import (
     assert_candidate_move_eligible,
     assert_candidates_move_eligible,
@@ -1235,6 +1238,14 @@ async def create_share_token(
     stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
+
+    # Same outbound gate as the CV share link — this card goes to the client too.
+    verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
+    if verdict is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{verdict.as_polish_detail()} Nie wysyłaj mu go ponownie.",
+        )
 
     # v2: the secret lives only in the URL and as a SHA-256 digest in the DB.
     # The PK holds a non-secret revoke key, so a DB leak yields no working link.
