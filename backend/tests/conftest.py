@@ -40,6 +40,53 @@ TEST_EMAIL = "artur@b2bnet.pl"
 TEST_PASSWORD = "admin123"
 
 
+# ── Global skill-taxonomy isolation ─────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _isolate_skill_taxonomy():
+    """Restore the process-global skill taxonomy after every test.
+
+    `scoring_service.ALIAS_MAP` and the three `skill_normalize` containers are
+    module-level caches hydrated once at app startup. Anything that calls
+    `refresh_alias_map()` — the Cortex curation endpoints do, on every skill or
+    alias edit — rewrites them for the rest of the process. That made the order
+    of the CI file list load-bearing: `test_cortex_api.py` hydrates the taxonomy
+    from the DB, and every later test that expects the unhydrated default
+    (`test_scoring_service.py`, the CV bolding tests) then failed for a reason
+    unrelated to itself.
+
+    Restoring here fixes the class rather than the four symptoms: no test can
+    leak taxonomy state into the next one, whichever order they run in. The
+    snapshot is free in the common case — the containers are empty unless a
+    test hydrated them.
+    """
+    from app.services import scoring_service as _ss
+    from app.services import skill_normalize as _sn
+
+    alias_map = dict(_ss.ALIAS_MAP)
+    tech_canonicals = set(_sn.TECH_CANONICALS)
+    alias_to_canonical = dict(_sn.ALIAS_TO_CANONICAL)
+    canonical_to_aliases = {k: list(v) for k, v in _sn.CANONICAL_TO_ALIASES.items()}
+    try:
+        yield
+    finally:
+        # Only pay the rebuild (and the regex invalidation) when a test actually
+        # moved the taxonomy.
+        if _ss.ALIAS_MAP != alias_map:
+            _ss.set_alias_map(alias_map)
+        if (
+            _sn.TECH_CANONICALS != tech_canonicals
+            or _sn.ALIAS_TO_CANONICAL != alias_to_canonical
+            or _sn.CANONICAL_TO_ALIASES != canonical_to_aliases
+        ):
+            _sn.set_tech_taxonomy(
+                tech_canonicals=tech_canonicals,
+                alias_to_canonical=alias_to_canonical,
+                canonical_to_aliases=canonical_to_aliases,
+            )
+
+
 # ── Legacy live-server fixtures ─────────────────────────────────────────────
 
 
