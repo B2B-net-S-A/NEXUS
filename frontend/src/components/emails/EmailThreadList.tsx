@@ -280,7 +280,7 @@ function ThreadResults({
                 onClick={() => onOpen(t.conversation_id)}
                 className="flex-1 min-w-0 text-left flex items-start gap-3"
               >
-                <div className="w-9 h-9 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
+                <div className="w-9 h-9 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-medium shrink-0">
                   {initial(t.latest.from_name ?? t.latest.from_address)}
                 </div>
 
@@ -326,7 +326,7 @@ function ThreadResults({
                   </p>
                 </div>
 
-                <div className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+                <div className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
                   {formatRelativeTime(t.latest.received_at)}
                 </div>
               </button>
@@ -391,7 +391,7 @@ function SearchResults({
               !hit.is_read && "bg-primary/10",
             )}
           >
-            <div className="w-9 h-9 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-medium shrink-0">
               {initial(hit.from_name ?? hit.from_address)}
             </div>
 
@@ -424,7 +424,7 @@ function SearchResults({
               )}
             </div>
 
-            <div className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+            <div className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {formatRelativeTime(hit.received_at)}
             </div>
           </button>

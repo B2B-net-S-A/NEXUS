@@ -147,13 +147,13 @@ function ThreadMessageCard({
           aria-expanded={expanded}
         >
           {expanded ? (
-            <ChevronDown className="h-4 w-4 mt-1 text-muted-foreground flex-shrink-0" />
+            <ChevronDown className="h-4 w-4 mt-1 text-muted-foreground shrink-0" />
           ) : (
-            <ChevronRight className="h-4 w-4 mt-1 text-muted-foreground flex-shrink-0" />
+            <ChevronRight className="h-4 w-4 mt-1 text-muted-foreground shrink-0" />
           )}
           <div
             className={cn(
-              "h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0",
+              "h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0",
               tone,
             )}
             aria-hidden

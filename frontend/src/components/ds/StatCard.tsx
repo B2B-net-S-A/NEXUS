@@ -104,7 +104,7 @@ export const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
   ({ label, value, delta, sub, icon: Icon, spark, className, ...props }, ref) => (
     <Card
       ref={ref}
-      className={cn("p-5 transition-shadow duration-200 hover:shadow-sm", className)}
+      className={cn("p-5 transition-shadow duration-200 hover:shadow-xs", className)}
       {...props}
     >
       <div className="flex items-center justify-between">

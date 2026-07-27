@@ -103,7 +103,7 @@ export default function PendingVerificationsPage() {
  if (!isApprover) {
  return (
  <div className="p-8 max-w-2xl mx-auto">
- <Card className="!p-6 text-center text-sm text-muted-foreground">
+ <Card className="p-6! text-center text-sm text-muted-foreground">
  <Inbox className="h-10 w-10 mx-auto mb-3 opacity-40" />
  Tylko delivery lead, head of recruitment lub admin mogą akceptować
  weryfikacje.
@@ -134,13 +134,13 @@ export default function PendingVerificationsPage() {
  </div>
  )}
  {isError && (
- <Card className="!p-4 text-sm text-rose-700 bg-rose-50 border border-rose-200">
+ <Card className="p-4! text-sm text-rose-700 bg-rose-50 border border-rose-200">
  Nie udało się pobrać listy.
  </Card>
  )}
 
  {data && data.length === 0 && (
- <Card className="!p-8 text-center text-sm text-muted-foreground">
+ <Card className="p-8! text-center text-sm text-muted-foreground">
  <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-emerald-500 opacity-70" />
  Brak oczekujących weryfikacji. Wszyscy kandydaci przeszli przez
  bramkę.
@@ -255,7 +255,7 @@ export default function PendingVerificationsPage() {
  }
  rows={4}
  placeholder="np. Stawka za wysoka, max 22000 PLN"
- className="w-full px-3 py-2 rounded-md border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary"
+ className="w-full px-3 py-2 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
  autoFocus
  />
  </FormField>

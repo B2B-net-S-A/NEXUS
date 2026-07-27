@@ -8,7 +8,7 @@ const SEMANTIC = [
   "background", "foreground", "card", "card-foreground", "popover", "popover-foreground",
   "primary", "primary-foreground", "secondary", "secondary-foreground",
   "muted", "muted-foreground", "accent", "accent-foreground",
-  "destructive", "destructive-foreground", "border", "input", "ring",
+  "destructive", "destructive-foreground", "border", "input", "ring-3",
   "success", "success-foreground", "success-muted", "success-muted-foreground",
   "warning", "warning-foreground", "warning-muted", "warning-muted-foreground",
   "destructive-muted", "destructive-muted-foreground",

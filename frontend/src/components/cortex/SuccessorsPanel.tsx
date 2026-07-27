@@ -34,7 +34,7 @@ export function SuccessorsPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
         <div className="flex flex-wrap items-center gap-4">
           <div>
             <h3 className="font-semibold text-sm">Następcy</h3>
@@ -152,7 +152,7 @@ function EndingContractCard({
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2"
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <UserRoundCheck className="w-4 h-4 text-primary flex-shrink-0" />
+                  <UserRoundCheck className="w-4 h-4 text-primary shrink-0" />
                   <a
                     href={`/candidates/${s.id}`}
                     className="text-sm font-medium text-foreground hover:text-primary hover:underline underline-offset-2 truncate"

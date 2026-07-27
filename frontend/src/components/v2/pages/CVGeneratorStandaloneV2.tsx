@@ -648,7 +648,7 @@ function NewModeForm({
             </PopoverTrigger>
             <PopoverContent
               align="start"
-              className="w-[--radix-popover-trigger-width] p-0"
+              className="w-(--radix-popover-trigger-width) p-0"
             >
               <Command shouldFilter={false}>
                 <div className="flex items-center border-b border-border px-3">
@@ -923,7 +923,7 @@ function FileDropZone({
     return (
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
         <div className="flex min-w-0 items-center gap-3">
-          <FileText className="h-5 w-5 flex-shrink-0 text-primary" />
+          <FileText className="h-5 w-5 shrink-0 text-primary" />
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{file.name}</div>
             <div className="text-xs text-muted-foreground">

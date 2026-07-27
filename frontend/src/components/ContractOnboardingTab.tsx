@@ -119,7 +119,7 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
       )}
 
       {items.length > 0 && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4">
           <div className="flex items-center justify-between mb-3 text-sm">
             <span className="text-muted-foreground dark:text-muted-foreground">
               Postęp: <strong>{doneCount}/{activeCount}</strong>{" "}
@@ -175,7 +175,7 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
             return (
               <li
                 key={item.id}
-                className={`flex items-center gap-3 bg-card dark:bg-muted rounded-lg px-3 py-2 shadow-sm ${
+                className={`flex items-center gap-3 bg-card dark:bg-muted rounded-lg px-3 py-2 shadow-xs ${
                   isNa ? "opacity-50" : ""
                 }`}
               >

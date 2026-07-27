@@ -130,10 +130,10 @@ export function OnboardingDLV2() {
  const header =
  step === "priority" ? (
  <>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Krok 1 z 2 · Lista priorytetów
  </p>
- <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
  Które oferty są priorytetowe?
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
@@ -144,10 +144,10 @@ export function OnboardingDLV2() {
  </>
  ) : (
  <>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Krok 2 z 2 · Potrzebny search
  </p>
- <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
  Które wymagają aktywnego sourcingu?
  </h1>
  <p className="text-sm text-muted-foreground mt-1">

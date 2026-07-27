@@ -66,7 +66,7 @@ export function AuthShell({ heading, subtitle, children, footer = "Nexus · B2B.
             )}
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">{children}</div>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-xs">{children}</div>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">{footer}</p>
         </div>

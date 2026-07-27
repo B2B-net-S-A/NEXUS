@@ -165,7 +165,7 @@ export function ContractorMatchCard({ row }: Props) {
 
   return (
     <article
-      className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4 shadow-sm hover:shadow-md transition-shadow"
+      className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4 shadow-xs hover:shadow-md transition-shadow"
       data-testid={`contractor-card-${c.id}`}
     >
       {/* Header */}
@@ -178,7 +178,7 @@ export function ContractorMatchCard({ row }: Props) {
             className="w-12 h-12 rounded-full object-cover shrink-0"
           />
         ) : (
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shrink-0">
+          <div className="w-12 h-12 rounded-full bg-linear-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shrink-0">
             {initials}
           </div>
         )}

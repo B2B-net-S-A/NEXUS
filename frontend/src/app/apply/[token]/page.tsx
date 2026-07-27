@@ -74,7 +74,7 @@ export default async function ApplyPage({ params }: PageProps) {
  N
  </div>
  <div className="leading-tight">
- <div className="text-xs font-semibold tracking-[0.22em] uppercase text-primary">
+ <div className="text-xs font-semibold tracking-eyebrow uppercase text-primary">
  Nexus · Dynaminds
  </div>
  <div className="text-[11px] text-muted-foreground">
@@ -85,7 +85,7 @@ export default async function ApplyPage({ params }: PageProps) {
 
  {/* Hero */}
  <section className="mb-8 space-y-3">
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  {meta.recruiter.first_name} zaprasza Cię do aplikacji
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground leading-[1.05]">

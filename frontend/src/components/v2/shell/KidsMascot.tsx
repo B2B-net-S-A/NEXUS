@@ -295,7 +295,7 @@ export function KidsMascot() {
           onClick={onMotivate}
           aria-label="Zmotywuj mnie!"
           title="Kliknij po motywację!"
-          className="kids-buddy pointer-events-auto outline-none"
+          className="kids-buddy pointer-events-auto outline-hidden"
         >
           <span className={party ? "kids-anim-dance block" : popping ? "kids-anim-pop block" : "kids-anim-float block"}>
             <Buddy id={kidsBuddy} waving={popping || party} />

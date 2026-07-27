@@ -36,7 +36,7 @@ export default function NotFound() {
 
       <Link
         href="/"
-        className="inline-flex items-center gap-2 h-10 px-6 bg-primary hover:bg-primary/90 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="inline-flex items-center gap-2 h-10 px-6 bg-primary hover:bg-primary/90 text-white text-sm font-medium rounded-lg transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         aria-label="Wróć do dashboardu"
       >
         <Home className="w-4 h-4" aria-hidden="true" />

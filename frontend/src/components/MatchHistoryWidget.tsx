@@ -76,7 +76,7 @@ export function MatchHistoryWidget({ jobId, candidateId }: Props) {
               key={r.id}
               className="flex items-center gap-3 border-t border-border dark:border-border first:border-t-0 pt-1.5"
             >
-              <span className="text-xs text-muted-foreground w-32 flex-shrink-0">
+              <span className="text-xs text-muted-foreground w-32 shrink-0">
                 {fmt(r.created_at)}
               </span>
               <span className={`font-semibold ${scoreColor(r.total_score)}`}>

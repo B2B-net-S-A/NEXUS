@@ -243,7 +243,7 @@ function FirefliesCard() {
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
           <Mic className="w-6 h-6 text-orange-500" />
         </div>
         <div className="flex-1">
@@ -288,7 +288,7 @@ function FirefliesCard() {
 
       {status?.error && (
         <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 mb-4">
-          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{status.error}</span>
         </div>
       )}
@@ -320,17 +320,17 @@ function FirefliesCard() {
                 key={t.id}
                 className="flex items-center gap-3 text-sm py-2 border-b border-border dark:border-border last:border-0"
               >
-                <Mic className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />
+                <Mic className="w-3.5 h-3.5 text-orange-400 shrink-0" />
                 <span className="flex-1 truncate text-foreground dark:text-muted-foreground">{t.title}</span>
                 {t.candidate_id && (
                   <Link
                     href={`/candidates?id=${t.candidate_id}`}
-                    className="text-xs text-primary hover:underline flex-shrink-0"
+                    className="text-xs text-primary hover:underline shrink-0"
                   >
                     Kandydat →
                   </Link>
                 )}
-                <span className="text-xs text-muted-foreground flex-shrink-0">
+                <span className="text-xs text-muted-foreground shrink-0">
                   {t.created_at ? formatRelativeTime(t.created_at) : ""}
                 </span>
               </div>
@@ -411,7 +411,7 @@ export default function SettingsPage() {
             className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
               activeTab === tab.id
-                ? "bg-card dark:bg-muted text-foreground dark:text-foreground shadow-sm"
+                ? "bg-card dark:bg-muted text-foreground dark:text-foreground shadow-xs"
                 : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
             )}
           >
@@ -466,10 +466,10 @@ export default function SettingsPage() {
             <Link
               key={link.href}
               href={link.href}
-              className="group bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-5 hover:border-primary hover:shadow-sm transition-all"
+              className="group bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-5 hover:border-primary hover:shadow-xs transition-all"
             >
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
                   {link.icon}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -477,7 +477,7 @@ export default function SettingsPage() {
                     <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
                       {link.title}
                     </h3>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
                   </div>
                   <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">
                     {link.description}
@@ -519,7 +519,7 @@ function CoachingSettings() {
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
           <Sparkles className="w-6 h-6 text-emerald-500" />
         </div>
         <div className="flex-1">
@@ -550,8 +550,8 @@ function CoachingSettings() {
           disabled={isLoading || isPending}
           onClick={() => update(!enabled)}
           className={cn(
-            "relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors",
-            "focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2",
+            "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors",
+            "focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2",
             enabled
               ? "bg-emerald-500"
               : "bg-muted dark:bg-gray-600",
@@ -560,7 +560,7 @@ function CoachingSettings() {
         >
           <span
             className={cn(
-              "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition-transform mt-0.5",
+              "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow-sm ring-0 transition-transform mt-0.5",
               enabled ? "translate-x-5" : "translate-x-0.5",
             )}
           />
@@ -569,7 +569,7 @@ function CoachingSettings() {
 
       {!isLoading && !enabled && (
         <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mt-4">
-          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>
             Coaching wyłączony — nie będziesz dostawać toastów ani powiadomień z
             KPI Coach. Sam widget KPI w dashboardzie pozostaje widoczny.
@@ -594,7 +594,7 @@ function OnboardingSettings() {
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-primary/10 dark:bg-primary/30 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-xl bg-primary/10 dark:bg-primary/30 flex items-center justify-center shrink-0">
           <HelpCircle className="w-6 h-6 text-primary" />
         </div>
         <div>

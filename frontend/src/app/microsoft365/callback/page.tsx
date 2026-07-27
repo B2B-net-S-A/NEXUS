@@ -49,12 +49,12 @@ export default function Microsoft365CallbackPage() {
     return (
       <Centered>
         <div className="flex items-start gap-3 max-w-lg">
-          <AlertCircle className="h-8 w-8 text-destructive flex-shrink-0 mt-1" />
+          <AlertCircle className="h-8 w-8 text-destructive shrink-0 mt-1" />
           <div>
             <p className="text-lg font-semibold text-foreground">
               Nie udało się połączyć
             </p>
-            <p className="text-sm text-muted-foreground mt-1 break-words">
+            <p className="text-sm text-muted-foreground mt-1 wrap-break-word">
               {message ?? "Nieznany błąd."}
             </p>
             <Link
@@ -82,7 +82,7 @@ export default function Microsoft365CallbackPage() {
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-6">
-      <div className="bg-card border border-border rounded-2xl shadow-sm p-8">
+      <div className="bg-card border border-border rounded-2xl shadow-xs p-8">
         {children}
       </div>
     </div>

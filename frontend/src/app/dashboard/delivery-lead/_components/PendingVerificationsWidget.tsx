@@ -107,7 +107,7 @@ export function PendingVerificationsWidget({ mine }: PendingVerificationsWidgetP
 
   if (isLoading) {
     return (
-      <Card className="!p-4">
+      <Card className="p-4!">
         <div className="space-y-2">
           <div className="h-4 w-48 bg-muted animate-pulse rounded" />
           <div className="h-3 w-full bg-muted animate-pulse rounded" />
@@ -119,7 +119,7 @@ export function PendingVerificationsWidget({ mine }: PendingVerificationsWidgetP
 
   if (isError) {
     return (
-      <Card className="!p-4 text-sm text-rose-700 bg-rose-50 border border-rose-200">
+      <Card className="p-4! text-sm text-rose-700 bg-rose-50 border border-rose-200">
         Nie udało się pobrać weryfikacji.
       </Card>
     )
@@ -130,7 +130,7 @@ export function PendingVerificationsWidget({ mine }: PendingVerificationsWidgetP
 
   if (totalCount === 0) {
     return (
-      <Card className="!p-3 text-xs text-muted-foreground flex items-center gap-2">
+      <Card className="p-3! text-xs text-muted-foreground flex items-center gap-2">
         <CheckCircle2 className="h-4 w-4 text-emerald-500 opacity-70" />
         Wszystkie weryfikacje przejrzane.
       </Card>
@@ -142,7 +142,7 @@ export function PendingVerificationsWidget({ mine }: PendingVerificationsWidgetP
 
   return (
     <>
-      <Card className="!p-0 overflow-hidden border-amber-200 bg-amber-50/40">
+      <Card className="p-0! overflow-hidden border-amber-200 bg-amber-50/40">
         <div className="px-4 py-3 border-b border-amber-200 bg-amber-100/60 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ShieldAlert className="h-5 w-5 text-amber-700" />
@@ -256,7 +256,7 @@ export function PendingVerificationsWidget({ mine }: PendingVerificationsWidgetP
                   }
                   rows={4}
                   placeholder="np. Stawka za wysoka, max 22000 PLN"
-                  className="w-full px-3 py-2 rounded-md border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-3 py-2 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
                   autoFocus
                 />
               </FormField>

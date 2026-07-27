@@ -60,9 +60,9 @@ export function CandidateMatchesExpansion({ candidateId }: Props) {
         <Link
           key={m.job_id}
           href={`/jobs/${m.job_id}`}
-          className="flex items-start gap-3 p-3 rounded-lg bg-card dark:bg-muted border border-border dark:border-border hover:border-teal-300 hover:shadow-sm transition-all"
+          className="flex items-start gap-3 p-3 rounded-lg bg-card dark:bg-muted border border-border dark:border-border hover:border-teal-300 hover:shadow-xs transition-all"
         >
-          <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
             <Briefcase className="w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
@@ -99,7 +99,7 @@ export function CandidateMatchesExpansion({ candidateId }: Props) {
           </div>
           <span
             className={cn(
-              "text-xs font-bold px-2 py-1 rounded-full border flex-shrink-0",
+              "text-xs font-bold px-2 py-1 rounded-full border shrink-0",
               scoreColor(m.total_score)
             )}
           >

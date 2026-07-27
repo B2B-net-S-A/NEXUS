@@ -86,7 +86,7 @@ export function MultiSelectFilter<V extends string | number>({
  size="md"
  variant="outline"
  className={cn(
- "justify-between bg-card shadow-sm",
+ "justify-between bg-card shadow-xs",
  "hover:bg-violet-50 hover:border-violet-300 dark:hover:bg-violet-950/30 dark:hover:border-violet-700",
  isActive &&
  "border-violet-400 bg-violet-50 text-violet-700 font-semibold dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-200",
@@ -97,7 +97,7 @@ export function MultiSelectFilter<V extends string | number>({
  title={title}
  >
  <span className="flex items-center gap-2 truncate">{label}</span>
- <ChevronDown className="h-4 w-4 opacity-60 flex-shrink-0" />
+ <ChevronDown className="h-4 w-4 opacity-60 shrink-0" />
  </Button>
  </PopoverTrigger>
  <PopoverContent align="start" className="w-64 p-0">

@@ -80,12 +80,12 @@ export function SalesOverview() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
           <h3 className="text-sm font-semibold text-foreground mb-4">Struktura kontraktów</h3>
           <DonutChart segments={structureDonut} />
         </div>
 
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
           <h3 className="text-sm font-semibold text-foreground mb-1">Trend MRR (12 miesięcy)</h3>
           {mrrValues.length > 0 ? (
             <>
@@ -117,7 +117,7 @@ export function SalesOverview() {
       </div>
 
       {data.top_clients.length > 0 && (
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
           <div className="flex items-center gap-2 mb-5">
             <Award className="w-4 h-4 text-primary" />
             <h3 className="text-sm font-semibold text-foreground">Przychód wg klienta (MRR)</h3>

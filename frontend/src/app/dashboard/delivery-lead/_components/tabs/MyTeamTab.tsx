@@ -25,14 +25,14 @@ export function MyTeamTab() {
 
   if (isLoading) {
     return (
-      <Card className="!p-4 text-sm text-muted-foreground">
+      <Card className="p-4! text-sm text-muted-foreground">
         Ładowanie zespołu…
       </Card>
     )
   }
   if (isError) {
     return (
-      <Card className="!p-4 text-sm text-rose-700 bg-rose-50 border border-rose-200">
+      <Card className="p-4! text-sm text-rose-700 bg-rose-50 border border-rose-200">
         Nie udało się pobrać zespołu.
       </Card>
     )
@@ -40,7 +40,7 @@ export function MyTeamTab() {
   const rows = data ?? []
   if (rows.length === 0) {
     return (
-      <Card className="!p-8 text-center text-sm text-muted-foreground">
+      <Card className="p-8! text-center text-sm text-muted-foreground">
         <Inbox className="h-10 w-10 mx-auto mb-3 opacity-40" />
         Nie masz przypisanych TAC-ów. Skontaktuj się z HoR aby przypisać zespół.
       </Card>

@@ -30,7 +30,7 @@ const SHORTCUTS: Array<{
 
 function ShortcutKey({ k }: { k: string }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 bg-muted dark:bg-muted border border-border dark:border-border rounded text-xs font-mono font-semibold text-foreground dark:text-muted-foreground shadow-sm">
+    <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 bg-muted dark:bg-muted border border-border dark:border-border rounded text-xs font-mono font-semibold text-foreground dark:text-muted-foreground shadow-xs">
       {k}
     </kbd>
   );
@@ -51,7 +51,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/50 z-100 flex items-center justify-center p-4">
       <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
@@ -66,7 +66,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
           {visibleShortcuts.map((shortcut, i) => (
             <div key={i} className="flex items-center justify-between gap-4">
               <span className="text-sm text-foreground dark:text-muted-foreground">{shortcut.description}</span>
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 {shortcut.keys.map((k, j) => (
                   <span key={j} className="flex items-center gap-1">
                     <ShortcutKey k={k} />

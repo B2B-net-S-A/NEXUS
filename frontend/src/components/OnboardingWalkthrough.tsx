@@ -101,11 +101,11 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
 
   return (
     <div
-      className={`fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 transition-opacity duration-200 ${closing ? "opacity-0" : "opacity-100"}`}
+      className={`fixed inset-0 bg-black/50 z-200 flex items-center justify-center p-4 transition-opacity duration-200 ${closing ? "opacity-0" : "opacity-100"}`}
     >
       <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-violet-600 px-6 pt-6 pb-4 text-white">
+        <div className="bg-linear-to-r from-blue-600 to-violet-600 px-6 pt-6 pb-4 text-white">
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-xl font-bold">Witaj w Nexus! 🚀</h2>

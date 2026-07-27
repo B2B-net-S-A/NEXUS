@@ -249,10 +249,10 @@ export function ContractsListV2() {
  {/* Header */}
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Delivery · Kontrakty
  </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
  Kontrakty
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
@@ -302,7 +302,7 @@ export function ContractsListV2() {
 
  {/* Expiring alert */}
  {expiringCount > 0 && (
- <Card className="bg-amber-50 border-amber-200 flex items-center gap-3 !p-4">
+ <Card className="bg-amber-50 border-amber-200 flex items-center gap-3 p-4!">
  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
  <div className="flex-1">
  <p className="text-sm font-semibold text-amber-800">
@@ -539,7 +539,7 @@ export function ContractsListV2() {
  </Table>
 
  {toast && (
- <div className="fixed bottom-24 right-4 z-[9999] px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
+ <div className="fixed bottom-24 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
  {toast}
  </div>
  )}

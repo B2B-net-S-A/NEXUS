@@ -190,7 +190,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
   return (
     <div className="space-y-4">
       <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
@@ -252,7 +252,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
         </div>
       </RequireRole>
 
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
             <Loader2 className="w-5 h-5 inline-block animate-spin mr-2" />

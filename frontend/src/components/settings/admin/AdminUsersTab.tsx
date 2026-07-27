@@ -200,7 +200,7 @@ export function AdminUsersTab() {
             onClick={() => setSubTab(id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               subTab === id
-                ? "bg-card dark:bg-gray-600 text-foreground dark:text-foreground shadow-sm"
+                ? "bg-card dark:bg-gray-600 text-foreground dark:text-foreground shadow-xs"
                 : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
             }`}
           >

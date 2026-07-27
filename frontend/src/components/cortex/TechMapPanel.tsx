@@ -89,7 +89,7 @@ export function TechMapPanel() {
   // plain `!data` guard would spin forever instead of surfacing the problem.
   if (isError) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
         <p className="flex items-center gap-2 text-sm text-destructive">
           <AlertTriangle className="w-4 h-4" />
           Nie udało się załadować mapy technologicznej.
@@ -108,7 +108,7 @@ export function TechMapPanel() {
 
   if (isLoading || !data) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
         Ładowanie mapy technologicznej…
       </div>
@@ -146,7 +146,7 @@ export function TechMapPanel() {
         />
       </StatCardGrid>
 
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
         <div className="flex flex-wrap items-center gap-4">
           <h3 className="font-semibold text-sm">
             Skill × Seniority (derived)

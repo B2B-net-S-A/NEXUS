@@ -13,7 +13,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
  ref={ref}
  rows={rows}
  aria-invalid={invalid || undefined}
- className={cn("w-full min-h-[80px] px-3 py-2 text-sm bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150 resize-y","focus:outline-none focus:border-primary","disabled:bg-[hsl(var(--border))]/30 disabled:cursor-not-allowed",
+ className={cn("w-full min-h-[80px] px-3 py-2 text-sm bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150 resize-y","focus:outline-hidden focus:border-primary","disabled:bg-[hsl(var(--border))]/30 disabled:cursor-not-allowed",
  invalid &&"border-primary focus:border-[hsl(var(--primary))]",
  className
  )}

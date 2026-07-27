@@ -98,7 +98,7 @@ function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose:
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
       <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
@@ -165,7 +165,7 @@ function DeleteConfirmModal({
   isDeleting: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
       <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-sm p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 bg-destructive/15 dark:bg-red-900/30 rounded-full flex items-center justify-center">
@@ -379,7 +379,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="np. Zaproszenie na rozmowę"
-              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
+              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent"
             />
           </div>
           <div>
@@ -389,7 +389,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             <select
               value={form.category}
               onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as EmailCategory }))}
-              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
+              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent"
             >
               {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -408,7 +408,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             value={form.subject}
             onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
             placeholder="np. Zaproszenie na rozmowę — {{job_title}}"
-            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
+            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent"
           />
         </div>
 
@@ -443,7 +443,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
             placeholder="Wpisz treść emaila..."
             rows={14}
-            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm resize-y bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent font-mono leading-relaxed"
+            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm resize-y bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring focus:border-transparent font-mono leading-relaxed"
           />
           <p className="text-xs text-muted-foreground mt-1">{form.body.length} znaków</p>
         </div>
@@ -464,7 +464,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
 
         {error && (
           <div className="flex items-center gap-2 p-3 bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 rounded-xl text-destructive dark:text-destructive text-sm">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <AlertCircle className="w-4 h-4 shrink-0" />
             {error}
           </div>
         )}
@@ -482,7 +482,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
         <button
           type="submit"
           disabled={saveMutation.isPending}
-          className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-sm"
+          className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-xs"
         >
           {saveMutation.isPending ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -495,7 +495,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
 
       {/* Preview Modal */}
       {showPreview && preview && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
           <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
               <div className="flex items-center gap-2">
@@ -596,7 +596,7 @@ export default function EmailTemplatesPage() {
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4 max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0">
+      <div className="flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Szablony emaili</h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
@@ -615,7 +615,7 @@ export default function EmailTemplatesPage() {
           )}
           <button
             onClick={() => setSelectedTemplate(null)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors shadow-xs"
           >
             <Plus className="w-4 h-4" />
             Nowy szablon
@@ -625,15 +625,15 @@ export default function EmailTemplatesPage() {
 
       {/* Seed status */}
       {seedStatus && (
-        <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-700 dark:text-green-400 text-sm flex-shrink-0">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+        <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-700 dark:text-green-400 text-sm shrink-0">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
           {seedStatus}
         </div>
       )}
 
       {/* Simulation notice */}
-      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 flex items-start gap-3 flex-shrink-0">
-        <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 flex items-start gap-3 shrink-0">
+        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
         <p className="text-xs text-amber-700 dark:text-amber-400">
           <strong>Tryb symulacji:</strong> Wysyłka emaili jest rejestrowana w konsoli serwera — wiadomości nie są faktycznie wysyłane. Integracja SMTP zostanie dodana w kolejnej wersji.
         </p>
@@ -642,7 +642,7 @@ export default function EmailTemplatesPage() {
       {/* Master-detail layout */}
       <div className="flex-1 flex gap-4 min-h-0">
         {/* Left panel: template list */}
-        <div className="w-80 flex-shrink-0 flex flex-col bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="w-80 shrink-0 flex flex-col bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
           {/* Category tabs */}
           <div className="flex flex-wrap gap-1 p-3 border-b border-border dark:border-border">
             {ALL_CATEGORIES.map(({ value, label }) => (
@@ -697,7 +697,7 @@ export default function EmailTemplatesPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          {t.is_default && <Star className="w-3 h-3 text-amber-400 flex-shrink-0" />}
+                          {t.is_default && <Star className="w-3 h-3 text-amber-400 shrink-0" />}
                           <p className="text-sm font-semibold text-foreground dark:text-foreground truncate">
                             {t.name}
                           </p>
@@ -741,7 +741,7 @@ export default function EmailTemplatesPage() {
         </div>
 
         {/* Right panel: editor or empty state */}
-        <div className="flex-1 bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="flex-1 bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
           {selectedTemplate === undefined && (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
               <Mail className="w-16 h-16 mb-4 opacity-20" />

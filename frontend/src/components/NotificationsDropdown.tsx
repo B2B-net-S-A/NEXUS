@@ -159,15 +159,15 @@ function timeAgo(iso?: string): string {
 // ── Toast notification for real-time events ───────────────────────────────────
 function NotifToast({ notif, onClose }: { notif: WsNotification; onClose: () => void }) {
   return (
-    <div className="fixed bottom-6 right-6 z-[300] max-w-sm w-full bg-card dark:bg-muted border border-primary/20 dark:border-primary/90 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fadeIn">
-      <div className="w-8 h-8 rounded-full bg-primary/15 dark:bg-primary/40 text-primary flex items-center justify-center flex-shrink-0">
+    <div className="fixed bottom-6 right-6 z-300 max-w-sm w-full bg-card dark:bg-muted border border-primary/20 dark:border-primary/90 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fadeIn">
+      <div className="w-8 h-8 rounded-full bg-primary/15 dark:bg-primary/40 text-primary flex items-center justify-center shrink-0">
         <Bell className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-bold text-foreground dark:text-foreground leading-tight">{notif.title}</p>
         <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
       </div>
-      <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground flex-shrink-0">
+      <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground shrink-0">
         <X className="w-4 h-4" />
       </button>
     </div>
@@ -262,7 +262,7 @@ export function NotificationsDropdown() {
         >
           <Bell className="w-5 h-5" />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-destructive/100 text-white text-xs font-bold rounded-full flex items-center justify-center px-1">
+            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-destructive text-white text-xs font-bold rounded-full flex items-center justify-center px-1">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
@@ -317,7 +317,7 @@ export function NotificationsDropdown() {
                         {/* Icon */}
                         <div
                           className={cn(
-                            "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5",
+                            "w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5",
                             cfg.bgColor,
                             cfg.color
                           )}
@@ -337,7 +337,7 @@ export function NotificationsDropdown() {
                               {notif.title}
                             </p>
                             {!notif.is_read && (
-                              <div className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-1.5" />
+                              <div className="w-2 h-2 bg-primary rounded-full shrink-0 mt-1.5" />
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">

@@ -119,7 +119,7 @@ export function CompanyAutocomplete({
  }}
  >
  <span className="truncate flex-1">{s.name}</span>
- <span className="ml-2 text-muted-foreground flex-shrink-0">
+ <span className="ml-2 text-muted-foreground shrink-0">
  {s.count}
  </span>
  </button>

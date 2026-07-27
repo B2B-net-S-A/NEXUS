@@ -39,7 +39,7 @@ export function JobRow({ job, actions }: Props) {
     <div className="group bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4 hover:border-purple-300 transition-colors">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div className="w-9 h-9 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center shrink-0">
             <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-300" />
           </div>
           <div className="min-w-0 flex-1">
@@ -78,7 +78,7 @@ export function JobRow({ job, actions }: Props) {
           </div>
         </div>
 
-        {actions && <div className="flex items-center gap-1 flex-shrink-0">{actions}</div>}
+        {actions && <div className="flex items-center gap-1 shrink-0">{actions}</div>}
       </div>
     </div>
   );

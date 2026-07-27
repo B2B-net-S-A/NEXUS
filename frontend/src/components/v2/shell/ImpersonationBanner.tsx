@@ -20,7 +20,7 @@ export function ImpersonationBanner() {
   const roleLabel = ROLE_LABELS[user.role] ?? user.role;
 
   return (
-    <div className="flex items-center justify-center gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 shadow-sm">
+    <div className="flex items-center justify-center gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 shadow-xs">
       <Eye className="h-4 w-4 shrink-0" />
       <span className="truncate">
         Podgląd jako <strong>{user.name}</strong> ({roleLabel}) — widzisz

@@ -127,7 +127,7 @@ describe("AppShell <Modal> — a11y", () => {
       "fixed",
       "inset-0",
       "bg-black/50",
-      "z-[100]",
+      "z-100",
       "overflow-y-auto",
       "items-end", // sheet na mobile…
       "sm:items-center", // …wyśrodkowany na desktopie
@@ -141,7 +141,7 @@ describe("AppShell <Modal> — a11y", () => {
       "sm:max-w-2xl", // `wide` → szerszy panel
       // Treść radixa jest fokusowalna (tabindex=-1); bez tego przeglądarka
       // rysowałaby ring wokół całego panelu zaraz po otwarciu.
-      "focus:outline-none",
+      "focus:outline-hidden",
     ]) {
       expect(panel.classList.contains(cls), `panel: ${cls}`).toBe(true);
     }

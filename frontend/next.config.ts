@@ -16,30 +16,45 @@ const nextConfig: NextConfig = {
   // to enable it zone-wide). Includes ATS HR-data-handling defaults: deny
   // framing, no MIME sniffing, strict referrer, deny camera/mic/geolocation.
   // Plan analytics PR 7: wygaszanie DynaReportera — legacy strony raportowe
-  // przekierowują 307 (temporary) do następców w Insights. Po potwierdzonej
-  // parity zmiana na permanent: true (308). Strony administracyjne
+  // przekierowują do następców w Insights. Strony administracyjne
   // (/dynareporter/admin*, /upload, /profile) zostają jako archiwum.
+  //
+  // 2026-07-20: parity potwierdzona, katalogi 12 stron raportowych USUNIĘTE
+  // (~4850 linii). Przekierowania MUSZĄ zostać — bez nich stare zakładki
+  // i deep-linki zaczęłyby zwracać 404 zamiast trafiać do następcy.
+  // Podniesione z 307 na 308 (permanent), bo źródło już nie istnieje.
   async redirects() {
     const insights = (tab: string) => `/insights?tab=${tab}`;
-    const to = (source: string, destination: string) => ({
+    // 308 — strona źródłowa usunięta, przekierowanie jest trwałe.
+    const gone = (source: string, destination: string) => ({
       source,
       destination,
-      permanent: false, // 307 — etap pierwszy (plan PR 7 §Redirecty)
+      permanent: true,
+    });
+    // 307 — strona źródłowa NADAL ISTNIEJE w kodzie, tylko jest wygaszona.
+    // Trwałe przekierowanie zapisałoby się w cache przeglądarek i utrudniło
+    // ewentualny powrót, więc świadomie zostaje tymczasowe.
+    const parked = (source: string, destination: string) => ({
+      source,
+      destination,
+      permanent: false,
     });
     return [
-      to("/dynareporter/rekrutacja", insights("rekrutacja")),
-      to("/dynareporter/body-leasing", insights("rekrutacja")),
-      to("/dynareporter/placements", insights("rekrutacja")),
-      to("/dynareporter/competitions", insights("rekrutacja")),
-      to("/dynareporter/delivery-lead", insights("klienci")),
-      to("/dynareporter/delivery-lead-dashboard", insights("klienci")),
-      to("/dynareporter/clients-mrr", insights("klienci")),
-      to("/dynareporter/sales", insights("klienci")),
-      to("/dynareporter/sales-mgmt", insights("klienci")),
-      to("/dynareporter/board", insights("zarzad")),
-      to("/dynareporter/board-dashboard", insights("zarzad")),
-      to("/dynareporter/przetargi", insights("zarzad")),
-      to("/dynareporter/mindy", insights("rekrutacja")),
+      gone("/dynareporter/rekrutacja", insights("rekrutacja")),
+      gone("/dynareporter/body-leasing", insights("rekrutacja")),
+      gone("/dynareporter/placements", insights("rekrutacja")),
+      gone("/dynareporter/competitions", insights("rekrutacja")),
+      gone("/dynareporter/delivery-lead", insights("klienci")),
+      gone("/dynareporter/delivery-lead-dashboard", insights("klienci")),
+      gone("/dynareporter/clients-mrr", insights("klienci")),
+      gone("/dynareporter/sales", insights("klienci")),
+      gone("/dynareporter/sales-mgmt", insights("klienci")),
+      gone("/dynareporter/board", insights("zarzad")),
+      gone("/dynareporter/board-dashboard", insights("zarzad")),
+      gone("/dynareporter/przetargi", insights("zarzad")),
+      // MINDY to czat AI komentujący KPI, nie strona raportowa — i Insights
+      // NIE MA dla niego następcy. Kod zostaje, decyzja produktowa otwarta.
+      parked("/dynareporter/mindy", insights("rekrutacja")),
     ];
   },
   async headers() {

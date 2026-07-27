@@ -104,7 +104,7 @@ export function ChampionCard({
   if (!answers) {
     return (
       <div className="rounded-lg border border-amber-200 p-3 bg-amber-50 text-xs text-amber-800 flex items-start gap-2">
-        <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
         <div>
           <p className="font-semibold mb-0.5">Screening Championa: brak</p>
           <p>
@@ -239,7 +239,7 @@ export function ChampionCard({
                   </p>
                 </div>
                 {a && !a.deal_breaker_hit && (a.response ?? "").trim() && (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                 )}
               </div>
             </li>

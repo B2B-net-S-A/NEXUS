@@ -57,7 +57,7 @@ export function TerminateContractModal({
         <select
           value={reason}
           onChange={(e) => setReason(e.target.value as ContractTerminationReason)}
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
         >
           {CONTRACT_TERMINATION_REASONS.map((r) => (
             <option key={r.value} value={r.value}>
@@ -75,7 +75,7 @@ export function TerminateContractModal({
           type="date"
           value={terminatedAt}
           onChange={(e) => setTerminatedAt(e.target.value)}
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
         />
       </div>
 
@@ -88,7 +88,7 @@ export function TerminateContractModal({
           value={lessons}
           onChange={(e) => setLessons(e.target.value)}
           placeholder="Co zrobilibyśmy inaczej następnym razem..."
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500 resize-none"
         />
       </div>
 

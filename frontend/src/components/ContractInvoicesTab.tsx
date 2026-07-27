@@ -102,7 +102,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                 due_date: form.due_date || null,
               });
             }}
-            className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3"
+            className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3"
           >
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block">
@@ -194,11 +194,11 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie faktur…
         </div>
       ) : invoices.length === 0 ? (
-        <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-6 text-center shadow-sm">
+        <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-6 text-center shadow-xs">
           Brak faktur. Dodaj pierwszą, żeby mieć historię rozliczeń z kontraktorem.
         </div>
       ) : (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
               <tr>

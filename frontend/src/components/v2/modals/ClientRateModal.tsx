@@ -101,7 +101,7 @@ export function ClientRateModal({
                 if (e.key === "Enter" && isValid) handleConfirm();
               }}
               placeholder="np. 25000"
-              className="w-full h-10 px-3 rounded-md border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full h-10 px-3 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
               autoFocus
             />
           </FormField>

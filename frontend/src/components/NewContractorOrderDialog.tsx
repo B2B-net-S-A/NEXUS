@@ -225,7 +225,7 @@ export function NewContractorOrderDialog({
                   setCandidateQuery("");
                   setDebouncedQuery("");
                 }}
-                className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+                className="text-xs text-muted-foreground hover:text-foreground shrink-0"
               >
                 Zmień
               </button>

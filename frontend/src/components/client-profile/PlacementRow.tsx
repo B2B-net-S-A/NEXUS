@@ -36,10 +36,10 @@ export function PlacementRow({ placement, actions }: Props) {
             <img
               src={c.avatar_url}
               alt={c.name}
-              className="w-9 h-9 rounded-full object-cover flex-shrink-0 opacity-75"
+              className="w-9 h-9 rounded-full object-cover shrink-0 opacity-75"
             />
           ) : (
-            <div className="w-9 h-9 bg-muted dark:bg-muted rounded-full flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 bg-muted dark:bg-muted rounded-full flex items-center justify-center shrink-0">
               <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground">{initials}</span>
             </div>
           )}
@@ -76,7 +76,7 @@ export function PlacementRow({ placement, actions }: Props) {
           </div>
         </div>
 
-        {actions && <div className="flex items-center gap-1 flex-shrink-0">{actions}</div>}
+        {actions && <div className="flex items-center gap-1 shrink-0">{actions}</div>}
       </div>
     </div>
   );

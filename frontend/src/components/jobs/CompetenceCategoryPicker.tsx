@@ -182,7 +182,7 @@ export function CompetenceCategoryPicker({
         onChange={(e) =>
           onChange(e.target.value ? Number(e.target.value) : null)
         }
-        className="w-full h-10 rounded-lg border border-border dark:border-border bg-card dark:bg-card px-3 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+        className="w-full h-10 rounded-lg border border-border dark:border-border bg-card dark:bg-card px-3 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
       >
         <option value="">— wybierz kategorię —</option>
         {categories.map((cc) => (

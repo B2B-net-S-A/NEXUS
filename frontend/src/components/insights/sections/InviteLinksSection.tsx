@@ -76,7 +76,7 @@ export function InviteLinksSection({ period }: Props) {
         />
       </div>
 
-      <div className="bg-card rounded-xl border border-border shadow-sm">
+      <div className="bg-card rounded-xl border border-border shadow-xs">
         <div className="px-6 py-4 border-b border-border">
           <h3 className="text-sm font-semibold text-foreground">Skuteczność kanałów</h3>
           <p className="text-xs text-muted-foreground mt-0.5">

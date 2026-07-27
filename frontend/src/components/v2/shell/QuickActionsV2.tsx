@@ -160,7 +160,7 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
 
       {toast && (
         <div
-          className={`fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-md shadow-md text-sm border ${
+          className={`fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-md shadow-md text-sm border ${
             toast.type === "success"
               ? "bg-card text-foreground border-border"
               : "bg-destructive text-destructive-foreground border-destructive"

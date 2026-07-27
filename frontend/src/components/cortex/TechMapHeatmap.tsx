@@ -88,7 +88,7 @@ export function TechMapHeatmap({
                     <button
                       type="button"
                       onClick={() => onCellClick?.(skill)}
-                      className="text-left hover:text-primary hover:underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                      className="text-left hover:text-primary hover:underline underline-offset-2 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                       title={`${skill}: pokaż wszystkich (${skillTotal})`}
                     >
                       {skill}
@@ -128,7 +128,7 @@ export function TechMapHeatmap({
                       }
                       className={
                         cellInteractive
-                          ? "px-2 py-1 text-center tabular-nums cursor-pointer hover:ring-2 hover:ring-inset hover:ring-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          ? "px-2 py-1 text-center tabular-nums cursor-pointer hover:ring-2 hover:ring-inset hover:ring-primary/40 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                           : "px-2 py-1 text-center tabular-nums cursor-default"
                       }
                       style={{ backgroundColor: fillFor(cnt) }}

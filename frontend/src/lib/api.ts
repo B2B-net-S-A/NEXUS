@@ -4638,90 +4638,15 @@ export const dynareporterApi = {
 
 // ── B.2.1 KPI Body Leasing ─────────────────────────────────────────────────
 
-export interface DrKpiBodyLeasingEntry {
-  id: number;
-  user_id: number;
-  user_name?: string | null;
-  user_email?: string | null;
-  report_date: string;
-  week_number: number;
-  verifications: number;
-  recommendations: number;
-  interviews: number;
-  placements: number;
-  requests: number;
-  days_worked: number;
-  is_draft: boolean;
-  linkedin_cv_added: number;
-  linkedin_messages_sent: number;
-  linkedin_responses_received: number;
-}
 
-export interface DrKpiBodyLeasingSummary {
-  period: "week" | "month" | "quarter" | "year";
-  from_date: string;
-  to_date: string;
-  total_verifications: number;
-  total_recommendations: number;
-  total_interviews: number;
-  total_placements: number;
-  total_requests: number;
-  total_days_worked: number;
-  entries_count: number;
-}
 
-export interface DrKpiBodyLeasingRankingEntry {
-  user_id: number;
-  user_name: string;
-  user_email: string;
-  total_placements: number;
-  total_interviews: number;
-  total_recommendations: number;
-  total_verifications: number;
-  rank: number;
-}
 
 // ── B.2.2 KPI Sales ────────────────────────────────────────────────────────
 
-export interface DrKpiSalesEntry {
-  id: number;
-  user_id: number;
-  user_name?: string | null;
-  user_email?: string | null;
-  report_date: string;
-  week_number: number;
-  leads: number;
-  offers_sent: number;
-  offers_won: number;
-  offers_lost: number;
-  days_worked: number;
-}
 
-export interface DrKpiSalesSummary {
-  period: string;
-  from_date: string;
-  to_date: string;
-  total_leads: number;
-  total_offers_sent: number;
-  total_offers_won: number;
-  total_offers_lost: number;
-  total_days_worked: number;
-  entries_count: number;
-  win_rate: number;
-}
 
-export const dynareporterSalesApi = {
-  myEntries: (params?: { from_date?: string; to_date?: string }) =>
-    api
-      .get<DrKpiSalesEntry[]>("/api/dynareporter/kpi/sales/my", { params })
-      .then((r) => r.data),
-  summary: (params?: { period?: string; user_id?: number }) =>
-    api
-      .get<DrKpiSalesSummary>("/api/dynareporter/kpi/sales/summary", { params })
-      .then((r) => r.data),
-  // upsert/delete usunięte 2026-07-20 — endpointy zapisu KPI Sales nie istnieją
-  // już po stronie backendu (ręczne wprowadzanie statystyk wygaszone).
-};
+// `dynareporterSalesApi` usunięty 2026-07-20 — obsługiwał wyłącznie stronę raportową,
+// której katalog został skasowany (następcą jest moduł Insights).
 
 // ============================================================
 // DynaReporter Rekrutacja mega-dashboard (port z artur-t-96/InfraReporter)
@@ -4861,22 +4786,7 @@ export type DrDLTeamHistoryRow = {
   fill_rate: number;
 };
 
-export type DrDLTrendRow = {
-  month: string;
-  requests: number;
-  placements: number;
-  hit_ratio: number;
-};
 
-export type DrDLDashboard = {
-  delivery_leads: DrDLMember[];
-  team_stats: DrDLTeamStats;
-  team_history: DrDLTeamHistoryRow[];
-  hit_ratio_target: number;
-  period_label: string;
-  period_start: string | null;
-  period_end: string | null;
-};
 
 // ============================================================
 // DynaReporter Rada Nadzorcza (Board) dashboard (Session 3 port)
@@ -4957,31 +4867,15 @@ export const dynareporterAdminApi = {
       .then((r) => r.data),
 };
 
-export const dynareporterBoardApi = {
-  monthly: () =>
-    api
-      .get<DrBoardMonthlyRow[]>("/api/dynareporter/board-dashboard/monthly")
-      .then((r) => r.data),
-};
+// `dynareporterBoardApi` usunięty 2026-07-20 — obsługiwał wyłącznie stronę raportową,
+// której katalog został skasowany (następcą jest moduł Insights).
 
 // `DrDLUpsertPayload` usunięty 2026-07-20 — był bodym jedynej trasy zapisu
 // (POST /delivery-lead-dashboard/entry), która zniknęła razem z ręcznym
 // wprowadzaniem statystyk.
 
-export const dynareporterDeliveryLeadApi = {
-  dashboard: (params?: { start_date?: string; end_date?: string }) =>
-    api
-      .get<DrDLDashboard>("/api/dynareporter/delivery-lead-dashboard/dashboard", { params })
-      .then((r) => r.data),
-  trend: (userId: number, months = 6) =>
-    api
-      .get<DrDLTrendRow[]>(`/api/dynareporter/delivery-lead-dashboard/trend/${userId}`, {
-        params: { months },
-      })
-      .then((r) => r.data),
-  // upsert usunięty 2026-07-20 — POST /delivery-lead-dashboard/entry robił adminowy
-  // upsert miesięcznego KPI DL do dr_kpi_delivery_lead. Trasa nie istnieje.
-};
+// `dynareporterDeliveryLeadApi` usunięty 2026-07-20 — obsługiwał wyłącznie stronę raportową,
+// której katalog został skasowany (następcą jest moduł Insights).
 
 // === Board Admin — USUNIĘTE 2026-07-20 =================================
 // `dynareporterBoardAdminApi` (upsert + deleteMonthly) i typ `DrBoardUpsertPayload`
@@ -5520,29 +5414,8 @@ export type DrAccelerationPath = {
   ready_for_promotion: number;
 };
 
-export const dynareporterBodyLeasingApi = {
-  myEntries: (params?: { from_date?: string; to_date?: string }) =>
-    api
-      .get<DrKpiBodyLeasingEntry[]>("/api/dynareporter/kpi/body-leasing/my", { params })
-      .then((r) => r.data),
-
-  allEntries: (params?: { user_id?: number; from_date?: string; to_date?: string }) =>
-    api
-      .get<DrKpiBodyLeasingEntry[]>("/api/dynareporter/kpi/body-leasing/all", { params })
-      .then((r) => r.data),
-
-  summary: (params?: { period?: "week" | "month" | "quarter" | "year"; user_id?: number }) =>
-    api
-      .get<DrKpiBodyLeasingSummary>("/api/dynareporter/kpi/body-leasing/summary", { params })
-      .then((r) => r.data),
-
-  ranking: (params?: { period?: "month" | "quarter" | "year"; limit?: number }) =>
-    api
-      .get<DrKpiBodyLeasingRankingEntry[]>("/api/dynareporter/kpi/body-leasing/ranking", { params })
-      .then((r) => r.data),
-
-  // upsert/delete usunięte 2026-07-20 razem z ręcznym wprowadzaniem statystyk.
-};
+// `dynareporterBodyLeasingApi` usunięty 2026-07-20 — obsługiwał wyłącznie stronę raportową,
+// której katalog został skasowany (następcą jest moduł Insights).
 
 // `dynareporterPlacementsApi.createWithDl` i typ `DrPlacementWithDlPayload`
 // usunięte 2026-07-20. Modal „Dodaj placement" zapisywał zdarzenie biznesowe

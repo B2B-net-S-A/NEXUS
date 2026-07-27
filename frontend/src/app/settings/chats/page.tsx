@@ -140,7 +140,7 @@ export default function AdminGlobalChatsPage() {
               </div>
               <div
                 className={cn(
-                  "text-sm whitespace-pre-wrap break-words",
+                  "text-sm whitespace-pre-wrap wrap-break-word",
                   item.is_deleted && "italic text-muted-foreground",
                 )}
               >

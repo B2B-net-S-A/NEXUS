@@ -114,7 +114,7 @@ export function MarkEmployedAction({
             id="mark-employed-client"
             value={clientId}
             onChange={(event) => setClientId(event.target.value)}
-            className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
           >
             <option value="">— wybierz klienta —</option>
             {clientsQuery.data?.map((client) => (

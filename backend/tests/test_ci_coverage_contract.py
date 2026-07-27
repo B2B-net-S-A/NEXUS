@@ -26,7 +26,7 @@ is not yet wired in, and the list should only ever shrink:
   unpaginated global listing), which stops holding once sibling tests populate
   it. Fixing them means making the assertions local, not re-ordering CI.
 
-Status 2026-07-27: 317 test modules on disk, 287 wired into ci.yml, 30 in the
+Status 2026-07-27: 318 test modules on disk, 288 wired into ci.yml, 30 in the
 baseline below (2 + 4 + 20 + 4). The previous 115-file UNWIRED backlog was
 measured file-by-file in the prod image against a migrated database, and the 89
 confirmed-green ones were wired into ci.yml — first as single files, then
@@ -43,6 +43,15 @@ link under test was never actually expired. Expiry itself was always enforced.
 The preconditions now match on the digest and assert their own rowcount, so a
 setup that silently touches nothing fails loudly instead of masquerading as a
 product bug.
+
+Running a test is still not the same as running it the way production runs.
+`test_invite_links.py` was wired in and green the whole time — but only because
+CI had no `M365_TOKEN_ENCRYPTION_KEY` while production has one, and an invite
+link mints the hash-at-rest v2 row only when a cipher is available. CI was
+proving the legacy branch. The key is now set on the pytest step, and
+`test_ci_token_encryption_parity.py` (+1 on both counts above) fails if it is
+dropped or stops being a usable key — an unusable value would be worse than
+none, because `TokenCipherNotConfigured` is caught and swallowed.
 """
 
 from __future__ import annotations

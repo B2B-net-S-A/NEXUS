@@ -161,7 +161,7 @@ function SubTabButton({
       onClick={onClick}
       className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
         active
-          ? "bg-card dark:bg-muted text-purple-700 dark:text-purple-300 shadow-sm"
+          ? "bg-card dark:bg-muted text-purple-700 dark:text-purple-300 shadow-xs"
           : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
       }`}
     >
@@ -276,7 +276,7 @@ function OnePagersSection({ clientId }: { clientId: number }) {
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => handleDownload(p)}
                   className="p-1.5 text-muted-foreground hover:text-purple-600 transition-colors"
@@ -414,7 +414,7 @@ function UploadSheet({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
               placeholder="Oferta B2B dla ACME"
             />
           </div>
@@ -427,7 +427,7 @@ function UploadSheet({
               type="text"
               value={version}
               onChange={(e) => setVersion(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
               placeholder="1.0"
             />
           </div>
@@ -440,7 +440,7 @@ function UploadSheet({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
               placeholder="Notatki dla zespołu…"
             />
           </div>
@@ -739,7 +739,7 @@ function RequiredDocRow({
                 {meta.label}
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="p-1 min-w-[10rem]">
+            <PopoverContent align="start" className="p-1 min-w-40">
               {(["pending", "uploaded", "signed", "n_a"] as DocStatus[]).map(
                 (s) => {
                   const m = STATUS_META[s];
@@ -801,7 +801,7 @@ function RequiredDocRow({
           </p>
         )}
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
         {doc.filename && (
           <button
             onClick={handleDownload}
@@ -1405,7 +1405,7 @@ function TextField({
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
       />
     </div>
   );
@@ -1432,7 +1432,7 @@ function NumberField({
           onChange(e.target.value === "" ? null : Number(e.target.value))
         }
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
       />
     </div>
   );
@@ -1461,7 +1461,7 @@ function TextareaField({
         onChange={(e) => onChange(e.target.value || null)}
         rows={rows}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
       />
     </div>
   );
@@ -1485,7 +1485,7 @@ function SelectField({
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

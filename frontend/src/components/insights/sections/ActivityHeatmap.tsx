@@ -71,7 +71,7 @@ export function ActivityHeatmap({ period }: Props) {
   return (
     <section className="space-y-4">
       {/* Heatmap card */}
-      <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+      <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
         <div className="flex items-center gap-2 mb-5">
           <Zap className="w-5 h-5 text-amber-500" />
           <h2 className="text-base font-semibold text-foreground">Aktywność zespołu</h2>
@@ -119,7 +119,7 @@ export function ActivityHeatmap({ period }: Props) {
                   const max = Math.max(...values, 1);
                   return (
                     <tr key={row.user_id} className="border-t border-border/50">
-                      <td className="py-2 pr-4 font-medium text-foreground truncate max-w-[8rem]">
+                      <td className="py-2 pr-4 font-medium text-foreground truncate max-w-32">
                         {row.user_name}
                       </td>
                       {values.map((v, i) => {
@@ -155,7 +155,7 @@ export function ActivityHeatmap({ period }: Props) {
       {/* Top 5 + detailed table — pokazujemy tylko gdy są dane */}
       {rows.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+          <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
             <div className="flex items-center gap-2 mb-5">
               <Trophy className="w-5 h-5 text-yellow-500" />
               <h2 className="text-base font-semibold text-foreground">
@@ -212,7 +212,7 @@ export function ActivityHeatmap({ period }: Props) {
             </div>
           </div>
 
-          <div className="bg-card rounded-xl border border-border p-6 shadow-sm overflow-hidden">
+          <div className="bg-card rounded-xl border border-border p-6 shadow-xs overflow-hidden">
             <div className="flex items-center gap-2 mb-4">
               <Users className="w-5 h-5 text-muted-foreground" />
               <h2 className="text-base font-semibold text-foreground">Pełna tabela</h2>

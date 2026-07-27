@@ -118,10 +118,10 @@ export function OnboardingRecruiterV2() {
  <div className="min-h-screen flex items-start justify-center px-4 py-10">
  <div className="w-full max-w-3xl">
  <div className="mb-6 flex flex-col items-start">
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Onboarding · Aktywni w searchu
  </p>
- <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
  Którymi rekrutacjami aktualnie się zajmujesz?
  </h1>
  <p className="text-sm text-muted-foreground mt-1">

@@ -129,18 +129,10 @@ export default function DynaReporterProfilePage() {
         </div>
       </div>
 
+      {/* Link do reports.dynaminds.pl usunięty 2026-07-20 — domena zwraca 503. */}
       <p className="mt-4 text-xs text-muted-foreground">
-        Faza B.1 — walidacja wzorca przed migracją konkretnych dashboardów
-        (B.2 KPI Body Leasing → Sales → Liga → ...). Stara wersja systemu:{" "}
-        <a
-          className="underline"
-          href="https://reports.dynaminds.pl"
-          target="_blank"
-          rel="noreferrer"
-        >
-          reports.dynaminds.pl
-        </a>{" "}
-        (live podczas migracji).
+        Sekcje odpowiadają uprawnieniom w archiwum DynaReportera. Bieżące
+        raporty KPI są liczone automatycznie i dostępne w module Insights.
       </p>
     </div>
   );

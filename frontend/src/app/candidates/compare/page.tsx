@@ -59,7 +59,7 @@ function SkillBar({ name, level }: { name: string; level?: string | number }) {
 
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span className="w-28 truncate text-muted-foreground dark:text-muted-foreground flex-shrink-0">{name}</span>
+      <span className="w-28 truncate text-muted-foreground dark:text-muted-foreground shrink-0">{name}</span>
       <div className="flex-1 bg-muted dark:bg-muted rounded-full h-1.5">
         <div className="bg-primary h-1.5 rounded-full" style={{ width: `${pct}%` }} />
       </div>

@@ -127,7 +127,7 @@ function Activities() {
 function QuickViewPreview({ onClose }: { onClose: () => void }) {
   return (
     <section aria-label="Szybki podgląd kandydata" className="ml-auto max-w-3xl overflow-hidden rounded-xl border border-border bg-background shadow-lg">
-      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm">
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" aria-label="Poprzedni kandydat"><ArrowLeft aria-hidden className="size-4" /></Button>
           <span className="px-2 text-xs tabular-nums text-muted-foreground">1 z 53 783</span>

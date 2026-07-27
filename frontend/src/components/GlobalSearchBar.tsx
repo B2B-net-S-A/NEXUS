@@ -255,7 +255,7 @@ export function GlobalSearchBar() {
                 : "Szukaj kandydatów, ofert, klientów... (⌘K)"
             }
             data-global-search="true"
-            className={`w-full pl-9 pr-9 py-2.5 border rounded-xl text-sm focus:outline-none bg-card dark:bg-muted dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground shadow-sm transition-all ${
+            className={`w-full pl-9 pr-9 py-2.5 border rounded-xl text-sm focus:outline-hidden bg-card dark:bg-muted dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground shadow-xs transition-all ${
               aiMode
                 ? "border-purple-400 dark:border-purple-600 focus:ring-0"
                 : "border-border dark:border-border focus:ring-2 focus-visible:ring-ring focus:border-transparent"

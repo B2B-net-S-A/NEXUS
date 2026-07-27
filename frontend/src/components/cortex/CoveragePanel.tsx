@@ -25,7 +25,7 @@ export function CoveragePanel() {
   // guard would spin forever instead of showing the problem + a retry.
   if (isError) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
         <p className="flex items-center gap-2 text-sm text-destructive">
           <AlertTriangle className="w-4 h-4" />
           Nie udało się załadować jakości danych.
@@ -44,7 +44,7 @@ export function CoveragePanel() {
 
   if (isLoading || !data) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
         Ładowanie jakości danych…
       </div>
@@ -123,7 +123,7 @@ function AdminBackfillCard({ unmatched }: { unmatched: CortexUnmatchedTerm[] }) 
   const running = status?.running ?? false;
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h3 className="font-semibold text-sm">
           Backfill faktów z Traffita (admin)

@@ -108,7 +108,7 @@ export function TendersSection({ period }: Props) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs">
           <h3 className="text-sm font-semibold text-foreground mb-4">Wyniki przetargów</h3>
           {wonLostDonut.length > 0 ? (
             <DonutChart segments={wonLostDonut} />
@@ -117,7 +117,7 @@ export function TendersSection({ period }: Props) {
           )}
         </div>
 
-        <div className="bg-card rounded-xl border border-border p-6 shadow-sm space-y-4">
+        <div className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-4">
           <h3 className="text-sm font-semibold text-foreground">Statystyki wartości</h3>
           <div className="flex items-center gap-4">
             <div className="flex-1">
@@ -160,7 +160,7 @@ export function TendersSection({ period }: Props) {
         </div>
       </div>
 
-      <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+      <div className="bg-card rounded-xl border border-border shadow-xs overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
           <h3 className="text-sm font-semibold text-foreground">Lista przetargów</h3>
         </div>
