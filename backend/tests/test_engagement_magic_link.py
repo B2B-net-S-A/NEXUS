@@ -42,17 +42,41 @@ async def _cleanup_candidate(cid: int) -> None:
 
 
 async def _expire_token(token_str: str) -> None:
+    """Backdate the row behind a raw magic-link token so it reads as expired.
+
+    Matched the way production reads it (`_resolve_token`): since migration 0182
+    the secret is no longer stored — `token_sha256` holds its SHA-256 and the
+    `token` column holds a non-secret ``v2$…`` revoke key. Matching the raw
+    secret against `token` updates zero rows, and an UPDATE that touches nothing
+    fails silently: the link stays valid and the 410 assertion below quietly
+    becomes an assertion about a live link. The rowcount guard makes that
+    failure mode loud instead.
+    """
+    import hashlib
+
     from app.core.database import AsyncSessionLocal
     from app.models.engagement_token import EngagementDeclarationToken
     from sqlalchemy import update
 
+    digest = hashlib.sha256(token_str.encode()).hexdigest()
     async with AsyncSessionLocal() as db:
-        await db.execute(
+        res = await db.execute(
             update(EngagementDeclarationToken)
-            .where(EngagementDeclarationToken.token == token_str)
+            .where(
+                (EngagementDeclarationToken.token_sha256 == digest)
+                | (
+                    (EngagementDeclarationToken.token == token_str)
+                    & (EngagementDeclarationToken.token_sha256.is_(None))
+                )
+            )
             .values(expires_at=datetime.now(timezone.utc) - timedelta(days=1))
         )
         await db.commit()
+    assert res.rowcount == 1, (
+        "expiry precondition matched "
+        f"{res.rowcount} rows — the test would have asserted against a link "
+        "that was never expired"
+    )
 
 
 @pytest.mark.asyncio
@@ -96,9 +120,7 @@ async def test_magic_link_full_happy_flow(
         assert s["candidate_first_name"] == "MagicLink"
 
         # 4. Verify candidate updated server-side
-        full = await app_client.get(
-            f"/api/candidates/{cid}", headers=app_auth_headers
-        )
+        full = await app_client.get(f"/api/candidates/{cid}", headers=app_auth_headers)
         c = full.json()
         assert c["open_to_side_projects"] is True
         assert c["open_to_expert_consult"] is True
@@ -123,9 +145,7 @@ async def test_magic_link_full_happy_flow(
 async def test_magic_link_unknown_token_returns_404(
     app_client: AsyncClient,
 ):
-    res = await app_client.get(
-        "/api/public/engagement-declaration/totally-bogus-token"
-    )
+    res = await app_client.get("/api/public/engagement-declaration/totally-bogus-token")
     assert res.status_code == 404
 
 
@@ -140,6 +160,13 @@ async def test_magic_link_expired_token_returns_410(
             headers=app_auth_headers,
         )
         token = gen.json()["token"]
+
+        # Positive control: the same token, before backdating, must serve. Without
+        # it a 410 could equally mean "expiry works" or "the link was broken all
+        # along", and only expiry is under test here.
+        live = await app_client.get(f"/api/public/engagement-declaration/{token}")
+        assert live.status_code == 200, live.text
+
         await _expire_token(token)
 
         res = await app_client.get(f"/api/public/engagement-declaration/{token}")

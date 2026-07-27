@@ -26,12 +26,23 @@ is not yet wired in, and the list should only ever shrink:
   unpaginated global listing), which stops holding once sibling tests populate
   it. Fixing them means making the assertions local, not re-ordering CI.
 
-Status 2026-07-27: 313 test modules on disk, 281 wired into ci.yml, 32 in the
-baseline below (2 + 4 + 22 + 4). The previous 115-file UNWIRED backlog was
+Status 2026-07-27: 317 test modules on disk, 287 wired into ci.yml, 30 in the
+baseline below (2 + 4 + 20 + 4). The previous 115-file UNWIRED backlog was
 measured file-by-file in the prod image against a migrated database, and the 89
 confirmed-green ones were wired into ci.yml — first as single files, then
 re-confirmed in one combined 281-file invocation so cross-file interference
 could not hide.
+
+Burn-down since: `test_candidate_stage_cv_branded.py` and
+`test_engagement_magic_link.py` left FAILING. Both were listed as "expired link
+answers 200, test expects 410" — which read like a live hole in two public,
+unauthenticated candidate links. It was not: since the hash-at-rest migrations
+(0176 CV share, 0182 engagement) the raw secret is stored only as a SHA-256, so
+each test's `UPDATE … WHERE token == <raw secret>` matched zero rows and the
+link under test was never actually expired. Expiry itself was always enforced.
+The preconditions now match on the digest and assert their own rowcount, so a
+setup that silently touches nothing fails loudly instead of masquerading as a
+product bug.
 """
 
 from __future__ import annotations
@@ -97,8 +108,6 @@ _FAILING = {
     # 1 fail — writes its path-traversal probe outside the upload dir:
     # FileNotFoundError '/tmp/nexus/uploads/candidate_N_../../etc/passwd.pdf'.
     "test_bulk_cv_download.py",
-    # 1 fail — expired public CV link answers 200, test expects 410.
-    "test_candidate_stage_cv_branded.py",
     # 1 fail — hardcoded force.test@example.com collides with candidates_email_key
     # on any re-run; the test never cleans up after itself.
     "test_candidates_from_cv.py",
@@ -113,8 +122,6 @@ _FAILING = {
     "test_dl_portal.py",
     # 1 fail — fixture inserts client_orders without contract_id, now NOT NULL.
     "test_dl_portal_scheduler.py",
-    # 1 fail — expired magic link answers 200, test expects 410.
-    "test_engagement_magic_link.py",
     # 1 fail — client_id is now required, so the invalid payload 422s where the
     # test expects 400.
     "test_jobs_auto_assign.py",
