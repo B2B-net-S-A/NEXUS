@@ -11,6 +11,7 @@ import { cn } from"@/lib/utils"
 import { Button } from"@/components/ui/button"
 import { Checkbox } from"@/components/ui/checkbox"
 import { Input } from"@/components/ui/input"
+import { markOnboardingCompleted } from "@/lib/onboarding-storage"
 
 interface JobListItem {
  id: number
@@ -90,11 +91,7 @@ export function OnboardingRecruiterV2() {
  },
  token,
  )
- try {
- localStorage.setItem("onboarding_completed","true")
- } catch {
- /* non-browser env */
- }
+ markOnboardingCompleted()
  router.replace("/")
  },
  })
