@@ -199,7 +199,34 @@ jobs:
                   echo "✅ Pass: status=$status version=$version"
                   exit 0
                 fi
-                echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
+                # Coolify klonuje main HEAD w momencie budowania, a ten job
+                # porównuje z SHA, który deploy WYWOŁAŁ. Przy serii merge'y to
+                # rozjeżdża się z definicji: deploy dla commitu N zastaje na
+                # produkcji commit N+1, czeka na wersję, która nigdy się nie
+                # pojawi, i po 5 minutach czerwienieje — mimo że wdrożenie się
+                # UDAŁO, tylko nowszym kodem. 27.07: 6 z 10 przebiegów padło
+                # wyłącznie z tego powodu, co uczy ignorować czerwony Deploy.
+                #
+                # Rozstrzygamy pokrewieństwem, nie równością: jeśli wersja na
+                # produkcji jest POTOMKIEM naszego SHA, nasz kod tam jest —
+                # razem z czymś nowszym. To sukces, nie awaria. Każdy inny
+                # wynik ("behind", "diverged", błąd API) leci dalej w pętlę
+                # ponowień, więc prawdziwie nieudany deploy nadal czerwienieje.
+                if [ "$version" != "missing" ] && [ ${#version} -ge 7 ]; then
+                  rel=$(curl -fsSL \
+                        -H "Authorization: Bearer ${{ github.token }}" \
+                        -H "Accept: application/vnd.github+json" \
+                        "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
+                        2>/dev/null | jq -r '.status // "unknown"')
+                  if [ "$rel" = "ahead" ]; then
+                    echo "✅ Pass: na produkcji $version_short — potomek $EXPECTED_SHA."
+                    echo "   Deploy wyprzedzony przez nowszy merge; nasz kod jest wdrożony."
+                    exit 0
+                  fi
+                  echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA, pokrewieństwo=$rel), retrying in 15s..."
+                else
+                  echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
+                fi
               else
                 echo "Attempt $i: status=$status, retrying in 15s..."
               fi
