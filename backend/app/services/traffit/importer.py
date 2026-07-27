@@ -105,6 +105,13 @@ class PhaseProgress:
     # ``app/tasks/traffit_sync.py``: a row that fails the same way run after run
     # must stop freezing the delta watermark for everything else.
     error_refs: set[str] = field(default_factory=set)
+    # How many of ``errors`` we could pin to a row. NOT ``len(error_refs)``:
+    # one row can fail twice in a single run (two phases touch it, or a retry),
+    # and then the set has one entry for two errors. Subtracting the set size
+    # would invent a phantom "unattributable" error that blocks the watermark
+    # forever — the quarantine would never release and the whole mechanism
+    # would be a no-op. Counted separately so the arithmetic stays exact.
+    attributed_errors: int = 0
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
@@ -117,6 +124,10 @@ class PhaseProgress:
             # Entity is part of the key so `candidate ext=7` and `stage ext=7`
             # never collide into one quarantine entry.
             self.error_refs.add(f"{match.group(1)}:{match.group(2)}")
+            self.attributed_errors += 1
+        # Past the ref cap we deliberately stop attributing: 500+ distinct
+        # failing rows is a systemic fault, and counting the overflow as
+        # unattributable keeps the watermark frozen, which is the safe answer.
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -130,6 +141,7 @@ class PhaseProgress:
             "notes_promoted": self.notes_promoted,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
+            "attributed_errors": self.attributed_errors,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
@@ -1231,8 +1243,13 @@ class TraffitImporter:
                 since_commit = 0
 
         if not self.dry_run:
+            # `_record_new_candidate_index_intent` czyści listę w `finally`,
+            # więc sprawdzamy PRZED wywołaniem — inaczej warunek po nim jest
+            # zawsze fałszywy i ostatnia partia intencji nie zostaje
+            # zacommitowana.
+            had_intents = bool(new_candidate_ids)
             await self._record_new_candidate_index_intent(new_candidate_ids, progress)
-            if since_commit > 0 or new_candidate_ids:
+            if since_commit > 0 or had_intents:
                 await self.db.commit()
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(

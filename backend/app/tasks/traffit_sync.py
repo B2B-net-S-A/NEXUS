@@ -290,17 +290,29 @@ def _next_quarantine(
 
 
 def _blocking_errors(
-    total_errors: int, error_refs: list[str], quarantine: dict[str, int], limit: int
+    total_errors: int,
+    error_refs: list[str],
+    quarantine: dict[str, int],
+    limit: int,
+    attributed_errors: Optional[int] = None,
 ) -> int:
     """How many of this phase's errors may still hold back the watermark.
 
     Quarantined rows (``attempts >= limit``) stop blocking. Everything else
-    does — including errors we could NOT attribute to a row
-    (``total_errors > len(error_refs)``, e.g. "total_count failed"), because an
-    unattributable error might be a brand-new fault and we refuse to let it
-    ride in on a known-bad row's exemption.
+    does — including errors we could NOT attribute to a row (e.g.
+    "total_count failed"), because an unattributable error might be a brand-new
+    fault and we refuse to let it ride in on a known-bad row's exemption.
+
+    ``attributed_errors`` is how many errors carried a row key, which is NOT
+    ``len(error_refs)``: one row can fail twice in a single run and then the set
+    holds one entry for two errors. Deriving the count from the set size
+    invented a phantom unattributable error that blocked the watermark forever,
+    so the quarantine could never release — the mechanism silently did nothing.
+    The parameter is optional so older callers keep the previous (set-size)
+    behaviour instead of crashing; every live caller passes it.
     """
-    unattributable = max(0, total_errors - len(error_refs))
+    attributed = len(error_refs) if attributed_errors is None else attributed_errors
+    unattributable = max(0, total_errors - attributed)
     still_retrying = sum(1 for ref in error_refs if quarantine.get(ref, 0) < limit)
     return unattributable + still_retrying
 
@@ -390,6 +402,7 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                             pd.get("error_refs") or [],
                             quarantine,
                             settings.TRAFFIT_MAX_ROW_ATTEMPTS,
+                            attributed_errors=pd.get("attributed_errors"),
                         )
                         parked = {
                             ref: n
