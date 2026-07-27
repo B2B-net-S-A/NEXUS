@@ -294,6 +294,7 @@ jobs:
                  tests/test_reaudit_backend_guards.py \
                  tests/test_session_revocation.py \
                  tests/test_pipeline_scan_equivalence.py \
+                 tests/test_crash_window_durability.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

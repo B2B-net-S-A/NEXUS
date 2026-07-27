@@ -254,39 +254,25 @@ def _should_scan_job(job: Job) -> Optional[str]:
     return None
 
 
-async def _create_marketplace_notifications(
+async def _resolve_marketplace_recipients(
     db: AsyncSession,
     *,
     candidate: Candidate,
     job: Job,
-    score: float,
-) -> tuple[Optional[int], Optional[int]]:
-    """Send in-app notifications to candidate and job owners.
+) -> tuple[Optional[int], Optional[int], set[int]]:
+    """Work out who *would* be notified — read-only, no side effects.
 
-    Returns (notified_candidate_owner_id, notified_job_owner_id).
-    Deduplikujemy gdy obaj ownerzy to ten sam user. Skipujemy inactive userów.
+    Returns (notified_candidate_owner_id, notified_job_owner_id, recipient_ids).
+    Split out from the actual send so the caller can resolve recipients, claim
+    the alert-log row, and only then emit. Deduplikujemy gdy obaj ownerzy to ten
+    sam user. Skipujemy inactive userów.
     """
-    from app.api.notifications import create_notification
-
     cand_owner = candidate.created_by
     job_owner = job.recruiter_id
 
-    notified_cand: Optional[int] = None
-    notified_job: Optional[int] = None
-
-    # Walidacja userów (is_active, istnienie).
-    candidate_for_link = f"/candidates/{candidate.id}?job={job.id}"
-    title = f"Nowy match: {job.title}"
-    score_int = int(round(score))
-    message = (
-        f"{candidate.name} {candidate.lastname} — score {score_int}/100 "
-        f'dopasowanie do nowej oferty „{job.title}".'
-    )
-
-    # Odbiorcy unikalni.
     unique_owners = {oid for oid in (cand_owner, job_owner) if oid is not None}
     if not unique_owners:
-        return (None, None)
+        return (None, None, set())
 
     active_rows = await db.execute(
         select(User.id).where(
@@ -295,8 +281,40 @@ async def _create_marketplace_notifications(
         )
     )
     active_ids = {row[0] for row in active_rows.all()}
+    recipients = unique_owners & active_ids
 
-    for uid in unique_owners & active_ids:
+    notified_cand = cand_owner if cand_owner in recipients else None
+    notified_job = job_owner if job_owner in recipients else None
+    return (notified_cand, notified_job, recipients)
+
+
+async def _emit_marketplace_notifications(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    job: Job,
+    score: float,
+    recipients: set[int],
+) -> None:
+    """Create the in-app notification rows for already-resolved recipients.
+
+    Call ONLY after the alert-log claim succeeded — a notification for a pair
+    that is already logged is a duplicate alert to a human.
+    """
+    from app.api.notifications import create_notification
+
+    if not recipients:
+        return
+
+    candidate_for_link = f"/candidates/{candidate.id}?job={job.id}"
+    title = f"Nowy match: {job.title}"
+    score_int = int(round(score))
+    message = (
+        f"{candidate.name} {candidate.lastname} — score {score_int}/100 "
+        f'dopasowanie do nowej oferty „{job.title}".'
+    )
+
+    for uid in recipients:
         await create_notification(
             db,
             user_id=uid,
@@ -308,12 +326,6 @@ async def _create_marketplace_notifications(
             related_entity_id=job.id,
             dedupe_resurface=False,
         )
-        if uid == cand_owner:
-            notified_cand = uid
-        if uid == job_owner:
-            notified_job = uid
-
-    return (notified_cand, notified_job)
 
 
 async def _try_insert_alert_log(
@@ -465,9 +477,14 @@ async def scan_job_for_marketplace_matches(
             continue
         matches += 1
 
-        # Send notifications FIRST (inside same transaction as the log insert).
-        notified_cand, notified_job = await _create_marketplace_notifications(
-            db, candidate=cand, job=job, score=bd.total
+        # Claim the pair BEFORE notifying. Resolving recipients is a read, so
+        # it can happen first; emitting is the side effect and must be gated on
+        # the claim. The old order notified first and used `inserted` only for a
+        # counter — so a pair that another pass had already logged (the cheap
+        # `_was_already_alerted` pre-check races with concurrent scans) still
+        # got a second round of notifications sent to the same humans.
+        notified_cand, notified_job, recipients = await _resolve_marketplace_recipients(
+            db, candidate=cand, job=job
         )
         inserted = await _try_insert_alert_log(
             db,
@@ -477,8 +494,13 @@ async def scan_job_for_marketplace_matches(
             notified_cand=notified_cand,
             notified_job=notified_job,
         )
-        if inserted:
-            new_alerts += 1
+        if not inserted:
+            # Already alerted for this pair — never re-notify.
+            continue
+        new_alerts += 1
+        await _emit_marketplace_notifications(
+            db, candidate=cand, job=job, score=bd.total, recipients=recipients
+        )
 
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)
     logger.info(

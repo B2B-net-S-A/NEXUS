@@ -1862,6 +1862,14 @@ _COLUMN_STATEMENTS = [
     # (401) tokeny z wcześniejszym iat. Bez tej kolumny UPDATE users z
     # tokens_valid_after => UndefinedColumn i każda zmiana hasła zwraca 500.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMPTZ",
+    # Chat email fallback reservation (migracja
+    # 0197_notification_email_send_started_at): background task rezerwuje
+    # wiersz TUTAJ przed wysyłką SMTP, a `email_sent_at` stempluje dopiero po
+    # potwierdzonej wysyłce. Bez tej kolumny UPDATE notifications z
+    # email_send_started_at => UndefinedColumn i cała pętla fallbacku pada
+    # w każdej iteracji (zero maili do offline'owych userów).
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "
+    "email_send_started_at TIMESTAMPTZ NULL",
 ]
 
 _DATA_STATEMENTS = [

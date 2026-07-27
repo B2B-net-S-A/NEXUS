@@ -3,8 +3,16 @@
 Co minutę skanuje notyfikacje typu chat (job_chat_message, job_chat_mention)
 starsze niż 15 min, nieprzeczytane, których adresat ma `last_seen_at`
 starsze niż 15 min (lub NULL — użytkownik nigdy nie był online z tym
-fixem). Dla każdej takiej notyfikacji wysyła email i stempluje
-`Notification.email_sent_at = NOW()` żeby uniknąć duplikatów.
+fixem). Dla każdej takiej notyfikacji rezerwuje wiersz
+(`Notification.email_send_started_at = NOW()`), wysyła email i dopiero
+po potwierdzonej wysyłce stempluje `Notification.email_sent_at = NOW()`.
+
+Rozdzielenie „rezerwacja" od „wysłane" jest celowe: gdyby `email_sent_at`
+padało przed wysyłką (tak było wcześniej), twardy crash/restart między
+commitem a SMTP zostawiałby wiersz na zawsze oznaczony jako wysłany —
+mail nigdy nie wychodzi i nikt się o tym nie dowiaduje. Teraz crash
+zostawia jedynie wiszącą rezerwację, którą kolejny przebieg przejmuje po
+`CLAIM_STALE_MIN` minutach i wysyła. Mail bywa opóźniony, nigdy zgubiony.
 
 Wysyłka: SMTP przez `services.email.send_chat_fallback_email` — feature-
 gated przez `SMTP_ENABLED`. Gdy off zwraca `False` i pętla retry'uje w
@@ -21,7 +29,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -37,6 +45,11 @@ OFFLINE_THRESHOLD_MIN = 15
 LOOP_SLEEP_SEC = 60
 # Maksymalna paczka w jednym przebiegu (zapobiega N+1)
 BATCH_SIZE = 100
+# Po ilu minutach rezerwacja bez rozstrzygnięcia (crash w trakcie wysyłki)
+# uznawana jest za porzuconą i może ją przejąć kolejny przebieg. Musi być
+# wyraźnie dłuższa niż najdłuższa realna wysyłka SMTP, żeby nie odebrać
+# rezerwacji procesowi, który wciąż wysyła.
+CLAIM_STALE_MIN = 15
 
 # Typy notyfikacji które kwalifikują się do email fallback
 _CHAT_NOTIF_TYPES = {
@@ -67,23 +80,36 @@ async def _send_chat_email(user: User, notif: Notification) -> bool:
 
 
 async def _claim_notification(db: AsyncSession, notif_id: int) -> bool:
-    """Atomically claim a notification for sending.
+    """Atomically reserve a notification for sending — without marking it sent.
 
-    Flips ``email_sent_at`` from NULL → ``now()`` in a single UPDATE guarded by
-    ``email_sent_at IS NULL``, and returns True only for the caller that won the
-    claim. A concurrent/overlapping pass (multi-worker or restart overlap)
-    blocks on the row lock, then re-evaluates the WHERE against the committed
-    stamp, matches zero rows and returns False — so the email is sent exactly
-    once. The claim is committed immediately to release the row lock and make
-    the stamp visible to the other pass.
+    Flips ``email_send_started_at`` to ``now()`` in a single UPDATE guarded by
+    ``email_sent_at IS NULL`` (never sent) AND ``email_send_started_at`` being
+    either NULL (nobody holds it) or older than ``CLAIM_STALE_MIN`` (a previous
+    holder died mid-send). Returns True only for the caller that won the row.
+
+    A concurrent/overlapping pass (multi-worker or restart overlap) blocks on
+    the row lock, then re-evaluates the WHERE against the committed reservation,
+    matches zero rows and returns False — so the email is sent exactly once.
+    The reservation is committed immediately to release the row lock and make it
+    visible to the other pass.
+
+    Crucially this stamps the *reservation* field, not ``email_sent_at``. A hard
+    crash between this commit and the actual SMTP send therefore leaves the row
+    recoverable: ``email_sent_at`` is still NULL, and once the reservation goes
+    stale the next pass re-claims and sends it.
     """
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=CLAIM_STALE_MIN)
     result = await db.execute(
         update(Notification)
         .where(
             Notification.id == notif_id,
             Notification.email_sent_at.is_(None),
+            or_(
+                Notification.email_send_started_at.is_(None),
+                Notification.email_send_started_at <= stale_cutoff,
+            ),
         )
-        .values(email_sent_at=func.now())
+        .values(email_send_started_at=func.now())
         .returning(Notification.id)
     )
     claimed = result.scalar_one_or_none() is not None
@@ -91,19 +117,34 @@ async def _claim_notification(db: AsyncSession, notif_id: int) -> bool:
     return claimed
 
 
-async def _release_claim(db: AsyncSession, notif_id: int) -> None:
-    """Release a claim so a later pass retries.
+async def _mark_sent(db: AsyncSession, notif_id: int) -> None:
+    """Stamp ``email_sent_at`` — only ever called AFTER a confirmed SMTP send.
 
-    Called when the send did not actually go out (SMTP disabled / send error).
-    This preserves the original contract of only keeping the stamp on a
-    confirmed send — without it, a claim taken while SMTP is off would suppress
-    the email forever. Safe against the race: only the pass that won the claim
-    reaches here, so no other worker is touching this row in this window.
+    ``email_send_started_at`` is deliberately left in place: it is the audit
+    trail of when the attempt began, and ``email_sent_at IS NULL`` is what
+    guards re-claiming, so the row can never be picked up again.
     """
     await db.execute(
         update(Notification)
         .where(Notification.id == notif_id)
-        .values(email_sent_at=None)
+        .values(email_sent_at=func.now())
+    )
+    await db.commit()
+
+
+async def _release_claim(db: AsyncSession, notif_id: int) -> None:
+    """Release a reservation so the next pass retries immediately.
+
+    Called when the send did not actually go out (SMTP disabled / send error).
+    Without it the row would sit unavailable until the stale timeout expires.
+    Only clears the reservation — ``email_sent_at`` was never set on this path.
+    Safe against the race: only the pass that won the claim reaches here, so no
+    other worker is touching this row in this window.
+    """
+    await db.execute(
+        update(Notification)
+        .where(Notification.id == notif_id)
+        .values(email_send_started_at=None)
     )
     await db.commit()
 
@@ -118,8 +159,11 @@ async def _process_one_pass(db: AsyncSession) -> int:
     #   - older than threshold
     #   - unread
     #   - not yet email-sent
-    # The `email_sent_at IS NULL` filter only narrows the batch; the atomic
-    # claim below is the real guard against a double send.
+    #   - not currently reserved by a live pass (stale reservations left by a
+    #     crashed process ARE picked up again — that is the recovery path)
+    # These filters only narrow the batch; the atomic claim below is the real
+    # guard against a double send.
+    stale_cutoff = now - timedelta(minutes=CLAIM_STALE_MIN)
     rows = await db.execute(
         select(Notification, User)
         .join(User, User.id == Notification.user_id)
@@ -127,6 +171,12 @@ async def _process_one_pass(db: AsyncSession) -> int:
         .where(Notification.created_at <= threshold)
         .where(Notification.is_read.is_(False))
         .where(Notification.email_sent_at.is_(None))
+        .where(
+            or_(
+                Notification.email_send_started_at.is_(None),
+                Notification.email_send_started_at <= stale_cutoff,
+            )
+        )
         .where((User.last_seen_at.is_(None)) | (User.last_seen_at <= threshold))
         .order_by(Notification.created_at.asc())
         .limit(BATCH_SIZE)
@@ -137,8 +187,8 @@ async def _process_one_pass(db: AsyncSession) -> int:
 
     sent = 0
     for notif, user in pairs:
-        # Claim the row atomically BEFORE sending so an overlapping pass can't
-        # send the same email twice.
+        # Reserve the row atomically BEFORE sending so an overlapping pass can't
+        # send the same email twice. The reservation is NOT the "sent" stamp.
         if not await _claim_notification(db, notif.id):
             continue
         ok = False
@@ -147,6 +197,8 @@ async def _process_one_pass(db: AsyncSession) -> int:
         except Exception as e:  # noqa: BLE001
             logger.warning("chat_email_fallback failed for notif %d: %s", notif.id, e)
         if ok:
+            # Only now — after SMTP confirmed — is the row marked as sent.
+            await _mark_sent(db, notif.id)
             sent += 1
         else:
             # SMTP off / send failed — release the claim so a later pass retries.
