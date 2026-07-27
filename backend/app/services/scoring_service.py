@@ -1021,8 +1021,12 @@ async def score_candidate_job(
         )
 
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
-    # Structured event for log aggregation (JSON formatter reshapes extras)
-    logger.info(
+    # Structured event for log aggregation (JSON formatter reshapes extras).
+    # DEBUG, nie INFO (2026-07-27): to jest najgorętsza pętla w systemie —
+    # jedno wejście na listę kandydatów z kolumną dopasowań emitowało ~1000+
+    # linii, zapychając Loki i I/O kontenera. Włącz LOG_LEVEL=DEBUG, gdy
+    # naprawdę diagnozujesz scoring.
+    logger.debug(
         "score_computed",
         extra={
             "event": "score_computed",

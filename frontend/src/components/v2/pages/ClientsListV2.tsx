@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from"react";
 import Link from"next/link";
-import { useQuery } from"@tanstack/react-query";
+import { keepPreviousData, useQuery } from"@tanstack/react-query";
 import { ArrowDown, ArrowUp, Building2, Plus, Search, Shield, ShieldCheck } from"lucide-react";
 import api from"@/lib/api";
 import { formatRelativeTime } from"@/lib/utils";
+import { useDebouncedValue } from"@/lib/use-debounced-value";
 import { resolveViewState } from"@/lib/view-state";
 import { useCapability } from"@/hooks/useCapability";
 import { AddClientModal } from"@/components/AppShell";
@@ -104,14 +105,21 @@ export function ClientsListV2() {
  // prowadzące w 403 (audyt F-19).
  const canCreateClient = useCapability("client.create");
 
+ // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
+ // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
+ const debouncedSearch = useDebouncedValue(search, 300);
+
  const { data, isLoading, isError, error, refetch } = useQuery({
- queryKey: ["clients-v2", search, page],
+ queryKey: ["clients-v2", debouncedSearch, page],
  queryFn: () =>
  api
  .get("/api/clients", {
- params: { q: search || undefined, page, page_size: 50 },
+ params: { q: debouncedSearch || undefined, page, page_size: 50 },
  })
  .then((r) => r.data),
+ // Poprzednia strona wyników zostaje na ekranie do czasu przyjścia nowej —
+ // bez tego lista migocze pustym stanem ładowania przy każdej zmianie filtra.
+ placeholderData: keepPreviousData,
  });
 
  // Hit ratio per client (12m) — joined by client_id on render.
