@@ -18,13 +18,6 @@ python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 httpx==0.28.1
-# 0.3.2 declares `Requires-Python >=3.9,<3.13` — it alone capped the whole
-# backend image at Python 3.12. 0.3.3 is the first release that lifts the cap
-# (patch bump, no API change). The SDK is not imported anywhere in the code
-# base: `app/services/embedding_service.py` and `reranker_service.py` talk to
-# api.voyageai.com directly over httpx, so this pin is inert at runtime.
-# For Python 3.14 this needs >=0.4.0 (0.3.x is capped `<3.14`).
-voyageai==0.3.3
 qdrant-client==1.12.1
 anthropic>=0.40,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
