@@ -387,7 +387,15 @@ async def revenue_forecast(
         active_in_month = [
             c
             for c in active_contracts
-            if c.start_date < next_month
+            # `start_date` is nullable (Contract.start_date: Optional[date]), so
+            # comparing it unguarded raised TypeError and answered 500 for the
+            # whole forecast as soon as ONE active contract had no start date.
+            # Null start = unknown when the revenue begins, so the row is not
+            # projected — same convention as `analytics.metrics` builds its
+            # month-by-month active series with. A null END date still means
+            # open-ended (indefinite contracts) and stays included.
+            if c.start_date is not None
+            and c.start_date < next_month
             and (c.end_date is None or c.end_date >= month_start)
         ]
         revenue_raw = Decimal("0")

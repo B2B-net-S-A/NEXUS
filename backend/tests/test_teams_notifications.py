@@ -318,6 +318,58 @@ async def cleanup_teams_channels() -> AsyncIterator[None]:
         await db.commit()
 
 
+@pytest_asyncio.fixture
+async def channel_author_id() -> AsyncIterator[int]:
+    """A user this test owns, for `created_by_user_id`.
+
+    `teams_notification_channels.created_by_user_id` is a NOT NULL FK to
+    `users.id`. Hardcoding `1` only worked while some earlier test happened to
+    have left a user with that id behind — several suites delete their users on
+    teardown, so in a full run the insert died with a ForeignKeyViolation. Seed
+    our own author instead of depending on another test's leftovers.
+
+    Core SQL rather than the ORM on purpose: instantiating `User` triggers
+    `configure_mappers()` for every registered model, and this file does not
+    import the whole registry, so `CortexSkillFact.skill` fails to resolve
+    'Skill' when the file runs on its own. Raw INSERT keeps it standalone-safe.
+    Only `email` and `name` lack column defaults.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    token = _uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user_id = await db.scalar(
+            text(
+                "INSERT INTO users (email, name) VALUES (:email, :name) "
+                "RETURNING id"
+            ),
+            {"email": f"teamsauthor-{token}@example.com", "name": "Teams Author"},
+        )
+        await db.commit()
+
+    try:
+        yield user_id
+    finally:
+        async with AsyncSessionLocal() as db:
+            # Drop our channels first: finalizers run in reverse setup order, so
+            # this fixture is torn down BEFORE `cleanup_teams_channels` and the
+            # FK would still be referenced. Self-contained cleanup makes the
+            # order between the two fixtures irrelevant.
+            await db.execute(
+                text(
+                    "DELETE FROM teams_notification_channels "
+                    "WHERE created_by_user_id = :id"
+                ),
+                {"id": user_id},
+            )
+            await db.execute(
+                text("DELETE FROM users WHERE id = :id"), {"id": user_id}
+            )
+            await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_list_channels_empty(
     app_client: AsyncClient,
@@ -489,6 +541,7 @@ async def test_test_endpoint_reports_killswitch_off(
 @pytest.mark.asyncio
 async def test_notify_teams_fans_out_to_subscribed_channels(
     cleanup_teams_channels: None,
+    channel_author_id: int,
     monkeypatch,
 ) -> None:
     """Two enabled channels subscribed to `candidate_added` → two sends.
@@ -509,7 +562,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-a",
                 notification_types=["candidate_added"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=channel_author_id,
             )
         )
         db.add(
@@ -519,7 +572,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-b",
                 notification_types=["candidate_added", "contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=channel_author_id,
             )
         )
         db.add(
@@ -529,7 +582,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-c",
                 notification_types=["contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=channel_author_id,
             )
         )
         db.add(
@@ -539,7 +592,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-d",
                 notification_types=["candidate_added"],
                 enabled=False,
-                created_by_user_id=1,
+                created_by_user_id=channel_author_id,
             )
         )
         await db.commit()

@@ -177,11 +177,22 @@ async def test_search_excludes_non_matching_and_blank_is_noop(
         assert r_none.json()["total"] == 0
 
         # Blank/whitespace `q` is a no-op (does not filter everything out).
+        # Asserted on `total`, not on page 1's ids: the seeded row is only
+        # *visible* in an unfiltered listing while the table holds fewer than
+        # `page_size` contracts, so the old membership check turned red as soon
+        # as siblings populated it. Comparing blank-q against no-q states the
+        # actual invariant — the two are the same query — at any table size.
         r_blank = await app_client.get(
             "/api/contracts?q=%20%20&page_size=100",
             headers=app_auth_headers,
         )
         assert r_blank.status_code == 200, r_blank.text
-        assert row[0] in {i["id"] for i in r_blank.json()["items"]}
+        r_noq = await app_client.get(
+            "/api/contracts?page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r_noq.status_code == 200, r_noq.text
+        assert r_blank.json()["total"] == r_noq.json()["total"]
+        assert r_blank.json()["total"] >= 1  # our seeded row is in there
     finally:
         await _cleanup([row])

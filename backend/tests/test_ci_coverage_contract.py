@@ -1,57 +1,68 @@
 """Every test file must actually run in CI — or be a declared, reasoned exception.
 
-The meta-cause behind this whole hardening effort: CI runs a hand-enumerated
-list of test files, so every quality and security guardrail is opt-in — it only
-protects anything if whoever added it also remembered to append the filename to
-`.github/workflows/ci.yml`. That is exactly how a guardrail silently dies: the
-test exists, passes locally, and never runs.
+The meta-cause behind this whole hardening effort: CI used to run a
+hand-enumerated list of ~285 test filenames, so every quality and security
+guardrail was opt-in — it only protected anything if whoever added it also
+remembered to append the filename to `.github/workflows/ci.yml`. That is exactly
+how a guardrail silently dies: the test exists, passes locally, and never runs.
 
-This contract inverts the default for NEW files: a test module that is neither
-in the CI list nor in the explicit exception baseline below fails this test. The
-hole becomes a visible red build instead of an invisible gap.
+That list is gone. CI now runs `pytest tests/` and collects everything, minus an
+explicit `--ignore=` per exception. Forgetting is no longer possible; only
+deliberate exclusion is, and every exclusion has to be argued here.
 
-The baseline is a burn-down list, not a target. Each category says why the file
-is not yet wired in, and the list should only ever shrink:
+**The `--ignore` list in ci.yml IS the baseline below.** This file asserts the
+two match in both directions, so an exclusion cannot be added to CI without a
+written reason, nor linger in the baseline after the debt is paid. Categories:
 
 - COLLECTION_ERRORS — the file cannot even be collected (missing fixture data,
-  import-time failure). Wiring it into CI as-is would break the build; it needs
-  fixing first.
+  import-time failure). Wiring it in as-is would break the build.
 - LIVE — needs a running server (uses the `client` fixture, skipped unless
-  RUN_LIVE_TESTS=1). These are genuinely out of scope for the in-process job.
+  RUN_LIVE_TESTS=1). Genuinely out of scope for the in-process job.
 - FAILING — collects fine, but red on its own today. Almost all of these are
   stale: the test never ran, so nobody noticed when a schema column went NOT
   NULL or a request contract gained a required field underneath it.
-- SUITE_INTERFERENCE — green in isolation, red inside the full suite. These
-  assume they own the database (e.g. asserting their own row id appears in an
-  unpaginated global listing), which stops holding once sibling tests populate
-  it. Fixing them means making the assertions local, not re-ordering CI.
 
-Status 2026-07-27: 318 test modules on disk, 288 wired into ci.yml, 30 in the
-baseline below (2 + 4 + 20 + 4). The previous 115-file UNWIRED backlog was
-measured file-by-file in the prod image against a migrated database, and the 89
-confirmed-green ones were wired into ci.yml — first as single files, then
-re-confirmed in one combined 281-file invocation so cross-file interference
-could not hide.
+Status 2026-07-27: 318 test modules on disk, 26 excluded, 292 run.
+(An earlier revision said 313 on disk / 281 wired; the real figures were 317 and
+285 — 317 = 285 enumerated + the then 32-file baseline. Corrected rather than
+carried forward, since the whole point of the number is to be measurable.)
 
-Burn-down since: `test_candidate_stage_cv_branded.py` and
-`test_engagement_magic_link.py` left FAILING. Both were listed as "expired link
-answers 200, test expects 410" — which read like a live hole in two public,
-unauthenticated candidate links. It was not: since the hash-at-rest migrations
-(0176 CV share, 0182 engagement) the raw secret is stored only as a SHA-256, so
-each test's `UPDATE … WHERE token == <raw secret>` matched zero rows and the
-link under test was never actually expired. Expiry itself was always enforced.
-The preconditions now match on the digest and assert their own rowcount, so a
-setup that silently touches nothing fails loudly instead of masquerading as a
-product bug.
+History of the burn-down:
+  115 unwired  → measured file-by-file in the prod image against a migrated
+                 database; the 89 confirmed-green ones were wired in.
+   32 excluded → 2 collection errors + 4 live + 22 failing + 4 suite-interference.
+   30 excluded → `test_candidate_stage_cv_branded.py` and
+                 `test_engagement_magic_link.py` left FAILING (#941). Both were
+                 listed as "expired link answers 200, test expects 410", which
+                 read like a live hole in two public, unauthenticated candidate
+                 links. It was not: since the hash-at-rest migrations (0176 CV
+                 share, 0182 engagement) the raw secret is stored only as a
+                 SHA-256, so each test's `UPDATE … WHERE token == <raw secret>`
+                 matched zero rows and the link under test was never actually
+                 expired. The preconditions now match on the digest and assert
+                 their own rowcount, so a setup that silently touches nothing
+                 fails loudly instead of masquerading as a product bug.
+   26 excluded → the SUITE_INTERFERENCE category is retired. Those four files
+                 (test_contract_analytics, test_contracts_expansion,
+                 test_contracts_filters_multi, test_contracts_search) were green
+                 alone and red inside the full suite because they assumed they
+                 owned the database — asserting their own row id appeared in an
+                 unpaginated global listing, or mutating an arbitrary borrowed
+                 row. Their assertions are now local to rows they create, which
+                 is what made auto-discovery possible: with the file list gone,
+                 pytest runs them in alphabetical order rather than the order
+                 ci.yml happened to list, and order-dependent tests had nowhere
+                 left to hide.
 
 Running a test is still not the same as running it the way production runs.
 `test_invite_links.py` was wired in and green the whole time — but only because
 CI had no `M365_TOKEN_ENCRYPTION_KEY` while production has one, and an invite
 link mints the hash-at-rest v2 row only when a cipher is available. CI was
 proving the legacy branch. The key is now set on the pytest step, and
-`test_ci_token_encryption_parity.py` (+1 on both counts above) fails if it is
-dropped or stops being a usable key — an unusable value would be worse than
-none, because `TokenCipherNotConfigured` is caught and swallowed.
+`test_ci_token_encryption_parity.py` fails if it is dropped or stops being a
+usable key — an unusable value would be worse than none, because
+`TokenCipherNotConfigured` is caught and swallowed. That file is one of the 292
+picked up by auto-discovery; it needs no entry here, which is the point.
 """
 
 from __future__ import annotations
@@ -67,19 +78,66 @@ CI_YML = BACKEND.parent / ".github" / "workflows" / "ci.yml"
 # the disk scanner share this so a file cannot be visible to one and invisible
 # to the other — that asymmetry is itself a way around the contract.
 _MODULE = r"(?:test_[A-Za-z0-9_]+|[A-Za-z0-9_]+_test)\.py"
-_CI_PATH_RE = re.compile(rf"tests/((?:[A-Za-z0-9_]+/)*{_MODULE})")
+_IGNORE_RE = re.compile(rf"--ignore=tests/((?:[A-Za-z0-9_]+/)*{_MODULE})")
+# A path NOT preceded by `--ignore=` — i.e. a file being enumerated as a target,
+# the pattern this contract exists to keep out.
+_ENUMERATED_RE = re.compile(rf"(?<!--ignore=)\btests/((?:[A-Za-z0-9_]+/)*{_MODULE})")
 
 
-def _ci_listed_files() -> set[str]:
-    return set(_CI_PATH_RE.findall(CI_YML.read_text(encoding="utf-8")))
+def _pytest_step() -> str:
+    """The executable body of the backend pytest step in ci.yml.
+
+    Scoped to that one step so `--ignore=` flags or paths belonging to other
+    jobs (e2e, uptime probes) cannot be mistaken for this job's contract.
+    Comment lines are stripped: prose explaining the step is not configuration,
+    and a filename mentioned in a comment must not read as either a target or a
+    declared exception.
+    """
+    text = CI_YML.read_text(encoding="utf-8")
+    # A bare `.index()` would raise ValueError with no context, and this file's
+    # entire job is to fail informatively: whoever renames the step should be
+    # told that is what broke, not handed a traceback into a helper.
+    step_name = "- name: Pytest (unit + in-process integration)"
+    try:
+        start = text.index(step_name)
+    except ValueError:
+        raise AssertionError(
+            f"Could not find {step_name!r} in {CI_YML}. If the step was renamed, "
+            "update this constant — otherwise the coverage contract silently "
+            "stops checking the step it exists to check."
+        ) from None
+    try:
+        nxt = text.index("\n      - name:", start + 1)
+    except ValueError:
+        raise AssertionError(
+            f"Found {step_name!r} in {CI_YML} but no following step at the same "
+            "indent, so the step's extent cannot be determined. If it is now the "
+            "last step in the job, this helper needs to fall back to end-of-file."
+        ) from None
+    return "\n".join(
+        line
+        for line in text[start:nxt].splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
+def _ci_ignored_files() -> set[str]:
+    """Files CI explicitly excludes.
+
+    NOTE the inversion versus the old parser: when ci.yml enumerated targets, a
+    matched path meant "covered". Now a matched `--ignore=` path means the exact
+    opposite — "NOT covered". Reusing the old regex here would have read the
+    exception list as proof of coverage and passed while protecting nothing.
+    """
+    return set(_IGNORE_RE.findall(_pytest_step()))
 
 
 def _disk_files() -> set[str]:
     """Every test module under backend/tests/, relative to that directory.
 
-    `rglob` rather than `glob`, and both naming conventions: the previous
-    non-recursive `glob("test_*.py")` could not see a test in a subdirectory nor
-    one named `*_test.py`, so either was a free pass around this contract.
+    `rglob` rather than `glob`, and both naming conventions: a non-recursive
+    `glob("test_*.py")` could not see a test in a subdirectory nor one named
+    `*_test.py`, so either was a free pass around this contract.
     """
     found: set[Path] = set()
     for pattern in ("test_*.py", "*_test.py"):
@@ -89,8 +147,8 @@ def _disk_files() -> set[str]:
     }
 
 
-# Files not in the CI list. Categorised so the reason is argued here, not
-# hidden. Burn these down — do not add to them without cause.
+# Files CI does not run. Categorised so the reason is argued here, not hidden.
+# Burn these down — do not add to them without cause.
 _COLLECTION_ERRORS = {
     # Cannot be collected without eval/backfill fixture data present. Not yet
     # wired into CI; the three eval/merge siblings ARE in CI (they have the data
@@ -166,50 +224,65 @@ _FAILING = {
     "test_team_structure_dl_clients_dedup.py",
 }
 
-# Green alone, red in the full suite — measured in the same combined run. These
-# assume an empty or exclusively-theirs database. Wiring them in as-is would
-# make CI red for reasons unrelated to whatever a PR changed.
-_SUITE_INTERFERENCE = {
-    # test_revenue_forecast_shape: TypeError "'<' not supported between instances
-    # of 'NoneType' and 'datetime.date'" once a sibling test leaves a contract
-    # with a null date behind — arguably a real robustness gap in the forecast.
-    "test_contract_analytics.py",
-    # test_terminate_sets_reason_and_amendment: assert 'active' == 'ended'.
-    "test_contracts_expansion.py",
-    # asserts its own contract id is present in a global listing
-    # (assert 145 in {1, 2, 4, ...}) — false as soon as the list is longer.
-    "test_contracts_filters_multi.py",
-    # same global-listing assumption (assert 154 in {...}).
-    "test_contracts_search.py",
-}
-
-_BASELINE = _COLLECTION_ERRORS | _LIVE | _FAILING | _SUITE_INTERFERENCE
+_BASELINE = _COLLECTION_ERRORS | _LIVE | _FAILING
 
 
-def test_no_new_test_file_escapes_ci() -> None:
-    disk = _disk_files()
-    ci = _ci_listed_files()
-    uncovered = disk - ci - _BASELINE
-    assert not uncovered, (
-        f"{len(uncovered)} test file(s) are on disk but neither run in CI nor "
-        "listed as a known exception. A test that does not run protects nothing.\n"
-        "Add each to the pytest invocation in .github/workflows/ci.yml, or — if "
-        "it genuinely cannot run in-process yet — to the categorised baseline in "
-        "this file with a reason:\n" + "\n".join(f"    {f}" for f in sorted(uncovered))
+def test_ci_collects_the_whole_tests_directory() -> None:
+    """CI must run `pytest tests/`, never a hand-enumerated file list.
+
+    This is the load-bearing guard now. With auto-discovery a new test file is
+    picked up automatically, so the old "did you remember to add it?" gap cannot
+    reopen — unless someone reverts to enumerating targets, which is exactly
+    what this catches.
+    """
+    step = _pytest_step()
+    assert "pytest tests/" in step, (
+        "The backend pytest step no longer runs `pytest tests/`. CI must collect "
+        "the whole directory; excluding a file is done with --ignore=, so that "
+        "the exception is visible and has to be justified in this file."
+    )
+    enumerated = set(_ENUMERATED_RE.findall(step))
+    assert not enumerated, (
+        f"{len(enumerated)} test file(s) are named as explicit pytest targets in "
+        "ci.yml. That reintroduces the opt-in coverage hole this contract "
+        "exists to prevent — every new file would again need remembering.\n"
+        "Drop them; `pytest tests/` already collects them:\n"
+        + "\n".join(f"    {f}" for f in sorted(enumerated))
     )
 
 
-def test_baseline_has_no_stale_entries() -> None:
-    """A file that got wired into CI (or deleted) must leave the baseline.
+def test_every_ci_ignore_is_a_declared_exception() -> None:
+    """Nothing is excluded from CI without a reason recorded here."""
+    undeclared = _ci_ignored_files() - _BASELINE
+    assert not undeclared, (
+        f"{len(undeclared)} file(s) are --ignore'd in ci.yml but not declared in "
+        "the categorised baseline in this file. An excluded test protects "
+        "nothing, so the exclusion needs a written reason and a category "
+        "(COLLECTION_ERRORS / LIVE / FAILING):\n"
+        + "\n".join(f"    {f}" for f in sorted(undeclared))
+    )
+
+
+def test_baseline_matches_ci_and_has_no_stale_entries() -> None:
+    """A file that got fixed (or deleted) must leave the baseline.
 
     Otherwise the burn-down cannot be measured: entries linger after the debt is
     paid and the number stops meaning anything. Failing here is progress.
     """
     disk = _disk_files()
-    ci = _ci_listed_files()
-    stale = {f for f in _BASELINE if f not in disk or f in ci}
-    assert not stale, (
-        f"{len(stale)} baseline entry/entries are no longer uncovered (wired into "
-        "CI, or deleted). Remove them from the baseline in this file:\n"
-        + "\n".join(f"    {f}" for f in sorted(stale))
+    ignored = _ci_ignored_files()
+
+    gone = {f for f in _BASELINE if f not in disk}
+    assert not gone, (
+        f"{len(gone)} baseline entry/entries no longer exist on disk. Remove "
+        "them from the baseline in this file:\n"
+        + "\n".join(f"    {f}" for f in sorted(gone))
+    )
+
+    not_ignored = _BASELINE - ignored
+    assert not not_ignored, (
+        f"{len(not_ignored)} baseline entry/entries are not --ignore'd in "
+        "ci.yml, so they DO run. If they now pass, delete them from the "
+        "baseline; if they still fail, CI is about to go red:\n"
+        + "\n".join(f"    {f}" for f in sorted(not_ignored))
     )

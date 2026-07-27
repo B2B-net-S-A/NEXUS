@@ -61,7 +61,14 @@ async def test_concurrent_snapshot_race_preserves_caller_txn(monkeypatch) -> Non
         stage = CandidateStage(candidate_id=cand.id, job_id=job.id, moved_by=user.id)
         db.add(stage)
         await db.commit()
-        cand_id, stage_id, job_id = cand.id, job.id, stage.id
+        # NB: the ids must line up with the names — this used to read
+        # `cand.id, job.id, stage.id`, so `stage_id` actually held the JOB id.
+        # `db.get(CandidateStage, stage_id)` then only found a row while the
+        # jobs and candidate_stages sequences happened to be in step, which is
+        # true on a nearly-empty database and stops being true once sibling
+        # tests create the two at different rates — at which point `stage` came
+        # back None and the service blew up on `stage.id`.
+        cand_id, stage_id, job_id = cand.id, stage.id, job.id
 
     marker = f"SURVIVED-{u}"
 

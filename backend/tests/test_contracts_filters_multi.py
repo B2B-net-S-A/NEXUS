@@ -2,6 +2,15 @@
 
 Verifies that `status` and `contract_type` accept repeated query params and
 that single-value calls remain backward-compatible.
+
+Every request also passes `q=<marker>`, where the marker is a per-test uuid
+baked into the seeded consultants' surnames. Without it these tests asked for
+an unscoped `page_size=100` listing and asserted their own row id was in it —
+true only while the contracts table held under 100 matching rows, which stopped
+being the case as soon as sibling tests populated it. Scoping by marker keeps
+the assertion about the filter under test (does `status=active&status=ending`
+include the active and ending rows and exclude the draft one?) instead of about
+how much unrelated data happens to exist.
 """
 
 from __future__ import annotations
@@ -13,14 +22,16 @@ import pytest
 from httpx import AsyncClient
 
 
-async def _seed_candidate_minimal() -> int:
+async def _seed_candidate_minimal(marker: str) -> int:
+    """Seed a consultant whose surname carries `marker`, so `q=<marker>` scopes
+    a listing down to exactly the rows one test created."""
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
 
     async with AsyncSessionLocal() as db:
         c = Candidate(
             name="ContractFlt",
-            lastname=f"X-{uuid.uuid4().hex[:6]}",
+            lastname=f"X-{marker}",
             email=f"cflt-{uuid.uuid4().hex[:8]}@example.com",
         )
         db.add(c)
@@ -42,13 +53,13 @@ async def _seed_client_minimal() -> int:
 
 
 async def _seed_contract(
-    *, status: str, contract_type: str = "b2b"
+    *, status: str, marker: str, contract_type: str = "b2b"
 ) -> tuple[int, int, int]:
     """Seed a contract with required FKs. Returns (contract_id, candidate_id, client_id)."""
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus, ContractType
 
-    cand_id = await _seed_candidate_minimal()
+    cand_id = await _seed_candidate_minimal(marker)
     client_id = await _seed_client_minimal()
 
     async with AsyncSessionLocal() as db:
@@ -135,19 +146,23 @@ async def _cleanup(rows: list[tuple[int, int, int]]) -> None:
 async def test_contracts_status_filter_accepts_multiple(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    a = await _seed_contract(status="active")
-    e = await _seed_contract(status="ending")
-    d = await _seed_contract(status="draft")
+    marker = uuid.uuid4().hex[:8]
+    a = await _seed_contract(status="active", marker=marker)
+    e = await _seed_contract(status="ending", marker=marker)
+    d = await _seed_contract(status="draft", marker=marker)
     try:
+        # Everything in `params` — httpx REPLACES a URL query string when
+        # `params` is also given, so mixing the two silently dropped the filter
+        # under test.
         r = await app_client.get(
-            "/api/contracts?status=active&status=ending&page_size=100",
+            "/api/contracts",
+            params={"status": ["active", "ending"], "page_size": 100, "q": marker},
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
         ids = {item["id"] for item in r.json()["items"]}
-        assert a[0] in ids
-        assert e[0] in ids
-        assert d[0] not in ids
+        # Scoped to this test's three rows, so equality is meaningful.
+        assert ids == {a[0], e[0]}
     finally:
         await _cleanup([a, e, d])
 
@@ -156,17 +171,18 @@ async def test_contracts_status_filter_accepts_multiple(
 async def test_contracts_status_single_value_back_compat(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    a = await _seed_contract(status="active")
-    e = await _seed_contract(status="ended")
+    marker = uuid.uuid4().hex[:8]
+    a = await _seed_contract(status="active", marker=marker)
+    e = await _seed_contract(status="ended", marker=marker)
     try:
         r = await app_client.get(
-            "/api/contracts?status=active&page_size=100",
+            "/api/contracts",
+            params={"status": "active", "page_size": 100, "q": marker},
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
         ids = {item["id"] for item in r.json()["items"]}
-        assert a[0] in ids
-        assert e[0] not in ids
+        assert ids == {a[0]}
     finally:
         await _cleanup([a, e])
 
@@ -176,19 +192,23 @@ async def test_contracts_contract_type_filter_accepts_multiple(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Backend ContractType enum is `b2b | uop | uzlecenie`. Filter on b2b+uop."""
-    b = await _seed_contract(status="active", contract_type="b2b")
-    u = await _seed_contract(status="active", contract_type="uop")
-    z = await _seed_contract(status="active", contract_type="uzlecenie")
+    marker = uuid.uuid4().hex[:8]
+    b = await _seed_contract(status="active", contract_type="b2b", marker=marker)
+    u = await _seed_contract(status="active", contract_type="uop", marker=marker)
+    z = await _seed_contract(status="active", contract_type="uzlecenie", marker=marker)
     try:
         r = await app_client.get(
-            "/api/contracts?contract_type=b2b&contract_type=uop&page_size=100",
+            "/api/contracts",
+            params={
+                "contract_type": ["b2b", "uop"],
+                "page_size": 100,
+                "q": marker,
+            },
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
         ids = {item["id"] for item in r.json()["items"]}
-        assert b[0] in ids
-        assert u[0] in ids
-        assert z[0] not in ids
+        assert ids == {b[0], u[0]}
     finally:
         await _cleanup([b, u, z])
 
