@@ -122,6 +122,15 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell-root flex h-screen overflow-hidden bg-background text-foreground">
+      {/* Skip link — pierwszy element w kolejności tabulacji; widoczny dopiero
+          po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+      >
+        Przejdź do treści
+      </a>
+
       {/* Mobile backdrop */}
       {mobileSidebarOpen && (
         <div
@@ -151,7 +160,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
           onOpenCommandPalette={() => setCommandOpen(true)}
         />
 
-        <main className="flex-1 overflow-y-auto">
+        {/* `tabIndex={-1}` — bez tego część przeglądarek przewinie do kotwicy,
+            ale nie przeniesie fokusu, więc skip link byłby pozorny. */}
+        <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
           <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
         </main>
       </div>

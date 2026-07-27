@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   X, Loader2, Sparkles, ChevronRight, Plus,
   UserPlus, Briefcase, Building2, CalendarPlus,
@@ -146,28 +147,74 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
 
 // ── Generic Modal Shell ────────────────────────────────────────────────────────
 
+/**
+ * Shell 8 modali eksportowanych z tego pliku (AddCandidate, EditCandidate,
+ * AddJob, EditJob, AddClient, EditClient, AddMeeting, AddContact).
+ *
+ * Wnętrze stoi na `@radix-ui/react-dialog` (ten sam primitive co
+ * `components/ui/dialog.tsx`), bo ręczna wersja miała TYLKO obsługę Escape:
+ * brakowało `role="dialog"`/`aria-modal`, powiązania nagłówka przez
+ * `aria-labelledby`, pułapki fokusu i przywrócenia fokusu do elementu
+ * wyzwalającego po zamknięciu, a przycisk zamknięcia (sama ikona) czytnik
+ * ekranu ogłaszał jako „button".
+ *
+ * API komponentu (`title` / `onClose` / `children` / `wide`) oraz klasy tokenowe
+ * są zachowane 1:1 — konsumenci i wygląd bez zmian.
+ */
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  // Element, który miał fokus tuż przed otwarciem — czytany w renderze, zanim
+  // radix zdąży przenieść fokus do treści modala (efekty lecą po renderze).
+  const [opener] = useState<Element | null>(() =>
+    typeof document !== "undefined" ? document.activeElement : null
+  );
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center sm:p-4 overflow-y-auto">
-      <div className={`bg-card dark:bg-muted rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:my-4 ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
-          <h2 className="text-lg font-bold text-foreground dark:text-foreground">{title}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <DialogPrimitive.Root
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogPrimitive.Portal>
+        {/* Overlay jest jednocześnie kontenerem przewijania (wzorzec „scrollable
+            overlay" z dokumentacji radix) — dzięki temu zostaje sheet-on-mobile
+            / center-on-desktop z wersji ręcznej. */}
+        <DialogPrimitive.Overlay className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center sm:p-4 overflow-y-auto">
+          <DialogPrimitive.Content
+            // Radix woli `hideOthers()` (aria-hidden na rodzeństwie) i sam nie
+            // wystawia `aria-modal`; dokładamy je jawnie, bo to element kontraktu.
+            aria-modal="true"
+            // Brak `<DialogDescription>` — jawne `undefined` wycisza warning radix.
+            aria-describedby={undefined}
+            // Wersja ręczna zamykała się WYŁĄCZNIE przez Escape i „X"; klik w tło
+            // nie gubił wypełnionego formularza. Zachowujemy to zachowanie.
+            onPointerDownOutside={(e) => e.preventDefault()}
+            onInteractOutside={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => {
+              // Domyślnie radix oddaje fokus do `<Dialog.Trigger>`, którego tu nie
+              // ma — te modale montują zewnętrzne przyciski (QuickActions, akcje
+              // w wierszach). Bez tego fokus po zamknięciu przepadał na <body>.
+              e.preventDefault();
+              if (opener instanceof HTMLElement && document.contains(opener)) {
+                opener.focus();
+              }
+            }}
+            className={`bg-card dark:bg-muted rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:my-4 focus:outline-none ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+              <DialogPrimitive.Title className="text-lg font-bold text-foreground dark:text-foreground">{title}</DialogPrimitive.Title>
+              <DialogPrimitive.Close
+                aria-label="Zamknij"
+                className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </DialogPrimitive.Close>
+            </div>
+            {children}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Overlay>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 
