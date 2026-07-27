@@ -46,6 +46,7 @@ from app.services.html_sanitizer import sanitize_cv_html
 # same CandidateDocumentAccess capability as the canonical document routes.
 from app.api.candidate_access import CandidateDocumentAccess
 from app.api.deps import RecruiterPlus
+from app.api.recruitment_access import ensure_job_membership
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -97,28 +98,73 @@ def _build_original_response(csv: CandidateStageCV) -> CVOriginalSnapshotRespons
     )
 
 
-async def _load_csv_for_stage(db: AsyncSession, stage_id: int) -> CandidateStageCV:
-    """Wczytaj CandidateStageCV dla stage_id, 404 gdy brak. Sprawdza tez czy
-    sam stage istnieje — żeby rozróżnić "stage nie istnieje" od "stage bez CV"."""
-    csv = await db.scalar(
-        select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == stage_id)
-    )
-    if csv is not None:
-        return csv
+async def _ensure_stage_membership(db: AsyncSession, stage_id: int, user: User) -> None:
+    """Resource scope dla tras adresujących etap, które NIE ładują CV przez
+    ``_load_csv_for_stage``.
 
-    stage_exists = await db.scalar(
-        select(CandidateStage.id).where(CandidateStage.id == stage_id)
+    Dziś jedna taka trasa: ``refresh_original_cv`` buduje snapshot od zera
+    (``refresh_original_cv_snapshot``), więc nigdy nie przechodziła przez
+    choke point — i jako jedyna w tym routerze nadpisywała CV cudzej
+    rekrutacji bez żadnego sprawdzenia. Wyłapane przez
+    ``tests/test_job_scope_contract.py``, nie przez czytanie kodu.
+    """
+    job_id = await db.scalar(
+        select(CandidateStage.job_id).where(CandidateStage.id == stage_id)
     )
-    if stage_exists is None:
+    if job_id is None:
         raise HTTPException(status_code=404, detail="Stage nie znaleziony")
-    raise HTTPException(
-        status_code=404,
-        detail=(
-            "CV instance nie istnieje dla tego stage. "
-            "Snapshot powinien być utworzony przy CREATE stage'a — "
-            "jeśli stage jest historyczny, uruchom backfill 0070."
-        ),
-    )
+    await ensure_job_membership(db, user, job_id)
+
+
+async def _load_csv_for_stage(
+    db: AsyncSession, stage_id: int, user: User
+) -> CandidateStageCV:
+    """Wczytaj CandidateStageCV dla stage_id, 404 gdy brak. Sprawdza tez czy
+    sam stage istnieje — żeby rozróżnić "stage nie istnieje" od "stage bez CV".
+
+    Egzekwuje też **resource scope**: `stage_id` niesie `job_id`, więc dostęp do
+    CV tej rekrutacji wymaga przynależności do jej zespołu. Rola
+    (`CandidateDocumentAccess` / `RecruiterPlus`) odpowiada tylko na pytanie
+    „czy wolno ci oglądać CV", nie „czy wolno ci oglądać CV **tej**
+    rekrutacji" — i to jest dokładnie ta różnica, przez którą łatanie kolejnych
+    routerów nigdy nie trzymało (#791 → #815 → #819).
+
+    Guard siedzi TUTAJ, bo to jedyne wejście do CV dla 9 z 11 tras tego
+    routera. Gdyby stał w każdej trasie z osobna, następna dopisana trasa
+    musiałaby o nim pamiętać — a „trzeba pamiętać" jest właśnie tym trybem
+    awarii, który zamykamy.
+
+    Jedno zapytanie (LEFT JOIN), żeby zachować rozróżnienie 404 bez dokładania
+    round-tripa do bazy na każdy odczyt CV.
+    """
+    row = (
+        await db.execute(
+            select(CandidateStage.job_id, CandidateStageCV)
+            .select_from(CandidateStage)
+            .outerjoin(
+                CandidateStageCV,
+                CandidateStageCV.candidate_stage_id == CandidateStage.id,
+            )
+            .where(CandidateStage.id == stage_id)
+        )
+    ).first()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage nie znaleziony")
+
+    job_id, csv = row
+    await ensure_job_membership(db, user, job_id)
+
+    if csv is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "CV instance nie istnieje dla tego stage. "
+                "Snapshot powinien być utworzony przy CREATE stage'a — "
+                "jeśli stage jest historyczny, uruchom backfill 0070."
+            ),
+        )
+    return csv
 
 
 @router.get(
@@ -130,7 +176,7 @@ async def get_original_cv(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVOriginalSnapshotResponse:
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     return _build_original_response(csv)
 
 
@@ -140,7 +186,7 @@ async def download_original_cv(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     if csv.original_cv_content is None:
         raise HTTPException(
             status_code=404,
@@ -176,6 +222,7 @@ async def refresh_original_cv(
     Idempotent w tym sensie, że można wołać wielokrotnie — każdorazowo nadpisuje.
     Jeśli kandydat aktualnie nie ma CV → 422 (nie ma czego skopiować).
     """
+    await _ensure_stage_membership(db, stage_id, current_user)
     try:
         csv = await refresh_original_cv_snapshot(db, stage_id, user_id=current_user.id)
     except LookupError as exc:
@@ -256,7 +303,7 @@ async def get_branded_cv(
 ) -> CVBrandedResponse:
     """Lazy render brandowanego CV — pierwszy GET generuje HTML z `_generate_cv_html()`,
     następne zwracają zachowany content."""
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
 
     rendered = False
     if csv.branded_status == "none":
@@ -318,7 +365,7 @@ async def update_branded_cv(
 
     Walidacja XOR jest w `CVBrandedUpdate.model_validator`. Po finalize 409.
     """
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     if csv.branded_status == "finalized":
         raise HTTPException(
             status_code=409,
@@ -381,7 +428,7 @@ async def render_branded_cv_for_print(
 ) -> HTMLResponse:
     """Wrap brandowane CV w printable HTML z auto window.print() — FE otwiera w
     nowej karcie i drukuje (Save as PDF)."""
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     if not csv.branded_draft_html:
         raise HTTPException(
             status_code=404,
@@ -418,7 +465,7 @@ async def finalize_branded_cv(
     * `branded_snapshot_path/filename/size` wskazuje na plik HTML w storage,
     * 409 przy próbie kolejnego PATCH — immutable.
     """
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     if csv.branded_status != "draft":
         raise HTTPException(
             status_code=409,
@@ -511,7 +558,7 @@ async def create_cv_share_token(
     `v2$<hex>` (revoke-key). Raw token zwracamy jeden raz. Domyślny TTL
     skrócony 30 → 14 dni (max 90); opcjonalny limit wyświetleń i purpose.
     """
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     if csv.branded_status != "finalized":
         raise HTTPException(
             status_code=409,
@@ -606,7 +653,7 @@ async def list_cv_share_tokens(
     """Lista linków (aktywnych i odwołanych) dla CV tego stage'a — bez
     sekretów. M4 PR-04: dotąd modal gubił token po zamknięciu i nie dało się
     odwołać wcześniejszych linków (audyt P1.9 dead-end)."""
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     rows = (
         (
             await db.execute(
@@ -642,6 +689,22 @@ async def revoke_cv_share_token(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Token nie znaleziony")
+
+    # Resource scope — ta trasa jako jedyna w routerze adresuje zasób tokenem,
+    # nie `stage_id`, więc nie przechodzi przez `_load_csv_for_stage`.
+    # Rekrutację wyprowadzamy z łańcucha token → CandidateStageCV → CandidateStage.
+    # Sprawdzenie idzie PRZED wyjściem po `already_revoked`, żeby ta gałąź nie
+    # potwierdzała obcemu użytkownikowi istnienia i stanu cudzego tokenu.
+    job_id = await db.scalar(
+        select(CandidateStage.job_id)
+        .select_from(CandidateStageCV)
+        .join(CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id)
+        .where(CandidateStageCV.id == row.candidate_stage_cv_id)
+    )
+    if job_id is None:
+        raise HTTPException(status_code=404, detail="Token nie znaleziony")
+    await ensure_job_membership(db, current_user, job_id)
+
     if row.revoked:
         return {"status": "already_revoked", "token": row.token}
 
@@ -676,7 +739,7 @@ async def revoke_all_cv_share_tokens(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Odwołaj WSZYSTKIE aktywne linki CV tego stage'a (M4 PR-04)."""
-    csv = await _load_csv_for_stage(db, stage_id)
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
     result = await db.execute(
         update(CVShareToken)
         .where(

@@ -32,6 +32,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.api.candidate_access import CandidateWriteAccess
+from app.api.recruitment_access import (
+    ensure_optional_job_membership,
+    job_scope_clause,
+)
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.application_submission import (
@@ -172,7 +176,7 @@ async def _attach_cv_as_document(
 
 @router.get("", response_model=list[ApplicationSubmissionOut])
 async def list_application_submissions(
-    _current_user: CandidateWriteAccess,
+    current_user: CandidateWriteAccess,
     status_filter: Optional[str] = Query(
         default=ApplicationSubmissionStatus.pending_review.value,
         alias="status",
@@ -182,8 +186,15 @@ async def list_application_submissions(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[ApplicationSubmission]:
-    """List parked submissions (default: pending_review). Recruiter+ only."""
-    stmt = select(ApplicationSubmission)
+    """List parked submissions (default: pending_review). Recruiter+ only.
+
+    Zawężone do ofert wołającego — zgłoszenie niesie dane osobowe kandydata
+    (imię, e-mail, telefon, LinkedIn, CV), więc lista nie może być globalna.
+    Zgłoszenia bez `job_id` zostają widoczne dla ról operacyjnych.
+    """
+    stmt = select(ApplicationSubmission).where(
+        job_scope_clause(current_user, ApplicationSubmission.job_id)
+    )
     if status_filter:
         valid = {s.value for s in ApplicationSubmissionStatus}
         if status_filter not in valid:
@@ -224,6 +235,15 @@ async def resolve_application_submission(
     )
     if submission is None:
         raise HTTPException(status_code=404, detail="Submission not found")
+
+    # Resource scope: rozstrzygnięcie zgłoszenia zakłada kandydata, scala go z
+    # istniejącym albo odrzuca — to działanie NA rekrutacji, nie ogólna operacja
+    # rekrutera. Sprawdzenie idzie PRZED bramką `already resolved`, żeby ta
+    # gałąź nie zdradzała obcemu użytkownikowi stanu cudzego zgłoszenia.
+    # `job_id` jest nullable (zgłoszenie spoza konkretnej oferty) — patrz
+    # `ensure_optional_job_membership`.
+    await ensure_optional_job_membership(db, current_user, submission.job_id)
+
     if submission.status != ApplicationSubmissionStatus.pending_review.value:
         raise HTTPException(
             status_code=409,

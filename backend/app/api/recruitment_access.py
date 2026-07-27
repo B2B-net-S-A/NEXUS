@@ -50,12 +50,15 @@ membership gate.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, status
+from sqlalchemy import ColumnElement, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles
+from app.models.job import Job
+from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
 from app.services.job_membership import is_member_of_job
 
@@ -200,3 +203,59 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
             "(właściciel / delivery lead / TAC / współpracownik)."
         ),
     )
+
+
+async def ensure_optional_job_membership(
+    db: AsyncSession, user: User, job_id: Optional[int]
+) -> None:
+    """``ensure_job_membership`` dla zasobów wiązanych z ofertą OPCJONALNIE.
+
+    ``InterviewFeedback.job_id`` i ``ApplicationSubmission.job_id`` są nullable:
+    feedback może dotyczyć rozmowy bez rekrutacji, a zgłoszenie przyjść spoza
+    konkretnej oferty. Takiego wiersza nie ma do czego zawęzić — zostaje
+    widoczny dla ról operacyjnych, dokładnie jak dziś. Gdy ``job_id`` JEST
+    ustawiony, obowiązuje pełna bramka.
+
+    Wydzielone w helper, żeby „NULL znaczy brak zawężenia" było jedną decyzją
+    w jednym miejscu, a nie powtarzanym ``if job_id is not None`` przy każdej
+    trasie — bo wtedy pierwsze pominięte ``if`` znów jest cichą dziurą.
+    """
+    if job_id is None:
+        return
+    await ensure_job_membership(db, user, job_id)
+
+
+def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
+    """Fragment ``WHERE`` zawężający listę do ofert, do których user należy.
+
+    Potrzebny tam, gdzie ``ensure_job_membership`` nie ma zastosowania, bo trasa
+    nie dostaje pojedynczego ``job_id`` — listy filtrowane opcjonalnymi
+    parametrami. Bez tego ``GET`` bez filtrów zwracał globalny przekrój
+    (np. ostatnie 200 feedbacków ze WSZYSTKICH rekrutacji).
+
+    Semantyka spójna z ``ensure_job_membership``:
+    - role nadzorcze (admin, head_of_recruitment) widzą wszystko,
+    - wiersz z ``job_id IS NULL`` nie jest zawężany (patrz
+      ``ensure_optional_job_membership``),
+    - reszta: właściciel / delivery lead / TAC / aktywny współpracownik.
+
+    Zwraca wyrażenie, nie listę id — zawężenie zostaje w jednym zapytaniu
+    i nie psuje paginacji ani limitów.
+    """
+    if user.has_any_role(*_JOB_MEMBERSHIP_BYPASS_ROLES):
+        return true()
+
+    member_jobs = select(Job.id).where(
+        or_(
+            Job.recruiter_id == user.id,
+            Job.delivery_lead_id == user.id,
+            Job.tac_id == user.id,
+            Job.id.in_(
+                select(JobCollaborator.job_id).where(
+                    JobCollaborator.user_id == user.id,
+                    JobCollaborator.removed_from_auto_cc.is_(False),
+                )
+            ),
+        )
+    )
+    return or_(job_id_col.is_(None), job_id_col.in_(member_jobs))
