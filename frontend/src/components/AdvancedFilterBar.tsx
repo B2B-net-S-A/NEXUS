@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useClickOutside } from "@/lib/use-click-outside";
 import { X, Plus, Filter, Globe, Home, Building2 } from "lucide-react";
 import { skillsApi, type SkillSuggestion } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -69,15 +70,9 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
     };
   }, [input]);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!wrapperRef.current) return;
-      if (!wrapperRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, []);
+  // Nasłuch przeniesiony z `window` na `document` (hook) — `mousedown` bąbelkuje
+  // przez document do window, więc zasięg jest ten sam.
+  useClickOutside(wrapperRef, () => setOpen(false));
 
   const addSkill = (name: string) => {
     const clean = name.trim().toLowerCase();
