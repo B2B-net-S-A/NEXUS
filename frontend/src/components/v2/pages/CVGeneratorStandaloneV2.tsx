@@ -61,6 +61,7 @@ import {
   fileValidationError,
 } from "@/lib/cv-generator";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
 import { cn } from "@/lib/utils";
 
 type CandidateOption = {
@@ -145,14 +146,7 @@ export function CVGeneratorStandaloneV2() {
   // Auto-download to the browser's „Pobrane" folder is now opt-in (remembered
   // per browser). Default off: the generated CV lands on the panel list below
   // instead of piling up as unlabeled files while the recruiter browses on.
-  const [autoDownload, setAutoDownload] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.localStorage.getItem("cvgen_auto_download") === "1",
-  );
-  useEffect(() => {
-    window.localStorage.setItem("cvgen_auto_download", autoDownload ? "1" : "0");
-  }, [autoDownload]);
+  const [autoDownload, setAutoDownload] = useLocalStorageFlag("cvgen_auto_download");
 
   // „Wygenerowane CV" — server-side list, survives navigation/refresh.
   const [previewItem, setPreviewItem] = useState<GeneratedCvItem | null>(null);
