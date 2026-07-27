@@ -50,6 +50,7 @@ from app.api.recruitment_access import (
     user_can_edit_rates,
     user_can_terminal_transition,
 )
+from app.services.hiring_manager_verdicts import puts_candidate_before_client
 from app.services.pipeline_eligibility import (
     assert_candidate_move_eligible,
     assert_candidates_move_eligible,
@@ -499,6 +500,7 @@ async def move_candidate(
             candidate_id=data.candidate_id,
             job=job,
             now=datetime.now(timezone.utc),
+            enforce_manager_verdict=puts_candidate_before_client(legacy_enum),
         )
 
     # Terminal-move validation: require rejection_reason_id
@@ -1887,6 +1889,7 @@ async def bulk_move_candidates(
         candidate_ids=unique_ids,
         job=job,
         now=datetime.now(timezone.utc),
+        enforce_manager_verdict=puts_candidate_before_client(data.stage),
     )
 
     moved = 0

@@ -235,6 +235,8 @@ jobs:
                  tests/test_candidate_job_eligibility.py \
                  tests/test_proposals_bulk.py \
                  tests/test_assign_eligibility_gate.py \
+                 tests/test_hiring_manager_verdicts.py \
+                 tests/test_manager_rejection_gate.py \
                  tests/test_job_shortlist.py \
                  tests/test_candidate_search_v3.py \
                  tests/test_traffit_client.py \

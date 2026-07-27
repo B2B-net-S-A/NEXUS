@@ -38,9 +38,11 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
+    EligibilityReason,
     evaluate_eligibility,
     extract_excluded_client_ids,
 )
+from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.models.match_score import CandidateJobMatchScore
 from app.services.embedding_service import (
     _build_job_text,
@@ -1020,6 +1022,9 @@ async def assign_candidate_to_job(
         .scalars()
         .all()
     )
+    manager_verdicts = await load_manager_rejections(
+        db, job=job, candidate_ids=[candidate_id]
+    )
     eligibility = evaluate_eligibility(
         EligibilityInput(
             candidate_status=candidate.status.value,
@@ -1035,11 +1040,21 @@ async def assign_candidate_to_job(
             ),
             excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
             already_in_job=False,  # already handled by the check above
+            rejected_by_hiring_manager=candidate_id in manager_verdicts,
         ),
         datetime.now(timezone.utc),
     )
     if not eligibility.assignment_allowed:
-        raise HTTPException(status_code=409, detail=eligibility.reason)
+        detail = eligibility.reason
+        verdict = manager_verdicts.get(candidate_id)
+        if (
+            eligibility.reason_code is EligibilityReason.rejected_by_hiring_manager
+            and verdict is not None
+        ):
+            # Name the manager and the date — otherwise the recruiter has to go
+            # dig through the candidate's history to learn why.
+            detail = verdict.as_polish_detail()
+        raise HTTPException(status_code=409, detail=detail)
 
     # Resolve initial stage from the job's template
     template_id = job.pipeline_template_id
