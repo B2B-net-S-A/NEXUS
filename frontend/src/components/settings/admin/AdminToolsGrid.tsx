@@ -36,10 +36,10 @@ export function AdminToolsGrid() {
         <Link
           key={tool.href}
           href={tool.href}
-          className="group bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 hover:border-primary hover:shadow-sm transition-all"
+          className="group bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 hover:border-primary hover:shadow-xs transition-all"
         >
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
               {tool.icon}
             </div>
             <div className="flex-1 min-w-0">
@@ -47,7 +47,7 @@ export function AdminToolsGrid() {
                 <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
                   {tool.title}
                 </h3>
-                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
               </div>
               <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">
                 {tool.description}

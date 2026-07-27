@@ -39,7 +39,7 @@ Obie biblioteki dają zaszyte kolory; Tailwind Plus dodatkowo Tailwind v4 + wła
 npm install <wypisane deps> --legacy-peer-deps
 ```
 
-Pobiera z publicznego rejestru shadcn (new-york) **bezpośrednio** — bez `npx shadcn add`, bo CLI: (1) przeformatowuje `tailwind.config.ts` i remapuje `--sidebar` → `--sidebar-background` (NEXUS tego nie ma → psuje sidebar), (2) bumpuje wersje istniejących deps. Prymitywy shadcn są już token-based (zwykle 0 przepisywania).
+Pobiera z publicznego rejestru shadcn (new-york) **bezpośrednio** — bez `npx shadcn add`, bo CLI: (1) przepisuje blok `@theme inline` w `globals.css` i remapuje `--sidebar` → `--sidebar-background` (NEXUS tego nie ma → psuje sidebar), (2) bumpuje wersje istniejących deps. Prymitywy shadcn są już token-based (zwykle 0 przepisywania).
 
 ## Bloki shadcnblocks (sekcje → `src/components/blocks/`)
 
@@ -61,8 +61,25 @@ npm run type-check && npm run build                              # zielone
 
 ```bash
 yes n | npx shadcn@latest add <name> -y      # 'n' = zachowaj komponenty NEXUSa
-git checkout -- tailwind.config.ts package.json package-lock.json src/app/globals.css
+git checkout -- package.json package-lock.json src/app/globals.css
 # dodaj wymagane @radix-ui/* ręcznie, pinned
 ```
 
-⚠ Wymaga **wcześniejszego commita** zmian w `globals.css`/`tailwind.config.ts` (inaczej `git checkout` cofnie też Twoje tokeny).
+⚠ Wymaga **wcześniejszego commita** zmian w `globals.css` (inaczej `git checkout` cofnie też Twoje tokeny).
+
+## Tailwind v4 — gdzie teraz mieszka konfiguracja
+
+Nie ma `tailwind.config.ts`. Całość jest w `src/app/globals.css`:
+
+| co | gdzie |
+|---|---|
+| mapowanie tokenów na utilities (`bg-primary`…) | `@theme inline { --color-*: hsl(var(--*)) }` |
+| wartości tokenów (7 palet × dark/soft/kids) | zwykłe `@layer base` — **bez zmian od v3** |
+| dark mode | `@custom-variant dark (&:is(.dark *))` |
+| pluginy | `@plugin "@tailwindcss/typography"` |
+| skanowanie plików | automatyczne (brak `content:`) |
+
+⚠ **`@theme inline` jest obowiązkowe** (nie samo `@theme`). Bez `inline` Tailwind wypisuje
+`--color-primary` do `:root` z już-podstawioną wartością, więc nadpisanie `--primary`
+w węźle innym niż `<html>` przestaje działać (dziś wszystkie 18 zakresów motywu siedzi
+na `<html>`, więc byłoby to ciche do pierwszego zagnieżdżonego motywu).

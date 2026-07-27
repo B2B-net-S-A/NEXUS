@@ -25,7 +25,7 @@ export function SLAAlertsSection() {
   const alerts = data?.alerts ?? [];
 
   return (
-    <section className="bg-card rounded-xl border border-border p-6 shadow-sm">
+    <section className="bg-card rounded-xl border border-border p-6 shadow-xs">
       <h2 className="text-base font-semibold text-foreground flex items-center gap-2 mb-4">
         <AlertTriangle
           className={`w-5 h-5 ${alerts.length > 0 ? "text-destructive" : "text-muted-foreground"}`}

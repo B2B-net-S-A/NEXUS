@@ -23,7 +23,7 @@ export function FunnelSection() {
   const maxCount = funnel.length ? Math.max(...funnel.map((f) => f.count), 1) : 1;
 
   return (
-    <section className="bg-card rounded-xl border border-border p-6 shadow-sm">
+    <section className="bg-card rounded-xl border border-border p-6 shadow-xs">
       <h2 className="text-base font-semibold text-foreground flex items-center gap-2 mb-4">
         <TrendingUp className="w-5 h-5 text-primary" />
         Lejek rekrutacyjny

@@ -103,7 +103,7 @@ export default function CortexPreviewPage() {
     <div className="p-6 max-w-7xl mx-auto space-y-10 bg-background min-h-screen">
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Cortex — Mapa technologiczna (mock)</h2>
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
           <TechMapHeatmap data={MOCK_TECH_MAP} />
         </div>
       </section>

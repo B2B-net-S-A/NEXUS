@@ -191,14 +191,14 @@ export function CandidatesTiles({
  }}
  title="Przypisz do oferty"
  aria-label={`Przypisz ${fullName} do rekrutacji`}
- className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
  >
  <Briefcase className="h-3.5 w-3.5" />
  </button>
  <button
  type="button"
  onClick={() => onOpenDetail(candidate.id)}
- className="flex min-w-0 w-full items-start gap-3 pl-7 pr-8 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ className="flex min-w-0 w-full items-start gap-3 pl-7 pr-8 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
  >
  <Avatar size="md">
  <AvatarFallback>{initials}</AvatarFallback>

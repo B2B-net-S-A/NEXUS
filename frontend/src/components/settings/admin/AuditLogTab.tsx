@@ -88,7 +88,7 @@ export function AuditLogTab() {
   }
 
   return (
-    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm overflow-hidden">
+    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-xs overflow-hidden">
       <div className="px-6 py-4 border-b border-border dark:border-border flex items-center gap-2">
         <Activity className="w-4 h-4 text-primary" />
         <h3 className="font-semibold text-foreground dark:text-foreground">Ostatnia aktywność użytkowników</h3>
@@ -97,7 +97,7 @@ export function AuditLogTab() {
       <div className="divide-y divide-gray-50 dark:divide-gray-700">
         {recentEntries.map((entry, i) => (
           <div key={i} className="flex items-center gap-4 px-6 py-3 hover:bg-muted dark:hover:bg-muted/50 transition-colors">
-            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold shrink-0">
               {entry.user_name.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
@@ -109,7 +109,7 @@ export function AuditLogTab() {
                 <span className="text-xs text-muted-foreground">#{entry.entity_id}</span>
               </div>
             </div>
-            <div className="text-xs text-muted-foreground flex-shrink-0 flex items-center gap-1">
+            <div className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
               <Clock className="w-3 h-3" />
               {new Date(entry.created_at).toLocaleString("pl-PL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
             </div>

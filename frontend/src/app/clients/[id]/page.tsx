@@ -214,7 +214,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
               <select
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value as KnowledgeCategory })}
-                className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               >
                 {KNOWLEDGE_CATEGORIES.map((c) => (
                   <option key={c.key} value={c.key}>
@@ -228,7 +228,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
               <input
                 value={form.source}
                 onChange={(e) => setForm({ ...form, source: e.target.value })}
-                className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
                 placeholder="np. rozmowa z HM 2025-11"
               />
             </div>
@@ -240,7 +240,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
               value={form.content}
               onChange={(e) => setForm({ ...form, content: e.target.value })}
               rows={4}
-              className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
+              className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring resize-none"
               placeholder="Wprowadź wiedzę o kliencie..."
             />
           </div>
@@ -277,7 +277,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
                   </p>
                   <DeleteButton
                     onConfirm={() => deleteMutation.mutate(entry.id)}
-                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all flex-shrink-0"
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
                   />
                 </div>
                 {entry.source && (
@@ -336,7 +336,7 @@ function ContactForm({
           <input
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             placeholder="Jan Kowalski"
           />
         </div>
@@ -345,7 +345,7 @@ function ContactForm({
           <input
             value={form.position}
             onChange={(e) => setForm({ ...form, position: e.target.value })}
-            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             placeholder="IT Procurement Manager"
           />
         </div>
@@ -357,7 +357,7 @@ function ContactForm({
             type="email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
-            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
           />
         </div>
         <div>
@@ -365,7 +365,7 @@ function ContactForm({
           <input
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
           />
         </div>
       </div>
@@ -375,7 +375,7 @@ function ContactForm({
           <input
             value={form.department}
             onChange={(e) => setForm({ ...form, department: e.target.value })}
-            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             placeholder="IT / HR"
           />
         </div>
@@ -397,7 +397,7 @@ function ContactForm({
           value={form.notes}
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
           rows={2}
-          className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
+          className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring resize-none"
         />
       </div>
       <div className="flex justify-end gap-2">
@@ -566,7 +566,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
-                      <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center flex-shrink-0">
+                      <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center shrink-0">
                         <span className="text-sm font-semibold text-muted-foreground">
                           {contact.name.charAt(0).toUpperCase()}
                         </span>
@@ -623,7 +623,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => setEditingKeyRelationship(contact)}
                         className={
@@ -716,7 +716,7 @@ function ProjectsTab({ clientId }: { clientId: number }) {
           href={`/jobs/${job.id}`}
           className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group"
         >
-          <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center shrink-0">
             <Briefcase className="w-4 h-4 text-purple-600" />
           </div>
           <div className="flex-1 min-w-0">
@@ -725,7 +725,7 @@ function ProjectsTab({ clientId }: { clientId: number }) {
               <p className="text-xs text-muted-foreground truncate">{job.location}</p>
             )}
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
               job.status === "published" ? "bg-green-100 text-green-700" :
               job.status === "draft" ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
@@ -833,12 +833,12 @@ export default function ClientDetailPage() {
         <ArrowLeft className="w-4 h-4" /> Wróć do klientów
       </Link>
 
-      <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
-        <div className="h-1.5 bg-gradient-to-r from-purple-600 via-violet-500 to-purple-400" />
+      <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
+        <div className="h-1.5 bg-linear-to-r from-purple-600 via-violet-500 to-purple-400" />
 
         <div className="p-6">
           <div className="flex items-start gap-4">
-            <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center shrink-0">
               <Building2 className="w-7 h-7 text-purple-600" />
             </div>
             <div className="flex-1 min-w-0">
@@ -1185,7 +1185,7 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                       : p.hit_ratio >= 20
                         ? "bg-amber-500"
                         : p.hit_ratio > 0
-                          ? "bg-destructive/100"
+                          ? "bg-destructive"
                           : "bg-muted";
                   const heightPct = trendMax > 0 ? Math.max((p.hit_ratio / trendMax) * 100, 4) : 4;
                   return (

@@ -644,7 +644,7 @@ export default function AdminTeamStructurePage() {
  return (
  <div className="max-w-[1400px] mx-auto space-y-6 p-4 md:p-6">
  <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Admin · Struktura zespołu
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">

@@ -28,10 +28,10 @@ export function ConsultantRow({ consultant, actions }: Props) {
             <img
               src={c.avatar_url}
               alt={c.name}
-              className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+              className="w-9 h-9 rounded-full object-cover shrink-0"
             />
           ) : (
-            <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center shrink-0">
               <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{initials}</span>
             </div>
           )}
@@ -87,7 +87,7 @@ export function ConsultantRow({ consultant, actions }: Props) {
           </div>
         </div>
 
-        {actions && <div className="flex items-center gap-1 flex-shrink-0">{actions}</div>}
+        {actions && <div className="flex items-center gap-1 shrink-0">{actions}</div>}
       </div>
     </div>
   );

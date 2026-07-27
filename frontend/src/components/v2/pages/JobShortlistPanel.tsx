@@ -38,7 +38,7 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 }
 
 const SELECT_CLASS =
-  "h-7 rounded-md border bg-background px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 dark:border-zinc-700";
+  "h-7 rounded-md border bg-background px-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring disabled:opacity-50 dark:border-zinc-700";
 
 interface JobShortlistPanelProps {
   jobId: number;

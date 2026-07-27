@@ -120,7 +120,7 @@ export default function PublicCvPage() {
         </div>
         <button
           onClick={() => window.print()}
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-primary hover:bg-primary/90 text-white px-4 py-2 text-sm font-medium shadow-sm"
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-primary hover:bg-primary/90 text-white px-4 py-2 text-sm font-medium shadow-xs"
         >
           <Printer className="h-4 w-4" />
           Drukuj / Zapisz jako PDF
@@ -128,7 +128,7 @@ export default function PublicCvPage() {
       </div>
 
       {/* CV iframe — sandboxed, srcDoc-rendered */}
-      <div className="rounded-lg border border-border dark:border-border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-lg border border-border dark:border-border bg-card shadow-xs overflow-hidden">
         <iframe
           title="CV"
           srcDoc={view.cv_html}

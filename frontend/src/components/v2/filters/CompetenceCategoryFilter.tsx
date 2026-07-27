@@ -113,7 +113,7 @@ export function CompetenceCategoryFilter({
             onClick={() => toggle(cc.id)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm",
-              "transition-colors focus:outline-none focus-visible:ring-2",
+              "transition-colors focus:outline-hidden focus-visible:ring-2",
               "focus-visible:ring-violet-500 focus-visible:ring-offset-2",
               isActive
                 ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:border-violet-700"

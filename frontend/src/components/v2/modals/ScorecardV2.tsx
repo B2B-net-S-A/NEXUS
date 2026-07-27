@@ -158,7 +158,7 @@ export function ScorecardV2({
  rows={3}
  aria-describedby={descId}
  aria-invalid={!!error || undefined}
- className="w-full min-h-[80px] px-3 py-2 text-sm bg-card text-foreground border border-border rounded-lg placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+ className="w-full min-h-[80px] px-3 py-2 text-sm bg-card text-foreground border border-border rounded-lg placeholder:text-muted-foreground focus:outline-hidden focus:border-primary"
  placeholder="Wpisz ocenę…"
  value={(methods.watch(fieldName) as string) ??""}
  onChange={(e) => methods.setValue(fieldName, e.target.value)}

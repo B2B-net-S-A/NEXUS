@@ -63,7 +63,7 @@ export function EntityHeader({
             <Heading
               id={titleId}
               className={cn(
-                "min-w-0 break-words font-semibold tracking-heading-tight text-foreground",
+                "min-w-0 wrap-break-word font-semibold tracking-heading-tight text-foreground",
                 isCompact ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl",
               )}
             >

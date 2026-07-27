@@ -8,10 +8,10 @@ const cardVariants = cva(
  {
  variants: {
  variant: {
- default: "shadow-sm",
- elevated: "shadow-sm",
+ default: "shadow-xs",
+ elevated: "shadow-xs",
  flat: "shadow-none",
- interactive: "shadow-sm hover:shadow-sm transition-all cursor-pointer",
+ interactive: "shadow-xs hover:shadow-xs transition-all cursor-pointer",
  },
  size: {
  sm: "rounded-md p-3",
@@ -48,7 +48,7 @@ export const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttribut
  ({ className, ...props }, ref) => (
  <h3
  ref={ref}
- className={cn("font-semibold text-lg font-bold text-foreground tracking-[-0.01em]",
+ className={cn("font-semibold text-lg font-bold text-foreground tracking-heading",
  className
  )}
  {...props}

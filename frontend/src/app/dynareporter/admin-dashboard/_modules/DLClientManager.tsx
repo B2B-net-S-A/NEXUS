@@ -336,7 +336,7 @@ export function DLClientManager() {
                     key={group.dl_id}
                     className="border border-border rounded-lg overflow-hidden"
                   >
-                    <div className="bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-950/30 dark:to-blue-950/30 px-4 py-2 border-b border-border flex items-center justify-between">
+                    <div className="bg-linear-to-r from-cyan-50 to-blue-50 dark:from-cyan-950/30 dark:to-blue-950/30 px-4 py-2 border-b border-border flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Building2 className="w-4 h-4 text-cyan-600" />
                         <span className="font-semibold text-sm">

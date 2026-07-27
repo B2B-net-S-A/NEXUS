@@ -143,7 +143,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="flex-1 font-semibold text-lg text-foreground dark:text-foreground bg-transparent border-b border-border dark:border-border focus:outline-none focus:border-primary px-1"
+          className="flex-1 font-semibold text-lg text-foreground dark:text-foreground bg-transparent border-b border-border dark:border-border focus:outline-hidden focus:border-primary px-1"
           placeholder="Nazwa profilu"
         />
         <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground dark:text-muted-foreground">
@@ -227,7 +227,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
 
       {error && (
         <div className="text-xs px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
           {error}
         </div>
       )}
@@ -353,7 +353,7 @@ export default function ScoringWeightsPage() {
         {editing === null && (
           <button
             onClick={() => setEditing("new")}
-            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm"
+            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-xs"
             data-testid="add-scoring-weight-profile"
           >
             <Plus className="w-4 h-4" />

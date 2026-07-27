@@ -72,10 +72,10 @@ export function RaceCard({
  }
 
  return (
- <div className="rounded-lg overflow-hidden border border-border shadow-sm bg-card">
+ <div className="rounded-lg overflow-hidden border border-border shadow-xs bg-card">
  {/* Gradient header */}
  <div
- className={cn("bg-gradient-to-r px-4 py-3 text-white flex items-center justify-between",
+ className={cn("bg-linear-to-r px-4 py-3 text-white flex items-center justify-between",
  v.headerBg,
  )}
  >

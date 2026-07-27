@@ -45,7 +45,7 @@ export function ResetPasswordModal({
             className={cn(
               "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors",
               mode === "manual"
-                ? "bg-card dark:bg-muted shadow-sm text-foreground dark:text-foreground"
+                ? "bg-card dark:bg-muted shadow-xs text-foreground dark:text-foreground"
                 : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
             )}
           >
@@ -57,7 +57,7 @@ export function ResetPasswordModal({
             className={cn(
               "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors",
               mode === "send_link"
-                ? "bg-card dark:bg-muted shadow-sm text-foreground dark:text-foreground"
+                ? "bg-card dark:bg-muted shadow-xs text-foreground dark:text-foreground"
                 : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
             )}
           >
@@ -75,7 +75,7 @@ export function ResetPasswordModal({
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-muted dark:text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-muted dark:text-foreground rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               placeholder="Nowe hasło (min. 8 znaków)"
               minLength={8}
               autoFocus

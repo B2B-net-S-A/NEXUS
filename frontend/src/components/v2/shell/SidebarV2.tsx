@@ -261,7 +261,7 @@ function NavLink({
 }) {
   const sharedClassName = cn(
     "relative flex items-center text-sm transition-colors duration-150",
-    "rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar",
+    "rounded-md focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar",
     collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-9",
     active
       ? collapsed
@@ -448,7 +448,7 @@ export function SidebarV2({
         <Link
           href="/"
           aria-label="Nexus — strona główna"
-          className="flex items-center gap-2 flex-1 min-w-0 rounded-md focus:outline-none"
+          className="flex items-center gap-2 flex-1 min-w-0 rounded-md focus:outline-hidden"
         >
           <span className="inline-flex items-center justify-center h-7 shrink-0 text-sidebar-foreground">
             <DynamindsMark className="h-[26px] w-auto" />
@@ -558,7 +558,7 @@ export function SidebarV2({
                 <button
                   onClick={logout}
                   aria-label="Wyloguj — sesja wygasła"
-                  className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-foreground/[0.06] text-sidebar-foreground hover:bg-foreground/[0.1] hover:text-sidebar-foreground transition-colors"
+                  className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-foreground/6 text-sidebar-foreground hover:bg-foreground/10 hover:text-sidebar-foreground transition-colors"
                 >
                   <LogOut className="h-4 w-4" />
                 </button>
@@ -591,7 +591,7 @@ export function SidebarV2({
           </div>
         ) : (
           <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-            <div className="h-8 w-8 rounded-full bg-foreground/[0.06] flex items-center justify-center text-sidebar-foreground shrink-0">
+            <div className="h-8 w-8 rounded-full bg-foreground/6 flex items-center justify-center text-sidebar-foreground shrink-0">
               <LogOut className="h-4 w-4" />
             </div>
             <div className="flex-1 min-w-0">

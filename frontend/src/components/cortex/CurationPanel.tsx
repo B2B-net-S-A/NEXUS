@@ -38,7 +38,7 @@ export function CurationPanel() {
     <RequireRole
       roles={["admin"]}
       fallback={
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
           <EmptyState
             icon={Ban}
             title="Brak dostępu"
@@ -151,7 +151,7 @@ function CurationPanelInner() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <div>
             <h3 className="font-semibold text-sm">Kuracja taksonomii</h3>
@@ -279,7 +279,7 @@ function CvLlmBackfillCard() {
     !enabled || running || trigger.isPending || !limitValid;
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0">
           <h3 className="font-semibold text-sm inline-flex items-center gap-1.5">

@@ -177,7 +177,7 @@ export function DopasowanieTab({
           <select
             value={jobId ?? ""}
             onChange={(e) => setJobId(Number(e.target.value))}
-            className="min-w-0 max-w-full truncate rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="min-w-0 max-w-full truncate rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
           >
             {jobs.map((j) => (
               <option key={j.job_id} value={j.job_id}>

@@ -10,8 +10,8 @@ interface DlClientsTableProps {
 
 export function DlClientsTable({ rows }: DlClientsTableProps) {
   return (
-    <div className="rounded-lg overflow-hidden border border-border shadow-sm">
-      <div className="bg-gradient-to-r from-teal-500 via-cyan-600 to-teal-600 px-4 py-3 text-white flex items-center gap-2">
+    <div className="rounded-lg overflow-hidden border border-border shadow-xs">
+      <div className="bg-linear-to-r from-teal-500 via-cyan-600 to-teal-600 px-4 py-3 text-white flex items-center gap-2">
         <Crown className="h-5 w-5" />
         <div>
           <div className="font-semibold text-lg">

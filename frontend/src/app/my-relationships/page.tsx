@@ -159,7 +159,7 @@ export default function MyRelationshipsPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                <div className="flex flex-col items-end gap-2 shrink-0">
                   {r.days_since_personal_touchpoint === null ? (
                     <span className="text-xs text-orange-700 bg-orange-50 px-2 py-1 rounded flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />

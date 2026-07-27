@@ -99,7 +99,7 @@ export function SkillSearchPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[16rem]">
             <Input

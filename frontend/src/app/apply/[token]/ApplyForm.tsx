@@ -174,7 +174,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  <div className="mx-auto h-14 w-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
  <CheckCircle2 className="h-7 w-7" />
  </div>
- <h2 className="font-semibold text-2xl font-extrabold tracking-[-0.02em] text-foreground">
+ <h2 className="font-semibold text-2xl font-extrabold tracking-heading-tight text-foreground">
  Dziękujemy!
  </h2>
  <p className="text-sm text-muted-foreground max-w-sm mx-auto">
@@ -305,7 +305,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  );
 }
 
-const inputClass ="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-60";
+const inputClass ="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-60";
 
 function Field({
  label,

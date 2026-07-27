@@ -162,7 +162,7 @@ export default function TeamsNotificationsCard() {
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border p-6">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
           <MessageSquare className="w-6 h-6 text-primary" />
         </div>
         <div className="flex-1">
@@ -387,7 +387,7 @@ function ChannelRow({
           )}
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={() => onToggle(!channel.enabled)}
@@ -400,7 +400,7 @@ function ChannelRow({
           >
             <span
               className={cn(
-                "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-card shadow ring-0 transition-transform mt-0.5",
+                "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-card shadow-sm ring-0 transition-transform mt-0.5",
                 channel.enabled ? "translate-x-4" : "translate-x-0.5",
               )}
             />

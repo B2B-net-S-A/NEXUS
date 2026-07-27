@@ -102,7 +102,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {/* Toast container */}
-      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed bottom-4 right-4 z-9999 flex flex-col gap-2 pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -118,13 +118,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             )}
           >
             {toast.type === "success" && (
-              <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+              <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
             )}
             {toast.type === "error" && (
-              <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 text-destructive shrink-0" />
             )}
             {toast.type === "action" && (
-              <Undo2 className="w-4 h-4 text-primary flex-shrink-0" />
+              <Undo2 className="w-4 h-4 text-primary shrink-0" />
             )}
             <span className="flex-1">
               {kidsMode && toast.type === "success" ? `🎉 ${toast.message}` : toast.message}

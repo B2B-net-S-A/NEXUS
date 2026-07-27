@@ -31,7 +31,7 @@ export function CardSkeleton() {
 export function ListItemSkeleton() {
   return (
     <div className="flex items-center gap-3 p-3 border-b border-border dark:border-border animate-pulse">
-      <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
+      <Skeleton className="w-10 h-10 rounded-full shrink-0" />
       <div className="flex-1 space-y-2">
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-3 w-24" />
@@ -86,7 +86,7 @@ export function DashboardSkeleton() {
           <Skeleton className="h-5 w-40" />
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3">
-              <Skeleton className="w-7 h-7 rounded-full flex-shrink-0" />
+              <Skeleton className="w-7 h-7 rounded-full shrink-0" />
               <div className="flex-1 space-y-1.5">
                 <Skeleton className="h-3 w-full" />
                 <Skeleton className="h-2.5 w-24" />
@@ -164,7 +164,7 @@ export function ErrorBanner({ message = "Wystąpił błąd podczas ładowania da
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3 bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 rounded-xl text-sm">
       <div className="flex items-center gap-2 text-destructive dark:text-destructive">
-        <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+        <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
         </svg>
         {message}

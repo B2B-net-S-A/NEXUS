@@ -72,7 +72,7 @@ function Input({
           type={isPassword ? (show ? "text" : "password") : type}
           {...props}
           className="h-10 w-full px-3 text-sm border border-border dark:border-border rounded-lg
-                     focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted
+                     focus:outline-hidden focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted
                      dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground
                      focus-visible:ring-2 focus-visible:ring-ring pr-10"
         />
@@ -80,7 +80,7 @@ function Input({
           <button
             type="button"
             onClick={() => setShow(s => !s)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring rounded"
             aria-label={show ? "Ukryj hasło" : "Pokaż hasło"}
           >
             {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -110,7 +110,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
 function ActivityCard({ type, count }: { type: string; count: number }) {
   return (
     <div className="flex items-center gap-3 p-3 bg-muted dark:bg-muted/50 rounded-lg">
-      <div className="w-8 h-8 rounded-full bg-card dark:bg-muted flex items-center justify-center shadow-sm flex-shrink-0">
+      <div className="w-8 h-8 rounded-full bg-card dark:bg-muted flex items-center justify-center shadow-xs shrink-0">
         {ACTIVITY_ICONS[type] ?? <BarChart3 className="w-4 h-4 text-muted-foreground" />}
       </div>
       <div className="flex-1 min-w-0">
@@ -255,7 +255,7 @@ export default function ProfilePage() {
           role="alert"
           className="bg-amber-50 dark:bg-amber-900/30 border-l-4 border-amber-400 dark:border-amber-500 rounded-r-lg p-4 flex items-start gap-3"
         >
-          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="flex-1">
             <p className="font-semibold text-amber-900 dark:text-amber-200">
               Twoje hasło zostało zresetowane przez administratora
@@ -269,12 +269,12 @@ export default function ProfilePage() {
       )}
 
       {/* Profile card */}
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm border border-border dark:border-border p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-6">
         <h2 className="text-xl font-semibold text-foreground dark:text-foreground mb-4">Informacje o koncie</h2>
 
         <div className="flex items-start gap-6">
           {/* Avatar */}
-          <div className="flex-shrink-0">
+          <div className="shrink-0">
             <div className="relative group">
               {avatarUrl ? (
                 <img
@@ -294,7 +294,7 @@ export default function ProfilePage() {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 aria-label="Zmień zdjęcie profilowe"
-                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity focus:outline-hidden focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring rounded-full"
               >
                 <Camera className="w-6 h-6 text-white" aria-hidden="true" />
               </button>
@@ -315,21 +315,21 @@ export default function ProfilePage() {
           {/* Info grid */}
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-start gap-2">
-              <User className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-xs text-muted-foreground dark:text-muted-foreground">Imię i nazwisko</p>
                 <p className="text-sm font-semibold text-foreground dark:text-foreground">{displayName}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Mail className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Mail className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-xs text-muted-foreground dark:text-muted-foreground">Email</p>
                 <p className="text-sm font-semibold text-foreground dark:text-foreground break-all">{displayEmail}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Shield className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Shield className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-xs text-muted-foreground dark:text-muted-foreground">Rola</p>
                 <span className="inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-primary/15 dark:bg-primary/10 text-primary dark:text-primary capitalize">
@@ -338,7 +338,7 @@ export default function ProfilePage() {
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Clock className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Clock className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-xs text-muted-foreground dark:text-muted-foreground">Ostatnia aktywność</p>
                 <p className="text-sm font-semibold text-foreground dark:text-foreground">
@@ -347,7 +347,7 @@ export default function ProfilePage() {
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Calendar className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Calendar className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-xs text-muted-foreground dark:text-muted-foreground">Konto utworzone</p>
                 <p className="text-sm font-semibold text-foreground dark:text-foreground">
@@ -360,7 +360,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Activity summary */}
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm border border-border dark:border-border p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-6">
         <h2 className="text-xl font-semibold text-foreground dark:text-foreground mb-4">
           Twoja aktywność (30 dni)
         </h2>
@@ -381,7 +381,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Change password */}
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm border border-border dark:border-border p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-6">
         <div className="flex items-center gap-2 mb-4">
           <Lock className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
           <h2 className="text-xl font-semibold text-foreground dark:text-foreground">Zmień hasło</h2>
@@ -418,7 +418,7 @@ export default function ProfilePage() {
               role="alert"
               className="flex items-center gap-2 text-sm text-destructive dark:text-destructive bg-destructive/10 dark:bg-red-900/30 rounded-lg px-4 py-2"
             >
-              <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
               {pwError}
             </div>
           )}
@@ -428,7 +428,7 @@ export default function ProfilePage() {
               role="status"
               className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg px-4 py-2"
             >
-              <CheckCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+              <CheckCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
               Hasło zostało zmienione pomyślnie
             </div>
           )}
@@ -436,7 +436,7 @@ export default function ProfilePage() {
           <button
             type="submit"
             disabled={pwSaving}
-            className="h-10 px-4 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="h-10 px-4 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-all focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             aria-label="Zapisz nowe hasło"
           >
             {pwSaving ? "Zapisywanie…" : "Zmień hasło"}

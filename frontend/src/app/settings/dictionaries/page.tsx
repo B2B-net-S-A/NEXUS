@@ -68,13 +68,13 @@ function AddItemRow({ slug }: { slug: string }) {
           value={keyDraft}
           onChange={(e) => setKeyDraft(e.target.value)}
           placeholder="key (np. consulting)"
-          className="flex-1 min-w-[10rem] px-3 py-1.5 bg-background border border-input rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+          className="flex-1 min-w-40 px-3 py-1.5 bg-background border border-input rounded-md text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-ring"
         />
         <input
           value={labelDraft}
           onChange={(e) => setLabelDraft(e.target.value)}
           placeholder="Etykieta PL"
-          className="flex-1 min-w-[10rem] px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="flex-1 min-w-40 px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
@@ -157,7 +157,7 @@ function ItemRow({
             }
           }}
           autoFocus
-          className="flex-1 px-2 py-1 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="flex-1 px-2 py-1 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
         />
       ) : (
         <span className="flex-1 text-sm text-foreground">

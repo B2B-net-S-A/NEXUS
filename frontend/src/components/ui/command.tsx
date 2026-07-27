@@ -45,7 +45,7 @@ const CommandDialog = ({ title ="Wyszukaj", description ="Szybki dostęp do kand
  <DialogTitle>{title}</DialogTitle>
  <DialogDescription>{description}</DialogDescription>
  </div>
- <Command shouldFilter={shouldFilter} className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.12em] [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-1 [&_[cmdk-group]]:pb-2 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
+ <Command shouldFilter={shouldFilter} className="**:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-[10px] **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:tracking-[0.12em] **:[[cmdk-group-heading]]:text-muted-foreground **:[[cmdk-group]]:px-1 **:[[cmdk-group]]:pb-2 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 **:[[cmdk-input]]:h-12 **:[[cmdk-item]]:px-2 **:[[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
  {children}
  </Command>
  </DialogContent>
@@ -60,7 +60,7 @@ const CommandInput = React.forwardRef<
  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
  <CommandPrimitive.Input
  ref={ref}
- className={cn("flex h-12 w-full rounded-none bg-transparent py-3 text-sm outline-none","placeholder:text-muted-foreground","disabled:cursor-not-allowed disabled:opacity-50",
+ className={cn("flex h-12 w-full rounded-none bg-transparent py-3 text-sm outline-hidden","placeholder:text-muted-foreground","disabled:cursor-not-allowed disabled:opacity-50",
  className
  )}
  {...props}
@@ -123,7 +123,7 @@ const CommandItem = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <CommandPrimitive.Item
  ref={ref}
- className={cn("relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-sm outline-none","data-[selected=true]:bg-primary/10 data-[selected=true]:text-foreground","data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
+ className={cn("relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-sm outline-hidden","data-[selected=true]:bg-primary/10 data-[selected=true]:text-foreground","data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
  className
  )}
  {...props}

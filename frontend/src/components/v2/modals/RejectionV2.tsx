@@ -231,7 +231,7 @@ export function RejectionV2({
  onChange={(e) => setSendEmail(e.target.checked)}
  />
  <span className="flex items-start gap-1.5">
- <Mail className="mt-0.5 h-3.5 w-3.5 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
+ <Mail className="mt-0.5 h-3.5 w-3.5 text-[hsl(var(--muted-foreground))] shrink-0" />
  <span>
  Wyślij e-mail z informacją zwrotną do kandydata — za 15
  minut. Do tego czasu można anulować wysyłkę.

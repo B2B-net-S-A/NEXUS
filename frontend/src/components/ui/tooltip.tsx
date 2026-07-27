@@ -15,7 +15,7 @@ const TooltipContent = React.forwardRef<
  <TooltipPrimitive.Content
  ref={ref}
  sideOffset={sideOffset}
- className={cn("z-50 px-3 py-1.5 rounded-md","bg-card text-foreground","text-xs font-medium","shadow-sm","data-[state=delayed-open]:animate-fadeIn","max-w-xs",
+ className={cn("z-50 px-3 py-1.5 rounded-md","bg-card text-foreground","text-xs font-medium","shadow-xs","data-[state=delayed-open]:animate-fadeIn","max-w-xs",
  className
  )}
  {...props}

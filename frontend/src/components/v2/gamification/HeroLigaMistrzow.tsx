@@ -141,13 +141,13 @@ function PodiumColumn({
  )}
  {/* Block */}
  <div
- className={cn("w-full rounded-t-lg bg-gradient-to-b shadow-lg flex items-end justify-center pb-3",
+ className={cn("w-full rounded-t-lg bg-linear-to-b shadow-lg flex items-end justify-center pb-3",
  style.bg,
  style.height,
  highlight &&"ring-2 ring-white ring-offset-2 ring-offset-purple-700",
  )}
  >
- <span className="text-white text-4xl font-extrabold drop-shadow">
+ <span className="text-white text-4xl font-extrabold drop-shadow-sm">
  {rank}
  </span>
  </div>
@@ -178,7 +178,7 @@ export function HeroLigaMistrzow({
  )
 
  return (
- <div className="rounded-xl bg-gradient-to-br from-indigo-700 via-purple-700 to-purple-900 p-6 shadow-md text-white">
+ <div className="rounded-xl bg-linear-to-br from-indigo-700 via-purple-700 to-purple-900 p-6 shadow-md text-white">
  {/* Header */}
  <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
  <div className="flex items-center gap-3">
@@ -204,7 +204,7 @@ export function HeroLigaMistrzow({
  </div>
  <div className="mt-2 w-40 h-1.5 rounded-full bg-card/10 overflow-hidden">
  <div
- className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all"
+ className="h-full rounded-full bg-linear-to-r from-amber-400 to-amber-500 transition-all"
  style={{ width: `${progressPct}%` }}
  />
  </div>

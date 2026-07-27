@@ -16,7 +16,7 @@ const SelectTrigger = React.forwardRef<
  <SelectPrimitive.Trigger
  ref={ref}
  aria-invalid={invalid || undefined}
- className={cn("flex w-full h-10 items-center justify-between gap-2 px-3 py-2 text-sm","bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150","focus:outline-none focus:border-primary","disabled:bg-[hsl(var(--border))]/30 disabled:cursor-not-allowed","data-[placeholder]:text-muted-foreground",
+ className={cn("flex w-full h-10 items-center justify-between gap-2 px-3 py-2 text-sm","bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150","focus:outline-hidden focus:border-primary","disabled:bg-[hsl(var(--border))]/30 disabled:cursor-not-allowed","data-placeholder:text-muted-foreground",
  invalid &&"border-primary",
  className
  )}
@@ -67,14 +67,14 @@ const SelectContent = React.forwardRef<
  ref={ref}
  position={position}
  sideOffset={sideOffset}
- className={cn("relative z-50 max-h-96 min-w-[var(--radix-select-trigger-width)] overflow-hidden","rounded-lg bg-card text-foreground","border border-border shadow-md","data-[state=open]:animate-fadeIn",
+ className={cn("relative z-50 max-h-96 min-w-(--radix-select-trigger-width) overflow-hidden","rounded-lg bg-card text-foreground","border border-border shadow-md","data-[state=open]:animate-fadeIn",
  position === "popper" &&"data-[side=bottom]:translate-y-1",
  className
  )}
  {...props}
  >
  <SelectScrollUpButton />
- <SelectPrimitive.Viewport className={cn("p-1", position === "popper" &&"h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]")}>
+ <SelectPrimitive.Viewport className={cn("p-1", position === "popper" &&"h-(--radix-select-trigger-height) w-full min-w-(--radix-select-trigger-width)")}>
  {children}
  </SelectPrimitive.Viewport>
  <SelectScrollDownButton />
@@ -103,7 +103,7 @@ const SelectItem = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
  <SelectPrimitive.Item
  ref={ref}
- className={cn("relative flex w-full cursor-pointer select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none","focus:bg-primary/10 focus:text-foreground","data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+ className={cn("relative flex w-full cursor-pointer select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-hidden","focus:bg-primary/10 focus:text-foreground","data-disabled:pointer-events-none data-disabled:opacity-50",
  className
  )}
  {...props}

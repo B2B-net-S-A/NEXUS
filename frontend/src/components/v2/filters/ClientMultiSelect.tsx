@@ -65,7 +65,7 @@ export function ClientMultiSelect({ value, onChange }: ClientMultiSelectProps) {
           <span className="flex items-center gap-2 truncate">
             <Building2 className="h-4 w-4" /> {label}
           </span>
-          <ChevronDown className="h-4 w-4 opacity-60 flex-shrink-0" />
+          <ChevronDown className="h-4 w-4 opacity-60 shrink-0" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-0">

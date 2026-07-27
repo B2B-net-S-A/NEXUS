@@ -49,7 +49,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
         <select
           value={reason}
           onChange={(e) => setReason(e.target.value as JobCloseReason)}
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
         >
           {JOB_CLOSE_REASONS.map((r) => (
             <option key={r.value} value={r.value}>
@@ -68,7 +68,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Kontekst, co konkretnie się wydarzyło..."
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500 resize-none"
         />
       </div>
 

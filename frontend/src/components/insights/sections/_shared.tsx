@@ -42,7 +42,7 @@ interface KpiCardProps {
 
 export function KpiCard({ label, value, sub, icon: Icon, color = "blue", trend }: KpiCardProps) {
   return (
-    <div className="bg-card rounded-xl border border-border p-5 shadow-sm">
+    <div className="bg-card rounded-xl border border-border p-5 shadow-xs">
       <div className="flex items-start justify-between mb-3">
         <div className={cn("p-2 rounded-lg border", KPI_COLOR_MAP[color])}>
           <Icon className="w-5 h-5" />
@@ -75,7 +75,7 @@ export function HorizontalBar({
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="flex items-center gap-3">
-      <div className="w-32 text-sm text-muted-foreground text-right truncate flex-shrink-0">
+      <div className="w-32 text-sm text-muted-foreground text-right truncate shrink-0">
         {label}
       </div>
       <div className="flex-1 bg-muted rounded-full h-5 relative overflow-hidden">
@@ -114,7 +114,7 @@ export function DonutChart({ segments }: { segments: DonutSegment[] }) {
   return (
     <div className="flex items-center gap-6">
       <div
-        className="w-28 h-28 rounded-full flex-shrink-0"
+        className="w-28 h-28 rounded-full shrink-0"
         style={{
           background: `conic-gradient(${gradientParts.join(", ")})`,
           mask: "radial-gradient(circle at center, transparent 40%, black 40%)",
@@ -127,7 +127,7 @@ export function DonutChart({ segments }: { segments: DonutSegment[] }) {
           return (
             <div key={seg.label} className="flex items-center gap-2 text-sm">
               <span
-                className="w-3 h-3 rounded-full flex-shrink-0"
+                className="w-3 h-3 rounded-full shrink-0"
                 style={{ background: seg.color }}
               />
               <span className="text-foreground">{seg.label}</span>

@@ -328,7 +328,7 @@ export default function RecruiterDashboard() {
  {/* Hero header with period filter */}
  <div className="flex items-start justify-between flex-wrap gap-3">
  <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  Panel Rekrutacja · {ROLE_LABELS[user.role]}
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">

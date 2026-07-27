@@ -107,7 +107,7 @@ export function CandidateCompareModal({
                   {candidates.map((c) => (
                     <th
                       key={c.id}
-                      className="min-w-[6rem] p-2 text-center font-medium"
+                      className="min-w-24 p-2 text-center font-medium"
                     >
                       {c.name}
                     </th>

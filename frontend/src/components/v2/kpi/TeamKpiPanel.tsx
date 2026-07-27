@@ -243,7 +243,7 @@ export function TeamKpiPanel({ className }: { className?: string }) {
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value as UserRole | "all")}
-          className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
           aria-label="Filtruj po roli"
         >
           <option value="all">Wszystkie role</option>
@@ -260,7 +260,7 @@ export function TeamKpiPanel({ className }: { className?: string }) {
             value={nameQuery}
             onChange={(e) => setNameQuery(e.target.value)}
             placeholder="Szukaj osoby…"
-            className="h-8 w-full rounded-md border border-border bg-background pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-8 w-full rounded-md border border-border bg-background pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
             aria-label="Szukaj osoby"
           />
         </div>

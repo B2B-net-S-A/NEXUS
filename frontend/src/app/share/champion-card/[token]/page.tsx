@@ -134,7 +134,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  N
  </div>
  <div className="leading-tight">
- <div className="text-xs font-semibold tracking-[0.22em] uppercase text-primary">
+ <div className="text-xs font-semibold tracking-eyebrow uppercase text-primary">
  Nexus · Dynaminds
  </div>
  <div className="text-[10px] opacity-60">Rekomendacja kandydata</div>
@@ -155,7 +155,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
 
  {/* Hero */}
  <section className="relative z-10 max-w-4xl mx-auto px-6 pt-4 pb-8">
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary mb-2">
+ <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary mb-2">
  {data.candidate.competence_category ??"Kandydat"}
  </p>
  <h1 className="font-semibold text-4xl md:text-5xl font-extrabold tracking-[-0.025em] text-foreground leading-[1.02]">

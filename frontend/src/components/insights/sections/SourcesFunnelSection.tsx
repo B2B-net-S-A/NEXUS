@@ -84,7 +84,7 @@ function FunnelTable({ rows, groupByUtm }: FunnelTableProps) {
                 <td className="px-4 py-3 text-right">
                   <span
                     className={cn(
-                      "inline-flex items-center justify-center min-w-[3.5rem] px-2 py-0.5 rounded-full text-xs font-semibold",
+                      "inline-flex items-center justify-center min-w-14 px-2 py-0.5 rounded-full text-xs font-semibold",
                       ratePillColor(row.hire_rate_pct)
                     )}
                   >
@@ -110,7 +110,7 @@ export function SourcesFunnelSection() {
   });
 
   return (
-    <section className="bg-card rounded-xl border border-border p-6 shadow-sm">
+    <section className="bg-card rounded-xl border border-border p-6 shadow-xs">
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
           <Target className="w-5 h-5 text-primary" />

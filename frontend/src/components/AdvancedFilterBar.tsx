@@ -139,7 +139,7 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
               }
             }}
             placeholder={value.skills.length === 0 ? "Umiejętności (np. Python, AWS)…" : ""}
-            className="flex-1 min-w-[120px] text-xs bg-transparent focus:outline-none dark:text-foreground"
+            className="flex-1 min-w-[120px] text-xs bg-transparent focus:outline-hidden dark:text-foreground"
           />
         </div>
 
@@ -204,7 +204,7 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
             })
           }
           placeholder="od PLN"
-          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
+          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-hidden focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
         />
         <input
           type="number"
@@ -218,7 +218,7 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
             })
           }
           placeholder="do PLN"
-          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
+          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-hidden focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
         />
       </div>
     </div>

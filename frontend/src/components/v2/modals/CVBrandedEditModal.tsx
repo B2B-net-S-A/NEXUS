@@ -87,7 +87,7 @@ export function CVBrandedEditModal({
  content: "",
  editorProps: {
  attributes: {
- class: "prose prose-sm max-w-none min-h-[400px] focus:outline-none border border-border rounded-lg bg-card p-4",
+ class: "prose prose-sm max-w-none min-h-[400px] focus:outline-hidden border border-border rounded-lg bg-card p-4",
  },
  },
  });

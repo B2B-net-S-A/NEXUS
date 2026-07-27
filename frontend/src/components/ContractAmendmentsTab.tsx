@@ -173,7 +173,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
       {showForm && (
         <form
           onSubmit={handleSubmit}
-          className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3 border border-primary/20 dark:border-primary/10"
+          className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3 border border-primary/20 dark:border-primary/10"
         >
           <h3 className="text-sm font-semibold">
             {TYPE_LABELS[form.amendment_type]}
@@ -321,7 +321,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie aneksów…
         </div>
       ) : amendments.length === 0 ? (
-        <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-sm">
+        <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-xs">
           Brak aneksów — użyj przycisków powyżej, żeby przedłużyć, zmienić stawkę,
           zakres lub zakończyć kontrakt wcześniej.
         </div>
@@ -332,10 +332,10 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
             return (
               <li
                 key={a.id}
-                className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4"
+                className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4"
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/10 flex items-center justify-center text-primary shrink-0">
                     <Icon className="w-4 h-4" />
                   </div>
                   <div className="flex-1">

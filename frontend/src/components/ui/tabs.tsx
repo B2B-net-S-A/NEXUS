@@ -26,7 +26,7 @@ const TabsTrigger = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <TabsPrimitive.Trigger
  ref={ref}
- className={cn("relative inline-flex items-center gap-2","px-3 py-2 text-sm font-medium","text-muted-foreground hover:text-foreground","transition-colors focus:outline-none","border-b-2 border-transparent -mb-px","data-[state=active]:text-primary","data-[state=active]:border-primary","disabled:opacity-50 disabled:pointer-events-none",
+ className={cn("relative inline-flex items-center gap-2","px-3 py-2 text-sm font-medium","text-muted-foreground hover:text-foreground","transition-colors focus:outline-hidden","border-b-2 border-transparent -mb-px","data-[state=active]:text-primary","data-[state=active]:border-primary","disabled:opacity-50 disabled:pointer-events-none",
  className
  )}
  {...props}
@@ -40,7 +40,7 @@ const TabsContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <TabsPrimitive.Content
  ref={ref}
- className={cn("mt-4 focus:outline-none","data-[state=active]:animate-fadeIn",
+ className={cn("mt-4 focus:outline-hidden","data-[state=active]:animate-fadeIn",
  className
  )}
  {...props}

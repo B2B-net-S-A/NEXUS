@@ -219,7 +219,7 @@ export function ChampionProfileEditor({
             type="button"
             onClick={() => mutation.mutate(draft)}
             disabled={mutation.isPending}
-            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
             data-testid="save-champion-profile"
           >
             <Save className="w-4 h-4" />
@@ -659,7 +659,7 @@ export function ChampionProfileEditor({
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const inputClass =
-  "w-full px-2 py-1 text-xs border border-border dark:border-border rounded-md bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-60";
+  "w-full px-2 py-1 text-xs border border-border dark:border-border rounded-md bg-card dark:bg-muted dark:text-foreground focus:outline-hidden focus:ring-2 focus-visible:ring-ring disabled:opacity-60";
 const textareaClass = inputClass + " resize-y";
 
 function Section({

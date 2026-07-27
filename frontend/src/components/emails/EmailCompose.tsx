@@ -71,7 +71,7 @@ export default function EmailCompose(props: EmailComposeProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none min-h-[200px] focus:outline-none border border-border rounded-lg px-3 py-2 bg-card",
+          "prose prose-sm max-w-none min-h-[200px] focus:outline-hidden border border-border rounded-lg px-3 py-2 bg-card",
       },
     },
   });

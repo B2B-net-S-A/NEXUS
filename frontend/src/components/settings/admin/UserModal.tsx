@@ -74,7 +74,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
               type="text"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               placeholder="Jan Kowalski"
             />
           </div>
@@ -86,7 +86,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
                 type="email"
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
                 placeholder="jan@example.com"
               />
             </div>
@@ -99,7 +99,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
                 type="password"
                 value={form.password}
                 onChange={(e) => set("password", e.target.value)}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
                 placeholder="••••••••"
               />
             </div>
@@ -110,7 +110,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
             <select
               value={form.role}
               onChange={(e) => set("role", e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
@@ -159,7 +159,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
             <select
               value={form.recruiter_role}
               onChange={(e) => set("recruiter_role", e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
               {RECRUITER_ROLES.map((r) => (
                 <option key={r} value={r}>{RECRUITER_ROLE_LABELS[r] ?? r}</option>

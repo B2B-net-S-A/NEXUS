@@ -549,10 +549,10 @@ export function AnalyticsDashboard() {
     <div className="max-w-[1400px] mx-auto space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+          <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
             Analytics v1
           </p>
-          <h1 className="font-semibold text-3xl tracking-[-0.02em] text-foreground mt-1">
+          <h1 className="font-semibold text-3xl tracking-heading-tight text-foreground mt-1">
             Dashboard · {VIEW_LABEL[view]}
           </h1>
         </div>

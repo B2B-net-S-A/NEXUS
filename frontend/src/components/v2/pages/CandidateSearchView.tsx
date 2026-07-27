@@ -696,7 +696,7 @@ export function CandidateSearchView({
                         e.target.value === "" ? "" : Number(e.target.value),
                       )
                     }
-                    className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring dark:border-zinc-700"
+                    className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring dark:border-zinc-700"
                   >
                     <option value="">Domyślny (pierwszy etap)</option>
                     {assignableStages.map((s) => (
@@ -721,7 +721,7 @@ export function CandidateSearchView({
                   rows={2}
                   maxLength={2000}
                   placeholder="Opcjonalna wspólna notatka…"
-                  className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring dark:border-zinc-700"
+                  className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring dark:border-zinc-700"
                 />
               </div>
               <div className="space-y-1">

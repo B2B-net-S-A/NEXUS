@@ -61,7 +61,7 @@ export function OwnerBadge({
  >
  {user ? initialsFor(user.name) : "·"}
  </span>
- <span className="truncate max-w-[10rem]">{user?.name ?? unassignedLabel}</span>
+ <span className="truncate max-w-40">{user?.name ?? unassignedLabel}</span>
  {showRole && user ? (
  <span className="text-muted-foreground font-normal">
  · {ROLE_LABELS[user.role]}

@@ -87,7 +87,7 @@ const KanbanCard = React.forwardRef<HTMLDivElement, KanbanCardProps>(
           "rounded-lg border bg-card p-3 text-sm text-card-foreground transition-colors",
           "hover:border-primary/40",
           isInteractive &&
-            "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
           highlighted ? "border-primary/60 ring-1 ring-primary/30" : "border-border",
           className
         )}

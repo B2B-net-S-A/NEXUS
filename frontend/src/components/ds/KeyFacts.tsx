@@ -57,7 +57,7 @@ export function KeyFacts({
             </dt>
             <dd
               className={cn(
-                "mt-1 break-words text-sm font-medium",
+                "mt-1 wrap-break-word text-sm font-medium",
                 hasValue ? "text-foreground" : "text-muted-foreground",
               )}
             >
