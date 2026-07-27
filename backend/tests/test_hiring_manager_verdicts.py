@@ -309,8 +309,8 @@ async def test_job_without_a_hiring_manager_returns_empty():
     assert verdicts == {}
 
 
-async def test_acceptance_and_hired_also_count_as_having_met():
-    """Rejection after an offer stage is still a rejection after meeting."""
+async def test_acceptance_counts_as_having_met():
+    """The manager met them and could still say no — that is a verdict."""
     world = await _seed_world()
     await _seed_stage(
         candidate_id=world["candidate_id"],
@@ -329,6 +329,33 @@ async def test_acceptance_and_hired_also_count_as_having_met():
     verdicts = await _load(world)
 
     assert world["candidate_id"] in verdicts
+
+
+async def test_rejection_after_hired_is_not_a_verdict():
+    """A contract that ended is not a manager turning someone down.
+
+    Production has 133 such pairs against one genuine post-interview rejection,
+    so counting `hired → rejected` would make the veto fire almost exclusively
+    on people the client actually hired.
+    """
+    world = await _seed_world()
+    await _seed_stage(
+        candidate_id=world["candidate_id"],
+        job_id=world["source_job_id"],
+        stage="hired",
+        moved_at=NOW - timedelta(days=400),
+    )
+    await _seed_stage(
+        candidate_id=world["candidate_id"],
+        job_id=world["source_job_id"],
+        stage="rejected",
+        moved_at=NOW - timedelta(days=30),
+        rejection_reason_id=world["disqualifying_reason_id"],
+    )
+
+    verdicts = await _load(world)
+
+    assert verdicts == {}
 
 
 async def test_veto_for_candidate_stage_resolves_through_the_row():
@@ -375,9 +402,14 @@ async def test_met_stages_exclude_cv_sent():
     from app.services.hiring_manager_verdicts import MANAGER_MET_STAGES
 
     assert PipelineStage.client_interview in MANAGER_MET_STAGES
-    assert PipelineStage.hired in MANAGER_MET_STAGES
+    assert PipelineStage.acceptance in MANAGER_MET_STAGES
+    assert PipelineStage.negotiation in MANAGER_MET_STAGES
+    # Seeing a CV is not meeting the person...
     assert PipelineStage.cv_sent not in MANAGER_MET_STAGES
     assert PipelineStage.screening not in MANAGER_MET_STAGES
+    # ...and a rejection past acceptance is an engagement ending, not a verdict.
+    assert PipelineStage.hired not in MANAGER_MET_STAGES
+    assert PipelineStage.onboarding not in MANAGER_MET_STAGES
 
 
 async def test_only_client_facing_moves_are_gated():

@@ -41,11 +41,21 @@ from app.models.job import Job
 from app.models.pipeline_template import RejectionReason
 from app.models.recruitment_pipeline import STAGE_ORDER, CandidateStage, PipelineStage
 
-# Stages from `client_interview` onwards — the point where the manager has
-# actually seen the person. Derived from STAGE_ORDER so inserting a stage into
-# the pipeline cannot silently change what "met the candidate" means.
-_MET_INDEX = STAGE_ORDER.index(PipelineStage.client_interview)
-MANAGER_MET_STAGES: frozenset[PipelineStage] = frozenset(STAGE_ORDER[_MET_INDEX:])
+# Stages proving the manager met the candidate *and could still say no*.
+#
+# Bounded on both ends, and the upper bound is not cosmetic: production history
+# has 133 pairs that reach `hired` and later carry a `rejected` row, against a
+# single genuine `client_interview → rejected`. Those 133 are contracts that
+# ended, not candidates a manager turned down — counting them would make the
+# veto fire almost exclusively on people the client once *hired*.
+#
+# `onboarding` is excluded for the same reason: past acceptance, a later
+# rejection is the engagement ending, not a verdict on the person.
+_MET_START = STAGE_ORDER.index(PipelineStage.client_interview)
+_MET_END = STAGE_ORDER.index(PipelineStage.negotiation)
+MANAGER_MET_STAGES: frozenset[PipelineStage] = frozenset(
+    STAGE_ORDER[_MET_START : _MET_END + 1]
+)
 
 # The only moves the veto blocks: the ones that put the candidate in front of
 # the client again.
