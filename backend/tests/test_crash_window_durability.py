@@ -1,9 +1,9 @@
-"""Crash windows: a side effect must never be recorded before it happened.
+"""Crash windows: bookkeeping and its side effect must agree after a crash.
 
-Three background paths committed (or emitted) their bookkeeping out of order
-with the effect it describes. One replica is enough to hit all three — prod
-restarts on every deploy, and Coolify's rolling overlap runs the old and new
-container together for a moment.
+Four background paths ordered their bookkeeping wrongly against the effect it
+describes. One replica is enough to hit all four — prod restarts on every
+deploy, and Coolify's rolling overlap runs the old and new container together
+for a moment.
 
 1. ``tasks/chat_email_fallback`` stamped ``email_sent_at`` and committed BEFORE
    handing anything to SMTP. A crash in that window left the row permanently
@@ -14,6 +14,18 @@ container together for a moment.
 3. ``services/marketplace_service`` created match notifications BEFORE the
    alert-log claim and used the claim result only for a counter — so a pair
    another pass had already logged got notified a second time.
+4. ``tasks/slack_sla_alerts`` POSTed to the Slack webhook and only THEN stamped
+   ``sla_alerted_at``, inside a transaction still open across the HTTP call. A
+   crash in that window rolled the stamp back, so nothing recorded that the
+   alert had gone out and the next tick sent it a second time.
+
+Note that 1 and 4 are fixed in OPPOSITE directions, on purpose. A remote,
+non-idempotent side effect cannot be made atomic with a local commit, so each
+path only gets to choose which side of the window it fails on. Email must never
+be lost, so it retries an unconfirmed attempt and tolerates a duplicate. An SLA
+alert is a nudge for a breach that ``api/phase3.py::sla_alerts`` keeps
+permanently visible on its own, so it records first and tolerates a lost push
+rather than spamming the channel.
 
 Each test drives the failure, not just the happy path: the send raises, the DB
 write is rejected, the claim is lost to a competitor. Real Postgres.
@@ -26,13 +38,15 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.notification import Notification, NotificationType
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.tasks import chat_email_fallback as fallback_mod
+from app.tasks import slack_sla_alerts as slack_mod
 
 
 class _SimulatedCrash(BaseException):
@@ -677,3 +691,239 @@ async def test_alert_log_records_who_was_notified(monkeypatch) -> None:
             assert row.notified_job_owner_id == owner_id
     finally:
         await _cleanup_marketplace(owner_id, cand_id, job_id)
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# 4. slack SLA alerts — an alert that went out must stay recorded
+# ───────────────────────────────────────────────────────────────────────────
+
+
+async def _seed_sla_breach() -> dict:
+    """A candidate parked 30 days on a stage whose SLA is 5 days.
+
+    Follows the raw-SQL-for-jobs/clients pattern of
+    ``test_bg_task_restart_safety.py``: the ORM ``Job`` carries newer columns
+    than the local/CI schema, so those rows are inserted by hand.
+    """
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.pipeline_template import PipelineStageDef, StageCategoryEnum
+    from app.models.recruitment_pipeline import PipelineStage
+
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        recruiter = User(
+            email=f"slacrash-{suffix}@example.com",
+            password_hash=hash_password("P@ss"),
+            name="SLA Crash Recruiter",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add(recruiter)
+        await db.flush()
+
+        candidate = Candidate(
+            name="Jan",
+            lastname=f"SlaCrash{suffix}",
+            email=f"slacrash-cand-{suffix}@example.com",
+            status=CandidateStatus.active,
+        )
+        db.add(candidate)
+        await db.flush()
+
+        client_id = (
+            await db.execute(
+                text("INSERT INTO clients (name) VALUES (:name) RETURNING id"),
+                {"name": f"CrashClient {suffix}"},
+            )
+        ).scalar_one()
+        job_id = (
+            await db.execute(
+                text(
+                    "INSERT INTO jobs "
+                    "(title, status, priority, recruiter_id, client_id, "
+                    " recruitment_type, remote_policy) "
+                    "VALUES (:title, 'published', 'medium', :rec, :client, "
+                    "        'body_leasing', 'hybrid') RETURNING id"
+                ),
+                {
+                    "title": f"Crash Role {suffix}",
+                    "rec": recruiter.id,
+                    "client": client_id,
+                },
+            )
+        ).scalar_one()
+        template_id = (
+            await db.execute(
+                text(
+                    "INSERT INTO pipeline_templates (name) VALUES (:name) RETURNING id"
+                ),
+                {"name": f"CrashTmpl {suffix}"},
+            )
+        ).scalar_one()
+
+        stage_def = PipelineStageDef(
+            template_id=template_id,
+            name=f"Interview {suffix}",
+            order=1,
+            category=StageCategoryEnum.internal,
+            is_terminal=False,
+            sla_max_days=5,
+        )
+        db.add(stage_def)
+        await db.flush()
+
+        stage = CandidateStage(
+            candidate_id=candidate.id,
+            job_id=job_id,
+            stage=PipelineStage.interview,
+            stage_def_id=stage_def.id,
+            moved_at=datetime.now(timezone.utc) - timedelta(days=30),  # 30d > 5d SLA
+            moved_by=recruiter.id,
+        )
+        db.add(stage)
+        await db.commit()
+
+        return {
+            "recruiter_id": recruiter.id,
+            "candidate_id": candidate.id,
+            "client_id": client_id,
+            "job_id": job_id,
+            "template_id": template_id,
+            "stage_def_id": stage_def.id,
+            "stage_id": stage.id,
+        }
+
+
+async def _cleanup_sla_breach(ids: dict) -> None:
+    async with AsyncSessionLocal() as db:
+        for sql, param in (
+            ("DELETE FROM candidate_stages WHERE id = :v", ids["stage_id"]),
+            ("DELETE FROM pipeline_stage_defs WHERE id = :v", ids["stage_def_id"]),
+            ("DELETE FROM pipeline_templates WHERE id = :v", ids["template_id"]),
+            ("DELETE FROM candidates WHERE id = :v", ids["candidate_id"]),
+            ("DELETE FROM jobs WHERE id = :v", ids["job_id"]),
+            ("DELETE FROM clients WHERE id = :v", ids["client_id"]),
+            ("DELETE FROM users WHERE id = :v", ids["recruiter_id"]),
+        ):
+            await db.execute(text(sql), {"v": param})
+        await db.commit()
+
+
+async def _breach_for(candidate_id: int) -> dict:
+    """The one breach belonging to this test — CI shares one database."""
+    async with AsyncSessionLocal() as db:
+        breaches = await slack_mod._compute_breaches(db)
+    mine = [b for b in breaches if b["candidate_id"] == candidate_id]
+    assert len(mine) == 1, f"expected exactly one breach for candidate, got {mine}"
+    return mine[0]
+
+
+async def _stamp_of(stage_id: int):
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CandidateStage, stage_id)
+        assert row is not None
+        return row.sla_alerted_at
+
+
+async def test_crash_after_the_slack_post_does_not_re_alert(monkeypatch) -> None:
+    """The regression itself: Slack took the alert, then the container died.
+
+    Under the old code the stamp was written after the POST and committed at the
+    very end, so unwinding rolled it back — nothing recorded that the alert had
+    gone out, and the next tick posted the identical breach again.
+    """
+    ids = await _seed_sla_breach()
+    try:
+        breach = await _breach_for(ids["candidate_id"])
+        assert breach["sla_alerted_at"] is None
+
+        posted: list[int] = []
+
+        async def dying_post(_webhook, b):
+            posted.append(b["candidate_stage_id"])  # Slack accepted it…
+            raise _SimulatedCrash("container killed right after Slack accepted it")
+
+        monkeypatch.setattr(slack_mod, "_post_to_slack", dying_post)
+        with pytest.raises(_SimulatedCrash):
+            await slack_mod._dispatch_alert("https://hook", breach)
+
+        assert posted == [ids["stage_id"]], "the alert never reached Slack"
+        assert await _stamp_of(ids["stage_id"]) is not None, (
+            "the alert went out but nothing recorded it — the next tick will resend"
+        )
+
+        # Next tick, fresh process: recompute exactly as a restarted loop would.
+        breach2 = await _breach_for(ids["candidate_id"])
+        assert breach2["sla_alerted_at"] is not None
+        assert [b for b in [breach2] if b["sla_alerted_at"] is None] == []
+
+        # Defence in depth: even handed a stale dict, the dispatcher must refuse.
+        resent: list[int] = []
+
+        async def working_post(_webhook, b):
+            resent.append(b["candidate_stage_id"])
+            return True
+
+        monkeypatch.setattr(slack_mod, "_post_to_slack", working_post)
+        assert await slack_mod._dispatch_alert("https://hook", breach2) is False
+        assert resent == [], "the same SLA alert was posted to Slack a second time"
+    finally:
+        await _cleanup_sla_breach(ids)
+
+
+async def test_slack_refusing_the_alert_hands_the_breach_back(monkeypatch) -> None:
+    """A clean refusal is not a crash: we know Slack did not take it, so retry.
+
+    Claiming before posting must not turn every failed webhook into a silently
+    dropped alert — only an unwitnessed crash is allowed to cost one.
+    """
+    ids = await _seed_sla_breach()
+    try:
+        breach = await _breach_for(ids["candidate_id"])
+
+        async def refusing_post(_webhook, _b):
+            return False  # non-2xx / transport error
+
+        monkeypatch.setattr(slack_mod, "_post_to_slack", refusing_post)
+        assert await slack_mod._dispatch_alert("https://hook", breach) is False
+        assert await _stamp_of(ids["stage_id"]) is None, (
+            "a refused POST must leave the breach un-stamped for the next tick"
+        )
+
+        # The next tick gets through, and only now is the row stamped.
+        delivered: list[int] = []
+
+        async def working_post(_webhook, b):
+            delivered.append(b["candidate_stage_id"])
+            return True
+
+        monkeypatch.setattr(slack_mod, "_post_to_slack", working_post)
+        retry = await _breach_for(ids["candidate_id"])
+        assert await slack_mod._dispatch_alert("https://hook", retry) is True
+        assert delivered == [ids["stage_id"]]
+        assert await _stamp_of(ids["stage_id"]) is not None
+    finally:
+        await _cleanup_sla_breach(ids)
+
+
+async def test_healthy_breach_is_alerted_exactly_once(monkeypatch) -> None:
+    """Positive control — the fix must not simply mute SLA alerts."""
+    ids = await _seed_sla_breach()
+    try:
+        calls: list[int] = []
+
+        async def working_post(_webhook, b):
+            calls.append(b["candidate_stage_id"])
+            return True
+
+        monkeypatch.setattr(slack_mod, "_post_to_slack", working_post)
+
+        breach = await _breach_for(ids["candidate_id"])
+        assert await slack_mod._dispatch_alert("https://hook", breach) is True
+        assert await _stamp_of(ids["stage_id"]) is not None
+
+        # A second pass over the same stage row adds nothing.
+        assert await slack_mod._dispatch_alert("https://hook", breach) is False
+        assert calls == [ids["stage_id"]], "one breach must mean one Slack message"
+    finally:
+        await _cleanup_sla_breach(ids)
