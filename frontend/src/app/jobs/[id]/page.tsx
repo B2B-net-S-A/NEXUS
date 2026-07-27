@@ -985,6 +985,9 @@ export default function JobDetailPage() {
   // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
   const authUser = useAuthStore((s) => s.user);
   const isAdmin = hasRole(authUser, "admin");
+  // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
+  // żeby nie hodować drugiej listy ról obok niego (F-19).
+  const canUpdateJob = useCapability("job.update");
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
@@ -1256,7 +1259,7 @@ export default function JobDetailPage() {
               clientId={job.client_id ?? null}
               value={job.hiring_manager_contact_id ?? null}
               valueName={job.hiring_manager_name ?? null}
-              canEdit={hasRole(authUser, "admin", "head_of_recruitment", "delivery_lead", "tac")}
+              canEdit={canUpdateJob}
               onSaved={() => queryClient.invalidateQueries({ queryKey: ["job", id] })}
             />
           </div>
