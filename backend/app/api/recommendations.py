@@ -1175,6 +1175,30 @@ def _shape_seek_job(j: Job) -> dict:
     }
 
 
+def seeking_priority(
+    candidate_id: int, ending_meta: dict[int, dict]
+) -> tuple[int, str, int]:
+    """Klucz porządkujący pulę „Szukają projektu" PRZED obcięciem do strony.
+
+    Na poziomie modułu, nie jako domknięcie w handlerze, bo to jest reguła
+    decydująca o tym, KTO przetrwa cięcie — test musi sprawdzać dokładnie tę
+    funkcję, a nie jej kopię (kopia przestaje cokolwiek chronić w momencie,
+    w którym oryginał się zmieni).
+
+    Pełny klucz wymagałby scoringu, którego nie policzymy dla całej puli. Ale
+    kryterium pierwszorzędne — pilność — znamy przed scoringiem: kontrakt
+    kończy się wcześniej ⇒ wyżej. ``candidate_id`` domyka porządek, żeby wynik
+    był powtarzalny między requestami.
+
+    ``contract_end_date`` jest tu zawsze ustawiona: zapytanie budujące
+    ``ending_meta`` filtruje ``Contract.end_date.is_not(None)``.
+    """
+    meta = ending_meta.get(candidate_id)
+    if meta is None:
+        return (1, "", candidate_id)  # bez kontraktu — po tych kończących się
+    return (0, meta["contract_end_date"].isoformat(), candidate_id)
+
+
 @router.get("/recommendations/seeking-contractors")
 @limiter.limit("20/minute")
 async def seeking_contractors(
@@ -1288,14 +1312,9 @@ async def seeking_contractors(
     # puli. Ale kryterium PIERWSZORZĘDNE — pilność — znamy już teraz: kontrakt
     # kończy się wcześniej ⇒ wyżej. `id` domyka porządek, żeby wynik był
     # powtarzalny między requestami.
-    def _priority(cid: int) -> tuple[int, str, int]:
-        meta = ending_meta.get(cid)
-        if meta is None:
-            return (1, "", cid)  # bez kontraktu — po tych kończących się
-        end = meta["contract_end_date"]
-        return (0, end.isoformat() if end else "", cid)
-
-    candidate_ids = sorted(pool_ids, key=_priority)[:page_size]
+    candidate_ids = sorted(
+        pool_ids, key=lambda cid: seeking_priority(cid, ending_meta)
+    )[:page_size]
 
     if not candidate_ids:
         return {
