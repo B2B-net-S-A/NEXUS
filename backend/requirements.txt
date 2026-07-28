@@ -18,7 +18,16 @@ python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 httpx==0.28.1
-qdrant-client==1.18.0
+# PIN AWARYJNY — NIE podnosić bez migracji API. qdrant-client 1.18.0 USUNĄŁ
+# `QdrantClient.search()` / `AsyncQdrantClient.search()` na rzecz
+# `query_points()` (zwraca obiekt z `.points`, nie listę). Podbicie w #961
+# przeszło CI i healthcheck, bo żadne z nich nie dotyka ścieżki wektorowej, a
+# wyjątek jest połykany do pustej listy — wyszukiwanie semantyczne i matching
+# zwracały „brak wyników" zamiast błędu, przy `status: healthy`.
+# Wołających jest 7: embedding_service.py (×4), pool_suggester.py,
+# historical_jobs_retrieval.py, cc_classifier.py. Migracja na query_points —
+# osobny PR, razem z sondą `checks.qdrant` w /api/health.
+qdrant-client==1.12.1
 anthropic>=0.40,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
