@@ -214,8 +214,12 @@ function smartDescription(role: B2BRole, lang: Lang, clientName: string): string
 /** Klienci z niestandardowymi zapisami umowy — zwraca true gdy wybrany klient
  * wymaga modyfikacji. Musi być zgodne z backendem
  * (clause_override_content.CLIENT_OVERRIDES). PL i EN. */
-function hasSpecialClauses(clientName: string): boolean {
+export function hasSpecialClauses(clientName: string): boolean {
   const n = clientName.trim().toLowerCase();
+  // „BNP Paribas Cardif" to odrębny Klient (ubezpieczyciel), nie Bank BNP
+  // Paribas Polska — zwykły szablon. Sprawdzane PRZED „bnp paribas", spójnie
+  // z kolejnością wpisów w CLIENT_OVERRIDES.
+  if (n.includes("bnp paribas cardif") || n.includes("bnp cardif")) return false;
   return (
     n.includes("pfron") ||
     n.includes("rehabilitacji osób niepełnosprawnych") ||

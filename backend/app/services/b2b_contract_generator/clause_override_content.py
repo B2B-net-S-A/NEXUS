@@ -2698,6 +2698,14 @@ def _ops_bik(lang: str) -> list[Op]:
     return [("append_appendix", None, blocks)]
 
 
+def _ops_none(lang: str) -> list[Op]:
+    """Brak modyfikacji — zwykły szablon umowy (jak dla Nordei).
+
+    Używane do WYŁĄCZENIA szerszego needle'a niżej w rejestrze (pierwsze
+    trafienie wygrywa), gdy nazwa Klienta zawiera go jako podciąg."""
+    return []
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Rejestr: needle(s) → builder operacji. Pierwsze trafienie wygrywa.
 # ════════════════════════════════════════════════════════════════════════════
@@ -2705,6 +2713,11 @@ def _ops_bik(lang: str) -> list[Op]:
 CLIENT_OVERRIDES: list[tuple[tuple[str, ...], object]] = [
     (("pfron", "rehabilitacji osób niepełnosprawnych"), _ops_pfron),
     (("centrum e-zdrowia", "e-zdrowia"), _ops_centrum),
+    # „BNP Paribas Cardif" to ODRĘBNY Klient (ubezpieczyciel), nie Bank BNP
+    # Paribas Polska S.A. — dostaje zwykły szablon, bez § 4 banku i bez zdania
+    # w Załączniku nr 1. Musi stać PRZED wpisem „bnp paribas", bo needle jest
+    # dopasowywany jako podciąg i pierwsze trafienie wygrywa.
+    (("bnp paribas cardif", "bnp cardif"), _ops_none),
     (("bnp paribas",), _ops_bnp),
     (("alior",), _ops_alior),
     (("credit agricole",), _ops_credit_agricole),

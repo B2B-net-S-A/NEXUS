@@ -608,6 +608,29 @@ def test_overrides_matching_pl_en():
     assert overrides_for_client("", "pl") == []
 
 
+def test_bnp_cardif_gets_plain_template():
+    """BNP Paribas Cardif = odrębny Klient, nie Bank BNP Paribas Polska.
+
+    Nazwa zawiera podciąg „BNP Paribas", więc bez jawnego wykluczenia łapała
+    override banku (§ 4 + zdanie w Załączniku nr 1)."""
+    from app.services.b2b_contract_generator.clause_overrides import (
+        has_override,
+        overrides_for_client,
+    )
+
+    for name in (
+        "BNP Paribas Cardif",
+        "BNP Paribas Cardif Towarzystwo Ubezpieczeń S.A.",
+        "BNP Cardif",
+    ):
+        assert overrides_for_client(name, "pl") == []
+        assert overrides_for_client(name, "en") == []
+        assert not has_override(name)
+
+    # Bank nadal ze swoimi zapisami — wykluczenie nie może go zdjąć.
+    assert has_override("BNP Paribas Bank Polska S.A.")
+
+
 def test_p10_replace_section_op_centrum_pfron():
     from app.services.b2b_contract_generator.clause_overrides import (
         overrides_for_client,
