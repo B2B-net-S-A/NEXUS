@@ -23,6 +23,7 @@ from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.models.job_shortlist import JobShortlistEntry
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_priority import PriorityChannel
 from app.schemas.job_shortlist import (
     ShortlistAddRequest,
     ShortlistAddResponse,
@@ -39,6 +40,7 @@ from app.services.candidate_job_eligibility import (
     extract_excluded_client_ids,
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
+from app.services.recruitment_process_commands import open_process
 
 router = APIRouter()
 
@@ -309,18 +311,18 @@ async def promote_shortlist_entry(
         except ValueError:
             legacy_enum = PipelineStage.new
 
-    stage = CandidateStage(
+    stage = await open_process(
+        db,
         candidate_id=candidate.id,
         job_id=job.id,
         stage=legacy_enum,
         stage_def_id=stage_def.id if stage_def else None,
-        moved_by=current_user.id,
+        actor_user_id=current_user.id,
+        work_channel=PriorityChannel.database,
     )
-    db.add(stage)
     # M3-ACT-01: snapshot the CV current at promotion + emit the audit, the
     # same invariant the single-assign path holds — shortlist promotion was
     # skipping it. Idempotent + fail-soft.
-    await db.flush()
     await create_original_cv_snapshot(db, stage)
     entry.promoted_to_pipeline_at = now
     entry.updated_by = current_user.id

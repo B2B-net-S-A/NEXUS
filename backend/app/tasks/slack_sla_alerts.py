@@ -44,12 +44,16 @@ import os
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import func, select, tuple_, update
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
+from app.services.recruitment_process_commands import (
+    claim_stage_sla_alert,
+    release_stage_sla_alert,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,16 +181,10 @@ async def _claim_breach(db: AsyncSession, candidate_stage_id: int) -> bool:
     hostage by a remote HTTP round trip, and the record of the alert survives a
     crash during that round trip.
     """
-    result = await db.execute(
-        update(CandidateStage)
-        .where(
-            CandidateStage.id == candidate_stage_id,
-            CandidateStage.sla_alerted_at.is_(None),
-        )
-        .values(sla_alerted_at=func.now())
-        .returning(CandidateStage.id)
+    claimed = await claim_stage_sla_alert(
+        db,
+        candidate_stage_id=candidate_stage_id,
     )
-    claimed = result.scalar_one_or_none() is not None
     await db.commit()
     return claimed
 
@@ -203,10 +201,9 @@ async def _release_claim(db: AsyncSession, candidate_stage_id: int) -> None:
     being killed mid-POST) runs no cleanup, which is the whole point — the stamp
     stands and the alert is never sent twice.
     """
-    await db.execute(
-        update(CandidateStage)
-        .where(CandidateStage.id == candidate_stage_id)
-        .values(sla_alerted_at=None)
+    await release_stage_sla_alert(
+        db,
+        candidate_stage_id=candidate_stage_id,
     )
     await db.commit()
 

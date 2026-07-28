@@ -54,6 +54,9 @@ from app.services.traffit.rejection_backfill import (
     backfill_rejection_descriptions_from_activities,
     backfill_rejection_notes_from_activities,
 )
+from app.services.recruitment_process_commands import (
+    sync_external_observed_processes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2020,15 +2023,17 @@ class TraffitImporter:
             withdrawn_fallback.default_id,
         )
 
-        # Commit po każdym successful upsert (zamiast per-batch). Eliminuje
-        # batch rollback gdy jeden record narusza check_constraint
-        # (np. withdrawn_requires_reason). Pierwszy run miał ~18k stage moves
-        # zgubione w batchach po 500 — per-record commit odzyskuje całość.
-        # Trade-off: ~2x slower z powodu fsync na każdy commit (akceptowalne
-        # dla 152k rekordów = ~85 min API-bound i tak).
-        commit_every = 1
+        # SAVEPOINT per record keeps a single malformed history event (for
+        # example withdrawn_requires_reason) from rolling back the batch.
+        # The batch itself commits only after RecruitmentProcess is synced, so
+        # a crash cannot persist one side of the canonical pair without the
+        # other.
+        commit_every = 500
         since_commit = 0
         unresolved_withdrawn = 0
+        pending_process_pairs: set[tuple[int, int]] = set()
+        pending_inserted = 0
+        pending_updated = 0
 
         async for raw in self.traffit.get_paginated(
             "/employees/recruitment_history",
@@ -2080,87 +2085,117 @@ class TraffitImporter:
                     )
                 continue
             try:
-                result = await self.db.execute(
-                    text(
-                        """
-                        INSERT INTO candidate_stages (
-                            external_id, external_source,
-                            candidate_id, job_id, stage_def_id, stage,
-                            moved_at, moved_by, rejection_reason_id,
-                            verification_status,
-                            created_at, updated_at
-                        ) VALUES (
-                            :external_id, 'traffit',
-                            :candidate_id, :job_id, :stage_def_id,
-                            CAST(:stage AS pipelinestage),
-                            CAST(:moved_at AS TIMESTAMPTZ), :moved_by,
-                            :rejection_reason_id,
-                            CAST('active' AS verificationstatus),
-                            NOW(), NOW()
-                        )
-                        ON CONFLICT (external_source, external_id)
-                        WHERE external_id IS NOT NULL
-                        DO UPDATE SET
-                            stage_def_id = EXCLUDED.stage_def_id,
-                            stage        = EXCLUDED.stage,
-                            moved_at     = EXCLUDED.moved_at,
-                            moved_by     = COALESCE(
-                                EXCLUDED.moved_by, candidate_stages.moved_by
-                            ),
-                            -- Fallback nigdy nie nadpisuje realnego powodu
-                            -- (wybranego przez rekrutera lub z backfillu).
-                            rejection_reason_id = COALESCE(
-                                candidate_stages.rejection_reason_id,
-                                EXCLUDED.rejection_reason_id
-                            ),
-                            updated_at   = NOW()
-                        RETURNING id, (xmax = 0) AS was_insert
-                        """
-                    ),
-                    {
-                        "external_id": payload["external_id"],
-                        "candidate_id": payload["candidate_id"],
-                        "job_id": payload["job_id"],
-                        "stage_def_id": payload["stage_def_id"],
-                        "stage": payload["stage_legacy_enum"],
-                        "moved_at": payload["moved_at"],
-                        "moved_by": payload["moved_by"],
-                        "rejection_reason_id": rejection_reason_id,
-                    },
-                )
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
-                since_commit += 1
-                if since_commit >= commit_every:
-                    await self.db.commit()
-                    since_commit = 0
-                    # Log progress co 500 records (commit jest per-1 ale spam
-                    # na każde 1 byłby nie do zniesienia)
-                    if progress.processed % 500 == 0:
-                        logger.info(
-                            "Pipelines progress: %d/%d "
-                            "(inserted=%d updated=%d errors=%d)",
-                            progress.processed,
-                            progress.total_source,
-                            progress.inserted,
-                            progress.updated,
-                            progress.errors,
-                        )
+                async with self.db.begin_nested():
+                    result = await self.db.execute(
+                        text(
+                            """
+                            INSERT INTO candidate_stages (
+                                external_id, external_source,
+                                candidate_id, job_id, stage_def_id, stage,
+                                moved_at, moved_by, rejection_reason_id,
+                                verification_status,
+                                created_at, updated_at
+                            ) VALUES (
+                                :external_id, 'traffit',
+                                :candidate_id, :job_id, :stage_def_id,
+                                CAST(:stage AS pipelinestage),
+                                CAST(:moved_at AS TIMESTAMPTZ), :moved_by,
+                                :rejection_reason_id,
+                                CAST('active' AS verificationstatus),
+                                NOW(), NOW()
+                            )
+                            ON CONFLICT (external_source, external_id)
+                            WHERE external_id IS NOT NULL
+                            DO UPDATE SET
+                                stage_def_id = EXCLUDED.stage_def_id,
+                                stage        = EXCLUDED.stage,
+                                moved_at     = EXCLUDED.moved_at,
+                                moved_by     = COALESCE(
+                                    EXCLUDED.moved_by,
+                                    candidate_stages.moved_by
+                                ),
+                                -- Fallback nigdy nie nadpisuje realnego powodu
+                                -- (wybranego przez rekrutera lub z backfillu).
+                                rejection_reason_id = COALESCE(
+                                    candidate_stages.rejection_reason_id,
+                                    EXCLUDED.rejection_reason_id
+                                ),
+                                updated_at   = NOW()
+                            RETURNING id, (xmax = 0) AS was_insert
+                            """
+                        ),
+                        {
+                            "external_id": payload["external_id"],
+                            "candidate_id": payload["candidate_id"],
+                            "job_id": payload["job_id"],
+                            "stage_def_id": payload["stage_def_id"],
+                            "stage": payload["stage_legacy_enum"],
+                            "moved_at": payload["moved_at"],
+                            "moved_by": payload["moved_by"],
+                            "rejection_reason_id": rejection_reason_id,
+                        },
+                    )
+                    row = result.fetchone()
             except Exception as e:  # noqa: BLE001
                 msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
                 progress.add_error(msg)
                 if progress.errors <= 5 or progress.errors % 500 == 0:
                     logger.warning("Pipelines upsert error: %s", msg[:300])
-                await self.db.rollback()
-                since_commit = 0
+                continue
+
+            if row is None:
+                continue
+            if row[1]:
+                pending_inserted += 1
+            else:
+                pending_updated += 1
+            pending_process_pairs.add((payload["candidate_id"], payload["job_id"]))
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
+                    await sync_external_observed_processes(
+                        self.db, pairs=sorted(pending_process_pairs)
+                    )
+                    await self.db.commit()
+                    progress.inserted += pending_inserted
+                    progress.updated += pending_updated
+                    pending_process_pairs.clear()
+                    pending_inserted = 0
+                    pending_updated = 0
+                    since_commit = 0
+                    logger.info(
+                        "Pipelines progress: %d/%d (inserted=%d updated=%d errors=%d)",
+                        progress.processed,
+                        progress.total_source,
+                        progress.inserted,
+                        progress.updated,
+                        progress.errors,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    await self.db.rollback()
+                    progress.add_error(
+                        "atomic stage/process sync failed for "
+                        f"{len(pending_process_pairs)} pairs: {e!r}"
+                    )
+                    pending_process_pairs.clear()
+                    pending_inserted = 0
+                    pending_updated = 0
+                    since_commit = 0
 
         if not self.dry_run and since_commit > 0:
-            await self.db.commit()
+            try:
+                await sync_external_observed_processes(
+                    self.db, pairs=sorted(pending_process_pairs)
+                )
+                await self.db.commit()
+                progress.inserted += pending_inserted
+                progress.updated += pending_updated
+            except Exception as e:  # noqa: BLE001
+                await self.db.rollback()
+                progress.add_error(
+                    "atomic final stage/process sync failed for "
+                    f"{len(pending_process_pairs)} pairs: {e!r}"
+                )
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Pipelines import done: %s",

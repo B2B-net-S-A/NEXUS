@@ -51,6 +51,8 @@ from app.services.html_sanitizer import sanitize_cv_html
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_priority import PriorityOriginKind
+from app.services.recruitment_process_commands import open_process
 from app.models.user import User
 from app.models.user_activity import UserActionType, UserActivity
 
@@ -494,6 +496,8 @@ async def submit_public_apply(
             cv_size_bytes=len(content),
             raw_cv_text=submission_raw_text,
             raw_payload={
+                "origin_assignment_id": link.origin_assignment_id,
+                "priority_compliant_at_create": (link.priority_compliant_at_create),
                 "first_name": first_name.strip(),
                 "last_name": last_name.strip(),
                 "email": str(email),
@@ -580,15 +584,17 @@ async def submit_public_apply(
         )
     )
     if stage_exists is None:
-        new_stage = CandidateStage(
+        new_stage = await open_process(
+            db,
             candidate_id=candidate.id,
             job_id=link.job_id,
             stage=PipelineStage.new,
-            moved_by=link.created_by,
+            actor_user_id=link.created_by,
+            origin_kind=PriorityOriginKind.external_inbound,
+            frozen_origin_assignment_id=link.origin_assignment_id,
+            frozen_priority_compliant=link.priority_compliant_at_create,
             notes="Aplikacja przez invite link",
         )
-        db.add(new_stage)
-        await db.flush()
         # Snapshot CV — kandydat właśnie wgrał `stored_filename` powyżej, więc
         # `candidate.cv_file_content` już jest aktualny i pójdzie do snapshotu.
         await create_original_cv_snapshot(db, new_stage)

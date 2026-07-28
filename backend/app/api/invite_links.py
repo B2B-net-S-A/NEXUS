@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobStatus
+from app.models.recruitment_priority import PriorityChannel, PriorityMemberStatus
 from app.models.user import User, UserRole
 from app.schemas.invite_link import (
     InviteLinkCreate,
@@ -30,6 +31,11 @@ from app.schemas.invite_link import (
     InviteLinkResponse,
     InviteLinkStatus,
 )
+from app.services.priority_work_policy import (
+    assert_priority_work_access,
+    current_priority_assignment,
+)
+from app.services.priority_work_service import audit_event
 
 router = APIRouter()
 
@@ -85,6 +91,8 @@ def _to_response(
         last_used_at=link.last_used_at,
         created_at=link.created_at,
         status=_resolve_status(link),
+        origin_assignment_id=link.origin_assignment_id,
+        priority_compliant_at_create=link.priority_compliant_at_create,
         created_by_user=(
             InviteLinkCreatorBrief(id=creator.id, name=creator.name)
             if creator
@@ -113,6 +121,33 @@ async def create_invite_link(
             detail="Job must be published to generate an invite link",
         )
 
+    decision = await assert_priority_work_access(
+        db,
+        candidate_id=0,
+        job_id=job.id,
+        actor_user_id=current_user.id,
+        action="create_invite_link",
+        continuation_exists=False,
+        consume_exception=False,
+        work_channel=PriorityChannel.linkedin,
+        job_is_open=True,
+    )
+    origin_assignment_id = decision.assignment_id
+    priority_compliant = decision.priority_compliant
+    if origin_assignment_id is None:
+        assignment, member, _plan = await current_priority_assignment(
+            db,
+            user_id=current_user.id,
+            job_id=job.id,
+        )
+        if (
+            assignment is not None
+            and member is not None
+            and member.status == PriorityMemberStatus.active
+        ):
+            origin_assignment_id = assignment.id
+            priority_compliant = True
+
     import hashlib
 
     from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
@@ -131,6 +166,8 @@ async def create_invite_link(
             token_ct=ciphertext,
             created_by=current_user.id,
             job_id=job.id,
+            origin_assignment_id=origin_assignment_id,
+            priority_compliant_at_create=priority_compliant,
             label=data.label,
             expires_at=expires_at,
         )
@@ -139,10 +176,25 @@ async def create_invite_link(
             token=raw_token,
             created_by=current_user.id,
             job_id=job.id,
+            origin_assignment_id=origin_assignment_id,
+            priority_compliant_at_create=priority_compliant,
             label=data.label,
             expires_at=expires_at,
         )
     db.add(link)
+    await db.flush()
+    audit_event(
+        db,
+        "invite_link_created",
+        actor_user_id=current_user.id,
+        job_id=job.id,
+        assignment_id=origin_assignment_id,
+        payload={
+            "expires_at": expires_at.isoformat(),
+            "priority_mode": decision.mode.value,
+            "priority_compliant": priority_compliant,
+        },
+    )
     await db.commit()
     await db.refresh(link)
 

@@ -46,6 +46,8 @@ from app.models.application_submission import (
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_priority import PriorityOriginKind
+from app.services.recruitment_process_commands import open_process
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,59 @@ async def _attach_cv_as_document(
     return document
 
 
+def _origin_assignment_id(
+    submission: ApplicationSubmission,
+) -> Optional[int]:
+    payload = submission.raw_payload if isinstance(submission.raw_payload, dict) else {}
+    value = payload.get("origin_assignment_id")
+    try:
+        assignment_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    return assignment_id if assignment_id > 0 else None
+
+
+def _priority_compliant_at_create(
+    submission: ApplicationSubmission,
+) -> Optional[bool]:
+    payload = submission.raw_payload if isinstance(submission.raw_payload, dict) else {}
+    value = payload.get("priority_compliant_at_create")
+    return value if isinstance(value, bool) else None
+
+
+async def _ensure_submission_process(
+    db: AsyncSession,
+    *,
+    submission: ApplicationSubmission,
+    candidate_id: int,
+    actor_user_id: int,
+) -> Optional[CandidateStage]:
+    """Route a resolved job application into the canonical pipeline once."""
+    if submission.job_id is None:
+        return None
+    existing = await db.scalar(
+        select(CandidateStage.id).where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == submission.job_id,
+        )
+    )
+    if existing is not None:
+        return None
+    stage = await open_process(
+        db,
+        candidate_id=candidate_id,
+        job_id=submission.job_id,
+        stage=PipelineStage.new,
+        actor_user_id=actor_user_id,
+        origin_kind=PriorityOriginKind.external_inbound,
+        frozen_origin_assignment_id=_origin_assignment_id(submission),
+        frozen_priority_compliant=_priority_compliant_at_create(submission),
+        notes="Rozstrzygnięto aplikację (application submission)",
+    )
+    await create_original_cv_snapshot(db, stage)
+    return stage
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
@@ -292,6 +347,12 @@ async def resolve_application_submission(
         else:
             submission.status = ApplicationSubmissionStatus.linked.value
         resolved_candidate_id = candidate.id
+        await _ensure_submission_process(
+            db,
+            submission=submission,
+            candidate_id=candidate.id,
+            actor_user_id=current_user.id,
+        )
 
     elif action == "create":
         # candidates.email is UNIQUE. A submission almost always carries the
@@ -332,23 +393,12 @@ async def resolve_application_submission(
             submission,
             is_primary=True,
         )
-        if submission.job_id is not None:
-            stage = CandidateStage(
-                candidate_id=candidate.id,
-                job_id=submission.job_id,
-                stage=PipelineStage.new,
-                moved_by=current_user.id,
-                notes="Utworzono z aplikacji (application submission)",
-            )
-            db.add(stage)
-            await db.flush()
-            # Snapshot CV w chwili wejścia do rekrutacji. Siedem innych ścieżek
-            # tworzących `CandidateStage` woła to od zawsze (patrz
-            # `candidate_stage_cv_service`); ta jedna nie wołała, więc kandydat
-            # przyjęty ze zgłoszenia wchodził do pipeline'u bez snapshotu — a
-            # snapshot jest tym, co pokazuje, z jakim CV go zgłoszono, gdy
-            # kandydat później podmieni plik w profilu.
-            await create_original_cv_snapshot(db, stage)
+        await _ensure_submission_process(
+            db,
+            submission=submission,
+            candidate_id=candidate.id,
+            actor_user_id=current_user.id,
+        )
         submission.status = ApplicationSubmissionStatus.created.value
         resolved_candidate_id = candidate.id
 

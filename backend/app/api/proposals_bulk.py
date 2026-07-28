@@ -36,6 +36,7 @@ from app.models.recruitment_pipeline import (
     CandidateStage,
     PipelineStage,
 )
+from app.models.recruitment_priority import PriorityChannel
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_job_eligibility import (
     ConflictInput,
@@ -45,6 +46,7 @@ from app.services.candidate_job_eligibility import (
     extract_excluded_client_ids,
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
+from app.services.recruitment_process_commands import open_process
 
 router = APIRouter()
 
@@ -347,21 +349,21 @@ async def bulk_add_proposals(
                 )
             )
 
-        stage = CandidateStage(
+        stage = await open_process(
+            db,
             candidate_id=candidate_id,
             job_id=job_id,
             stage=legacy_enum,
             stage_def_id=stage_def.id if stage_def else None,
-            moved_by=current_user.id,
+            actor_user_id=current_user.id,
+            work_channel=PriorityChannel.database,
         )
-        db.add(stage)
         # M3-ACT-01: every stage-creating entry point must snapshot the CV that
         # was current at assignment (the evidence of what was submitted) + emit
         # the `snapshot_created` audit — same invariant the single-assign path
         # (recommendations.assign_candidate_to_job) already holds. Bulk-add was
         # skipping it, so a client dispute could lack the sent CV. Idempotent +
         # fail-soft on a missing CV, so it never breaks the batch.
-        await db.flush()
         await create_original_cv_snapshot(db, stage)
 
         # Optional shared note attached to every newly added candidate.

@@ -28,6 +28,7 @@ from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services.recruitment_process_commands import transition_process
 
 
 _COMPATIBLE_CONTRACT_STATUSES = (
@@ -483,17 +484,17 @@ async def _ensure_hired_stage(
         return False
 
     stage_def = await _resolve_hired_stage_def(db, job)
-    stage = CandidateStage(
+    stage = await transition_process(
+        db,
         candidate_id=candidate.id,
         job_id=job.id,
         stage=PipelineStage.hired,
         stage_def_id=stage_def.id if stage_def else None,
         moved_at=datetime.now(timezone.utc),
-        moved_by=actor_id,
+        actor_user_id=actor_id,
+        require_existing=True,
         notes="Auto: Zatrudniony (umowa podpisana obustronnie)",
     )
-    db.add(stage)
-    await db.flush()
     db.add(
         Activity(
             entity_type="pipeline",
