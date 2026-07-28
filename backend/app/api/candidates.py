@@ -26,7 +26,6 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import (
-    Text,
     and_,
     case,
     delete,
