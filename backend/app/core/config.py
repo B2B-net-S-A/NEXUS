@@ -301,6 +301,15 @@ class Settings(BaseSettings):
     KPI_COACH_DEBUG_BREAKGLASS: bool = False
     ANALYTICS_CUTOVER_BREAKGLASS: bool = False
 
+    # ── Recruitment Priority Lock + Carry-over Duty ────────────────────────
+    # off     — persist/read the new domain without changing pipeline access,
+    # shadow  — evaluate and record policy decisions, but do not reject work,
+    # enforce — reject opening a new candidate/job process without an eligible
+    #           active assignment (existing processes remain carry-over).
+    # Safe rollout is always off -> shadow -> enforce.
+    RECRUITMENT_PRIORITY_MODE: str = "off"
+    RECRUITMENT_PRIORITY_WORKER_INTERVAL_SECONDS: int = 300
+
     # ── Analytics v1 (plan 2026-07-16, PR 2) ──────────────────────────────────
     # Tryb rolloutu:
     #   off    — router /api/analytics/v1 zwraca 503, zero zmian zachowania,
@@ -333,6 +342,17 @@ class Settings(BaseSettings):
         if v not in allowed:
             raise ValueError(f"ANALYTICS_V1_MODE must be one of {sorted(allowed)}")
         return v
+
+    @field_validator("RECRUITMENT_PRIORITY_MODE")
+    @classmethod
+    def _validate_recruitment_priority_mode(cls, v: str) -> str:
+        allowed = {"off", "shadow", "enforce"}
+        normalized = v.strip().lower()
+        if normalized not in allowed:
+            raise ValueError(
+                f"RECRUITMENT_PRIORITY_MODE must be one of {sorted(allowed)}"
+            )
+        return normalized
 
     @field_validator("DYNAREPORTER_MODE")
     @classmethod

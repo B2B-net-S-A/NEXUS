@@ -44,6 +44,8 @@ class InviteLinkResponse(BaseModel):
     last_used_at: Optional[datetime] = None
     created_at: datetime
     status: InviteLinkStatus
+    origin_assignment_id: Optional[int] = None
+    priority_compliant_at_create: Optional[bool] = None
     created_by_user: Optional[InviteLinkCreatorBrief] = None
 
     model_config = {"from_attributes": True}

@@ -460,9 +460,64 @@ _ENUM_STATEMENTS = [
     #   void                — soft-delete/annulacja zamiast hard DELETE.
     "ALTER TYPE contractstatus ADD VALUE IF NOT EXISTS 'ready_for_signature'",
     "ALTER TYPE contractstatus ADD VALUE IF NOT EXISTS 'void'",
+    # Recruitment Priority Lock (0200). `origin_kind` is added to the existing
+    # recruitment_processes table before metadata.create_all runs, therefore
+    # its enum must exist here. Enums used only by new tables are created by
+    # SQLAlchemy together with those tables in the second safety net.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_type WHERE typname = 'priorityoriginkind'
+        ) THEN
+            CREATE TYPE priorityoriginkind AS ENUM (
+                'legacy', 'assigned', 'shadow_violation', 'external_inbound',
+                'external_observed', 'manager_inbound', 'approved_exception'
+            );
+        END IF;
+    END $$""",
+    "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'legacy'",
+    "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'assigned'",
+    "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'shadow_violation'",
+    "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'external_inbound'",
+    "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'external_observed'",
+    "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'manager_inbound'",
+    "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'approved_exception'",
 ]
 
 _COLUMN_STATEMENTS = [
+    # Recruitment Priority Lock (0200) — provenance/eligibility is added to the
+    # existing canonical aggregate. New priority-work tables are created by the
+    # metadata safety net below; post-create FKs are installed after it.
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS origin_assignment_id INTEGER NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS eligibility_assignment_id INTEGER NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS opened_by_user_id INTEGER NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS credit_user_id INTEGER NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS origin_kind priorityoriginkind NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS priority_compliant_at_open BOOLEAN NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS kpi_eligible BOOLEAN NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS kpi_eligibility_reason VARCHAR(255) NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS kpi_eligibility_decided_at TIMESTAMPTZ NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS ownership_confirmed_at TIMESTAMPTZ NULL""",
+    """ALTER TABLE recruitment_processes
+       ADD COLUMN IF NOT EXISTS ownership_confirmed_by_user_id INTEGER NULL""",
+    """ALTER TABLE candidate_invite_links
+       ADD COLUMN IF NOT EXISTS origin_assignment_id INTEGER NULL""",
+    """ALTER TABLE candidate_invite_links
+       ADD COLUMN IF NOT EXISTS priority_compliant_at_create BOOLEAN NULL""",
+    """CREATE INDEX IF NOT EXISTS ix_recruitment_processes_credit_user_id
+       ON recruitment_processes (credit_user_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_recruitment_processes_origin_kind
+       ON recruitment_processes (origin_kind)""",
     # Restart-safe background loops (migracja 0186, audyt P1/P2). Durable dedup
     # markers dla pętli tła — bez nich pętla po restarcie (Coolify rebuild na
     # każdym pushu) i przy >1 workerze duplikuje wysyłki:
@@ -2263,6 +2318,109 @@ async def create_all():
     print("metadata create_all: ok")
 
 asyncio.run(create_all())
+PY
+
+# Recruitment Priority Lock: metadata.create_all creates the new tables, but
+# cannot add foreign keys to the already-existing recruitment_processes table.
+# Install those links only after both sides exist. Every statement is rerun-safe
+# and mirrors migration 0200.
+echo "Finalizing Recruitment Priority Work schema (idempotent)..."
+python - <<'PY' || echo "priority work schema finalization failed; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+
+_FKS = (
+    (
+        "fk_process_origin_priority_assignment",
+        "origin_assignment_id",
+        "recruitment_priority_assignments",
+    ),
+    (
+        "fk_process_eligibility_priority_assignment",
+        "eligibility_assignment_id",
+        "recruitment_priority_assignments",
+    ),
+    ("fk_process_opened_by_user", "opened_by_user_id", "users"),
+    ("fk_process_credit_user", "credit_user_id", "users"),
+    (
+        "fk_process_ownership_confirmed_by_user",
+        "ownership_confirmed_by_user_id",
+        "users",
+    ),
+)
+
+async def finalize():
+    async with engine.begin() as conn:
+        for name, column, target in _FKS:
+            await conn.execute(text(f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint AS constraint_row
+                        JOIN pg_attribute AS source_column
+                          ON source_column.attrelid = constraint_row.conrelid
+                         AND source_column.attnum = ANY(constraint_row.conkey)
+                        WHERE constraint_row.contype = 'f'
+                          AND constraint_row.conrelid =
+                              'recruitment_processes'::regclass
+                          AND constraint_row.confrelid = '{target}'::regclass
+                          AND source_column.attname = '{column}'
+                    ) THEN
+                        ALTER TABLE recruitment_processes
+                            ADD CONSTRAINT {name}
+                            FOREIGN KEY ({column}) REFERENCES {target}(id)
+                            ON DELETE SET NULL;
+                    END IF;
+                END $$
+            """))
+        await conn.execute(text(
+            "INSERT INTO recruitment_priority_state (id) VALUES (1) "
+            "ON CONFLICT (id) DO NOTHING"
+        ))
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint AS constraint_row
+                    JOIN pg_attribute AS source_column
+                      ON source_column.attrelid = constraint_row.conrelid
+                     AND source_column.attnum = ANY(constraint_row.conkey)
+                    WHERE constraint_row.contype = 'f'
+                      AND constraint_row.conrelid =
+                          'candidate_invite_links'::regclass
+                      AND constraint_row.confrelid =
+                          'recruitment_priority_assignments'::regclass
+                      AND source_column.attname = 'origin_assignment_id'
+                ) THEN
+                    ALTER TABLE candidate_invite_links
+                        ADD CONSTRAINT fk_invite_link_origin_priority_assignment
+                        FOREIGN KEY (origin_assignment_id)
+                        REFERENCES recruitment_priority_assignments(id)
+                        ON DELETE SET NULL;
+                END IF;
+            END $$
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_candidate_invite_links_origin_assignment_id "
+            "ON candidate_invite_links (origin_assignment_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_recruitment_processes_origin_assignment_id "
+            "ON recruitment_processes (origin_assignment_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_recruitment_processes_eligibility_assignment_id "
+            "ON recruitment_processes (eligibility_assignment_id)"
+        ))
+    print("priority work schema finalization: ok")
+
+asyncio.run(finalize())
 PY
 
 # Cortex: dedup taksonomii (safety-net gdy alembic nie dobija do 0167).

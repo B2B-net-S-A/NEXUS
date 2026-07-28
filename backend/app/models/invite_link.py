@@ -27,6 +27,16 @@ class CandidateInviteLink(Base):
     job_id: Mapped[int] = mapped_column(
         ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
     )
+    # Frozen sourcing authority at link creation. A later plan supersede must
+    # not discard a legitimate inbound application or reattribute its origin.
+    origin_assignment_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("recruitment_priority_assignments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    priority_compliant_at_create: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True
+    )
     label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
