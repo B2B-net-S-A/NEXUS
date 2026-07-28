@@ -34,7 +34,6 @@ import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
-import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
@@ -426,7 +425,6 @@ export default function SettingsPage() {
         <div className="space-y-4">
           <Microsoft365Card />
           <FirefliesCard />
-          <CloudTalkSettingsCard />
           <TeamsNotificationsCard />
           <TraffitSyncCard />
 
