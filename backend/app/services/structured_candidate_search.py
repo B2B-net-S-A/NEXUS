@@ -62,7 +62,27 @@ def _skills_text() -> ColumnElement:
 
 
 def _skill_match(skill: str) -> ColumnElement:
-    pattern = f"%{_escape_like(skill)}%"
+    """Match a skill as a WHOLE quoted JSON token, not a bare substring.
+
+    Both ``skills`` and ``tags`` are JSONB, so ``_skills_text()`` is a JSON dump
+    in which every value is quoted — ``["Python", "Go"]`` and
+    ``[{"name": "Go", "level": "senior"}]`` alike contain the literal ``"Go"``.
+    Requiring those surrounding quotes turns an imprecise substring test into an
+    exact token test.
+
+    Why this matters (SEARCH-P0-03 follow-up): the bare ``%Go%`` pattern also
+    matched ``Django``, ``Golang``, ``Mongo`` and ``Django REST``. For the
+    ranking signal that only misordered results, but ``skills_none`` is a HARD
+    exclusion — "nie ma Go" silently dropped every Django developer from the
+    result set, and a recruiter had no way to see it happen.
+
+    Known limitation, deliberate: in the dict shape the dump also contains the
+    literal keys ``"name"``, ``"level"``, ``"years"``, so a chip named exactly
+    like a key self-matches. Harmless in practice and strictly better than the
+    old behaviour; the real fix is the normalised ``cortex_skill_facts`` join,
+    which needs Cortex coverage above ~60% (measured 56.8% on 2026-07-27).
+    """
+    pattern = f'%"{_escape_like(skill)}"%'
     return _skills_text().ilike(pattern, escape="\\")
 
 
