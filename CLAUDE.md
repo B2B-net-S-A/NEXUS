@@ -139,7 +139,15 @@ Zobacz `~/.claude/rules/observability.md` dla pełnego standardu (Sentry + Grafa
 
 5-fazowa integracja zdeployowana w PR #157 (Fazy 1-5 razem). Dormant na prod do momentu provisioning secret + flipnięcia killswitcha.
 
-- **Kill-switch:** `CLOUDTALK_ENABLED=false` default. Wszystkie `/api/cloudtalk/*` zwracają 503, webhook stoi w DRY-RUN, background loop `cloudtalk_sync` exit immediate, `/api/health.checks.cloudtalk = "unconfigured"`.
+- **Kill-switch:** `CLOUDTALK_ENABLED=false` default. Wszystkie `/api/cloudtalk/*` zwracają 503,
+  webhook stoi w DRY-RUN, background loop `cloudtalk_sync` **kończy się przed pętlą** (do 28.07
+  ten opis kłamał: pętla startowała zawsze i budziła się co 60 s, żeby sprawdzić tę samą flagę),
+  a `/api/health` **nie raportuje już klucza `cloudtalk`** przy wyłączonej integracji — stały wpis
+  „unconfigured" nie niósł informacji i uczył ignorować niezdrowe pozycje w `checks`.
+- **Decyzja 28.07: nie używamy CloudTalka** (koszt). Integracja została zneutralizowana, nie usunięta —
+  model `Call` i kolumny `calls.*`/`users.cloudtalk_agent_id` są niezależne od dostawcy i zostają jako
+  punkt zaczepienia pod następną telefonię. Karta w Ustawieniach → Integracje zdjęta z widoku
+  (komponent `CloudTalkSettingsCard.tsx` zachowany).
 - **Aktywacja:**
   1. CloudTalk panel → Settings → API Keys → generate pair → secret pokazany RAZ
   2. `openssl rand -hex 32` → webhook signing secret

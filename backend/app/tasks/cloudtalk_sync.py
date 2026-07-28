@@ -259,12 +259,19 @@ async def _run_sync_window() -> dict:
 
 async def cloudtalk_sync_loop() -> None:
     """Periodic CloudTalk catch-up + backfill. Cancellation-aware."""
+    # Kill-switch sprawdzany RAZ, przed pętlą. Wcześniej pętla startowała
+    # zawsze i przy wyłączonej fladze budziła się co 60 s tylko po to, żeby
+    # sprawdzić tę samą flagę i zasnąć — a `CLAUDE.md` opisywał to jako
+    # „exit immediate", czego kod nigdy nie robił. Flaga nie zmienia się w locie
+    # (siedzi w `Settings`, czytanym przy starcie procesu), więc odpytywanie jej
+    # w kółko nie mogło niczego wykryć. Zmiana flagi i tak wymaga redeployu.
+    if not settings.CLOUDTALK_ENABLED:
+        logger.info("CloudTalk sync loop not started — CLOUDTALK_ENABLED=false")
+        return
+
     logger.info("CloudTalk sync loop started")
     while True:
         try:
-            if not settings.CLOUDTALK_ENABLED:
-                await asyncio.sleep(60)
-                continue
             try:
                 stats = await _run_sync_window()
                 if not stats.get("skipped"):
