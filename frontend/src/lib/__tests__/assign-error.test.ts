@@ -15,6 +15,28 @@ function axios409(detail: string): AxiosError {
   });
 }
 
+function priorityWork409(): AxiosError {
+  const headers = new AxiosHeaders();
+  const config = { headers };
+  return new AxiosError("Request failed with status code 409", "ERR_BAD_REQUEST", config as never, null, {
+    status: 409,
+    statusText: "Conflict",
+    headers,
+    config: config as never,
+    data: {
+      detail: {
+        code: "PRIORITY_WORK_LOCKED",
+        action: "open_process",
+        job_id: 42,
+        active_plan_id: 7,
+        reason: "JOB_NOT_ASSIGNED",
+        next_action: "CONTACT_HEAD_OF_RECRUITMENT",
+        message: "Nie możesz dodać nowej osoby do tego requestu.",
+      },
+    },
+  });
+}
+
 describe("assignErrorMessage", () => {
   it("maps every eligibility reason code to a Polish sentence", () => {
     for (const [code, label] of Object.entries(ASSIGN_BLOCKED_LABELS)) {
@@ -40,5 +62,12 @@ describe("assignErrorMessage", () => {
       "— powód: „Nie spełnia wymagań technicznych”. " +
       "To ten sam hiring manager co w tej rekrutacji.";
     expect(assignErrorMessage(axios409(detail))).toBe(detail);
+  });
+
+  it("renders a structured Priority Work conflict with the next action", () => {
+    expect(assignErrorMessage(priorityWork409())).toBe(
+      "Nie możesz dodać nowej osoby do tego requestu. " +
+        "Skontaktuj się z Head of Recruitment, jeśli potrzebujesz wyjątku.",
+    );
   });
 });
