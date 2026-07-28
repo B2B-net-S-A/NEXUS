@@ -6,8 +6,10 @@ Liczy lejek rekrutacyjny dla usera wg modelu atrybucji **verifier-anchored**
 dostaje osoba, która przeniosła kandydata na etap `verified` (Zweryfikowany),
 niezależnie kto klikał późniejsze etapy. Dla historycznych par bez jawnej
 decyzji Priority Work pozostaje dotychczasowy fallback do autora milestone'u.
-Nowy proces bez zaakceptowanego `verified` nie dostaje kredytu za późniejszy
-milestone i nie może odblokować go wstecz.
+Proces z kotwicą (zaakceptowany `verified` + `credit_user_id`) nie kredytuje
+milestone'ów sprzed niej — kotwica nie odblokowuje historii wstecz. Proces bez
+kotwicy nie znika z KPI: milestone dostaje autor ruchu, tak jak przed
+wprowadzeniem tego modelu.
 
 Źródło prawdy: `candidate_stages` (żywa tabela) — NIE martwy log
 `user_activities`, na którym opierał się stary KPI Coach.
@@ -91,7 +93,12 @@ PANEL_KPI_DEFAULTS: dict[str, dict[UserRole, int]] = {
 #      a akceptacja pending liczy się od `approved_at`, nie od pierwotnego ruchu.
 #   3) `classified_credited` — tylko zamrożone `kpi_eligible=true` i
 #      `credit_user_id`; handoff ownera nigdy nie zmienia creditu.
-#   4) `legacy_mf` / `legacy_credited` — dotychczasowy fallback wyłącznie dla
+#   4) `classified_fallback` — proces BEZ kotwicy (`classified_anchor`), czyli
+#      bez zaakceptowanego `verified` albo bez `credit_user_id`. Zamiast gubić
+#      kamień milowy (przed tym CTE dostawał go `COALESCE(verifier, first_mover)`)
+#      wracamy do atrybucji sprzed verifier-anchored. Kotwica i fallback wykluczają
+#      się nawzajem po `process_id`, więc milestone liczy się dokładnie raz.
+#   5) `legacy_mf` / `legacy_credited` — dotychczasowy fallback wyłącznie dla
 #      historii sprzed pierwszego sklasyfikowanego procesu. Dzięki temu nowy
 #      attempt nie może odziedziczyć milestone'ów ani verifiera z poprzedniego.
 # Konsument dokleja własny SELECT … FROM credited.
@@ -160,6 +167,17 @@ VERIFIER_ANCHORED_CTE = """
         FROM classified_stage_ranked
         WHERE rn = 1
     ),
+    classified_verified AS (
+        SELECT process_id, first_mover, reached_at
+        FROM classified_mf
+        WHERE stage = 'verified'
+    ),
+    classified_anchor AS (
+        SELECT cp.id AS process_id, verified.reached_at
+        FROM classified_process cp
+        JOIN classified_verified verified ON verified.process_id = cp.id
+        WHERE cp.credit_user_id IS NOT NULL
+    ),
     classified_credited AS (
         SELECT mf.stage,
                mf.reached_at,
@@ -168,12 +186,25 @@ VERIFIER_ANCHORED_CTE = """
                cp.credit_user_id AS credit_user
         FROM classified_mf mf
         JOIN classified_process cp ON cp.id = mf.process_id
-        JOIN classified_mf verified
+        JOIN classified_anchor verified
           ON verified.process_id = mf.process_id
-         AND verified.stage = 'verified'
         WHERE cp.kpi_eligible IS TRUE
-          AND cp.credit_user_id IS NOT NULL
           AND mf.reached_at >= verified.reached_at
+    ),
+    classified_fallback AS (
+        SELECT mf.stage,
+               mf.reached_at,
+               mf.candidate_id,
+               mf.job_id,
+               COALESCE(verified.first_mover, mf.first_mover) AS credit_user
+        FROM classified_mf mf
+        JOIN classified_process cp ON cp.id = mf.process_id
+        LEFT JOIN classified_verified verified
+          ON verified.process_id = mf.process_id
+        LEFT JOIN classified_anchor anchored
+          ON anchored.process_id = mf.process_id
+        WHERE cp.kpi_eligible IS TRUE
+          AND anchored.process_id IS NULL
     ),
     legacy_mf AS (
         SELECT afm.candidate_id, afm.job_id, afm.stage::text AS stage,
@@ -228,6 +259,8 @@ VERIFIER_ANCHORED_CTE = """
     ),
     credited AS (
         SELECT * FROM classified_credited
+        UNION ALL
+        SELECT * FROM classified_fallback
         UNION ALL
         SELECT * FROM legacy_credited
     )

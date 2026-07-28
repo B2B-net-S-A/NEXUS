@@ -34,6 +34,13 @@ from app.models.recruitment_pipeline import (
     PipelineStage,
     VerificationStatus,
 )
+from app.models.recruitment_priority import PriorityOriginKind
+from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+
+# Bez tego importu rejestr mapperów nie zna `Skill` i CAŁY plik wywala się na
+# `CortexSkillFact` — plik przechodził tylko dlatego, że inny moduł suity
+# zaimportował go pierwszy.
+from app.models.skill import Skill as _Skill  # noqa: F401
 from app.models.user import User, UserRole
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
@@ -125,3 +132,113 @@ async def test_rejected_verifier_does_not_anchor_credit():
     assert by_stage.get("cv_sent") == ids["user_b_id"], (
         "cv_sent credit was anchored to the rejected verifier (M7-P0.8 regressed)"
     )
+
+
+async def _seed_classified(db, *, with_accepted_verified: bool):
+    """One candidate×job behind a CLASSIFIED (non-legacy) recruitment process.
+
+    ``credit_user_id`` is only ever written when an accepted ``verified``
+    happens, so ``with_accepted_verified=False`` reproduces the shape that used
+    to fall through every branch of the CTE: a process opened after the Priority
+    Work rollout whose recruiter went cv_sent → client_interview → hired.
+    """
+    u = uuid.uuid4().hex[:8]
+    user_a = User(
+        email=f"kpi-cls-a-{u}@example.com", password_hash=hash_password("x"),
+        name="Mover A", role=UserRole.recruiter, is_active=True,
+    )
+    user_b = User(
+        email=f"kpi-cls-b-{u}@example.com", password_hash=hash_password("x"),
+        name="Mover B", role=UserRole.recruiter, is_active=True,
+    )
+    client = Client(name=f"KPI Cls Client {u}")
+    db.add_all([user_a, user_b, client])
+    await db.flush()
+    job = Job(title=f"KPI Cls Job {u}", client_id=client.id)
+    cand = Candidate(name="Klara", lastname=f"CLS-{u}")
+    db.add_all([job, cand])
+    await db.flush()
+
+    if with_accepted_verified:
+        db.add(CandidateStage(
+            candidate_id=cand.id, job_id=job.id, stage=PipelineStage.verified,
+            moved_at=T0 + timedelta(days=1), moved_by=user_a.id,
+            verification_status=VerificationStatus.active,
+        ))
+    db.add_all([
+        CandidateStage(
+            candidate_id=cand.id, job_id=job.id, stage=PipelineStage.cv_sent,
+            moved_at=T0 + timedelta(days=2), moved_by=user_a.id,
+        ),
+        CandidateStage(
+            candidate_id=cand.id, job_id=job.id,
+            stage=PipelineStage.client_interview,
+            moved_at=T0 + timedelta(days=3), moved_by=user_b.id,
+        ),
+        CandidateStage(
+            candidate_id=cand.id, job_id=job.id, stage=PipelineStage.hired,
+            moved_at=T0 + timedelta(days=4), moved_by=user_b.id,
+        ),
+    ])
+    db.add(RecruitmentProcess(
+        candidate_id=cand.id, job_id=job.id, client_id=client.id,
+        attempt_no=1, status=ProcessStatus.open,
+        origin_kind=PriorityOriginKind.assigned,
+        opened_at=T0, kpi_eligible=True,
+        credit_user_id=user_a.id if with_accepted_verified else None,
+    ))
+    await db.commit()
+    return {"candidate_id": cand.id, "job_id": job.id,
+            "user_a_id": user_a.id, "user_b_id": user_b.id}
+
+
+async def _credited(db, ids) -> list[tuple[str, int]]:
+    rows = (
+        await db.execute(
+            text(
+                VERIFIER_ANCHORED_CTE
+                + "SELECT stage, credit_user FROM credited "
+                "WHERE candidate_id = :cid AND job_id = :jid "
+                "ORDER BY stage"
+            ),
+            {"cid": ids["candidate_id"], "jid": ids["job_id"]},
+        )
+    ).all()
+    return [(r.stage, r.credit_user) for r in rows]
+
+
+async def test_classified_process_without_verifier_still_credits_the_mover():
+    """No accepted `verified` must not delete the milestones from KPI.
+
+    Before the fallback the anchored branch required both `credit_user_id` and
+    a `verified` row, and the legacy branch only covers history predating the
+    first classified process — so this whole process was credited to nobody and
+    silently vanished from "Moje KPI", reports, top_recruiters and hall of fame.
+    """
+    async with AsyncSessionLocal() as db:
+        ids = await _seed_classified(db, with_accepted_verified=False)
+        credited = await _credited(db, ids)
+
+    assert sorted(credited) == sorted([
+        ("cv_sent", ids["user_a_id"]),
+        ("client_interview", ids["user_b_id"]),
+        ("hired", ids["user_b_id"]),
+    ]), f"milestones lost or misattributed without a verifier anchor: {credited}"
+
+
+async def test_verifier_anchor_still_wins_and_never_double_counts():
+    """With an anchor the verifier keeps every later milestone — exactly once."""
+    async with AsyncSessionLocal() as db:
+        ids = await _seed_classified(db, with_accepted_verified=True)
+        credited = await _credited(db, ids)
+
+    stages = [stage for stage, _ in credited]
+    assert len(stages) == len(set(stages)), (
+        f"a milestone was counted by both the anchor and the fallback: {credited}"
+    )
+    assert sorted(credited) == sorted([
+        ("verified", ids["user_a_id"]),
+        ("cv_sent", ids["user_a_id"]),
+        ("client_interview", ids["user_a_id"]),
+        ("hired", ids["user_a_id"]),
+    ]), f"anchored attribution regressed: {credited}"

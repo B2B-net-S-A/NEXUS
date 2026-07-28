@@ -18,12 +18,14 @@ snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -55,6 +57,11 @@ POINTS_FORMULA = {
 # Wymóg tygodniowej aktywności dla Wyścigu Rekomendacji.
 MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY = 4
 MONTHLY_RACE_MIN_PRECISION_PCT = 75.0
+
+# Ile pozycji pokazujemy w rankingu wyścigu miesięcznego.
+MONTHLY_RACE_RANKING_SIZE = 10
+
+_WARSAW = ZoneInfo(DEFAULT_TZ)
 
 
 @dataclass
@@ -451,35 +458,63 @@ async def monthly_most_recommendations(
     )
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
+    # Warunki nagrody liczymy jako kolumnę `qualified`, NIE w HAVING: HAVING
+    # wycinałby niezakwalifikowanych z samego RANKINGU, więc widget „Wyścig
+    # Rekomendacji" świecił pustką póki nikt nie dobił progu. Nagrodę i tak
+    # filtruje `qualified_for_award`.
+    # Podwójny ROW_NUMBER, bo LIMIT dotyczy teraz listy wyświetlanej: bierzemy
+    # TOP N do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą
+    # nie wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się
+    # osobę. Werdykt nagrodowy zostaje taki sam jak przed zmianą.
     rows = (
         await db.execute(
             text(
                 VERIFIER_ANCHORED_CTE
                 + """
-                SELECT u.id, u.name, u.role::text AS role,
-                       count(*) FILTER (WHERE c.stage = 'verified') AS verifications,
-                       count(*) FILTER (WHERE c.stage = 'cv_sent') AS recommendations
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.reached_at >= :start
-                  AND c.reached_at < :end
-                  AND c.stage IN ('verified', 'cv_sent')
-                  AND (
-                      u.role::text IN ('sourcer', 'tac', 'recruiter')
-                      OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
-                  )
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name, u.role
-                HAVING count(*) FILTER (WHERE c.stage = 'cv_sent') >= 1
-                   AND count(*) FILTER (WHERE c.stage = 'verified')
-                       >= :required_verifications
-                   AND (
-                       100.0 * count(*) FILTER (WHERE c.stage = 'cv_sent')
-                       >= :min_precision_pct
-                          * count(*) FILTER (WHERE c.stage = 'verified')
-                   )
-                ORDER BY recommendations DESC, u.name ASC
-                LIMIT 10
+                , race_totals AS (
+                    SELECT u.id, u.name, u.role::text AS role,
+                           count(*) FILTER (
+                               WHERE c.stage = 'verified'
+                           ) AS verifications,
+                           count(*) FILTER (
+                               WHERE c.stage = 'cv_sent'
+                           ) AS recommendations,
+                           (
+                               count(*) FILTER (WHERE c.stage = 'verified')
+                                   >= :required_verifications
+                               AND 100.0 * count(*) FILTER (WHERE c.stage = 'cv_sent')
+                                   >= CAST(:min_precision_pct AS NUMERIC)
+                                      * count(*) FILTER (WHERE c.stage = 'verified')
+                           ) AS qualified
+                    FROM credited c
+                    JOIN users u ON u.id = c.credit_user
+                    WHERE c.reached_at >= :start
+                      AND c.reached_at < :end
+                      AND c.stage IN ('verified', 'cv_sent')
+                      AND (
+                          u.role::text IN ('sourcer', 'tac', 'recruiter')
+                          OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                      )
+                      AND u.is_active IS TRUE
+                    GROUP BY u.id, u.name, u.role
+                    HAVING count(*) FILTER (WHERE c.stage = 'cv_sent') >= 1
+                ),
+                race_ranked AS (
+                    SELECT t.*,
+                           ROW_NUMBER() OVER (
+                               ORDER BY t.recommendations DESC, t.name ASC
+                           ) AS display_rank,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY t.qualified
+                               ORDER BY t.recommendations DESC, t.name ASC
+                           ) AS rank_in_group
+                    FROM race_totals t
+                )
+                SELECT id, name, role, verifications, recommendations, qualified
+                FROM race_ranked
+                WHERE display_rank <= :ranking_size
+                   OR (qualified AND rank_in_group <= :ranking_size)
+                ORDER BY recommendations DESC, name ASC
                 """
             ),
             {
@@ -487,6 +522,7 @@ async def monthly_most_recommendations(
                 "end": end,
                 "required_verifications": required_verifications,
                 "min_precision_pct": MONTHLY_RACE_MIN_PRECISION_PCT,
+                "ranking_size": MONTHLY_RACE_RANKING_SIZE,
             },
         )
     ).all()
@@ -498,10 +534,12 @@ async def monthly_most_recommendations(
         precision_pct = (
             round(100.0 * recommendations / verified, 1) if verified else 0.0
         )
+        # Powody liczone bez zaokrąglenia, żeby nie rozjechały się z kolumną
+        # `qualified` (round(74.999, 1) == 75.0, a SQL widzi 74.999 < 75).
         reasons: list[str] = []
         if verified < required_verifications:
             reasons.append("MIN_VERIFICATIONS_NOT_MET")
-        if precision_pct < MONTHLY_RACE_MIN_PRECISION_PCT:
+        if 100.0 * recommendations < MONTHLY_RACE_MIN_PRECISION_PCT * verified:
             reasons.append("MIN_PRECISION_NOT_MET")
         ranked.append(
             RankedUser(
@@ -514,21 +552,24 @@ async def monthly_most_recommendations(
                     "recommendations": recommendations,
                     "precision_pct": precision_pct,
                     "required_verifications": required_verifications,
-                    "qualified": not reasons,
+                    "qualified": bool(row.qualified) and not reasons,
                     "disqualification_reasons": reasons,
                 },
             )
         )
-    # Qualification belongs before LIMIT so a qualified rank 11+ can move
-    # into the top ten after higher-volume but ineligible users are excluded.
-    # Retain the Python predicate as defence in depth for mocked/custom rows.
-    return qualified_for_award(ranked)
+    return ranked
 
 
 def business_days_elapsed_in_month(
     year: int, month: int, today: Optional[date] = None
 ) -> int:
-    """Mon–Fri elapsed in the selected month; Polish holidays are v2 scope."""
+    """Dni robocze, które upłynęły w wybranym miesiącu.
+
+    „Dzień roboczy" to ta sama definicja co w reszcie systemu — Pon–Pt **minus**
+    polskie święta ustawowe (`app.core.scheduling.is_business_day`). Bez tego
+    próg „4 weryfikacje / dzień roboczy" liczyłby np. styczeń jako 22 dni zamiast
+    20 i wykluczał z nagrody osobę, która trafiła w target każdego realnego dnia.
+    """
     today = today or date.today()
     _, end_dt = month_bounds(year, month)
     month_last = (end_dt - timedelta(days=1)).date()
@@ -541,7 +582,9 @@ def business_days_elapsed_in_month(
     cursor = date(year, month, 1)
     count = 0
     while cursor <= last:
-        if cursor.weekday() < 5:
+        # Południe lokalne: `is_business_day` czyta datę kalendarzową po
+        # konwersji do strefy, więc punkt w środku doby jest odporny na DST.
+        if is_business_day(datetime.combine(cursor, time(12), tzinfo=_WARSAW)):
             count += 1
         cursor += timedelta(days=1)
     return count
