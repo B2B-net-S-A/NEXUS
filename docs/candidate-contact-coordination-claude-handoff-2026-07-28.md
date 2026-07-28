@@ -3,9 +3,9 @@
 - Data handoffu: 2026-07-28
 - Status: gotowe do review na draft PR; bez merge, deployu i zmian produkcyjnych
 - Branch: `codex/candidate-contact-queue`
-- Bazowy `origin/main`: `ded1c59770c0e5eceae773f91fd46ce5dfc2b6a7`
-- Commit backendu: `3214065d`
-- Commit frontendu: `a6c558f8`
+- Bazowy `origin/main`: `7c7c2a5bab28fd29ef64f6bfafdea3aa29d02441`
+- Commit backendu: `4550ac09`
+- Commit frontendu: `2a747ed4`
 - Draft PR: do uzupełnienia po utworzeniu
 - Hosted CI: do uzupełnienia po zakończeniu checków
 
@@ -344,9 +344,9 @@ Zmiana flag środowiskowych wymaga restartu procesu aplikacji.
 ### Backend
 
 - bazowy SHA po rebase:
-  `ded1c59770c0e5eceae773f91fd46ce5dfc2b6a7`;
+  `7c7c2a5bab28fd29ef64f6bfafdea3aa29d02441`;
 - `ruff check`: PASS;
-- `ruff format --check`: PASS, 574 pliki;
+- `ruff format --check app/`: PASS, 568 plików;
 - `python -m compileall`: PASS;
 - import `app.main`: PASS;
 - `bash -n backend/entrypoint.sh`: PASS;
@@ -369,7 +369,7 @@ wykonać hosted CI.
 - ESLint: PASS, tylko istniejące ostrzeżenia baseline;
 - token guard: PASS, 30 plików;
 - TypeScript `tsc --noEmit`: PASS;
-- Vitest z coverage: 75 plików / 796 testów PASS;
+- Vitest z coverage i jednym workerem: 75 plików / 796 testów PASS;
 - Next production build: PASS;
 - route `/candidates/contact-queue`: wygenerowana;
 - route `/preview/contact-queue`: wygenerowana.
@@ -383,6 +383,12 @@ Manualny browser QA preview wykonano dla 390/768/1440 px:
 
 Podczas QA wykryto i naprawiono błąd granicy Server/Client Component w preview.
 Po bezkonfliktowym rebase ponowiono pełne testy i production build.
+
+Dwa lokalne przebiegi coverage z domyślną równoległością miały odpowiednio
+1 i 2 timeouty po 5 s w niezmienianych testach baseline. Każdy timeout przeszedł
+izolowanie, a pełny przebieg `npm run test:coverage -- --maxWorkers=1` zakończył
+się wynikiem 796/796. Nie zmieniano cudzych timeoutów; dokładny równoległy
+przebieg w hosted CI jest bramką PR.
 
 ## 8. Hosted CI
 
