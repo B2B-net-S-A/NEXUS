@@ -44,7 +44,9 @@ export function SeekingContractorsBoard() {
           {isLoading
             ? "Wyszukuję dopasowania…"
             : data
-              ? `${data.total} konsultantów w horyzoncie ${data.horizon_days} dni`
+              ? data.truncated
+                ? `${data.returned} z ${data.total} konsultantów w horyzoncie ${data.horizon_days} dni`
+                : `${data.total} konsultantów w horyzoncie ${data.horizon_days} dni`
               : ""}
         </div>
         <button

@@ -1175,6 +1175,30 @@ def _shape_seek_job(j: Job) -> dict:
     }
 
 
+def seeking_priority(
+    candidate_id: int, ending_meta: dict[int, dict]
+) -> tuple[int, str, int]:
+    """Klucz porządkujący pulę „Szukają projektu" PRZED obcięciem do strony.
+
+    Na poziomie modułu, nie jako domknięcie w handlerze, bo to jest reguła
+    decydująca o tym, KTO przetrwa cięcie — test musi sprawdzać dokładnie tę
+    funkcję, a nie jej kopię (kopia przestaje cokolwiek chronić w momencie,
+    w którym oryginał się zmieni).
+
+    Pełny klucz wymagałby scoringu, którego nie policzymy dla całej puli. Ale
+    kryterium pierwszorzędne — pilność — znamy przed scoringiem: kontrakt
+    kończy się wcześniej ⇒ wyżej. ``candidate_id`` domyka porządek, żeby wynik
+    był powtarzalny między requestami.
+
+    ``contract_end_date`` jest tu zawsze ustawiona: zapytanie budujące
+    ``ending_meta`` filtruje ``Contract.end_date.is_not(None)``.
+    """
+    meta = ending_meta.get(candidate_id)
+    if meta is None:
+        return (1, "", candidate_id)  # bez kontraktu — po tych kończących się
+    return (0, meta["contract_end_date"].isoformat(), candidate_id)
+
+
 @router.get("/recommendations/seeking-contractors")
 @limiter.limit("20/minute")
 async def seeking_contractors(
@@ -1271,12 +1295,33 @@ async def seeking_contractors(
     )
     looking_ids = {row[0] for row in looking_rows.all()}
 
-    candidate_ids = list(set(ending_meta.keys()) | looking_ids)[:page_size]
+    # Pełna pula PRZED obcięciem — `total` musi opisywać ilu jest konsultantów,
+    # nie ile ich zmieściło się na stronie. Wcześniej `total` liczyło już
+    # obciętą listę, więc UI pokazywał „18 konsultantów w horyzoncie 30 dni"
+    # niezależnie od tego, czy było ich 18 czy 400.
+    pool_ids = set(ending_meta.keys()) | looking_ids
+    total_available = len(pool_ids)
+
+    # Kolejność PRZED obcięciem, nie po. Wcześniej brane było `list(set(...))`,
+    # czyli porządek iteracji zbioru — a właściwe sortowanie („kończące się
+    # kontrakty najpierw") wykonywało się dopiero na tym, co zostało po cięciu.
+    # Konsultant z kontraktem kończącym się jutro mógł więc po prostu nie
+    # zmieścić się w arbitralnym wycinku i zniknąć z ekranu bez śladu.
+    #
+    # Pełny klucz sortowania wymaga scoringu, którego nie policzymy dla całej
+    # puli. Ale kryterium PIERWSZORZĘDNE — pilność — znamy już teraz: kontrakt
+    # kończy się wcześniej ⇒ wyżej. `id` domyka porządek, żeby wynik był
+    # powtarzalny między requestami.
+    candidate_ids = sorted(
+        pool_ids, key=lambda cid: seeking_priority(cid, ending_meta)
+    )[:page_size]
 
     if not candidate_ids:
         return {
             "horizon_days": horizon_days,
             "total": 0,
+            "returned": 0,
+            "truncated": False,
             "items": [],
         }
 
@@ -1292,7 +1337,9 @@ async def seeking_contractors(
     if not all_open_jobs:
         return {
             "horizon_days": horizon_days,
-            "total": len(candidate_ids),
+            "total": total_available,
+            "returned": len(candidate_ids),
+            "truncated": total_available > len(candidate_ids),
             "items": [
                 {
                     "candidate": _shape_seek_candidate(c),
@@ -1396,6 +1443,10 @@ async def seeking_contractors(
 
     return {
         "horizon_days": horizon_days,
-        "total": len(items),
+        # Ilu ich JEST, nie ilu się zmieściło — te dwie liczby rozjeżdżały się
+        # cicho, a UI pokazywał tę drugą jako pierwszą.
+        "total": total_available,
+        "returned": len(items),
+        "truncated": total_available > len(items),
         "items": items,
     }

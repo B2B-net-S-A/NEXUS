@@ -707,6 +707,9 @@ export interface MarketplacePoolMeta {
   candidate_count: number;
   is_marketplace: boolean;
   created_at: string;
+  /** Próg alertowania z backendu. NIE hardkoduj go w UI — do 2026-07-28 dwa
+   *  miejsca mówiły „≥ 70", a `MARKETPLACE_SCORE_THRESHOLD` był 80. */
+  score_threshold: number;
 }
 
 export const marketplaceApi = {
@@ -2730,7 +2733,14 @@ export interface SeekingContractorRow {
 
 export interface SeekingContractorsResponse {
   horizon_days: number;
+  /** Ilu konsultantów JEST w horyzoncie — nie ilu zmieściło się na stronie.
+   *  Do 2026-07-28 backend zwracał tu długość obciętej listy, więc licznik
+   *  zawsze zgadzał się z tym, co widać, i obcięcie było niewidoczne. */
   total: number;
+  /** Ile pozycji faktycznie zwrócono (≤ `page_size`). */
+  returned: number;
+  /** `total > returned` — lista jest przycięta i ktoś może nie być widoczny. */
+  truncated: boolean;
   items: SeekingContractorRow[];
 }
 
