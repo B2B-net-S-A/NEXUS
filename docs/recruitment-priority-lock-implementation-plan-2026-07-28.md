@@ -12,7 +12,7 @@ Pierwotny bazowy commit worktree:
 `85195914f70936a06d8ef23d488b9c7ce2be3232`
 
 Aktualna baza po rebase:
-`8b4e83f87f39b0295b0266337c9b60f265d18a72`
+`963d5be6eadc1cafabb2dbfef9906a57dc8eba6c`
 
 ## 1. Granice realizacji
 
@@ -39,7 +39,7 @@ ma wartość domyślną `off`. Draft PR
 niegotowy do merge. Implementacyjny SHA
 `693e2ecbba2034710c41f8d08c76673b15f2b98b` przeszedł hosted CI
 `30358044332` oraz Claude review `30358044393`. Branch został ponownie
-zrebasowany bez konfliktów na aktualny `origin/main` `8b4e83f8`; range-diff
+zrebasowany bez konfliktów na aktualny `origin/main` `963d5be6`; range-diff
 potwierdził niezmienność wcześniejszych commitów funkcji.
 
 Końcowy commit dokumentacyjny z natury ma późniejszy SHA niż dowód
@@ -407,16 +407,16 @@ opartej o bazę. Deep health sprawdza nowe tabele oraz rozszerzony proces.
 Zakres testów jest celowo opisany dokładnie:
 
 - 8 modułów backendowych `test_priority_work*.py`;
-- 118 funkcji testowych w tych modułach;
-- parametryzacja daje 164 wykonane przypadki;
+- 119 funkcji testowych w tych modułach;
+- parametryzacja daje 165 wykonanych przypadków;
 - 9 skupionych plików frontendowych i 39 testów.
 
 Wyniki lokalne:
 
 | Kontrola | Wynik |
 |---|---|
-| backend Priority Work | **164 passed** |
-| regresje Priority Work + auth + aktualny upstream search | **225 passed** |
+| backend Priority Work | **165 passed** |
+| regresje Priority Work + auth + aktualny upstream search | **226 passed** |
 | frontend focused Vitest | **9 plików / 39 passed** |
 | Ruff check i format: app, migracja, testy | **pass** |
 | Python compile | **pass** |
@@ -425,7 +425,7 @@ Wyniki lokalne:
 | frontend typecheck | **pass** |
 | frontend lint | **pass** |
 | token guard | **pass** |
-| rebase / range-diff / audyt zmian upstream | **pass**, baza `8b4e83f8` |
+| rebase / range-diff / audyt zmian upstream | **pass**, baza `963d5be6` |
 | lokalny Docker | nie uruchamiano |
 | draft PR | **#985, draft, bez merge/deployu** |
 | hosted CI na SHA implementacyjnym | **pass**, run `30358044332` |

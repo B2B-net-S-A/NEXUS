@@ -110,7 +110,7 @@ def utcnow() -> datetime:
 def review_due_after_business_days(
     started_at: datetime, business_days: int = 3
 ) -> datetime:
-    """Return the same Warsaw wall-clock time after ``business_days`` Mon–Fri."""
+    """Return the Warsaw wall-clock time after Polish business days."""
     local = started_at.astimezone(WARSAW)
     cursor = local
     remaining = business_days

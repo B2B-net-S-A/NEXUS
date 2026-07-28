@@ -123,6 +123,14 @@ def test_review_due_skips_weekend_and_preserves_warsaw_wall_clock() -> None:
     )
 
 
+def test_review_due_skips_polish_weekday_holiday() -> None:
+    # Wednesday 10:30 Warsaw + 3 business days skips 1 May and the weekend.
+    started = datetime(2026, 4, 29, 8, 30, tzinfo=timezone.utc)
+    assert review_due_after_business_days(started) == datetime(
+        2026, 5, 5, 8, 30, tzinfo=timezone.utc
+    )
+
+
 def test_zero_business_days_keeps_the_same_instant() -> None:
     started = datetime(2026, 7, 27, 8, 15, tzinfo=timezone.utc)
     assert review_due_after_business_days(started, business_days=0) == started
