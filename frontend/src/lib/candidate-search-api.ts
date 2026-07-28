@@ -128,6 +128,13 @@ export interface SearchFacets {
 export interface SearchMeta {
   ai_status: AiStatus;
   took_ms: number;
+  /** TEN request poszedł bez warstwy semantycznej (Qdrant/Voyage nie odpowiedział).
+   *
+   *  Backend zwracał to od dawna, ale typ tego nie miał, więc UI nie mógł tego
+   *  pokazać. `ai_status` nie zastępuje tej flagi: schodzi do `down` dopiero po
+   *  trzech kolejnych awariach, więc pojedynczy zdegradowany request wyglądał
+   *  dla użytkownika dokładnie jak komplet wyników. */
+  search_degraded?: boolean;
 }
 
 export interface CandidateSearchResponse {

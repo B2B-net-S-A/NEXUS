@@ -26,7 +26,6 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import (
-    Text,
     and_,
     case,
     delete,
@@ -805,17 +804,21 @@ async def _build_candidate_filtered_query(
     if f.skills or f.skills_any or f.skills_none:
         from app.services.scoring_service import canonical_skill_names
 
-        def skill_predicate(skill: str):
-            pattern = f"%{skill.lower()}%"
-            return or_(
-                func.lower(func.coalesce(Candidate.skills.cast(Text), "")).like(
-                    pattern
-                ),
-                func.lower(func.coalesce(Candidate.verified_tech.cast(Text), "")).like(
-                    pattern
-                ),
-                func.lower(func.coalesce(Candidate.tags.cast(Text), "")).like(pattern),
-            )
+        # Jeden predykat dla OBU powierzchni filtrowania umiejętności.
+        #
+        # Ta lista i `POST /api/search/candidates` miały własne, rozjeżdżone
+        # implementacje tego samego filtra. #960 naprawił tamtą — a frontend
+        # wysyła „nie ma <X>" WŁAŚNIE TUTAJ (`skill-expression.ts` →
+        # `url-filters.ts`), więc naprawa nie dotknęła ścieżki, z której
+        # rekruterzy faktycznie korzystają.
+        #
+        # Stary wzorzec `%go%` na tej trasie wycinał 196 osób przy 15 realnie
+        # znających Go — 181 fałszywych wykluczeń na filtrze TWARDYM,
+        # niewidocznych dla rekrutera (brakujący kandydat wygląda jak
+        # nieistniejący). Zmierzone na produkcji 2026-07-28.
+        from app.services.structured_candidate_search import _skill_match
+
+        skill_predicate = _skill_match
 
         def skill_group(names: list[str]):
             wanted = [s for s in (canonical_skill_names(names) or []) if s]

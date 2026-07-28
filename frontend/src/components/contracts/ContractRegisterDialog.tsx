@@ -31,6 +31,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -90,8 +91,14 @@ export function ContractRegisterDialog({
   const queryClient = useQueryClient();
 
   // Etykieta pola „Numer projektu" zależy od nomenklatury klienta:
-  // BNP i Bank Pocztowy → „Numer zamówienia", PFRON → „Numer zlecenia".
+  // BNP i Bank Pocztowy → „Numer zamówienia", PFRON → „Numer zlecenia",
+  // e-Zdrowie → „Numer umowy".
   // Dopasowanie po nazwie, spójne z detekcją w B2BContractGeneratorV2 (hasSpecialClauses).
+  //
+  // Dwa warianty dla e-Zdrowia są konieczne, nie nadmiarowe: w tabeli `clients`
+  // ten klient figuruje DWA razy — `eZdrowie` (id 115) i `E-Zdrowie` (id 5257).
+  // Sam stem „zdrow" byłby za szeroki (złapałby np. „Zdrowit"), więc dopasowanie
+  // jest do obu konkretnych zapisów.
   const clientNameLower = (clientName ?? "").toLowerCase();
   const projectCodeLabel =
     clientNameLower.includes("bnp") || clientNameLower.includes("pocztowy")
@@ -99,7 +106,10 @@ export function ContractRegisterDialog({
       : clientNameLower.includes("pfron") ||
           clientNameLower.includes("rehabilitacji osób niepełnosprawnych")
         ? "Numer zlecenia"
-        : "Numer projektu";
+        : clientNameLower.includes("e-zdrow") ||
+            clientNameLower.includes("ezdrow")
+          ? "Numer umowy"
+          : "Numer projektu";
 
   // ── Form state ──────────────────────────────────────────────────────────
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
@@ -112,6 +122,10 @@ export function ContractRegisterDialog({
     useState<EngagementModel>("time_based");
   const [startDate, setStartDate] = useState(todayISO());
   const [endDate, setEndDate] = useState("");
+  // „Czas nieokreślony" to nie osobne pole w API — to `end_date: null`.
+  // Trzymamy je jako stan UI, żeby odróżnić „bezterminowa" od „jeszcze
+  // nie wpisałem daty": oba dają NULL, ale znaczą co innego dla rekrutera.
+  const [openEnded, setOpenEnded] = useState(false);
   const [hoursTotal, setHoursTotal] = useState("");
   const [hoursConsumed, setHoursConsumed] = useState("");
   const [prolongation, setProlongation] =
@@ -135,6 +149,7 @@ export function ContractRegisterDialog({
       setEngagementModel(contract.engagement_model ?? "time_based");
       setStartDate(contract.start_date?.slice(0, 10) ?? todayISO());
       setEndDate(contract.end_date?.slice(0, 10) ?? "");
+      setOpenEnded(!contract.end_date);
       setHoursTotal(
         contract.hours_pool_total != null ? String(contract.hours_pool_total) : "",
       );
@@ -154,6 +169,7 @@ export function ContractRegisterDialog({
       setEngagementModel("time_based");
       setStartDate(todayISO());
       setEndDate("");
+      setOpenEnded(false);
       setHoursTotal("");
       setHoursConsumed("");
       setProlongation("unknown");
@@ -181,7 +197,7 @@ export function ContractRegisterDialog({
         project_name: projectName.trim() || null,
         engagement_model: engagementModel,
         start_date: startDate,
-        end_date: endDate || null,
+        end_date: openEnded ? null : endDate || null,
         hours_pool_total: isPool && hoursTotal ? Number(hoursTotal) : null,
         hours_pool_consumed: isPool && hoursConsumed ? Number(hoursConsumed) : null,
         prolongation_status: prolongation,
@@ -412,9 +428,17 @@ export function ContractRegisterDialog({
                 <Label className="mb-1.5 block">Data zakończenia</Label>
                 <Input
                   type="date"
-                  value={endDate}
+                  value={openEnded ? "" : endDate}
                   onChange={(e) => setEndDate(e.target.value)}
+                  disabled={openEnded}
                 />
+                <label className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Checkbox
+                    checked={openEnded}
+                    onCheckedChange={(v) => setOpenEnded(v === true)}
+                  />
+                  Czas nieokreślony
+                </label>
               </div>
             </div>
 

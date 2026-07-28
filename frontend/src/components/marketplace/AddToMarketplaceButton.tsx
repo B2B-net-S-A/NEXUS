@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Store, X, Check, Loader2, Sparkles } from "lucide-react";
 import { marketplaceApi } from "@/lib/api";
+import { useMarketplaceThreshold } from "@/hooks/useMarketplaceThreshold";
 import { CandidateMatchesExpansion } from "./CandidateMatchesExpansion";
 
 interface Props {
@@ -44,6 +45,7 @@ export function AddToMarketplaceButton({
   hideTrigger = false,
 }: Props) {
   const queryClient = useQueryClient();
+  const threshold = useMarketplaceThreshold();
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : internalOpen;
@@ -148,7 +150,7 @@ export function AddToMarketplaceButton({
                   )}{" "}
                   AI od razu przeszuka otwarte projekty i pokaże te, do których
                   pasuje najlepiej — a następnie będzie monitorować nowe oferty i
-                  alertować o dopasowaniach (score ≥ 70).
+                  alertować o dopasowaniach (score ≥ {threshold}).
                 </p>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">

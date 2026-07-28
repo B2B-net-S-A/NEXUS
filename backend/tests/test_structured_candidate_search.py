@@ -359,5 +359,10 @@ class TestCombined:
         assert len(clauses) == 3
         sql = _compile(clauses)
         assert "competence_category_id" in sql
-        assert "Python" in sql
+        # Dopasowanie umiejętności jest bezwielkoznakowe: predykat sprowadza do
+        # małych liter i kolumny, i szukaną wartość, więc w zapytaniu stoi
+        # `python`, nie `Python`. Asercja na samą obecność nazwy, nie na jej
+        # zapis — ten drugi był artefaktem poprzedniej implementacji (ILIKE ze
+        # wzorcem wstawianym bez zmiany wielkości liter).
+        assert "python" in sql.lower()
         assert "active" in sql
