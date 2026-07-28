@@ -181,7 +181,17 @@ async def update_shortlist_entry(
         setattr(entry, field, value)
     entry.version += 1
     entry.updated_by = current_user.id
-    if entry.outreach_status == "do_kontaktu":
+    # Kontakt uruchamia PRZEJŚCIE na „do_kontaktu", nie samo to, że pole taką
+    # wartość trzyma. `exclude_unset` odróżnia „pola nie ma w żądaniu" od
+    # „ustawiono je na tę samą wartość", ale żadna z tych sytuacji nie jest
+    # decyzją o dzwonieniu — a poprzednia wersja odpalała intake przy PATCH-u
+    # dowolnego innego pola (np. samej oceny) i potrafiła wskrzesić szansę
+    # zamkniętą wprost odmową kandydata.
+    started_outreach = (
+        entry.outreach_status == "do_kontaktu"
+        and previous_outreach_status != "do_kontaktu"
+    )
+    if started_outreach:
         await maybe_ensure_contact_opportunity(
             db,
             candidate_id=entry.candidate_id,
@@ -189,6 +199,9 @@ async def update_shortlist_entry(
             source="shortlist",
             source_external_ref=str(entry.id),
             occurred_at=datetime.now(timezone.utc),
+            # Świadome przestawienie statusu przez rekrutera to jedyna ścieżka
+            # ponownego podejścia do kandydata, który odmówił tej oferty.
+            allow_declined_reopen=True,
         )
     elif (
         previous_outreach_status == "do_kontaktu"

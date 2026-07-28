@@ -360,6 +360,9 @@ async def test_daily_traffit_equal_time_events_reach_domain_tuple_guard(
         source_external_ref="201",
         occurred_at=BASE_TIME,
         assign_if_possible=settings.CANDIDATE_CONTACT_ASSIGNMENT_ENABLED,
+        # Traffit to ingress automatyczny — nigdy nie wolno mu cofnąć odmowy
+        # kandydata (patrz DECLINED_CLOSE_REASONS).
+        allow_declined_reopen=False,
     )
     close.assert_awaited_once_with(
         db,

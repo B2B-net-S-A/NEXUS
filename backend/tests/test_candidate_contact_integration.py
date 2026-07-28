@@ -598,6 +598,186 @@ async def test_not_interested_call_fences_stale_traffit_reopen(
     assert opportunity.source_cursor_external_id == "1"
 
 
+async def _declined_shortlist_fixture(
+    contact_db: ContactDb,
+    *,
+    label: str,
+    outreach_status: str,
+) -> tuple[User, Candidate, Job, JobShortlistEntry, CandidateContactCase]:
+    """Kandydat, który odmówił przez telefon, z wpisem shortlisty w zadanym stanie."""
+
+    owner = await contact_db.add_user(UserRole.recruiter, label=f"{label}-owner")
+    candidate = await contact_db.add_candidate(label=label)
+    job = await contact_db.add_job(label=label, recruiter=owner)
+    entry = JobShortlistEntry(
+        job_id=job.id,
+        candidate_id=candidate.id,
+        outreach_status="do_kontaktu",
+        created_by=owner.id,
+        # Wprost, żeby odczyt po commicie nie wymagał lazy-refresha kolumny
+        # z ``server_default`` w sesji asynchronicznej.
+        version=1,
+    )
+    contact_db.db.add(entry)
+    await contact_db.db.flush()
+    contact_case = await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        source="shortlist",
+        source_external_ref=str(entry.id),
+        occurred_at=BASE_TIME,
+    )
+    assert contact_case is not None
+    completed = await record_contact_attempt(
+        contact_db.db,
+        case_id=contact_case.id,
+        actor_user_id=owner.id,
+        outcome="connected",
+        opportunity_outcomes={job.id: "not_interested"},
+        expected_version=contact_case.version,
+        idempotency_key=f"{contact_db.prefix}-{label}-decline",
+        occurred_at=BASE_TIME + timedelta(hours=3),
+    )
+    assert completed.case.state == CandidateContactState.completed.value
+    entry.outreach_status = outreach_status
+    await contact_db.commit()
+    return owner, candidate, job, entry, contact_case
+
+
+async def _opportunity_snapshot(
+    candidate_id: int, job_id: int
+) -> CandidateContactOpportunity:
+    async with AsyncSessionLocal() as db:
+        opportunity = await db.scalar(
+            select(CandidateContactOpportunity).where(
+                CandidateContactOpportunity.candidate_id == candidate_id,
+                CandidateContactOpportunity.job_id == job_id,
+            )
+        )
+        assert opportunity is not None
+        return opportunity
+
+
+def _enable_contact_intake(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ASSIGNMENT_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "CANDIDATE_CONTACT_ACTIVATION_AT",
+        BASE_TIME - timedelta(days=1),
+    )
+
+
+async def test_declined_job_survives_unrelated_shortlist_patch(
+    # `app_client` przed `contact_db`: importuje `app.main`, więc rejestr
+    # mapperów SQLAlchemy jest kompletny, zanim pierwsza sesja go skonfiguruje.
+    app_client: AsyncClient,
+    contact_db: ContactDb,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Odmowa jest terminalna: PATCH niezwiązanego pola nie wraca do kolejki.
+
+    Wpis shortlisty zostaje na ``do_kontaktu`` (nic go nie zsynchronizowało po
+    rozmowie), więc dzień później zmiana samej oceny nie może wskrzesić
+    zamkniętej szansy — kandydat już wprost odmówił dla tej oferty.
+    """
+
+    owner, candidate, job, entry, contact_case = await _declined_shortlist_fixture(
+        contact_db,
+        label="decline-unrelated",
+        outreach_status="do_kontaktu",
+    )
+    entry_id, entry_version = entry.id, entry.version
+    _enable_contact_intake(monkeypatch)
+
+    response = await app_client.patch(
+        f"/api/shortlist/{entry_id}",
+        json={"version": entry_version, "evaluation_status": "odrzucony"},
+        headers=_headers(owner),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["evaluation_status"] == "odrzucony"
+
+    opportunity = await _opportunity_snapshot(candidate.id, job.id)
+    assert opportunity.closed_at is not None
+    assert opportunity.closed_reason == "not_interested"
+    case = await _case_snapshot(contact_case.id)
+    assert case.state == CandidateContactState.completed.value
+    assert case.completed_at is not None
+    assert case.queue_slot is None
+
+
+async def test_declined_job_reopens_on_explicit_outreach_transition(
+    app_client: AsyncClient,
+    contact_db: ContactDb,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Jawne przejście na ``do_kontaktu`` to świadome ponowne podejście."""
+
+    owner, candidate, job, entry, contact_case = await _declined_shortlist_fixture(
+        contact_db,
+        label="decline-reengage",
+        outreach_status="brak_zainteresowania",
+    )
+    entry_id, entry_version = entry.id, entry.version
+    _enable_contact_intake(monkeypatch)
+
+    response = await app_client.patch(
+        f"/api/shortlist/{entry_id}",
+        json={"version": entry_version, "outreach_status": "do_kontaktu"},
+        headers=_headers(owner),
+    )
+    assert response.status_code == 200, response.text
+
+    opportunity = await _opportunity_snapshot(candidate.id, job.id)
+    assert opportunity.closed_at is None
+    assert opportunity.closed_reason is None
+    case = await _case_snapshot(contact_case.id)
+    assert case.state == CandidateContactState.queued.value
+
+
+async def test_declined_job_does_not_block_a_different_job(
+    app_client: AsyncClient,
+    contact_db: ContactDb,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Odmowa dotyczy jednej oferty — inna rekrutacja startuje normalnie."""
+
+    owner, candidate, declined_job, _, contact_case = await _declined_shortlist_fixture(
+        contact_db,
+        label="decline-other-job",
+        outreach_status="do_kontaktu",
+    )
+    other_job = await contact_db.add_job(label="decline-other-target", recruiter=owner)
+    other_entry = JobShortlistEntry(
+        job_id=other_job.id,
+        candidate_id=candidate.id,
+        outreach_status="nie_kontaktowano",
+        created_by=owner.id,
+        version=1,
+    )
+    contact_db.db.add(other_entry)
+    await contact_db.commit()
+    other_entry_id, other_entry_version = other_entry.id, other_entry.version
+    _enable_contact_intake(monkeypatch)
+
+    response = await app_client.patch(
+        f"/api/shortlist/{other_entry_id}",
+        json={"version": other_entry_version, "outreach_status": "do_kontaktu"},
+        headers=_headers(owner),
+    )
+    assert response.status_code == 200, response.text
+
+    opened = await _opportunity_snapshot(candidate.id, other_job.id)
+    assert opened.closed_at is None
+    declined = await _opportunity_snapshot(candidate.id, declined_job.id)
+    assert declined.closed_at is not None
+    assert declined.closed_reason == "not_interested"
+    case = await _case_snapshot(contact_case.id)
+    assert case.state == CandidateContactState.queued.value
+
+
 async def test_unassigned_owner_selection_uses_priority_then_linked_at(
     contact_db: ContactDb,
 ) -> None:

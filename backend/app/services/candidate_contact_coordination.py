@@ -60,6 +60,22 @@ _SOURCE_ALIASES = {
     "manual": CandidateContactOpportunitySource.manual.value,
 }
 _TRAFFIT_TERMINAL_WORKFLOW_TYPES = {"end-good", "end-bad", "wait"}
+# Zamknięcia, które są wprost odmową kandydata dla tej oferty. Odpowiednik
+# `do_not_contact` (tam trwały stan `suppressed` na całej sprawie), tylko w
+# granicach jednej pary kandydat/oferta. Automatyczny intake nie ma prawa ich
+# cofnąć: każdy późniejszy zapis dotykający ensure (edycja shortlisty, zmiana
+# etapu, rekomendacja) wracał inaczej z tą osobą do kolejki telefonicznej
+# oferty, której już odmówiła — i kasował `closed_reason`, czyli sam ślad
+# odmowy. Reopen tylko na jawne żądanie rekrutera
+# (``allow_declined_reopen=True``). Zamknięcia neutralne — `pipeline_terminal:*`,
+# `shortlist_removed`, `removed_from_recruitment`, zamknięcie oferty — celowo
+# tu NIE są: te mogą wrócić same.
+DECLINED_CLOSE_REASONS = frozenset(
+    {
+        "not_interested",
+        "shortlist_outreach:brak_zainteresowania",
+    }
+)
 
 
 class ContactValidationError(ValueError):
@@ -973,8 +989,14 @@ async def ensure_contact_opportunity(
     source_external_ref: Optional[str] = None,
     occurred_at: Optional[datetime] = None,
     assign_if_possible: bool = True,
+    allow_declined_reopen: bool = False,
 ) -> Optional[CandidateContactCase]:
-    """Idempotently add one recruitment to a candidate-global contact case."""
+    """Idempotently add one recruitment to a candidate-global contact case.
+
+    ``allow_declined_reopen`` is the *explicit* re-engagement switch: only a
+    caller that represents a deliberate recruiter decision to approach this
+    candidate again may clear a :data:`DECLINED_CLOSE_REASONS` close.
+    """
 
     now = _as_utc(occurred_at)
     canonical_source = _normalise_source(source)
@@ -1067,6 +1089,21 @@ async def ensure_contact_opportunity(
         # Overlap polling and daily imports may replay an older non-terminal
         # history row after a newer terminal event. Only a source event newer
         # than the close is allowed to reopen this candidate/job link.
+        return case
+    if (
+        opportunity is not None
+        and opportunity.closed_at is not None
+        and not is_traffit
+        and not allow_declined_reopen
+        and (opportunity.closed_reason or "") in DECLINED_CLOSE_REASONS
+    ):
+        # Kandydat odmówił tej oferty. Świeższy timestamp sam z siebie nie jest
+        # decyzją — a każde wywołanie z Nexusa niesie „teraz", więc guard wyżej
+        # przepuszcza je wszystkie. Bez tej bramki dowolny późniejszy zapis
+        # kasował `closed_at`/`closed_reason` i wracał z człowiekiem do kolejki.
+        # Traffit ma własną fencę pozycji źródła (`_set_local_close_fence`),
+        # która rozróżnia replay od realnie nowszego zdarzenia — nie dublujemy
+        # jej tutaj.
         return case
 
     reopened_opportunity = opportunity is not None
@@ -2698,6 +2735,7 @@ async def process_contact_cases(
 
 
 __all__ = [
+    "DECLINED_CLOSE_REASONS",
     "AttemptResult",
     "CandidateContactError",
     "ContactCapacityError",

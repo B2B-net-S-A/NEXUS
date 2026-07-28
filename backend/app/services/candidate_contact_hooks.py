@@ -96,8 +96,14 @@ async def maybe_ensure_contact_opportunity(
     source: str,
     source_external_ref: Optional[str] = None,
     occurred_at: Optional[datetime] = None,
+    allow_declined_reopen: bool = False,
 ):
-    """Create/extend one global case only when the cutover gate allows it."""
+    """Create/extend one global case only when the cutover gate allows it.
+
+    ``allow_declined_reopen`` must stay ``False`` for every automatic ingress;
+    pass it only from a caller that carries a deliberate recruiter decision to
+    approach a candidate who already declined this job.
+    """
 
     if not automatic_contact_intake_allowed(occurred_at):
         return None
@@ -113,6 +119,7 @@ async def maybe_ensure_contact_opportunity(
         source_external_ref=source_external_ref,
         occurred_at=occurred_at,
         assign_if_possible=settings.CANDIDATE_CONTACT_ASSIGNMENT_ENABLED,
+        allow_declined_reopen=allow_declined_reopen,
     )
 
 
