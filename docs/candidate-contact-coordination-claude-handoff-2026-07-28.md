@@ -6,8 +6,9 @@
 - Bazowy `origin/main`: `7c7c2a5bab28fd29ef64f6bfafdea3aa29d02441`
 - Commit backendu: `4550ac09`
 - Commit frontendu: `2a747ed4`
-- Draft PR: do uzupełnienia po utworzeniu
-- Hosted CI: do uzupełnienia po zakończeniu checków
+- Commit poprawki po pełnym CI: `10160870`
+- Draft PR: <https://github.com/artur-t-96/Nexus/pull/984>
+- Hosted CI kodu: zielone na `10160870`
 
 ## 1. Decyzja wdrożeniowa
 
@@ -388,21 +389,67 @@ Dwa lokalne przebiegi coverage z domyślną równoległością miały odpowiedni
 1 i 2 timeouty po 5 s w niezmienianych testach baseline. Każdy timeout przeszedł
 izolowanie, a pełny przebieg `npm run test:coverage -- --maxWorkers=1` zakończył
 się wynikiem 796/796. Nie zmieniano cudzych timeoutów; dokładny równoległy
-przebieg w hosted CI jest bramką PR.
+przebieg w hosted CI również zakończył się wynikiem 796/796.
 
 ## 8. Hosted CI
 
-Do uzupełnienia po otwarciu draft PR.
+Draft PR: <https://github.com/artur-t-96/Nexus/pull/984>
 
-Wymagane checki:
+### Pierwszy przebieg
 
-- Gitleaks secret scan;
-- Backend (ruff + migracja + import + pytest z PostgreSQL);
-- Frontend (lint + typecheck + Vitest coverage + build);
-- pozostałe wymagane checki repozytorium.
+Run
+[30354673961](https://github.com/artur-t-96/Nexus/actions/runs/30354673961)
+potwierdził:
 
-Nie uznawać PR za zielony, jeśli nie przejdzie sekwencja
-upgrade/downgrade/re-upgrade migracji i testy PostgreSQL.
+- PASS: migracja upgrade/downgrade/re-upgrade;
+- PASS: import aplikacji;
+- PASS: frontend, w tym równoległy Vitest coverage i build;
+- PASS: Gitleaks, Trivy/Hadolint i automatyczny review;
+- backend pytest: 3661 PASS, 14 SKIP, 3 FAIL.
+
+Trzy błędy były ograniczone do nowej funkcji i zostały przeanalizowane przed
+poprawką:
+
+1. Case z istniejącym spotkaniem pozostawał w `queued`, ponieważ sesja używa
+   `autoflush=False`, a agregacja opportunities następowała przed jawnym
+   flushowaniem zmiany statusu.
+2. Test lifecycle tworzył aktywne spotkania przed rozmową, co po uwzględnieniu
+   wymaganego zachowania istniejących spotkań kończyło handoff wcześniej niż
+   zakładał sam test.
+3. Test overlap Traffit tworzył kandydata bez telefonu, więc domena poprawnie
+   zwracała `blocked_no_phone` i `due_at=None`, zamiast testowanego terminu
+   kolejki.
+
+Commit `10160870`:
+
+- dodał jawny `await db.flush()` przed agregacją opportunities;
+- przesunął utworzenie spotkań w teście lifecycle za udany kontakt;
+- dodał telefon i jawne asercje `unassigned`/braku slotu w teście overlap.
+
+Flush pozostaje częścią tej samej transakcji: nie wykonuje commitu, nie zwalnia
+blokad i nie osłabia atomowości zapisu.
+
+### Pełny przebieg po poprawce
+
+Run
+[30356426647](https://github.com/artur-t-96/Nexus/actions/runs/30356426647)
+na `10160870` zakończył się zielono:
+
+- Backend: PASS po 17 min 50 s;
+- pytest z PostgreSQL: 3664 PASS, 14 SKIP, 78 warnings, 975.11 s;
+- migracja upgrade/downgrade/re-upgrade: PASS;
+- import aplikacji: PASS;
+- Frontend: PASS po 3 min 24 s, w tym lint, typecheck, równoległy Vitest
+  coverage 75 plików / 796 testów i production build;
+- Gitleaks: PASS;
+- Trivy/Hadolint: PASS;
+- automatyczny review
+  [30356427334](https://github.com/artur-t-96/Nexus/actions/runs/30356427334):
+  PASS;
+- automatyczny Vercel PR preview: PASS.
+
+Ten wynik obejmuje ostatni commit zmieniający kod. Końcowy commit handoffu jest
+wyłącznie dokumentacyjny i również podlega checkom PR przed przekazaniem.
 
 ## 9. Scenariusz aktywacji
 
@@ -534,8 +581,8 @@ Nie ma rollbacku Traffit, ponieważ implementacja nie zapisuje nic do Traffit.
 
 ## 11. Ryzyka i świadome ograniczenia
 
-1. 50 testów PostgreSQL nie mogło zostać wykonanych lokalnie; musi je
-   potwierdzić hosted CI.
+1. 50 testów PostgreSQL nie mogło zostać wykonanych lokalnie; hosted CI
+   potwierdził pełny backend wynikiem 3664 PASS i 14 SKIP.
 2. Flagi są globalne, bez cohortingu per użytkownik.
 3. Kalendarz dni roboczych nie uwzględnia polskich świąt.
 4. Minimalna projekcja cross-job dla globalnego ownera wymaga jawnej akceptacji
