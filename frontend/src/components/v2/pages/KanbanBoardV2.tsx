@@ -71,6 +71,7 @@ import { RejectionV2 } from"@/components/v2/modals/RejectionV2";
 import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
+import { terminalOf } from"@/lib/kanban-terminal";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -124,18 +125,6 @@ export interface KanbanColumn {
   *  „odrzucony" nie otwierał modala powodu (backend odbijał 422), a
   *  „zatrudniony" pomijał potwierdzenie mimo skutków ubocznych. */
  terminal_type?: "hired" | "rejected" | "withdrawn" | null;
-}
-
-/** Terminal kolumny — z `terminal_type`, z fallbackiem na `stage` dla
- *  odpowiedzi sprzed dodania tego pola. */
-function terminalOf(
- col: KanbanColumn,
-): "hired" | "rejected" | "withdrawn" | null {
- if (col.terminal_type) return col.terminal_type;
- if (col.stage === "hired" || col.stage === "rejected" || col.stage === "withdrawn") {
- return col.stage;
- }
- return null;
 }
 
 interface KanbanBoardV2Props {

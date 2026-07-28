@@ -3,7 +3,7 @@ import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, select, text
@@ -68,7 +68,9 @@ from app.services.rate_normalization import (
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
 # w gałęzi z szablonem.
-_LEGACY_TERMINAL_TYPE: dict[PipelineStage, str] = {
+_LEGACY_TERMINAL_TYPE: dict[
+    PipelineStage, Literal["hired", "rejected", "withdrawn"]
+] = {
     PipelineStage.hired: "hired",
     PipelineStage.rejected: "rejected",
     PipelineStage.withdrawn: "withdrawn",

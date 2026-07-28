@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -179,7 +179,7 @@ class KanbanColumn(BaseModel):
     #     skutki uboczne (draft kontraktu + zamówienie klienta).
     # To pole niesie tę informację wprost. Pozostaje opcjonalne — kolumny
     # nieterminalne mają `None`.
-    terminal_type: Optional[str] = None
+    terminal_type: Optional[Literal["hired", "rejected", "withdrawn"]] = None
 
 
 class KanbanView(BaseModel):
