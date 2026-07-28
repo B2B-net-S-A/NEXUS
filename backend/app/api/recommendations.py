@@ -1271,12 +1271,38 @@ async def seeking_contractors(
     )
     looking_ids = {row[0] for row in looking_rows.all()}
 
-    candidate_ids = list(set(ending_meta.keys()) | looking_ids)[:page_size]
+    # Pełna pula PRZED obcięciem — `total` musi opisywać ilu jest konsultantów,
+    # nie ile ich zmieściło się na stronie. Wcześniej `total` liczyło już
+    # obciętą listę, więc UI pokazywał „18 konsultantów w horyzoncie 30 dni"
+    # niezależnie od tego, czy było ich 18 czy 400.
+    pool_ids = set(ending_meta.keys()) | looking_ids
+    total_available = len(pool_ids)
+
+    # Kolejność PRZED obcięciem, nie po. Wcześniej brane było `list(set(...))`,
+    # czyli porządek iteracji zbioru — a właściwe sortowanie („kończące się
+    # kontrakty najpierw") wykonywało się dopiero na tym, co zostało po cięciu.
+    # Konsultant z kontraktem kończącym się jutro mógł więc po prostu nie
+    # zmieścić się w arbitralnym wycinku i zniknąć z ekranu bez śladu.
+    #
+    # Pełny klucz sortowania wymaga scoringu, którego nie policzymy dla całej
+    # puli. Ale kryterium PIERWSZORZĘDNE — pilność — znamy już teraz: kontrakt
+    # kończy się wcześniej ⇒ wyżej. `id` domyka porządek, żeby wynik był
+    # powtarzalny między requestami.
+    def _priority(cid: int) -> tuple[int, str, int]:
+        meta = ending_meta.get(cid)
+        if meta is None:
+            return (1, "", cid)  # bez kontraktu — po tych kończących się
+        end = meta["contract_end_date"]
+        return (0, end.isoformat() if end else "", cid)
+
+    candidate_ids = sorted(pool_ids, key=_priority)[:page_size]
 
     if not candidate_ids:
         return {
             "horizon_days": horizon_days,
             "total": 0,
+            "returned": 0,
+            "truncated": False,
             "items": [],
         }
 
@@ -1292,7 +1318,9 @@ async def seeking_contractors(
     if not all_open_jobs:
         return {
             "horizon_days": horizon_days,
-            "total": len(candidate_ids),
+            "total": total_available,
+            "returned": len(candidate_ids),
+            "truncated": total_available > len(candidate_ids),
             "items": [
                 {
                     "candidate": _shape_seek_candidate(c),
@@ -1396,6 +1424,10 @@ async def seeking_contractors(
 
     return {
         "horizon_days": horizon_days,
-        "total": len(items),
+        # Ilu ich JEST, nie ilu się zmieściło — te dwie liczby rozjeżdżały się
+        # cicho, a UI pokazywał tę drugą jako pierwszą.
+        "total": total_available,
+        "returned": len(items),
+        "truncated": total_available > len(items),
         "items": items,
     }
