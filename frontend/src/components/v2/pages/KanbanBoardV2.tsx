@@ -117,6 +117,25 @@ export interface KanbanColumn {
  stage_def_id?: number | null;
  name?: string | null;
  order?: number | null;
+ /** KTÓRY terminal, nie tylko „czy terminal".
+  *
+  *  Kolumna bez mapowania na legacy enum raportuje `stage: "new"`, więc
+  *  rozpoznawanie terminala po `stage` gubiło WŁASNE etapy terminalne:
+  *  „odrzucony" nie otwierał modala powodu (backend odbijał 422), a
+  *  „zatrudniony" pomijał potwierdzenie mimo skutków ubocznych. */
+ terminal_type?: "hired" | "rejected" | "withdrawn" | null;
+}
+
+/** Terminal kolumny — z `terminal_type`, z fallbackiem na `stage` dla
+ *  odpowiedzi sprzed dodania tego pola. */
+function terminalOf(
+ col: KanbanColumn,
+): "hired" | "rejected" | "withdrawn" | null {
+ if (col.terminal_type) return col.terminal_type;
+ if (col.stage === "hired" || col.stage === "rejected" || col.stage === "withdrawn") {
+ return col.stage;
+ }
+ return null;
 }
 
 interface KanbanBoardV2Props {
@@ -1066,18 +1085,19 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  // M4 PR-03 (audyt P1.6): hired = artefakty (draft kontraktu i zamówienia)
  // — wymaga jawnego potwierdzenia zamiast samego drop-u.
- if (dst.stage === "hired") {
+ if (terminalOf(dst) === "hired") {
  setHiredConfirm({ item, destCol: dst, srcColId: colId(src) });
  return;
  }
 
  // Terminal — najpierw modal powodu; optimistic dopiero po potwierdzeniu,
  // żeby anulowanie nie zostawiało karty w złej kolumnie.
- if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
+ const dropTerminal = terminalOf(dst);
+ if (dropTerminal === "rejected" || dropTerminal === "withdrawn") {
  setPendingRejection({
  entries: [{ item, srcColId: colId(src) }],
  destCol: dst,
- terminalType: dst.stage as"rejected" |"withdrawn",
+ terminalType: dropTerminal,
  });
  return;
  }
@@ -1374,18 +1394,19 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  // M4 PR-03 (audyt P1.6): zbiorcze zatrudnianie bez wizardu = N draftów
  // kontraktów jednym kliknięciem — wykonuj pojedynczo (drag z potwierdzeniem).
- if (dst.stage === "hired") {
+ if (terminalOf(dst) === "hired") {
  showError("Zatrudnienie oznaczaj pojedynczo — przeciągnij kartę kandydata.");
  return;
  }
 
  // Etapy terminalne wymagają powodu — jeden modal, wspólny powód dla
  // całego zaznaczenia.
- if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
+ const bulkTerminal = terminalOf(dst);
+ if (bulkTerminal === "rejected" || bulkTerminal === "withdrawn") {
  setPendingRejection({
  entries,
  destCol: dst,
- terminalType: dst.stage as"rejected" |"withdrawn",
+ terminalType: bulkTerminal,
  });
  setSelected(new Set());
  return;

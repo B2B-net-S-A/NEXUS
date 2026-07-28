@@ -169,6 +169,17 @@ class KanbanColumn(BaseModel):
     stage_def_id: Optional[int] = None
     name: Optional[str] = None
     order: Optional[int] = None
+    # KTÓRY terminal, nie tylko „czy terminal".
+    #
+    # `stage` dla kolumny bez mapowania na legacy enum degraduje do `new`, a
+    # `category` mówi najwyżej „terminal". Frontend rozpoznawał hired/rejected/
+    # withdrawn po `stage`, więc dla WŁASNEGO etapu terminalnego:
+    #   - „odrzucony" nie otwierał modala powodu → backend odbijał 422,
+    #   - „zatrudniony" pomijał potwierdzenie, mimo że backend i tak uruchamiał
+    #     skutki uboczne (draft kontraktu + zamówienie klienta).
+    # To pole niesie tę informację wprost. Pozostaje opcjonalne — kolumny
+    # nieterminalne mają `None`.
+    terminal_type: Optional[str] = None
 
 
 class KanbanView(BaseModel):

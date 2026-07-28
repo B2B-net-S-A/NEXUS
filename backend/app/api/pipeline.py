@@ -65,6 +65,15 @@ from app.services.rate_normalization import (
     normalize_rate_to_monthly,
 )
 
+# Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
+# pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
+# w gałęzi z szablonem.
+_LEGACY_TERMINAL_TYPE: dict[PipelineStage, str] = {
+    PipelineStage.hired: "hired",
+    PipelineStage.rejected: "rejected",
+    PipelineStage.withdrawn: "withdrawn",
+}
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -1108,6 +1117,9 @@ async def get_kanban(
                     stage_def_id=sd.id,
                     name=sd.name,
                     order=sd.order,
+                    terminal_type=(
+                        sd.terminal_type.value if sd.terminal_type else None
+                    ),
                 )
             )
         return KanbanView(job_id=job_id, columns=columns)
@@ -1134,6 +1146,11 @@ async def get_kanban(
                     CandidateStageResponse(**_stage_resp_with_name(e)) for e in entries
                 ],
                 name=STAGE_LABELS[stage],
+                # W tej gałęzi (brak szablonu) kolumny SĄ legacy enumami, więc
+                # terminal wynika wprost z nazwy etapu. Wypełniamy to samo pole
+                # co wyżej, żeby frontend miał jeden sposób rozpoznawania
+                # terminala niezależnie od tego, którą ścieżką poszedł backend.
+                terminal_type=_LEGACY_TERMINAL_TYPE.get(stage),
             )
         )
     return KanbanView(job_id=job_id, columns=columns)
