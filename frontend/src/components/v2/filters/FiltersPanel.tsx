@@ -225,13 +225,19 @@ export function FiltersPanel({
         />
       </div>
 
-      {/* Skills — must / any / none chip pickers */}
+      {/* Skills — dwa sygnały rankingowe + jedno twarde wykluczenie.
+          Etykiety celowo NIE mówią "musi mieć": backend traktuje `skills_must`
+          i `skills_any` wyłącznie jako ranking (`skills_soft_rank` scala je
+          w JEDEN zbiór `must ∪ any`, patrz structured_candidate_search.py),
+          a twardym filtrem jest tylko `skills_none`. Poprzednie etykiety
+          obiecywały bramkę shortlisty, której nie ma — i sugerowały różnicę
+          siły między dwoma polami, które robią dokładnie to samo. */}
       <div className="grid gap-3 sm:grid-cols-3">
         {(
           [
-            ["must", "Skills (musi mieć)", "emerald"],
-            ["any", "Skills (przynajmniej 1)", "sky"],
-            ["none", "Skills (nie ma)", "rose"],
+            ["must", "Skills (preferowane)", "emerald"],
+            ["any", "Skills (dodatkowe)", "sky"],
+            ["none", "Skills (wyklucz)", "rose"],
           ] as const
         ).map(([bucket, label, tone]) => {
           const key =
@@ -286,6 +292,11 @@ export function FiltersPanel({
           );
         })}
       </div>
+      <p className="-mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+        „Preferowane" i „dodatkowe" <strong className="font-medium">podbijają ranking</strong>,
+        ale nikogo nie usuwają z wyników — kandydat bez wpisanej umiejętności nadal
+        się pokaże, tylko niżej. Twardo wyklucza wyłącznie pole „wyklucz".
+      </p>
 
       {/* Experience years range */}
       <div className="grid gap-3 sm:grid-cols-3">

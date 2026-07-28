@@ -21,18 +21,14 @@ paths = [
   '''__pycache__/''',
   '''\.pyc$''',
   '''\.claude/''',
-  # Local dev default DSN (``postgresql+asyncpg://nexus:nexus@``) appears
-  # in seed scripts, entrypoint.sh, and the Settings() Pydantic default.
-  # Production DATABASE_URL is injected by Coolify env vault — it never
-  # matches the local default. Allowlisting paths instead of regexes
-  # because gitleaks' per-rule regex allowlist did not pick up the match
-  # in CI.
+  # Lokalny domyślny DSN jest allowlistowany po WARTOŚCI — ale w allowliście
+  # PER-REGUŁA (``[rules.allowlist]`` przy ``hardcoded-db-password``), bo ta
+  # nadpisuje globalną. Wpis tutaj nie zadziała. Wcześniej obchodzono to
+  # allowlistowaniem całych ŚCIEŻEK, co oślepiało skaner na te pliki i
+  # pozwoliło przeleżeć w nich działającemu hasłu administratora.
   '''\.env\.example''',
   '''backend/app/core/config\.py''',
   '''backend/embed_all\.py''',
-  '''backend/scripts/.+\.py''',
-  '''backend/seed.*\.py''',
-  '''backend/entrypoint\.sh''',
   # Schema-inventory test seeds the local-dev DSN (nexus:nexus@localhost) to
   # spin up throwaway DBs — same benign default as scripts/seed above.
   '''backend/tests/test_schema_inventory\.py''',
@@ -85,8 +81,16 @@ tags = ["db", "password"]
 # Per-rule allowlist OVERRIDES the top-level [allowlist] for this rule —
 # every legitimate placeholder must appear here too.
 [rules.allowlist]
+regexTarget = "line"
 regexes = [
   '''postgresql\+asyncpg://nexus:change-me-to-a-strong-password@''',
+  # Wariant SYNCHRONICZNY lokalnego DSN-a (bez ``+asyncpg``) — używany przez
+  # skrypty seed/backfill i ``entrypoint.sh``. Jego brak TUTAJ był powodem,
+  # dla którego allowlistowano całe ścieżki zamiast wartości.
+  '''postgresql://nexus:nexus@''',
+  # Placeholder w przykładzie użycia w docstringu (hasło zapisane dosłownie
+  # jako ``...``) — nie sekret.
+  '''postgresql://nexus:\.\.\.@''',
   '''postgresql\+asyncpg://\$\{POSTGRES_USER''',
   # Local dev default — used by seed scripts, entrypoint.sh, and the
   # ``Settings()`` Pydantic default in backend/app/core/config.py. Never

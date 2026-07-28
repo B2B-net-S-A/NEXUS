@@ -6,6 +6,13 @@ Includes v3: ClientKnowledge, ScreeningNotes, Contacts.
 """
 import asyncio
 import os
+
+# Hasła kont demo NIE są literałami w repo. Dopóki nimi były, gitleaks musiał
+# mieć `backend/seed.*\.py` na allowliście — a to wyłączało skaner dla CAŁEGO
+# pliku, czyli dokładnie tam, gdzie mogło wylądować (i wylądowało w bliźniaczym
+# skrypcie) działające hasło administratora.
+# Seed nie dotyka produkcji: wyżej stoi bramka „Database already seeded".
+_DEMO_PWD = os.environ.get("SEED_DEMO_PASSWORD", "dev-only-change-me")
 import sys
 from datetime import date, datetime, timedelta, timezone
 from typing import List
@@ -74,31 +81,31 @@ async def seed():
                 "email": "artur@b2bnet.pl",
                 "name": "Artur Twardowski",
                 "role": UserRole.admin,
-                "password": "admin123",
+                "password": _DEMO_PWD,
             },
             {
                 "email": "olaf@b2bnet.pl",
                 "name": "Olaf Moczydłowski",
                 "role": UserRole.delivery_lead,
-                "password": "recruiter123",
+                "password": _DEMO_PWD,
             },
             {
                 "email": "marta@b2bnet.pl",
                 "name": "Marta Kowalska",
                 "role": UserRole.recruiter,
-                "password": "recruiter123",
+                "password": _DEMO_PWD,
             },
             {
                 "email": "tomasz@b2bnet.pl",
                 "name": "Tomasz Wierzbicki",
                 "role": UserRole.sourcer,
-                "password": "recruiter123",
+                "password": _DEMO_PWD,
             },
             {
                 "email": "dominik@b2bnet.pl",
                 "name": "Dominik Zwierzchowski",
                 "role": UserRole.user,
-                "password": "recruiter123",
+                "password": _DEMO_PWD,
             },
         ]
         users = []
@@ -2087,10 +2094,10 @@ async def seed():
 
         await db.commit()
         print("\n✅ Seed v4 completed successfully!")
-        print(f"   Admin login: artur@b2bnet.pl / admin123")
-        print(f"   DL login:    olaf@b2bnet.pl / recruiter123 (Delivery Lead)")
-        print(f"   Recruiter:   marta@b2bnet.pl / recruiter123")
-        print(f"   Sourcer:     tomasz@b2bnet.pl / recruiter123")
+        print(f"   Admin login: artur@b2bnet.pl / {_DEMO_PWD}")
+        print(f"   DL login:    olaf@b2bnet.pl / {_DEMO_PWD} (Delivery Lead)")
+        print(f"   Recruiter:   marta@b2bnet.pl / {_DEMO_PWD}")
+        print(f"   Sourcer:     tomasz@b2bnet.pl / {_DEMO_PWD}")
         print(f"   Users: {len(users)}, Clients: {len(clients)}, Jobs: {len(jobs)}, Candidates: {len(candidates)}")
         print(f"   Pipeline stages: {len(stages_to_create)}, Contracts: {len(contracts_data)}")
         print(f"   User activities: {len(user_activities_data)}, System activities: {len(activities_list)}")
