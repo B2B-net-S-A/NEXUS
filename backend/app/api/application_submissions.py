@@ -223,7 +223,6 @@ async def _ensure_submission_process(
         frozen_priority_compliant=_priority_compliant_at_create(submission),
         notes="Rozstrzygnięto aplikację (application submission)",
     )
-    await create_original_cv_snapshot(db, stage)
     return stage
 
 
@@ -309,6 +308,7 @@ async def resolve_application_submission(
     action = payload.action
     resolved_candidate_id: Optional[int] = None
     primary_document: Optional[CandidateDocument] = None
+    opened_stage: Optional[CandidateStage] = None
 
     if action == "reject":
         submission.status = ApplicationSubmissionStatus.rejected.value
@@ -347,7 +347,7 @@ async def resolve_application_submission(
         else:
             submission.status = ApplicationSubmissionStatus.linked.value
         resolved_candidate_id = candidate.id
-        await _ensure_submission_process(
+        opened_stage = await _ensure_submission_process(
             db,
             submission=submission,
             candidate_id=candidate.id,
@@ -393,7 +393,7 @@ async def resolve_application_submission(
             submission,
             is_primary=True,
         )
-        await _ensure_submission_process(
+        opened_stage = await _ensure_submission_process(
             db,
             submission=submission,
             candidate_id=candidate.id,
@@ -401,6 +401,14 @@ async def resolve_application_submission(
         )
         submission.status = ApplicationSubmissionStatus.created.value
         resolved_candidate_id = candidate.id
+
+    if opened_stage is not None:
+        # Keep the per-recruitment CV snapshot in this transaction and make
+        # the stage identity guarantee explicit at the endpoint boundary.
+        # `open_process` flushes internally, but this flush documents and
+        # preserves the invariant relied on by the snapshot FK.
+        await db.flush()
+        await create_original_cv_snapshot(db, opened_stage)
 
     submission.reviewed_by = current_user.id
     submission.reviewed_at = datetime.now(timezone.utc)

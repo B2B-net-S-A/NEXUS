@@ -257,7 +257,59 @@ async def test_shadow_compare_counts(app_client: AsyncClient):
     assert any(
         s["candidate_id"] == cand and s["job_id"] == job for s in report["stale_sample"]
     )
-    assert report["pairs_total"] >= report["processes_total"] - 0  # sanity
+    # Shadow compare działa na parach, a RecruitmentProcess na attemptach.
+    # Liczba attemptów może być większa po reopen, a voided proces może nie
+    # mieć legacy rows po jawnej archiwizacji. Obie strony muszą jednak
+    # raportować dokładnie ten sam overlap par.
+    legacy_overlap = report["pairs_total"] - report["pairs_without_process"]
+    process_overlap = (
+        report["process_pairs_total"] - report["process_pairs_without_legacy"]
+    )
+    assert legacy_overlap == process_overlap
+    assert report["processes_total"] >= report["process_pairs_total"]
+
+
+async def test_shadow_compare_uses_only_latest_attempt(app_client: AsyncClient):
+    """Historyczny attempt nie może generować fałszywego stale pointera."""
+    now = datetime.now(timezone.utc)
+    cand, job = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "screening", moved_at=now - timedelta(days=1))
+    await _run_backfill()
+    latest = await _seed_stage(cand, job, "interview", moved_at=now)
+
+    async with AsyncSessionLocal() as db:
+        first_attempt = await db.scalar(
+            select(RecruitmentProcess).where(
+                RecruitmentProcess.candidate_id == cand,
+                RecruitmentProcess.job_id == job,
+                RecruitmentProcess.attempt_no == 1,
+            )
+        )
+        assert first_attempt is not None
+        first_attempt.status = ProcessStatus.closed
+        first_attempt.closed_at = now
+        db.add(
+            RecruitmentProcess(
+                candidate_id=cand,
+                job_id=job,
+                attempt_no=2,
+                previous_process_id=first_attempt.id,
+                status=ProcessStatus.open,
+                legacy_current_candidate_stage_id=latest,
+                current_semantic_state="client_interview",
+                source_authority="live_command",
+            )
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        report = await compare_shadow_state(db, sample_limit=50)
+
+    assert report["processes_total"] > report["process_pairs_total"]
+    assert not any(
+        sample["candidate_id"] == cand and sample["job_id"] == job
+        for sample in report["stale_sample"]
+    )
 
 
 async def test_admin_api_flow(app_client: AsyncClient, app_auth_headers):

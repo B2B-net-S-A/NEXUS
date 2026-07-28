@@ -20,9 +20,16 @@ from app.api import (
     recruitment_access,
 )
 from app.models.invite_link import CandidateInviteLink
-from app.models.recruitment_priority import PriorityMode, PriorityPlanStatus
+from app.models.recruitment_priority import (
+    PriorityBlockerCategory,
+    PriorityMode,
+    PriorityPlanStatus,
+)
+from app.models.skill import Skill  # noqa: F401 - register ORM relation for isolation
 from app.models.user import UserRole
 from app.schemas.priority_work import (
+    MAX_BLOCKER_EVIDENCE_BYTES,
+    PriorityBlockerCreate,
     PriorityExceptionCreate,
     PriorityHandoffRequest,
 )
@@ -432,9 +439,11 @@ def test_team_and_demand_read_models_expose_server_validated_context() -> None:
     assignment_source = inspect.getsource(priority_work._assignment_payloads)
     job_source = inspect.getsource(priority_work.get_job_priority_context)
 
-    assert '"roles": sorted(_role_values(user))' in team_source
+    assert '"roles": sorted(role_values(user))' in team_source
     assert '"allowed_channels": sorted(' in team_source
     assert '"competence_category_ids": sorted(' in team_source
+    assert "all_carry_over = await carry_over_rows(db)" in team_source
+    assert "await carry_over_rows(db, owner_user_id=user.id)" not in team_source
     assert '"competence_category_id": (' in demand_source
     assert '"assignments": demand_assignments' in demand_source
     assert '"cc_exception_required": not assignment.competence_matches' in (
@@ -466,6 +475,55 @@ def test_api_write_models_reject_zero_targets_and_versions() -> None:
             channel="linkedin",
             note="Za mały demand",
         )
+
+
+def test_blocker_evidence_is_json_safe_and_bounded() -> None:
+    evidence = {"blob": "x" * MAX_BLOCKER_EVIDENCE_BYTES}
+    with pytest.raises(ValidationError, match="at most"):
+        priority_work.BlockerCreateRequest(
+            category=PriorityBlockerCategory.other,
+            note="Za duży dowód",
+            evidence=evidence,
+        )
+    with pytest.raises(ValidationError, match="at most"):
+        PriorityBlockerCreate(
+            assignment_id=1,
+            category=PriorityBlockerCategory.other,
+            description="Za duży dowód",
+            evidence=evidence,
+        )
+    with pytest.raises(ValidationError, match="JSON-serializable"):
+        priority_work.BlockerCreateRequest(
+            category=PriorityBlockerCategory.other,
+            note="Niepoprawny dowód",
+            evidence={"bad": object()},
+        )
+
+
+@pytest.mark.parametrize("invalid_number", [float("nan"), float("inf"), float("-inf")])
+def test_blocker_evidence_rejects_non_finite_numbers(
+    invalid_number: float,
+) -> None:
+    with pytest.raises(ValidationError, match="JSON-serializable"):
+        priority_work.BlockerCreateRequest(
+            category=PriorityBlockerCategory.other,
+            note="Niepoprawny dowód",
+            evidence={"value": invalid_number},
+        )
+    with pytest.raises(ValidationError, match="JSON-serializable"):
+        PriorityBlockerCreate(
+            assignment_id=1,
+            category=PriorityBlockerCategory.other,
+            description="Niepoprawny dowód",
+            evidence={"value": invalid_number},
+        )
+
+
+def test_blocker_resolution_locks_blocker_and_assignment_ownership() -> None:
+    source = inspect.getsource(priority_work.update_priority_blocker)
+    assert source.count(".with_for_update()") >= 2
+    create_source = inspect.getsource(priority_work.create_priority_blocker)
+    assert "PriorityPlanStatus.published" in create_source
 
 
 def test_demand_scope_tracks_current_delivery_lead_not_historical_author() -> None:

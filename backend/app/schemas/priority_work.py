@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.recruitment_priority import (
     PriorityAlertSeverity,
@@ -20,6 +21,32 @@ from app.models.recruitment_priority import (
     PriorityPlanStatus,
     PriorityRank,
 )
+
+MAX_BLOCKER_EVIDENCE_BYTES = 16 * 1024
+
+
+def validate_blocker_evidence(
+    value: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Keep blocker metadata JSON-safe and bounded before it reaches JSONB."""
+
+    if value is None:
+        return None
+    try:
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("evidence must contain JSON-serializable values") from exc
+    if len(encoded) > MAX_BLOCKER_EVIDENCE_BYTES:
+        raise ValueError(
+            f"evidence must be at most {MAX_BLOCKER_EVIDENCE_BYTES} UTF-8 bytes"
+        )
+    return value
 
 
 class PrioritySchema(BaseModel):
@@ -200,6 +227,14 @@ class PriorityBlockerCreate(BaseModel):
     category: PriorityBlockerCategory
     description: str = Field(min_length=1, max_length=4000)
     evidence: Optional[dict[str, Any]] = None
+
+    @field_validator("evidence")
+    @classmethod
+    def validate_evidence(
+        cls,
+        value: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        return validate_blocker_evidence(value)
 
 
 class PriorityBlockerDecision(BaseModel):

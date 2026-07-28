@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -31,6 +32,28 @@ def test_effective_mode_never_exceeds_global(
     global_mode: str, user_mode: str | None, expected: PriorityMode
 ) -> None:
     assert policy.combine_priority_modes(global_mode, user_mode) is expected
+
+
+def test_policy_assertion_boundary_has_an_explicit_typed_signature() -> None:
+    signature = inspect.signature(policy.assert_priority_work_access)
+    assert all(
+        parameter.kind is not inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+    assert {
+        "candidate_id",
+        "job_id",
+        "actor_user_id",
+        "origin_kind",
+        "action",
+        "continuation_exists",
+        "consume_exception",
+        "require_existing",
+        "frozen_origin_assignment_id",
+        "frozen_priority_compliant",
+        "work_channel",
+        "job_is_open",
+    } <= signature.parameters.keys()
 
 
 async def test_assignment_progress_requires_verified_before_cv_sent_in_same_attempt() -> (
@@ -338,40 +361,55 @@ async def test_lower_rank_is_blocked_when_higher_rank_misses_either_target(
     monkeypatch,
 ) -> None:
     current = SimpleNamespace(id=2, rank=SimpleNamespace(value="B"))
-    higher = SimpleNamespace(id=1, rank=SimpleNamespace(value="A"))
+    higher = SimpleNamespace(
+        id=1,
+        rank=SimpleNamespace(value="A"),
+        verification_target=4,
+        recommendation_target=2,
+    )
     member = SimpleNamespace(id=7, status=PriorityMemberStatus.active)
-    result = MagicMock()
-    result.scalars.return_value.all.return_value = [higher, current]
+    siblings = MagicMock()
+    siblings.scalars.return_value.all.return_value = [higher, current]
+    blockers = MagicMock()
+    blockers.scalars.return_value.all.return_value = []
     db = AsyncMock()
-    db.execute.return_value = result
-    targets = AsyncMock(return_value=False)
-    blocker = AsyncMock(return_value=False)
-    monkeypatch.setattr(policy, "_assignment_targets_reached", targets)
-    monkeypatch.setattr(policy, "_has_active_accepted_blocker", blocker)
+    db.execute.side_effect = [siblings, blockers]
+    milestone_counts = AsyncMock(
+        return_value={1: {"verifications": 4, "recommendations": 1}}
+    )
+    monkeypatch.setattr(policy, "assignment_milestone_counts", milestone_counts)
 
     assert (
         await policy._higher_rank_is_behind(db, assignment=current, member=member)
         is True
     )
-    targets.assert_awaited_once_with(db, higher)
+    milestone_counts.assert_awaited_once_with(db, [1])
+    assert db.execute.await_count == 2
 
 
 async def test_accepted_blocker_releases_lagging_higher_rank(monkeypatch) -> None:
     current = SimpleNamespace(id=2, rank=SimpleNamespace(value="B"))
-    higher = SimpleNamespace(id=1, rank=SimpleNamespace(value="A"))
-    member = SimpleNamespace(id=7, status=PriorityMemberStatus.active)
-    result = MagicMock()
-    result.scalars.return_value.all.return_value = [higher, current]
-    db = AsyncMock()
-    db.execute.return_value = result
-    monkeypatch.setattr(
-        policy, "_assignment_targets_reached", AsyncMock(return_value=False)
+    higher = SimpleNamespace(
+        id=1,
+        rank=SimpleNamespace(value="A"),
+        verification_target=4,
+        recommendation_target=2,
     )
+    member = SimpleNamespace(id=7, status=PriorityMemberStatus.active)
+    siblings = MagicMock()
+    siblings.scalars.return_value.all.return_value = [higher, current]
+    blockers = MagicMock()
+    blockers.scalars.return_value.all.return_value = [1]
+    db = AsyncMock()
+    db.execute.side_effect = [siblings, blockers]
     monkeypatch.setattr(
-        policy, "_has_active_accepted_blocker", AsyncMock(return_value=True)
+        policy,
+        "assignment_milestone_counts",
+        AsyncMock(return_value={1: {"verifications": 0, "recommendations": 0}}),
     )
 
     assert (
         await policy._higher_rank_is_behind(db, assignment=current, member=member)
         is False
     )
+    assert db.execute.await_count == 2

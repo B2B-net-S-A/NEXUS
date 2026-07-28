@@ -25,12 +25,12 @@ from app.schemas.priority_work import (
 )
 from app.services import priority_work_service as priority_service
 from app.services.priority_work_service import (
-    _allowed_channels,
     _assert_demand_coverage,
     _assert_publish_lineage,
     _carry_over_urgency,
     _published_demand_status,
     _validate_member_inputs,
+    allowed_channels,
     assignment_gate_states,
     review_due_after_business_days,
 )
@@ -399,7 +399,7 @@ def test_channels_follow_operational_specialisation(
     expected: set[PriorityChannel],
 ) -> None:
     user = SimpleNamespace(role=role, roles=roles)
-    assert _allowed_channels(user) == expected
+    assert allowed_channels(user) == expected
 
 
 def _gate_member() -> SimpleNamespace:

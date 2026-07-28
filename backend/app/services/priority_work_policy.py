@@ -325,36 +325,13 @@ async def _accepted_verification_count(db: AsyncSession, assignment_id: int) -> 
     return counts.get(assignment_id, {}).get("verifications", 0)
 
 
-async def _recommendation_count(db: AsyncSession, assignment_id: int) -> int:
-    counts = await assignment_milestone_counts(db, [assignment_id])
-    return counts.get(assignment_id, {}).get("recommendations", 0)
-
-
-async def _assignment_targets_reached(
-    db: AsyncSession, assignment: RecruitmentPriorityAssignment
+def _assignment_targets_reached(
+    assignment: RecruitmentPriorityAssignment,
+    progress: dict[str, int],
 ) -> bool:
-    progress = (await assignment_milestone_counts(db, [assignment.id])).get(
-        assignment.id,
-        {"verifications": 0, "recommendations": 0},
-    )
     if progress["verifications"] < assignment.verification_target:
         return False
     return progress["recommendations"] >= assignment.recommendation_target
-
-
-async def _has_active_accepted_blocker(db: AsyncSession, assignment_id: int) -> bool:
-    return (
-        await db.scalar(
-            select(RecruitmentPriorityBlocker.id)
-            .where(
-                RecruitmentPriorityBlocker.assignment_id == assignment_id,
-                RecruitmentPriorityBlocker.status == PriorityBlockerStatus.accepted,
-                RecruitmentPriorityBlocker.resolved_at.is_(None),
-            )
-            .limit(1)
-        )
-        is not None
-    )
 
 
 async def _higher_rank_is_behind(
@@ -375,13 +352,38 @@ async def _higher_rank_is_behind(
         .scalars()
         .all()
     )
+    higher_assignments = []
     for higher in siblings:
         rank_value = getattr(higher.rank, "value", higher.rank)
         if _RANK_ORDER[str(rank_value)] >= current_rank:
             continue
-        if await _assignment_targets_reached(db, higher):
+        higher_assignments.append(higher)
+    if not higher_assignments:
+        return False
+
+    higher_ids = [higher.id for higher in higher_assignments]
+    progress_by_id = await assignment_milestone_counts(db, higher_ids)
+    blocker_ids = set(
+        (
+            await db.execute(
+                select(RecruitmentPriorityBlocker.assignment_id).where(
+                    RecruitmentPriorityBlocker.assignment_id.in_(higher_ids),
+                    RecruitmentPriorityBlocker.status == PriorityBlockerStatus.accepted,
+                    RecruitmentPriorityBlocker.resolved_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    empty_progress = {"verifications": 0, "recommendations": 0}
+    for higher in higher_assignments:
+        if _assignment_targets_reached(
+            higher,
+            progress_by_id.get(higher.id, empty_progress),
+        ):
             continue
-        if await _has_active_accepted_blocker(db, higher.id):
+        if higher.id in blocker_ids:
             continue
         return True
     return False
@@ -704,14 +706,40 @@ async def decide_priority_work_access(
 
 async def assert_priority_work_access(
     db: AsyncSession,
-    **kwargs: object,
+    *,
+    candidate_id: int,
+    job_id: int,
+    actor_user_id: Optional[int],
+    origin_kind: PriorityOriginKind = PriorityOriginKind.assigned,
+    action: str = "open_process",
+    continuation_exists: Optional[bool] = None,
+    consume_exception: bool = True,
+    require_existing: bool = False,
+    frozen_origin_assignment_id: Optional[int] = None,
+    frozen_priority_compliant: Optional[bool] = None,
+    work_channel: Optional[PriorityChannel] = None,
+    job_is_open: Optional[bool] = None,
 ) -> PriorityWorkDecision:
-    decision = await decide_priority_work_access(db, **kwargs)  # type: ignore[arg-type]
+    decision = await decide_priority_work_access(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        actor_user_id=actor_user_id,
+        origin_kind=origin_kind,
+        action=action,
+        continuation_exists=continuation_exists,
+        consume_exception=consume_exception,
+        require_existing=require_existing,
+        frozen_origin_assignment_id=frozen_origin_assignment_id,
+        frozen_priority_compliant=frozen_priority_compliant,
+        work_channel=work_channel,
+        job_is_open=job_is_open,
+    )
     if not decision.allowed:
         raise PriorityWorkLocked(
             decision,
-            action=str(kwargs.get("action", "open_process")),
-            candidate_id=int(kwargs["candidate_id"]),
-            job_id=int(kwargs["job_id"]),
+            action=action,
+            candidate_id=candidate_id,
+            job_id=job_id,
         )
     return decision

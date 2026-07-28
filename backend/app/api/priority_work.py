@@ -7,12 +7,17 @@ from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, HeadOfRecruitmentOnly, OperationalUser
+from app.api.deps import (
+    HeadOfRecruitmentOnly,
+    OperationalUser,
+    PriorityDemandCreator,
+    PriorityDemandReader,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.cc_feedback import JobSecondaryCc
@@ -26,6 +31,7 @@ from app.models.recruitment_priority import (
     PriorityExceptionStatus,
     PriorityMemberStatus,
     PriorityMode,
+    PriorityPlanStatus,
     PriorityRank,
     RecruitmentPriorityAlert,
     RecruitmentPriorityAssignment,
@@ -46,6 +52,7 @@ from app.schemas.priority_work import (
     PriorityHandoffRequest,
     PriorityPlanMemberInput,
     PriorityUserModeUpdate,
+    validate_blocker_evidence,
 )
 from app.services.priority_work_policy import effective_priority_mode
 from app.services.process_backfill import (
@@ -54,8 +61,7 @@ from app.services.process_backfill import (
 )
 from app.services.recruitment_process_commands import handoff_process
 from app.services.priority_work_service import (
-    _allowed_channels,
-    _role_values,
+    allowed_channels,
     assignment_gate_states,
     assignment_progress,
     audit_event,
@@ -67,6 +73,7 @@ from app.services.priority_work_service import (
     load_plan,
     publish_plan,
     replace_draft_members,
+    role_values,
     utcnow,
 )
 
@@ -136,6 +143,14 @@ class BlockerCreateRequest(BaseModel):
     category: PriorityBlockerCategory
     note: str = Field(min_length=1, max_length=4000)
     evidence: Optional[dict[str, Any]] = None
+
+    @field_validator("evidence")
+    @classmethod
+    def validate_evidence(
+        cls,
+        value: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        return validate_blocker_evidence(value)
 
 
 class BlockerUpdateRequest(BaseModel):
@@ -501,17 +516,23 @@ async def get_team_priority_work(
     by_user: dict[int, list[dict[str, Any]]] = {}
     for assignment in all_assignments:
         by_user.setdefault(assignment["user_id"], []).append(assignment)
+    all_carry_over = await carry_over_rows(db)
+    carry_by_owner: dict[int, list[dict[str, Any]]] = {}
+    for item in all_carry_over:
+        owner_user_id = item["owner_user_id"]
+        if owner_user_id is not None:
+            carry_by_owner.setdefault(owner_user_id, []).append(item)
     for user in operational_users:
         member = plan_members.get(user.id)
-        carry = await carry_over_rows(db, owner_user_id=user.id)
+        carry = carry_by_owner.get(user.id, [])
         members_payload.append(
             {
                 "user_id": user.id,
                 "user_name": user.name,
                 "role": user.role.value,
-                "roles": sorted(_role_values(user)),
+                "roles": sorted(role_values(user)),
                 "allowed_channels": sorted(
-                    channel.value for channel in _allowed_channels(user)
+                    channel.value for channel in allowed_channels(user)
                 ),
                 "competence_category_ids": sorted(competence_by_user.get(user.id, [])),
                 "status": (
@@ -539,7 +560,9 @@ async def get_team_priority_work(
         .scalars()
         .all()
     )
-    unowned_rows = await carry_over_rows(db, unowned_only=True)
+    unowned_rows = [
+        item for item in all_carry_over if item["ownership_action_required"]
+    ]
     return {
         "mode": mode.value,
         "plan": _serialize_plan(plan, mode=mode),
@@ -560,7 +583,7 @@ async def get_team_priority_work(
 
 @router.get("/demands")
 async def list_priority_demands(
-    current_user: CurrentUser,
+    current_user: PriorityDemandReader,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     if not (_is_hor(current_user) or _is_delivery_lead(current_user)):
@@ -589,7 +612,7 @@ async def list_priority_demands(
 @router.post("/demands", status_code=201)
 async def create_priority_demand(
     payload: DemandCreateRequest,
-    current_user: CurrentUser,
+    current_user: PriorityDemandCreator,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     if not _is_delivery_lead(current_user):
@@ -646,7 +669,7 @@ async def create_priority_demand(
 async def update_priority_demand(
     demand_id: int,
     payload: DemandUpdateRequest,
-    current_user: CurrentUser,
+    current_user: PriorityDemandReader,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     row = await db.scalar(
@@ -882,12 +905,22 @@ async def create_priority_blocker(
 ) -> dict[str, Any]:
     assignment = await db.scalar(
         select(RecruitmentPriorityAssignment)
+        .join(
+            RecruitmentPriorityPlanMember,
+            RecruitmentPriorityPlanMember.id
+            == RecruitmentPriorityAssignment.plan_member_id,
+        )
+        .join(
+            RecruitmentPriorityPlan,
+            RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+        )
         .where(RecruitmentPriorityAssignment.id == assignment_id)
+        .where(RecruitmentPriorityPlan.status == PriorityPlanStatus.published)
         .options(selectinload(RecruitmentPriorityAssignment.plan_member))
         .with_for_update()
     )
     if assignment is None:
-        raise HTTPException(404, "Assignment nie istnieje")
+        raise HTTPException(404, "Aktywny opublikowany assignment nie istnieje")
     if not _is_hor(current_user) and assignment.plan_member.user_id != current_user.id:
         raise HTTPException(403, "Blocker może zgłosić właściciel assignmentu")
     active = await db.scalar(
@@ -957,6 +990,7 @@ async def update_priority_blocker(
             select(RecruitmentPriorityAssignment)
             .where(RecruitmentPriorityAssignment.id == row.assignment_id)
             .options(selectinload(RecruitmentPriorityAssignment.plan_member))
+            .with_for_update()
         )
         if not _is_hor(current_user) and (
             assignment is None or assignment.plan_member.user_id != current_user.id

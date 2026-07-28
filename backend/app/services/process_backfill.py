@@ -405,11 +405,21 @@ async def backfill_recruitment_processes(
 async def compare_shadow_state(
     db: AsyncSession, *, sample_limit: int = 20
 ) -> dict[str, Any]:
-    """Komparator shadow: proces vs faktyczny latest legacy row pary.
+    """Komparator shadow: najnowszy attempt vs latest legacy row pary.
 
     Mismatch = legacy poszedł dalej po backfillu (runtime wciąż pisze
-    CandidateStage) albo para nie ma jeszcze procesu. Miara lagu przed
-    przejęciem authority w PR-07/08.
+    CandidateStage) albo para nie ma jeszcze procesu. Osobno raportujemy
+    procesy bez legacy history — taki stan jest prawidłowy dla jawnie
+    zarchiwizowanego voided procesu, ale nie może zaburzać pair-level
+    reconciliation.
+
+    RecruitmentProcess jest agregatem attemptu, więc jedna para może mieć
+    wiele historycznych rekordów. Porównanie jest celowo pair-level: wybiera
+    najnowszy attempt według ``(attempt_no DESC, id DESC)``. Inaczej każdy
+    poprawnie zamknięty historyczny attempt wyglądałby jak stale po otwarciu
+    kolejnego. ``processes_total`` nadal raportuje wszystkie attempty dla
+    kompatybilności, a ``process_pairs_total`` jest porównywalny z
+    ``pairs_total``.
     """
     latest_sql = """
         WITH latest AS (
@@ -417,20 +427,39 @@ async def compare_shadow_state(
                 candidate_id, job_id, id
             FROM candidate_stages
             ORDER BY candidate_id, job_id, moved_at DESC, id DESC
+        ),
+        current_process AS (
+            SELECT DISTINCT ON (candidate_id, job_id)
+                candidate_id,
+                job_id,
+                id,
+                legacy_current_candidate_stage_id,
+                current_semantic_state,
+                status
+            FROM recruitment_processes
+            ORDER BY candidate_id, job_id, attempt_no DESC, id DESC
         )
         SELECT
             (SELECT COUNT(*) FROM latest) AS pairs_total,
             (SELECT COUNT(*) FROM recruitment_processes) AS processes_total,
+            (SELECT COUNT(*) FROM current_process) AS process_pairs_total,
             (
                 SELECT COUNT(*)
                 FROM latest l
-                LEFT JOIN recruitment_processes p
+                LEFT JOIN current_process p
                   ON p.candidate_id = l.candidate_id AND p.job_id = l.job_id
                 WHERE p.id IS NULL
             ) AS pairs_without_process,
             (
                 SELECT COUNT(*)
-                FROM recruitment_processes p
+                FROM current_process p
+                LEFT JOIN latest l
+                  ON l.candidate_id = p.candidate_id AND l.job_id = p.job_id
+                WHERE l.id IS NULL
+            ) AS process_pairs_without_legacy,
+            (
+                SELECT COUNT(*)
+                FROM current_process p
                 JOIN latest l
                   ON l.candidate_id = p.candidate_id AND l.job_id = p.job_id
                 WHERE p.legacy_current_candidate_stage_id IS DISTINCT FROM l.id
@@ -453,11 +482,19 @@ async def compare_shadow_state(
                 candidate_id, job_id, id
             FROM candidate_stages
             ORDER BY candidate_id, job_id, moved_at DESC, id DESC
+        ),
+        current_process AS (
+            SELECT DISTINCT ON (candidate_id, job_id)
+                candidate_id,
+                job_id,
+                legacy_current_candidate_stage_id
+            FROM recruitment_processes
+            ORDER BY candidate_id, job_id, attempt_no DESC, id DESC
         )
         SELECT p.candidate_id, p.job_id,
                p.legacy_current_candidate_stage_id AS process_pointer,
                l.id AS actual_latest
-        FROM recruitment_processes p
+        FROM current_process p
         JOIN latest l
           ON l.candidate_id = p.candidate_id AND l.job_id = p.job_id
         WHERE p.legacy_current_candidate_stage_id IS DISTINCT FROM l.id

@@ -342,14 +342,14 @@ async def create_draft_plan(
     return (await load_plan(db, draft.id)) or draft
 
 
-def _role_values(user: User) -> set[str]:
+def role_values(user: User) -> set[str]:
     values = {user.role.value}
     values.update(str(value) for value in (user.roles or []))
     return values
 
 
-def _allowed_channels(user: User) -> set[PriorityChannel]:
-    roles = _role_values(user)
+def allowed_channels(user: User) -> set[PriorityChannel]:
+    roles = role_values(user)
     if UserRole.tac.value in roles:
         return {
             PriorityChannel.database,
@@ -396,7 +396,7 @@ async def _validate_member_inputs(
         user = await db.scalar(select(User).where(User.id == member.user_id))
         if user is None or not user.is_active:
             raise HTTPException(422, f"Nieaktywny lub brakujący user #{member.user_id}")
-        if not (_role_values(user) & {role.value for role in OPERATIONAL_ROLES}):
+        if not (role_values(user) & {role.value for role in OPERATIONAL_ROLES}):
             raise HTTPException(
                 422,
                 f"User #{member.user_id} nie ma roli recruiter/sourcer/TAC",
@@ -502,7 +502,7 @@ async def _validate_member_inputs(
         ).all()
         for job_id, competence_category_id in secondary_cc_rows:
             job_ccs.setdefault(job_id, set()).add(competence_category_id)
-        allowed_channels = _allowed_channels(user)
+        user_allowed_channels = allowed_channels(user)
         for assignment in assignments:
             job = jobs[assignment.job_id]
             demand = demands[assignment.demand_id]
@@ -513,7 +513,7 @@ async def _validate_member_inputs(
                 PriorityDemandStatus.cancelled,
             }:
                 raise HTTPException(422, "Zamknięty demand nie może wejść do planu")
-            if assignment.channel not in allowed_channels:
+            if assignment.channel not in user_allowed_channels:
                 raise HTTPException(
                     422,
                     f"Kanał {assignment.channel.value} jest niedozwolony dla {user.name}",
