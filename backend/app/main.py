@@ -1097,6 +1097,44 @@ def _resolve_deployed_at() -> str:
 _qdrant_vector_size: int | None = None
 
 
+class _QdrantSlow(Exception):
+    """Qdrant odpowiada, ale wolniej niż limit klienta — żywy, nie zepsuty.
+
+    Osobny typ, bo tych dwóch stanów NIE wolno mylić. Klient ma własny limit
+    (2 s) i przy wolnej odpowiedzi rzuca `ResponseHandlingException` owijający
+    `httpx.TimeoutException` — czyli zwykły wyjątek, a nie `asyncio.TimeoutError`.
+    Bez tego rozróżnienia wolny-ale-żywy Qdrant lądował w gałęzi „unhealthy",
+    mimo że komentarz obok obiecywał „degraded". Wskazali to dwaj recenzenci
+    PR #986 i mieli rację: limit `wait_for` (5 s) jest wtedy nieosiągalny,
+    bo klient przerywa pierwszy.
+    """
+
+
+def _czy_przekroczony_czas(blad: BaseException) -> bool:
+    """Czy w łańcuchu przyczyn siedzi przekroczenie czasu (a nie inny błąd).
+
+    `qdrant-client` owija wyjątki `httpx`, więc typ zewnętrzny nic nie mówi:
+    tak samo wygląda odmowa połączenia (Qdrant leży → `unhealthy`) i wolna
+    odpowiedź (Qdrant żyje → `degraded`). Rozstrzyga dopiero `__cause__`.
+    """
+    widziane: set[int] = set()
+    biezacy: BaseException | None = blad
+    while biezacy is not None and id(biezacy) not in widziane:
+        widziane.add(id(biezacy))
+        if isinstance(biezacy, TimeoutError):
+            return True
+        # httpx importujemy leniwie — nie chcemy zależności w ścieżce startowej.
+        try:
+            import httpx
+
+            if isinstance(biezacy, httpx.TimeoutException):
+                return True
+        except ImportError:
+            pass
+        biezacy = biezacy.__cause__ or biezacy.__context__
+    return False
+
+
 def _probe_qdrant() -> str:
     """Sprawdza Qdranta WYKONUJĄC zapytanie, którym żyje aplikacja.
 
@@ -1126,33 +1164,47 @@ def _probe_qdrant() -> str:
     )
     collection = candidates_collection_name()
 
-    if _qdrant_vector_size is None:
-        names = {c.name for c in client.get_collections().collections}
-        if collection not in names:
-            # Serwer żyje, ale kolekcji nie ma: indeks nigdy nie powstał albo
-            # wskazujemy na złą instancję. Jedno i drugie to cicha utrata
-            # wyszukiwania, więc nie udajemy, że jest dobrze.
-            return "misconfigured"
+    try:
+        if _qdrant_vector_size is None:
+            names = {c.name for c in client.get_collections().collections}
+            if collection not in names:
+                # Serwer żyje, ale kolekcji nie ma: indeks nigdy nie powstał albo
+                # wskazujemy na złą instancję. Jedno i drugie to cicha utrata
+                # wyszukiwania, więc nie udajemy, że jest dobrze.
+                return "misconfigured"
 
-        vectors = client.get_collection(collection).config.params.vectors
-        size = getattr(vectors, "size", None)
-        if size is None and isinstance(vectors, dict):
-            # Konfiguracja z nazwanymi wektorami — bierzemy pierwszy.
-            size = getattr(next(iter(vectors.values()), None), "size", None)
-        if not size:
-            return "degraded"
-        _qdrant_vector_size = int(size)
+            vectors = client.get_collection(collection).config.params.vectors
+            size = getattr(vectors, "size", None)
+            if size is None and isinstance(vectors, dict):
+                # Konfiguracja z nazwanymi wektorami — bierzemy pierwszy.
+                size = getattr(next(iter(vectors.values()), None), "size", None)
+            if not size:
+                return "degraded"
+            _qdrant_vector_size = int(size)
+    except Exception as blad:
+        if _czy_przekroczony_czas(blad):
+            raise _QdrantSlow from blad
+        raise
 
     # Sedno sondy: to samo wywołanie, którego używa `embedding_service`. Gdy
     # kolejny bump usunie albo zmieni tę metodę, poniższe rzuci wyjątek i
     # healthcheck zrobi się czerwony w minutę, a nie po dwóch godzinach zgłoszeń
     # „wyszukiwarka nic nie znajduje".
-    client.search(
-        collection_name=collection,
-        query_vector=[0.0] * _qdrant_vector_size,
-        limit=1,
-        with_payload=False,
-    )
+    #
+    # Uwaga przy migracji na `query_points()`: to wywołanie MUSI zostać
+    # zmienione razem z siedmioma w `app/services/` — inaczej sonda przestanie
+    # sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
+    try:
+        client.search(
+            collection_name=collection,
+            query_vector=[0.0] * _qdrant_vector_size,
+            limit=1,
+            with_payload=False,
+        )
+    except Exception as blad:
+        if _czy_przekroczony_czas(blad):
+            raise _QdrantSlow from blad
+        raise
     return "healthy"
 
 
@@ -1349,10 +1401,15 @@ async def api_health_check():
         checks["qdrant"] = await asyncio.wait_for(
             asyncio.to_thread(_probe_qdrant), timeout=5.0
         )
-    except TimeoutError:
-        # Świadomie NIE „unhealthy": nie wiemy, czy Qdrant padł, czy tylko
-        # zamulił. Mylenie tych dwóch stanów produkuje fałszywe alarmy, a te
-        # uczą ignorować healthcheck.
+    except (_QdrantSlow, TimeoutError):
+        # Świadomie NIE „unhealthy": Qdrant odpowiada, tylko wolno. Mylenie
+        # „padł" z „zamulił" produkuje fałszywe alarmy, a te uczą ignorować
+        # healthcheck.
+        #
+        # Dwa różne limity, w tej kolejności: klient przerywa po 2 s
+        # (`_QdrantSlow`), `wait_for` po 5 s (`TimeoutError`) — ten drugi łapie
+        # zwisy poza samym HTTP, np. rozwiązywanie nazwy albo głodzenie puli
+        # wątków.
         checks["qdrant"] = "degraded"
     except Exception:
         checks["qdrant"] = "unhealthy"

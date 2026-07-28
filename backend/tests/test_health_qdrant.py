@@ -72,6 +72,127 @@ async def test_brak_qdranta_nie_kladzie_aplikacji() -> None:
     )
 
 
+async def _qdrant_gdy_klient_rzuca(monkeypatch, blad: BaseException) -> str:
+    """Uruchamia `/api/health` z klientem Qdranta rzucającym zadany wyjątek.
+
+    Podmieniamy KLIENTA, nie sondę. Pierwsza wersja tego testu podmieniała całą
+    `_probe_qdrant` — i przez to omijała klasyfikację, którą miała sprawdzać
+    (test padał, choć kod działał poprawnie). Podmiana na poziomie klienta
+    przepuszcza przez prawdziwy `_probe_qdrant`, więc testowany jest cały
+    łańcuch: wyjątek klienta → rozpoznanie przyczyny → gałąź w endpoincie.
+    """
+    import qdrant_client
+
+    import app.main as m
+
+    class KlientRzucajacy:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def get_collections(self):
+            raise blad
+
+    monkeypatch.setattr(qdrant_client, "QdrantClient", KlientRzucajacy)
+    # Wyzeruj cache rozmiaru wektora, żeby sonda faktycznie poszła do klienta.
+    monkeypatch.setattr(m, "_qdrant_vector_size", None)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=m.app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health")
+
+    body = response.json()
+    assert response.status_code == 200, "problem z Qdrantem nie może dawać 503"
+    return body["checks"]["qdrant"]
+
+
+@pytest.mark.asyncio
+async def test_wolny_qdrant_to_degraded_a_nie_unhealthy(monkeypatch) -> None:
+    """Qdrant, który odpowiada wolno, jest ŻYWY — nie wolno go zgłaszać jako awarię.
+
+    Regresja z przeglądu #986. Klient ma własny limit (2 s) i przy wolnej
+    odpowiedzi rzuca `ResponseHandlingException` owijający `httpx.TimeoutException`
+    — zwykły wyjątek, NIE `asyncio.TimeoutError`. Pierwsza wersja łapała tylko
+    ten drugi, więc gałąź „degraded" była nieosiągalna: limit klienta zawsze
+    wyprzedza `wait_for`, a wolny Qdrant lądował w „unhealthy". Dokładnie ten
+    fałszywy alarm, któremu ta sonda miała zapobiegać.
+
+    Zmierzone na żywej atrapie (serwer przyjmujący połączenie i nieodpowiadający):
+    przed poprawką `unhealthy`, po poprawce `degraded`.
+    """
+    import httpx
+
+    owiniety = RuntimeError("ResponseHandlingException")
+    owiniety.__cause__ = httpx.ReadTimeout("za wolno")
+
+    wynik = await _qdrant_gdy_klient_rzuca(monkeypatch, owiniety)
+    assert wynik == "degraded", (
+        "wolny (ale żywy) Qdrant znów jest raportowany jako awaria — "
+        "przekroczenie czasu klienta nie jest odróżniane od realnego błędu"
+    )
+
+
+@pytest.mark.asyncio
+async def test_zepsuty_qdrant_to_unhealthy(monkeypatch) -> None:
+    """Kontrola przeciwna: błąd, który NIE jest przekroczeniem czasu, ma być awarią.
+
+    Bez tego testu poprzedni dałoby się „naprawić", odsyłając `degraded` na
+    każdy wyjątek — i sonda przestałaby wykrywać to, po co powstała: zniknięcie
+    metody z biblioteki przy podbiciu wersji.
+    """
+    wynik = await _qdrant_gdy_klient_rzuca(
+        monkeypatch,
+        AttributeError("'QdrantClient' object has no attribute 'search'"),
+    )
+    assert wynik == "unhealthy", (
+        "zniknięcie metody w bibliotece — czyli awaria z 28.07 — nie jest już "
+        "raportowane jako awaria"
+    )
+
+
+@pytest.mark.asyncio
+async def test_odmowa_polaczenia_to_unhealthy_a_nie_degraded(monkeypatch) -> None:
+    """Leżący Qdrant to awaria, choć jego wyjątek jest owinięty tak samo jak wolny.
+
+    `qdrant-client` owija oba przypadki w ten sam typ zewnętrzny, więc bez
+    zaglądania w `__cause__` nie da się ich odróżnić — a odesłanie `degraded`
+    na leżący serwer ukrywałoby realną awarię.
+    """
+    import httpx
+
+    owiniety = RuntimeError("ResponseHandlingException")
+    owiniety.__cause__ = httpx.ConnectError("odmowa połączenia")
+
+    wynik = await _qdrant_gdy_klient_rzuca(monkeypatch, owiniety)
+    assert wynik == "unhealthy", (
+        "leżący Qdrant jest raportowany jako 'tylko wolny' — to ukrywa awarię"
+    )
+
+
+def test_rozpoznawanie_przekroczenia_czasu_patrzy_w_lancuch_przyczyn() -> None:
+    """`qdrant-client` owija wyjątki `httpx`, więc typ zewnętrzny nic nie mówi.
+
+    Odmowa połączenia (Qdrant leży) i wolna odpowiedź (Qdrant żyje) wyglądają
+    tak samo z zewnątrz — rozstrzyga dopiero `__cause__`.
+    """
+    import httpx
+
+    from app.main import _czy_przekroczony_czas
+
+    owiniety_timeout = RuntimeError("ResponseHandlingException")
+    owiniety_timeout.__cause__ = httpx.ReadTimeout("za wolno")
+    assert _czy_przekroczony_czas(owiniety_timeout) is True
+
+    owiniete_polaczenie = RuntimeError("ResponseHandlingException")
+    owiniete_polaczenie.__cause__ = httpx.ConnectError("odmowa połączenia")
+    assert _czy_przekroczony_czas(owiniete_polaczenie) is False, (
+        "odmowa połączenia to leżący Qdrant, nie wolny — nie wolno jej "
+        "traktować jak przekroczenia czasu"
+    )
+
+    assert _czy_przekroczony_czas(AttributeError("brak metody search")) is False
+
+
 def test_sonda_wykonuje_prawdziwe_zapytanie() -> None:
     """Sonda nie może zdegenerować się do pingu.
 
