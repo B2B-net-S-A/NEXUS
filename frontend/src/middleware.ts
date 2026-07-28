@@ -64,6 +64,12 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
     prefix: "/cortex",
     roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
   },
+  // Wykonywanie telefonów jest ograniczone do ról operacyjnych. Admin i Head
+  // of Recruitment korzystają z osobnego panelu nadzoru na dashboardzie.
+  {
+    prefix: "/candidates/contact-queue",
+    roles: ["tac", "recruiter", "sourcer"],
+  },
   // Moduł kandydatów (audyt M2 PR1): rola `user` = read-only viewer/klient
   // NIE ma dostępu do bazy kandydatów, talentów ani targu — backend zwraca
   // 403 (capability guards w candidate_access.py), middleware poprawia UX
@@ -112,10 +118,10 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 //                  engagementu). Ukośnik na końcu jest obowiązkowy: samo "/cv"
 //                  łapałoby przez `startsWith` także wewnętrzny `/cv-generator`
 //                  i wystawiło go publicznie.
-//   `/preview/candidates`, `/preview/candidate-profile`
-//                — DWA konkretne harnessy designu, po których chodzi nightly
+//   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`
+//                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
-//                  Oba renderują wyłącznie zahardkodowane mocki i nie wołają
+//                  Renderują wyłącznie zahardkodowane mocki i nie wołają
 //                  żadnego API (patrz components/candidates/preview/*). Gdy
 //                  bramka deny-by-default objęła tę przestrzeń, wszystkie 9
 //                  specow zaczęło dostawać 307 na /login i nightly był czerwony
@@ -140,6 +146,7 @@ const PUBLIC_PATHS = [
   "/engagement/",
   "/preview/candidates",
   "/preview/candidate-profile",
+  "/preview/contact-queue",
 ]
 
 function isPublicPath(pathname: string): boolean {

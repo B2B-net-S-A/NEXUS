@@ -34,6 +34,11 @@ const now = () => Math.floor(Date.now() / 1000)
 
 const validAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() + HOUR })
 const validViewer = makeToken({ role: "user", roles: ["user"], exp: now() + HOUR })
+const validRecruiter = makeToken({
+  role: "recruiter",
+  roles: ["recruiter"],
+  exp: now() + HOUR,
+})
 const expiredAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() - HOUR })
 
 function request(pathname: string, token?: string): NextRequest {
@@ -138,6 +143,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/engagement/abc123",
     "/preview/candidates",
     "/preview/candidate-profile",
+    "/preview/contact-queue",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
   })
@@ -163,13 +169,14 @@ describe("linki publiczne działają bez tokenu", () => {
     expect(destination("/cv-generator")).toBe("/login")
   })
 
-  it("publiczne są TYLKO dwa harnessy, nie cała przestrzeń /preview", () => {
+  it("publiczne są tylko jawne harnessy, nie cała przestrzeń /preview", () => {
     // Regresja: deny-by-default objął też /preview, przez co
     // `e2e/candidate-ux-preview.spec.ts` dostawał 307 na /login i wszystkie
     // 9 specow padało co noc. Otwieramy dokładnie te dwie strony, po których
     // chodzi nightly — oba to mocki bez requestów do backendu.
     expect(destination("/preview/candidates")).toBe("pass")
     expect(destination("/preview/candidate-profile")).toBe("pass")
+    expect(destination("/preview/contact-queue")).toBe("pass")
 
     // Reszta harnessów zostaje prywatna. /preview/shell renderuje prawdziwy
     // SidebarV2 (role-gating, liczniki) — czyli wewnętrzną strukturę aplikacji.
@@ -199,6 +206,12 @@ describe("zawężenia ról nadal obowiązują", () => {
   it("admin wchodzi na trasy zawężone", () => {
     expect(destination("/candidates", validAdmin)).toBe("pass")
     expect(destination("/manager", validAdmin)).toBe("pass")
+  })
+
+  it("kolejka kontaktu wpuszcza tylko role wykonujące telefony", () => {
+    expect(destination("/candidates/contact-queue", validRecruiter)).toBe("pass")
+    expect(destination("/candidates/contact-queue", validAdmin)).toBe("/403")
+    expect(destination("/candidates/contact-queue", validViewer)).toBe("/403")
   })
 
   it("najdłuższy pasujący prefix wygrywa (settings/chats → admin-only)", () => {

@@ -15,6 +15,7 @@ import CallStatsWidget from"@/components/dashboard/CallStatsWidget"
 import { RaceCard } from"@/components/v2/gamification/RaceCard"
 import { WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState"
 import { MojeKpiPanel } from "@/components/v2/kpi/MojeKpiPanel"
+import { MyContactQueueWidget } from "@/components/candidate-contact/MyContactQueueWidget"
 import { MyPriorityQueue } from "@/components/v2/priority-work"
 import { ROLE_LABELS, hasRole, useAuthStore } from"@/store/auth"
 
@@ -354,6 +355,8 @@ export default function RecruiterDashboard() {
 
  {/* Moje KPI — osobisty panel (verifier-anchored, niezależny od raportu zespołu) */}
  <MojeKpiPanel className="mb-1" />
+
+ {isMeRecruiter ? <MyContactQueueWidget /> : null}
 
  {/* Report-driven sections (KPI + lejka). Without explicit error handling
  these would silently render zeros when the report endpoint errors — making

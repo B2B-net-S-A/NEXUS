@@ -180,6 +180,14 @@ import {
  type CandidateProfileSection,
  withCandidateProfileView,
 } from"@/components/v2/pages/candidate-profile-navigation";
+import { ContactOutcomeSheet } from "@/components/candidate-contact/ContactOutcomeSheet";
+import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
+import {
+ candidateContactApi,
+ candidateContactQueryKeys,
+ type CandidateContactCase,
+} from "@/lib/candidate-contact";
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 
 const STATUS_VARIANT: Record<string, "success" |"warning" |"danger" |"neutral"> = {
  active: "success",
@@ -470,6 +478,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  const [cvOpen, setCvOpen] = useState(false);
  const [assignOpen, setAssignOpen] = useState(false);
  const [scheduleOpen, setScheduleOpen] = useState(false);
+ const [contactOutcomeOpen, setContactOutcomeOpen] = useState(false);
  const [editOpen, setEditOpen] = useState(false);
  // Inline edycja tożsamości/kontaktu (imię, nazwisko, email, telefon) wprost
  // w nagłówku — szybka korekta np. kandydatów zaimportowanych jako "?".
@@ -487,6 +496,17 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // passed into children so the NotatkiTab can emit edit signals without
  // mounting a second hook instance.
  const currentUser = useAuthStore((s) => s.user);
+ const contactFeature = useCandidateContactFeature({
+ queryEnabled: hasRole(
+ currentUser,
+ "admin",
+ "head_of_recruitment",
+ "delivery_lead",
+ "tac",
+ "recruiter",
+ "sourcer",
+ ),
+ });
  const { viewers: presenceViewers, setEditing: setPresenceEditing } =
  usePresence("candidate", Number.isFinite(Number(id)) ? Number(id) : null);
 
@@ -497,6 +517,16 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  enabled: !!id,
  });
  const { data: candidate, isLoading } = candidateQuery;
+ const contactCaseQuery = useQuery<CandidateContactCase | null>({
+ queryKey: candidateContactQueryKeys.candidate(Number(id)),
+ queryFn: () => candidateContactApi.forCandidate(Number(id)),
+ enabled:
+ contactFeature.enabled &&
+ Number.isFinite(Number(id)) &&
+ Number(id) > 0,
+ staleTime: 30_000,
+ retry: false,
+ });
 
  useEffect(() => {
  if (candidate && !embedded) {
@@ -848,6 +878,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {riskProfile && <RiskBadge profile={riskProfile} />}
  <CandidateHighlights candidate={candidate} variant="full" />
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="md" />
+ {contactFeature.enabled ? (
+ <ContactStatusBadge contactCase={contactCaseQuery.data} size="md" />
+ ) : null}
  {candidate.source === "linkedin" && (
  <Badge variant="plum" size="sm">
  <Linkedin className="h-3 w-3" />
@@ -907,6 +940,20 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  compact
  />
  )}
+ {candidate.phone &&
+ contactCaseQuery.data &&
+ hasRole(currentUser, "tac", "recruiter", "sourcer") &&
+ contactCaseQuery.data.owner?.id === currentUser?.id &&
+ ["queued", "callback_due"].includes(contactCaseQuery.data.status) ? (
+ <Button
+ type="button"
+ size="sm"
+ variant="outline"
+ onClick={() => setContactOutcomeOpen(true)}
+ >
+ Zaloguj wynik
+ </Button>
+ ) : null}
  {(() => {
  const headerLoc = formatCandidateLocation(candidate.location);
  return headerLoc ? (
@@ -1400,6 +1447,13 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  onOpenChange={setMarketplaceOpen}
  />
  )}
+ <ContactOutcomeSheet
+ contactCase={contactCaseQuery.data ?? null}
+ open={contactOutcomeOpen}
+ onOpenChange={setContactOutcomeOpen}
+ onSaved={() => void contactCaseQuery.refetch()}
+ onConflict={() => void contactCaseQuery.refetch()}
+ />
 
  </div>
  );

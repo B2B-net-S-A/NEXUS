@@ -19,6 +19,7 @@ import {
   HelpCircle,
   Inbox,
   Lightbulb,
+  PhoneCall,
   Settings,
   Sparkles,
   Store,
@@ -35,6 +36,7 @@ import { hasRole, ROLE_LABELS, UserRole, useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 
 type BadgeCounts = {
   candidates?: number;
@@ -78,6 +80,12 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Users,
         badgeKey: "candidates",
         roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+      },
+      {
+        href: "/candidates/contact-queue",
+        label: "Do przedzwonienia",
+        icon: PhoneCall,
+        roles: ["tac", "recruiter", "sourcer"],
       },
       { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
       // Generator Umów B2B — dostępny dla wszystkich ról (sourcing tooling).
@@ -342,6 +350,10 @@ export function SidebarV2({
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
+  const canUseContactQueue = hasRole(user, "tac", "recruiter", "sourcer");
+  const contactFeature = useCandidateContactFeature({
+    queryEnabled: canUseContactQueue,
+  });
 
   const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState<boolean>(() => {
@@ -451,8 +463,17 @@ export function SidebarV2({
   });
 
   const badgeCounts = stats ?? {};
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+  const isActive = (href: string) => {
+    if (
+      pathname.startsWith("/candidates/contact-queue") &&
+      href === "/candidates"
+    ) {
+      return false;
+    }
+    return href === "/"
+      ? pathname === "/"
+      : pathname === href || pathname.startsWith(href + "/");
+  };
   const initials = user?.name
     ? user.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
@@ -528,7 +549,10 @@ export function SidebarV2({
       >
         {NAV_SECTIONS.map((section) => {
           const visibleItems = section.items.filter(
-            (item) => !item.roles || hasRole(user, ...item.roles)
+            (item) =>
+              (!item.roles || hasRole(user, ...item.roles)) &&
+              (item.href !== "/candidates/contact-queue" ||
+                contactFeature.enabled),
           );
           if (visibleItems.length === 0) return null;
           return (

@@ -16,6 +16,47 @@ async function expectNoPageOverflow(page: Page) {
 
 test.describe("candidate UX deterministic previews", () => {
   for (const viewport of VIEWPORTS) {
+    test(`contact queue is readable at ${viewport.name}`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.goto("/preview/contact-queue");
+
+      await expect(
+        page.getByRole("heading", { name: "Do przedzwonienia" }),
+      ).toBeVisible();
+      await expect(page.getByText("18/20")).toBeVisible();
+      await expect(
+        page.getByRole("link", { name: "Alicja Zielińska" }),
+      ).toHaveCount(1);
+      await expect(page.getByText("Senior Java Developer").first()).toBeVisible();
+      await expect(page.getByText("Backend Tech Lead")).toBeVisible();
+      await expectNoPageOverflow(page);
+    });
+  }
+
+  test("contact queue logs only an explicit outcome", async ({ page }) => {
+    await page.goto("/preview/contact-queue");
+
+    await page.getByRole("button", { name: /zaloguj wynik/i }).first().click();
+    for (const outcome of [
+      "Rozmowa odbyta",
+      "Brak odpowiedzi",
+      "Prośba o oddzwonienie",
+      "Błędny numer",
+      "Nie kontaktować",
+    ]) {
+      await expect(page.getByText(outcome, { exact: true })).toBeVisible();
+    }
+
+    await page
+      .getByRole("radio", { name: "Prośba o oddzwonienie" })
+      .click();
+    await page.getByRole("button", { name: "Zapisz wynik" }).click();
+    await expect(
+      page.getByText("Wskaż prawidłowy termin oddzwonienia."),
+    ).toBeVisible();
+  });
+
+  for (const viewport of VIEWPORTS) {
     test(`candidate list is readable at ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.goto("/preview/candidates");
