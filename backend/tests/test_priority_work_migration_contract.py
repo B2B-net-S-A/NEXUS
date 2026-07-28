@@ -212,6 +212,12 @@ def test_deep_health_probes_every_priority_table() -> None:
     assert "ix_recruitment_processes_eligibility_assignment_id" in source
 
 
+def test_standard_health_keeps_qdrant_and_priority_worker_signals() -> None:
+    source = MAIN.read_text()
+    assert 'checks["qdrant"]' in source
+    assert 'checks["priority_work"]' in source
+
+
 def test_priority_models_are_registered_for_metadata_create_all() -> None:
     source = MODELS_INIT.read_text()
     assert "from app.models.recruitment_priority import" in source

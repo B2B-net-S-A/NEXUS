@@ -12,7 +12,7 @@ Pierwotny bazowy commit worktree:
 `85195914f70936a06d8ef23d488b9c7ce2be3232`
 
 Aktualna baza po rebase:
-`963d5be6eadc1cafabb2dbfef9906a57dc8eba6c`
+`656a79fcf37883929f64990fcd8342aa9df30703`
 
 ## 1. Granice realizacji
 
@@ -39,8 +39,9 @@ ma wartość domyślną `off`. Draft PR
 niegotowy do merge. Implementacyjny SHA
 `693e2ecbba2034710c41f8d08c76673b15f2b98b` przeszedł hosted CI
 `30358044332` oraz Claude review `30358044393`. Branch został ponownie
-zrebasowany bez konfliktów na aktualny `origin/main` `963d5be6`; range-diff
-potwierdził niezmienność wcześniejszych commitów funkcji.
+zrebasowany na aktualny `origin/main` `656a79fc`. Jedyny konflikt w
+`backend/app/main.py` rozwiązano przez zachowanie sond Qdrant i Priority Work;
+test kontraktowy chroni obecność obu.
 
 Końcowy commit dokumentacyjny z natury ma późniejszy SHA niż dowód
 implementacyjny. Jego stan należy odczytać z aktualnego head PR; nie wolno
@@ -407,16 +408,16 @@ opartej o bazę. Deep health sprawdza nowe tabele oraz rozszerzony proces.
 Zakres testów jest celowo opisany dokładnie:
 
 - 8 modułów backendowych `test_priority_work*.py`;
-- 119 funkcji testowych w tych modułach;
-- parametryzacja daje 165 wykonanych przypadków;
+- 120 funkcji testowych w tych modułach;
+- parametryzacja daje 166 wykonanych przypadków;
 - 9 skupionych plików frontendowych i 39 testów.
 
 Wyniki lokalne:
 
 | Kontrola | Wynik |
 |---|---|
-| backend Priority Work | **165 passed** |
-| regresje Priority Work + auth + aktualny upstream search | **226 passed** |
+| backend Priority Work | **166 passed** |
+| regresje Priority Work + auth + aktualny upstream search | **227 passed** |
 | frontend focused Vitest | **9 plików / 39 passed** |
 | Ruff check i format: app, migracja, testy | **pass** |
 | Python compile | **pass** |
@@ -425,7 +426,7 @@ Wyniki lokalne:
 | frontend typecheck | **pass** |
 | frontend lint | **pass** |
 | token guard | **pass** |
-| rebase / range-diff / audyt zmian upstream | **pass**, baza `963d5be6` |
+| rebase / range-diff / audyt zmian upstream | **pass**, baza `656a79fc` |
 | lokalny Docker | nie uruchamiano |
 | draft PR | **#985, draft, bez merge/deployu** |
 | hosted CI na SHA implementacyjnym | **pass**, run `30358044332` |

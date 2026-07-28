@@ -12,7 +12,12 @@ Pierwotny commit bazowy worktree:
 `85195914f70936a06d8ef23d488b9c7ce2be3232`
 
 Aktualna baza brancha po rebase:
-`963d5be6eadc1cafabb2dbfef9906a57dc8eba6c`
+`656a79fcf37883929f64990fcd8342aa9df30703`
+
+Rebase na health/Qdrant `#986` miał jeden konflikt w `backend/app/main.py`.
+Rozwiązanie zachowuje jednocześnie prawdziwą sondę Qdrant oraz persisted
+heartbeat Priority Work; test kontraktowy wymaga obu kluczy standardowego
+healthchecku.
 
 SHA implementacji zweryfikowany pełnym hosted CI:
 `693e2ecbba2034710c41f8d08c76673b15f2b98b`
@@ -722,15 +727,15 @@ wniosku o pełnym browser E2E.
 Zakres:
 
 - 8 modułów backendowych;
-- 119 funkcji testowych;
-- 165 przypadków po parametryzacji;
+- 120 funkcji testowych;
+- 166 przypadków po parametryzacji;
 - 9 skupionych plików frontendowych;
 - 39 testów frontendowych.
 
 | Kontrola | Wynik |
 |---|---|
-| skupione testy backend Priority Work | **165 passed** |
-| regresje Priority Work + auth + aktualny upstream search | **226 passed** |
+| skupione testy backend Priority Work | **166 passed** |
+| regresje Priority Work + auth + aktualny upstream search | **227 passed** |
 | skupione testy frontend | **9 plików / 39 passed** |
 | Ruff check i format: app, migracja, testy | **pass** |
 | Python compile app + migracja | **pass** |
@@ -739,7 +744,7 @@ Zakres:
 | frontend typecheck | **pass** |
 | frontend lint | **pass** |
 | frontend token guard | **pass** |
-| rebase / range-diff / audyt zmian upstream | **pass**, baza `963d5be6` |
+| rebase / range-diff / audyt zmian upstream | **pass**, baza `656a79fc` |
 | lokalny Docker | nie uruchamiano |
 
 Hosted evidence:
@@ -831,7 +836,7 @@ transakcyjnością, migracją lub carry-over jest automatycznym **NO-GO**.
 
 ## 14. Kolejność review Claude’a
 
-1. Potwierdzić, że PR nadal bazuje na `963d5be6` lub nowszym `main`, a
+1. Potwierdzić, że PR nadal bazuje na `656a79fc` lub nowszym `main`, a
    ewentualne kolejne zmiany upstream nie naruszają zintegrowanych deep-linków,
    wyszukiwania, entrypointu ani seedów.
 2. Zweryfikować `_assert_publish_lineage` oraz test sibling draftów: drugi
@@ -975,7 +980,7 @@ Uruchomić w zalogowanym profilu użytkownika i zachować screenshoty/dowody:
 
 ### 17.1. PR handoff GO
 
-- [x] Izolowany branch jest oparty o `origin/main` `963d5be6` bez obcych zmian.
+- [x] Izolowany branch jest oparty o `origin/main` `656a79fc` bez obcych zmian.
 - [x] Draft PR #985 istnieje i pozostaje bez merge/deployu.
 - [x] CAS lineage i sibling draft coverage przechodzą.
 - [x] Hosted `upgrade heads` oraz repeated upgrade na PostgreSQL przechodzą.
