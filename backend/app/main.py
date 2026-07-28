@@ -1226,10 +1226,21 @@ async def api_health_check():
         except Exception:
             checks["m365_encryption"] = "unhealthy"
 
-    # CloudTalk status — informational only. `unconfigured` while kill-switch
-    # is off OR API key id is empty (default state pre-provisioning).
+    # CloudTalk status — raportowany TYLKO gdy integracja jest włączona.
+    #
+    # Wcześniej klucz `cloudtalk: "unconfigured"` wisiał w odpowiedzi zawsze,
+    # także przy wyłączonym kill-switchu — czyli od wdrożenia integracji do
+    # dziś, bez jednego dnia przerwy. Stały wpis „czegoś tu nie ma" nie niesie
+    # informacji: nie da się po nim poznać, czy ktoś właśnie wyłączył działającą
+    # integrację, czy po prostu nigdy jej nie uruchomiono. Uczy natomiast
+    # ignorować niezdrowe pozycje w `checks` — a to jest kosztowne, bo obok
+    # stoją pozycje, które znaczą coś naprawdę (`database`, `traffit`).
+    #
+    # Decyzja produktowa 28.07: nie używamy CloudTalka. Kod zostaje (model
+    # `Call` i kolumny są niezależne od dostawcy i przydadzą się przy następnej
+    # telefonii), ale przestaje raportować swoją nieobecność.
     if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
-        checks["cloudtalk"] = "unconfigured"
+        pass
     else:
         try:
             from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig
