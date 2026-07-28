@@ -109,6 +109,29 @@ export RCLONE_CONNECT_TIMEOUT="60s"
 # rclone probes the bucket before every operation and aborts on AccessDenied,
 # which would look like a transfer failure. Both buckets are created by hand.
 export RCLONE_S3_NO_CHECK_BUCKET="true"
+# Bez tego rclone po KAŻDYM wgranym obiekcie robi HEAD, żeby odczytać jego
+# metadane. Na Backblaze HEAD to transakcja **klasy B** — ta sama pula co
+# pobieranie, limitowana dziennie i płatna po przekroczeniu. PUT jest klasy A:
+# darmowy i bez limitu. Przy 136 tys. obiektów korpusu CV pierwszy przebieg
+# (27.07) wyczerpał dzienną pulę klasy B w kilkanaście minut, po czym każda
+# kolejna kopia padała na `403 AccessDenied: Cannot download file, download
+# bandwidth or transaction (Class B) cap exceeded`. Zmierzone w tym przebiegu po
+# ~30 minutach: 22 438 obiektów wgranych przy 16 088 odrzuconych — czyli ponad
+# dwie piąte korpusu, a odsetek rósł, bo pula raz wyczerpana już nie wraca do
+# końca doby. Błąd jest deterministyczny, więc te same pliki przepadałyby co noc.
+#
+# Ustawione globalnie, nie flagą przy `sync`, bo dotyczy też małych `rcat`:
+# LATEST.json idzie pojedynczym PUT-em, a jego niepowodzenie kładzie CAŁY
+# przebieg (patrz koniec pliku) — i to właśnie manifest padłby jako pierwszy,
+# już po tym, jak wszystkie artefakty poprawnie wylądowały.
+#
+# Czego NIE tracimy: porównanie źródło↔cel rclone i tak robi z listingów
+# (`--fast-list`, klasa C), nie z HEAD-ów. Znika jedynie potwierdzenie rozmiaru
+# pojedynczego obiektu tuż po wgraniu — co nigdy nie było tu dowodem: bramką
+# jest porównanie LICZBY obiektów źródło↔cel, oparte na listingach, i ono działa
+# dalej. Odczyt archiwum (odtwarzanie) to osobna sprawa: pobieranie też jest
+# klasy B, więc restore wymaga podniesionego limitu na koncie B2.
+export RCLONE_S3_NO_HEAD="true"
 
 # Source remote for the candidate CV corpus: the SAME bucket the application
 # reads and writes through backend/app/services/object_storage.py. Read-only in
@@ -234,6 +257,7 @@ if [ -z "${OBJECT_STORAGE_ENDPOINT:-}" ] || [ -z "${OBJECT_STORAGE_ACCESS_KEY:-}
     record "cv_corpus" "error" 0 "OBJECT_STORAGE_* not configured — CV corpus NOT backed up" 0
 else
     cv_rc=0
+    # HEAD po wgraniu jest wyłączony globalnie — patrz RCLONE_S3_NO_HEAD wyżej.
     rclone sync "cvsrc:${CV_BUCKET}" "$cv_dest" \
         --backup-dir "$cv_archive" \
         --fast-list \
