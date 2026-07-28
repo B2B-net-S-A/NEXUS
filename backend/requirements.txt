@@ -77,3 +77,9 @@ pyhanko[etsi]==0.34.1
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
 boto3==1.35.0
+
+# Polski kalendarz świąt dla `app.core.scheduling.is_business_day`. Targety
+# Priority Work ("4 weryfikacje / dzień roboczy") i triggery notyfikacji nie mogą
+# liczyć 1 maja ani Bożego Ciała jako dnia pracy. Ruchome święta liczone z daty
+# Wielkanocy — dlatego biblioteka, nie własna tablica dat.
+holidays==0.83

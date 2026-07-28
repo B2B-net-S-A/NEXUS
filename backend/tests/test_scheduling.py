@@ -71,6 +71,58 @@ def test_is_business_day(iso_date, expected):
     assert is_business_day(moment) is expected
 
 
+@pytest.mark.parametrize(
+    "iso_date,label",
+    [
+        ("2026-01-01", "Nowy Rok (czw)"),
+        ("2026-01-06", "Trzech Króli (wt)"),
+        ("2026-04-06", "Poniedziałek Wielkanocny — RUCHOME (pon)"),
+        ("2026-05-01", "Święto Pracy (pt)"),
+        ("2026-06-04", "Boże Ciało — RUCHOME (czw)"),
+        ("2026-11-11", "Święto Niepodległości (śr)"),
+        ("2026-12-24", "Wigilia — wolna ustawowo od 2025 (czw)"),
+        ("2026-12-25", "Boże Narodzenie (pt)"),
+    ],
+)
+def test_weekday_polish_holiday_is_not_a_business_day(iso_date, label):
+    """Święto w dniu tygodnia NIE jest dniem roboczym.
+
+    Bez tego target „4 weryfikacje / dzień roboczy" liczyłby 1 maja jako dzień
+    pracy, a triggery notyfikacji budziłyby ludzi w Boże Ciało.
+    """
+    moment = datetime.fromisoformat(iso_date + "T10:00:00+01:00")
+    assert is_business_day(moment) is False, label
+
+
+def test_moveable_holidays_track_easter_across_years():
+    """Ruchome święta nie są zahardkodowane — jadą za datą Wielkanocy.
+
+    Wielkanoc 2025 = 20 IV, 2026 = 5 IV. Poniedziałek Wielkanocny i Boże Ciało
+    (Wielkanoc + 60 dni) muszą się przesunąć razem z nią.
+    """
+    # 2025: Poniedziałek Wielkanocny 21 IV, Boże Ciało 19 VI.
+    assert is_business_day(datetime(2025, 4, 21, 10, tzinfo=WARSAW)) is False
+    assert is_business_day(datetime(2025, 6, 19, 10, tzinfo=WARSAW)) is False
+    # ...i te same dni w 2026 są już zwykłymi dniami roboczymi.
+    assert is_business_day(datetime(2026, 4, 21, 10, tzinfo=WARSAW)) is True
+    assert is_business_day(datetime(2026, 6, 19, 10, tzinfo=WARSAW)) is True
+
+
+def test_holiday_falling_on_weekend_stays_non_business():
+    """3 maja 2026 = niedziela. Nadal nie-roboczy, bez podwójnego liczenia."""
+    assert is_business_day(datetime(2026, 5, 3, 10, tzinfo=WARSAW)) is False
+
+
+def test_business_day_uses_local_date_not_utc_date():
+    """23:30 UTC 31 XII to już 1 I lokalnie → święto, nie dzień roboczy.
+
+    Gdyby funkcja patrzyła na datę UTC, zobaczyłaby 31 XII (czwartek, roboczy).
+    """
+    new_years_eve_late_utc = datetime(2025, 12, 31, 23, 30, tzinfo=timezone.utc)
+    assert new_years_eve_late_utc.astimezone(WARSAW).date().isoformat() == "2026-01-01"
+    assert is_business_day(new_years_eve_late_utc) is False
+
+
 # ── is_within_window ─────────────────────────────────────────────────────────
 
 

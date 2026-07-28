@@ -1,7 +1,7 @@
 """
 Timezone-aware scheduling helpers for Phase 13 notification triggers.
 
-Pure stdlib (`zoneinfo`, `datetime`) — no 3rd-party deps.
+Stdlib (`zoneinfo`, `datetime`) + `holidays` dla polskiego kalendarza świąt.
 
 Wszystkie funkcje są bezstanowe, deterministyczne dla danego `now`, więc łatwe
 do testowania z `freezegun`.
@@ -10,8 +10,11 @@ do testowania z `freezegun`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from functools import lru_cache
 from zoneinfo import ZoneInfo
+
+import holidays
 
 
 DEFAULT_TZ = "Europe/Warsaw"
@@ -51,11 +54,34 @@ def local_day_bounds(now: datetime, tz: str = DEFAULT_TZ) -> DayBounds:
     )
 
 
+@lru_cache(maxsize=32)
+def _polish_holidays(year: int) -> frozenset[date]:
+    """Dni ustawowo wolne od pracy w RP dla danego roku.
+
+    `frozenset` za `lru_cache` zamiast jednego modułowego `holidays.Poland()`:
+    `HolidayBase` to podklasa `dict`, która dopopulowuje brakujące lata leniwie
+    przy `in`, więc współdzielona instancja mogłaby się ścigać między wątkami
+    threadpoola FastAPI. Tu populacja dzieje się raz per rok, a odczyt jest
+    niemutowalny.
+    """
+    return frozenset(holidays.Poland(years=year).keys())
+
+
 def is_business_day(moment: datetime, tz: str = DEFAULT_TZ) -> bool:
-    """Mon–Fri, weekends off. MVP — polskie święta poza scope (TODO: `holidays`)."""
+    """Dzień roboczy = Pon–Pt **i** nie polskie święto ustawowe.
+
+    Święta są zawsze polskie (kalendarz firmowy) — `tz` decyduje wyłącznie o tym,
+    na którą datę kalendarzową wypada `moment`, nie o tym, czyje święta liczymy.
+
+    Ruchome święta (Poniedziałek Wielkanocny, Boże Ciało) i Wigilia — wolna
+    ustawowo od 2025 — pochodzą z biblioteki `holidays`, żeby nie utrzymywać
+    własnej tablicy dat. W 2026 daje to 8 świąt wypadających w dni tygodnia.
+    """
     zone = ZoneInfo(tz)
     local = moment.astimezone(zone) if moment.tzinfo else moment.replace(tzinfo=zone)
-    return local.weekday() < 5
+    if local.weekday() >= 5:
+        return False
+    return local.date() not in _polish_holidays(local.year)
 
 
 def is_within_window(
