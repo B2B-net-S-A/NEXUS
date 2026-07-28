@@ -395,6 +395,88 @@ def set_alias_map(mapping: dict[str, str]) -> None:
     # Invalidate the compiled regex used for Champion Profile skill extraction.
     global _CHAMPION_ALIAS_PATTERN
     _CHAMPION_ALIAS_PATTERN = None
+    # Invalidate the reverse index used by `skill_name_variants`.
+    global _RODZINY_ALIASOW
+    _RODZINY_ALIASOW = None
+
+
+# Odwrotność ALIAS_MAP: `kanoniczna -> [kanoniczna, alias, alias, ...]`.
+# Budowana leniwie, unieważniana przez `set_alias_map`.
+_RODZINY_ALIASOW: Optional[dict[str, List[str]]] = None
+
+
+def _rodziny_aliasow() -> dict[str, List[str]]:
+    global _RODZINY_ALIASOW
+    if _RODZINY_ALIASOW is None:
+        rodziny: dict[str, List[str]] = {}
+        for alias, kanoniczna in ALIAS_MAP.items():
+            rodzina = rodziny.setdefault(kanoniczna, [kanoniczna])
+            if alias != kanoniczna:
+                rodzina.append(alias)
+        _RODZINY_ALIASOW = rodziny
+    return _RODZINY_ALIASOW
+
+
+def skill_variant_groups(raw) -> List[List[str]]:
+    """Jak `skill_name_variants`, ale zachowuje granice między umiejętnościami.
+
+    Potrzebne wszędzie tam, gdzie umiejętności łączy się przez AND. Płaska lista
+    wariantów zamieniłaby „ma MSSQL ORAZ Pythona" w „ma wszystkie pisownie MSSQL
+    naraz" — czyli w zapytanie, które nie zwróci nikogo. Alternatywa działa
+    WEWNĄTRZ rodziny, koniunkcja MIĘDZY rodzinami.
+
+    Zwraca listę list; każda podlista to jedna rodzina, z nazwą kanoniczną na
+    początku. Puste rodziny są pomijane.
+    """
+    rodziny = _rodziny_aliasow()
+    widziane_kanoniczne: set[str] = set()
+    grupy: List[List[str]] = []
+    for nazwa in _skill_names(raw):
+        kanoniczna = ALIAS_MAP.get(nazwa, nazwa)
+        if kanoniczna in widziane_kanoniczne:
+            continue
+        widziane_kanoniczne.add(kanoniczna)
+        rodzina = [w for w in rodziny.get(kanoniczna, [kanoniczna]) if w]
+        if rodzina:
+            grupy.append(rodzina)
+    return grupy
+
+
+def skill_name_variants(raw) -> List[str]:
+    """Rozwija nazwy umiejętności na PEŁNE rodziny aliasów.
+
+    Czym różni się od `canonical_skill_names`. Tamta ZWIJA — zwraca jedną nazwę
+    kanoniczną na umiejętność. To ma sens przy porównywaniu dwóch zbiorów
+    umiejętności (scoring), ale jest błędem przy WYSZUKIWANIU, bo dane
+    kandydatów nie są kanonizowane: w bazie leży dosłownie to, co przyszło z CV
+    albo z importu.
+
+    Zmierzone na produkcji 2026-07-28 (55 428 kandydatów). Rodzina
+    „Microsoft SQL Server" występuje w danych jako:
+
+        mssql=21, ms sql=18, sql server=18, microsoft sql server=9, microsoft sql=3
+
+    Filtr sprowadzający zapytanie do nazwy kanonicznej znajdował więc **9 z ponad
+    60** osób — i zwracał te same 9 niezależnie od tego, który wariant wpisał
+    rekruter. Analogicznie HTML gubił 35 z 76, REST API 34 z 69, Java 27 ze 152.
+    Przy filtrze „nie ma X" (twardym) pominięty kandydat wygląda dokładnie tak
+    samo jak nieistniejący, więc rozjazd był z ekranu niewidoczny.
+
+    Zwraca listę małymi literami, bez powtórzeń, z nazwą kanoniczną na początku
+    każdej rodziny. Gdy `ALIAS_MAP` jest pusta (testy, narzędzia offline)
+    zachowuje się jak `_skill_names` — czyli nie zmienia niczego.
+
+    Do użycia tylko tam, gdzie wynik i tak łączy się ALTERNATYWĄ. Przy AND
+    użyj `skill_variant_groups`, żeby nie zażądać wszystkich pisowni naraz.
+    """
+    widziane: set[str] = set()
+    out: List[str] = []
+    for rodzina in skill_variant_groups(raw):
+        for wariant in rodzina:
+            if wariant not in widziane:
+                widziane.add(wariant)
+                out.append(wariant)
+    return out
 
 
 # Compiled union regex: \b(alias1|alias2|...)\b. Built lazily, invalidated when

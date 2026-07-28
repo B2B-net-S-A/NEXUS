@@ -102,13 +102,42 @@ def _skill_match(skill: str) -> ColumnElement:
     sam w siebie. Nieszkodliwe i wciąż ściśle lepsze od stanu poprzedniego;
     właściwym rozwiązaniem jest złączenie z ``cortex_skill_facts``, które wymaga
     pokrycia Cortexa powyżej ~60% (zmierzone 56,8% na 2026-07-27).
-    """
+
+    RODZINA ALIASÓW, nie jedna pisownia. Dane kandydatów nie są kanonizowane —
+    w bazie leży dosłownie to, co przyszło z CV albo z importu — a semantyka
+    całego tokenu (powyżej) sprawia, że ``"golang"`` NIE zawiera ``"go"``.
+    Zbiory wariantów są więc rozłączne. Zmierzone na produkcji 2026-07-28 dla
+    rodziny „Microsoft SQL Server”::
+
+        mssql=21, ms sql=18, sql server=18, microsoft sql server=9, microsoft sql=3
+
+    Wcześniej lista kandydatów zwijała zapytanie do nazwy kanonicznej i szukała
+    wyłącznie jej dosłownego brzmienia (9 z ponad 60 osób, te same 9 niezależnie
+    od wpisanego wariantu), a wyszukiwarka nie normalizowała nic (tylko dosłowne
+    trafienia wpisanej pisowni). Żadna z powierzchni nie była nadzbiorem drugiej:
+    przy „REST” wyszukiwarka znajdowała 35, lista 31. Poza MSSQL gubione było
+    m.in. 35 z 76 przy HTML, 34 z 69 przy REST API, 27 ze 152 przy Javie.
+
+    Rozwinięcie siedzi TUTAJ, a nie w miejscach wywołania, bo to jedyny punkt
+    wspólny obu powierzchni — poprawkę w wywołaniach da się pominąć przy
+    dopisywaniu kolejnego endpointu i dokładnie tak powstał poprzedni rozjazd.
+    Efekt uboczny jest korzystny: skoro alternatywa siedzi wewnątrz predykatu,
+    koniunkcja przy ``skill_combine="and"`` nadal działa MIĘDZY umiejętnościami,
+    a nie między pisowniami tej samej (co nie zwróciłoby nikogo).
+    """  # noqa: D301
     blob = func.lower(_skills_text())
-    igla = skill.lower()
-    return or_(
-        func.strpos(blob, f'"{igla}"') > 0,
-        func.strpos(blob, f'\\"{igla}\\"') > 0,
-    )
+
+    # Import lokalny: `scoring_service` importuje modele i schematy, a ten moduł
+    # jest ładowany z `candidates.py` — import na górze pliku domyka cykl.
+    from app.services.scoring_service import skill_name_variants
+
+    igly = [w for w in (skill_name_variants([skill]) or []) if w] or [skill.lower()]
+
+    warunki: list[ColumnElement] = []
+    for igla in igly:
+        warunki.append(func.strpos(blob, f'"{igla}"') > 0)
+        warunki.append(func.strpos(blob, f'\\"{igla}\\"') > 0)
+    return or_(*warunki)
 
 
 def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
