@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from"react";
+import { Suspense, useEffect, useState } from"react";
 import { JobsListV2 } from"@/components/v2/pages/JobsListV2";
 
 /**
@@ -14,5 +14,16 @@ export default function JobsPage() {
  if (!mounted) {
  return <div className="p-8 text-sm text-muted-foreground">Ładowanie ofert…</div>;
  }
- return <JobsListV2 />;
+ // `JobsListV2` czyta `useSearchParams` (deep-linki z pulpitu), a Next
+ // wymaga dla niego granicy Suspense — bez niej build wywala się na
+ // prerenderze, mimo że strona i tak renderuje się tylko po stronie klienta.
+ return (
+ <Suspense
+ fallback={
+ <div className="p-8 text-sm text-muted-foreground">Ładowanie ofert…</div>
+ }
+ >
+ <JobsListV2 />
+ </Suspense>
+ );
 }

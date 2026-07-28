@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from"react";
 import Link from"next/link";
-import { useRouter } from"next/navigation";
+import { useRouter, useSearchParams } from"next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  Briefcase,
@@ -313,11 +313,38 @@ function JobsTable({
  );
 }
 
+const VALID_JOB_STATUSES: ReadonlySet<string> = new Set([
+ "draft",
+ "published",
+ "closed",
+]);
+
+/** `?status=published&status=draft` → `["published","draft"]`.
+ *
+ *  Nieznane wartości są odrzucane, a nie przepuszczane do API — inaczej
+ *  ręcznie podrasowany URL dawałby 422 zamiast po prostu pustego filtra. */
+function initialStatusFromUrl(params: URLSearchParams): JobStatusValue[] {
+ return params
+ .getAll("status")
+ .filter((v): v is JobStatusValue => VALID_JOB_STATUSES.has(v));
+}
+
 export function JobsListV2() {
  const [search, setSearch] = useState("");
- const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>([]);
+ // Stan początkowy z URL-a. Bez tego deep-linki były atrapą: pulpit prowadzi
+ // na `/jobs?mine=0&status=published`, a lista i tak startowała z pustymi
+ // filtrami, więc użytkownik dostawał WSZYSTKIE oferty (z Draftami włącznie)
+ // i nie miał sygnału, że kliknięty filtr nie zadziałał.
+ //
+ // Czytane raz, przy montowaniu — te parametry są punktem wejścia, nie
+ // dwukierunkowym wiązaniem; późniejsze klikanie w filtry nie ma przepisywać
+ // URL-a ani być przez niego nadpisywane.
+ const searchParams = useSearchParams();
+ const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>(
+ () => initialStatusFromUrl(searchParams)
+ );
  const [typeFilter, setTypeFilter] = useState<JobType>("all");
- const [mine, setMine] = useState(false);
+ const [mine, setMine] = useState(() => searchParams.get("mine") === "1");
  const [responsibleIds, setResponsibleIds] = useState<number[]>([]);
  const [clientIds, setClientIds] = useState<number[]>([]);
  const [ccIds, setCcIds] = useState<number[]>([]);
@@ -585,9 +612,9 @@ export function JobsListV2() {
  setOpenOnly((p) => !p);
  setPage(1);
  }}
- title="Tylko otwarte oferty (nie zamknięte)"
+ title="Wszystko poza zamkniętymi — Draft też się liczy"
  >
- Otwarte
+ Niezamknięte
  </FilterToggle>
  <FilterToggle
  active={needsSourcing}
