@@ -93,7 +93,13 @@ export function ContractRegisterDialog({
   // Etykieta pola „Numer projektu" zależy od nomenklatury klienta:
   // BNP i Bank Pocztowy → „Numer zamówienia", PFRON → „Numer zlecenia",
   // e-Zdrowie → „Numer umowy".
-  // Dopasowanie po nazwie, spójne z detekcją w B2BContractGeneratorV2 (hasSpecialClauses).
+  // Dopasowanie po nazwie — CELOWO szersze niż `hasSpecialClauses`
+  // w B2BContractGeneratorV2. Stem „bnp" łapie całą grupę (w tym „BNP Paribas
+  // Cardif"), bo wszystkie te podmioty rozliczają się per zamówienie. Generator
+  // umów jednocześnie WYKLUCZA Cardifa (dostaje zwykły szablon, bez § 4 Banku
+  // — patrz CLIENT_OVERRIDES). Rozjazd jest zamierzony: nomenklatura pola ≠
+  // treść umowy. Nie „ujednolicaj" tych dwóch matcherów — zawężenie do
+  // „bnp paribas" przełączyłoby Cardifowi etykietę na „Numer projektu".
   //
   // Dwa warianty dla e-Zdrowia są konieczne, nie nadmiarowe: w tabeli `clients`
   // ten klient figuruje DWA razy — `eZdrowie` (id 115) i `E-Zdrowie` (id 5257).
