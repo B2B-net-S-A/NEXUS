@@ -62,6 +62,7 @@ from app.services.process_backfill import (
 from app.services.recruitment_process_commands import handoff_process
 from app.services.priority_work_service import (
     allowed_channels,
+    assert_demand_status_transition,
     assignment_gate_states,
     assignment_progress,
     audit_event,
@@ -713,6 +714,11 @@ async def update_priority_demand(
     if "note" in changes and payload.note:
         row.rationale = payload.note
     if "status" in changes and payload.status:
+        assert_demand_status_transition(
+            row.status,
+            payload.status,
+            actor_is_hor=_is_hor(current_user),
+        )
         row.status = payload.status
     row.row_version += 1
     audit_event(

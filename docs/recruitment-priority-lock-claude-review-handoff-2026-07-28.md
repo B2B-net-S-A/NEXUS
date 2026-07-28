@@ -12,7 +12,7 @@ Pierwotny commit bazowy worktree:
 `85195914f70936a06d8ef23d488b9c7ce2be3232`
 
 Aktualna baza brancha po rebase:
-`ee7bfee4bd481725831040772c72a697758f2c33`
+`8b4e83f87f39b0295b0266337c9b60f265d18a72`
 
 SHA implementacji zweryfikowany pełnym hosted CI:
 `693e2ecbba2034710c41f8d08c76673b15f2b98b`
@@ -399,7 +399,7 @@ Wszystkie trasy mają prefix `/api/priority-work`.
 | `PATCH /blockers/{id}` | HoR decyduje; assignee/HoR rozwiązuje | lifecycle blockera |
 | `POST /processes/{id}/handoff` | **tylko HoR** | nowy aktywny owner, niezmienny credit |
 | `GET /exceptions` | **tylko HoR** | lista wyjątków |
-| `POST /exceptions` | **tylko HoR** | utworzenie one-use exception |
+| `POST /exceptions` | **tylko HoR** | one-use exception: timezone-aware, wygasa w przyszłości, maks. 7 dni |
 | `POST /exceptions/{id}/revoke` | **tylko HoR** | odwołanie niewykorzystanego wyjątku |
 | `PUT /users/{id}/mode` | **tylko HoR** | per-user rollout; `enforce` wymaga aktywnego planu 3–5 |
 | `GET /status` | **tylko HoR** | persisted readiness i worker metrics |
@@ -409,7 +409,14 @@ Wszystkie trasy mają prefix `/api/priority-work`.
 | `GET /audit` | **tylko HoR** | newest append-only events |
 
 Nie istnieje `DELETE /demands/{id}`. Zakończenie demandu odbywa się przez
-status w `PATCH`.
+status w `PATCH`. Manualny lifecycle jest jawny:
+
+- `covered` ustawia i zdejmuje wyłącznie publikacja planu;
+- DL: `open/covered → paused/cancelled` oraz
+  `paused → open/cancelled`;
+- HoR ma te same przejścia i może dodatkowo ustawić `fulfilled`;
+- `fulfilled` i `cancelled` są terminalne; kolejna potrzeba tworzy nowy demand;
+- naruszenie zwraca `422 PRIORITY_DEMAND_TRANSITION_INVALID`.
 
 `GET /api/jobs` dodatkowo przyjmuje
 `priority_work=assigned|carry_over|either` niezależnie od legacy `mine`,
@@ -715,15 +722,15 @@ wniosku o pełnym browser E2E.
 Zakres:
 
 - 8 modułów backendowych;
-- 114 funkcji testowych;
-- 153 przypadki po parametryzacji;
+- 118 funkcji testowych;
+- 164 przypadki po parametryzacji;
 - 9 skupionych plików frontendowych;
 - 39 testów frontendowych.
 
 | Kontrola | Wynik |
 |---|---|
-| skupione testy backend Priority Work | **153 passed** |
-| regresje Priority Work + auth + aktualny upstream search | **214 passed** |
+| skupione testy backend Priority Work | **164 passed** |
+| regresje Priority Work + auth + aktualny upstream search | **225 passed** |
 | skupione testy frontend | **9 plików / 39 passed** |
 | Ruff check i format: app, migracja, testy | **pass** |
 | Python compile app + migracja | **pass** |
@@ -732,7 +739,7 @@ Zakres:
 | frontend typecheck | **pass** |
 | frontend lint | **pass** |
 | frontend token guard | **pass** |
-| rebase / range-diff / audyt zmian upstream | **pass**, baza `ee7bfee4` |
+| rebase / range-diff / audyt zmian upstream | **pass**, baza `8b4e83f8` |
 | lokalny Docker | nie uruchamiano |
 
 Hosted evidence:
@@ -774,10 +781,12 @@ w PR; dokument nie może sam zawierać własnego przyszłego SHA.
 | stale ownership read blockera | naprawione: `FOR UPDATE`; create tylko dla published assignment |
 | import prywatnych helperów | naprawione: publiczne `allowed_channels` i `role_values` |
 | downgrade bez `CASCADE` | świadomie pozostawione fail-fast, aby nie usuwać nieznanych zależności |
+| wyjątek z całym oknem w przeszłości | naprawione: timezone-aware i `expires_at` w przyszłości |
+| demand status `any → any` | naprawione: jawna macierz DL/HoR, `covered` tylko system |
 
-Wszystkie siedem wątków ma odpowiedź i jest rozwiązanych w draft PR. Ponowny
-Claude review `30358044393` na aktualnej implementacji zakończył się sukcesem
-bez nowych wątków.
+Pierwsze siedem wątków ma odpowiedź i disposition. Docs-only Claude review
+`30359796118` dodał dwa dalsze LOW; oba są naprawione na finalnym head.
+Autorytatywny stan rozwiązania i najnowszego review należy sprawdzić w PR.
 
 ## 13. Nierozstrzygnięte ryzyka
 
@@ -800,11 +809,11 @@ bez nowych wątków.
 9. **Overdue nie wygasza planu.** Plan działa do kolejnej publikacji.
 10. **Demand update ma row-version i audit, ale nie osobny immutable row per
     edit.** Jeżeli potrzebny jest pełny ledger before/after, trzeba go dodać.
-11. **Lifecycle demandu wymaga decyzji biznesowej przed enforce.** PATCH
-    technicznie dopuszcza zmianę statusu/targetu/kanału, podczas gdy
-    opublikowany assignment jest celowo zamrożony do następnej publikacji.
-    Claude/HoR muszą zaakceptować macierz przejść i komunikację tego rozjazdu;
-    nie należy przepisywać bieżącego planu w miejscu.
+11. **Lifecycle demandu jest technicznie ograniczony, ale wymaga akceptacji
+    biznesowej przed enforce.** Kod ma jawną macierz DL/HoR, a `covered` jest
+    wyłącznie systemowy. Zmiana targetu/kanału demandu nie mutuje
+    opublikowanego assignmentu, który pozostaje zamrożony do następnej
+    publikacji; HoR musi zaakceptować ten kontrakt i komunikację UI.
 12. **`GET /team` zwraca pełne carry-over bez paginacji.** N+1 zapytań został
     usunięty przez jedno pobranie i grupowanie, ale przy baseline 53 818
     otwartych par wymagany jest benchmark payloadu, latency i renderowania albo
@@ -822,7 +831,7 @@ transakcyjnością, migracją lub carry-over jest automatycznym **NO-GO**.
 
 ## 14. Kolejność review Claude’a
 
-1. Potwierdzić, że PR nadal bazuje na `ee7bfee4` lub nowszym `main`, a
+1. Potwierdzić, że PR nadal bazuje na `8b4e83f8` lub nowszym `main`, a
    ewentualne kolejne zmiany upstream nie naruszają zintegrowanych deep-linków,
    wyszukiwania, entrypointu ani seedów.
 2. Zweryfikować `_assert_publish_lineage` oraz test sibling draftów: drugi
@@ -966,7 +975,7 @@ Uruchomić w zalogowanym profilu użytkownika i zachować screenshoty/dowody:
 
 ### 17.1. PR handoff GO
 
-- [x] Izolowany branch jest oparty o `origin/main` `ee7bfee4` bez obcych zmian.
+- [x] Izolowany branch jest oparty o `origin/main` `8b4e83f8` bez obcych zmian.
 - [x] Draft PR #985 istnieje i pozostaje bez merge/deployu.
 - [x] CAS lineage i sibling draft coverage przechodzą.
 - [x] Hosted `upgrade heads` oraz repeated upgrade na PostgreSQL przechodzą.

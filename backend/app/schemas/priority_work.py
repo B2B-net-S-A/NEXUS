@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -283,8 +283,17 @@ class PriorityExceptionCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_window(self) -> "PriorityExceptionCreate":
+        if (
+            self.valid_from.tzinfo is None
+            or self.valid_from.utcoffset() is None
+            or self.expires_at.tzinfo is None
+            or self.expires_at.utcoffset() is None
+        ):
+            raise ValueError("valid_from and expires_at must be timezone-aware")
         if self.expires_at <= self.valid_from:
             raise ValueError("expires_at must be later than valid_from")
+        if self.expires_at.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+            raise ValueError("expires_at must be in the future")
         return self
 
 

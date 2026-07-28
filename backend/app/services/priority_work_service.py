@@ -59,6 +59,37 @@ OPERATIONAL_ROLES = {
     UserRole.recruiter,
     UserRole.tac,
 }
+_DEMAND_STATUS_TRANSITIONS_DL = {
+    PriorityDemandStatus.open: {
+        PriorityDemandStatus.paused,
+        PriorityDemandStatus.cancelled,
+    },
+    PriorityDemandStatus.covered: {
+        PriorityDemandStatus.paused,
+        PriorityDemandStatus.cancelled,
+    },
+    PriorityDemandStatus.paused: {
+        PriorityDemandStatus.open,
+        PriorityDemandStatus.cancelled,
+    },
+}
+_DEMAND_STATUS_TRANSITIONS_HOR = {
+    PriorityDemandStatus.open: {
+        PriorityDemandStatus.paused,
+        PriorityDemandStatus.fulfilled,
+        PriorityDemandStatus.cancelled,
+    },
+    PriorityDemandStatus.covered: {
+        PriorityDemandStatus.paused,
+        PriorityDemandStatus.fulfilled,
+        PriorityDemandStatus.cancelled,
+    },
+    PriorityDemandStatus.paused: {
+        PriorityDemandStatus.open,
+        PriorityDemandStatus.fulfilled,
+        PriorityDemandStatus.cancelled,
+    },
+}
 URGENT_CARRY_OVER_STATES = {
     "client_interview_scheduled",
     "client_approved",
@@ -177,6 +208,33 @@ def _published_demand_status(
     return (
         PriorityDemandStatus.covered if included_in_plan else PriorityDemandStatus.open
     )
+
+
+def assert_demand_status_transition(
+    current: PriorityDemandStatus,
+    target: PriorityDemandStatus,
+    *,
+    actor_is_hor: bool,
+) -> None:
+    """Enforce the manual lifecycle; only plan publication manages `covered`."""
+
+    if target == current:
+        return
+    transitions = (
+        _DEMAND_STATUS_TRANSITIONS_HOR
+        if actor_is_hor
+        else _DEMAND_STATUS_TRANSITIONS_DL
+    )
+    if target not in transitions.get(current, set()):
+        raise HTTPException(
+            422,
+            {
+                "code": "PRIORITY_DEMAND_TRANSITION_INVALID",
+                "from": current.value,
+                "to": target.value,
+                "message": "Niedozwolona zmiana statusu demandu.",
+            },
+        )
 
 
 def _assert_demand_coverage(

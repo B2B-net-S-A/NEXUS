@@ -31,6 +31,7 @@ from app.services.priority_work_service import (
     _published_demand_status,
     _validate_member_inputs,
     allowed_channels,
+    assert_demand_status_transition,
     assignment_gate_states,
     review_due_after_business_days,
 )
@@ -149,6 +150,52 @@ def test_published_plan_reopens_demands_that_lost_coverage() -> None:
         )
         == PriorityDemandStatus.paused
     )
+
+
+@pytest.mark.parametrize(
+    ("current", "target", "actor_is_hor"),
+    [
+        (PriorityDemandStatus.open, PriorityDemandStatus.paused, False),
+        (PriorityDemandStatus.covered, PriorityDemandStatus.cancelled, False),
+        (PriorityDemandStatus.paused, PriorityDemandStatus.open, False),
+        (PriorityDemandStatus.open, PriorityDemandStatus.fulfilled, True),
+        (PriorityDemandStatus.covered, PriorityDemandStatus.fulfilled, True),
+    ],
+)
+def test_manual_demand_status_transition_matrix_allows_defined_paths(
+    current: PriorityDemandStatus,
+    target: PriorityDemandStatus,
+    actor_is_hor: bool,
+) -> None:
+    assert_demand_status_transition(
+        current,
+        target,
+        actor_is_hor=actor_is_hor,
+    )
+
+
+@pytest.mark.parametrize(
+    ("current", "target", "actor_is_hor"),
+    [
+        (PriorityDemandStatus.open, PriorityDemandStatus.covered, True),
+        (PriorityDemandStatus.open, PriorityDemandStatus.fulfilled, False),
+        (PriorityDemandStatus.cancelled, PriorityDemandStatus.open, True),
+        (PriorityDemandStatus.fulfilled, PriorityDemandStatus.open, True),
+    ],
+)
+def test_manual_demand_status_transition_matrix_rejects_bypasses(
+    current: PriorityDemandStatus,
+    target: PriorityDemandStatus,
+    actor_is_hor: bool,
+) -> None:
+    with pytest.raises(HTTPException) as caught:
+        assert_demand_status_transition(
+            current,
+            target,
+            actor_is_hor=actor_is_hor,
+        )
+    assert caught.value.status_code == 422
+    assert caught.value.detail["code"] == "PRIORITY_DEMAND_TRANSITION_INVALID"
 
 
 def test_publish_lineage_rejects_second_sibling_draft() -> None:

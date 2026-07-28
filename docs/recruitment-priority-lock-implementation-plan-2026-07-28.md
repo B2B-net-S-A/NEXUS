@@ -12,7 +12,7 @@ Pierwotny bazowy commit worktree:
 `85195914f70936a06d8ef23d488b9c7ce2be3232`
 
 Aktualna baza po rebase:
-`ee7bfee4bd481725831040772c72a697758f2c33`
+`8b4e83f87f39b0295b0266337c9b60f265d18a72`
 
 ## 1. Granice realizacji
 
@@ -39,7 +39,8 @@ ma wartość domyślną `off`. Draft PR
 niegotowy do merge. Implementacyjny SHA
 `693e2ecbba2034710c41f8d08c76673b15f2b98b` przeszedł hosted CI
 `30358044332` oraz Claude review `30358044393`. Branch został ponownie
-zrebasowany bez konfliktów na aktualny `origin/main` `ee7bfee4`.
+zrebasowany bez konfliktów na aktualny `origin/main` `8b4e83f8`; range-diff
+potwierdził niezmienność wcześniejszych commitów funkcji.
 
 Końcowy commit dokumentacyjny z natury ma późniejszy SHA niż dowód
 implementacyjny. Jego stan należy odczytać z aktualnego head PR; nie wolno
@@ -88,6 +89,10 @@ Milestone’y biznesowe:
 - Aktualny DL może aktualizować swój demand, a HoR każdy demand. Zmiana autora
   historycznego nie daje dostępu po zmianie DL.
 - Aktualizacja wymaga `expected_version`.
+- `covered` jest statusem wyłącznie systemowym, ustawianym przez publikację
+  planu. DL może `open/covered → paused/cancelled` oraz `paused → open/cancelled`.
+  HoR może dodatkowo zakończyć aktywny/paused demand jako `fulfilled`.
+  `fulfilled` i `cancelled` są terminalne; korekta wymaga nowego demandu.
 
 Przy publikacji planu każdy użyty demand musi mieć pełne pokrycie:
 
@@ -161,7 +166,8 @@ Przy publikacji planu każdy użyty demand musi mieć pełne pokrycie:
 - Zaakceptowany blocker zwalnia zależność, a jego rozwiązanie przywraca
   normalną ocenę.
 - Jednorazowy wyjątek HoR działa tylko w `enforce`, ma maksymalnie siedem dni,
-  jest konsumowany atomowo i daje `kpi_eligible=false`.
+  wymaga timezone-aware okna wygasającego w przyszłości, jest konsumowany
+  atomowo i daje `kpi_eligible=false`.
 - W `enforce` zwykły użytkownik nie może usunąć aktywnego procesu, aby
   porzucić carry-over. `off` i `shadow` zachowują dotychczasowy endpoint
   korekcyjny, ale najpierw zapisują trwały kanoniczny void. Fizyczne usunięcie
@@ -401,16 +407,16 @@ opartej o bazę. Deep health sprawdza nowe tabele oraz rozszerzony proces.
 Zakres testów jest celowo opisany dokładnie:
 
 - 8 modułów backendowych `test_priority_work*.py`;
-- 114 funkcji testowych w tych modułach;
-- parametryzacja daje 153 wykonane przypadki;
+- 118 funkcji testowych w tych modułach;
+- parametryzacja daje 164 wykonane przypadki;
 - 9 skupionych plików frontendowych i 39 testów.
 
 Wyniki lokalne:
 
 | Kontrola | Wynik |
 |---|---|
-| backend Priority Work | **153 passed** |
-| regresje Priority Work + auth + aktualny upstream search | **214 passed** |
+| backend Priority Work | **164 passed** |
+| regresje Priority Work + auth + aktualny upstream search | **225 passed** |
 | frontend focused Vitest | **9 plików / 39 passed** |
 | Ruff check i format: app, migracja, testy | **pass** |
 | Python compile | **pass** |
@@ -419,7 +425,7 @@ Wyniki lokalne:
 | frontend typecheck | **pass** |
 | frontend lint | **pass** |
 | token guard | **pass** |
-| rebase / range-diff / audyt zmian upstream | **pass**, baza `ee7bfee4` |
+| rebase / range-diff / audyt zmian upstream | **pass**, baza `8b4e83f8` |
 | lokalny Docker | nie uruchamiano |
 | draft PR | **#985, draft, bez merge/deployu** |
 | hosted CI na SHA implementacyjnym | **pass**, run `30358044332` |
@@ -442,7 +448,10 @@ Nie dowodzi to produkcyjnego deployu ani E2E; tych działań nie wykonano.
    naprawiono limit/JSON evidence, typed policy boundary, rank-gate N+1,
    ownership lock i publiczne helpery. Shadow KPI oraz brak destrukcyjnego
    `CASCADE` mają jawne uzasadnienie.
-4. Claude ma wykonać niezależne review i podjąć decyzję. Produkcyjne merge,
+4. Docs-only review ujawnił dwa dalsze LOW: wygasłe okno wyjątku i dowolny
+   lifecycle demandu. Finalny head odrzuca wyjątek nieważny w przyszłości,
+   wymaga timezone-aware dat i egzekwuje jawną macierz statusów.
+5. Claude ma wykonać niezależne review i podjąć decyzję. Produkcyjne merge,
    deploy, migracja, reconciliation, zmiana flag i Chrome E2E pozostają poza
    zakresem tej pracy.
 

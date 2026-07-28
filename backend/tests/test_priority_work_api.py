@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -533,6 +533,7 @@ def test_demand_scope_tracks_current_delivery_lead_not_historical_author() -> No
     assert "select(Job.delivery_lead_id)" in update_source
     assert "_is_delivery_lead(current_user)" in update_source
     assert "row.requested_by_user_id != current_user.id" not in update_source
+    assert "assert_demand_status_transition(" in update_source
 
 
 def test_exception_origin_must_match_user_and_job() -> None:
@@ -553,3 +554,35 @@ def test_one_shot_exception_requires_forward_time_window() -> None:
             valid_from=now,
             expires_at=now,
         )
+
+
+def test_one_shot_exception_rejects_expired_and_naive_windows() -> None:
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValidationError, match="future"):
+        PriorityExceptionCreate(
+            user_id=1,
+            job_id=2,
+            reason="Okno już wygasło",
+            valid_from=now - timedelta(hours=2),
+            expires_at=now - timedelta(hours=1),
+        )
+    with pytest.raises(ValidationError, match="timezone-aware"):
+        PriorityExceptionCreate(
+            user_id=1,
+            job_id=2,
+            reason="Brak strefy czasowej",
+            valid_from=datetime.now(),
+            expires_at=datetime.now() + timedelta(hours=1),
+        )
+
+
+def test_one_shot_exception_accepts_a_future_window() -> None:
+    now = datetime.now(timezone.utc)
+    payload = PriorityExceptionCreate(
+        user_id=1,
+        job_id=2,
+        reason="Jednorazowa zgoda HoR",
+        valid_from=now,
+        expires_at=now + timedelta(hours=1),
+    )
+    assert payload.expires_at > payload.valid_from
