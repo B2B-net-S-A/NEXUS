@@ -89,7 +89,7 @@ jobs:
           alembic -c alembic/alembic.ini upgrade heads
           python scripts/verify_b2b_signature_migration.py verify
           alembic -c alembic/alembic.ini downgrade 0199_candidate_stage_removals
-          alembic -c alembic/alembic.ini upgrade 0200_candidate_contact_coordination
+          alembic -c alembic/alembic.ini upgrade 0201_candidate_contact_coordination
           alembic -c alembic/alembic.ini upgrade heads
       - name: Import smoke check
         env:
