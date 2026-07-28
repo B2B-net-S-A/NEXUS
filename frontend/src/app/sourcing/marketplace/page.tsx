@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CVDropzoneMatch } from "@/components/sourcing/CVDropzoneMatch";
 import { SeekingContractorsBoard } from "@/components/sourcing/SeekingContractorsBoard";
 import { MarketplaceTable } from "@/components/marketplace/MarketplaceTable";
+import { useMarketplaceThreshold } from "@/hooks/useMarketplaceThreshold";
 
 type TabKey = "snapshot" | "manual" | "cv";
 
@@ -21,6 +22,7 @@ function MarketplacePageContent() {
     : "snapshot";
 
   const [tab, setTab] = useState<TabKey>(initialTab);
+  const threshold = useMarketplaceThreshold();
 
   const handleTabChange = (next: string) => {
     const nextTab = next as TabKey;
@@ -81,7 +83,7 @@ function MarketplacePageContent() {
           <p className="text-sm text-muted-foreground max-w-3xl">
             Kandydaci ręcznie wystawieni na targ na określony czas (TTL).
             Tło: kiedy edytujesz lub dodajesz nowy job, system automatycznie
-            skanuje tę listę i alertuje o dopasowaniach ze score ≥ 70.
+            skanuje tę listę i alertuje o dopasowaniach ze score ≥ {threshold}.
           </p>
           <MarketplaceTable
             sourceEvent="manual"

@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Trash2,
+  TriangleAlert,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -467,6 +468,27 @@ export function CandidateSearchView({
 
       {data?.meta && data.meta.ai_status !== "ok" && (
         <AiStatusBanner status={data.meta.ai_status} />
+      )}
+
+      {/* Osobny sygnał od `ai_status`, bo odpowiada na inne pytanie.
+          `ai_status` mówi o kondycji usługi i schodzi do `down` dopiero po
+          TRZECH kolejnych awariach; `search_degraded` mówi o TYM requeście.
+          Pojedyncze zdegradowane wyszukiwanie wyglądało więc dla rekrutera
+          identycznie jak komplet wyników — brak kandydata nie do odróżnienia
+          od jego nieistnienia. */}
+      {data?.meta?.search_degraded && data.meta.ai_status === "ok" && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+        >
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div>
+            <strong>Wyniki niepełne.</strong> To wyszukiwanie poszło bez warstwy
+            semantycznej — widzisz tylko dopasowania z filtrów i pełnotekstowe.
+            Kandydat pasujący znaczeniowo (inne słowa, ten sam sens) mógł się nie
+            pokazać. Spróbuj ponownie za chwilę.
+          </div>
+        </div>
       )}
 
       <FiltersPanel value={request} onChange={setRequestPatch} ccCounts={ccCounts} />
