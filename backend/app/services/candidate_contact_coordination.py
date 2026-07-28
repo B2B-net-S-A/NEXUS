@@ -599,7 +599,15 @@ async def _claim_slot(
 ) -> Optional[int]:
     # The user-row lock serializes all slot allocation for this owner.  The
     # partial UNIQUE index and 1..20 CHECK remain the final DB-level fence.
-    user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
+    # populate_existing, bo ten sam user bywa już w sesji z niezablokowanego
+    # odczytu (_eligible_users, auth) — kontrola is_active/roles musi patrzeć
+    # na stan po zdjęciu blokady, nie na snapshot sprzed niej.
+    user = await db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if user is None or not user.is_active or not user.has_any_role(*OPERATIONAL_ROLES):
         return None
     # AsyncSessionLocal disables autoflush. Persist earlier allocations made
@@ -662,6 +670,9 @@ async def _assign_best_owner(
     # workers with overlapping pools cannot both observe the same stale load
     # and select U1 while U2 has become less loaded.
     if by_id:
+        # populate_existing: _eligible_users załadowało tych samych userów BEZ
+        # blokady kilka linii wyżej, więc bez odświeżenia poniższy re-filtr
+        # is_active/roles czytałby snapshot sprzed locka i byłby no-opem.
         locked_users = (
             (
                 await db.execute(
@@ -669,6 +680,7 @@ async def _assign_best_owner(
                     .where(User.id.in_(sorted(by_id)))
                     .order_by(User.id)
                     .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
             )
             .scalars()
@@ -1617,10 +1629,18 @@ async def record_contact_attempt(
     candidate = await db.scalar(
         select(Candidate).where(Candidate.id == candidate_id).with_for_update()
     )
+    # populate_existing jest tu obowiązkowe: endpoint ładuje sprawę BEZ blokady
+    # (identity mapa), a sesja nie wygasza obiektów (expire_on_commit=False).
+    # Bez tego select FOR UPDATE bierze lock, ale oddaje instancję z pamięci
+    # nietkniętą — i guardy niżej (version/owner/state) porównują stan sprzed
+    # blokady. To nie jest rzadki wyścig: request blokuje się na locku
+    # Candidate wyżej, czyli czeka dokładnie na transakcję, która podbija
+    # version. Bez odświeżenia expected_version jest no-opem.
     case = await db.scalar(
         select(CandidateContactCase)
         .where(CandidateContactCase.id == case_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if case is None:
         raise ContactCaseNotFound(f"contact case {case_id} not found")
@@ -1875,10 +1895,13 @@ async def reassign_contact_case(
     """Audited manual/worker reassignment with the same 20-slot fence."""
 
     now = _as_utc(occurred_at)
+    # Jak w record_contact_attempt: endpoint preloaduje sprawę bez blokady,
+    # więc bez populate_existing guardy version/state czytają stan sprzed locka.
     case = await db.scalar(
         select(CandidateContactCase)
         .where(CandidateContactCase.id == case_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if case is None:
         raise ContactCaseNotFound(f"contact case {case_id} not found")

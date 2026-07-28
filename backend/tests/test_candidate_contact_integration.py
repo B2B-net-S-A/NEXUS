@@ -1003,6 +1003,109 @@ async def test_idempotent_attempt_race_replays_once_and_rejects_conflicts(
             )
 
 
+async def test_attempt_guards_read_case_state_after_the_row_lock(
+    contact_db: ContactDb,
+) -> None:
+    """Optimistic guards muszą porównywać stan PO zdjęciu blokady wiersza.
+
+    Endpoint ładuje sprawę bez blokady (``db.get``) i dopiero potem woła
+    serwis tą samą sesją, więc wiersz siedzi już w identity mapie. To NIE jest
+    rzadki wyścig: ``record_contact_attempt`` blokuje się na locku Candidate,
+    który trzyma współbieżne ``ensure_contact_opportunity`` — czyli dokładnie
+    ta transakcja, która podbija ``version``. Bez ``populate_existing`` select
+    ``FOR UPDATE`` oddaje zmapowaną instancję nietkniętą i guard porównuje
+    wartości sprzed blokady.
+    """
+
+    owner = await contact_db.add_user(UserRole.recruiter, label="postlock-owner")
+    candidate = await contact_db.add_candidate(label="postlock")
+    job = await contact_db.add_job(label="postlock", recruiter=owner)
+    case = await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        source="pipeline",
+        occurred_at=BASE_TIME,
+    )
+    case_id = case.id
+    stale_version = case.version
+    await contact_db.commit()
+
+    async with AsyncSessionLocal() as request_db:
+        # Odwzorowanie preloadu z endpointu — sprawa wchodzi do identity mapy.
+        preloaded = await request_db.get(CandidateContactCase, case_id)
+        assert preloaded is not None
+        assert preloaded.version == stale_version
+
+        # Współbieżny pisarz commituje, gdy request czekałby na blokady.
+        async with AsyncSessionLocal() as writer_db:
+            await writer_db.execute(
+                update(CandidateContactCase)
+                .where(CandidateContactCase.id == case_id)
+                .values(version=CandidateContactCase.version + 1)
+            )
+            await writer_db.commit()
+
+        with pytest.raises(ContactCaseVersionConflict):
+            await record_contact_attempt(
+                request_db,
+                case_id=case_id,
+                actor_user_id=owner.id,
+                outcome="no_answer",
+                opportunity_outcomes=None,
+                expected_version=stale_version,
+                idempotency_key=f"{contact_db.prefix}-postlock",
+                occurred_at=BASE_TIME + timedelta(minutes=5),
+            )
+        # Instancja w sesji musi nieść wartość po blokadzie, nie sprzed niej.
+        assert preloaded.version == stale_version + 1
+        await request_db.rollback()
+
+
+async def test_reassign_guards_read_case_state_after_the_row_lock(
+    contact_db: ContactDb,
+) -> None:
+    """Ta sama pułapka na ścieżce reassign — endpoint też preloaduje sprawę."""
+
+    owner = await contact_db.add_user(UserRole.recruiter, label="postlock-re-owner")
+    candidate = await contact_db.add_candidate(label="postlock-re")
+    job = await contact_db.add_job(label="postlock-re", recruiter=owner)
+    case = await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        source="pipeline",
+        occurred_at=BASE_TIME,
+    )
+    case_id = case.id
+    stale_version = case.version
+    await contact_db.commit()
+
+    async with AsyncSessionLocal() as request_db:
+        preloaded = await request_db.get(CandidateContactCase, case_id)
+        assert preloaded is not None
+
+        async with AsyncSessionLocal() as writer_db:
+            await writer_db.execute(
+                update(CandidateContactCase)
+                .where(CandidateContactCase.id == case_id)
+                .values(version=CandidateContactCase.version + 1)
+            )
+            await writer_db.commit()
+
+        with pytest.raises(ContactCaseVersionConflict):
+            await reassign_contact_case(
+                request_db,
+                case_id=case_id,
+                actor_user_id=owner.id,
+                reason="stale-guard",
+                expected_version=stale_version,
+                occurred_at=BASE_TIME + timedelta(minutes=5),
+            )
+        assert preloaded.version == stale_version + 1
+        await request_db.rollback()
+
+
 async def test_two_no_answers_start_cooldown_then_choose_different_owner(
     contact_db: ContactDb,
 ) -> None:
