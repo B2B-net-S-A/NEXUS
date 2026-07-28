@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from"react";
 import Link from"next/link";
-import { useRouter } from"next/navigation";
+import { useRouter, useSearchParams } from"next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  Briefcase,
@@ -55,6 +55,10 @@ import {
  type JobStatusValue,
 } from"@/lib/filter-options";
 import { useUiStore } from"@/store/ui";
+import {
+ initialMineFromUrl,
+ initialStatusFromUrl,
+} from"@/lib/jobs-url-filters";
 
 type JobType ="all" |"body_leasing" |"sales" |"tenders";
 
@@ -315,9 +319,20 @@ function JobsTable({
 
 export function JobsListV2() {
  const [search, setSearch] = useState("");
- const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>([]);
+ // Stan początkowy z URL-a. Bez tego deep-linki były atrapą: pulpit prowadzi
+ // na `/jobs?mine=0&status=published`, a lista i tak startowała z pustymi
+ // filtrami, więc użytkownik dostawał WSZYSTKIE oferty (z Draftami włącznie)
+ // i nie miał sygnału, że kliknięty filtr nie zadziałał.
+ //
+ // Czytane raz, przy montowaniu — te parametry są punktem wejścia, nie
+ // dwukierunkowym wiązaniem; późniejsze klikanie w filtry nie ma przepisywać
+ // URL-a ani być przez niego nadpisywane.
+ const searchParams = useSearchParams();
+ const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>(
+ () => initialStatusFromUrl(searchParams)
+ );
  const [typeFilter, setTypeFilter] = useState<JobType>("all");
- const [mine, setMine] = useState(false);
+ const [mine, setMine] = useState(() => initialMineFromUrl(searchParams));
  const [responsibleIds, setResponsibleIds] = useState<number[]>([]);
  const [clientIds, setClientIds] = useState<number[]>([]);
  const [ccIds, setCcIds] = useState<number[]>([]);
@@ -585,9 +600,9 @@ export function JobsListV2() {
  setOpenOnly((p) => !p);
  setPage(1);
  }}
- title="Tylko otwarte oferty (nie zamknięte)"
+ title="Wszystko poza zamkniętymi — Draft też się liczy"
  >
- Otwarte
+ Niezamknięte
  </FilterToggle>
  <FilterToggle
  active={needsSourcing}
