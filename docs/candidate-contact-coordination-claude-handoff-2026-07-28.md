@@ -53,7 +53,7 @@ Najważniejsze niezmienniki:
 
 ## 3. Zakres implementacji
 
-### 3.1. Migracja `0200_candidate_contact_coordination`
+### 3.1. Migracja `0201_candidate_contact_coordination`
 
 Dodano:
 
@@ -352,7 +352,7 @@ Zmiana flag środowiskowych wymaga restartu procesu aplikacji.
 - import `app.main`: PASS;
 - `bash -n backend/entrypoint.sh`: PASS;
 - `git diff --check`: PASS;
-- `alembic heads`: `0200_candidate_contact_coordination (head)`;
+- `alembic heads`: `0201_candidate_contact_coordination (head)`;
 - szybkie testy: 171 PASS:
   - 162 testy domeny/czasu/Traffit client/mapper;
   - 9 runtime bez bazy;

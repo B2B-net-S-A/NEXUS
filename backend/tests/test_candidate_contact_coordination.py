@@ -250,7 +250,7 @@ def test_public_conflict_contract_is_distinct_from_validation() -> None:
 def test_migration_is_linear_from_current_head_and_has_entrypoint_mirror() -> None:
     root = Path(__file__).resolve().parents[1]
     migration = (
-        root / "alembic/versions/0200_candidate_contact_coordination.py"
+        root / "alembic/versions/0201_candidate_contact_coordination.py"
     ).read_text()
     entrypoint = (root / "entrypoint.sh").read_text()
 

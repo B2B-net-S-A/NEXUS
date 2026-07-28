@@ -1,14 +1,14 @@
 """Candidate-global contact queue and read-only Traffit intake durability.
 
-Revision ID: 0200_candidate_contact_coordination
-Revises: 0199_candidate_stage_removals
+Revision ID: 0201_candidate_contact_coordination
+Revises: 0200_recruitment_priority_work
 """
 
 from alembic import op
 
 
-revision = "0200_candidate_contact_coordination"
-down_revision = "0199_candidate_stage_removals"
+revision = "0201_candidate_contact_coordination"
+down_revision = "0200_recruitment_priority_work"
 branch_labels = None
 depends_on = None
 
