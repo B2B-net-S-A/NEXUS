@@ -55,6 +55,10 @@ import {
  type JobStatusValue,
 } from"@/lib/filter-options";
 import { useUiStore } from"@/store/ui";
+import {
+ initialMineFromUrl,
+ initialStatusFromUrl,
+} from"@/lib/jobs-url-filters";
 
 type JobType ="all" |"body_leasing" |"sales" |"tenders";
 
@@ -313,22 +317,6 @@ function JobsTable({
  );
 }
 
-const VALID_JOB_STATUSES: ReadonlySet<string> = new Set([
- "draft",
- "published",
- "closed",
-]);
-
-/** `?status=published&status=draft` → `["published","draft"]`.
- *
- *  Nieznane wartości są odrzucane, a nie przepuszczane do API — inaczej
- *  ręcznie podrasowany URL dawałby 422 zamiast po prostu pustego filtra. */
-function initialStatusFromUrl(params: URLSearchParams): JobStatusValue[] {
- return params
- .getAll("status")
- .filter((v): v is JobStatusValue => VALID_JOB_STATUSES.has(v));
-}
-
 export function JobsListV2() {
  const [search, setSearch] = useState("");
  // Stan początkowy z URL-a. Bez tego deep-linki były atrapą: pulpit prowadzi
@@ -344,7 +332,7 @@ export function JobsListV2() {
  () => initialStatusFromUrl(searchParams)
  );
  const [typeFilter, setTypeFilter] = useState<JobType>("all");
- const [mine, setMine] = useState(() => searchParams.get("mine") === "1");
+ const [mine, setMine] = useState(() => initialMineFromUrl(searchParams));
  const [responsibleIds, setResponsibleIds] = useState<number[]>([]);
  const [clientIds, setClientIds] = useState<number[]>([]);
  const [ccIds, setCcIds] = useState<number[]>([]);
