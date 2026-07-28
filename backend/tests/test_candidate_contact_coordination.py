@@ -60,6 +60,57 @@ def test_next_business_day_at_never_returns_weekend() -> None:
     )
 
 
+def test_next_business_day_at_skips_polish_statutory_holidays() -> None:
+    """Termin „10:00 następnego dnia roboczego" nie może wypaść w święto.
+
+    Kolejka korzysta z tego samego kalendarza co reszta repo
+    (`app.core.scheduling.is_business_day`), więc łapie też święta ruchome.
+    """
+
+    # Środa 23.12 → Wigilia (czw), Boże Narodzenie (pt), weekend → poniedziałek
+    # 28.12. Zima = CET, więc 10:00 lokalnie to 09:00 UTC.
+    before_christmas = datetime(2026, 12, 23, 9, 0, tzinfo=timezone.utc)
+    assert next_business_day_at(before_christmas) == datetime(
+        2026, 12, 28, 9, 0, tzinfo=timezone.utc
+    )
+
+    # Święto ruchome: Poniedziałek Wielkanocny 6.04.2026 wypada po weekendzie,
+    # więc z piątku 3.04 przeskakujemy na wtorek 7.04 (lato = CEST → 08:00 UTC).
+    before_easter = datetime(2026, 4, 3, 9, 0, tzinfo=timezone.utc)
+    assert next_business_day_at(before_easter) == datetime(
+        2026, 4, 7, 8, 0, tzinfo=timezone.utc
+    )
+
+
+def test_initial_due_at_on_holiday_skips_to_next_business_day() -> None:
+    # Środa 11.11.2026, Święto Niepodległości, 10:00 CET — przed odcięciem
+    # 16:00, ale to dzień wolny, więc NIE dostajemy tego samego dnia o 18:00.
+    independence_day = datetime(2026, 11, 11, 9, 0, tzinfo=timezone.utc)
+    assert initial_contact_due_at(independence_day) == datetime(
+        2026, 11, 12, 9, 0, tzinfo=timezone.utc
+    )
+
+
+def test_eod_turnover_moves_off_a_holiday() -> None:
+    """Turnover 18:00 nie przepina właścicieli w dniu ustawowo wolnym."""
+
+    contact_case = SimpleNamespace(
+        state="queued",
+        due_at=datetime(2026, 11, 11, 9, 0, tzinfo=timezone.utc),
+    )
+
+    # 18:30 CET w samo Święto Niepodległości — turnover przesunięty na czwartek.
+    assert not _is_eod_overdue(
+        contact_case,
+        datetime(2026, 11, 11, 17, 30, tzinfo=timezone.utc),
+    )
+    # Czwartek 18:00 CET == 17:00 UTC.
+    assert _is_eod_overdue(
+        contact_case,
+        datetime(2026, 11, 12, 17, 0, tzinfo=timezone.utc),
+    )
+
+
 def test_eod_overdue_catches_up_after_weekend_restart() -> None:
     contact_case = SimpleNamespace(
         state="queued",

@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Iterable, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
@@ -19,6 +19,7 @@ from sqlalchemy import case as sql_case
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import is_business_day
 from app.models.call import Call, CallDirection, CallStatus
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
@@ -153,9 +154,26 @@ def _local(value: datetime) -> datetime:
     return _as_utc(value).astimezone(WARSAW)
 
 
-def _next_weekday(day):
+def _is_business_date(day: date) -> bool:
+    """Czy `day` (data lokalna Warszawy) jest dniem roboczym?
+
+    Kalendarz świąt jest wspólny z resztą repo (`app.core.scheduling`), więc
+    kolejka nie utrzymuje już własnej definicji „dnia roboczego" — inaczej
+    terminy potrafiły wypaść w Boże Narodzenie, a turnover przepinał
+    właścicieli w dniu ustawowo wolnym.
+
+    Pytamy o lokalne południe: `is_business_day` czyta samą datę po konwersji
+    strefy, a instant w środku dnia jest odporny na DST (00:00 potrafi w dniu
+    zmiany czasu nie istnieć). Domyślna strefa helpera to Europe/Warsaw, więc
+    konwersja jest tu tożsamościowa.
+    """
+
+    return is_business_day(datetime.combine(day, time(12, 0), tzinfo=WARSAW))
+
+
+def _next_business_date(day: date) -> date:
     next_day = day + timedelta(days=1)
-    while next_day.weekday() >= 5:
+    while not _is_business_date(next_day):
         next_day += timedelta(days=1)
     return next_day
 
@@ -163,11 +181,14 @@ def _next_weekday(day):
 def next_business_day_at(
     value: datetime, *, hour: int = 10, minute: int = 0
 ) -> datetime:
-    """Return the next Mon–Fri local time as an aware UTC timestamp."""
+    """Return the next business-day local time as an aware UTC timestamp.
+
+    Business day = Mon–Fri minus Polish statutory holidays.
+    """
 
     local = _local(value)
     target = datetime.combine(
-        _next_weekday(local.date()),
+        _next_business_date(local.date()),
         time(hour=hour, minute=minute),
         tzinfo=WARSAW,
     )
@@ -175,11 +196,14 @@ def next_business_day_at(
 
 
 def initial_contact_due_at(value: datetime) -> datetime:
-    """16:00 Warsaw cutoff; same-day 18:00, otherwise next weekday 10:00."""
+    """16:00 Warsaw cutoff; same-day 18:00, otherwise next business day 10:00."""
 
     local = _local(value)
     cutoff = time(16, 0)
-    if local.weekday() < 5 and local.timetz().replace(tzinfo=None) <= cutoff:
+    if (
+        _is_business_date(local.date())
+        and local.timetz().replace(tzinfo=None) <= cutoff
+    ):
         return local.replace(hour=18, minute=0, second=0, microsecond=0).astimezone(
             timezone.utc
         )
@@ -679,84 +703,106 @@ async def _assign_best_owner(
             ),
         )
         case.primary_job_id = ordered_jobs[0][0].id
-    by_id = {user.id: user for user in users if user.id not in excluded}
-
-    # Serialize the complete least-loaded decision, not only the final slot
-    # claim. Locking every eligible user in stable ID order means concurrent
-    # workers with overlapping pools cannot both observe the same stale load
-    # and select U1 while U2 has become less loaded.
-    if by_id:
-        # populate_existing: _eligible_users załadowało tych samych userów BEZ
-        # blokady kilka linii wyżej, więc bez odświeżenia poniższy re-filtr
-        # is_active/roles czytałby snapshot sprzed locka i byłby no-opem.
-        locked_users = (
-            (
-                await db.execute(
-                    select(User)
-                    .where(User.id.in_(sorted(by_id)))
-                    .order_by(User.id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        by_id = {
-            user.id: user
-            for user in locked_users
-            if user.is_active
-            and user.has_any_role(*OPERATIONAL_ROLES)
-            and user.id not in excluded
-        }
-        # AsyncSessionLocal disables autoflush. Make allocations from earlier
-        # cases in this worker batch visible to the load aggregate below.
-        await db.flush()
-
     # Only the owner of the first priority/oldest opportunity is preferred.
     # If that exact owner is absent/inactive/full, fallback is global by load;
     # an owner of the second opportunity does not get another priority jump.
     first_job = ordered_jobs[0][0] if job_rows else None
-    preferred = (
-        [first_job.recruiter_id]
-        if first_job is not None and first_job.recruiter_id in by_id
-        else []
-    )
 
-    load_rows = (
-        (
+    async def _claim_from_pool(skipped: set[int]) -> tuple[bool, bool]:
+        """Zwraca (przypisano, pula_miała_kogokolwiek) dla puli bez `skipped`."""
+
+        by_id = {user.id: user for user in users if user.id not in skipped}
+
+        # Serialize the complete least-loaded decision, not only the final slot
+        # claim. Locking every eligible user in stable ID order means concurrent
+        # workers with overlapping pools cannot both observe the same stale load
+        # and select U1 while U2 has become less loaded.
+        if by_id:
+            # populate_existing: _eligible_users załadowało tych samych userów BEZ
+            # blokady kilka linii wyżej, więc bez odświeżenia poniższy re-filtr
+            # is_active/roles czytałby snapshot sprzed locka i byłby no-opem.
+            locked_users = (
+                (
+                    await db.execute(
+                        select(User)
+                        .where(User.id.in_(sorted(by_id)))
+                        .order_by(User.id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            by_id = {
+                user.id: user
+                for user in locked_users
+                if user.is_active
+                and user.has_any_role(*OPERATIONAL_ROLES)
+                and user.id not in skipped
+            }
+            # AsyncSessionLocal disables autoflush. Make allocations from earlier
+            # cases in this worker batch visible to the load aggregate below.
+            await db.flush()
+
+        if not by_id:
+            return False, False
+
+        preferred = (
+            [first_job.recruiter_id]
+            if first_job is not None and first_job.recruiter_id in by_id
+            else []
+        )
+        load_rows = (
             await db.execute(
                 select(
                     CandidateContactCase.owner_user_id,
                     func.count(CandidateContactCase.id),
                 )
                 .where(
-                    CandidateContactCase.owner_user_id.in_(list(by_id) or [-1]),
+                    CandidateContactCase.owner_user_id.in_(list(by_id)),
                     CandidateContactCase.queue_slot.is_not(None),
                 )
                 .group_by(CandidateContactCase.owner_user_id)
             )
         ).all()
-        if by_id
-        else []
-    )
-    loads = {int(owner_id): int(count) for owner_id, count in load_rows}
-    fallback = sorted(
-        (user_id for user_id in by_id if user_id not in preferred),
-        key=lambda user_id: (loads.get(user_id, 0), user_id),
-    )
+        loads = {int(owner_id): int(count) for owner_id, count in load_rows}
+        fallback = sorted(
+            (user_id for user_id in by_id if user_id not in preferred),
+            key=lambda user_id: (loads.get(user_id, 0), user_id),
+        )
 
-    for user_id in [*preferred, *fallback]:
-        slot = await _claim_slot(db, user_id=user_id)
-        if slot is None:
-            continue
-        case.owner_user_id = user_id
-        case.queue_slot = slot
-        case.assigned_at = occurred_at
-        case.due_at = due_at
-        case.cooldown_until = None
-        case.completed_at = None
-        case.state = target_state
+        for user_id in [*preferred, *fallback]:
+            slot = await _claim_slot(db, user_id=user_id)
+            if slot is None:
+                continue
+            case.owner_user_id = user_id
+            case.queue_slot = slot
+            case.assigned_at = occurred_at
+            case.due_at = due_at
+            case.cooldown_until = None
+            case.completed_at = None
+            case.state = target_state
+            return True, True
+        return False, True
+
+    assigned, pool_had_members = await _claim_from_pool(excluded)
+    # Gdy wykluczenie i tak nikogo nie usuwało z puli (np. „nieuprawniony
+    # właściciel", którego `_eligible_users` już nie zwraca), druga próba dałaby
+    # identyczny wynik — pomijamy ją zamiast powtarzać blokady i agregat.
+    if not assigned and (excluded & {user.id for user in users}):
+        # Wykluczenie (rotacja o 18:00, wyjście z cooldownu, nieuprawniony
+        # właściciel) to PREFERENCJA „niech spróbuje ktoś inny", nie twarde
+        # ograniczenie. Gdy honorowanie go nie zostawia nikogo, kto może wziąć
+        # sprawę, oddajemy ją z powrotem wykluczonemu — inaczej sprawa
+        # z jednoosobową pulą wypadała z kolejki NA STAŁE: kolejny tick
+        # wykluczał tę samą osobę po `previous_owner_user_id`, i tak w kółko.
+        # Rotacja nie jest tu poświęcona: druga próba rusza wyłącznie wtedy,
+        # gdy pierwsza (bez wykluczonych) nikogo nie znalazła.
+        assigned, relaxed_pool_had_members = await _claim_from_pool(set())
+        pool_had_members = pool_had_members or relaxed_pool_had_members
+
+    if assigned:
         return True
 
     case.owner_user_id = None
@@ -765,7 +811,7 @@ async def _assign_best_owner(
     case.due_at = due_at
     case.state = (
         CandidateContactState.awaiting_capacity.value
-        if by_id
+        if pool_had_members
         else CandidateContactState.unassigned.value
     )
     return False
@@ -2071,15 +2117,20 @@ async def reassign_contact_case(
         )
 
     case.version += 1
-    reassigned = case.owner_user_id is not None and case.owner_user_id != old_owner_id
+    if case.owner_user_id is None:
+        outcome_event = CandidateContactEventType.awaiting_capacity
+    elif case.owner_user_id != old_owner_id:
+        outcome_event = CandidateContactEventType.reassigned
+    else:
+        # Wykluczenie zostało rozluźnione — nikt inny nie mógł przejąć sprawy,
+        # więc została u dotychczasowej osoby. To przypisanie, nie rotacja,
+        # i na pewno nie oczekiwanie na moc przerobową. Równe
+        # old/new_owner_user_id w details są sygnałem dla przeglądu HoR.
+        outcome_event = CandidateContactEventType.assigned
     _event(
         db,
         case,
-        (
-            CandidateContactEventType.reassigned
-            if reassigned
-            else CandidateContactEventType.awaiting_capacity
-        ),
+        outcome_event,
         occurred_at=now,
         actor_user_id=actor_user_id,
         from_state=old_state,
@@ -2206,8 +2257,8 @@ def _is_eod_overdue(case: CandidateContactCase, now: datetime) -> bool:
         return False
     due_local = _local(case.due_at)
     turnover_day = due_local.date()
-    while turnover_day.weekday() >= 5:
-        turnover_day = _next_weekday(turnover_day)
+    if not _is_business_date(turnover_day):
+        turnover_day = _next_business_date(turnover_day)
     turnover_at = datetime.combine(
         turnover_day,
         time(18, 0),
@@ -2219,7 +2270,7 @@ def _is_eod_overdue(case: CandidateContactCase, now: datetime) -> bool:
     ):
         # A callback explicitly promised after 18:00 cannot become overdue at
         # the instant it is due merely because that day's turnover has passed.
-        turnover_day = _next_weekday(turnover_day)
+        turnover_day = _next_business_date(turnover_day)
         turnover_at = datetime.combine(
             turnover_day,
             time(18, 0),
@@ -2232,8 +2283,8 @@ def _is_eod_overdue(case: CandidateContactCase, now: datetime) -> bool:
     ):
         assigned_local = _local(case.assigned_at)
         reassignment_day = assigned_local.date()
-        while reassignment_day.weekday() >= 5:
-            reassignment_day = _next_weekday(reassignment_day)
+        if not _is_business_date(reassignment_day):
+            reassignment_day = _next_business_date(reassignment_day)
         reassignment_turnover = datetime.combine(
             reassignment_day,
             time(18, 0),
@@ -2241,7 +2292,7 @@ def _is_eod_overdue(case: CandidateContactCase, now: datetime) -> bool:
         )
         if assigned_local >= reassignment_turnover:
             reassignment_turnover = datetime.combine(
-                _next_weekday(reassignment_day),
+                _next_business_date(reassignment_day),
                 time(18, 0),
                 tzinfo=WARSAW,
             )
@@ -2603,7 +2654,9 @@ async def process_contact_cases(
             )
             case.version += 1
             stats.cooldown_released += 1
-            if case.owner_user_id is not None:
+            # Rozluźnione wykluczenie może zwrócić sprawę tej samej osobie —
+            # to nie jest rotacja i nie może zawyżać metryki.
+            if case.owner_user_id not in {None, case.previous_owner_user_id}:
                 stats.reassigned += 1
             _event(
                 db,
@@ -2717,17 +2770,18 @@ async def process_contact_cases(
             CandidateContactState.queued.value,
             CandidateContactState.callback_due.value,
         } and _is_eod_overdue(case, tick):
+            eod_owner_id = case.owner_user_id
             reassigned_case = await reassign_contact_case(
                 db,
                 case_id=case.id,
                 actor_user_id=None,
                 reason="eod_overdue",
                 occurred_at=tick,
-                exclude_owner_ids=(
-                    [case.owner_user_id] if case.owner_user_id is not None else []
-                ),
+                exclude_owner_ids=([eod_owner_id] if eod_owner_id is not None else []),
             )
-            if reassigned_case.owner_user_id is not None:
+            # Sprawa może wrócić do tej samej osoby, gdy nikt inny nie mógł jej
+            # przejąć — liczymy wyłącznie faktyczną zmianę właściciela.
+            if reassigned_case.owner_user_id not in {None, eod_owner_id}:
                 stats.reassigned += 1
 
     await db.flush()

@@ -2857,7 +2857,7 @@ async def test_restart_catches_friday_eod_once_on_monday_morning(
     assert second_stats.reassigned == 0
 
 
-async def test_eod_without_replacement_records_capacity_wait_not_reassignment(
+async def test_eod_without_replacement_keeps_owner_and_records_no_reassignment(
     contact_db: ContactDb,
 ) -> None:
     owner = await contact_db.add_user(UserRole.recruiter, label="eod-only-owner")
@@ -2895,12 +2895,142 @@ async def test_eod_without_replacement_records_capacity_wait_not_reassignment(
         .scalars()
         .all()
     )
+    # Brak zastępcy nie może być liczony jako rotacja ani zdejmować sprawy
+    # z kolejki: wykluczenie po 18:00 jest preferencją, nie eksmisją.
     assert stats.reassigned == 0
-    assert waiting.state == CandidateContactState.unassigned.value
-    assert waiting.owner_user_id is None
-    assert waiting.queue_slot is None
-    assert "awaiting_capacity" in event_types
+    assert waiting.state == CandidateContactState.queued.value
+    assert waiting.owner_user_id == owner.id
+    assert waiting.queue_slot is not None
+    assert "assigned" in event_types
     assert "reassigned" not in event_types
+    assert "awaiting_capacity" not in event_types
+
+
+async def test_eod_turnover_with_single_eligible_owner_keeps_case_callable(
+    contact_db: ContactDb,
+) -> None:
+    """Rotacja o 18:00 nie może wyrzucić sprawy z kolejki na stałe.
+
+    Job z samym rekruterem (typowy kształt importu z Traffita) daje pulę {R}.
+    Wykluczenie R przy turnoverze zostawiało pustą pulę → `unassigned`, a każdy
+    kolejny tick wykluczał R ponownie po `previous_owner_user_id`. Kandydat
+    znikał ze wszystkich kolejek bez żadnego automatycznego odzysku.
+    """
+
+    owner = await contact_db.add_user(UserRole.recruiter, label="solo-eod")
+    candidate = await contact_db.add_candidate(label="solo-eod")
+    job = await contact_db.add_job(label="solo-eod", recruiter=owner)
+    assigned_at = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
+    case = await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        source="pipeline",
+        occurred_at=assigned_at,
+    )
+    assert case is not None
+    case_id = case.id
+    # Piątek 18:00 Warszawa — termin, po którym turnover jest wymagalny.
+    case.due_at = datetime(2026, 7, 31, 16, 0, tzinfo=timezone.utc)
+    case.assigned_at = assigned_at
+    await contact_db.commit()
+
+    async with AsyncSessionLocal() as turnover_worker:
+        await process_contact_cases(
+            turnover_worker,
+            now=datetime(2026, 8, 1, 8, 0, tzinfo=timezone.utc),
+        )
+        await turnover_worker.commit()
+
+    after_turnover = await _case_snapshot(case_id)
+    assert after_turnover.owner_user_id == owner.id
+    assert after_turnover.queue_slot is not None
+    assert after_turnover.state == CandidateContactState.queued.value
+
+    # Kolejne ticki też muszą zostawić sprawę wołalną — regresja objawiała się
+    # dopiero tutaj: `previous_owner_user_id` zatruwał każdy następny przebieg.
+    for tick in (
+        datetime(2026, 8, 3, 16, 0, tzinfo=timezone.utc),
+        datetime(2026, 8, 4, 16, 0, tzinfo=timezone.utc),
+        datetime(2026, 8, 5, 16, 0, tzinfo=timezone.utc),
+    ):
+        async with AsyncSessionLocal() as worker:
+            await process_contact_cases(worker, now=tick)
+            await worker.commit()
+        later = await _case_snapshot(case_id)
+        assert later.owner_user_id == owner.id, f"case ejected at tick {tick}"
+        assert later.queue_slot is not None
+        assert later.state == CandidateContactState.queued.value
+
+
+async def test_eod_turnover_falls_back_to_owner_when_only_peer_is_full(
+    contact_db: ContactDb,
+) -> None:
+    """Wariant „pula większa, ale wszyscy inni na 20/20 slotów".
+
+    Bez fallbacku sprawa parkowała w `awaiting_capacity` z pustym właścicielem,
+    a kolejne ticki dalej wykluczały jedyną osobę z wolnym slotem.
+    """
+
+    owner = await contact_db.add_user(UserRole.recruiter, label="cap-eod-owner")
+    full_peer = await contact_db.add_user(UserRole.tac, label="cap-eod-peer")
+    job = await contact_db.add_job(
+        label="cap-eod",
+        recruiter=owner,
+        tac=full_peer,
+    )
+    for slot in range(1, 21):
+        filler_candidate = await contact_db.add_candidate(label=f"cap-eod-full-{slot}")
+        filler_case = CandidateContactCase(
+            candidate_id=filler_candidate.id,
+            owner_user_id=full_peer.id,
+            state=CandidateContactState.queued.value,
+            queue_slot=slot,
+            assigned_at=BASE_TIME,
+            due_at=datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc),
+        )
+        contact_db.db.add(filler_case)
+        await contact_db.db.flush()
+        # Wypełniacze muszą mieć otwartą szansę na tym samym jobie, inaczej
+        # worker uzna ich właściciela za nieuprawnionego, zwolni 20 slotów
+        # w fazie bezpieczeństwa i test przestanie badać wysycenie kolejki.
+        contact_db.db.add(
+            CandidateContactOpportunity(
+                case_id=filler_case.id,
+                candidate_id=filler_candidate.id,
+                job_id=job.id,
+                source="pipeline",
+                linked_at=BASE_TIME,
+            )
+        )
+
+    candidate = await contact_db.add_candidate(label="cap-eod")
+    assigned_at = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
+    case = await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        source="pipeline",
+        occurred_at=assigned_at,
+    )
+    assert case is not None
+    case_id = case.id
+    case.owner_user_id = owner.id
+    case.due_at = datetime(2026, 7, 31, 16, 0, tzinfo=timezone.utc)
+    case.assigned_at = assigned_at
+    await contact_db.commit()
+
+    async with AsyncSessionLocal() as turnover_worker:
+        await process_contact_cases(
+            turnover_worker,
+            now=datetime(2026, 8, 1, 8, 0, tzinfo=timezone.utc),
+        )
+        await turnover_worker.commit()
+
+    after_turnover = await _case_snapshot(case_id)
+    assert after_turnover.owner_user_id == owner.id
+    assert after_turnover.queue_slot is not None
+    assert after_turnover.state == CandidateContactState.queued.value
 
 
 async def test_skip_locked_worker_processes_other_due_case(
