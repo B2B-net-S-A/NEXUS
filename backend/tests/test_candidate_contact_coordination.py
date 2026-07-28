@@ -254,7 +254,10 @@ def test_migration_is_linear_from_current_head_and_has_entrypoint_mirror() -> No
     ).read_text()
     entrypoint = (root / "entrypoint.sh").read_text()
 
-    assert 'down_revision = "0199_candidate_stage_removals"' in migration
+    # Kolejka kontaktu wchodzi ZA Priority Lockiem: obie równoległe sesje Codex
+    # wygenerowały migrację 0200 z tym samym down_revision, a #985 zmergował się
+    # pierwszy, więc ta migracja doczepia się do jego głowy.
+    assert 'down_revision = "0200_recruitment_priority_work"' in migration
     for table in (
         "candidate_contact_cases",
         "candidate_contact_opportunities",

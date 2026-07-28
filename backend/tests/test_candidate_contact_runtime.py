@@ -278,6 +278,13 @@ async def test_non_terminal_signing_stage_opens_contact_opportunity(
     db.flush = AsyncMock()
     ensure = AsyncMock()
     close = AsyncMock()
+    # Etap zapisuje kanoniczny command service (writer fence Priority Locka),
+    # więc hook kolejki kontaktu wisi na ZWRÓCONYM wierszu, nie na własnym
+    # `CandidateStage` — stąd mock `transition_process` zamiast `db.add`.
+    transition = AsyncMock(
+        return_value=SimpleNamespace(moved_at=BASE_TIME, candidate_id=11, job_id=22)
+    )
+    monkeypatch.setattr(signing_pipeline_hook, "transition_process", transition)
     monkeypatch.setattr(
         signing_pipeline_hook,
         "maybe_ensure_contact_opportunity",
@@ -296,8 +303,11 @@ async def test_non_terminal_signing_stage_opens_contact_opportunity(
         moved_by=33,
     )
 
-    db.flush.assert_awaited_once()
+    transition.assert_awaited_once()
+    # Podpis nie może wykreować brakującej rekrutacji jako efektu ubocznego.
+    assert transition.await_args.kwargs["require_existing"] is True
     ensure.assert_awaited_once()
+    assert ensure.await_args.kwargs["occurred_at"] == BASE_TIME
     close.assert_not_awaited()
 
 
