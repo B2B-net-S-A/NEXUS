@@ -11,6 +11,7 @@ import {
   type ShortlistEntry,
   type ShortlistUpdate,
 } from "@/lib/candidate-search-api";
+import { priorityWorkErrorMessage } from "@/lib/priority-work-api";
 
 const EVAL_LABELS: Record<EvaluationStatus, string> = {
   do_oceny: "Do oceny",
@@ -118,7 +119,10 @@ export function JobShortlistPanel({
       onPromoted?.();
       load();
     } catch (err) {
-      setError(apiErrorMessage(err, "Nie udało się przenieść do rekrutacji."));
+      setError(
+        priorityWorkErrorMessage(err) ??
+          apiErrorMessage(err, "Nie udało się przenieść do rekrutacji."),
+      );
     } finally {
       setBusyId(null);
     }

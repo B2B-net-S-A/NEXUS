@@ -53,14 +53,29 @@ from __future__ import annotations
 from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import ColumnElement, or_, select, true
+from sqlalchemy import ColumnElement, and_, exists, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles
+from app.core.config import settings
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
+from app.models.recruitment_priority import (
+    PriorityMemberStatus,
+    PriorityMode,
+    PriorityPlanStatus,
+    RecruitmentPriorityAssignment,
+    RecruitmentPriorityPlan,
+    RecruitmentPriorityPlanMember,
+    RecruitmentPriorityUserMode,
+)
+from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.job_membership import is_member_of_job
+from app.services.priority_work_policy import (
+    combine_priority_modes,
+    effective_priority_mode,
+)
 
 # ── Capability role sets ─────────────────────────────────────────────────────
 
@@ -184,6 +199,11 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
     owner / delivery_lead / TAC / active collaborator per
     :func:`app.services.job_membership.is_member_of_job` (multi-role aware via
     ``has_any_role``), plus the oversight roles admin / head_of_recruitment.
+    When Priority Work is active for this user, a current published assignment
+    or ownership of an open carry-over process **that was opened in compliance
+    with a published plan** also grants job scope. This is only resource access:
+    the command policy still decides independently whether a new candidate/job
+    pair may be opened.
 
     A non-member gets a uniform **403** at every ingress — the same status the
     sibling resource-scope guard ``require_dl_assigned_or_admin`` returns, so
@@ -196,6 +216,52 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
         return
     if await is_member_of_job(db, user, job_id):
         return
+    if await effective_priority_mode(db, user.id) is not PriorityMode.off:
+        assignment_scope = await db.scalar(
+            select(RecruitmentPriorityAssignment.id)
+            .join(
+                RecruitmentPriorityPlanMember,
+                RecruitmentPriorityPlanMember.id
+                == RecruitmentPriorityAssignment.plan_member_id,
+            )
+            .join(
+                RecruitmentPriorityPlan,
+                RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+            )
+            .where(
+                RecruitmentPriorityAssignment.job_id == job_id,
+                RecruitmentPriorityPlanMember.user_id == user.id,
+                RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
+                RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+            )
+            .limit(1)
+        )
+        # `priority_compliant_at_open IS TRUE` jest tu OBOWIĄZKOWE: samo
+        # ownership otwartego procesu jest SAMONADAWALNE. Ingresy, które proces
+        # otwierają (np. POST /api/candidates/from-linkedin), tej bramki nie
+        # wołają, a w trybie shadow polityka wpuszcza otwarcie bez assignmentu
+        # (allowed=True), ustawia wołającego właścicielem i zapisuje naruszenie
+        # jako `priority_compliant_at_open=False`. Bez tego warunku jedno takie
+        # wywołanie nadawałoby obcej ofercie pełny zakres — pipeline, CV, stawki,
+        # generator B2B, feedback z rozmów.
+        #
+        # Trójstan domykamy na NIE: `.is_(True)` odrzuca i False (naruszenie
+        # shadow), i NULL (wiersze legacy/backfill) — brak zamrożonego werdyktu
+        # to nie jest zgodność. Werdykt jest zamrażany przy otwarciu i
+        # `handoff_process` go nie zmienia, więc przekazanie własności przez HoR
+        # nadal nadaje zakres nowemu właścicielowi procesu otwartego z planu.
+        carry_scope = await db.scalar(
+            select(RecruitmentProcess.id)
+            .where(
+                RecruitmentProcess.job_id == job_id,
+                RecruitmentProcess.owner_user_id == user.id,
+                RecruitmentProcess.status == ProcessStatus.open,
+                RecruitmentProcess.priority_compliant_at_open.is_(True),
+            )
+            .limit(1)
+        )
+        if assignment_scope is not None or carry_scope is not None:
+            return
     # Nieistniejąca oferta to 404, nie 403. `is_member_of_job` zwraca dla niej
     # False (brak wiersza => brak członkostwa), więc bez tego rozgałęzienia
     # bramka odpowiadałaby „nie należysz do zespołu" na ofertę, której nie ma —
@@ -218,7 +284,8 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
         status_code=status.HTTP_403_FORBIDDEN,
         detail=(
             "Brak dostępu do tej rekrutacji — nie należysz do jej zespołu "
-            "(właściciel / delivery lead / TAC / współpracownik)."
+            "(właściciel / delivery lead / TAC / współpracownik / "
+            "aktywny assignment / carry-over)."
         ),
     )
 
@@ -255,7 +322,10 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
     - role nadzorcze (admin, head_of_recruitment) widzą wszystko,
     - wiersz z ``job_id IS NULL`` nie jest zawężany (patrz
       ``ensure_optional_job_membership``),
-    - reszta: właściciel / delivery lead / TAC / aktywny współpracownik.
+    - reszta: właściciel / delivery lead / TAC / aktywny współpracownik,
+    - gdy efektywny Priority Work nie jest ``off``: aktywny assignment lub
+      ownership otwartego carry-overu założonego ZGODNIE z opublikowanym
+      planem również nadaje zakres odczytu.
 
     Zwraca wyrażenie, nie listę id — zawężenie zostaje w jednym zapytaniu
     i nie psuje paginacji ani limitów.
@@ -276,4 +346,62 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
             ),
         )
     )
-    return or_(job_id_col.is_(None), job_id_col.in_(member_jobs))
+    scope_clauses = [job_id_col.is_(None), job_id_col.in_(member_jobs)]
+
+    # ``job_scope_clause`` jest synchronicznym konstruktorem SQL używanym
+    # wewnątrz zapytań listujących, więc per-user rollout również musi zostać
+    # rozstrzygnięty w tym samym SQL. Globalne ``off`` nie może nawet rozszerzyć
+    # listy o assignment/carry-over. Przy globalnym shadow/enforce wiersz
+    # per-user ``off`` jest ceilingiem i wyłącza oba dodatkowe źródła scope.
+    #
+    # To wyłącznie zakres odczytu. Legacy owner/collaborator ani poniższy
+    # assignment/carry-over nie omijają command policy przy otwieraniu nowej
+    # pary kandydat-request.
+    global_mode = combine_priority_modes(
+        getattr(settings, "RECRUITMENT_PRIORITY_MODE", PriorityMode.off.value),
+        None,
+    )
+    if global_mode is not PriorityMode.off:
+        user_mode_is_off = exists(
+            select(RecruitmentPriorityUserMode.user_id).where(
+                RecruitmentPriorityUserMode.user_id == user.id,
+                RecruitmentPriorityUserMode.mode == PriorityMode.off,
+            )
+        )
+        assignment_jobs = (
+            select(RecruitmentPriorityAssignment.job_id)
+            .join(
+                RecruitmentPriorityPlanMember,
+                RecruitmentPriorityPlanMember.id
+                == RecruitmentPriorityAssignment.plan_member_id,
+            )
+            .join(
+                RecruitmentPriorityPlan,
+                RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+            )
+            .where(
+                RecruitmentPriorityPlanMember.user_id == user.id,
+                RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
+                RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+            )
+        )
+        # Ten sam warunek zgodności co w ``ensure_job_membership`` — patrz tam po
+        # uzasadnienie. Definicja carry-overu musi być identyczna w bramce i w
+        # zawężeniu list, bo inaczej samonadany proces, który nie przepuszcza
+        # przez bramkę, i tak wyciekałby wierszami na listach.
+        carry_over_jobs = select(RecruitmentProcess.job_id).where(
+            RecruitmentProcess.owner_user_id == user.id,
+            RecruitmentProcess.status == ProcessStatus.open,
+            RecruitmentProcess.priority_compliant_at_open.is_(True),
+        )
+        scope_clauses.append(
+            and_(
+                ~user_mode_is_off,
+                or_(
+                    job_id_col.in_(assignment_jobs),
+                    job_id_col.in_(carry_over_jobs),
+                ),
+            )
+        )
+
+    return or_(*scope_clauses)

@@ -191,6 +191,33 @@ HeadOfRecruitmentPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.head_of_recruitment)),
 ]
 
+# Priority Work is owned by the Head of Recruitment as a business role.
+# A plain administrator is not an implicit break-glass operator for plan
+# publication, handoffs or KPI exceptions.
+HeadOfRecruitmentOnly = Annotated[
+    User,
+    Depends(require_roles(UserRole.head_of_recruitment)),
+]
+
+# Priority Work demand routes deliberately exclude a plain administrator.
+# Creation belongs to the current Delivery Lead; reads and updates are shared
+# with the Head of Recruitment, with job ownership still checked in the
+# handler for Delivery Leads.
+PriorityDemandCreator = Annotated[
+    User,
+    Depends(require_roles(UserRole.delivery_lead)),
+]
+
+PriorityDemandReader = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+        )
+    ),
+]
+
 TacPlus = Annotated[
     User,
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)),

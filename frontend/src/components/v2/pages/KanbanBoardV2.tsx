@@ -72,6 +72,7 @@ import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { terminalOf } from"@/lib/kanban-terminal";
+import { assignErrorMessage } from "@/lib/assign-error";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -1010,19 +1011,9 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  } catch (e) {
  console.error("Move failed", e);
  if (!opts?.silent) {
- // Pokaż konkretny powód z backendu (np. wymóg stawki/powodu
- // odrzucenia, 409 pending-gate) zamiast generycznego komunikatu.
- const detail = (e as { response?: { data?: { detail?: unknown } } })
- ?.response?.data?.detail;
- const status = (e as { response?: { status?: number } })?.response
- ?.status;
- showError(
- typeof detail === "string"
- ? status === 409
- ? `Konflikt stanu: ${detail}`
- : detail
- :"Nie udało się zmienić etapu."
- );
+ // Wspólny parser zachowuje dotychczasowe szczegóły błędu i dodatkowo
+ // rozpoznaje strukturalny PRIORITY_WORK_LOCKED.
+ showError(assignErrorMessage(e));
  // M4 PR-03 (audyt P1.4): rollback optimistic — plansza wraca do
  // prawdy serwera zamiast kłamać kolumną, której DB nie potwierdziła.
  await refreshBoardAfterMove();

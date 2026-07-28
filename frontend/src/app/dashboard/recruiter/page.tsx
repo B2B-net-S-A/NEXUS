@@ -15,7 +15,8 @@ import CallStatsWidget from"@/components/dashboard/CallStatsWidget"
 import { RaceCard } from"@/components/v2/gamification/RaceCard"
 import { WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState"
 import { MojeKpiPanel } from "@/components/v2/kpi/MojeKpiPanel"
-import { ROLE_LABELS, useAuthStore } from"@/store/auth"
+import { MyPriorityQueue } from "@/components/v2/priority-work"
+import { ROLE_LABELS, hasRole, useAuthStore } from"@/store/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -143,10 +144,9 @@ export default function RecruiterDashboard() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
 
- const recruiterRoles = ["sourcer","tac","recruiter"] as const
- const isMeRecruiter = !!user && (recruiterRoles as readonly string[]).includes(user.role)
+ const isMeRecruiter = hasRole(user, "sourcer", "tac", "recruiter")
  const isAllowed =
- !!user && (isMeRecruiter || user.role === "admin" || user.role === "head_of_recruitment")
+ isMeRecruiter || hasRole(user, "admin", "head_of_recruitment")
 
  const {
  data: report,
@@ -348,6 +348,9 @@ export default function RecruiterDashboard() {
  Odśwież
  </Button>
  </div>
+
+ {/* Priority Work — nowy sourcing i carry-over są celowo rozdzielone. */}
+ <MyPriorityQueue />
 
  {/* Moje KPI — osobisty panel (verifier-anchored, niezależny od raportu zespołu) */}
  <MojeKpiPanel className="mb-1" />

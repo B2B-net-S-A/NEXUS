@@ -9,7 +9,7 @@ import sys
 import random
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,8 +18,10 @@ from app.core.database import Base
 from app.models.user import User
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.activity import Activity
+from app.services.recruitment_process_commands import transition_process
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -81,10 +83,18 @@ async def seed_v6():
 
         print(f"Found {len(candidates)} candidates, {len(jobs)} jobs, {len(users)} users")
 
-        # Clear existing pipeline data
-        await db.execute(delete(CandidateStage))
-        await db.commit()
-        print("Cleared old pipeline data")
+        # Preserve every existing process/stage. This development seed may add
+        # missing demo pairs, but it must never erase carry-over or its audit.
+        existing_pairs = set(
+            (
+                await db.execute(
+                    select(
+                        CandidateStage.candidate_id, CandidateStage.job_id
+                    ).distinct()
+                )
+            ).all()
+        )
+        print(f"Preserving {len(existing_pairs)} existing pipeline pairs")
 
         # ── Distribution plan ──
         # For each job, assign candidates to various stages with realistic distribution:
@@ -119,6 +129,8 @@ async def seed_v6():
 
             # Create weighted stage assignments
             for candidate in job_candidates:
+                if (candidate.id, job.id) in existing_pairs:
+                    continue
                 # Weighted random stage selection
                 stage_choices = list(STAGE_WEIGHTS.keys())
                 weights = list(STAGE_WEIGHTS.values())
@@ -137,27 +149,33 @@ async def seed_v6():
                     stage = PIPELINE_FLOW[step_idx]
                     moved_at = base_time + timedelta(days=step_idx * random.randint(1, 4), hours=random.randint(1, 12))
                     
-                    entry = CandidateStage(
+                    await transition_process(
+                        db,
                         candidate_id=candidate.id,
                         job_id=job.id,
                         stage=stage,
+                        actor_user_id=random.choice(user_ids),
                         moved_at=moved_at,
-                        moved_by=random.choice(user_ids),
                         rating=random.choice([None, None, 3, 4, 5]) if step_idx >= 2 else None,
                         notes=_random_note(stage) if random.random() < 0.3 else None,
+                        work_channel=PriorityChannel.database,
+                        # Audit provenance only. Seed traffic follows the
+                        # regular Priority Work channel/mode decision.
+                        source_authority="seed_v6",
                     )
-                    db.add(entry)
                     total_entries += 1
+                existing_pairs.add((candidate.id, job.id))
 
                 # Add rejection/withdrawal if applicable
                 if is_rejected and not is_withdrawn:
                     reject_time = base_time + timedelta(days=(target_idx + 1) * 2)
-                    db.add(CandidateStage(
+                    await transition_process(
+                        db,
                         candidate_id=candidate.id,
                         job_id=job.id,
                         stage=PipelineStage.rejected,
+                        actor_user_id=random.choice(user_ids),
                         moved_at=reject_time,
-                        moved_by=random.choice(user_ids),
                         notes=random.choice([
                             "Nie spełnia wymagań technicznych",
                             "Zbyt wysokie oczekiwania finansowe",
@@ -165,22 +183,27 @@ async def seed_v6():
                             "Klient odrzucił kandydaturę",
                             "Nie przeszedł testu technicznego",
                         ]),
-                    ))
+                        work_channel=PriorityChannel.database,
+                        source_authority="seed_v6",
+                    )
                     total_entries += 1
                 elif is_withdrawn:
                     withdraw_time = base_time + timedelta(days=(target_idx + 1) * 2)
-                    db.add(CandidateStage(
+                    await transition_process(
+                        db,
                         candidate_id=candidate.id,
                         job_id=job.id,
                         stage=PipelineStage.withdrawn,
+                        actor_user_id=random.choice(user_ids),
                         moved_at=withdraw_time,
-                        moved_by=random.choice(user_ids),
                         notes=random.choice([
                             "Kandydat przyjął inną ofertę",
                             "Zrezygnował z procesu",
                             "Kontroferta od obecnego pracodawcy",
                         ]),
-                    ))
+                        work_channel=PriorityChannel.database,
+                        source_authority="seed_v6",
+                    )
                     total_entries += 1
 
             print(f"  Job '{job.title}': {num_candidates} candidates seeded")
@@ -190,20 +213,26 @@ async def seed_v6():
         if remaining:
             for i, candidate in enumerate(remaining[:30]):
                 job = jobs[i % min(3, len(jobs))]
+                if (candidate.id, job.id) in existing_pairs:
+                    continue
                 stage = random.choices(PIPELINE_FLOW[:6], weights=[5, 4, 3, 2, 2, 1], k=1)[0]
                 stage_idx = PIPELINE_FLOW.index(stage)
                 base_time = random_past(max_days=20)
                 
                 for step_idx in range(stage_idx + 1):
                     s = PIPELINE_FLOW[step_idx]
-                    db.add(CandidateStage(
+                    await transition_process(
+                        db,
                         candidate_id=candidate.id,
                         job_id=job.id,
                         stage=s,
+                        actor_user_id=random.choice(user_ids),
                         moved_at=base_time + timedelta(days=step_idx * 2, hours=random.randint(1, 8)),
-                        moved_by=random.choice(user_ids),
-                    ))
+                        work_channel=PriorityChannel.database,
+                        source_authority="seed_v6",
+                    )
                     total_entries += 1
+                existing_pairs.add((candidate.id, job.id))
             print(f"  Spread {min(30, len(remaining))} remaining candidates across jobs")
 
         await db.commit()

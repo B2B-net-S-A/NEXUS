@@ -1,5 +1,4 @@
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Literal, Optional
 import asyncio
 import hashlib
@@ -28,7 +27,6 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import (
     and_,
     case,
-    delete,
     false,
     func,
     literal,
@@ -59,7 +57,8 @@ from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
 from app.models.candidate_stage_removal import CandidateStageRemoval
-from app.models.recruitment_pipeline import CandidateStage, VerificationStatus
+from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_priority import PriorityChannel
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.talent_pool import TalentPoolMembership
@@ -138,6 +137,12 @@ from app.api.recruitment_access import (
     ensure_job_membership,
 )
 from app.services import candidate_audit
+from app.services.recruitment_process_commands import (
+    open_process,
+    update_latest_client_rate,
+    update_latest_expected_rate,
+    void_process,
+)
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -2392,13 +2397,14 @@ async def _assign_candidate_to_job(
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    stage_row = CandidateStage(
+    stage_row = await open_process(
+        db,
         candidate_id=candidate_id,
         job_id=job_id,
         stage=stage,
-        moved_by=user_id,
+        actor_user_id=user_id,
+        work_channel=PriorityChannel.linkedin,
     )
-    db.add(stage_row)
     db.add(
         Activity(
             entity_type="candidate",
@@ -3390,38 +3396,24 @@ async def set_recruitment_client_rate(
     # zespołu oferty mógł je odczytać (przez odpowiedź) i nadpisać.
     await ensure_job_membership(db, current_user, job_id)
 
-    latest = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
+    latest, previous_rate = await update_latest_client_rate(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        rate_value=payload.rate_value,
+        rate_unit=(
+            (payload.rate_unit or RateUnit.monthly).value
+            if payload.rate_value is not None
+            else None
+        ),
+        rate_currency=(
+            (payload.rate_currency or "PLN")[:3].upper()
+            if payload.rate_value is not None
+            else None
+        ),
     )
-    if latest is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Brak rekrutacji dla tego kandydata i tej oferty.",
-        )
-
-    # Snapshot old value BEFORE mutation so the audit trail records old→new.
-    old_value = (
-        float(latest.client_rate_value)
-        if latest.client_rate_value is not None
-        else None
-    )
-    old_unit = latest.client_rate_unit
-    old_currency = latest.client_rate_currency
-
-    if payload.rate_value is None:
-        latest.client_rate_value = None
-        latest.client_rate_unit = None
-        latest.client_rate_currency = None
-    else:
-        latest.client_rate_value = payload.rate_value
-        latest.client_rate_unit = (payload.rate_unit or RateUnit.monthly).value
-        latest.client_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
+    previous_value, old_unit, old_currency = previous_rate
+    old_value = float(previous_value) if previous_value is not None else None
 
     new_value = (
         float(latest.client_rate_value)
@@ -3488,74 +3480,43 @@ async def set_recruitment_expected_rate(
     `CandidateStage` tej rekrutacji; odczyt w `/history` bierze ostatnią
     niepustą wartość. `rate_value=None` czyści stawkę.
 
-    Uwaga: edycja NIE re-triggeruje budżetowego gate'u zatwierdzania (pending
-    verification) — ten pozostaje na poziomie ruchu na etap `verified`, gdzie
-    jest jego pierwotny cel.
+    Jeśli korekta przekroczy budżet requestu, zapis ponownie ustawia
+    `verification_status=pending`; akceptacja wracającej do budżetu stawki
+    przechodzi przez kanoniczne `record_accepted_verification`, dzięki czemu
+    pierwszy verifier i eligibility pozostają spójne.
     """
     # Resource scope — jak w `client-rate` wyżej: rola dopuszcza edycję stawek
     # w ogóle, membership decyduje o KTÓREJ rekrutacji.
     await ensure_job_membership(db, current_user, job_id)
 
-    latest = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
+    latest, job, became_pending = await update_latest_expected_rate(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        rate_value=payload.rate_value,
+        rate_unit=(
+            (payload.rate_unit or RateUnit.monthly).value
+            if payload.rate_value is not None
+            else None
+        ),
+        rate_currency=(
+            (payload.rate_currency or "PLN")[:3].upper()
+            if payload.rate_value is not None
+            else None
+        ),
     )
-    if latest is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Brak rekrutacji dla tego kandydata i tej oferty.",
+    if became_pending and job is not None:
+        from app.api.pipeline import _notify_pending_verification
+
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == candidate_id)
         )
-
-    if payload.rate_value is None:
-        latest.expected_rate_value = None
-        latest.expected_rate_unit = None
-        latest.expected_rate_currency = None
-    else:
-        latest.expected_rate_value = payload.rate_value
-        latest.expected_rate_unit = (payload.rate_unit or RateUnit.monthly).value
-        latest.expected_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
-
-    # Rate-verification gate (M4-P0.4). Without this, a recruiter could move a
-    # candidate to `verified` within budget (→ verification_status=active, no
-    # approval), then PATCH an over-budget rate here — which previously just
-    # wrote the value and left the row `active`, so an over-budget candidate
-    # advanced with nobody's sign-off. Mirror the /move gate: on a `verified`
-    # stage, re-run the same normalized budget comparison; over budget (or a
-    # non-comparable rate) → `pending` + snapshot budget + notify approvers;
-    # within budget → `active`. RecruitmentRateEditAccess includes recruiter,
-    # but approval still needs ApproverPlus — separation of duties preserved.
-    if latest.stage == PipelineStage.verified:
-        from app.services.rate_normalization import normalize_rate_to_monthly
-
-        job = await db.scalar(select(Job).where(Job.id == job_id))
-        if (
-            job is not None
-            and job.salary_max is not None
-            and payload.rate_value is not None
-        ):
-            latest.budget_max_at_move = int(job.salary_max)
-            normalized, _note = normalize_rate_to_monthly(
-                Decimal(payload.rate_value),
-                (payload.rate_unit or RateUnit.monthly).value,
-                (payload.rate_currency or "PLN"),
-            )
-            if normalized is None or normalized > Decimal(job.salary_max):
-                latest.verification_status = VerificationStatus.pending
-                from app.api.pipeline import _notify_pending_verification
-
-                candidate = await db.scalar(
-                    select(Candidate).where(Candidate.id == candidate_id)
-                )
-                await _notify_pending_verification(
-                    db, stage=latest, candidate=candidate, job=job
-                )
-            else:
-                latest.verification_status = VerificationStatus.active
+        await _notify_pending_verification(
+            db,
+            stage=latest,
+            candidate=candidate,
+            job=job,
+        )
 
     await db.commit()
     await db.refresh(latest)
@@ -3601,13 +3562,24 @@ async def remove_candidate_from_recruitment(
     (`Contract`) i screeningi (`screening_notes`, kluczowane po candidate+job)
     pozostają nietknięte.
     """
+    await ensure_job_membership(db, current_user, job_id)
+    locked_candidate = await db.scalar(
+        select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if locked_candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kandydat nie istnieje.",
+        )
     stage_rows = (
         (
             await db.execute(
-                select(CandidateStage).where(
+                select(CandidateStage)
+                .where(
                     CandidateStage.candidate_id == candidate_id,
                     CandidateStage.job_id == job_id,
                 )
+                .with_for_update()
             )
         )
         .scalars()
@@ -3626,8 +3598,6 @@ async def remove_candidate_from_recruitment(
     # wolno skasować, ale nie ograniczał CZYJĄ rekrutację — dowolny
     # `RecruiterPlus` mógł wyczyścić historię oferty, z którą nie ma nic
     # wspólnego. Membership domyka to pytanie.
-    await ensure_job_membership(db, current_user, job_id)
-
     # ── M4 PR-02 (audyt P0.8): historia z hired / z kontraktem nie znika ────
     # zwykłym API. Fizyczny DELETE kasuje audit trail zatrudnienia (baseline
     # PR-00: 499 par hired-bez-kontraktu częściowo stąd), a kontrakt/zamówienie
@@ -3709,11 +3679,23 @@ async def remove_candidate_from_recruitment(
     )
     await db.flush()
 
-    await db.execute(
-        delete(CandidateStage).where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-        )
+    # Keep the canonical process as a durable void record.  In enforcement
+    # mode this also prevents an operational user from deleting carry-over.
+    await void_process(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        actor_user=current_user,
+    )
+
+    from app.services.recruitment_process_commands import (
+        delete_voided_stage_history,
+    )
+
+    await delete_voided_stage_history(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
     )
 
     db.add(

@@ -30,12 +30,21 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import exists, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_pipeline import (
+    CandidateStage,
+    PipelineStage,
+    VerificationStatus,
+)
+from app.models.recruitment_priority import (
+    PriorityOriginKind,
+    RecruitmentPriorityState,
+)
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.workflow_revision import (
     StageRevision,
@@ -152,18 +161,29 @@ async def backfill_recruitment_processes(
         if limit_pairs is not None:
             batch_cap = min(batch_cap, limit_pairs - processed)
 
-        pairs = (
-            await db.execute(
-                select(CandidateStage.candidate_id, CandidateStage.job_id)
-                .where(
-                    tuple_(CandidateStage.candidate_id, CandidateStage.job_id)
-                    > last_pair
-                )
-                .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
-                .order_by(CandidateStage.candidate_id, CandidateStage.job_id)
-                .limit(batch_cap)
+        pair_query = (
+            select(CandidateStage.candidate_id, CandidateStage.job_id)
+            .where(
+                tuple_(CandidateStage.candidate_id, CandidateStage.job_id) > last_pair
             )
-        ).all()
+            .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
+            .order_by(CandidateStage.candidate_id, CandidateStage.job_id)
+            .limit(batch_cap)
+        )
+        if not resync_stale:
+            # Every bounded rerun advances naturally: already reconciled pairs
+            # are excluded before LIMIT instead of consuming the same first
+            # page forever.  Resync deliberately scans all pairs because it
+            # must compare existing pointers.
+            pair_query = pair_query.where(
+                ~exists(
+                    select(RecruitmentProcess.id).where(
+                        RecruitmentProcess.candidate_id == CandidateStage.candidate_id,
+                        RecruitmentProcess.job_id == CandidateStage.job_id,
+                    )
+                )
+            )
+        pairs = (await db.execute(pair_query)).all()
         if not pairs:
             break
         last_pair = (pairs[-1][0], pairs[-1][1])
@@ -172,22 +192,47 @@ async def backfill_recruitment_processes(
 
         pair_keys = [(c, j) for c, j in pairs]
 
-        # Istniejące procesy batcha (skip / resync).
-        existing = {
-            (p.candidate_id, p.job_id): p
-            for p in (
+        # Match the command service's lock hierarchy. Lock candidate ids first
+        # so a live transition cannot race this batch's stage/process snapshot.
+        candidate_ids = sorted({candidate_id for candidate_id, _ in pair_keys})
+        await db.execute(
+            select(Candidate.id)
+            .where(Candidate.id.in_(candidate_ids))
+            .order_by(Candidate.id)
+            .with_for_update()
+        )
+
+        # Select and lock every attempt deterministically, then retain the
+        # newest attempt for each pair. A plain dict comprehension over an
+        # unordered result could mutate an arbitrary historical attempt.
+        process_rows = (
+            (
                 await db.execute(
-                    select(RecruitmentProcess).where(
+                    select(RecruitmentProcess)
+                    .where(
                         tuple_(
                             RecruitmentProcess.candidate_id,
                             RecruitmentProcess.job_id,
                         ).in_(pair_keys)
                     )
+                    .order_by(
+                        RecruitmentProcess.candidate_id,
+                        RecruitmentProcess.job_id,
+                        RecruitmentProcess.attempt_no.desc(),
+                        RecruitmentProcess.id.desc(),
+                    )
+                    .with_for_update()
                 )
             )
             .scalars()
             .all()
-        }
+        )
+        existing: dict[tuple[int, int], RecruitmentProcess] = {}
+        for process in process_rows:
+            existing.setdefault(
+                (process.candidate_id, process.job_id),
+                process,
+            )
 
         # Wszystkie eventy batcha, kanoniczny porządek.
         events = (
@@ -253,14 +298,50 @@ async def backfill_recruitment_processes(
 
             is_closed = _is_terminal_row(latest, sd_terminal)
             status = ProcessStatus.closed if is_closed else ProcessStatus.open
+            first_accepted_verification = next(
+                (
+                    event
+                    for event in history
+                    if event.stage == PipelineStage.verified
+                    and event.verification_status == VerificationStatus.active
+                    and event.moved_by is not None
+                ),
+                None,
+            )
+            legacy_credit_user_id = (
+                first_accepted_verification.moved_by
+                if first_accepted_verification is not None
+                else None
+            )
 
             current = existing.get(key)
             if current is not None:
+                provenance_changed = False
+                # Origin is immutable provenance, not write authority. A
+                # legacy-origin process may already have advanced through the
+                # live command layer, so only rows still owned by this
+                # backfill may be repaired/resynchronised here.
+                backfill_owned = current.source_authority == "backfill"
+                if backfill_owned and current.origin_kind is None:
+                    current.origin_kind = PriorityOriginKind.legacy
+                    provenance_changed = True
+                if (
+                    backfill_owned
+                    and current.credit_user_id is None
+                    and legacy_credit_user_id is not None
+                ):
+                    current.credit_user_id = legacy_credit_user_id
+                    provenance_changed = True
+                if backfill_owned and current.owner_user_id is None:
+                    current.owner_user_id = (
+                        legacy_credit_user_id or earliest.moved_by or recruiter_id
+                    )
+                    provenance_changed = current.owner_user_id is not None
                 # Rerun: nie ruszamy, chyba że jawny resync i latest się zmienił
                 # (legacy = authority do PR-08).
                 if (
                     resync_stale
-                    and current.source_authority == "backfill"
+                    and backfill_owned
                     and current.legacy_current_candidate_stage_id != latest.id
                 ):
                     current.legacy_current_candidate_stage_id = latest.id
@@ -271,6 +352,9 @@ async def backfill_recruitment_processes(
                     )
                     current.status = status
                     current.closed_at = latest.moved_at if is_closed else None
+                    current.state_version = current.state_version + 1
+                    prog["resynced"] += 1
+                elif provenance_changed:
                     current.state_version = current.state_version + 1
                     prog["resynced"] += 1
                 else:
@@ -289,7 +373,15 @@ async def backfill_recruitment_processes(
                     legacy_current_candidate_stage_id=latest.id,
                     state_version=1,
                     status=status,
-                    owner_user_id=earliest.moved_by or recruiter_id,
+                    owner_user_id=(
+                        legacy_credit_user_id or earliest.moved_by or recruiter_id
+                    ),
+                    credit_user_id=legacy_credit_user_id,
+                    origin_kind=PriorityOriginKind.legacy,
+                    # NULL is intentional: historical pairs retain the legacy
+                    # KPI fallback, while origin_kind marks them reconciled.
+                    kpi_eligible=None,
+                    kpi_eligibility_reason="LEGACY_BACKFILL",
                     source_authority="backfill",
                     opened_at=earliest.moved_at,
                     closed_at=latest.moved_at if is_closed else None,
@@ -299,17 +391,35 @@ async def backfill_recruitment_processes(
 
         await db.commit()
 
+    priority_state = await db.scalar(
+        select(RecruitmentPriorityState).where(RecruitmentPriorityState.id == 1)
+    )
+    if priority_state is not None:
+        priority_state.last_reconciled_at = datetime.now(timezone.utc)
+        priority_state.row_version += 1
+        await db.commit()
+
     return dict(prog)
 
 
 async def compare_shadow_state(
     db: AsyncSession, *, sample_limit: int = 20
 ) -> dict[str, Any]:
-    """Komparator shadow: proces vs faktyczny latest legacy row pary.
+    """Komparator shadow: najnowszy attempt vs latest legacy row pary.
 
     Mismatch = legacy poszedł dalej po backfillu (runtime wciąż pisze
-    CandidateStage) albo para nie ma jeszcze procesu. Miara lagu przed
-    przejęciem authority w PR-07/08.
+    CandidateStage) albo para nie ma jeszcze procesu. Osobno raportujemy
+    procesy bez legacy history — taki stan jest prawidłowy dla jawnie
+    zarchiwizowanego voided procesu, ale nie może zaburzać pair-level
+    reconciliation.
+
+    RecruitmentProcess jest agregatem attemptu, więc jedna para może mieć
+    wiele historycznych rekordów. Porównanie jest celowo pair-level: wybiera
+    najnowszy attempt według ``(attempt_no DESC, id DESC)``. Inaczej każdy
+    poprawnie zamknięty historyczny attempt wyglądałby jak stale po otwarciu
+    kolejnego. ``processes_total`` nadal raportuje wszystkie attempty dla
+    kompatybilności, a ``process_pairs_total`` jest porównywalny z
+    ``pairs_total``.
     """
     latest_sql = """
         WITH latest AS (
@@ -317,20 +427,39 @@ async def compare_shadow_state(
                 candidate_id, job_id, id
             FROM candidate_stages
             ORDER BY candidate_id, job_id, moved_at DESC, id DESC
+        ),
+        current_process AS (
+            SELECT DISTINCT ON (candidate_id, job_id)
+                candidate_id,
+                job_id,
+                id,
+                legacy_current_candidate_stage_id,
+                current_semantic_state,
+                status
+            FROM recruitment_processes
+            ORDER BY candidate_id, job_id, attempt_no DESC, id DESC
         )
         SELECT
             (SELECT COUNT(*) FROM latest) AS pairs_total,
             (SELECT COUNT(*) FROM recruitment_processes) AS processes_total,
+            (SELECT COUNT(*) FROM current_process) AS process_pairs_total,
             (
                 SELECT COUNT(*)
                 FROM latest l
-                LEFT JOIN recruitment_processes p
+                LEFT JOIN current_process p
                   ON p.candidate_id = l.candidate_id AND p.job_id = l.job_id
                 WHERE p.id IS NULL
             ) AS pairs_without_process,
             (
                 SELECT COUNT(*)
-                FROM recruitment_processes p
+                FROM current_process p
+                LEFT JOIN latest l
+                  ON l.candidate_id = p.candidate_id AND l.job_id = p.job_id
+                WHERE l.id IS NULL
+            ) AS process_pairs_without_legacy,
+            (
+                SELECT COUNT(*)
+                FROM current_process p
                 JOIN latest l
                   ON l.candidate_id = p.candidate_id AND l.job_id = p.job_id
                 WHERE p.legacy_current_candidate_stage_id IS DISTINCT FROM l.id
@@ -353,11 +482,19 @@ async def compare_shadow_state(
                 candidate_id, job_id, id
             FROM candidate_stages
             ORDER BY candidate_id, job_id, moved_at DESC, id DESC
+        ),
+        current_process AS (
+            SELECT DISTINCT ON (candidate_id, job_id)
+                candidate_id,
+                job_id,
+                legacy_current_candidate_stage_id
+            FROM recruitment_processes
+            ORDER BY candidate_id, job_id, attempt_no DESC, id DESC
         )
         SELECT p.candidate_id, p.job_id,
                p.legacy_current_candidate_stage_id AS process_pointer,
                l.id AS actual_latest
-        FROM recruitment_processes p
+        FROM current_process p
         JOIN latest l
           ON l.candidate_id = p.candidate_id AND l.job_id = p.job_id
         WHERE p.legacy_current_candidate_stage_id IS DISTINCT FROM l.id

@@ -30,7 +30,9 @@ from app.models.client import Client, ClientStatus
 from app.models.job import Job, JobStatus, JobPriority, RemotePolicy, RecruitmentType
 from app.models.call import Call, CallDirection, CallStatus
 from app.models.contract import Contract, ContractStatus, ContractType
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_priority import PriorityChannel
+from app.models.recruitment_pipeline import PipelineStage
+from app.services.recruitment_process_commands import transition_process
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.email_template import EmailTemplate, EmailCategory
@@ -997,15 +999,19 @@ async def seed():
         ]
 
         for cand_idx, job_idx, stage, moved_by_id, rating in stages_to_create:
-            ps = CandidateStage(
+            await transition_process(
+                db,
                 candidate_id=candidates[cand_idx].id,
                 job_id=jobs[job_idx].id,
                 stage=stage,
+                actor_user_id=moved_by_id,
                 moved_at=now - timedelta(hours=abs(hash(str(cand_idx))) % 72),
-                moved_by=moved_by_id,
                 rating=rating,
+                work_channel=PriorityChannel.database,
+                # Provenance only; the explicit channel above is evaluated by
+                # the same Priority Work policy as every other ingress.
+                source_authority="seed",
             )
-            db.add(ps)
         await db.flush()
         print(f"  Created {len(stages_to_create)} pipeline stages")
 
@@ -2626,15 +2632,18 @@ async def seed_extended():
         ]
 
         for cand, job, stage, moved_by_id, rating in pipeline_entries:
-            ps = CandidateStage(
+            await transition_process(
+                db,
                 candidate_id=cand.id,
                 job_id=job.id,
                 stage=stage,
+                actor_user_id=moved_by_id,
                 moved_at=now - timedelta(hours=abs(hash(str(cand.id) + str(job.id))) % 120),
-                moved_by=moved_by_id,
                 rating=rating,
+                work_channel=PriorityChannel.database,
+                # Provenance only; never a Priority Work bypass.
+                source_authority="seed",
             )
-            db.add(ps)
         await db.flush()
         print(f"  Created {len(pipeline_entries)} pipeline entries")
 

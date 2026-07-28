@@ -53,14 +53,19 @@ def _is_archive_call(call: ast.Call) -> bool:
     return False
 
 
-def _is_delete_call(call: ast.Call) -> bool:
-    """``delete(CandidateStage)`` — NIE dekorator trasy ``@router.delete(...)``.
+def _is_delete_boundary_call(call: ast.Call) -> bool:
+    """Granica usunięcia historii — bezpośrednia albo przez command service.
 
-    Dekorator jest dzieckiem węzła funkcji, więc samo dopasowanie po nazwie
-    ``delete`` trafia w niego i „wykrywa" kasowanie w linii nagłówka trasy,
-    czyli przed czymkolwiek w ciele.
+    Po centralizacji writerów endpoint nie może już wykonywać
+    ``delete(CandidateStage)`` samodzielnie. Deleguje operację do
+    ``delete_voided_stage_history``; wywołanie tej komendy jest więc momentem,
+    przed którym archiwum musi być utworzone. Obsługa bezpośredniego
+    ``delete(CandidateStage)`` zostaje dla czytelnego błędu regresji, gdyby
+    ktoś ponownie wprowadził legacy writer do endpointu.
     """
     name = getattr(call.func, "id", None) or getattr(call.func, "attr", None)
+    if name == "delete_voided_stage_history":
+        return True
     if name != "delete":
         return False
     return any(
@@ -81,7 +86,7 @@ def test_archive_happens_before_the_delete() -> None:
     """Kolejność jest całą istotą — po ``delete()`` nie ma czego zapisać."""
     node = _route_node()
     archived_at = _first_lineno(node, _is_archive_call)
-    deleted_at = _first_lineno(node, _is_delete_call)
+    deleted_at = _first_lineno(node, _is_delete_boundary_call)
     assert archived_at is not None and deleted_at is not None
     assert archived_at < deleted_at, (
         "archiwizacja wykonuje się PO skasowaniu wierszy — zapisze pustkę"

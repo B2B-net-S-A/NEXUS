@@ -8,6 +8,7 @@ the transaction and may compose the returned draft with other audit changes.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -28,6 +29,10 @@ from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services.priority_work_policy import PriorityWorkLocked
+from app.services.recruitment_process_commands import transition_process
+
+logger = logging.getLogger(__name__)
 
 
 _COMPATIBLE_CONTRACT_STATUSES = (
@@ -483,17 +488,28 @@ async def _ensure_hired_stage(
         return False
 
     stage_def = await _resolve_hired_stage_def(db, job)
-    stage = CandidateStage(
-        candidate_id=candidate.id,
-        job_id=job.id,
-        stage=PipelineStage.hired,
-        stage_def_id=stage_def.id if stage_def else None,
-        moved_at=datetime.now(timezone.utc),
-        moved_by=actor_id,
-        notes="Auto: Zatrudniony (umowa podpisana obustronnie)",
-    )
-    db.add(stage)
-    await db.flush()
+    try:
+        stage = await transition_process(
+            db,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            stage=PipelineStage.hired,
+            stage_def_id=stage_def.id if stage_def else None,
+            moved_at=datetime.now(timezone.utc),
+            actor_user_id=actor_id,
+            require_existing=True,
+            notes="Auto: Zatrudniony (umowa podpisana obustronnie)",
+        )
+    except PriorityWorkLocked:
+        # Podpis umowy jest nadrzędny, ale nie może wykreować nowej rekrutacji
+        # jako efektu ubocznego. Brakujący proces uzupełnia HoR — 409 z polityki
+        # wywróciłby całą transakcję i umowa nigdy nie zostałaby podpisana.
+        logger.warning(
+            "b2b hired stage skipped: no existing process for candidate %s / job %s",
+            candidate.id,
+            job.id,
+        )
+        return False
     db.add(
         Activity(
             entity_type="pipeline",

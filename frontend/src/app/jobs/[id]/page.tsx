@@ -38,6 +38,8 @@ import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
+import { JobPriorityContext } from "@/components/v2/priority-work";
+import { assignErrorMessage } from "@/lib/assign-error";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -749,7 +751,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
           : `${fullName} jest już w pipeline tej rekrutacji`,
       );
     },
-    onError: () => showError("Nie udało się dodać kandydata do pipeline"),
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
     onSettled: () => setAddingId(null),
   });
 
@@ -1268,6 +1270,8 @@ export default function JobDetailPage() {
           </div>
         )}
       </div>
+
+      <JobPriorityContext jobId={Number(id)} />
 
       {/* Edit Job Modal */}
       {showEditJob && job && (

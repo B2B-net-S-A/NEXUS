@@ -14,15 +14,15 @@ no such stage, we skip silently — a pipeline move must never break signing.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contract import Contract
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_pipeline import PipelineStage
+from app.services.priority_work_policy import PriorityWorkLocked
+from app.services.recruitment_process_commands import transition_process
 
 logger = logging.getLogger(__name__)
 
@@ -84,17 +84,28 @@ async def move_candidate_for_signing(
     if stage_name == STAGE_HIRED and legacy is not PipelineStage.hired:
         legacy = PipelineStage.hired
 
-    db.add(
-        CandidateStage(
+    try:
+        await transition_process(
+            db,
             candidate_id=contract.candidate_id,
             job_id=contract.job_id,
             stage=legacy,
             stage_def_id=stage_def.id,
-            moved_at=datetime.now(timezone.utc),
-            moved_by=moved_by,
+            actor_user_id=moved_by,
+            require_existing=True,
             notes=f"Auto: {stage_name} (podpis umowy)",
         )
-    )
+    except PriorityWorkLocked:
+        # Signing is authoritative for the contract, but it must not create a
+        # brand-new recruitment as a side effect.  The missing process is
+        # reconciled by HoR instead of breaking signature completion.
+        logger.warning(
+            "signing pipeline move skipped: no existing process for "
+            "candidate %s / job %s",
+            contract.candidate_id,
+            contract.job_id,
+        )
+        return
     logger.info(
         "signing pipeline move: candidate %s → %r (job %s)",
         contract.candidate_id,

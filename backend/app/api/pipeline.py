@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -18,6 +18,7 @@ from app.models.recruitment_pipeline import (
     STAGE_ORDER,
     VerificationStatus,
 )
+from app.models.recruitment_priority import PriorityChannel
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
@@ -63,6 +64,11 @@ from app.services.pipeline_eligibility import (
 from app.services.rate_normalization import (
     POLICY_VERSION as RATE_POLICY_VERSION,
     normalize_rate_to_monthly,
+)
+from app.services.recruitment_process_commands import (
+    accept_pending_verification,
+    reject_pending_verification,
+    transition_process,
 )
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
@@ -660,14 +666,16 @@ async def move_candidate(
         prefix = f"Powód ({legacy_enum.value}): {data.rejection_reason.strip()}"
         effective_notes = f"{prefix}\n{data.notes}" if data.notes else prefix
 
-    stage = CandidateStage(
+    stage = await transition_process(
+        db,
         candidate_id=data.candidate_id,
         job_id=data.job_id,
         stage=legacy_enum,
         stage_def_id=stage_def.id if stage_def else None,
         rejection_reason_id=data.rejection_reason_id,
         moved_at=datetime.now(timezone.utc),
-        moved_by=current_user.id,
+        actor_user_id=current_user.id,
+        work_channel=PriorityChannel.database,
         notes=effective_notes,
         rating=data.rating,
         verification_status=verification_status,
@@ -680,8 +688,6 @@ async def move_candidate(
         # Phase 17 (migracja 0068) — kandydata reakcja na ofertę po akcepcie.
         candidate_offer_response=data.candidate_offer_response,
     )
-    db.add(stage)
-    await db.flush()
     await create_original_cv_snapshot(db, stage)
 
     if needs_approval:
@@ -1637,46 +1643,11 @@ async def accept_verification(
     Audit: zapisujemy approved_by + approved_at na samym CandidateStage,
     plus Activity log. Notyfikacja do recruitera który wrzucił (`moved_by`).
     """
-    stage = await db.scalar(
-        select(CandidateStage).where(CandidateStage.id == candidate_stage_id)
+    stage = await accept_pending_verification(
+        db,
+        candidate_stage_id=candidate_stage_id,
+        approver_user_id=current_user.id,
     )
-    if not stage:
-        raise HTTPException(status_code=404, detail="CandidateStage not found")
-    if stage.stage != PipelineStage.verified:
-        raise HTTPException(
-            status_code=422,
-            detail="Akceptacja dotyczy wyłącznie stage'a 'verified'",
-        )
-    if stage.verification_status != VerificationStatus.pending:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Status nie jest 'pending' (obecny: {stage.verification_status.value})",
-        )
-
-    # M4 PR-02 (audyt P0.4): decyzja tylko na CURRENT row pary — historyczny
-    # pending nie może być zaakceptowany/odrzucony po tym, jak proces poszedł
-    # dalej inną ścieżką.
-    latest_id = await db.scalar(
-        select(CandidateStage.id)
-        .where(
-            CandidateStage.candidate_id == stage.candidate_id,
-            CandidateStage.job_id == stage.job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
-    if latest_id != stage.id:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Ten rekord nie jest aktualnym stanem procesu — proces został "
-                "już przesunięty dalej. Odśwież listę weryfikacji."
-            ),
-        )
-
-    stage.verification_status = VerificationStatus.active
-    stage.approved_by = current_user.id
-    stage.approved_at = datetime.now(timezone.utc)
 
     db.add(
         Activity(
@@ -1752,96 +1723,13 @@ async def reject_verification(
        obecnym dla pary candidate+job) + notatkę "Rejected verification: …".
     3. Activity log + notification do recruitera (`moved_by`).
     """
-    stage = await db.scalar(
-        select(CandidateStage).where(CandidateStage.id == candidate_stage_id)
+    stage, revert = await reject_pending_verification(
+        db,
+        candidate_stage_id=candidate_stage_id,
+        approver_user_id=current_user.id,
+        note=payload.note,
     )
-    if not stage:
-        raise HTTPException(status_code=404, detail="CandidateStage not found")
-    if stage.stage != PipelineStage.verified:
-        raise HTTPException(
-            status_code=422,
-            detail="Reject dotyczy wyłącznie stage'a 'verified'",
-        )
-    if stage.verification_status != VerificationStatus.pending:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Status nie jest 'pending' (obecny: {stage.verification_status.value})",
-        )
-
-    # M4 PR-02 (audyt P0.4): decyzja tylko na CURRENT row pary — historyczny
-    # pending nie może być zaakceptowany/odrzucony po tym, jak proces poszedł
-    # dalej inną ścieżką.
-    latest_id = await db.scalar(
-        select(CandidateStage.id)
-        .where(
-            CandidateStage.candidate_id == stage.candidate_id,
-            CandidateStage.job_id == stage.job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
-    if latest_id != stage.id:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Ten rekord nie jest aktualnym stanem procesu — proces został "
-                "już przesunięty dalej. Odśwież listę weryfikacji."
-            ),
-        )
-
-    # Mark current as rejected (audit trail)
-    now = datetime.now(timezone.utc)
-    stage.verification_status = VerificationStatus.rejected
-    stage.rejected_by = current_user.id
-    stage.rejected_at = now
-    stage.rejection_note = payload.note
-
-    # Find previous stage for this (candidate, job) pair
-    previous = await db.scalar(
-        select(CandidateStage)
-        .where(
-            and_(
-                CandidateStage.candidate_id == stage.candidate_id,
-                CandidateStage.job_id == stage.job_id,
-                CandidateStage.id != stage.id,
-                CandidateStage.moved_at < stage.moved_at,
-            )
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
-
-    if previous is None:
-        # Nigdy nie było wcześniejszego ruchu — wracamy na 'new'
-        revert_stage = PipelineStage.new
-        revert_stage_def_id: Optional[int] = None
-    else:
-        revert_stage = previous.stage
-        revert_stage_def_id = previous.stage_def_id
-
-    rate_label = (
-        f"{stage.expected_rate_value} "
-        f"{(stage.expected_rate_currency or 'PLN')}/"
-        f"{(stage.expected_rate_unit or 'monthly')}"
-    )
-    budget_label = (
-        f"{stage.budget_max_at_move}" if stage.budget_max_at_move is not None else "?"
-    )
-    revert = CandidateStage(
-        candidate_id=stage.candidate_id,
-        job_id=stage.job_id,
-        stage=revert_stage,
-        stage_def_id=revert_stage_def_id,
-        moved_at=now,
-        moved_by=current_user.id,
-        notes=(
-            f"Rejected verification: {payload.note} "
-            f"(rate {rate_label} > budżet {budget_label})"
-        ),
-        verification_status=VerificationStatus.active,
-    )
-    db.add(revert)
-    await db.flush()
+    revert_stage = revert.stage
     await create_original_cv_snapshot(db, revert)
 
     db.add(
@@ -1943,7 +1831,10 @@ async def bulk_move_candidates(
         )
 
     # M4 PR-02 (audyt P0.7): limit, dedupe i walidacja wejścia.
-    unique_ids = list(dict.fromkeys(data.candidate_ids))
+    # Canonical command service takes a row lock per candidate.  Stable order
+    # prevents two overlapping bulk requests with reversed input order from
+    # deadlocking each other.
+    unique_ids = sorted(dict.fromkeys(data.candidate_ids))
     if len(unique_ids) > 100:
         raise HTTPException(
             status_code=422,
@@ -1986,16 +1877,16 @@ async def bulk_move_candidates(
 
     moved = 0
     for cid in unique_ids:
-        entry = CandidateStage(
+        entry = await transition_process(
+            db,
             candidate_id=cid,
             job_id=data.job_id,
             stage=data.stage,
             moved_at=datetime.now(timezone.utc),
-            moved_by=current_user.id,
+            actor_user_id=current_user.id,
+            work_channel=PriorityChannel.database,
             notes=data.notes,
         )
-        db.add(entry)
-        await db.flush()
         await create_original_cv_snapshot(db, entry)
         moved += 1
 

@@ -15,6 +15,7 @@ import {
  Trash2,
 } from"lucide-react";
 import api from"@/lib/api";
+import { assignErrorMessage } from "@/lib/assign-error";
 import {
  Dialog,
  DialogBody,
@@ -175,10 +176,7 @@ export function GenerateInviteLinkV2({
  qc.invalidateQueries({ queryKey: ["invite-links","mine"] });
  },
  onError: (err: unknown) => {
- const msg =
- (err as { response?: { data?: { detail?: string } } })?.response?.data
- ?.detail ??"Nie udało się wygenerować linku. Spróbuj ponownie.";
- setFormError(msg);
+ setFormError(assignErrorMessage(err));
  },
  });
 

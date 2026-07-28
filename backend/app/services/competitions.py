@@ -18,12 +18,14 @@ snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -55,6 +57,11 @@ POINTS_FORMULA = {
 # Wymóg tygodniowej aktywności dla Wyścigu Rekomendacji.
 MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY = 4
 MONTHLY_RACE_MIN_PRECISION_PCT = 75.0
+
+# Ile pozycji pokazujemy w rankingu wyścigu miesięcznego.
+MONTHLY_RACE_RANKING_SIZE = 10
+
+_WARSAW = ZoneInfo(DEFAULT_TZ)
 
 
 @dataclass
@@ -148,37 +155,51 @@ async def _rank_recruiters_by_stage(
     min_value: int = 0,
     limit: Optional[int] = None,
 ) -> list[RankedUser]:
-    """Ranking userów (sourcer+tac+recruiter) po liczbie przejść na `stage`
-    w przedziale [start, end).
+    """Ranking milestone'ów z tą samą verifier-anchored atrybucją co KPI.
+
+    Surowe ``CandidateStage.moved_by`` było niespójne z panelem KPI i pozwalało
+    osobie klikającej końcowy etap przejąć credit pierwszego verifiera.
     """
-    q = (
-        select(
-            User.id,
-            User.name,
-            User.role,
-            func.count(CandidateStage.id).label("cnt"),
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    limit_sql = "LIMIT :limit" if limit else ""
+    rows = (
+        await db.execute(
+            text(
+                VERIFIER_ANCHORED_CTE
+                + f"""
+                SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
+                FROM credited c
+                JOIN users u ON u.id = c.credit_user
+                WHERE c.stage = :stage
+                  AND c.reached_at >= :start
+                  AND c.reached_at < :end
+                  AND (
+                      u.role::text IN ('sourcer', 'tac', 'recruiter')
+                      OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                  )
+                  AND u.is_active IS TRUE
+                GROUP BY u.id, u.name, u.role
+                HAVING count(*) >= :min_value
+                ORDER BY count(*) DESC, u.name ASC
+                {limit_sql}
+                """
+            ),
+            {
+                "stage": stage.value,
+                "start": start,
+                "end": end,
+                "min_value": min_value,
+                **({"limit": limit} if limit else {}),
+            },
         )
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .where(
-            CandidateStage.stage == stage,
-            CandidateStage.moved_at >= start,
-            CandidateStage.moved_at < end,
-            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
-            User.is_active == True,  # noqa: E712
-        )
-        .group_by(User.id, User.name, User.role)
-        .having(func.count(CandidateStage.id) >= min_value)
-        .order_by(func.count(CandidateStage.id).desc())
-    )
-    if limit:
-        q = q.limit(limit)
-    rows = (await db.execute(q)).all()
+    ).all()
     return [
         RankedUser(
             user_id=r.id,
             name=r.name,
             metric_value=int(r.cnt),
-            extras={"role": r.role.value if hasattr(r.role, "value") else str(r.role)},
+            extras={"role": str(r.role)},
         )
         for r in rows
     ]
@@ -215,7 +236,10 @@ async def _rank_recruiters_by_points(
                 JOIN users u ON u.id = c.credit_user
                 WHERE c.reached_at >= :start
                   AND c.reached_at < :end
-                  AND u.role IN ('sourcer', 'tac', 'recruiter')
+              AND (
+                  u.role::text IN ('sourcer', 'tac', 'recruiter')
+                  OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+              )
                   AND u.is_active IS TRUE
                 GROUP BY u.id, u.name, u.role, c.stage
                 """
@@ -243,8 +267,7 @@ async def _rank_recruiters_by_points(
             bucket["placements"] += cnt
         elif r.stage == "client_interview":
             bucket["client_interviews"] += cnt
-        elif r.stage == "interview":
-            # Nexus stage "interview" = rekomendacja w słowniku InfraReporter.
+        elif r.stage == "cv_sent":
             bucket["recommendations"] += cnt
         elif r.stage == "verified":
             bucket["verifications"] += cnt
@@ -429,16 +452,147 @@ async def monthly_most_recommendations(
 ) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
-    # Mapowanie Nexus: "rekomendacja" = przejście do stage `interview`
-    # (internal OK → kandydat rekomendowany do klienta).
-    return await _rank_recruiters_by_stage(
-        db,
-        stage=PipelineStage.interview,
-        start=start,
-        end=end,
-        min_value=1,
-        limit=10,
+    required_verifications = (
+        MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY
+        * business_days_elapsed_in_month(year, month)
     )
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    # Warunki nagrody liczymy jako kolumnę `qualified`, NIE w HAVING: HAVING
+    # wycinałby niezakwalifikowanych z samego RANKINGU, więc widget „Wyścig
+    # Rekomendacji" świecił pustką póki nikt nie dobił progu. Nagrodę i tak
+    # filtruje `qualified_for_award`.
+    # Podwójny ROW_NUMBER, bo LIMIT dotyczy teraz listy wyświetlanej: bierzemy
+    # TOP N do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą
+    # nie wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się
+    # osobę. Werdykt nagrodowy zostaje taki sam jak przed zmianą.
+    rows = (
+        await db.execute(
+            text(
+                VERIFIER_ANCHORED_CTE
+                + """
+                , race_totals AS (
+                    SELECT u.id, u.name, u.role::text AS role,
+                           count(*) FILTER (
+                               WHERE c.stage = 'verified'
+                           ) AS verifications,
+                           count(*) FILTER (
+                               WHERE c.stage = 'cv_sent'
+                           ) AS recommendations,
+                           (
+                               count(*) FILTER (WHERE c.stage = 'verified')
+                                   >= :required_verifications
+                               AND 100.0 * count(*) FILTER (WHERE c.stage = 'cv_sent')
+                                   >= CAST(:min_precision_pct AS NUMERIC)
+                                      * count(*) FILTER (WHERE c.stage = 'verified')
+                           ) AS qualified
+                    FROM credited c
+                    JOIN users u ON u.id = c.credit_user
+                    WHERE c.reached_at >= :start
+                      AND c.reached_at < :end
+                      AND c.stage IN ('verified', 'cv_sent')
+                      AND (
+                          u.role::text IN ('sourcer', 'tac', 'recruiter')
+                          OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                      )
+                      AND u.is_active IS TRUE
+                    GROUP BY u.id, u.name, u.role
+                    HAVING count(*) FILTER (WHERE c.stage = 'cv_sent') >= 1
+                ),
+                race_ranked AS (
+                    SELECT t.*,
+                           ROW_NUMBER() OVER (
+                               ORDER BY t.recommendations DESC, t.name ASC
+                           ) AS display_rank,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY t.qualified
+                               ORDER BY t.recommendations DESC, t.name ASC
+                           ) AS rank_in_group
+                    FROM race_totals t
+                )
+                SELECT id, name, role, verifications, recommendations, qualified
+                FROM race_ranked
+                WHERE display_rank <= :ranking_size
+                   OR (qualified AND rank_in_group <= :ranking_size)
+                ORDER BY recommendations DESC, name ASC
+                """
+            ),
+            {
+                "start": start,
+                "end": end,
+                "required_verifications": required_verifications,
+                "min_precision_pct": MONTHLY_RACE_MIN_PRECISION_PCT,
+                "ranking_size": MONTHLY_RACE_RANKING_SIZE,
+            },
+        )
+    ).all()
+
+    ranked: list[RankedUser] = []
+    for row in rows:
+        verified = int(row.verifications)
+        recommendations = int(row.recommendations)
+        precision_pct = (
+            round(100.0 * recommendations / verified, 1) if verified else 0.0
+        )
+        # Powody liczone bez zaokrąglenia, żeby nie rozjechały się z kolumną
+        # `qualified` (round(74.999, 1) == 75.0, a SQL widzi 74.999 < 75).
+        reasons: list[str] = []
+        if verified < required_verifications:
+            reasons.append("MIN_VERIFICATIONS_NOT_MET")
+        if 100.0 * recommendations < MONTHLY_RACE_MIN_PRECISION_PCT * verified:
+            reasons.append("MIN_PRECISION_NOT_MET")
+        ranked.append(
+            RankedUser(
+                user_id=row.id,
+                name=row.name,
+                metric_value=recommendations,
+                extras={
+                    "role": str(row.role),
+                    "verifications": verified,
+                    "recommendations": recommendations,
+                    "precision_pct": precision_pct,
+                    "required_verifications": required_verifications,
+                    "qualified": bool(row.qualified) and not reasons,
+                    "disqualification_reasons": reasons,
+                },
+            )
+        )
+    return ranked
+
+
+def business_days_elapsed_in_month(
+    year: int, month: int, today: Optional[date] = None
+) -> int:
+    """Dni robocze, które upłynęły w wybranym miesiącu.
+
+    „Dzień roboczy" to ta sama definicja co w reszcie systemu — Pon–Pt **minus**
+    polskie święta ustawowe (`app.core.scheduling.is_business_day`). Bez tego
+    próg „4 weryfikacje / dzień roboczy" liczyłby np. styczeń jako 22 dni zamiast
+    20 i wykluczał z nagrody osobę, która trafiła w target każdego realnego dnia.
+    """
+    today = today or date.today()
+    _, end_dt = month_bounds(year, month)
+    month_last = (end_dt - timedelta(days=1)).date()
+    if (year, month) == (today.year, today.month):
+        last = min(today, month_last)
+    elif (year, month) < (today.year, today.month):
+        last = month_last
+    else:
+        return 0
+    cursor = date(year, month, 1)
+    count = 0
+    while cursor <= last:
+        # Południe lokalne: `is_business_day` czyta datę kalendarzową po
+        # konwersji do strefy, więc punkt w środku doby jest odporny na DST.
+        if is_business_day(datetime.combine(cursor, time(12), tzinfo=_WARSAW)):
+            count += 1
+        cursor += timedelta(days=1)
+    return count
+
+
+def qualified_for_award(ranked: list[RankedUser]) -> list[RankedUser]:
+    """Return entries eligible for an award while preserving displayed ranking."""
+    return [r for r in ranked if r.extras.get("qualified", True)]
 
 
 async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedUser]:
@@ -455,19 +609,31 @@ async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedU
 
 
 async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
-    # All-time top placerów (bez filtru daty).
-    q = (
-        select(User.id, User.name, func.count(CandidateStage.id).label("cnt"))
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .where(
-            CandidateStage.stage == PipelineStage.hired,
-            User.is_active == True,  # noqa: E712
+    """All-time placements with the canonical first-verifier attribution."""
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    rows = (
+        await db.execute(
+            text(
+                VERIFIER_ANCHORED_CTE
+                + """
+                SELECT u.id, u.name, count(*) AS cnt
+                FROM credited c
+                JOIN users u ON u.id = c.credit_user
+                WHERE c.stage = 'hired'
+                  AND (
+                      u.role::text IN ('sourcer', 'tac', 'recruiter')
+                      OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                  )
+                  AND u.is_active IS TRUE
+                GROUP BY u.id, u.name
+                ORDER BY count(*) DESC, u.name ASC
+                LIMIT :limit
+                """
+            ),
+            {"limit": limit},
         )
-        .group_by(User.id, User.name)
-        .order_by(func.count(CandidateStage.id).desc())
-        .limit(limit)
-    )
-    rows = (await db.execute(q)).all()
+    ).all()
     return [
         RankedUser(user_id=r.id, name=r.name, metric_value=int(r.cnt)) for r in rows
     ]
@@ -514,27 +680,34 @@ async def freeze_competition(
     type_: CompetitionType,
     period: str,
 ) -> list[CompetitionWinner]:
-    """Oblicza i zapisuje TOP 3 do `competition_winners`. Idempotentne —
-    kasuje istniejące rekordy dla (type, period) i pisze od nowa."""
-    ranked = await compute_live(db, type_, period)
-    top3 = ranked[:3]
-    full_snapshot = [r.to_dict() for r in ranked[:10]]
-
-    # Delete existing.
+    """Write a podium once; a frozen historical period is immutable."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:freeze_key))"),
+        {"freeze_key": f"competition:{type_.value}:{period}"},
+    )
     existing = (
         (
             await db.execute(
-                select(CompetitionWinner).where(
+                select(CompetitionWinner)
+                .where(
                     CompetitionWinner.competition_type == type_.value,
                     CompetitionWinner.period == period,
                 )
+                .order_by(CompetitionWinner.rank)
             )
         )
         .scalars()
         .all()
     )
-    for e in existing:
-        await db.delete(e)
+    if existing:
+        await db.commit()
+        return list(existing)
+
+    ranked = await compute_live(db, type_, period)
+    if type_ == CompetitionType.monthly_recommendations:
+        ranked = qualified_for_award(ranked)
+    top3 = ranked[:3]
+    full_snapshot = [r.to_dict() for r in ranked[:10]]
 
     created: list[CompetitionWinner] = []
     for idx, r in enumerate(top3, start=1):

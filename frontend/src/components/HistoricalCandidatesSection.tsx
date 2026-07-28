@@ -27,6 +27,7 @@ import {
 } from "@/lib/api";
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
 import { useToast } from "@/components/Toast";
+import { assignErrorMessage } from "@/lib/assign-error";
 
 interface Props {
   jobId: number;
@@ -181,7 +182,7 @@ function CandidateRow({
       }
       if (ok) onAdded(candidate.candidate_id);
     },
-    onError: () => showError("Nie udało się dodać kandydata do pipeline"),
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
   });
 
   const inPipeline = isAdded;
@@ -389,7 +390,7 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
         );
       }
     },
-    onError: () => showError("Nie udało się dodać kandydatów do pipeline"),
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
   });
 
   // Quietly hide the section when nothing useful is available — we never want

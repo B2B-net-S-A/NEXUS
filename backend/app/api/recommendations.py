@@ -35,6 +35,7 @@ from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_priority import PriorityChannel
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
@@ -43,6 +44,7 @@ from app.services.candidate_job_eligibility import (
     extract_excluded_client_ids,
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
+from app.services.recruitment_process_commands import open_process
 from app.models.match_score import CandidateJobMatchScore
 from app.services.embedding_service import (
     _build_job_text,
@@ -1079,16 +1081,16 @@ async def assign_candidate_to_job(
         except ValueError:
             legacy_enum = PipelineStage.new
 
-    stage = CandidateStage(
+    stage = await open_process(
+        db,
         candidate_id=candidate_id,
         job_id=job_id,
         stage=legacy_enum,
         stage_def_id=first_stage.id if first_stage else None,
         moved_at=datetime.now(timezone.utc),
-        moved_by=current_user.id,
+        actor_user_id=current_user.id,
+        work_channel=PriorityChannel.database,
     )
-    db.add(stage)
-    await db.flush()
     await create_original_cv_snapshot(db, stage)
     await db.commit()
     await db.refresh(stage)
