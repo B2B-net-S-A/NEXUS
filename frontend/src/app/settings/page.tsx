@@ -34,11 +34,11 @@ import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
-import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
+import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
 
 // Lazy-load heavy tabs — content loaded only when tab activated.
 // AdminUsersTab pulls ~30kB+ chunk (user mgmt + modals + import).
@@ -425,7 +425,6 @@ export default function SettingsPage() {
         <div className="space-y-4">
           <Microsoft365Card />
           <FirefliesCard />
-          <CloudTalkSettingsCard />
           <TeamsNotificationsCard />
           <TraffitSyncCard />
 
@@ -585,7 +584,7 @@ function OnboardingSettings() {
   const [shown, setShown] = useState(false);
 
   const handleReset = () => {
-    localStorage.removeItem("onboarding_completed");
+    clearOnboardingCompleted();
     setShown(true);
     setTimeout(() => {
       window.location.reload();

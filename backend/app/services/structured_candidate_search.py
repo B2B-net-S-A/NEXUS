@@ -48,22 +48,67 @@ def _escape_like(value: str) -> str:
 
 
 def _skills_text() -> ColumnElement:
-    """Concatenate JSONB ``skills`` + ``tags`` text for substring lookup.
+    """Zrzut JSONB ``skills`` + ``verified_tech`` + ``tags`` jako tekst.
 
-    Skills are stored as either a list of strings or a list of dicts
-    (``{name, level, years}``). Casting to ``text`` returns the raw JSON dump,
-    which is good enough for ILIKE substring matching across both shapes.
+    Umiejętności bywają listą stringów albo listą słowników
+    (``{name, level, years}``); rzutowanie na ``text`` daje surowy JSON, który
+    pokrywa oba kształty.
+
+    ``verified_tech`` dołączone dla parzystości z listą kandydatów
+    (``candidates.py::_build_candidate_filtered_query``), która zawsze
+    przeszukiwała trzy kolumny. Dopóki te dwie powierzchnie brały różne zbiory
+    kolumn, ten sam filtr dawał różne wyniki zależnie od tego, który ekran go
+    wysłał — i nikt tego nie widział, bo obie odpowiadały 200.
     """
     return (
         func.coalesce(cast(Candidate.skills, String), "")
+        + " "
+        + func.coalesce(cast(Candidate.verified_tech, String), "")
         + " "
         + func.coalesce(cast(Candidate.tags, String), "")
     )
 
 
 def _skill_match(skill: str) -> ColumnElement:
-    pattern = f"%{_escape_like(skill)}%"
-    return _skills_text().ilike(pattern, escape="\\")
+    """Dopasuj umiejętność jako CAŁY token JSON, w obu spotykanych kodowaniach.
+
+    Zrzut ``_skills_text()`` to JSON, więc każda wartość stoi w cudzysłowach —
+    ``["Python", "Go"]`` i ``[{"name": "Go"}]`` tak samo zawierają ``"Go"``.
+    Wymaganie tych cudzysłowów zamienia nieprecyzyjny test podłańcuchowy na test
+    całego tokenu.
+
+    DLACZEGO TO WAŻNE: ``skills_none`` jest filtrem TWARDYM. Przy gołym ``%Go%``
+    zapytanie „nie ma Go" wycinało z wyników **196 osób, z których tylko 15 zna
+    Go** — resztę stanowili deweloperzy Django, MongoDB i Golang. Rekruter nie
+    miał jak tego zauważyć: brakujący kandydat wygląda identycznie jak kandydat,
+    którego nie ma w bazie.
+
+    DWA KODOWANIA, nie jedno. Część wierszy trzyma JSON **podwójnie zakodowany**
+    — wartość jest stringiem JSON wewnątrz JSONB, więc w zrzucie granicą tokenu
+    jest ``\\"`` zamiast ``"``. Zmierzone na produkcji 28.07: token ``"Go"``
+    trafia w 5 kandydatów, token ``\\"Go\\"`` w kolejnych 10 — łącznie 15.
+    Wzorzec sprawdzający tylko pierwszy kształt gubił dwie trzecie prawdziwych
+    trafień. Wierszy z podwójnym kodowaniem jest w bazie 303.
+
+    ``strpos`` zamiast ``ILIKE`` **świadomie**: LIKE traktuje ``\\`` jako znak
+    ucieczki, więc wzorzec na podwójne kodowanie wymagałby podwajania ukośników
+    i degenerował się po cichu do wariantu bez nich (ta sama pułapka przewróciła
+    pomiar przy pisaniu tej poprawki). ``strpos`` szuka dosłownego podłańcucha —
+    bez znaków ucieczki, bez wieloznaczników, więc nazwa umiejętności zawierająca
+    ``%`` lub ``_`` też przestaje być wzorcem.
+
+    Ograniczenie świadome: w kształcie słownikowym zrzut zawiera też klucze
+    ``"name"``, ``"level"``, ``"years"`` — chip nazwany dokładnie jak klucz trafi
+    sam w siebie. Nieszkodliwe i wciąż ściśle lepsze od stanu poprzedniego;
+    właściwym rozwiązaniem jest złączenie z ``cortex_skill_facts``, które wymaga
+    pokrycia Cortexa powyżej ~60% (zmierzone 56,8% na 2026-07-27).
+    """
+    blob = func.lower(_skills_text())
+    igla = skill.lower()
+    return or_(
+        func.strpos(blob, f'"{igla}"') > 0,
+        func.strpos(blob, f'\\"{igla}\\"') > 0,
+    )
 
 
 def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:

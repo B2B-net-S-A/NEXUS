@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidateSearchAccess
 from app.api.deps import RecruiterPlus, get_db
+from app.core.config import settings
 from app.services.marketplace_service import (
     add_candidate_to_marketplace,
     ensure_marketplace_pool,
@@ -113,6 +114,11 @@ class MarketplacePoolOut(BaseModel):
     candidate_count: int
     is_marketplace: bool
     created_at: datetime
+    # Próg alertowania, wystawiony NA ZEWNĄTRZ zamiast powtarzany w UI.
+    # Frontend miał go zahardkodowanego w dwóch miejscach jako 70, gdy backend
+    # od dawna używał 80 — rekruter czytał obietnicę, której system nie
+    # dotrzymywał, i nie miał jak tego zauważyć.
+    score_threshold: int
 
 
 # ── Routes ───────────────────────────────────────────────────────────────
@@ -142,6 +148,7 @@ async def get_marketplace_pool(
         candidate_count=count.scalar_one() or 0,
         is_marketplace=pool.is_marketplace,
         created_at=pool.created_at,
+        score_threshold=int(settings.MARKETPLACE_SCORE_THRESHOLD),
     )
 
 
