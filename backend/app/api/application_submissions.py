@@ -37,6 +37,7 @@ from app.api.recruitment_access import (
     job_scope_clause,
 )
 from app.core.database import get_db
+from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.models.activity import Activity
 from app.models.application_submission import (
     ApplicationSubmission,
@@ -332,15 +333,22 @@ async def resolve_application_submission(
             is_primary=True,
         )
         if submission.job_id is not None:
-            db.add(
-                CandidateStage(
-                    candidate_id=candidate.id,
-                    job_id=submission.job_id,
-                    stage=PipelineStage.new,
-                    moved_by=current_user.id,
-                    notes="Utworzono z aplikacji (application submission)",
-                )
+            stage = CandidateStage(
+                candidate_id=candidate.id,
+                job_id=submission.job_id,
+                stage=PipelineStage.new,
+                moved_by=current_user.id,
+                notes="Utworzono z aplikacji (application submission)",
             )
+            db.add(stage)
+            await db.flush()
+            # Snapshot CV w chwili wejścia do rekrutacji. Siedem innych ścieżek
+            # tworzących `CandidateStage` woła to od zawsze (patrz
+            # `candidate_stage_cv_service`); ta jedna nie wołała, więc kandydat
+            # przyjęty ze zgłoszenia wchodził do pipeline'u bez snapshotu — a
+            # snapshot jest tym, co pokazuje, z jakim CV go zgłoszono, gdy
+            # kandydat później podmieni plik w profilu.
+            await create_original_cv_snapshot(db, stage)
         submission.status = ApplicationSubmissionStatus.created.value
         resolved_candidate_id = candidate.id
 

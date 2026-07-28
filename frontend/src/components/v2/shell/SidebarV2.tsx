@@ -17,6 +17,7 @@ import {
   Handshake,
   Heart,
   HelpCircle,
+  Inbox,
   Lightbulb,
   Settings,
   Sparkles,
@@ -39,6 +40,7 @@ type BadgeCounts = {
   candidates?: number;
   jobs?: number;
   pendingVerifications?: number;
+  applicationSubmissions?: number;
 };
 
 type NavItem = {
@@ -93,6 +95,13 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/sourcing/marketplace",
         label: "Targ / Dostępni",
         icon: Store,
+        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+      },
+      {
+        href: "/applications",
+        label: "Zgłoszenia",
+        icon: Inbox,
+        badgeKey: "applicationSubmissions",
         roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
       },
     ],
@@ -388,13 +397,31 @@ export function SidebarV2({
         api.get("/api/candidates", { params: { page_size: 1, created_after: todayIso } }),
         api.get("/api/jobs", { params: { page_size: 1, status: "published" } }),
       ];
+      // Indeksy nazwane zamiast pozycyjnych: `settled[isApproverForBadge ? 3 : 2]`
+      // wymagało ręcznego śledzenia, gdzie w tablicy wylądowało dane zapytanie,
+      // więc dołożenie czwartego licznika cicho przesunęłoby odczyt o jeden.
+      const slots: string[] = ["candidates", "jobs"];
       if (isApproverForBadge) {
         promises.push(api.get("/api/pipeline/pending-verifications"));
+        slots.push("pendingVerifications");
       }
+      // Zgłoszenia z publicznych aplikacji czekające na decyzję. Bez licznika
+      // ekran kolejki istnieje, ale nikt na niego nie wchodzi — a zgłoszenie,
+      // którego nikt nie widzi, jest tym samym co zgłoszenie utracone.
+      promises.push(
+        api.get("/api/application-submissions", {
+          params: { status: "pending_review", limit: 200 },
+        }),
+      );
+      slots.push("applicationSubmissions");
       const settled = await Promise.allSettled(promises);
-      const candidatesRes = settled[0];
-      const jobsRes = settled[1];
-      const pendingRes = isApproverForBadge ? settled[2] : null;
+      const bySlot = Object.fromEntries(
+        slots.map((name, i) => [name, settled[i]]),
+      ) as Record<string, (typeof settled)[number] | undefined>;
+      const candidatesRes = bySlot.candidates!;
+      const jobsRes = bySlot.jobs!;
+      const pendingRes = bySlot.pendingVerifications ?? null;
+      const submissionsRes = bySlot.applicationSubmissions;
 
       const pendingCount =
         pendingRes && pendingRes.status === "fulfilled"
@@ -413,6 +440,10 @@ export function SidebarV2({
             ? ((jobsRes.value as { data?: { total?: number } }).data?.total ?? 0)
             : 0,
         pendingVerifications: pendingCount,
+        applicationSubmissions:
+          submissionsRes && submissionsRes.status === "fulfilled"
+            ? (((submissionsRes.value as { data?: unknown[] }).data ?? []).length)
+            : 0,
       } as BadgeCounts;
     },
     staleTime: 60_000,

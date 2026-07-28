@@ -4616,6 +4616,54 @@ export const traffitSyncApi = {
       .then((r) => r.data),
 };
 
+// ── Zgłoszenia z publicznych aplikacji czekające na decyzję ────────────────
+
+export interface ApplicationSubmission {
+  id: number;
+  status: string;
+  submitted_first_name: string;
+  submitted_last_name: string;
+  submitted_email: string;
+  submitted_phone: string | null;
+  submitted_linkedin: string | null;
+  submitted_message: string | null;
+  matched_candidate_id: number | null;
+  job_id: number | null;
+  cv_filename: string | null;
+  created_at: string | null;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+}
+
+export type ApplicationResolveAction = "link" | "merge" | "create" | "reject";
+
+export interface ApplicationResolveResult {
+  id: number;
+  status: string;
+  candidate_id: number | null;
+}
+
+/** Backend twardo ogranicza `limit` do 500 (`Query(le=500)`). Bierzemy sufit,
+ *  a UI mówi wprost, gdy lista dobiła do limitu — cicha truncacja w kolejce,
+ *  której celem jest „nic nie ginie", byłaby sprzeczna sama ze sobą. */
+export const APPLICATION_SUBMISSIONS_PAGE_LIMIT = 500;
+
+export const applicationSubmissionsApi = {
+  list: (status = "pending_review") =>
+    api
+      .get<ApplicationSubmission[]>("/api/application-submissions", {
+        params: { status, limit: APPLICATION_SUBMISSIONS_PAGE_LIMIT },
+      })
+      .then((r) => r.data),
+  resolve: (id: number, action: ApplicationResolveAction) =>
+    api
+      .post<ApplicationResolveResult>(
+        `/api/application-submissions/${id}/resolve`,
+        { action },
+      )
+      .then((r) => r.data),
+};
+
 export const teamsChannelsApi = {
   list: () => api.get<TeamsChannel[]>("/api/teams-channels").then((r) => r.data),
   create: (data: TeamsChannelCreateInput) =>
