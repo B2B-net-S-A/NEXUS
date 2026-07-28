@@ -635,6 +635,7 @@ async def test_late_intake_overlap_and_daily_ingress_share_one_case(
             candidate = Candidate(
                 name="Runtime",
                 lastname="Overlap",
+                phone="+48 500 600 700",
                 status=CandidateStatus.active,
                 external_source="traffit",
                 external_id=candidate_external_id,
@@ -690,6 +691,8 @@ async def test_late_intake_overlap_and_daily_ingress_share_one_case(
                 )
             )
             assert contact_case is not None
+            assert contact_case.state == "unassigned"
+            assert contact_case.queue_slot is None
             # 10:00 Warsaw source event => due at 18:00 Warsaw on that
             # business day, even though the poll only catches it after EOD.
             assert contact_case.due_at == BASE_TIME.replace(hour=16)

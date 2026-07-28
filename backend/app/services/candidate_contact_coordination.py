@@ -1134,6 +1134,11 @@ async def ensure_contact_opportunity(
         case.state != CandidateContactState.suppressed.value
         and existing_handoff is not None
     ):
+        # AsyncSessionLocal uses autoflush=False. Persist the handoff adopted
+        # above before the aggregate SQL decides whether every opportunity is
+        # complete; otherwise the database still sees a NULL outcome/meeting
+        # and can incorrectly reopen the case into the phone queue.
+        await db.flush()
         incomplete_count = await db.scalar(
             select(func.count(CandidateContactOpportunity.id)).where(
                 CandidateContactOpportunity.case_id == case.id,

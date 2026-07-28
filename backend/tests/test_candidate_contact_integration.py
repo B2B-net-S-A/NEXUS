@@ -2387,19 +2387,6 @@ async def test_connected_releases_slot_but_keeps_handoff_owner_and_calendar_cycl
     owner = await contact_db.add_user(UserRole.recruiter, label="handoff-owner")
     candidate = await contact_db.add_candidate(label="handoff")
     job = await contact_db.add_job(label="handoff", recruiter=owner)
-    event = await contact_db.add_calendar_event(
-        candidate=candidate,
-        job=job,
-        creator=owner,
-        label="cycle",
-    )
-    completed_replacement = await contact_db.add_calendar_event(
-        candidate=candidate,
-        job=job,
-        creator=owner,
-        label="completed-replacement",
-    )
-    completed_replacement.status = EventStatus.completed
     case = await ensure_contact_opportunity(
         contact_db.db,
         candidate_id=candidate.id,
@@ -2427,6 +2414,21 @@ async def test_connected_releases_slot_but_keeps_handoff_owner_and_calendar_cycl
     assert result.case.state == CandidateContactState.handoff_pending.value
     assert result.case.owner_user_id == owner.id
     assert result.case.queue_slot is None
+
+    event = await contact_db.add_calendar_event(
+        candidate=candidate,
+        job=job,
+        creator=owner,
+        label="cycle",
+    )
+    completed_replacement = await contact_db.add_calendar_event(
+        candidate=candidate,
+        job=job,
+        creator=owner,
+        label="completed-replacement",
+    )
+    completed_replacement.status = EventStatus.completed
+    await contact_db.commit()
 
     async with AsyncSessionLocal() as calendar_db:
         scheduled = await sync_calendar_handoff(
