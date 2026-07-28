@@ -4,9 +4,10 @@ Liczy lejek rekrutacyjny dla usera wg modelu atrybucji **verifier-anchored**
 (decyzja Artura): zasługę za WSZYSTKIE kamienie milowe pary
 (kandydat × rekrutacja) — rekomendacja, interview, akceptacja, placement —
 dostaje osoba, która przeniosła kandydata na etap `verified` (Zweryfikowany),
-niezależnie kto klikał późniejsze etapy. Gdy para nigdy nie przeszła przez
-`verified` (przeciągnięta na skróty), dany kamień milowy liczy się temu, kto
-wykonał ten konkretny ruch (fallback — ~10% cv_sent, ~29% hired na prod).
+niezależnie kto klikał późniejsze etapy. Dla historycznych par bez jawnej
+decyzji Priority Work pozostaje dotychczasowy fallback do autora milestone'u.
+Nowy proces bez zaakceptowanego `verified` nie dostaje kredytu za późniejszy
+milestone i nie może odblokować go wstecz.
 
 Źródło prawdy: `candidate_stages` (żywa tabela) — NIE martwy log
 `user_activities`, na którym opierał się stary KPI Coach.
@@ -82,29 +83,153 @@ PANEL_KPI_DEFAULTS: dict[str, dict[UserRole, int]] = {
 # jest kanoniczny view ``analytics_first_milestones`` (migracja 0174/0175) —
 # pierwsze osiągnięcie stage'a per (kandydat, job). Zniknął lookback 400 dni
 # (plan §3.2: arbitralny cutoff potrafił zgubić właściwego weryfikatora).
-# Dla każdej pary (kandydat, job):
-#   1) `mf`       — pierwszy ruch na każdy istotny etap (kto + kiedy) = view.
-#   2) `anchor`   — weryfikator = first_moved_by etapu `verified`.
-#   3) `credited` — credit_user = COALESCE(weryfikator, mover tego kamienia)
-#      (plan §4.2: atrybucja = osoba pierwszej weryfikacji; bez weryfikacji
-#      wykonawca milestone'u).
+# Dla każdej próby procesu (kandydat, job, attempt):
+#   1) `process_windows` — nieprzecinające się okna prób; także voided attempt
+#      wyznacza granicę, żeby jego eventy nie przeciekły do kolejnej próby.
+#   2) `classified_mf` — pierwszy zaakceptowany milestone w każdym natywnym
+#      attempt. Pending/rejected `verified` nie jest kamieniem milowym KPI,
+#      a akceptacja pending liczy się od `approved_at`, nie od pierwotnego ruchu.
+#   3) `classified_credited` — tylko zamrożone `kpi_eligible=true` i
+#      `credit_user_id`; handoff ownera nigdy nie zmienia creditu.
+#   4) `legacy_mf` / `legacy_credited` — dotychczasowy fallback wyłącznie dla
+#      historii sprzed pierwszego sklasyfikowanego procesu. Dzięki temu nowy
+#      attempt nie może odziedziczyć milestone'ów ani verifiera z poprzedniego.
 # Konsument dokleja własny SELECT … FROM credited.
 VERIFIER_ANCHORED_CTE = """
-    WITH mf AS (
-        SELECT candidate_id, job_id, stage::text AS stage,
-               first_moved_by AS first_mover, first_reached_at AS reached_at
-        FROM analytics_first_milestones
+    WITH process_windows AS (
+        SELECT rp.*,
+               LEAD(rp.opened_at) OVER (
+                   PARTITION BY rp.candidate_id, rp.job_id
+                   ORDER BY rp.attempt_no, rp.id
+               ) AS next_opened_at
+        FROM recruitment_processes rp
+        WHERE rp.opened_at IS NOT NULL
     ),
-    anchor AS (
-        SELECT candidate_id, job_id, first_mover AS verifier
-        FROM mf
-        WHERE stage = 'verified'
+    first_classified AS (
+        SELECT candidate_id, job_id, MIN(opened_at) AS first_opened_at
+        FROM process_windows
+        WHERE origin_kind IS NOT NULL
+          AND origin_kind::text <> 'legacy'
+        GROUP BY candidate_id, job_id
+    ),
+    classified_process AS (
+        SELECT *
+        FROM process_windows
+        WHERE status::text <> 'voided'
+          AND origin_kind IS NOT NULL
+          AND origin_kind::text <> 'legacy'
+    ),
+    classified_stage_ranked AS (
+        SELECT cp.id AS process_id,
+               cs.candidate_id,
+               cs.job_id,
+               cs.stage::text AS stage,
+               cs.moved_by AS first_mover,
+               CASE
+                   WHEN cs.stage::text = 'verified'
+                       THEN COALESCE(cs.approved_at, cs.moved_at)
+                   ELSE cs.moved_at
+               END AS reached_at,
+               ROW_NUMBER() OVER (
+                   PARTITION BY cp.id, cs.stage
+                   ORDER BY
+                       CASE
+                           WHEN cs.stage::text = 'verified'
+                               THEN COALESCE(cs.approved_at, cs.moved_at)
+                           ELSE cs.moved_at
+                       END,
+                       cs.id
+               ) AS rn
+        FROM classified_process cp
+        JOIN candidate_stages cs
+          ON cs.candidate_id = cp.candidate_id
+         AND cs.job_id = cp.job_id
+         AND cs.moved_at >= cp.opened_at
+         AND (cp.next_opened_at IS NULL OR cs.moved_at < cp.next_opened_at)
+        WHERE cs.stage::text IN (
+                  'verified', 'cv_sent', 'interview',
+                  'client_interview', 'acceptance', 'hired'
+              )
+          AND (
+              cs.stage::text <> 'verified'
+              OR cs.verification_status::text = 'active'
+          )
+    ),
+    classified_mf AS (
+        SELECT process_id, candidate_id, job_id, stage, first_mover, reached_at
+        FROM classified_stage_ranked
+        WHERE rn = 1
+    ),
+    classified_credited AS (
+        SELECT mf.stage,
+               mf.reached_at,
+               mf.candidate_id,
+               mf.job_id,
+               cp.credit_user_id AS credit_user
+        FROM classified_mf mf
+        JOIN classified_process cp ON cp.id = mf.process_id
+        JOIN classified_mf verified
+          ON verified.process_id = mf.process_id
+         AND verified.stage = 'verified'
+        WHERE cp.kpi_eligible IS TRUE
+          AND cp.credit_user_id IS NOT NULL
+          AND mf.reached_at >= verified.reached_at
+    ),
+    legacy_mf AS (
+        SELECT afm.candidate_id, afm.job_id, afm.stage::text AS stage,
+               afm.first_moved_by AS first_mover,
+               afm.first_reached_at AS reached_at
+        FROM analytics_first_milestones afm
+        LEFT JOIN candidate_stages milestone_stage
+          ON milestone_stage.id = afm.candidate_stage_id
+        LEFT JOIN first_classified fc
+          ON fc.candidate_id = afm.candidate_id
+         AND fc.job_id = afm.job_id
+        WHERE (
+                  afm.stage::text <> 'verified'
+                  OR milestone_stage.verification_status::text = 'active'
+              )
+          AND (
+              fc.first_opened_at IS NULL
+              OR afm.first_reached_at < fc.first_opened_at
+          )
+    ),
+    legacy_process AS (
+        SELECT DISTINCT ON (candidate_id, job_id)
+               candidate_id, job_id, kpi_eligible
+        FROM recruitment_processes
+        WHERE origin_kind IS NULL OR origin_kind::text = 'legacy'
+        ORDER BY candidate_id, job_id, attempt_no DESC, id DESC
+    ),
+    legacy_anchor AS (
+        SELECT pairs.candidate_id, pairs.job_id,
+               verified.first_mover AS verifier,
+               verified.reached_at AS verified_at,
+               lp.kpi_eligible
+        FROM (
+            SELECT DISTINCT candidate_id, job_id
+            FROM legacy_mf
+        ) pairs
+        LEFT JOIN legacy_process lp USING (candidate_id, job_id)
+        LEFT JOIN legacy_mf verified
+          ON verified.candidate_id = pairs.candidate_id
+         AND verified.job_id = pairs.job_id
+         AND verified.stage = 'verified'
+    ),
+    legacy_credited AS (
+        SELECT mf.stage,
+               mf.reached_at,
+               mf.candidate_id,
+               mf.job_id,
+               COALESCE(a.verifier, mf.first_mover) AS credit_user
+        FROM legacy_mf mf
+        LEFT JOIN legacy_anchor a USING (candidate_id, job_id)
+        WHERE a.kpi_eligible IS DISTINCT FROM FALSE
     ),
     credited AS (
-        SELECT mf.stage, mf.reached_at, mf.candidate_id, mf.job_id,
-               COALESCE(a.verifier, mf.first_mover) AS credit_user
-        FROM mf
-        LEFT JOIN anchor a USING (candidate_id, job_id)
+        SELECT * FROM classified_credited
+        UNION ALL
+        SELECT * FROM legacy_credited
     )
 """
 

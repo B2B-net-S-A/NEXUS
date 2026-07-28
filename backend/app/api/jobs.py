@@ -21,6 +21,16 @@ from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_priority import (
+    PriorityChannel,
+    PriorityMemberStatus,
+    PriorityOriginKind,
+    PriorityPlanStatus,
+    RecruitmentPriorityAssignment,
+    RecruitmentPriorityPlan,
+    RecruitmentPriorityPlanMember,
+)
+from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
 from app.schemas.champion import (
     ChampionBriefingRequest,
@@ -61,6 +71,7 @@ from app.services.marketplace_service import (
     run_marketplace_scan_safe,
 )
 from app.services.similar_job_notify import run_similar_job_notify_safe
+from app.services.recruitment_process_commands import open_process
 from app.tasks.compute_proposals import (
     compute_proposal_for_job,
     create_pending_snapshot,
@@ -226,6 +237,14 @@ class JobSort(str, enum.Enum):
     deadline = "deadline"  # deadline ASC, NULLs last — soonest due first
 
 
+class PriorityWorkJobFilter(str, enum.Enum):
+    """Priority Work context independent from legacy ownership/collaboration."""
+
+    assigned = "assigned"
+    carry_over = "carry_over"
+    either = "either"
+
+
 @router.get("")
 async def list_jobs(
     current_user: CurrentUser,
@@ -321,6 +340,14 @@ async def list_jobs(
             "Limit to jobs where current user is primary owner or collaborator."
         ),
     ),
+    priority_work: Optional[PriorityWorkJobFilter] = Query(
+        None,
+        description=(
+            "Filter by the current user's published Priority Work assignment, "
+            "open carry-over ownership, or either. Independent from `mine`, "
+            "job owner and collaborators."
+        ),
+    ),
     delivery_lead_id: Optional[int] = Query(
         None,
         description=(
@@ -339,6 +366,29 @@ async def list_jobs(
     from app.models.recruitment_pipeline import CandidateStage
 
     query = select(Job)
+    priority_now = datetime.now(timezone.utc)
+    priority_assignment_job_ids = (
+        select(RecruitmentPriorityAssignment.job_id)
+        .join(
+            RecruitmentPriorityPlanMember,
+            RecruitmentPriorityPlanMember.id
+            == RecruitmentPriorityAssignment.plan_member_id,
+        )
+        .join(
+            RecruitmentPriorityPlan,
+            RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+        )
+        .where(
+            RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+            RecruitmentPriorityPlan.effective_from <= priority_now,
+            RecruitmentPriorityPlanMember.user_id == current_user.id,
+            RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
+        )
+    )
+    priority_carry_job_ids = select(RecruitmentProcess.job_id).where(
+        RecruitmentProcess.owner_user_id == current_user.id,
+        RecruitmentProcess.status == ProcessStatus.open,
+    )
     # Defense-in-depth: nigdy nie zwracaj jobs z NULL client_id na liście.
     # Od migracji 0120 (2026-05-27) DB ma NOT NULL constraint — ten filtr
     # chroni przed regresją gdyby ktoś kiedyś constraint zdjął.
@@ -391,6 +441,17 @@ async def list_jobs(
         )
         query = query.where(
             or_(Job.recruiter_id == current_user.id, Job.id.in_(collab_subq))
+        )
+    if priority_work == PriorityWorkJobFilter.assigned:
+        query = query.where(Job.id.in_(priority_assignment_job_ids))
+    elif priority_work == PriorityWorkJobFilter.carry_over:
+        query = query.where(Job.id.in_(priority_carry_job_ids))
+    elif priority_work == PriorityWorkJobFilter.either:
+        query = query.where(
+            or_(
+                Job.id.in_(priority_assignment_job_ids),
+                Job.id.in_(priority_carry_job_ids),
+            )
         )
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
@@ -482,6 +543,67 @@ async def list_jobs(
         )
         client_names = {row[0]: row[1] for row in client_rows.all()}
 
+    # Priority Work context is hydrated in two batch queries.  It deliberately
+    # does not consult Job.recruiter_id or JobCollaborator: those legacy
+    # concepts grant neither sourcing permission nor carry-over duty.
+    priority_assignment_map: dict[int, dict[str, object]] = {}
+    priority_carry_counts: dict[int, int] = {}
+    if job_ids:
+        priority_rows = (
+            await db.execute(
+                select(
+                    RecruitmentPriorityAssignment.job_id,
+                    RecruitmentPriorityAssignment.id,
+                    RecruitmentPriorityAssignment.rank,
+                    RecruitmentPriorityAssignment.channel,
+                )
+                .join(
+                    RecruitmentPriorityPlanMember,
+                    RecruitmentPriorityPlanMember.id
+                    == RecruitmentPriorityAssignment.plan_member_id,
+                )
+                .join(
+                    RecruitmentPriorityPlan,
+                    RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+                )
+                .where(
+                    RecruitmentPriorityAssignment.job_id.in_(job_ids),
+                    RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+                    RecruitmentPriorityPlan.effective_from <= priority_now,
+                    RecruitmentPriorityPlanMember.user_id == current_user.id,
+                    RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
+                )
+                .order_by(RecruitmentPriorityAssignment.rank)
+            )
+        ).all()
+        for row in priority_rows:
+            priority_assignment_map.setdefault(
+                row.job_id,
+                {
+                    "id": row.id,
+                    "rank": row.rank.value,
+                    "channel": row.channel.value,
+                },
+            )
+
+        carry_rows = (
+            await db.execute(
+                select(
+                    RecruitmentProcess.job_id,
+                    func.count(RecruitmentProcess.id),
+                )
+                .where(
+                    RecruitmentProcess.job_id.in_(job_ids),
+                    RecruitmentProcess.owner_user_id == current_user.id,
+                    RecruitmentProcess.status == ProcessStatus.open,
+                )
+                .group_by(RecruitmentProcess.job_id)
+            )
+        ).all()
+        priority_carry_counts = {
+            row_job_id: int(count) for row_job_id, count in carry_rows
+        }
+
     items = []
     for j in jobs:
         d = JobResponse.model_validate(j).model_dump()
@@ -507,6 +629,8 @@ async def list_jobs(
         )
         if include_stage_counts:
             d["stage_breakdown"] = stage_breakdown.get(j.id, {})
+        d["priority_assignment"] = priority_assignment_map.get(j.id)
+        d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)
         items.append(d)
 
@@ -1027,10 +1151,38 @@ async def update_job(
 async def delete_job(
     job_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Job).where(Job.id == job_id))
+    result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    process_rows = int(
+        await db.scalar(
+            select(func.count(RecruitmentProcess.id)).where(
+                RecruitmentProcess.job_id == job_id,
+            )
+        )
+        or 0
+    )
+    stage_rows = int(
+        await db.scalar(
+            select(func.count(CandidateStage.id)).where(CandidateStage.job_id == job_id)
+        )
+        or 0
+    )
+    if process_rows or stage_rows:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PRIORITY_CARRY_OVER_EXISTS",
+                "job_id": job_id,
+                "process_rows": process_rows,
+                "candidate_stage_rows": stage_rows,
+                "message": (
+                    "Request ma historię kandydatów lub otwarte carry-over. "
+                    "Zamknij request zamiast usuwać jego audytowalny pipeline."
+                ),
+            },
+        )
     db.add(
         Activity(
             entity_type="job",
@@ -2344,13 +2496,18 @@ async def add_candidate_from_history(
     if verdict is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=verdict.as_polish_detail())
 
-    stage = CandidateStage(
+    stage = await open_process(
+        db,
         candidate_id=payload.candidate_id,
         job_id=job_id,
         stage=PipelineStage.new,
-        moved_by=current_user.id,
+        actor_user_id=current_user.id,
+        work_channel=PriorityChannel.database,
+        # A Delivery Lead/manager adding a historical candidate is still a
+        # human-created pair. Ownership, collaboration or manager role must
+        # not bypass the published Priority Work assignment.
+        origin_kind=PriorityOriginKind.assigned,
     )
-    db.add(stage)
     db.add(
         Activity(
             entity_type="candidate_stage",

@@ -162,6 +162,7 @@ from app.api import candidates_bulk as candidates_bulk_api
 from app.api import dictionaries as dictionaries_api
 from app.api import entity_fields as entity_fields_api
 from app.api import teams_channels as teams_channels_api
+from app.api import priority_work as priority_work_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -501,6 +502,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
+    from app.tasks.priority_work import priority_work_loop
     from app.services.fx_service import fx_refresh_loop
 
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
@@ -535,6 +537,7 @@ async def lifespan(app: FastAPI):
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "index_outbox": asyncio.create_task(index_outbox_loop()),
+        "priority_work": asyncio.create_task(priority_work_loop()),
     }
 
     yield
@@ -955,6 +958,11 @@ app.include_router(
     competitions_api.router,
     prefix="/api/competitions",
     tags=["competitions"],
+)
+app.include_router(
+    priority_work_api.router,
+    prefix="/api/priority-work",
+    tags=["priority-work"],
 )
 app.include_router(
     linkedin_metrics_api.router,
@@ -1414,6 +1422,37 @@ async def api_health_check():
     except Exception:
         checks["qdrant"] = "unhealthy"
 
+    # Recruitment Priority Work — informational and feature-flag aware.
+    # `off` is the safe default and therefore reported as disabled.  In
+    # shadow/enforce a stale persisted heartbeat exposes a dead alert worker;
+    # it never changes the uptime gate (overall remains database-only).
+    if settings.RECRUITMENT_PRIORITY_MODE == "off":
+        checks["priority_work"] = "disabled"
+    else:
+        try:
+            from app.models.recruitment_priority import RecruitmentPriorityState
+            from app.tasks.priority_work import worker_is_fresh
+
+            async with AsyncSessionLocal() as session:
+                priority_state = await asyncio.wait_for(
+                    session.scalar(
+                        select(RecruitmentPriorityState).where(
+                            RecruitmentPriorityState.id == 1
+                        )
+                    ),
+                    timeout=1.0,
+                )
+            if priority_state is None:
+                checks["priority_work"] = "degraded"
+            elif priority_state.last_error:
+                checks["priority_work"] = "degraded"
+            elif worker_is_fresh(priority_state.worker_heartbeat_at):
+                checks["priority_work"] = "healthy"
+            else:
+                checks["priority_work"] = "degraded"
+        except Exception:
+            checks["priority_work"] = "degraded"
+
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
     # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
@@ -1583,7 +1622,21 @@ async def api_health_deep_check():
         CortexUnmatchedObservation,
         CortexUnmatchedTerm,
     )
+    from app.models.invite_link import CandidateInviteLink
     from app.models.job import Job
+    from app.models.recruitment_priority import (
+        RecruitmentPriorityAlert,
+        RecruitmentPriorityAssignment,
+        RecruitmentPriorityAuditEvent,
+        RecruitmentPriorityBlocker,
+        RecruitmentPriorityDemand,
+        RecruitmentPriorityException,
+        RecruitmentPriorityPlan,
+        RecruitmentPriorityPlanMember,
+        RecruitmentPriorityState,
+        RecruitmentPriorityUserMode,
+    )
+    from app.models.recruitment_process import RecruitmentProcess
 
     # (check_name, ORM model). Names are table-oriented so a red check in the
     # deploy log points straight at the drifted table. Cortex tables added after
@@ -1596,6 +1649,18 @@ async def api_health_deep_check():
         ("candidates", Candidate),
         ("clients", Client),
         ("jobs", Job),
+        ("candidate_invite_links", CandidateInviteLink),
+        ("recruitment_processes", RecruitmentProcess),
+        ("recruitment_priority_plans", RecruitmentPriorityPlan),
+        ("recruitment_priority_plan_members", RecruitmentPriorityPlanMember),
+        ("recruitment_priority_demands", RecruitmentPriorityDemand),
+        ("recruitment_priority_assignments", RecruitmentPriorityAssignment),
+        ("recruitment_priority_blockers", RecruitmentPriorityBlocker),
+        ("recruitment_priority_exceptions", RecruitmentPriorityException),
+        ("recruitment_priority_state", RecruitmentPriorityState),
+        ("recruitment_priority_user_modes", RecruitmentPriorityUserMode),
+        ("recruitment_priority_alerts", RecruitmentPriorityAlert),
+        ("recruitment_priority_audit_events", RecruitmentPriorityAuditEvent),
         ("cortex_skill_facts", CortexSkillFact),
         ("cortex_unmatched_terms", CortexUnmatchedTerm),
         ("cortex_unmatched_observations", CortexUnmatchedObservation),
@@ -1710,6 +1775,502 @@ async def api_health_deep_check():
         checks["b2b_signature_schema"] = "unhealthy"
         errors["b2b_signature_schema"] = type(exc).__name__
         logger.warning("health/deep: b2b_signature_schema probe failed: %r", exc)
+
+    # Priority Work needs more than mapped columns: admission safety depends on
+    # enum labels, process/invite provenance FKs, and valid partial-unique
+    # indexes. A fail-open entrypoint repair must therefore remain visible to
+    # deployment verification.
+    priority_work_schema_query = text(
+        """
+        WITH expected_enum(type_name, label) AS (
+            VALUES
+                ('prioritymode', 'off'),
+                ('prioritymode', 'shadow'),
+                ('prioritymode', 'enforce'),
+                ('priorityplanstatus', 'draft'),
+                ('priorityplanstatus', 'published'),
+                ('priorityplanstatus', 'superseded'),
+                ('prioritymemberstatus', 'active'),
+                ('prioritymemberstatus', 'paused'),
+                ('prioritydemandstatus', 'open'),
+                ('prioritydemandstatus', 'covered'),
+                ('prioritydemandstatus', 'fulfilled'),
+                ('prioritydemandstatus', 'paused'),
+                ('prioritydemandstatus', 'cancelled'),
+                ('priorityrank', 'A'),
+                ('priorityrank', 'B'),
+                ('priorityrank', 'C'),
+                ('priorityrank', 'D'),
+                ('priorityrank', 'E'),
+                ('prioritychannel', 'database'),
+                ('prioritychannel', 'linkedin'),
+                ('prioritychannel', 'mixed'),
+                ('priorityblockercategory', 'brief'),
+                ('priorityblockercategory', 'client_feedback'),
+                ('priorityblockercategory', 'rate'),
+                ('priorityblockercategory', 'market'),
+                ('priorityblockercategory', 'competence'),
+                ('priorityblockercategory', 'capacity'),
+                ('priorityblockercategory', 'access'),
+                ('priorityblockercategory', 'other'),
+                ('priorityblockerstatus', 'pending'),
+                ('priorityblockerstatus', 'accepted'),
+                ('priorityblockerstatus', 'rejected'),
+                ('priorityblockerstatus', 'resolved'),
+                ('priorityexceptionstatus', 'approved'),
+                ('priorityexceptionstatus', 'consumed'),
+                ('priorityexceptionstatus', 'revoked'),
+                ('priorityexceptionstatus', 'expired'),
+                ('priorityoriginkind', 'legacy'),
+                ('priorityoriginkind', 'assigned'),
+                ('priorityoriginkind', 'shadow_violation'),
+                ('priorityoriginkind', 'external_inbound'),
+                ('priorityoriginkind', 'external_observed'),
+                ('priorityoriginkind', 'manager_inbound'),
+                ('priorityoriginkind', 'approved_exception'),
+                ('priorityalertseverity', 'info'),
+                ('priorityalertseverity', 'warning'),
+                ('priorityalertseverity', 'critical')
+        ),
+        expected_fk(table_name, column_name, target_table, delete_action) AS (
+            VALUES
+                ('recruitment_priority_demands', 'job_id', 'jobs', 'r'),
+                ('recruitment_priority_plan_members', 'plan_id',
+                 'recruitment_priority_plans', 'c'),
+                ('recruitment_priority_plan_members', 'user_id', 'users', 'r'),
+                ('recruitment_priority_assignments', 'plan_member_id',
+                 'recruitment_priority_plan_members', 'c'),
+                ('recruitment_priority_assignments', 'demand_id',
+                 'recruitment_priority_demands', 'r'),
+                ('recruitment_priority_assignments', 'job_id', 'jobs', 'r'),
+                ('recruitment_priority_blockers', 'assignment_id',
+                 'recruitment_priority_assignments', 'c'),
+                ('recruitment_priority_exceptions', 'user_id', 'users', 'r'),
+                ('recruitment_priority_exceptions', 'job_id', 'jobs', 'r'),
+                ('recruitment_priority_exceptions', 'consumed_process_id',
+                 'recruitment_processes', 'n'),
+                ('recruitment_priority_state', 'current_plan_id',
+                 'recruitment_priority_plans', 'n'),
+                ('recruitment_priority_user_modes', 'user_id', 'users', 'c'),
+                ('recruitment_processes', 'origin_assignment_id',
+                 'recruitment_priority_assignments', 'n'),
+                ('recruitment_processes', 'eligibility_assignment_id',
+                 'recruitment_priority_assignments', 'n'),
+                ('recruitment_processes', 'opened_by_user_id', 'users', 'n'),
+                ('recruitment_processes', 'credit_user_id', 'users', 'n'),
+                ('recruitment_processes', 'ownership_confirmed_by_user_id',
+                 'users', 'n'),
+                ('candidate_invite_links', 'origin_assignment_id',
+                 'recruitment_priority_assignments', 'n')
+        ),
+        expected_check(table_name, constraint_name, definition_fragment) AS (
+            VALUES
+                ('recruitment_priority_demands',
+                 'ck_priority_demand_recommendations_minimum',
+                 'expected_recommendations >= 3')
+        ),
+        expected_constraint(table_name, constraint_name, constraint_type) AS (
+            VALUES
+                ('recruitment_priority_plans',
+                 'recruitment_priority_plans_pkey', 'p'),
+                ('recruitment_priority_plans',
+                 'recruitment_priority_plans_version_key', 'u'),
+                ('recruitment_priority_plans',
+                 'ck_priority_plan_version_positive', 'c'),
+                ('recruitment_priority_plans',
+                 'ck_priority_plan_row_version_positive', 'c'),
+                ('recruitment_priority_demands',
+                 'recruitment_priority_demands_pkey', 'p'),
+                ('recruitment_priority_demands',
+                 'ck_priority_demand_recommendations_minimum', 'c'),
+                ('recruitment_priority_demands',
+                 'ck_priority_demand_row_version_positive', 'c'),
+                ('recruitment_priority_plan_members',
+                 'recruitment_priority_plan_members_pkey', 'p'),
+                ('recruitment_priority_plan_members',
+                 'uq_priority_plan_member_user', 'u'),
+                ('recruitment_priority_plan_members',
+                 'ck_priority_member_capacity_nonnegative', 'c'),
+                ('recruitment_priority_plan_members',
+                 'ck_priority_member_paused_reason', 'c'),
+                ('recruitment_priority_assignments',
+                 'recruitment_priority_assignments_pkey', 'p'),
+                ('recruitment_priority_assignments',
+                 'uq_priority_assignment_member_rank', 'u'),
+                ('recruitment_priority_assignments',
+                 'uq_priority_assignment_member_job', 'u'),
+                ('recruitment_priority_assignments',
+                 'ck_priority_assignment_verifications_nonnegative', 'c'),
+                ('recruitment_priority_assignments',
+                 'ck_priority_assignment_recommendations_nonnegative', 'c'),
+                ('recruitment_priority_assignments',
+                 'ck_priority_assignment_extra_slot_reason', 'c'),
+                ('recruitment_priority_assignments',
+                 'ck_priority_assignment_cc_exception_reason', 'c'),
+                ('recruitment_priority_blockers',
+                 'recruitment_priority_blockers_pkey', 'p'),
+                ('recruitment_priority_blockers',
+                 'ck_priority_blocker_decision_timestamp', 'c'),
+                ('recruitment_priority_blockers',
+                 'ck_priority_blocker_resolved_at', 'c'),
+                ('recruitment_priority_exceptions',
+                 'recruitment_priority_exceptions_pkey', 'p'),
+                ('recruitment_priority_exceptions',
+                 'recruitment_priority_exceptions_consumed_process_id_key', 'u'),
+                ('recruitment_priority_exceptions',
+                 'ck_priority_exception_valid_window', 'c'),
+                ('recruitment_priority_exceptions',
+                 'ck_priority_exception_consumed_at', 'c'),
+                ('recruitment_priority_state',
+                 'recruitment_priority_state_pkey', 'p'),
+                ('recruitment_priority_state',
+                 'recruitment_priority_state_current_plan_id_key', 'u'),
+                ('recruitment_priority_state',
+                 'ck_recruitment_priority_state_singleton', 'c'),
+                ('recruitment_priority_state',
+                 'ck_priority_state_row_version_positive', 'c'),
+                ('recruitment_priority_user_modes',
+                 'recruitment_priority_user_modes_pkey', 'p'),
+                ('recruitment_priority_alerts',
+                 'recruitment_priority_alerts_pkey', 'p'),
+                ('recruitment_priority_alerts',
+                 'recruitment_priority_alerts_dedupe_key_key', 'u'),
+                ('recruitment_priority_alerts',
+                 'ck_priority_alert_occurrence_count_positive', 'c'),
+                ('recruitment_priority_alerts',
+                 'ck_priority_alert_seen_window', 'c'),
+                ('recruitment_priority_audit_events',
+                 'recruitment_priority_audit_events_pkey', 'p')
+        ),
+        expected_index(table_name, index_name, must_be_unique, must_be_partial) AS (
+            VALUES
+                ('recruitment_priority_plans',
+                 'ux_recruitment_priority_one_published', TRUE, TRUE),
+                ('recruitment_priority_plans',
+                 'ix_recruitment_priority_plans_status', FALSE, FALSE),
+                ('recruitment_priority_plans',
+                 'ix_recruitment_priority_plans_review_due_at', FALSE, FALSE),
+                ('recruitment_priority_demands',
+                 'ux_recruitment_priority_one_active_demand_per_job', TRUE, TRUE),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_job_id', FALSE, FALSE),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_requested_by_user_id',
+                 FALSE, FALSE),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_status', FALSE, FALSE),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_due_at', FALSE, FALSE),
+                ('recruitment_priority_plan_members',
+                 'ix_recruitment_priority_plan_members_plan_id', FALSE, FALSE),
+                ('recruitment_priority_plan_members',
+                 'ix_recruitment_priority_plan_members_user_id', FALSE, FALSE),
+                ('recruitment_priority_assignments',
+                 'ix_recruitment_priority_assignments_plan_member_id',
+                 FALSE, FALSE),
+                ('recruitment_priority_assignments',
+                 'ix_priority_assignment_job', FALSE, FALSE),
+                ('recruitment_priority_assignments',
+                 'ix_priority_assignment_demand', FALSE, FALSE),
+                ('recruitment_priority_blockers',
+                 'ux_priority_blocker_assignment_active', TRUE, TRUE),
+                ('recruitment_priority_blockers',
+                 'ix_recruitment_priority_blockers_assignment_id', FALSE, FALSE),
+                ('recruitment_priority_blockers',
+                 'ix_recruitment_priority_blockers_status', FALSE, FALSE),
+                ('recruitment_priority_exceptions',
+                 'ux_priority_exception_one_approved_per_user_job', TRUE, TRUE),
+                ('recruitment_priority_exceptions',
+                 'ix_priority_exception_expiry', FALSE, FALSE),
+                ('recruitment_priority_exceptions',
+                 'ix_recruitment_priority_exceptions_user_id', FALSE, FALSE),
+                ('recruitment_priority_exceptions',
+                 'ix_recruitment_priority_exceptions_job_id', FALSE, FALSE),
+                ('recruitment_priority_exceptions',
+                 'ix_recruitment_priority_exceptions_status', FALSE, FALSE),
+                ('recruitment_priority_alerts',
+                 'ix_priority_alert_unresolved', FALSE, TRUE),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_kind', FALSE, FALSE),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_user_id', FALSE, FALSE),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_job_id', FALSE, FALSE),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_assignment_id', FALSE, FALSE),
+                ('recruitment_priority_audit_events',
+                 'ix_priority_audit_event_type_occurred', FALSE, FALSE),
+                ('recruitment_priority_audit_events',
+                 'ix_priority_audit_plan_occurred', FALSE, FALSE),
+                ('recruitment_priority_audit_events',
+                 'ix_recruitment_priority_audit_events_correlation_id',
+                 FALSE, FALSE),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_origin_assignment_id', FALSE, FALSE),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_eligibility_assignment_id',
+                 FALSE, FALSE),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_credit_user_id', FALSE, FALSE),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_origin_kind', FALSE, FALSE),
+                ('candidate_invite_links',
+                 'ix_candidate_invite_links_origin_assignment_id', FALSE, FALSE)
+        ),
+        expected_index_columns(table_name, index_name, column_names) AS (
+            VALUES
+                ('recruitment_priority_plans',
+                 'ux_recruitment_priority_one_published', 'status'),
+                ('recruitment_priority_plans',
+                 'ix_recruitment_priority_plans_status', 'status'),
+                ('recruitment_priority_plans',
+                 'ix_recruitment_priority_plans_review_due_at', 'review_due_at'),
+                ('recruitment_priority_demands',
+                 'ux_recruitment_priority_one_active_demand_per_job', 'job_id'),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_job_id', 'job_id'),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_requested_by_user_id',
+                 'requested_by_user_id'),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_status', 'status'),
+                ('recruitment_priority_demands',
+                 'ix_recruitment_priority_demands_due_at', 'due_at'),
+                ('recruitment_priority_plan_members',
+                 'ix_recruitment_priority_plan_members_plan_id', 'plan_id'),
+                ('recruitment_priority_plan_members',
+                 'ix_recruitment_priority_plan_members_user_id', 'user_id'),
+                ('recruitment_priority_assignments',
+                 'ix_recruitment_priority_assignments_plan_member_id',
+                 'plan_member_id'),
+                ('recruitment_priority_assignments',
+                 'ix_priority_assignment_job', 'job_id'),
+                ('recruitment_priority_assignments',
+                 'ix_priority_assignment_demand', 'demand_id'),
+                ('recruitment_priority_blockers',
+                 'ux_priority_blocker_assignment_active', 'assignment_id'),
+                ('recruitment_priority_blockers',
+                 'ix_recruitment_priority_blockers_assignment_id',
+                 'assignment_id'),
+                ('recruitment_priority_blockers',
+                 'ix_recruitment_priority_blockers_status', 'status'),
+                ('recruitment_priority_exceptions',
+                 'ux_priority_exception_one_approved_per_user_job',
+                 'user_id,job_id'),
+                ('recruitment_priority_exceptions',
+                 'ix_priority_exception_expiry', 'status,expires_at'),
+                ('recruitment_priority_exceptions',
+                 'ix_recruitment_priority_exceptions_user_id', 'user_id'),
+                ('recruitment_priority_exceptions',
+                 'ix_recruitment_priority_exceptions_job_id', 'job_id'),
+                ('recruitment_priority_exceptions',
+                 'ix_recruitment_priority_exceptions_status', 'status'),
+                ('recruitment_priority_alerts',
+                 'ix_priority_alert_unresolved', 'severity,last_seen_at'),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_kind', 'kind'),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_user_id', 'user_id'),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_job_id', 'job_id'),
+                ('recruitment_priority_alerts',
+                 'ix_recruitment_priority_alerts_assignment_id',
+                 'assignment_id'),
+                ('recruitment_priority_audit_events',
+                 'ix_priority_audit_event_type_occurred',
+                 'event_type,occurred_at'),
+                ('recruitment_priority_audit_events',
+                 'ix_priority_audit_plan_occurred', 'plan_id,occurred_at'),
+                ('recruitment_priority_audit_events',
+                 'ix_recruitment_priority_audit_events_correlation_id',
+                 'correlation_id'),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_origin_assignment_id',
+                 'origin_assignment_id'),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_eligibility_assignment_id',
+                 'eligibility_assignment_id'),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_credit_user_id', 'credit_user_id'),
+                ('recruitment_processes',
+                 'ix_recruitment_processes_origin_kind', 'origin_kind'),
+                ('candidate_invite_links',
+                 'ix_candidate_invite_links_origin_assignment_id',
+                 'origin_assignment_id')
+        ),
+        expected_index_predicate(
+            table_name,
+            index_name,
+            canonical_definition
+        ) AS (
+            VALUES
+                ('recruitment_priority_plans',
+                 'ux_recruitment_priority_one_published',
+                 'status=''published'''),
+                ('recruitment_priority_demands',
+                 'ux_recruitment_priority_one_active_demand_per_job',
+                 'status=anyarray[''open'',''covered'',''paused'']'),
+                ('recruitment_priority_blockers',
+                 'ux_priority_blocker_assignment_active',
+                 'status=anyarray[''pending'',''accepted'']andresolved_atisnull'),
+                ('recruitment_priority_exceptions',
+                 'ux_priority_exception_one_approved_per_user_job',
+                 'status=''approved'''),
+                ('recruitment_priority_alerts',
+                 'ix_priority_alert_unresolved',
+                 'resolved_atisnull')
+        )
+        SELECT
+            NOT EXISTS (
+                SELECT 1
+                FROM expected_enum AS expected
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM pg_type AS enum_type
+                    JOIN pg_enum AS enum_value
+                      ON enum_value.enumtypid = enum_type.oid
+                    WHERE enum_type.typname = expected.type_name
+                      AND enum_value.enumlabel = expected.label
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM expected_fk AS expected
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint AS constraint_row
+                    JOIN pg_attribute AS source_column
+                      ON source_column.attrelid = constraint_row.conrelid
+                     AND source_column.attnum = ANY(constraint_row.conkey)
+                    WHERE constraint_row.contype = 'f'
+                      AND constraint_row.conrelid =
+                          TO_REGCLASS('public.' || expected.table_name)
+                      AND constraint_row.confrelid =
+                          TO_REGCLASS('public.' || expected.target_table)
+                      AND source_column.attname = expected.column_name
+                      AND constraint_row.confdeltype::text =
+                          expected.delete_action
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM expected_check AS expected
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint AS constraint_row
+                    WHERE constraint_row.conrelid =
+                          TO_REGCLASS('public.' || expected.table_name)
+                      AND constraint_row.conname = expected.constraint_name
+                      AND constraint_row.contype = 'c'
+                      AND PG_GET_CONSTRAINTDEF(constraint_row.oid)
+                          LIKE '%' || expected.definition_fragment || '%'
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM expected_constraint AS expected
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint AS constraint_row
+                    WHERE constraint_row.conrelid =
+                          TO_REGCLASS('public.' || expected.table_name)
+                      AND constraint_row.conname = expected.constraint_name
+                      AND constraint_row.contype::text =
+                          expected.constraint_type
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM expected_index AS expected
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM pg_index AS index_row
+                    JOIN pg_class AS index_class
+                      ON index_class.oid = index_row.indexrelid
+                    WHERE index_row.indrelid =
+                          TO_REGCLASS('public.' || expected.table_name)
+                      AND index_class.relname = expected.index_name
+                      AND index_row.indisvalid
+                      AND index_row.indisready
+                      AND index_row.indisunique = expected.must_be_unique
+                      AND (index_row.indpred IS NOT NULL) =
+                          expected.must_be_partial
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM expected_index_columns AS expected
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM pg_index AS index_row
+                    JOIN pg_class AS index_class
+                      ON index_class.oid = index_row.indexrelid
+                    WHERE index_row.indrelid =
+                          TO_REGCLASS('public.' || expected.table_name)
+                      AND index_class.relname = expected.index_name
+                      AND ARRAY_TO_STRING(
+                          ARRAY(
+                              SELECT attribute.attname
+                              FROM UNNEST(index_row.indkey)
+                                   WITH ORDINALITY
+                                   AS indexed(attnum, position)
+                              JOIN pg_attribute AS attribute
+                                ON attribute.attrelid = index_row.indrelid
+                               AND attribute.attnum = indexed.attnum
+                              WHERE indexed.attnum > 0
+                              ORDER BY indexed.position
+                          ),
+                          ','
+                      ) = expected.column_names
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM expected_index_predicate AS expected
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM pg_index AS index_row
+                    JOIN pg_class AS index_class
+                      ON index_class.oid = index_row.indexrelid
+                    WHERE index_row.indrelid =
+                          TO_REGCLASS('public.' || expected.table_name)
+                      AND index_class.relname = expected.index_name
+                      AND REGEXP_REPLACE(
+                          REGEXP_REPLACE(
+                              LOWER(
+                                  COALESCE(
+                                      PG_GET_EXPR(
+                                          index_row.indpred,
+                                          index_row.indrelid
+                                      ),
+                                      ''
+                                  )
+                              ),
+                              '::[a-z_][a-z0-9_]*(\\[\\])?',
+                              '',
+                              'g'
+                          ),
+                          '[[:space:]()]',
+                          '',
+                          'g'
+                      ) = expected.canonical_definition
+                )
+            )
+        """
+    )
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await asyncio.wait_for(
+                session.execute(priority_work_schema_query), timeout=3.0
+            )
+            schema_matches = bool(result.scalar_one())
+        checks["priority_work_schema"] = "healthy" if schema_matches else "unhealthy"
+        if not schema_matches:
+            errors["priority_work_schema"] = "SchemaMismatch"
+    except Exception as exc:  # noqa: BLE001
+        checks["priority_work_schema"] = "unhealthy"
+        errors["priority_work_schema"] = type(exc).__name__
+        logger.warning("health/deep: priority_work_schema probe failed: %r", exc)
 
     all_healthy = all(v == "healthy" for v in checks.values())
 

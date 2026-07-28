@@ -191,6 +191,14 @@ HeadOfRecruitmentPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.head_of_recruitment)),
 ]
 
+# Priority Work is owned by the Head of Recruitment as a business role.
+# A plain administrator is not an implicit break-glass operator for plan
+# publication, handoffs or KPI exceptions.
+HeadOfRecruitmentOnly = Annotated[
+    User,
+    Depends(require_roles(UserRole.head_of_recruitment)),
+]
+
 TacPlus = Annotated[
     User,
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)),

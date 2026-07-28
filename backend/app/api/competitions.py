@@ -63,7 +63,12 @@ async def get_current(
     else:
         ranked = await comp_service.compute_live(db, ctype, period)
 
-    top3 = ranked[:3]
+    award_ranked = (
+        comp_service.qualified_for_award(ranked)
+        if ctype == CompetitionType.monthly_recommendations
+        else ranked
+    )
+    top3 = award_ranked[:3]
     # Dopasuj nagrody live (dla preview).
     top3_with_prizes = [
         {
@@ -165,8 +170,15 @@ async def monthly_races(
             }
             for idx, r in enumerate(ranked)
         ]
-        # Zakwalifikowany lider = pierwszy niewykluczony.
-        qualified = next((entry for entry in ranking if not entry["excluded"]), None)
+        # Zakwalifikowany lider = pierwszy spełniający warunki i niewykluczony.
+        qualified = next(
+            (
+                entry
+                for entry in ranking
+                if not entry["excluded"] and entry.get("qualified", True)
+            ),
+            None,
+        )
         return {
             "period": month_period,
             "days_remaining": days_left,
@@ -253,7 +265,7 @@ async def freeze(
     type: str = Query(...),
     period: str = Query(..., description="Okres do zamrożenia, np. 'Q1 2026'"),
 ):
-    """Zamyka okres — zapisuje TOP 3 do `competition_winners` (idempotent)."""
+    """Zamyka okres — pierwszy zapis TOP 3 jest niezmiennym snapshotem."""
     ctype = _parse_type(type)
     created = await comp_service.freeze_competition(db, ctype, period)
     return {
