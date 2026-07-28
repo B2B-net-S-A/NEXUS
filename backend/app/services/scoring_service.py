@@ -387,6 +387,13 @@ def _split_skill_tokens(text: str) -> List[str]:
 
 ALIAS_MAP: dict[str, str] = {}
 
+# Odwrotność ALIAS_MAP: `kanoniczna -> [kanoniczna, alias, alias, ...]`.
+# Budowana leniwie, unieważniana przez `set_alias_map` poniżej. Deklaracja stoi
+# PRZED tą funkcją celowo — inaczej `global _RODZINY_ALIASOW` odwołuje się do
+# nazwy zdefiniowanej niżej w pliku. Działa (globalne są wiązane w czasie
+# wywołania), ale czyta się to jak błąd.
+_RODZINY_ALIASOW: Optional[dict[str, List[str]]] = None
+
 
 def set_alias_map(mapping: dict[str, str]) -> None:
     """Replace the in-memory alias map atomically (called from FastAPI startup)."""
@@ -398,11 +405,6 @@ def set_alias_map(mapping: dict[str, str]) -> None:
     # Invalidate the reverse index used by `skill_name_variants`.
     global _RODZINY_ALIASOW
     _RODZINY_ALIASOW = None
-
-
-# Odwrotność ALIAS_MAP: `kanoniczna -> [kanoniczna, alias, alias, ...]`.
-# Budowana leniwie, unieważniana przez `set_alias_map`.
-_RODZINY_ALIASOW: Optional[dict[str, List[str]]] = None
 
 
 def _rodziny_aliasow() -> dict[str, List[str]]:

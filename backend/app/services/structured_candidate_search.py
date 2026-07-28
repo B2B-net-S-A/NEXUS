@@ -131,7 +131,10 @@ def _skill_match(skill: str) -> ColumnElement:
     # jest ładowany z `candidates.py` — import na górze pliku domyka cykl.
     from app.services.scoring_service import skill_name_variants
 
-    igly = [w for w in (skill_name_variants([skill]) or []) if w] or [skill.lower()]
+    # Zabezpieczenie na końcu jest jedynym działającym: `skill_name_variants`
+    # zwraca listę (nigdy None), ale przy pustej mapie aliasów i pustej nazwie
+    # może zwrócić [] — wtedy predykat musi mieć w co trafiać.
+    igly = [w for w in skill_name_variants([skill]) if w] or [skill.lower()]
 
     warunki: list[ColumnElement] = []
     for igla in igly:

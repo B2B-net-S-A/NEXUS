@@ -143,7 +143,13 @@ def test_predykat_rozwija_rodzine_wiec_obie_powierzchnie_ja_dostaja() -> None:
     from app.services.structured_candidate_search import _skill_match
 
     sql = str(_skill_match("MSSQL").compile(compile_kwargs={"literal_binds": True}))
-    for wariant in ("mssql", "ms sql", "sql server", "microsoft sql server"):
+    for wariant in (
+        "mssql",
+        "ms sql",
+        "sql server",
+        "microsoft sql server",
+        "microsoft sql",
+    ):
         assert f'"{wariant}"' in sql, (
             f"predykat nie szuka wariantu {wariant!r} — rodzina nie jest rozwijana"
         )
