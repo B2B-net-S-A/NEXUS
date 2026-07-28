@@ -80,6 +80,14 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
     prefix: "/sourcing",
     roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
   },
+  // Kolejka zgłoszeń z publicznych aplikacji — dane osobowe aplikanta
+  // (imię, e-mail, telefon, LinkedIn, CV). Backend gatuje ją przez
+  // CandidateWriteAccess + membership do oferty; tu poprawiamy UX, żeby
+  // viewer dostał /403 zamiast pustego ekranu z błędem z API.
+  {
+    prefix: "/applications",
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+  },
   // `/jobs`, `/contracts`, `/clients`, `/calendar`, `/profile`, `/insights`,
   // `/settings` (i każda inna trasa) nie muszą tu być — deny-by-default już
   // wymaga od nich zalogowania. Dopisuj tutaj WYŁĄCZNIE zawężenia ról.
