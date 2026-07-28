@@ -98,6 +98,12 @@ from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
+from app.services.candidate_contact_hooks import (
+    has_active_contact_trigger,
+    load_contact_case_summaries,
+    maybe_close_contact_opportunity,
+    maybe_ensure_contact_opportunity,
+)
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
@@ -1783,9 +1789,15 @@ async def list_candidates(
                 continue
             notes_by_candidate.setdefault(cid, []).append(content)
 
+    contact_case_by_candidate = await load_contact_case_summaries(
+        db, [candidate.id for candidate in items]
+    )
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = _candidate_to_response(cand)
+        payload = payload.model_copy(
+            update={"contact_case": contact_case_by_candidate.get(cand.id)}
+        )
         # Strip eagerly-loaded snapshots from the list response — they are
         # only surfaced on the detail endpoint (trimmed to 5 there).
         payload = payload.model_copy(update={"linkedin_snapshots": None})
@@ -2414,6 +2426,14 @@ async def _assign_candidate_to_job(
             details={"job_id": job_id, "stage": stage.value},
         )
     )
+    await db.flush()
+    await maybe_ensure_contact_opportunity(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        source="pipeline",
+        occurred_at=stage_row.moved_at,
+    )
     return stage_row
 
 
@@ -2794,6 +2814,9 @@ async def get_candidate(
         raise HTTPException(status_code=404, detail="Candidate not found")
     payload = _candidate_to_response(candidate)
     invite_source = await _resolve_invite_source(candidate_id, db)
+    contact_case = (await load_contact_case_summaries(db, [candidate_id])).get(
+        candidate_id
+    )
     # Snapshots are eager-loaded by _candidate_list_options (ordered desc by
     # fetched_at); trim to the 5 most recent for the detail payload.
     snapshots = [
@@ -2801,7 +2824,11 @@ async def get_candidate(
         for s in (candidate.linkedin_snapshots or [])[:5]
     ]
     return payload.model_copy(
-        update={"invite_source": invite_source, "linkedin_snapshots": snapshots}
+        update={
+            "invite_source": invite_source,
+            "linkedin_snapshots": snapshots,
+            "contact_case": contact_case,
+        }
     )
 
 
@@ -2939,6 +2966,9 @@ async def get_candidate_quick_view(
         for note, author_name in note_rows
     ]
 
+    quick_view_contact_case = (
+        await load_contact_case_summaries(db, [candidate_id])
+    ).get(candidate_id)
     return CandidateQuickViewResponse(
         candidate=CandidateQuickViewCandidate(
             id=candidate.id,
@@ -2956,6 +2986,7 @@ async def get_candidate_quick_view(
             competence_category_id=candidate.competence_category_id,
             competence_category=candidate.competence_category,
             skills=candidate.skills,
+            contact_case=quick_view_contact_case,
         ),
         current_position=CandidateQuickViewPosition(
             **resolve_current_position(candidate)
@@ -3697,6 +3728,18 @@ async def remove_candidate_from_recruitment(
         candidate_id=candidate_id,
         job_id=job_id,
     )
+    if not await has_active_contact_trigger(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+    ):
+        await maybe_close_contact_opportunity(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            actor_user_id=current_user.id,
+            reason="removed_from_recruitment",
+        )
 
     db.add(
         Activity(

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
 from app.api.proposals_bulk import _resolve_initial_stage
+from app.api.recruitment_access import ensure_job_membership
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict
@@ -32,6 +33,11 @@ from app.schemas.job_shortlist import (
     ShortlistUpdateRequest,
 )
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+from app.services.candidate_contact_hooks import (
+    has_active_contact_trigger,
+    maybe_close_contact_opportunity,
+    maybe_ensure_contact_opportunity,
+)
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
@@ -70,6 +76,7 @@ async def add_to_shortlist(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_job_membership(db, current_user, job_id)
 
     valid = set(
         (
@@ -133,6 +140,7 @@ async def list_shortlist(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> list[ShortlistEntryResponse]:
+    await ensure_job_membership(db, current_user, job_id)
     rows = (
         await db.execute(
             select(JobShortlistEntry, Candidate.name, Candidate.lastname)
@@ -160,17 +168,45 @@ async def update_shortlist_entry(
     )
     if not entry:
         raise HTTPException(status_code=404, detail="Shortlist entry not found")
+    await ensure_job_membership(db, current_user, entry.job_id)
     if entry.version != body.version:
         raise HTTPException(
             status_code=409,
             detail="Wpis zmieniony przez kogoś innego — odśwież i spróbuj ponownie.",
         )
 
+    previous_outreach_status = entry.outreach_status
     changes = body.model_dump(exclude_unset=True, exclude={"version"})
     for field, value in changes.items():
         setattr(entry, field, value)
     entry.version += 1
     entry.updated_by = current_user.id
+    if entry.outreach_status == "do_kontaktu":
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=entry.candidate_id,
+            job_id=entry.job_id,
+            source="shortlist",
+            source_external_ref=str(entry.id),
+            occurred_at=datetime.now(timezone.utc),
+        )
+    elif (
+        previous_outreach_status == "do_kontaktu"
+        and entry.outreach_status != "do_kontaktu"
+    ):
+        if not await has_active_contact_trigger(
+            db,
+            candidate_id=entry.candidate_id,
+            job_id=entry.job_id,
+            exclude_shortlist_entry_id=entry.id,
+        ):
+            await maybe_close_contact_opportunity(
+                db,
+                candidate_id=entry.candidate_id,
+                job_id=entry.job_id,
+                actor_user_id=current_user.id,
+                reason=f"shortlist_outreach:{entry.outreach_status}",
+            )
 
     await db.commit()
     await db.refresh(entry)
@@ -198,6 +234,20 @@ async def delete_shortlist_entry(
     )
     if not entry:
         raise HTTPException(status_code=404, detail="Shortlist entry not found")
+    await ensure_job_membership(db, current_user, entry.job_id)
+    if not await has_active_contact_trigger(
+        db,
+        candidate_id=entry.candidate_id,
+        job_id=entry.job_id,
+        exclude_shortlist_entry_id=entry.id,
+    ):
+        await maybe_close_contact_opportunity(
+            db,
+            candidate_id=entry.candidate_id,
+            job_id=entry.job_id,
+            actor_user_id=current_user.id,
+            reason="shortlist_removed",
+        )
     await db.delete(entry)
     await db.commit()
     return {"status": "deleted", "id": entry_id}
@@ -224,6 +274,7 @@ async def promote_shortlist_entry(
     )
     if not entry:
         raise HTTPException(status_code=404, detail="Shortlist entry not found")
+    await ensure_job_membership(db, current_user, entry.job_id)
     job = await db.scalar(select(Job).where(Job.id == entry.job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -244,9 +295,21 @@ async def promote_shortlist_entry(
     # Already in the pipeline — record the promotion (idempotent) and return.
     if existing_stage is not None:
         already_promoted = entry.promoted_to_pipeline_at is not None
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            source="shortlist",
+            source_external_ref=str(entry.id),
+            occurred_at=now,
+        )
         if not already_promoted:
             entry.promoted_to_pipeline_at = now
             entry.updated_by = current_user.id
+            await db.commit()
+        else:
+            # The ensure call above may have created the contact case during
+            # cutover even though the shortlist promotion was already stamped.
             await db.commit()
         return ShortlistPromoteResponse(
             entry_id=entry.id,
@@ -326,6 +389,14 @@ async def promote_shortlist_entry(
     await create_original_cv_snapshot(db, stage)
     entry.promoted_to_pipeline_at = now
     entry.updated_by = current_user.id
+    await maybe_ensure_contact_opportunity(
+        db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        source="shortlist",
+        source_external_ref=str(entry.id),
+        occurred_at=now,
+    )
     await db.commit()
     await db.refresh(stage)
     return ShortlistPromoteResponse(

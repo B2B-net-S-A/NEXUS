@@ -237,3 +237,85 @@ async def test_total_count_reads_header() -> None:
             client._http = None
 
     assert count == 43573
+
+
+@pytest.mark.asyncio
+async def test_strict_filtered_pagination_never_falls_back_to_full_scan() -> None:
+    """A lightweight contact poll must fail closed when Traffit rejects its
+    filter.  In particular it must not retry page one without the header."""
+    seen_filters: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        seen_filters.append(request.headers.get("X-Request-Filter"))
+        return httpx.Response(400, json={"error": "unsupported filter"})
+
+    transport = httpx.MockTransport(handler)
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+        try:
+            with pytest.raises(RuntimeError, match="HTTP 400"):
+                _ = [
+                    item
+                    async for item in client.get_paginated(
+                        "/employees/recruitment_history",
+                        filter_={
+                            "created_at": {
+                                "value": "2026-07-28",
+                                "comparison": ">=",
+                            }
+                        },
+                        fallback_on_filter_rejection=False,
+                    )
+                ]
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    assert len(seen_filters) == 1
+    assert seen_filters[0] is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, content=b"{not-json"),
+        httpx.Response(200, json={"unexpected": "object"}),
+    ],
+)
+async def test_strict_filtered_pagination_rejects_malformed_payload(
+    response: httpx.Response,
+) -> None:
+    """Malformed strict-poll responses must not look like an empty success."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        return response
+
+    transport = httpx.MockTransport(handler)
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(
+            transport=transport,
+            follow_redirects=True,
+        )
+        try:
+            with pytest.raises(RuntimeError):
+                _ = [
+                    item
+                    async for item in client.get_paginated(
+                        "/employees/recruitment_history",
+                        filter_={
+                            "created_at": {
+                                "value": "2026-07-28",
+                                "comparison": ">=",
+                            }
+                        },
+                        fallback_on_filter_rejection=False,
+                    )
+                ]
+        finally:
+            await client._http.aclose()
+            client._http = None

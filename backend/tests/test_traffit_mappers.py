@@ -607,6 +607,27 @@ class TestTraffitRecruitmentHistoryToStage:
         assert result["stage_def_id"] is None
         assert result["stage_legacy_enum"] == "screening"  # default
 
+    def test_contact_tuple_prefers_created_at_over_legacy_move_date(self):
+        record = {
+            "id": 201,
+            "employee": {"id": 100},
+            "recruitment": {"id": 200},
+            "workflow_state": {"id": 19},
+            "date": "2026-07-28 08:00:00",
+            "created_at": "2026-07-28 09:00:00",
+        }
+        result = traffit_recruitment_history_to_stage(
+            record,
+            {"100": 1},
+            {"200": 2},
+            {"19": 3},
+            {"19": "new"},
+            None,
+        )
+        assert result is not None
+        assert result["moved_at"].hour == 8
+        assert result["contact_source_created_at"].hour == 9
+
     def test_missing_id_raises(self):
         with pytest.raises(ValueError, match="missing 'id'"):
             traffit_recruitment_history_to_stage(

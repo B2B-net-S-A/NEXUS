@@ -56,6 +56,18 @@ from app.models.user_email_template import UserEmailTemplate
 from app.models.teams_channel import TeamsNotificationChannel
 from app.models.job_posting import JobPosting
 from app.models.call import Call
+from app.models.candidate_contact import (
+    CandidateContactCase,
+    CandidateContactEvent,
+    CandidateContactEventType,
+    CandidateContactOpportunity,
+    CandidateContactOpportunityOutcome,
+    CandidateContactOpportunitySource,
+    CandidateContactOutcome,
+    CandidateContactState,
+    CandidateContactTraffitCursor,
+    CandidateContactTraffitLedger,
+)
 from app.models.traffit_sync_state import TraffitSyncState
 from app.models.traffit_integration import (
     IntegrationLease,
@@ -283,6 +295,16 @@ __all__ = [
     "TeamsNotificationChannel",
     "JobPosting",
     "Call",
+    "CandidateContactCase",
+    "CandidateContactEvent",
+    "CandidateContactEventType",
+    "CandidateContactOpportunity",
+    "CandidateContactOpportunityOutcome",
+    "CandidateContactOpportunitySource",
+    "CandidateContactOutcome",
+    "CandidateContactState",
+    "CandidateContactTraffitCursor",
+    "CandidateContactTraffitLedger",
     "TraffitSyncState",
     "TraffitEntityLink",
     "TraffitFieldContract",

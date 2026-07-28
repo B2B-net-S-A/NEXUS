@@ -1,7 +1,8 @@
 import logging
 import os
 import warnings
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -750,6 +751,28 @@ class Settings(BaseSettings):
     # and any NEW failure was invisible behind it. 5 runs ≈ 5 days at the daily
     # cadence — long enough that a real outage recovers on its own first.
     TRAFFIT_MAX_ROW_ATTEMPTS: int = 5
+
+    # ── Global candidate contact queue ──────────────────────────────────────
+    # All three gates are deliberately OFF by default.  The feature owns only
+    # contact coordination inside Nexus; it never writes stages or contact
+    # outcomes back to Traffit.
+    CANDIDATE_CONTACT_ENABLED: bool = False
+    # Enables assignment/reassignment/cooldown processing.  Keeping this
+    # separate from the read/API gate allows a safe read-only rollout first.
+    CANDIDATE_CONTACT_ASSIGNMENT_ENABLED: bool = False
+    # Enables the strict read-only recruitment_history poller.  This still
+    # requires CANDIDATE_CONTACT_ENABLED and valid Traffit read credentials.
+    CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED: bool = False
+    # Required cutover boundary for automatic intake.  Rows older than this
+    # timestamp remain neutral historical data and never consume queue slots.
+    CANDIDATE_CONTACT_ACTIVATION_AT: Optional[datetime] = None
+    # Runtime loops clamp unsafe values, so a bad env cannot create a hot loop.
+    CANDIDATE_CONTACT_WORKER_INTERVAL_SECONDS: int = 60
+    CANDIDATE_CONTACT_WORKER_BATCH_SIZE: int = 100
+    CANDIDATE_CONTACT_TRAFFIT_POLL_INTERVAL_SECONDS: int = 300
+    # The remote query intentionally overlaps the durable tuple cursor.  A
+    # ledger keyed by Traffit history id makes this safe and absorbs clock skew.
+    CANDIDATE_CONTACT_TRAFFIT_OVERLAP_MINUTES: int = 15
 
     # ── Traffit bidirectional integration (plan 2026-07-16) ────────────────
     # Twarde kill-switche środowiskowe. Runtime control w tabeli

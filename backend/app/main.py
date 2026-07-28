@@ -23,6 +23,7 @@ import app.models  # noqa: F401
 from app.api import (
     auth,
     candidates,
+    candidate_contact,
     candidate_pins,
     candidate_scoring,
     jobs,
@@ -501,6 +502,8 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
+    from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
+    from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.priority_work import priority_work_loop
     from app.services.fx_service import fx_refresh_loop
@@ -536,6 +539,8 @@ async def lifespan(app: FastAPI):
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
+        "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
+        "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
         "index_outbox": asyncio.create_task(index_outbox_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
     }
@@ -584,6 +589,8 @@ app.add_middleware(
         "X-Requested-With",
         # Admin „podgląd jako użytkownik" — patrz app/api/deps.py.
         "X-Impersonate-User-Id",
+        # Durable de-duplication for manually logged phone outcomes.
+        "Idempotency-Key",
     ],
 )
 
@@ -597,6 +604,11 @@ app.include_router(
     candidate_pins.router, prefix="/api/candidates", tags=["candidate-pins"]
 )
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
+app.include_router(
+    candidate_contact.router,
+    prefix="/api/candidate-contact",
+    tags=["candidate-contact"],
+)
 app.include_router(
     candidate_scoring.router, prefix="/api/candidates", tags=["candidate-scoring"]
 )

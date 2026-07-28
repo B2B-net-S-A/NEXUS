@@ -38,6 +38,7 @@ from app.models.recruitment_pipeline import (
 )
 from app.models.recruitment_priority import PriorityChannel
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
@@ -373,6 +374,15 @@ async def bulk_add_proposals(
             # skipping it, so a client dispute could lack the sent CV. Idempotent +
             # fail-soft on a missing CV, so it never breaks the batch.
             await create_original_cv_snapshot(db, stage)
+            # Etap pochodzi z command service (writer fence), więc okazja
+            # kontaktu wisi na jego wierszu, nie na własnym `CandidateStage`.
+            await maybe_ensure_contact_opportunity(
+                db,
+                candidate_id=candidate_id,
+                job_id=job_id,
+                source="pipeline",
+                occurred_at=stage.moved_at,
+            )
 
             # Optional shared note attached to every newly added candidate.
             if body.note:

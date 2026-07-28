@@ -597,6 +597,13 @@ def traffit_recruitment_history_to_stage(
     # Traffit zwraca string 'yyyy-MM-dd HH:mm:ss'; PG kolumna jest
     # timestamp with time zone, więc parsujemy do tz-aware datetime (UTC).
     moved_at = _parse_traffit_datetime(payload.get("date") or payload.get("created_at"))
+    # Contact coordination uses the strict poller's durable tuple contract,
+    # whose primary key is recruitment_history.created_at (with `date` only
+    # as a compatibility fallback). Keep it separate from the legacy pipeline
+    # movement timestamp so strict and daily ingress compare one timeline.
+    contact_source_created_at = _parse_traffit_datetime(
+        payload.get("created_at") or payload.get("date")
+    )
 
     # moved_by — preferuj created_by, fallback updated_by
     moved_by_nexus: Optional[int] = None
@@ -618,6 +625,7 @@ def traffit_recruitment_history_to_stage(
         "stage_def_id": stage_def_id,  # może być None gdy stage nieobecny w template
         "stage_legacy_enum": legacy_enum,
         "moved_at": moved_at,
+        "contact_source_created_at": contact_source_created_at,
         "moved_by": moved_by_nexus,
     }
 

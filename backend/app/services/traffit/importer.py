@@ -34,6 +34,10 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
+from app.services.candidate_contact_hooks import (
+    maybe_close_contact_opportunity,
+    maybe_ensure_contact_opportunity,
+)
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     select_all_files_with_priority,
@@ -2136,6 +2140,41 @@ class TraffitImporter:
                         },
                     )
                     row = result.fetchone()
+                if row is None:
+                    continue
+                # Kolejka kontaktu wisi na tym samym wierszu co import etapu.
+                # Hooki są poza savepointem: nieudany hook nie może wycofać
+                # zaimportowanego etapu (są `maybe_*`, czyli best-effort).
+                if payload["stage_legacy_enum"] in {
+                    "hired",
+                    "rejected",
+                    "withdrawn",
+                }:
+                    await maybe_close_contact_opportunity(
+                        self.db,
+                        candidate_id=payload["candidate_id"],
+                        job_id=payload["job_id"],
+                        actor_user_id=payload["moved_by"],
+                        reason=(
+                            f"traffit_pipeline_terminal:{payload['stage_legacy_enum']}"
+                        ),
+                        occurred_at=(
+                            payload["contact_source_created_at"] or payload["moved_at"]
+                        ),
+                        source="traffit",
+                        source_external_ref=payload["external_id"],
+                    )
+                else:
+                    await maybe_ensure_contact_opportunity(
+                        self.db,
+                        candidate_id=payload["candidate_id"],
+                        job_id=payload["job_id"],
+                        source="traffit",
+                        source_external_ref=payload["external_id"],
+                        occurred_at=(
+                            payload["contact_source_created_at"] or payload["moved_at"]
+                        ),
+                    )
             except Exception as e:  # noqa: BLE001
                 msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
                 progress.add_error(msg)

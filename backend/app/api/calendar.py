@@ -23,6 +23,7 @@ from app.models.user import UserRole
 from app.api.recruitment_access import (
     CalendarWriteAccess,
     RecruitmentReadAccess,
+    ensure_optional_job_membership,
 )
 from app.api.calendar_access import (
     CALENDAR_EVENT_DELETED,
@@ -34,10 +35,23 @@ from app.api.calendar_access import (
     user_can_view_event,
     user_is_override,
 )
+from app.services.candidate_contact_hooks import (
+    maybe_remove_calendar_handoff,
+    maybe_sync_calendar_handoff,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _is_contact_handoff_event(event: CalendarEvent) -> bool:
+    return bool(
+        event.candidate_id
+        and event.job_id
+        and event.event_type in (EventType.screening, EventType.interview)
+        and event.status in (EventStatus.scheduled, EventStatus.completed)
+    )
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -205,6 +219,7 @@ async def create_event(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new calendar event."""
+    await ensure_optional_job_membership(db, current_user, body.job_id)
     event = CalendarEvent(
         title=body.title,
         description=body.description,
@@ -223,6 +238,17 @@ async def create_event(
         status=EventStatus.scheduled,
     )
     db.add(event)
+    await db.flush()
+    if _is_contact_handoff_event(event):
+        await maybe_sync_calendar_handoff(
+            db,
+            candidate_id=event.candidate_id,
+            job_id=event.job_id,
+            event_id=event.id,
+            scheduled=True,
+            actor_user_id=current_user.id,
+            occurred_at=datetime.now(timezone.utc),
+        )
     await db.commit()
     await db.refresh(event)
 
@@ -359,8 +385,43 @@ async def update_event(
             status_code=403, detail="Brak uprawnień do edycji tego wydarzenia"
         )
 
+    previous_handoff = (
+        event.candidate_id,
+        event.job_id,
+        event.id,
+        _is_contact_handoff_event(event),
+    )
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(event, field, value)
+    await ensure_optional_job_membership(db, current_user, event.job_id)
+
+    current_handoff = (
+        event.candidate_id,
+        event.job_id,
+        event.id,
+        _is_contact_handoff_event(event),
+    )
+    if previous_handoff[3] and (
+        not current_handoff[3] or previous_handoff[:3] != current_handoff[:3]
+    ):
+        await maybe_remove_calendar_handoff(
+            db,
+            candidate_id=previous_handoff[0],
+            job_id=previous_handoff[1],
+            event_id=previous_handoff[2],
+            actor_user_id=current_user.id,
+            occurred_at=datetime.now(timezone.utc),
+        )
+    if current_handoff[3]:
+        await maybe_sync_calendar_handoff(
+            db,
+            candidate_id=current_handoff[0],
+            job_id=current_handoff[1],
+            event_id=current_handoff[2],
+            scheduled=True,
+            actor_user_id=current_user.id,
+            occurred_at=datetime.now(timezone.utc),
+        )
 
     record_calendar_audit(
         db,
@@ -421,6 +482,15 @@ async def delete_event(
     if not user_can_mutate_event(event, current_user):
         raise HTTPException(
             status_code=403, detail="Brak uprawnień do usunięcia tego wydarzenia"
+        )
+    if _is_contact_handoff_event(event):
+        await maybe_remove_calendar_handoff(
+            db,
+            candidate_id=event.candidate_id,
+            job_id=event.job_id,
+            event_id=event.id,
+            actor_user_id=current_user.id,
+            occurred_at=datetime.now(timezone.utc),
         )
     record_calendar_audit(
         db,
@@ -679,6 +749,7 @@ async def import_ical(
 
 class M365InviteRequest(BaseModel):
     candidate_id: int
+    job_id: Optional[int] = None
     title: str
     description: Optional[str] = ""
     start: datetime
@@ -711,6 +782,7 @@ async def create_m365_invite(
 
     if body.end <= body.start:
         raise HTTPException(status_code=422, detail="end must be after start")
+    await ensure_optional_job_membership(db, current_user, body.job_id)
 
     conn = await db.scalar(
         select(M365Connection).where(M365Connection.user_id == current_user.id)
@@ -743,6 +815,18 @@ async def create_m365_invite(
         invite_candidate=body.invite_candidate,
         with_teams_meeting=body.add_teams_meeting,
     )
+    row.job_id = body.job_id
+    await db.flush()
+    if _is_contact_handoff_event(row):
+        await maybe_sync_calendar_handoff(
+            db,
+            candidate_id=row.candidate_id,
+            job_id=row.job_id,
+            event_id=row.id,
+            scheduled=True,
+            actor_user_id=current_user.id,
+            occurred_at=datetime.now(timezone.utc),
+        )
     await db.commit()
     await db.refresh(row)
 

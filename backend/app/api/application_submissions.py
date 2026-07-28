@@ -38,6 +38,7 @@ from app.api.recruitment_access import (
 )
 from app.core.database import get_db
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.models.activity import Activity
 from app.models.application_submission import (
     ApplicationSubmission,
@@ -409,6 +410,16 @@ async def resolve_application_submission(
         # preserves the invariant relied on by the snapshot FK.
         await db.flush()
         await create_original_cv_snapshot(db, opened_stage)
+        # Wspólny blok dla obu gałęzi (link i create) — wcześniej hook kolejki
+        # kontaktu wisiał tylko przy tworzeniu kandydata, więc zgłoszenie
+        # podpięte pod istniejącego kandydata nie zakładało okazji kontaktu.
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=opened_stage.candidate_id,
+            job_id=opened_stage.job_id,
+            source="pipeline",
+            occurred_at=opened_stage.moved_at,
+        )
 
     submission.reviewed_by = current_user.id
     submission.reviewed_at = datetime.now(timezone.utc)
