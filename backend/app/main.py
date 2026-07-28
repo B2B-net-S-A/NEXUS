@@ -1088,6 +1088,126 @@ def _resolve_deployed_at() -> str:
     return candidates[0][1]
 
 
+# Rozmiar wektora kolekcji kandydatów. Nie zmienia się przez całe życie procesu,
+# a jego odczyt kosztuje dwa dodatkowe obiegi do Qdranta (`get_collections` +
+# `get_collection`). Bez tego cache'u sonda poniżej mieściła się w ~2,4 s przy
+# limicie 3 s — czyli przy pierwszym drgnięciu sieci meldowałaby awarię, której
+# nie ma. Fałszywy alarm w healthchecku jest gorszy niż jego brak, bo uczy
+# ignorować kolor.
+_qdrant_vector_size: int | None = None
+
+
+class _QdrantSlow(Exception):
+    """Qdrant odpowiada, ale wolniej niż limit klienta — żywy, nie zepsuty.
+
+    Osobny typ, bo tych dwóch stanów NIE wolno mylić. Klient ma własny limit
+    (2 s) i przy wolnej odpowiedzi rzuca `ResponseHandlingException` owijający
+    `httpx.TimeoutException` — czyli zwykły wyjątek, a nie `asyncio.TimeoutError`.
+    Bez tego rozróżnienia wolny-ale-żywy Qdrant lądował w gałęzi „unhealthy",
+    mimo że komentarz obok obiecywał „degraded". Wskazali to dwaj recenzenci
+    PR #986 i mieli rację: limit `wait_for` (5 s) jest wtedy nieosiągalny,
+    bo klient przerywa pierwszy.
+    """
+
+
+def _czy_przekroczony_czas(blad: BaseException) -> bool:
+    """Czy w łańcuchu przyczyn siedzi przekroczenie czasu (a nie inny błąd).
+
+    `qdrant-client` owija wyjątki `httpx`, więc typ zewnętrzny nic nie mówi:
+    tak samo wygląda odmowa połączenia (Qdrant leży → `unhealthy`) i wolna
+    odpowiedź (Qdrant żyje → `degraded`). Rozstrzyga dopiero `__cause__`.
+    """
+    widziane: set[int] = set()
+    biezacy: BaseException | None = blad
+    while biezacy is not None and id(biezacy) not in widziane:
+        widziane.add(id(biezacy))
+        if isinstance(biezacy, TimeoutError):
+            return True
+        # httpx importujemy leniwie — nie chcemy zależności w ścieżce startowej.
+        try:
+            import httpx
+
+            if isinstance(biezacy, httpx.TimeoutException):
+                return True
+        except ImportError:
+            pass
+        biezacy = biezacy.__cause__ or biezacy.__context__
+    return False
+
+
+def _probe_qdrant() -> str:
+    """Sprawdza Qdranta WYKONUJĄC zapytanie, którym żyje aplikacja.
+
+    Dlaczego nie sama łączność. 2026-07-28 podbicie ``qdrant-client`` 1.12.1 →
+    1.18.0 usunęło ``QdrantClient.search()``. Padło siedem wywołań w kodzie —
+    wyszukiwanie semantyczne, matching, podpowiedzi do pul, klasyfikacja CC —
+    a serwer Qdranta przez cały czas był zdrowy i odpowiadał. Ping byłby zielony
+    przez całą dwugodzinną awarię; niezgodna była biblioteka po naszej stronie.
+
+    Awaria była cicha z trzech powodów naraz: CI nie ma Qdranta, ``/api/health``
+    nie miał klucza ``qdrant``, a wyjątek na ścieżce wyszukiwania jest połykany
+    i zwraca pustą listę — użytkownik widzi „brak wyników", nie błąd.
+
+    Uruchamiane w wątku (klient jest synchroniczny) i objęte limitem czasu przez
+    wywołującego.
+    """
+    global _qdrant_vector_size
+
+    from qdrant_client import QdrantClient
+
+    from app.services.embedding_service import candidates_collection_name
+
+    client = QdrantClient(
+        host=settings.QDRANT_HOST,
+        port=settings.QDRANT_PORT,
+        timeout=2,
+    )
+    collection = candidates_collection_name()
+
+    try:
+        if _qdrant_vector_size is None:
+            names = {c.name for c in client.get_collections().collections}
+            if collection not in names:
+                # Serwer żyje, ale kolekcji nie ma: indeks nigdy nie powstał albo
+                # wskazujemy na złą instancję. Jedno i drugie to cicha utrata
+                # wyszukiwania, więc nie udajemy, że jest dobrze.
+                return "misconfigured"
+
+            vectors = client.get_collection(collection).config.params.vectors
+            size = getattr(vectors, "size", None)
+            if size is None and isinstance(vectors, dict):
+                # Konfiguracja z nazwanymi wektorami — bierzemy pierwszy.
+                size = getattr(next(iter(vectors.values()), None), "size", None)
+            if not size:
+                return "degraded"
+            _qdrant_vector_size = int(size)
+    except Exception as blad:
+        if _czy_przekroczony_czas(blad):
+            raise _QdrantSlow from blad
+        raise
+
+    # Sedno sondy: to samo wywołanie, którego używa `embedding_service`. Gdy
+    # kolejny bump usunie albo zmieni tę metodę, poniższe rzuci wyjątek i
+    # healthcheck zrobi się czerwony w minutę, a nie po dwóch godzinach zgłoszeń
+    # „wyszukiwarka nic nie znajduje".
+    #
+    # Uwaga przy migracji na `query_points()`: to wywołanie MUSI zostać
+    # zmienione razem z siedmioma w `app/services/` — inaczej sonda przestanie
+    # sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
+    try:
+        client.search(
+            collection_name=collection,
+            query_vector=[0.0] * _qdrant_vector_size,
+            limit=1,
+            with_payload=False,
+        )
+    except Exception as blad:
+        if _czy_przekroczony_czas(blad):
+            raise _QdrantSlow from blad
+        raise
+    return "healthy"
+
+
 @app.get("/api/health")
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
@@ -1270,6 +1390,29 @@ async def api_health_check():
                 checks["cortex"] = "healthy"
     except Exception:
         checks["cortex"] = "degraded"
+
+    # Qdrant — patrz `_probe_qdrant` po uzasadnienie kształtu tej sondy.
+    #
+    # Nigdy nie przestawia `overall` ani kodu HTTP: utrata wektorów to utrata
+    # funkcji, nie utrata aplikacji, a healthcheck Dockera restartuje kontener
+    # po 503 — restart nie naprawiłby ani niezgodnej biblioteki, ani cudzego
+    # serwera, tylko dołożyłby przestój do awarii.
+    try:
+        checks["qdrant"] = await asyncio.wait_for(
+            asyncio.to_thread(_probe_qdrant), timeout=5.0
+        )
+    except (_QdrantSlow, TimeoutError):
+        # Świadomie NIE „unhealthy": Qdrant odpowiada, tylko wolno. Mylenie
+        # „padł" z „zamulił" produkuje fałszywe alarmy, a te uczą ignorować
+        # healthcheck.
+        #
+        # Dwa różne limity, w tej kolejności: klient przerywa po 2 s
+        # (`_QdrantSlow`), `wait_for` po 5 s (`TimeoutError`) — ten drugi łapie
+        # zwisy poza samym HTTP, np. rozwiązywanie nazwy albo głodzenie puli
+        # wątków.
+        checks["qdrant"] = "degraded"
+    except Exception:
+        checks["qdrant"] = "unhealthy"
 
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
