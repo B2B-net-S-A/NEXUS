@@ -1208,7 +1208,7 @@ def _assert_required_schema() -> None:
 
     constraint_query = sa.text(
         """
-        SELECT constraint_row.contype
+        SELECT constraint_row.contype::text
         FROM pg_constraint AS constraint_row
         WHERE constraint_row.conrelid = TO_REGCLASS(:table_name)
           AND constraint_row.conname = :constraint_name
@@ -1233,7 +1233,7 @@ def _assert_required_schema() -> None:
 
     foreign_key_query = sa.text(
         """
-        SELECT constraint_row.confdeltype
+        SELECT constraint_row.confdeltype::text
         FROM pg_constraint AS constraint_row
         JOIN pg_attribute AS source_column
           ON source_column.attrelid = constraint_row.conrelid

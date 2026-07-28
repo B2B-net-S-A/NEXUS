@@ -127,7 +127,8 @@ def test_migration_is_retry_safe() -> None:
     assert "ck_priority_demand_recommendations_minimum" in source
     assert "uq_priority_assignment_member_job" in source
     assert "expected_recommendations >= 3" in source
-    assert "constraint_row.confdeltype" in source
+    assert "SELECT constraint_row.contype::text" in source
+    assert "SELECT constraint_row.confdeltype::text" in source
     assert "column_names" in source
     assert "predicate_definition" in source
     assert "_canonical_index_predicate" in source
