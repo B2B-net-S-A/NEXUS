@@ -30,6 +30,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { requestHistoryApi } from "@/lib/api";
+import { assignErrorMessage } from "@/lib/assign-error";
 import type {
   RequestHistoryEntry,
   RequestHistoryResponse,
@@ -133,18 +134,8 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
       qc.invalidateQueries({ queryKey: ["job", jobId] });
       showToast("Dodano championa do pipeline", "success");
     },
-    onError: (err: unknown) => {
-      // Axios-style error narrowing
-      const status =
-        typeof err === "object" && err !== null && "response" in err
-          ? (err as { response?: { status?: number } }).response?.status
-          : undefined;
-      if (status === 409) {
-        showToast("Kandydat już jest w tym pipeline", "error");
-      } else {
-        showToast("Nie udało się dodać championa", "error");
-      }
-    },
+    onError: (error: unknown) =>
+      showToast(assignErrorMessage(error), "error"),
   });
 
   const closed = query.data?.closed ?? [];

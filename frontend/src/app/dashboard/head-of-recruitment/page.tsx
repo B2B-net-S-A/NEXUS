@@ -10,7 +10,8 @@ import { Badge } from"@/components/ui/badge"
 import { PageHeader, StatCard, StatCardGrid } from"@/components/ds"
 import { ChampionsPodium } from"@/components/v2/gamification/ChampionsPodium"
 import { TeamKpiPanel } from"@/components/v2/kpi/TeamKpiPanel"
-import { useAuthStore } from"@/store/auth"
+import { TeamAllocationBoard } from "@/components/v2/priority-work"
+import { hasRole, useAuthStore } from"@/store/auth"
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -268,7 +269,7 @@ export default function HeadOfRecruitmentDashboard() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
 
- const isAllowed = !!user && (user.role === "head_of_recruitment" || user.role === "admin")
+ const isAllowed = hasRole(user, "head_of_recruitment", "admin")
 
  const { data: summary } = useQuery<SummaryResponse>({
  queryKey: ["team-structure-summary"],
@@ -327,6 +328,8 @@ export default function HeadOfRecruitmentDashboard() {
  title="Struktura zespołu rekrutacji"
  description="Macierze przypisań + aktualne wyniki konkursów."
  />
+
+ <TeamAllocationBoard />
 
  {/* Stats */}
  <StatCardGrid className="lg:grid-cols-5">

@@ -14,6 +14,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { assignErrorMessage } from "@/lib/assign-error";
 
 interface Props {
   open: boolean;
@@ -38,12 +39,14 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
   const { showSuccess, showError } = useToast();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [addError, setAddError] = useState<string | null>(null);
   const debouncedQuery = useDebouncedValue(query.trim(), 300);
 
   useEffect(() => {
     if (!open) {
       setQuery("");
       setSelected(new Set());
+      setAddError(null);
     }
   }, [open]);
 
@@ -92,10 +95,12 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
   };
 
   const addMutation = useMutation({
-    mutationFn: () =>
-      proposalsBulkApi.add(jobId, {
+    mutationFn: () => {
+      setAddError(null);
+      return proposalsBulkApi.add(jobId, {
         candidate_ids: Array.from(selected),
-      }),
+      });
+    },
     onSuccess: (result: BulkProposalsResponse) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
@@ -119,8 +124,10 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
       setSelected(new Set());
       if (result.total_added > 0) onClose();
     },
-    onError: () => {
-      showError("Nie udało się dodać kandydatów do pipeline");
+    onError: (error: unknown) => {
+      const message = assignErrorMessage(error);
+      setAddError(message);
+      showError(message);
     },
   });
 
@@ -186,6 +193,19 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
 
         {/* Results */}
         <div className="flex-1 overflow-y-auto px-3 py-2">
+          {addError && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 px-4 py-3 m-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive"
+            >
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium">Nie można dodać kandydatów</p>
+                <p className="mt-0.5 text-xs">{addError}</p>
+              </div>
+            </div>
+          )}
+
           {isError && (
             <div className="flex items-center gap-2 px-4 py-3 m-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
               <AlertCircle className="w-4 h-4 shrink-0" />

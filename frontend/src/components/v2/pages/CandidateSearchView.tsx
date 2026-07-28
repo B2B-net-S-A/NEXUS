@@ -48,6 +48,7 @@ import {
   summarizeBreakdown,
   type MatchBreakdown,
 } from "@/lib/match-breakdown";
+import { assignErrorMessage } from "@/lib/assign-error";
 
 const DEFAULT_REQUEST: CandidateSearchRequest = {
   q: null,
@@ -296,7 +297,7 @@ export function CandidateSearchView({
       invalidatePipeline();
       onBulkAdded?.(resp);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Bulk add nie powiódł się");
+      setError(assignErrorMessage(err));
     } finally {
       setBulkPending(false);
     }

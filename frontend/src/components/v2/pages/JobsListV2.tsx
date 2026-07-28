@@ -59,6 +59,10 @@ import {
  initialMineFromUrl,
  initialStatusFromUrl,
 } from"@/lib/jobs-url-filters";
+import type {
+ PriorityChannel,
+ PriorityRank,
+} from "@/lib/priority-work-api";
 
 type JobType ="all" |"body_leasing" |"sales" |"tenders";
 
@@ -114,12 +118,73 @@ const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
 ];
 
 type JobSortValue = "newest" | "oldest" | "deadline";
+type PriorityWorkFilter = "any" | "assigned" | "carry_over" | "either";
 
 const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
  { value: "newest", label: "Od najnowszej" },
  { value: "oldest", label: "Od najstarszej" },
  { value: "deadline", label: "Wg terminu" },
 ];
+
+const PRIORITY_WORK_OPTIONS: {
+ value: PriorityWorkFilter;
+ label: string;
+}[] = [
+ { value: "any", label: "Priority Work: wszystko" },
+ { value: "assigned", label: "Przydzielone w planie" },
+ { value: "carry_over", label: "Tylko carry-over" },
+ { value: "either", label: "Plan lub carry-over" },
+];
+
+interface JobPriorityWorkSummary {
+ priority_assignment?: {
+ id: number;
+ rank: PriorityRank;
+ channel: PriorityChannel;
+ } | null;
+ priority_carry_over_count?: number | null;
+}
+
+function priorityChannelLabel(channel: PriorityChannel): string {
+ if (channel === "database") return "Baza NEXUS";
+ if (channel === "linkedin") return "LinkedIn";
+ return "TAC / mieszany";
+}
+
+export function JobPriorityWorkBadges({
+ job,
+}: {
+ job: JobPriorityWorkSummary;
+}) {
+ const assignment = job.priority_assignment;
+ const carryOverCount = job.priority_carry_over_count ?? 0;
+ if (!assignment && carryOverCount === 0) return null;
+ return (
+ <div
+ className="flex flex-wrap items-center gap-1"
+ data-testid="job-priority-work-badges"
+ >
+ {assignment ? (
+ <Badge
+ size="sm"
+ variant="soft"
+ aria-label={`Assignment Priority Work ${assignment.rank}`}
+ >
+ Plan {assignment.rank} · {priorityChannelLabel(assignment.channel)}
+ </Badge>
+ ) : null}
+ {carryOverCount > 0 ? (
+ <Badge
+ size="sm"
+ variant="warning"
+ aria-label={`${carryOverCount} procesów carry-over`}
+ >
+ Carry-over: {carryOverCount}
+ </Badge>
+ ) : null}
+ </div>
+ );
+}
 
 /** Local-date ISO string (YYYY-MM-DD) — avoids UTC off-by-one near midnight. */
 function isoLocal(d: Date): string {
@@ -253,6 +318,7 @@ function JobsTable({
  Brak TAC
  </Badge>
  )}
+ <JobPriorityWorkBadges job={job} />
  </div>
  </TableCell>
  <TableCell>
@@ -341,6 +407,8 @@ export function JobsListV2() {
  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>("any");
  const [openOnly, setOpenOnly] = useState(false);
  const [sort, setSort] = useState<JobSortValue>("newest");
+ const [priorityWorkFilter, setPriorityWorkFilter] =
+ useState<PriorityWorkFilter>("any");
  const [page, setPage] = useState(1);
  const [showAdd, setShowAdd] = useState(false);
  const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
@@ -375,6 +443,7 @@ export function JobsListV2() {
  deadlinePreset,
  openOnly ? 1 : 0,
  sort,
+ priorityWorkFilter,
  page,
  ],
  queryFn: () =>
@@ -391,6 +460,8 @@ export function JobsListV2() {
  needs_sourcing: needsSourcing ? true : undefined,
  active_in_search: activeInSearch ? true : undefined,
  open_only: openOnly ? true : undefined,
+ priority_work:
+ priorityWorkFilter === "any" ? undefined : priorityWorkFilter,
  sort,
  ...dl,
  page,
@@ -532,6 +603,27 @@ export function JobsListV2() {
  : `Status: ${n}`
  }
  />
+ <Select
+ value={priorityWorkFilter}
+ onValueChange={(value) => {
+ setPriorityWorkFilter(value as PriorityWorkFilter);
+ setPage(1);
+ }}
+ >
+ <SelectTrigger
+ className="h-9 w-[210px] font-medium"
+ aria-label="Filtr Priority Work"
+ >
+ <SelectValue placeholder="Priority Work: wszystko" />
+ </SelectTrigger>
+ <SelectContent>
+ {PRIORITY_WORK_OPTIONS.map((option) => (
+ <SelectItem key={option.value} value={option.value}>
+ {option.label}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
  <div className="w-[190px]">
  <ClientMultiSelect
  value={clientIds}
@@ -754,6 +846,13 @@ export function JobsListV2() {
  )}
  </div>
  </div>
+
+ {(job.priority_assignment ||
+ (job.priority_carry_over_count ?? 0) > 0) && (
+ <div className="mb-2">
+ <JobPriorityWorkBadges job={job} />
+ </div>
+ )}
 
  <div className="mb-2 flex items-center gap-3 flex-wrap">
  <OwnerBadge user={job.primary_owner ?? null} size="sm" />

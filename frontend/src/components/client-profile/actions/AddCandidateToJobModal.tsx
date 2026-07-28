@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import api from "@/lib/api";
+import { assignErrorMessage } from "@/lib/assign-error";
 import { useToast } from "@/components/Toast";
 import { ModalShell } from "./CloseJobAsLostModal";
 
@@ -66,7 +67,7 @@ export function AddCandidateToJobModal({
       showSuccess("Kandydat dodany do pipeline");
       onClose();
     },
-    onError: () => showError("Nie udało się dodać kandydata"),
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
   });
 
   return (
