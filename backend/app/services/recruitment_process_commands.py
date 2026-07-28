@@ -51,6 +51,7 @@ from app.services.priority_work_policy import (
     assert_priority_work_access,
     current_priority_assignment,
     effective_priority_mode,
+    invalidate_milestone_counts,
 )
 from app.services.semantic_states import LEGACY_TO_SEMANTIC
 
@@ -60,6 +61,10 @@ _TERMINAL_STAGES = {
     PipelineStage.rejected,
     PipelineStage.withdrawn,
 }
+
+# Stopnie, które `assignment_milestone_counts` faktycznie zlicza — tylko one
+# mogą unieważnić memo progresu otwarte przez `milestone_counts_scope`.
+_MILESTONE_COUNT_STAGES = {PipelineStage.verified, PipelineStage.cv_sent}
 
 
 @dataclass(frozen=True)
@@ -647,6 +652,8 @@ async def transition_process(
     )
     db.add(stage_row)
     await db.flush()
+    if stage_row.stage in _MILESTONE_COUNT_STAGES:
+        invalidate_milestone_counts()
     semantics = (await _resolve_stage_semantics(db, [stage_row]))[stage_row.id]
 
     process = previous_process
@@ -871,6 +878,7 @@ async def accept_pending_verification(
     stage.verification_status = VerificationStatus.active
     stage.approved_by = approver_user_id
     stage.approved_at = datetime.now(timezone.utc)
+    invalidate_milestone_counts()
     if stage.moved_by is not None:
         await record_accepted_verification(
             db,
@@ -1017,6 +1025,9 @@ async def void_process(
     process.voided_at = now
     process.closed_at = now
     process.state_version = (process.state_version or 0) + 1
+    # Voided procesy wypadają z `classified_process`, więc progres assignmentu
+    # policzony przed korektą jest już nieaktualny.
+    invalidate_milestone_counts()
     await db.flush()
     return process
 

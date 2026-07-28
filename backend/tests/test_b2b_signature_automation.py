@@ -121,8 +121,15 @@ async def _seed_legacy_generated(*, created_by: int | None = None) -> int:
         return row.id
 
 
-async def _seed_bound_scenario(*, created_by: int) -> dict[str, Any]:
-    """Seed a candidate in one recruitment plus a linked unsigned DOCX row."""
+async def _seed_bound_scenario(
+    *, created_by: int, entry_stage: PipelineStage = PipelineStage.onboarding
+) -> dict[str, Any]:
+    """Seed a candidate in one recruitment plus a linked unsigned DOCX row.
+
+    ``entry_stage`` lets a test start from a terminal stage — a Traffit-imported
+    ``rejected`` history is the common real-world shape and leaves the pair with
+    no open recruitment process.
+    """
     unique = uuid.uuid4().hex[:8]
     year, seq, number = _unique_number()
     async with AsyncSessionLocal() as db:
@@ -151,7 +158,7 @@ async def _seed_bound_scenario(*, created_by: int) -> dict[str, Any]:
             CandidateStage(
                 candidate_id=candidate.id,
                 job_id=job.id,
-                stage=PipelineStage.onboarding,
+                stage=entry_stage,
                 moved_by=created_by,
             )
         )
@@ -489,6 +496,47 @@ async def test_confirm_fully_signed_creates_complete_atomic_handoff(
     assert employment["client_name"] == scenario["client_name"]
     assert employment["contract_id"] == body["contract_id"]
     assert employment["job_id"] == scenario["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_signs_when_the_recruitment_history_is_already_closed(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Priority Lock must not turn a closed recruitment into a failed signature.
+
+    Traffit-imported history routinely ends on ``rejected``, so the pair has no
+    open process and the hired hook runs with ``require_existing=True``.  At the
+    default ``off`` mode that must stay inert.
+    """
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(
+        created_by=admin_id, entry_stage=PipelineStage.rejected
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["generated_contract"]["signature_status"] == "signed_both"
+    assert isinstance(body["contract_id"], int)
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        assert row.contract_id == body["contract_id"]
+
+        latest_stage = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == scenario["candidate_id"],
+                CandidateStage.job_id == scenario["job_id"],
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+        assert latest_stage is not None
+        assert latest_stage.stage == PipelineStage.hired
 
 
 @pytest.mark.asyncio

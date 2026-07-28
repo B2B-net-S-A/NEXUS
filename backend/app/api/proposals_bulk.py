@@ -46,6 +46,7 @@ from app.services.candidate_job_eligibility import (
     extract_excluded_client_ids,
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
+from app.services.priority_work_policy import milestone_counts_scope
 from app.services.recruitment_process_commands import open_process
 
 router = APIRouter()
@@ -294,105 +295,112 @@ async def bulk_add_proposals(
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
 
-    for candidate_id in body.candidate_ids:
-        candidate = candidates_by_id.get(candidate_id)
-        if candidate is None:
-            skipped.append(
-                BulkSkippedRow(candidate_id=candidate_id, reason="candidate_not_found")
-            )
-            continue
+    # Jeden skan progresu assignmentu na cały batch: bez tego każda
+    # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
+    with milestone_counts_scope():
+        for candidate_id in body.candidate_ids:
+            candidate = candidates_by_id.get(candidate_id)
+            if candidate is None:
+                skipped.append(
+                    BulkSkippedRow(
+                        candidate_id=candidate_id, reason="candidate_not_found"
+                    )
+                )
+                continue
 
-        # Single eligibility policy — replaces the ad-hoc blacklist + in-job
-        # checks and additionally honours client conflicts (blacklist/nda/
-        # competitor) and candidate-declared excluded clients (SEARCH-P0-04).
-        decision = evaluate_eligibility(
-            EligibilityInput(
-                candidate_status=candidate.status.value,
-                job_client_id=job.client_id,
-                conflicts=tuple(conflicts_by_candidate.get(candidate_id, ())),
-                excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
-                already_in_job=candidate_id in already_in_job_set,
-                rejected_by_hiring_manager=candidate_id in manager_verdicts,
-            ),
-            now,
-        )
-        if not decision.assignment_allowed:
-            # Name the manager and the date when the veto is what blocked —
-            # "hiring manager already rejected" alone sends the recruiter
-            # digging through the candidate's history to find out who.
-            label = decision.reason
-            verdict = manager_verdicts.get(candidate_id)
-            if (
-                decision.reason_code is EligibilityReason.rejected_by_hiring_manager
-                and verdict is not None
-            ):
-                label = verdict.as_polish_detail()
-            skipped.append(
-                BulkSkippedRow(
-                    candidate_id=candidate_id,
-                    reason=_SKIP_REASON_BY_ELIGIBILITY.get(
-                        decision.reason_code, "blacklisted"
+            # Single eligibility policy — replaces the ad-hoc blacklist + in-job
+            # checks and additionally honours client conflicts (blacklist/nda/
+            # competitor) and candidate-declared excluded clients (SEARCH-P0-04).
+            decision = evaluate_eligibility(
+                EligibilityInput(
+                    candidate_status=candidate.status.value,
+                    job_client_id=job.client_id,
+                    conflicts=tuple(conflicts_by_candidate.get(candidate_id, ())),
+                    excluded_client_ids=extract_excluded_client_ids(
+                        candidate.preferences
                     ),
-                    reason_label=label,
-                )
+                    already_in_job=candidate_id in already_in_job_set,
+                    rejected_by_hiring_manager=candidate_id in manager_verdicts,
+                ),
+                now,
             )
-            continue
-
-        # Assignment allowed — surface a soft warning if one applies.
-        warn_reason = _WARNING_REASON_BY_ELIGIBILITY.get(decision.reason_code)
-        if warn_reason is not None:
-            warnings.append(
-                BulkWarningRow(
-                    candidate_id=candidate_id,
-                    reason=warn_reason,
-                    reason_label=decision.reason,
+            if not decision.assignment_allowed:
+                # Name the manager and the date when the veto is what blocked —
+                # "hiring manager already rejected" alone sends the recruiter
+                # digging through the candidate's history to find out who.
+                label = decision.reason
+                verdict = manager_verdicts.get(candidate_id)
+                if (
+                    decision.reason_code is EligibilityReason.rejected_by_hiring_manager
+                    and verdict is not None
+                ):
+                    label = verdict.as_polish_detail()
+                skipped.append(
+                    BulkSkippedRow(
+                        candidate_id=candidate_id,
+                        reason=_SKIP_REASON_BY_ELIGIBILITY.get(
+                            decision.reason_code, "blacklisted"
+                        ),
+                        reason_label=label,
+                    )
                 )
-            )
+                continue
 
-        stage = await open_process(
-            db,
-            candidate_id=candidate_id,
-            job_id=job_id,
-            stage=legacy_enum,
-            stage_def_id=stage_def.id if stage_def else None,
-            actor_user_id=current_user.id,
-            work_channel=PriorityChannel.database,
-        )
-        # M3-ACT-01: every stage-creating entry point must snapshot the CV that
-        # was current at assignment (the evidence of what was submitted) + emit
-        # the `snapshot_created` audit — same invariant the single-assign path
-        # (recommendations.assign_candidate_to_job) already holds. Bulk-add was
-        # skipping it, so a client dispute could lack the sent CV. Idempotent +
-        # fail-soft on a missing CV, so it never breaks the batch.
-        await create_original_cv_snapshot(db, stage)
-
-        # Optional shared note attached to every newly added candidate.
-        if body.note:
-            db.add(
-                Note(
-                    content=body.note,
-                    note_type=NoteType.private,
-                    candidate_id=candidate_id,
-                    job_id=job_id,
-                    author_id=current_user.id,
+            # Assignment allowed — surface a soft warning if one applies.
+            warn_reason = _WARNING_REASON_BY_ELIGIBILITY.get(decision.reason_code)
+            if warn_reason is not None:
+                warnings.append(
+                    BulkWarningRow(
+                        candidate_id=candidate_id,
+                        reason=warn_reason,
+                        reason_label=decision.reason,
+                    )
                 )
+
+            stage = await open_process(
+                db,
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=legacy_enum,
+                stage_def_id=stage_def.id if stage_def else None,
+                actor_user_id=current_user.id,
+                work_channel=PriorityChannel.database,
             )
+            # M3-ACT-01: every stage-creating entry point must snapshot the CV that
+            # was current at assignment (the evidence of what was submitted) + emit
+            # the `snapshot_created` audit — same invariant the single-assign path
+            # (recommendations.assign_candidate_to_job) already holds. Bulk-add was
+            # skipping it, so a client dispute could lack the sent CV. Idempotent +
+            # fail-soft on a missing CV, so it never breaks the batch.
+            await create_original_cv_snapshot(db, stage)
 
-        # Optional shared tags merged into the candidate's tags JSONB. We
-        # treat candidate.tags as a list when populated and a placeholder dict
-        # otherwise — same convention as the rest of the codebase.
-        if body.tags:
-            existing = candidate.tags
-            if isinstance(existing, list):
-                merged = list({*existing, *body.tags})
-                candidate.tags = merged
-            elif isinstance(existing, dict) and "items" in existing:
-                merged = list({*existing.get("items", []), *body.tags})
-                candidate.tags = {"items": merged}
-            else:
-                candidate.tags = list(set(body.tags))
+            # Optional shared note attached to every newly added candidate.
+            if body.note:
+                db.add(
+                    Note(
+                        content=body.note,
+                        note_type=NoteType.private,
+                        candidate_id=candidate_id,
+                        job_id=job_id,
+                        author_id=current_user.id,
+                    )
+                )
 
-        added.append(candidate_id)
+            # Optional shared tags merged into the candidate's tags JSONB. We
+            # treat candidate.tags as a list when populated and a placeholder dict
+            # otherwise — same convention as the rest of the codebase.
+            if body.tags:
+                existing = candidate.tags
+                if isinstance(existing, list):
+                    merged = list({*existing, *body.tags})
+                    candidate.tags = merged
+                elif isinstance(existing, dict) and "items" in existing:
+                    merged = list({*existing.get("items", []), *body.tags})
+                    candidate.tags = {"items": merged}
+                else:
+                    candidate.tags = list(set(body.tags))
+
+            added.append(candidate_id)
 
     await db.commit()
 

@@ -18,9 +18,11 @@ Important invariants:
 from __future__ import annotations
 
 import enum
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Optional
+from typing import Iterable, Iterator, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
@@ -156,6 +158,39 @@ _MODE_ORDER = {
 }
 _RANK_ORDER = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5}
 
+# ``None`` = memo wyłączone.  W środku bloku: assignment_id -> progres albo
+# ``None`` dla „assignment nie ma jeszcze żadnego kamienia milowego".
+_milestone_counts_memo: ContextVar[Optional[dict[int, Optional[dict[str, int]]]]] = (
+    ContextVar("priority_milestone_counts_memo", default=None)
+)
+
+
+@contextmanager
+def milestone_counts_scope() -> Iterator[None]:
+    """Reuse assignment progress across one pass over a single job.
+
+    ``assignment_milestone_counts`` scans ``VERIFIER_ANCHORED_CTE``; a bulk add
+    repeats that identical scan once per candidate while the writer holds the
+    candidate and job row locks.  The memo lives only inside this block — it is
+    a ``ContextVar``, so it never outlives the request, never crosses a task
+    boundary, and is dropped by :func:`invalidate_milestone_counts` as soon as a
+    write inside the block can change a count.
+    """
+
+    token = _milestone_counts_memo.set({})
+    try:
+        yield
+    finally:
+        _milestone_counts_memo.reset(token)
+
+
+def invalidate_milestone_counts() -> None:
+    """Drop memoized progress after a write that can change a milestone count."""
+
+    memo = _milestone_counts_memo.get()
+    if memo is not None:
+        memo.clear()
+
 
 def _coerce_mode(value: object) -> PriorityMode:
     if isinstance(value, PriorityMode):
@@ -275,12 +310,35 @@ async def assignment_milestone_counts(
     ``classified_mf`` CTEs here prevents an old attempt's ``cv_sent`` from
     completing a newer assignment and requires recommendation time to be at
     or after the accepted ``verified`` in the same process attempt.
+
+    Inside :func:`milestone_counts_scope` each assignment is scanned once.
     """
 
     ids = list(dict.fromkeys(assignment_ids))
     if not ids:
         return {}
 
+    memo = _milestone_counts_memo.get()
+    if memo is None:
+        return await _query_milestone_counts(db, ids)
+
+    missing = [assignment_id for assignment_id in ids if assignment_id not in memo]
+    if missing:
+        fetched = await _query_milestone_counts(db, missing)
+        memo.update(
+            {assignment_id: fetched.get(assignment_id) for assignment_id in missing}
+        )
+    return {
+        assignment_id: progress
+        for assignment_id in ids
+        if (progress := memo.get(assignment_id)) is not None
+    }
+
+
+async def _query_milestone_counts(
+    db: AsyncSession,
+    ids: list[int],
+) -> dict[int, dict[str, int]]:
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
     rows = (
@@ -469,7 +527,9 @@ async def decide_priority_work_access(
             is_continuation=True,
         )
 
-    if require_existing:
+    # `off` nie może odrzucić żadnej pracy człowieka — automat podpisu umowy
+    # zachowuje się wtedy jak przed Priority Lockiem i wpada niżej w `mode_off`.
+    if require_existing and mode is not PriorityMode.off:
         return PriorityWorkDecision(
             allowed=False,
             mode=mode,

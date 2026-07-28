@@ -84,6 +84,99 @@ async def test_assignment_progress_requires_verified_before_cv_sent_in_same_atte
     assert params == {"assignment_ids": [77]}
 
 
+def _milestone_db(*batches: list[SimpleNamespace]) -> SimpleNamespace:
+    results = []
+    for batch in batches:
+        result = MagicMock()
+        result.all.return_value = batch
+        results.append(result)
+    return SimpleNamespace(execute=AsyncMock(side_effect=results))
+
+
+async def test_milestone_counts_scan_once_per_assignment_inside_a_scope() -> None:
+    row = SimpleNamespace(assignment_id=77, verifications=2, recommendations=1)
+    db = _milestone_db([row], [row])
+
+    with policy.milestone_counts_scope():
+        first = await policy.assignment_milestone_counts(db, [77])
+        second = await policy.assignment_milestone_counts(db, [77])
+
+    assert first == second == {77: {"verifications": 2, "recommendations": 1}}
+    assert db.execute.await_count == 1
+
+
+async def test_milestone_counts_scope_only_scans_the_assignments_it_misses() -> None:
+    db = _milestone_db(
+        [SimpleNamespace(assignment_id=77, verifications=2, recommendations=1)],
+        [SimpleNamespace(assignment_id=88, verifications=5, recommendations=4)],
+    )
+
+    with policy.milestone_counts_scope():
+        await policy.assignment_milestone_counts(db, [77])
+        both = await policy.assignment_milestone_counts(db, [77, 88])
+
+    assert both == {
+        77: {"verifications": 2, "recommendations": 1},
+        88: {"verifications": 5, "recommendations": 4},
+    }
+    assert [call.args[1] for call in db.execute.await_args_list] == [
+        {"assignment_ids": [77]},
+        {"assignment_ids": [88]},
+    ]
+
+
+async def test_assignment_without_milestones_stays_absent_and_is_not_rescanned() -> (
+    None
+):
+    db = _milestone_db([], [])
+
+    with policy.milestone_counts_scope():
+        first = await policy.assignment_milestone_counts(db, [77])
+        second = await policy.assignment_milestone_counts(db, [77])
+
+    # Callers read absence as zero progress; memoizing it must not invent a row.
+    assert first == second == {}
+    assert db.execute.await_count == 1
+
+
+async def test_milestone_counts_memo_does_not_outlive_its_scope() -> None:
+    row = SimpleNamespace(assignment_id=77, verifications=2, recommendations=1)
+    db = _milestone_db([row], [row])
+
+    with policy.milestone_counts_scope():
+        await policy.assignment_milestone_counts(db, [77])
+    await policy.assignment_milestone_counts(db, [77])
+
+    assert db.execute.await_count == 2
+
+
+async def test_milestone_counts_memo_is_dropped_after_a_milestone_write() -> None:
+    db = _milestone_db(
+        [SimpleNamespace(assignment_id=77, verifications=2, recommendations=1)],
+        [SimpleNamespace(assignment_id=77, verifications=3, recommendations=1)],
+    )
+
+    with policy.milestone_counts_scope():
+        before = await policy.assignment_milestone_counts(db, [77])
+        policy.invalidate_milestone_counts()
+        after = await policy.assignment_milestone_counts(db, [77])
+
+    assert before == {77: {"verifications": 2, "recommendations": 1}}
+    assert after == {77: {"verifications": 3, "recommendations": 1}}
+    assert db.execute.await_count == 2
+
+
+async def test_invalidating_outside_a_scope_is_a_no_op() -> None:
+    policy.invalidate_milestone_counts()
+
+    db = _milestone_db(
+        [SimpleNamespace(assignment_id=77, verifications=1, recommendations=0)]
+    )
+    assert await policy.assignment_milestone_counts(db, [77]) == {
+        77: {"verifications": 1, "recommendations": 0}
+    }
+
+
 async def test_existing_pair_is_always_continuation(monkeypatch) -> None:
     monkeypatch.setattr(
         policy, "effective_priority_mode", AsyncMock(return_value=PriorityMode.enforce)
@@ -98,6 +191,55 @@ async def test_existing_pair_is_always_continuation(monkeypatch) -> None:
     assert decision.allowed is True
     assert decision.is_continuation is True
     assert decision.reason is policy.PriorityWorkReason.continuation
+
+
+async def test_require_existing_is_inert_at_mode_off(monkeypatch) -> None:
+    # `off` is the default rollout mode; signing/contract automation must behave
+    # exactly as it did before Priority Lock existed.
+    monkeypatch.setattr(
+        policy, "effective_priority_mode", AsyncMock(return_value=PriorityMode.off)
+    )
+    current_assignment = AsyncMock()
+    monkeypatch.setattr(policy, "_current_assignment", current_assignment)
+
+    decision = await policy.decide_priority_work_access(
+        AsyncMock(),
+        candidate_id=11,
+        job_id=22,
+        actor_user_id=33,
+        continuation_exists=False,
+        require_existing=True,
+    )
+
+    assert decision.allowed is True
+    assert decision.reason is policy.PriorityWorkReason.mode_off
+    assert decision.is_continuation is False
+    assert decision.violation is False
+    assert decision.kpi_eligible is True
+    assert decision.priority_compliant is None
+    assert decision.assignment_owner_user_id == 33
+    current_assignment.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode", [PriorityMode.shadow, PriorityMode.enforce])
+async def test_require_existing_still_blocks_outside_mode_off(
+    monkeypatch, mode: PriorityMode
+) -> None:
+    monkeypatch.setattr(policy, "effective_priority_mode", AsyncMock(return_value=mode))
+
+    with pytest.raises(policy.PriorityWorkLocked) as caught:
+        await policy.assert_priority_work_access(
+            AsyncMock(),
+            candidate_id=11,
+            job_id=22,
+            actor_user_id=33,
+            continuation_exists=False,
+            require_existing=True,
+        )
+
+    assert caught.value.decision.mode is mode
+    assert caught.value.detail["reason"] == "EXISTING_PROCESS_REQUIRED"
+    assert caught.value.detail["next_action"] == "CONTACT_HEAD_OF_RECRUITMENT"
 
 
 async def test_shadow_records_missing_assignment_without_blocking(monkeypatch) -> None:

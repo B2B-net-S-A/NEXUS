@@ -13,11 +13,16 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.recruitment_pipeline import PipelineStage
-from app.models.recruitment_priority import PriorityOriginKind
+from app.models.recruitment_priority import PriorityMode, PriorityOriginKind
 from app.models.recruitment_process import ProcessStatus
+from app.services import b2b_contract_automation as b2b
 from app.services import process_backfill
 from app.services import recruitment_process_commands as commands
-from app.services.priority_work_policy import PriorityWorkReason
+from app.services.priority_work_policy import (
+    PriorityWorkDecision,
+    PriorityWorkLocked,
+    PriorityWorkReason,
+)
 
 
 def _process(**overrides: object) -> SimpleNamespace:
@@ -650,3 +655,50 @@ def test_pending_verification_decision_uses_candidate_and_stage_locks() -> None:
     assert "select(CandidateStage)" in source
     assert source.count(".with_for_update()") >= 2
     assert "stage.verification_status != VerificationStatus.pending" in source
+
+
+def test_milestone_memo_is_dropped_by_the_writes_it_counts() -> None:
+    """The progress memo may only survive writes that cannot change a count."""
+
+    assert {stage.value for stage in commands._MILESTONE_COUNT_STAGES} == {
+        "verified",
+        "cv_sent",
+    }
+    append = inspect.getsource(commands.transition_process)
+    assert "if stage_row.stage in _MILESTONE_COUNT_STAGES:" in append
+    assert "invalidate_milestone_counts()" in append
+    # Accepting a pending verification turns an already-written `verified` row
+    # into a counted milestone without appending a new stage; voiding a process
+    # drops it out of `classified_process` entirely.
+    for command in (commands.accept_pending_verification, commands.void_process):
+        assert "invalidate_milestone_counts()" in inspect.getsource(command)
+
+
+async def test_b2b_hired_hook_degrades_instead_of_rolling_back_the_signature(
+    monkeypatch,
+) -> None:
+    locked = PriorityWorkLocked(
+        PriorityWorkDecision(
+            allowed=False,
+            mode=PriorityMode.enforce,
+            reason=PriorityWorkReason.existing_process_required,
+            is_continuation=False,
+        ),
+        action="transition_process",
+        candidate_id=11,
+        job_id=22,
+    )
+    monkeypatch.setattr(b2b, "transition_process", AsyncMock(side_effect=locked))
+    db = AsyncMock()
+    # Latest stage lookup, then the hired stage_def lookup.
+    db.scalar = AsyncMock(side_effect=[None, None])
+    db.add = lambda *_args, **_kwargs: pytest.fail("must not audit a skipped move")
+
+    created = await b2b._ensure_hired_stage(
+        db,
+        candidate=SimpleNamespace(id=11),
+        job=SimpleNamespace(id=22, pipeline_template_id=1),
+        actor_id=33,
+    )
+
+    assert created is False

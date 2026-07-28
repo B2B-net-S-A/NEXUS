@@ -214,3 +214,63 @@ def test_every_policy_checked_process_ingress_declares_its_work_channel() -> Non
         "Every human process ingress must declare database/linkedin channel; "
         f"found: {violations}"
     )
+
+
+def _handles_priority_work_locked(handlers: list[ast.excepthandler]) -> bool:
+    for handler in handlers:
+        if handler.type is None:
+            return True
+        caught = (
+            handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+        )
+        if any(ast.unparse(node).endswith("PriorityWorkLocked") for node in caught):
+            return True
+    return False
+
+
+def test_every_require_existing_caller_degrades_instead_of_raising_409() -> None:
+    """``require_existing=True`` is automation, never a user-facing request.
+
+    Its 409 must not escape into the caller's transaction: signing a contract
+    would roll back because the recruitment happens to be closed.
+    """
+
+    violations: list[str] = []
+    for path in _python_files():
+        if path == COMMAND_WRITER:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        guarded: set[tuple[int, int]] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            if not _handles_priority_work_locked(node.handlers):
+                continue
+            for guarded_node in ast.walk(ast.Module(body=node.body, type_ignores=[])):
+                if isinstance(guarded_node, ast.Call):
+                    guarded.add((guarded_node.lineno, guarded_node.col_offset))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+            if "require_existing" not in keywords:
+                continue
+            if ast.unparse(keywords["require_existing"]) != "True":
+                continue
+            if (node.lineno, node.col_offset) in guarded:
+                continue
+            violations.append(f"{_display_path(path)}:{node.lineno}")
+    assert violations == [], (
+        "Automation passing require_existing=True must catch PriorityWorkLocked; "
+        f"found: {violations}"
+    )
+
+
+def test_bulk_ingress_shares_one_assignment_progress_scan() -> None:
+    """The per-candidate loop must not repeat the KPI-wide scan under row locks."""
+
+    source = (APP_ROOT / "api" / "proposals_bulk.py").read_text(encoding="utf-8")
+    scope = source.index("with milestone_counts_scope():")
+    loop = source.index("for candidate_id in body.candidate_ids:")
+    ingress = source.index("await open_process(")
+    assert scope < loop < ingress
