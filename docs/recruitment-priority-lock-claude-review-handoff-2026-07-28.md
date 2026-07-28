@@ -2,8 +2,9 @@
 
 Data: 2026-07-28
 
-Status: implementacja lokalna i skupiona weryfikacja zakończone; PR oraz CI
-`PENDING`
+Status: draft PR
+[#985](https://github.com/artur-t-96/Nexus/pull/985) gotowy do niezależnego
+review; implementacyjny SHA i hosted CI zielone
 
 Branch: `codex/recruitment-priority-lock`
 
@@ -11,7 +12,12 @@ Pierwotny commit bazowy worktree:
 `85195914f70936a06d8ef23d488b9c7ce2be3232`
 
 Aktualna baza brancha po rebase:
-`7c7c2a5bab28fd29ef64f6bfafdea3aa29d02441`
+`ee7bfee4bd481725831040772c72a697758f2c33`
+
+SHA implementacji zweryfikowany pełnym hosted CI:
+`693e2ecbba2034710c41f8d08c76673b15f2b98b`
+
+CI: `30358044332`; Claude review: `30358044393`
 
 Migracja: `0200_recruitment_priority_work` po
 `0199_candidate_stage_removals`
@@ -29,7 +35,7 @@ Implementacja uzależnia rozpoczynanie nowej ludzkiej pracy kandydat–request o
 opublikowanego planu Head of Recruitment i jednocześnie zachowuje każdy otwarty
 proces jako obowiązkowy carry-over.
 
-Dostarczono lokalnie:
+Dostarczono na branchu draft PR:
 
 - demandy Delivery Lead dla własnych opublikowanych requestów;
 - wersjonowany draft/publish, atomowe supersede i review po trzech dniach
@@ -219,6 +225,13 @@ targetu.
 | signing/B2B bez procesu | deny | deny | deny | nie dotyczy |
 | void przez nie-HoR | legacy behavior | legacy behavior | deny | zachowany audit procesu |
 
+`shadow + violation → kpi_eligible=true` jest świadomą semantyką
+obserwacyjną: shadow zapisuje `violation=true` i
+`priority_compliant=false`, ale nie zmienia KPI ani innych skutków biznesowych
+w okresie pomiarowym. HoR musi zaakceptować tę decyzję przed rolloutem; w
+`enforce` ten sam zapis jest blokowany. Zmiana KPI w shadow bez osobnej decyzji
+biznesowej zafałszowałaby porównanie z dotychczasowym procesem.
+
 W trybie `enforce` zwykłe usunięcie nie służy porzuceniu carry-over. HoR może
 wykonać kanoniczny void; fizyczne usunięcie stage history jest dozwolone
 dopiero po stanie `voided`. `off` i `shadow` zachowują dotychczasowy endpoint
@@ -297,6 +310,14 @@ obowiązuje live writery i seed flow.
 Istniejący caller pozostaje właścicielem całej transakcji, własnych walidacji,
 activity, CV snapshot, notyfikacji i innych side effectów. Review nie powinno
 zakładać, że zostały przeniesione do commandu.
+
+Dwa zachowane inwarianty legacy mają osobne testy strukturalne:
+
+- `resolve_application_submission` wykonuje jawny `flush` zwróconego stage
+  przed `create_original_cv_snapshot`;
+- usunięcie rekrutacji tworzy `CandidateStageRemoval` przed kanonicznym void,
+  a fizyczne kasowanie następuje dopiero przez
+  `delete_voided_stage_history`.
 
 ### Custom `StageRevision`
 
@@ -410,6 +431,12 @@ HeadOfRecruitmentOnly = Annotated[
     Depends(require_roles(UserRole.head_of_recruitment)),
 ]
 ```
+
+Demandy nie używają ogólnego `CurrentUser`. `POST /demands` ma nazwane
+`PriorityDemandCreator` wymagające roli DL, a GET/PATCH mają
+`PriorityDemandReader` wymagające HoR lub DL. Handler nadal sprawdza aktualny
+`Job.delivery_lead_id`; historyczny autor demandu ani plain admin nie uzyskują
+dostępu.
 
 Plain `admin` nie posiada żadnych uprawnień zarządczych Priority Work. Może
 wejść wyłącznie na te ogólne odczyty, które dopuszczają `OperationalUser`.
@@ -592,9 +619,12 @@ W aktualnym worktree `alembic -c alembic/alembic.ini heads` zwraca dokładnie:
 Jest to dowód bieżącego stanu grafu po lokalnych zmianach, a nie twierdzenie,
 że historyczny graf repo zawsze był liniowy albo jedno-headowy.
 
-Hosted CI ma wykonać `upgrade heads` dwukrotnie. Dopiero wynik CI na finalnym
-SHA potwierdzi upgrade PostgreSQL, retry-safety i brak konfliktu po aktualizacji
-bazy brancha.
+Hosted CI `30358044332` na SHA
+`693e2ecbba2034710c41f8d08c76673b15f2b98b` wykonał `upgrade heads`
+dwukrotnie na PostgreSQL; upgrade i retry-safety przeszły. Pierwszy wcześniejszy
+run ujawnił, że `pg_constraint.contype/confdeltype` są wewnętrznym typem
+PostgreSQL `"char"`. Kontrola parity rzutuje je teraz jawnie przez `::text`;
+test kontraktowy pilnuje obu rzutowań.
 
 ### 10.2. Startup safety-net
 
@@ -625,6 +655,13 @@ introspekcję katalogów.
 - nie przejmuje ownership procesu o authority innej niż backfill;
 - opcjonalnie resyncuje tylko rekordy authority `backfill`.
 
+`compare_shadow_state` działa na parach i wybiera najnowszy attempt przez
+`attempt_no DESC, id DESC`. Raport zachowuje `processes_total` jako liczbę
+wszystkich attemptów, dodaje `process_pairs_total` oraz
+`process_pairs_without_legacy`, a stale/sample/unmapped/open liczy względem
+najnowszego attemptu. Historyczny attempt nie generuje już fałszywego stale;
+proces po legalnym void + archiwizacji może poprawnie nie mieć legacy stage.
+
 Endpoint dopuszcza limit `1..5000`. Brak advisory locka dla całego
 reconciliation, więc runbook musi wymuszać jednego caller’a naraz albo review
 musi dodać lock przed produkcją.
@@ -644,6 +681,11 @@ potwierdzić backup/restore i zacząć od małego batcha.
 
 Alembic downgrade usuwa kolumny, tabele i historię audit/ownership. Nie jest
 bezpiecznym rollbackiem behawioralnym.
+
+Brak `CASCADE` w downgrade jest zamierzony. Przy przyszłej, nieznanej
+zależności downgrade ma przerwać się i wymusić reviewed plan, zamiast
+destrukcyjnie usunąć cudzą tabelę lub typ. Nie używać downgrade jako
+automatycznego rollbacku produkcyjnego.
 
 Rollback behawioralny:
 
@@ -673,14 +715,15 @@ wniosku o pełnym browser E2E.
 Zakres:
 
 - 8 modułów backendowych;
-- 110 funkcji testowych;
-- 147 przypadków po parametryzacji;
+- 114 funkcji testowych;
+- 153 przypadki po parametryzacji;
 - 9 skupionych plików frontendowych;
 - 39 testów frontendowych.
 
 | Kontrola | Wynik |
 |---|---|
-| skupione testy backend Priority Work | **147 passed** |
+| skupione testy backend Priority Work | **153 passed** |
+| regresje Priority Work + auth + aktualny upstream search | **214 passed** |
 | skupione testy frontend | **9 plików / 39 passed** |
 | Ruff check i format: app, migracja, testy | **pass** |
 | Python compile app + migracja | **pass** |
@@ -689,20 +732,52 @@ Zakres:
 | frontend typecheck | **pass** |
 | frontend lint | **pass** |
 | frontend token guard | **pass** |
-| rebase / range-diff / audyt sześciu zmian upstream | **pass**, baza `7c7c2a5b` |
+| rebase / range-diff / audyt zmian upstream | **pass**, baza `ee7bfee4` |
 | lokalny Docker | nie uruchamiano |
-
-Nie należy opisywać tego jako pełnego test suite ani zielonego CI.
 
 Hosted evidence:
 
-- URL draft PR: `PENDING`;
-- finalny branch SHA: `PENDING`;
-- stan required checks: `PENDING`;
-- PostgreSQL `upgrade heads` i repeated upgrade: `PENDING`;
-- full backend pytest: `PENDING`;
-- pełny frontend Vitest/coverage/build: `PENDING`;
-- secret/security scan: `PENDING`.
+- draft PR:
+  [#985](https://github.com/artur-t-96/Nexus/pull/985), nadal draft;
+- implementacyjny SHA:
+  `693e2ecbba2034710c41f8d08c76673b15f2b98b`;
+- CI `30358044332`: **success**;
+- Claude review `30358044393`: **success**, bez nowych nierozwiązanych wątków;
+- backend: **3745 passed, 14 skipped**, 78 warnings, 16:45;
+- PostgreSQL: legacy-row probe, `upgrade heads` i repeated upgrade **pass**;
+- Ruff lint/format i import smoke **pass**;
+- frontend: **77 plików / 804 tests passed**, coverage i build **pass**;
+- Gitleaks, Trivy/hadolint **pass**;
+- Vercel **success jako preview PR**, nie deploy produkcyjny.
+
+Wcześniejsze runy są częścią dowodu, nie zostały ukryte:
+
+1. SHA `71a882cb` ujawnił niezgodność PostgreSQL internal `"char"` w migracji;
+2. run `30355751594` na `49257072` miał zielone migracje/frontend/security,
+   lecz full backend zakończył się `5 failed, 3723 passed, 14 skipped`;
+3. naprawiono snapshot CV, latest-attempt shadow comparison,
+   archive-before-delete oraz named auth dependencies demandów;
+4. pełny run `30358044332` przeszedł po tych poprawkach.
+
+Końcowy docs-only commit ma późniejszy SHA niż powyższy dowód
+implementacyjny. Aktualny head i wynik jego checks są autorytatywnie widoczne
+w PR; dokument nie może sam zawierać własnego przyszłego SHA.
+
+### 12.1. Disposition automatycznego review
+
+| Uwaga | Disposition |
+|---|---|
+| nieograniczony JSONB evidence | naprawione: JSON-safe, bez NaN/Infinity, limit 16 KiB |
+| `assert_priority_work_access(**kwargs)` | naprawione: jawna keyword-only typed signature |
+| N+1 w rank gate | naprawione: batch milestone + batch blocker |
+| shadow violation daje KPI | świadoma semantyka obserwacyjna; wymaga akceptacji HoR |
+| stale ownership read blockera | naprawione: `FOR UPDATE`; create tylko dla published assignment |
+| import prywatnych helperów | naprawione: publiczne `allowed_channels` i `role_values` |
+| downgrade bez `CASCADE` | świadomie pozostawione fail-fast, aby nie usuwać nieznanych zależności |
+
+Wszystkie siedem wątków ma odpowiedź i jest rozwiązanych w draft PR. Ponowny
+Claude review `30358044393` na aktualnej implementacji zakończył się sukcesem
+bez nowych wątków.
 
 ## 13. Nierozstrzygnięte ryzyka
 
@@ -725,13 +800,29 @@ Hosted evidence:
 9. **Overdue nie wygasza planu.** Plan działa do kolejnej publikacji.
 10. **Demand update ma row-version i audit, ale nie osobny immutable row per
     edit.** Jeżeli potrzebny jest pełny ledger before/after, trzeba go dodać.
+11. **Lifecycle demandu wymaga decyzji biznesowej przed enforce.** PATCH
+    technicznie dopuszcza zmianę statusu/targetu/kanału, podczas gdy
+    opublikowany assignment jest celowo zamrożony do następnej publikacji.
+    Claude/HoR muszą zaakceptować macierz przejść i komunikację tego rozjazdu;
+    nie należy przepisywać bieżącego planu w miejscu.
+12. **`GET /team` zwraca pełne carry-over bez paginacji.** N+1 zapytań został
+    usunięty przez jedno pobranie i grupowanie, ale przy baseline 53 818
+    otwartych par wymagany jest benchmark payloadu, latency i renderowania albo
+    paginacja przed produkcyjnym shadow/enforce.
+13. **Reconciliation jest synchroniczny do 5000 par.** Brak globalnego
+    advisory locka; pierwszy run ma być single-caller, małym batchem, po
+    pomiarze timeout/WAL i potwierdzeniu backup/restore.
+14. **Shadow nie odbiera KPI za naruszenie.** To świadomy tryb obserwacyjny,
+    lecz wymaga jawnej akceptacji HoR przed rolloutem.
+15. **Pełny suite jest twardą bramką.** Skupione testy nie wykryły pięciu
+    failing tests ujawnionych przez hosted full pytest.
 
 Każdy problem z writer closure, frozen eligibility, attempt isolation, RBAC,
 transakcyjnością, migracją lub carry-over jest automatycznym **NO-GO**.
 
 ## 14. Kolejność review Claude’a
 
-1. Potwierdzić, że PR nadal bazuje na `7c7c2a5b` lub nowszym `main`, a
+1. Potwierdzić, że PR nadal bazuje na `ee7bfee4` lub nowszym `main`, a
    ewentualne kolejne zmiany upstream nie naruszają zintegrowanych deep-linków,
    wyszukiwania, entrypointu ani seedów.
 2. Zweryfikować `_assert_publish_lineage` oraz test sibling draftów: drugi
@@ -755,7 +846,11 @@ transakcyjnością, migracją lub carry-over jest automatycznym **NO-GO**.
     uprzywilejowane trasy.
 12. Przejrzeć payloady frontend/backend i wszystkie powierzchnie wspólnego
     błędu.
-13. Wymagać zielonych required checks na finalnym SHA przed GO.
+13. Potwierdzić zachowane regresje: snapshot po flush, archive przed delete
+    boundary, latest-attempt reconciliation i nazwane dependency demandów.
+14. Ocenić otwarte decyzje: lifecycle demandu, rozmiar `/team`, single-caller
+    reconciliation i obserwacyjna semantyka KPI w shadow.
+15. Wymagać zielonych required checks na finalnym SHA przed GO.
 
 ## 15. Runbook `off → shadow → enforce`
 
@@ -869,31 +964,43 @@ Uruchomić w zalogowanym profilu użytkownika i zachować screenshoty/dowody:
 
 ## 17. GO/NO-GO
 
-- [ ] Branch jest oparty o aktualny `main` bez obcych zmian.
-- [ ] CAS lineage i test sibling draftów przechodzą w hosted CI.
-- [ ] Draft PR istnieje i wskazuje finalny SHA.
-- [ ] Wszystkie required CI checks są zielone na tym SHA.
-- [ ] `upgrade heads` i repeated upgrade przechodzą na PostgreSQL.
-- [ ] Migracja i startup safety-net są równoważne oraz retry-safe.
-- [ ] Backup/restore readiness jest zaakceptowane przed reconciliation.
-- [ ] Writer fence i ręczny search nie znajdują bypassu.
-- [ ] Traffit adapter zachowuje atomowość i authority.
-- [ ] Plain admin nie ma uprzywilejowanych praw Priority Work.
-- [ ] Demand minimum 3, full target/channel coverage i published-only działają.
-- [ ] Closed request blokuje nową parę, ale carry-over nadal działa.
-- [ ] Wszystkie ludzkie flow przekazują poprawny `work_channel`.
-- [ ] Custom `StageRevision` jest poprawnie mapowany.
-- [ ] Invite zamraża origin/compliance w obu ścieżkach inbound.
-- [ ] Attempt-aware KPI nie przenosi creditu między attemptami.
-- [ ] Hall of Fame używa wspólnego CTE.
-- [ ] Competition freeze jest write-once.
-- [ ] Handoff zmienia ownera bez zmiany credit/eligibility.
-- [ ] Nieaktywny owner jest unowned.
-- [ ] Off mode nie tworzy blokad Priority Lock.
-- [ ] Zmiana KPI w off ma zgodę stakeholderów.
-- [ ] Shadow delta, inventory i reconciliation są zrozumiane.
-- [ ] Worker, alerty i health są świeże.
-- [ ] Scenariusze Chrome przechodzą po autoryzowanym deployu.
+### 17.1. PR handoff GO
 
-Do zamknięcia wszystkich odpowiednich punktów werdykt brzmi:
-**NO-GO dla produkcyjnego enforce**.
+- [x] Izolowany branch jest oparty o `origin/main` `ee7bfee4` bez obcych zmian.
+- [x] Draft PR #985 istnieje i pozostaje bez merge/deployu.
+- [x] CAS lineage i sibling draft coverage przechodzą.
+- [x] Hosted `upgrade heads` oraz repeated upgrade na PostgreSQL przechodzą.
+- [x] Full backend, frontend, build, security i automated review są zielone na
+      implementacyjnym SHA `693e2ecb`.
+- [x] Writer fence i ręczny search nie znajdują natywnego bypassu.
+- [x] Snapshot CV po flush, archive-before-delete i latest-attempt
+      reconciliation mają regresje.
+- [x] Plain admin nie ma uprzywilejowanych praw, a demandy mają named auth
+      dependencies.
+- [x] Funkcja pozostaje domyślnie `off`.
+- [ ] Aktualny docs-only head PR ma zielone required checks — sprawdzić
+      bezpośrednio w PR po tym commicie dokumentacyjnym.
+- [ ] Claude kończy niezależne review i podejmuje decyzję o dalszym delivery.
+
+Po zielonym docs-only head część Codex spełnia warunki **GO do niezależnego
+review**, nie do produkcji.
+
+### 17.2. Production shadow/enforce GO
+
+- [ ] Zmiana KPI działająca także w `off` ma zgodę stakeholderów.
+- [ ] HoR akceptuje, że shadow violation nadal zachowuje KPI.
+- [ ] Lifecycle demandu i zachowanie frozen published assignment są
+      zaakceptowane.
+- [ ] `/team` ma zaakceptowany benchmark albo paginację dla rzeczywistego
+      carry-over.
+- [ ] Live inventory jest odświeżone, a backup/restore readiness potwierdzone.
+- [ ] Reconciliation ma single-caller runbook, mały pierwszy batch i
+      zaakceptowane timeout/WAL.
+- [ ] Traffit adapter ma potwierdzoną atomowość i authority na danych
+      reprezentatywnych.
+- [ ] Shadow delta, worker, alerty i health są świeże przez pełne trzy dni
+      robocze.
+- [ ] Scenariusze Chrome przechodzą po autoryzowanym deployu.
+- [ ] Deployed full SHA i stan Alembic są potwierdzone.
+
+Werdykt produkcyjny pozostaje: **NO-GO dla shadow/enforce**.

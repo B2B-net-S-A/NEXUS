@@ -12,7 +12,7 @@ Pierwotny bazowy commit worktree:
 `85195914f70936a06d8ef23d488b9c7ce2be3232`
 
 Aktualna baza po rebase:
-`7c7c2a5bab28fd29ef64f6bfafdea3aa29d02441`
+`ee7bfee4bd481725831040772c72a697758f2c33`
 
 ## 1. Granice realizacji
 
@@ -34,11 +34,17 @@ Globalny przełącznik:
 RECRUITMENT_PRIORITY_MODE=off|shadow|enforce
 ```
 
-ma wartość domyślną `off`. Draft PR, CI i finalny SHA są jeszcze `PENDING`.
-Pięć commitów implementacji zostało zrebasowanych na aktualny `origin/main`.
-Audyt sześciu zmian upstream oraz `range-diff` potwierdziły zachowanie obu
-semantyk. Dwa konflikty importów rozwiązano addytywnie, a nowy upstreamowy
-`useSearchParams` dopisano do mocka testu listy requestów.
+ma wartość domyślną `off`. Draft PR
+[#985](https://github.com/artur-t-96/Nexus/pull/985) istnieje i pozostaje
+niegotowy do merge. Implementacyjny SHA
+`693e2ecbba2034710c41f8d08c76673b15f2b98b` przeszedł hosted CI
+`30358044332` oraz Claude review `30358044393`. Branch został ponownie
+zrebasowany bez konfliktów na aktualny `origin/main` `ee7bfee4`.
+
+Końcowy commit dokumentacyjny z natury ma późniejszy SHA niż dowód
+implementacyjny. Jego stan należy odczytać z aktualnego head PR; nie wolno
+uznać PR za gotowy, dopóki także ten docs-only head nie ma zielonych required
+checks.
 
 ## 2. Cel i definicje
 
@@ -166,6 +172,11 @@ Przy publikacji planu każdy użyty demand musi mieć pełne pokrycie:
 Wszystkie uprzywilejowane endpointy Priority Work używają dokładnie
 `HeadOfRecruitmentOnly`, czyli `require_roles(UserRole.head_of_recruitment)`.
 
+Trasy demandów używają osobnych nazwanych dependency:
+`PriorityDemandCreator` (wyłącznie Delivery Lead) oraz
+`PriorityDemandReader` (Head of Recruitment lub Delivery Lead). Dodatkowa
+kontrola aktualnego `Job.delivery_lead_id` pozostaje w handlerze.
+
 - Sama rola `admin` nie daje prawa do planu zespołu, publikacji, decyzji o
   blockerze, handoffu, wyjątków, rollout mode, statusu, reconciliation, alertów
   ani audytu.
@@ -205,8 +216,10 @@ ostemplowany jako pełna migracja.
 W aktualnym worktree polecenie `alembic ... heads` zwraca jeden head:
 `0200_recruitment_priority_work`. To opis wyłącznie bieżącego grafu w tym
 worktree, a nie twierdzenie, że repo historycznie zawsze miało jeden head.
-Hosted CI ma wykonać `upgrade heads` dwukrotnie, sprawdzając upgrade i
-retry-safety.
+Hosted CI `30358044332` wykonał `upgrade heads` dwukrotnie na PostgreSQL:
+upgrade oraz retry-safety przeszły. Zapytania introspekcyjne rzutują wewnętrzne
+typy katalogu `pg_constraint.contype/confdeltype` przez `::text`, dzięki czemu
+porównanie działa na rzeczywistym PostgreSQL, a nie tylko w mockach.
 
 Startup safety-net odtwarza oba indeksy assignment provenance. Migracja
 pozostaje autorytatywnym audytem exact parity i odrzuca istniejący obiekt o
@@ -214,7 +227,11 @@ niezgodnej semantyce.
 
 Backfill/reconciliation pozostaje resumowalny i ograniczony batchami. Tworzy
 historyczne procesy jako `legacy`, nie przepisuje aktywnej własności i korzysta
-z tego samego mapowania custom workflow co live command.
+z tego samego mapowania custom workflow co live command. Shadow comparison
+porównuje latest legacy stage z najnowszym attemptem każdej pary, a nie ze
+wszystkimi historycznymi attemptami. Osobno raportuje `processes_total`,
+`process_pairs_total` i `process_pairs_without_legacy`, więc legalnie
+zarchiwizowany void nie tworzy fałszywego stale.
 
 ### 4.2. Kanoniczny agregat i command service
 
@@ -253,6 +270,11 @@ Command wykonuje `flush`, nie `commit`. Istniejący caller nadal odpowiada za
 swoją pełną transakcję, dodatkowe walidacje, activity, snapshot CV,
 powiadomienia i inne side effecty. Nie należy opisywać commandu jako właściciela
 tych elementów, dopóki nie zostaną rzeczywiście przeniesione.
+
+Rozstrzygnięcie `ApplicationSubmission` wykonuje jawny `flush` stage przed
+`create_original_cv_snapshot`. Usunięcie historii rekrutacji najpierw zapisuje
+`CandidateStageRemoval`, następnie voiduje proces, a dopiero potem przechodzi
+przez centralną granicę `delete_voided_stage_history`.
 
 ### 4.3. Writer fence
 
@@ -379,15 +401,16 @@ opartej o bazę. Deep health sprawdza nowe tabele oraz rozszerzony proces.
 Zakres testów jest celowo opisany dokładnie:
 
 - 8 modułów backendowych `test_priority_work*.py`;
-- 110 funkcji testowych w tych modułach;
-- parametryzacja daje 147 wykonanych przypadków;
+- 114 funkcji testowych w tych modułach;
+- parametryzacja daje 153 wykonane przypadki;
 - 9 skupionych plików frontendowych i 39 testów.
 
 Wyniki lokalne:
 
 | Kontrola | Wynik |
 |---|---|
-| backend Priority Work | **147 passed** |
+| backend Priority Work | **153 passed** |
+| regresje Priority Work + auth + aktualny upstream search | **214 passed** |
 | frontend focused Vitest | **9 plików / 39 passed** |
 | Ruff check i format: app, migracja, testy | **pass** |
 | Python compile | **pass** |
@@ -396,26 +419,32 @@ Wyniki lokalne:
 | frontend typecheck | **pass** |
 | frontend lint | **pass** |
 | token guard | **pass** |
-| rebase / range-diff / audyt zmian upstream | **pass**, baza `7c7c2a5b` |
+| rebase / range-diff / audyt zmian upstream | **pass**, baza `ee7bfee4` |
 | lokalny Docker | nie uruchamiano |
-| draft PR / hosted CI / finalny SHA | **PENDING** |
+| draft PR | **#985, draft, bez merge/deployu** |
+| hosted CI na SHA implementacyjnym | **pass**, run `30358044332` |
+| Claude review na SHA implementacyjnym | **pass**, run `30358044393` |
 
-Lokalne wyniki nie dowodzą PostgreSQL upgrade/retry, pełnego CI, buildu ani
-produkcyjnego E2E. Te bramki pozostają do wykonania w hosted CI i po
-autoryzowanym deployu.
+Hosted run potwierdził 3745 backend tests passed / 14 skipped, 77 frontend test
+files / 804 tests passed, build, security oraz PostgreSQL migration/retry.
+Nie dowodzi to produkcyjnego deployu ani E2E; tych działań nie wykonano.
 
-## 9. Pozostałe kroki do draft PR
+## 9. Stan przekazania i prace pozostające
 
-1. Przejrzeć dokładny diff, CAS lineage publikacji, safety-net, exact schema
-   parity, migrację, downgrade i writer fence.
-2. Dołączyć poprawkę mocka po rebase do commita testowego.
-3. Wypchnąć `codex/recruitment-priority-lock`.
-4. Utworzyć draft PR
-   `[DRAFT][NO DEPLOY] Recruitment Priority Lock + Carry-over Duty`.
-5. Poczekać na wszystkie wymagane checks i naprawiać wyłącznie regresje tego
-   PR.
-6. Uzupełnić handoff o URL PR, finalny SHA i dokładny wynik CI.
-7. Nie merge’ować i nie wdrażać; przekazać decyzję Claude’owi.
+1. Draft PR
+   `#985 [DRAFT][NO DEPLOY] Recruitment Priority Lock + Carry-over Duty`
+   istnieje i pozostaje draftem.
+2. Pierwszy run ujawnił błąd typu PostgreSQL `"char"`, a kolejny pełny suite
+   pięć failing tests w czterech obszarach: snapshot CV, latest-attempt
+   reconciliation, archive-before-delete i nazwane dependency demandów.
+   Wszystkie zostały naprawione oraz potwierdzone w runie `30358044332`.
+3. Wszystkie siedem wątków automatycznego review ma odpowiedź i disposition;
+   naprawiono limit/JSON evidence, typed policy boundary, rank-gate N+1,
+   ownership lock i publiczne helpery. Shadow KPI oraz brak destrukcyjnego
+   `CASCADE` mają jawne uzasadnienie.
+4. Claude ma wykonać niezależne review i podjąć decyzję. Produkcyjne merge,
+   deploy, migracja, reconciliation, zmiana flag i Chrome E2E pozostają poza
+   zakresem tej pracy.
 
 ## 10. Definicja ukończenia części Codex
 
@@ -429,5 +458,5 @@ autoryzowanym deployu.
   rollout, rollback, scenariusze Chrome i GO/NO-GO;
 - brak merge, deployu, migracji i konfiguracji produkcji.
 
-Do spełnienia tych warunków stan pozostaje: **lokalnie gotowe do review,
-NO-GO dla produkcyjnego enforce**.
+Stan przekazania: **draft PR gotowy do niezależnego review po zielonym CI
+docs-only head; NO-GO dla produkcyjnego enforce**.
