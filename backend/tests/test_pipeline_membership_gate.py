@@ -18,6 +18,12 @@ Two contracts, wired into every pipeline stage-writing / reading ingress:
   eligibility block. Terminal *removal* moves stay allowed (a blacklisted
   candidate can be rejected/withdrawn out of a pipeline).
 
+* **Carry-over scope** — when Priority Work is active, owning an OPEN
+  ``RecruitmentProcess`` widens job scope. Ownership alone is self-grantable
+  (a recruiter can open a process on any job through an ingress that runs no
+  membership check), so it only counts when the process was opened in
+  compliance with a published plan.
+
 Uses the in-process ``app_client`` / ``app_auth_headers`` fixtures (real
 postgres in CI). ``app_auth_headers`` logs in an admin, so it is used both as
 the oversight-bypass caller and for the eligibility tests.
@@ -28,6 +34,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+import pytest
 from httpx import AsyncClient
 
 from app.core.database import AsyncSessionLocal
@@ -117,6 +124,35 @@ async def _seed_stage(candidate_id: int, job_id: int, stage_value: str) -> None:
                 job_id=job_id,
                 stage=PipelineStage(stage_value),
                 moved_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+
+async def _seed_open_process(
+    candidate_id: int,
+    job_id: int,
+    owner_id: int,
+    *,
+    compliant: bool | None,
+) -> None:
+    """An OPEN process owned by ``owner_id`` with a frozen compliance verdict.
+
+    Mirrors what ``_create_process`` writes: a shadow-mode self-open records
+    ``priority_compliant_at_open=False``, an assignment-backed open records
+    ``True``, and legacy/backfilled rows keep ``NULL``.
+    """
+    from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            RecruitmentProcess(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                status=ProcessStatus.open,
+                owner_user_id=owner_id,
+                priority_compliant_at_open=compliant,
+                opened_at=datetime.now(timezone.utc),
             )
         )
         await db.commit()
@@ -250,6 +286,79 @@ async def test_admin_bypasses_membership_on_move(
         MOVE, json=_move_body(cand, job_id), headers=app_auth_headers
     )
     assert r.status_code == 200, r.text
+
+
+# ── carry-over scope: ownership alone must not grant it ──────────────────────
+# A recruiter with no relationship to a job can make themselves the owner of an
+# OPEN process on it: `POST /api/candidates/from-linkedin` runs no membership
+# check, and in shadow mode the policy admits the open (allowed=True) while
+# recording the violation as `priority_compliant_at_open=False`. If ownership
+# alone widened job scope, that one call would hand the caller the whole
+# pipeline — plus CV files, rates, the B2B generator and interview feedback.
+
+
+@pytest.mark.parametrize("compliant", [False, None])
+async def test_self_opened_carry_over_does_not_grant_job_scope(
+    app_client: AsyncClient, monkeypatch, compliant: bool | None
+):
+    """False = shadow-mode violation, NULL = legacy/backfill. Both fail closed."""
+    from app.core.config import settings
+    from app.models.recruitment_priority import PriorityMode
+
+    monkeypatch.setattr(
+        settings, "RECRUITMENT_PRIORITY_MODE", PriorityMode.shadow.value
+    )
+    headers, uid = await _seed_recruiter(app_client)
+    cand = await _seed_candidate()
+    job_id, _client_id = await _seed_job(owner_id=None)  # recruiter is no member
+    await _seed_open_process(cand, job_id, uid, compliant=compliant)
+
+    kanban = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert kanban.status_code == 403, kanban.text
+
+    move = await app_client.post(MOVE, json=_move_body(cand, job_id), headers=headers)
+    assert move.status_code == 403, move.text
+
+
+async def test_compliant_carry_over_still_grants_job_scope(
+    app_client: AsyncClient, monkeypatch
+):
+    """The capability itself stays intact for a plan-backed open.
+
+    ``priority_compliant_at_open`` is frozen at open time and untouched by
+    ``handoff_process``, so a HoR handoff keeps conferring scope on the new
+    owner exactly as it does here.
+    """
+    from app.core.config import settings
+    from app.models.recruitment_priority import PriorityMode
+
+    monkeypatch.setattr(
+        settings, "RECRUITMENT_PRIORITY_MODE", PriorityMode.shadow.value
+    )
+    headers, uid = await _seed_recruiter(app_client)
+    cand = await _seed_candidate()
+    job_id, _client_id = await _seed_job(owner_id=None)
+    await _seed_open_process(cand, job_id, uid, compliant=True)
+
+    kanban = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert kanban.status_code == 200, kanban.text
+
+
+async def test_carry_over_scope_is_inert_when_priority_mode_is_off(
+    app_client: AsyncClient, monkeypatch
+):
+    """Pre-PR behaviour: with the module off, no process grants job scope."""
+    from app.core.config import settings
+    from app.models.recruitment_priority import PriorityMode
+
+    monkeypatch.setattr(settings, "RECRUITMENT_PRIORITY_MODE", PriorityMode.off.value)
+    headers, uid = await _seed_recruiter(app_client)
+    cand = await _seed_candidate()
+    job_id, _client_id = await _seed_job(owner_id=None)
+    await _seed_open_process(cand, job_id, uid, compliant=True)
+
+    kanban = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert kanban.status_code == 403, kanban.text
 
 
 # ── eligibility: hard-blocked candidate rejected identically at every ingress ─

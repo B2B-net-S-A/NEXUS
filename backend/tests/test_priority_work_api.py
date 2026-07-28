@@ -198,6 +198,12 @@ def test_priority_assignment_and_carry_over_grant_job_scope_without_policy_bypas
     assert "RecruitmentPriorityPlan.status == PriorityPlanStatus.published" in source
     assert "RecruitmentProcess.owner_user_id == user.id" in source
     assert "RecruitmentProcess.status == ProcessStatus.open" in source
+    # Ownership alone is self-grantable — the frozen compliance verdict is what
+    # separates a carried process from one opened to grab access. Both the gate
+    # and the list-scope builder must carry it, or they drift apart.
+    predicate = "RecruitmentProcess.priority_compliant_at_open.is_(True)"
+    assert predicate in source
+    assert predicate in inspect.getsource(recruitment_access.job_scope_clause)
 
 
 def _priority_scope_visible(
@@ -207,6 +213,7 @@ def _priority_scope_visible(
     user_mode: PriorityMode | None = None,
     assignment_status: str | None = None,
     process_status: str | None = None,
+    process_compliant: bool | None = True,
 ) -> bool:
     """Evaluate the generated list-scope SQL against a minimal real schema."""
 
@@ -234,7 +241,7 @@ def _priority_scope_visible(
             "user_id INTEGER PRIMARY KEY, mode VARCHAR(20))",
             "CREATE TABLE recruitment_processes ("
             "id INTEGER PRIMARY KEY, job_id INTEGER, owner_user_id INTEGER, "
-            "status VARCHAR(20))",
+            "status VARCHAR(20), priority_compliant_at_open BOOLEAN)",
         ):
             connection.exec_driver_sql(ddl)
         connection.exec_driver_sql(
@@ -258,8 +265,9 @@ def _priority_scope_visible(
         if process_status is not None:
             connection.exec_driver_sql(
                 "INSERT INTO recruitment_processes "
-                "(id, job_id, owner_user_id, status) VALUES (4, 77, 41, ?)",
-                (process_status,),
+                "(id, job_id, owner_user_id, status, priority_compliant_at_open) "
+                "VALUES (4, 77, 41, ?, ?)",
+                (process_status, process_compliant),
             )
         if user_mode is not None:
             connection.exec_driver_sql(
@@ -333,6 +341,25 @@ def test_inactive_assignment_or_finished_process_does_not_expand_list_scope(
         global_mode=PriorityMode.enforce,
         assignment_status=assignment_status,
         process_status=process_status,
+    )
+
+
+@pytest.mark.parametrize("process_compliant", [False, None])
+def test_self_opened_carry_over_does_not_expand_list_scope(
+    monkeypatch,
+    process_compliant: bool | None,
+) -> None:
+    """Ownership of an OPEN process is self-grantable, so it is not enough.
+
+    A shadow-mode violation freezes ``priority_compliant_at_open=False`` and
+    legacy/backfilled rows leave it NULL; the list scope must fail closed on
+    both, matching ``ensure_job_membership``.
+    """
+    assert not _priority_scope_visible(
+        monkeypatch,
+        global_mode=PriorityMode.shadow,
+        process_status="open",
+        process_compliant=process_compliant,
     )
 
 

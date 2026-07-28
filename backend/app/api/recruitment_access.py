@@ -200,9 +200,10 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
     :func:`app.services.job_membership.is_member_of_job` (multi-role aware via
     ``has_any_role``), plus the oversight roles admin / head_of_recruitment.
     When Priority Work is active for this user, a current published assignment
-    or ownership of an open carry-over process also grants job scope. This is
-    only resource access: the command policy still decides independently
-    whether a new candidate/job pair may be opened.
+    or ownership of an open carry-over process **that was opened in compliance
+    with a published plan** also grants job scope. This is only resource access:
+    the command policy still decides independently whether a new candidate/job
+    pair may be opened.
 
     A non-member gets a uniform **403** at every ingress — the same status the
     sibling resource-scope guard ``require_dl_assigned_or_admin`` returns, so
@@ -235,12 +236,27 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
             )
             .limit(1)
         )
+        # `priority_compliant_at_open IS TRUE` jest tu OBOWIĄZKOWE: samo
+        # ownership otwartego procesu jest SAMONADAWALNE. Ingresy, które proces
+        # otwierają (np. POST /api/candidates/from-linkedin), tej bramki nie
+        # wołają, a w trybie shadow polityka wpuszcza otwarcie bez assignmentu
+        # (allowed=True), ustawia wołającego właścicielem i zapisuje naruszenie
+        # jako `priority_compliant_at_open=False`. Bez tego warunku jedno takie
+        # wywołanie nadawałoby obcej ofercie pełny zakres — pipeline, CV, stawki,
+        # generator B2B, feedback z rozmów.
+        #
+        # Trójstan domykamy na NIE: `.is_(True)` odrzuca i False (naruszenie
+        # shadow), i NULL (wiersze legacy/backfill) — brak zamrożonego werdyktu
+        # to nie jest zgodność. Werdykt jest zamrażany przy otwarciu i
+        # `handoff_process` go nie zmienia, więc przekazanie własności przez HoR
+        # nadal nadaje zakres nowemu właścicielowi procesu otwartego z planu.
         carry_scope = await db.scalar(
             select(RecruitmentProcess.id)
             .where(
                 RecruitmentProcess.job_id == job_id,
                 RecruitmentProcess.owner_user_id == user.id,
                 RecruitmentProcess.status == ProcessStatus.open,
+                RecruitmentProcess.priority_compliant_at_open.is_(True),
             )
             .limit(1)
         )
@@ -308,7 +324,8 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
       ``ensure_optional_job_membership``),
     - reszta: właściciel / delivery lead / TAC / aktywny współpracownik,
     - gdy efektywny Priority Work nie jest ``off``: aktywny assignment lub
-      ownership otwartego carry-over również nadaje zakres odczytu.
+      ownership otwartego carry-overu założonego ZGODNIE z opublikowanym
+      planem również nadaje zakres odczytu.
 
     Zwraca wyrażenie, nie listę id — zawężenie zostaje w jednym zapytaniu
     i nie psuje paginacji ani limitów.
@@ -368,9 +385,14 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
                 RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
             )
         )
+        # Ten sam warunek zgodności co w ``ensure_job_membership`` — patrz tam po
+        # uzasadnienie. Definicja carry-overu musi być identyczna w bramce i w
+        # zawężeniu list, bo inaczej samonadany proces, który nie przepuszcza
+        # przez bramkę, i tak wyciekałby wierszami na listach.
         carry_over_jobs = select(RecruitmentProcess.job_id).where(
             RecruitmentProcess.owner_user_id == user.id,
             RecruitmentProcess.status == ProcessStatus.open,
+            RecruitmentProcess.priority_compliant_at_open.is_(True),
         )
         scope_clauses.append(
             and_(
