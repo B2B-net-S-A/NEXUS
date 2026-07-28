@@ -136,6 +136,8 @@ describe("linki publiczne działają bez tokenu", () => {
     "/sign/abc123",
     "/cv/abc123",
     "/engagement/abc123",
+    "/preview/candidates",
+    "/preview/candidate-profile",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
   })
@@ -159,6 +161,21 @@ describe("linki publiczne działają bez tokenu", () => {
     // Regresja: wpis "/cv" bez ukośnika łapałby przez startsWith także
     // wewnętrzny generator CV i wystawił go publicznie.
     expect(destination("/cv-generator")).toBe("/login")
+  })
+
+  it("publiczne są TYLKO dwa harnessy, nie cała przestrzeń /preview", () => {
+    // Regresja: deny-by-default objął też /preview, przez co
+    // `e2e/candidate-ux-preview.spec.ts` dostawał 307 na /login i wszystkie
+    // 9 specow padało co noc. Otwieramy dokładnie te dwie strony, po których
+    // chodzi nightly — oba to mocki bez requestów do backendu.
+    expect(destination("/preview/candidates")).toBe("pass")
+    expect(destination("/preview/candidate-profile")).toBe("pass")
+
+    // Reszta harnessów zostaje prywatna. /preview/shell renderuje prawdziwy
+    // SidebarV2 (role-gating, liczniki) — czyli wewnętrzną strukturę aplikacji.
+    expect(destination("/preview/shell")).toBe("/login")
+    expect(destination("/preview/ds-kit")).toBe("/login")
+    expect(destination("/preview/cortex")).toBe("/login")
   })
 })
 
