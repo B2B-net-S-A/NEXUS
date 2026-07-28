@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -10,7 +10,6 @@ import {
   Loader2,
   RefreshCw,
   Users,
-  X,
 } from "lucide-react";
 import {
   cortexApi,
@@ -22,6 +21,12 @@ import {
 import { EmptyState } from "@/components/ds/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   AvailabilityBadge,
   confidencePct,
@@ -76,13 +81,7 @@ export function SkillCandidatesDrawer({
   const [minConfidence, setMinConfidence] = useState("");
   const [offset, setOffset] = useState(0);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // Escape, focus-trap, klik w tło i aria-* obsługuje Radix (Sheet) — patrz render.
 
   // Any filter change invalidates the current page — jump back to the start.
   const resetPage = () => setOffset(0);
@@ -140,43 +139,27 @@ export function SkillCandidatesDrawer({
   );
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/40"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="skill-candidates-drawer-title"
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex w-full flex-col sm:max-w-2xl h-full bg-card dark:bg-card shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="sticky top-0 flex items-center justify-between px-5 py-3.5 border-b border-border bg-card z-10">
-          <div className="flex items-center gap-2 min-w-0">
-            <Users className="w-5 h-5 text-primary shrink-0" aria-hidden />
-            <div className="min-w-0">
-              <h2
-                id="skill-candidates-drawer-title"
-                className="font-semibold text-foreground text-sm truncate"
-              >
-                Kandydaci z: {skillName}
-              </h2>
-              <p className="text-xs text-muted-foreground truncate">
-                {total.toLocaleString("pl-PL")} osób z faktem dla tej technologii
-                {preselectedSeniority
-                  ? ` · start: ${SENIORITY_LABELS[preselectedSeniority] ?? preselectedSeniority}`
-                  : ""}
-              </p>
-            </div>
+      <SheetContent side="right" size="lg">
+        {/* Header — przycisk zamknięcia dokłada SheetContent (prawy górny róg) */}
+        <div className="flex items-center gap-2 px-5 py-3.5 pr-12 border-b border-border min-w-0">
+          <Users className="w-5 h-5 text-primary shrink-0" aria-hidden />
+          <div className="min-w-0">
+            <SheetTitle className="font-semibold text-foreground text-sm truncate">
+              Kandydaci z: {skillName}
+            </SheetTitle>
+            <SheetDescription className="text-xs text-muted-foreground truncate">
+              {total.toLocaleString("pl-PL")} osób z faktem dla tej technologii
+              {preselectedSeniority
+                ? ` · start: ${SENIORITY_LABELS[preselectedSeniority] ?? preselectedSeniority}`
+                : ""}
+            </SheetDescription>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md shrink-0"
-            aria-label="Zamknij"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Filters */}
@@ -328,8 +311,8 @@ export function SkillCandidatesDrawer({
             </div>
           </div>
         ) : null}
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
