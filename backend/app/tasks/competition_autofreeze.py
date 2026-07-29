@@ -88,11 +88,15 @@ async def _run_once(today: date | None = None) -> dict:
                     db, ctype, prev_month_period
                 )
                 results[f"{ctype.value}:{prev_month_period}"] = created.saved_count
+                # `0 winners` jest dwuznaczne: nikt się nie zakwalifikował,
+                # czy okres był już zamrożony i nic nie zapisano? Bez tego
+                # rozróżnienia log nie nadaje się do diagnozy.
                 logger.info(
-                    "auto-freeze %s for %s: %d winners",
+                    "auto-freeze %s for %s: %d winners (%s)",
                     ctype.value,
                     prev_month_period,
                     created.saved_count,
+                    "already frozen" if created.already_frozen else "written",
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
@@ -123,10 +127,11 @@ async def _run_once(today: date | None = None) -> dict:
                         created.saved_count
                     )
                     logger.info(
-                        "auto-freeze %s for %s: %d winners",
+                        "auto-freeze %s for %s: %d winners (%s)",
                         ctype.value,
                         prev_quarter_period,
                         created.saved_count,
+                        "already frozen" if created.already_frozen else "written",
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(

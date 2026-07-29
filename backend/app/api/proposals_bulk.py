@@ -143,6 +143,10 @@ async def list_assignable_stages(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Odczyt towarzyszący zapisowi niżej — bez tej samej bramki zamknięcie
+    # `bulk_add_proposals` byłoby połowiczne: dropdown etapów wciąż zdradzałby
+    # nazwy, identyfikatory i kolejność szablonu obcej rekrutacji.
+    await ensure_job_membership(db, current_user, job_id)
     if not job.pipeline_template_id:
         return []
     rows = (

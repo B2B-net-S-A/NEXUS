@@ -13,11 +13,11 @@ aktywny współpracownik i admin dalej przechodzą. Test kontraktowy
 ``_SCOPED_MODULES``), więc plik z testami JEST tu jedynym zabezpieczeniem przed
 cichą regresją w którąkolwiek stronę.
 
-Znana niespójność (poza tym plikiem): cięższy bliźniak z tego samego ekranu,
-``POST /api/jobs/{job_id}/proposals/bulk`` w ``app/api/proposals_bulk.py``,
-wpisuje do pipeline'u dowolnej oferty BEZ sprawdzenia zakresu. Dopóki tam nie
-przybędzie ta sama bramka, zamknięte jest lżejsze parkowanie, a otwarte cięższe
-wpisanie. Luka jest zaznaczona jako ``xfail`` w pliku testów wyżej.
+Cięższy bliźniak z tego samego ekranu, ``POST /api/jobs/{job_id}/proposals/bulk``
+w ``app/api/proposals_bulk.py``, oraz jego odczyt towarzyszący
+``GET /jobs/{job_id}/assignable-stages`` mają teraz tę samą bramkę. Wcześniej
+zamknięte było lżejsze parkowanie na shortliście, a otwarte cięższe wpisanie do
+pipeline'u — asymetrii pilnuje test w pliku wyżej.
 """
 
 from __future__ import annotations
