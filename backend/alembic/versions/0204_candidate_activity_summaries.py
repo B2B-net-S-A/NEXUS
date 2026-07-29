@@ -79,3 +79,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS candidate_activity_summaries")
+    # Remove the seeded feature row so downgrade doesn't leave an orphan
+    # `candidate_summary` entry in Settings → AI (usage log rows stay — they
+    # are historical audit data, same policy as other feature removals).
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.ai_features') IS NOT NULL THEN
+                DELETE FROM ai_features WHERE feature = 'candidate_summary';
+            END IF;
+        END $$;
+        """
+    )

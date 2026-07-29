@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -28,6 +29,7 @@ from typing import Any, Optional
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -541,10 +543,12 @@ async def _call_claude_text(
 
 def _sanitize_llm_output(raw: str) -> str:
     text = (raw or "").strip()
-    # Strip accidental code fences / markdown emphasis noise.
+    # Strip accidental code fences (with or without a language tag).
     if text.startswith("```"):
-        parts = text.split("```")
-        text = (parts[1] if len(parts) > 1 else "").strip()
+        text = re.sub(r"^```[^\n]*\n?", "", text)
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3]
+        text = text.strip()
     if not text:
         raise CandidateActivitySummaryLLMError("LLM output empty")
     return text[:_MAX_SUMMARY_CHARS].rstrip()
@@ -627,6 +631,20 @@ async def get_or_generate(
     sections = await build_context(db, candidate)
     input_hash = _input_hash(sections)
 
+    row = await get_cached(candidate_id, db)
+    if row is not None and not force and row.input_hash == input_hash:
+        return row, False
+
+    # Serialize concurrent refreshes of the same candidate BEFORE the paid
+    # call: without this, two simultaneous clicks both see a stale/missing row
+    # and both pay Anthropic (the loser's work is discarded on the unique
+    # constraint). The xact-scoped advisory lock is released by commit/rollback.
+    await db.execute(
+        sa_text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"candidate_activity_summary:{candidate_id}"},
+    )
+    # Re-check after acquiring the lock — the winner may have just written a
+    # row for exactly this history; serve it for free instead of regenerating.
     row = await get_cached(candidate_id, db)
     if row is not None and not force and row.input_hash == input_hash:
         return row, False

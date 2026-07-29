@@ -81,10 +81,16 @@ async def get_activity_summary(
 ) -> CandidateActivitySummaryOut:
     """Cached activity note. Never triggers a (paid) generation — profile
     views stay free; use the refresh endpoint to (re)generate."""
-    exists = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
-    if exists is None:
-        raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
     row = await get_cached(candidate_id, db)
+    if row is None:
+        # Only the empty-cache path needs the existence probe: a stored note
+        # already proves the candidate exists (FK), so the common cached read
+        # stays a single query.
+        exists = await db.scalar(
+            select(Candidate.id).where(Candidate.id == candidate_id)
+        )
+        if exists is None:
+            raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
     return _serialize(candidate_id, row)
 
 

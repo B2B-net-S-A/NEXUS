@@ -131,6 +131,11 @@ def test_sanitize_output_strips_code_fences():
     assert cas._sanitize_llm_output("```\nNotatka.\n```") == "Notatka."
 
 
+def test_sanitize_output_strips_language_tagged_fences():
+    assert cas._sanitize_llm_output("```text\nNotatka.\n```") == "Notatka."
+    assert cas._sanitize_llm_output("```markdown\nNotatka.") == "Notatka."
+
+
 def test_sanitize_output_rejects_empty():
     with pytest.raises(cas.CandidateActivitySummaryLLMError):
         cas._sanitize_llm_output("   ")
