@@ -54,6 +54,7 @@ from app.services.candidate_contact_hooks import (
     maybe_sync_calendar_handoff,
 )
 from app.services.signing import pipeline_hook as signing_pipeline_hook
+from app.services.traffit.client import TraffitConfig
 from app.tasks import candidate_contact_traffit as contact_traffit_task
 
 BASE_TIME = datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc)
@@ -872,4 +873,469 @@ async def test_cancelling_one_of_two_handoffs_keeps_opportunity_completed(
                 await cleanup_db.execute(delete(Job).where(Job.id == job_id))
             if client_id is not None:
                 await cleanup_db.execute(delete(Client).where(Client.id == client_id))
+            await cleanup_db.commit()
+
+
+# ── Regresje P2: zamrożony kursor, obserwowalność i higiena RODO ─────────────
+
+
+def test_replayed_conflict_marker_alone_is_not_a_new_conflict() -> None:
+    """Odtworzony znacznik bez świeżych wariantów nie zamraża kursora.
+
+    Pętla retry odtwarza `raw_payload` każdego wiersza `exception`, więc gdy
+    wiersz źródłowy zniknie z Traffita, znacznik konfliktu wraca w każdym ticku.
+    Liczony jako konflikt kasował `allow_cursor_advance` na zawsze — punkt stały,
+    z którego nie było wyjścia bez ręcznego SQL-a.
+    """
+
+    marker = {
+        "id": "9203",
+        "created_at": BASE_TIME.isoformat(),
+        contact_traffit_task._PAYLOAD_CONFLICT_MARKER: True,
+        "payload_hashes": ["a" * 64, "b" * 64],
+    }
+
+    rows, duplicates, conflicts = contact_traffit_task._deduplicate_event_rows([marker])
+
+    assert rows == [marker]
+    assert duplicates == 0
+    assert conflicts == 0
+
+    # Kontrola: dwa ŻYWE rozbieżne warianty nadal są konfliktem i nadal
+    # zatrzymują kursor (to jest zachowanie fail-closed, którego nie ruszamy).
+    live = {
+        "id": "9204",
+        "created_at": BASE_TIME.isoformat(),
+        "workflow_state": {"type": "start"},
+    }
+    _, _, live_conflicts = contact_traffit_task._deduplicate_event_rows(
+        [live, {**live, "workflow_state": {"type": "end-bad"}}]
+    )
+    assert live_conflicts == 1
+
+
+def test_poller_http_budget_is_tighter_than_the_shared_client_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fetch biegnie w transakcji z blokadą — ponowienia muszą boleć mniej.
+
+    Domyślne `max_retries=3` to 4 próby x timeout + 7 s backoffu NA STRONĘ,
+    a wszystko to `idle in transaction` z blokadą adwizoryjną i wierszem kursora
+    pod `FOR UPDATE`.  Timeout zostaje domyślny świadomie: jego skrócenie
+    zamieniłoby jedną wolną stronę w trwałe zamrożenie kursora.
+    """
+
+    monkeypatch.setenv("TRAFFIT_TENANT", "pytest-tenant")
+    monkeypatch.setenv("TRAFFIT_CLIENT_ID", "pytest-id")
+    monkeypatch.setenv("TRAFFIT_CLIENT_SECRET", "pytest-secret")
+
+    config = contact_traffit_task._poll_traffit_config()
+
+    assert config.max_retries < TraffitConfig.max_retries
+    assert config.max_retries == 1
+    assert config.timeout_s == TraffitConfig.timeout_s
+    assert config.tenant == "pytest-tenant"
+
+
+async def test_replayed_conflict_marker_lets_other_rows_advance_the_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    suffix = uuid.uuid4().hex
+    stream = f"pytest-contact-marker-{suffix}"
+    marker_id = f"marker-{suffix}"
+    fresh_id = f"fresh-{suffix}"
+    initial_cursor_at = BASE_TIME - timedelta(minutes=5)
+    monkeypatch.setattr(contact_traffit_task, "_STREAM", stream)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED", True)
+    monkeypatch.setattr(
+        settings, "CANDIDATE_CONTACT_ACTIVATION_AT", BASE_TIME - timedelta(days=1)
+    )
+    # Dokładnie to, co pętla retry dokłada do `fetched`, gdy wiersz źródłowy
+    # zniknął z Traffita: sam znacznik, bez żadnego świeżego wariantu.
+    marker = {
+        "id": marker_id,
+        "created_at": BASE_TIME.isoformat(),
+        contact_traffit_task._PAYLOAD_CONFLICT_MARKER: True,
+        "payload_hashes": ["a" * 64, "b" * 64],
+    }
+    fresh = {
+        "id": fresh_id,
+        "created_at": (BASE_TIME + timedelta(minutes=2)).isoformat(),
+        "employee": {"id": f"missing-candidate-{suffix}"},
+        "recruitment": {"id": f"missing-job-{suffix}"},
+        "workflow_state": {"type": "start"},
+    }
+
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateContactTraffitCursor(
+                    stream=stream,
+                    cursor_created_at=initial_cursor_at,
+                    cursor_external_id="0",
+                    status="idle",
+                )
+            )
+            await db.commit()
+
+            stats = await contact_traffit_task.run_traffit_contact_intake_once(
+                db,
+                _StaticTraffitClient([marker, fresh]),  # type: ignore[arg-type]
+                now=BASE_TIME + timedelta(minutes=5),
+            )
+            await db.commit()
+
+            cursor = await db.get(CandidateContactTraffitCursor, stream)
+            assert cursor is not None
+            # Znacznik zostaje trwałym wyjątkiem (nic go nie gubi)…
+            assert stats.exceptions == 2
+            marker_row = await db.scalar(
+                select(CandidateContactTraffitLedger).where(
+                    CandidateContactTraffitLedger.external_event_id == marker_id
+                )
+            )
+            assert marker_row is not None
+            assert marker_row.status == "exception"
+            assert marker_row.error == "conflicting_payloads_for_external_event_id"
+            # …ale nie blokuje już postępu pozostałych wierszy ticku.
+            assert cursor.cursor_created_at == BASE_TIME + timedelta(minutes=2)
+            assert cursor.cursor_external_id == fresh_id
+    finally:
+        async with AsyncSessionLocal() as cleanup_db:
+            await cleanup_db.execute(
+                delete(CandidateContactTraffitLedger).where(
+                    CandidateContactTraffitLedger.external_event_id.in_(
+                        [marker_id, fresh_id]
+                    )
+                )
+            )
+            await cleanup_db.execute(
+                delete(CandidateContactTraffitCursor).where(
+                    CandidateContactTraffitCursor.stream == stream
+                )
+            )
+            await cleanup_db.commit()
+
+
+async def test_malformed_row_is_logged_and_named_in_the_operator_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Wiersz nieparsowalny zamraża kursor — operator musi wiedzieć KTÓRY.
+
+    Nie ma dla niego miejsca w ledgerze (`source_created_at` jest NOT NULL),
+    więc log i `cursor.last_error` to jedyny ślad, jaki po nim zostaje.
+    """
+
+    suffix = uuid.uuid4().hex
+    stream = f"pytest-contact-malformed-{suffix}"
+    bad_id = f"bad-{suffix}"
+    monkeypatch.setattr(contact_traffit_task, "_STREAM", stream)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED", True)
+    monkeypatch.setattr(
+        settings, "CANDIDATE_CONTACT_ACTIVATION_AT", BASE_TIME - timedelta(days=1)
+    )
+    malformed = {"id": bad_id, "created_at": "27 lipca 2026", "workflow_state": {}}
+
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateContactTraffitCursor(
+                    stream=stream,
+                    cursor_created_at=BASE_TIME - timedelta(minutes=5),
+                    cursor_external_id="0",
+                    status="idle",
+                )
+            )
+            await db.commit()
+
+            with caplog.at_level("WARNING", logger=contact_traffit_task.__name__):
+                stats = await contact_traffit_task.run_traffit_contact_intake_once(
+                    db,
+                    _StaticTraffitClient([malformed]),  # type: ignore[arg-type]
+                    now=BASE_TIME,
+                )
+            await db.commit()
+
+            cursor = await db.get(CandidateContactTraffitCursor, stream)
+            assert cursor is not None
+            assert stats.malformed == 1
+            assert cursor.status == "exception"
+            assert cursor.last_error is not None
+            assert bad_id in cursor.last_error
+            assert any(
+                bad_id in record.getMessage()
+                for record in caplog.records
+                if record.levelname == "WARNING"
+            ), "porzucenie wiersza musi zostawić log z id"
+    finally:
+        async with AsyncSessionLocal() as cleanup_db:
+            await cleanup_db.execute(
+                delete(CandidateContactTraffitCursor).where(
+                    CandidateContactTraffitCursor.stream == stream
+                )
+            )
+            await cleanup_db.commit()
+
+
+async def test_synthetic_terminal_watermark_fences_a_delayed_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Znak wodny bez `workflow_state` też musi ogrodzić spóźniony start.
+
+    `close_contact_opportunity` zapisuje syntetyczny wiersz `processed` z samym
+    `contact_action='close'`.  Poller miał WŁASNĄ kopię klasyfikatora, która
+    czytała tylko `workflow_state`, więc takiego znaku wodnego nie widział.
+    """
+
+    suffix = uuid.uuid4().hex
+    stream = f"pytest-contact-watermark-{suffix}"
+    candidate_external_id = f"candidate-{suffix}"
+    job_external_id = f"job-{suffix}"
+    terminal_id = f"terminal-{suffix}"
+    start_id = f"start-{suffix}"
+    monkeypatch.setattr(contact_traffit_task, "_STREAM", stream)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ASSIGNMENT_ENABLED", False)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED", True)
+    monkeypatch.setattr(
+        settings, "CANDIDATE_CONTACT_ACTIVATION_AT", BASE_TIME - timedelta(days=1)
+    )
+    terminal_at = BASE_TIME + timedelta(hours=2)
+    delayed_start = {
+        "id": start_id,
+        "created_at": BASE_TIME.isoformat(),
+        "employee": {"id": candidate_external_id},
+        "recruitment": {"id": job_external_id},
+        "workflow_state": {"type": "start"},
+    }
+    candidate_id: int | None = None
+    job_id: int | None = None
+    client_id: int | None = None
+
+    try:
+        async with AsyncSessionLocal() as db:
+            client_row = Client(
+                name=f"Contact watermark {suffix}", status=ClientStatus.active
+            )
+            db.add(client_row)
+            await db.flush()
+            candidate = Candidate(
+                name="Runtime",
+                lastname="Watermark",
+                phone="+48 500 600 701",
+                status=CandidateStatus.active,
+                external_source="traffit",
+                external_id=candidate_external_id,
+            )
+            job = Job(
+                title=f"Runtime watermark {suffix}",
+                client_id=client_row.id,
+                status=JobStatus.published,
+                priority=JobPriority.medium,
+                external_source="traffit",
+                external_id=job_external_id,
+            )
+            db.add_all([candidate, job])
+            await db.flush()
+            candidate_id = candidate.id
+            job_id = job.id
+            client_id = client_row.id
+            # Dokładny kształt zapisywany przez
+            # `_record_traffit_terminal_watermark`: brak `workflow_state`.
+            db.add(
+                CandidateContactTraffitLedger(
+                    external_event_id=terminal_id,
+                    source_created_at=terminal_at,
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    status="processed",
+                    payload_hash="c" * 64,
+                    raw_payload={
+                        "id": terminal_id,
+                        "created_at": terminal_at.isoformat(),
+                        "contact_action": "close",
+                        "reason": "traffit_no_case",
+                    },
+                    attempts=1,
+                )
+            )
+            db.add(
+                CandidateContactTraffitCursor(
+                    stream=stream,
+                    cursor_created_at=BASE_TIME - timedelta(minutes=5),
+                    cursor_external_id="0",
+                    status="idle",
+                )
+            )
+            await db.commit()
+
+            stats = await contact_traffit_task.run_traffit_contact_intake_once(
+                db,
+                _StaticTraffitClient([delayed_start]),  # type: ignore[arg-type]
+                now=terminal_at + timedelta(minutes=1),
+            )
+            await db.commit()
+
+            assert stats.processed == 1
+            assert stats.ignored_stale_start == 1
+            # Spóźniony start nie może zostawić osieroconej sprawy.
+            assert (
+                await db.scalar(
+                    select(func.count(CandidateContactOpportunity.id)).where(
+                        CandidateContactOpportunity.candidate_id == candidate.id,
+                        CandidateContactOpportunity.job_id == job.id,
+                    )
+                )
+                == 0
+            )
+    finally:
+        async with AsyncSessionLocal() as cleanup_db:
+            await cleanup_db.execute(
+                delete(CandidateContactTraffitLedger).where(
+                    CandidateContactTraffitLedger.external_event_id.in_(
+                        [terminal_id, start_id]
+                    )
+                )
+            )
+            await cleanup_db.execute(
+                delete(CandidateContactTraffitCursor).where(
+                    CandidateContactTraffitCursor.stream == stream
+                )
+            )
+            if candidate_id is not None:
+                await cleanup_db.execute(
+                    delete(Candidate).where(Candidate.id == candidate_id)
+                )
+            if job_id is not None:
+                await cleanup_db.execute(delete(Job).where(Job.id == job_id))
+            if client_id is not None:
+                await cleanup_db.execute(delete(Client).where(Client.id == client_id))
+            await cleanup_db.commit()
+
+
+async def test_erased_candidate_scrubs_processed_ledger_but_keeps_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RODO: po skasowaniu kandydata wiersz nie może zostać z jego danymi.
+
+    `candidate_id` jest `ON DELETE SET NULL`, więc kaskada erasure zostawiała
+    trwały identyfikator osoby w Traffit i dosłowny zdalny payload.  Scrub
+    obejmuje WYŁĄCZNIE `processed` — `exception` są odtwarzane z `raw_payload`
+    przez pętlę retry, więc ich wyczyszczenie zepsułoby ponawianie.
+    """
+
+    suffix = uuid.uuid4().hex
+    stream = f"pytest-contact-scrub-{suffix}"
+    processed_id = f"scrub-processed-{suffix}"
+    exception_id = f"scrub-exception-{suffix}"
+    erased_person = f"erased-person-{suffix}"
+    exception_payload = {
+        "id": exception_id,
+        "created_at": BASE_TIME.isoformat(),
+        "employee": {"id": erased_person},
+        "recruitment": {"id": f"missing-job-{suffix}"},
+        "workflow_state": {"type": "start"},
+    }
+    monkeypatch.setattr(contact_traffit_task, "_STREAM", stream)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
+    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED", True)
+    monkeypatch.setattr(
+        settings, "CANDIDATE_CONTACT_ACTIVATION_AT", BASE_TIME - timedelta(days=1)
+    )
+
+    try:
+        async with AsyncSessionLocal() as db:
+            # Stan po erasure: FK wyzerowane przez SET NULL, reszta została.
+            db.add_all(
+                [
+                    CandidateContactTraffitLedger(
+                        external_event_id=processed_id,
+                        source_created_at=BASE_TIME,
+                        candidate_external_id=erased_person,
+                        job_external_id=f"job-{suffix}",
+                        candidate_id=None,
+                        status="processed",
+                        payload_hash="d" * 64,
+                        raw_payload={
+                            "id": processed_id,
+                            "created_at": BASE_TIME.isoformat(),
+                            "employee": {"id": erased_person},
+                            "workflow_state": {"type": "start"},
+                        },
+                        attempts=1,
+                    ),
+                    CandidateContactTraffitLedger(
+                        external_event_id=exception_id,
+                        source_created_at=BASE_TIME,
+                        candidate_external_id=erased_person,
+                        candidate_id=None,
+                        status="exception",
+                        payload_hash="e" * 64,
+                        raw_payload=exception_payload,
+                        attempts=1,
+                    ),
+                    CandidateContactTraffitCursor(
+                        stream=stream,
+                        cursor_created_at=BASE_TIME - timedelta(minutes=5),
+                        cursor_external_id="0",
+                        status="idle",
+                    ),
+                ]
+            )
+            await db.commit()
+
+            stats = await contact_traffit_task.run_traffit_contact_intake_once(
+                db,
+                _StaticTraffitClient([]),  # type: ignore[arg-type]
+                now=BASE_TIME + timedelta(minutes=5),
+            )
+            await db.commit()
+
+            assert stats.erased_pii_scrubbed >= 1
+            rows = {
+                row.external_event_id: row
+                for row in (
+                    (
+                        await db.execute(
+                            select(CandidateContactTraffitLedger).where(
+                                CandidateContactTraffitLedger.external_event_id.in_(
+                                    [processed_id, exception_id]
+                                )
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            }
+            await db.refresh(rows[processed_id])
+            scrubbed = rows[processed_id]
+            assert scrubbed.candidate_external_id is None
+            assert scrubbed.raw_payload == {}
+            # Klucz deduplikacji przeżywa — zdarzenie nie wróci jako nowe.
+            assert scrubbed.external_event_id == processed_id
+            assert scrubbed.status == "processed"
+
+            retryable = rows[exception_id]
+            assert retryable.status == "exception"
+            assert retryable.raw_payload == exception_payload, (
+                "pętla retry odtwarza raw_payload — scrub nie może go dotknąć"
+            )
+    finally:
+        async with AsyncSessionLocal() as cleanup_db:
+            await cleanup_db.execute(
+                delete(CandidateContactTraffitLedger).where(
+                    CandidateContactTraffitLedger.external_event_id.in_(
+                        [processed_id, exception_id]
+                    )
+                )
+            )
+            await cleanup_db.execute(
+                delete(CandidateContactTraffitCursor).where(
+                    CandidateContactTraffitCursor.stream == stream
+                )
+            )
             await cleanup_db.commit()
