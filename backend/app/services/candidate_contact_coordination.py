@@ -112,6 +112,15 @@ class ContactCaseOwnershipError(ContactConflict):
     pass
 
 
+class ContactContentionError(ContactConflict):
+    """Wiersz właściciela jest chwilowo zablokowany przez inną transakcję.
+
+    Odrębny od `ContactCapacityError`, bo dla operatora to zupełnie inna
+    informacja: „spróbuj za chwilę" zamiast „ta osoba ma komplet 20 spraw".
+    Po wprowadzeniu SKIP LOCKED oba przypadki wyglądały tak samo (`None`).
+    """
+
+
 class ContactCapacityError(ContactConflict):
     pass
 
@@ -636,6 +645,7 @@ async def _claim_slot(
     db: AsyncSession,
     *,
     user_id: int,
+    report_contention: bool = False,
 ) -> Optional[int]:
     # The user-row lock serializes all slot allocation for this owner.  The
     # partial UNIQUE index and 1..20 CHECK remain the final DB-level fence.
@@ -652,6 +662,13 @@ async def _claim_slot(
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
+    if user is None and report_contention:
+        # Pusty wynik przy SKIP LOCKED = wiersz trzyma inna transakcja. Ścieżki
+        # wsadowe traktują to jak „pomiń tę osobę", ale operator ręcznie
+        # przepisujący sprawę musi usłyszeć prawdę, a nie „brak wolnych slotów".
+        raise ContactContentionError(
+            f"user {user_id} is being assigned by another operation, retry"
+        )
     if user is None or not user.is_active or not user.has_any_role(*OPERATIONAL_ROLES):
         return None
     # AsyncSessionLocal disables autoflush. Persist earlier allocations made
@@ -2139,7 +2156,7 @@ async def reassign_contact_case(
             raise CandidateContactError(
                 "target user is not an active operational member of a linked job"
             )
-        slot = await _claim_slot(db, user_id=target_user_id)
+        slot = await _claim_slot(db, user_id=target_user_id, report_contention=True)
         if slot is None:
             raise ContactCapacityError(f"user {target_user_id} has no free queue slot")
         case.owner_user_id = target_user_id

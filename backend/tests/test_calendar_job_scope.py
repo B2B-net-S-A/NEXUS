@@ -25,12 +25,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -167,7 +168,7 @@ def _create_body(*, candidate_id: int, job_id: Optional[int]) -> dict[str, Any]:
 
 
 @pytest_asyncio.fixture
-async def scope_setup(app_client: AsyncClient) -> dict[str, Any]:
+async def scope_setup(app_client: AsyncClient) -> AsyncIterator[dict[str, Any]]:
     """Właściciel sprawy jest członkiem oferty A, ale NIE oferty B ani C.
 
     Sprawa kontaktu obejmuje A i B — czyli dokładnie ten zakres, który
@@ -205,7 +206,22 @@ async def scope_setup(app_client: AsyncClient) -> dict[str, Any]:
     data["stranger_headers"] = await _login(
         app_client, data["stranger_email"], data["stranger_password"]
     )
-    return data
+    yield data
+
+    # Sprzątanie jest OBOWIĄZKOWE: sprawy kontaktu zostawione w tabeli są
+    # widoczne dla workera w KAŻDYM późniejszym teście sesji. Kandydaci tutaj
+    # nie mają telefonu, więc pierwszy tick przestawia je na `blocked_no_phone`
+    # — stan ponawialny — i worker skanuje je już do końca przebiegu, psując
+    # każdy test, który asertuje globalne liczniki albo używa `limit`.
+    # Okazje lecą kaskadą z `case_id`; zdarzenia audytowe nie mają FK i mają
+    # zostać (są niezmienne z założenia).
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(CandidateContactCase).where(
+                CandidateContactCase.candidate_id == data["candidate_id"]
+            )
+        )
+        await db.commit()
 
 
 # ── P2-12: tworzenie wydarzenia ──────────────────────────────────────────────
