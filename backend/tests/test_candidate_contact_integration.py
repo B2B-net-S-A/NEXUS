@@ -975,31 +975,50 @@ async def test_parallel_workers_never_allocate_twenty_first_slot(
             await worker_db.commit()
             return result
 
-    await asyncio.gather(run_worker(), run_worker())
+    case_ids = [case.id for case in cases]
 
-    async with AsyncSessionLocal() as verification_db:
-        rows = (
-            await verification_db.execute(
-                select(
-                    CandidateContactCase.state,
-                    CandidateContactCase.queue_slot,
-                ).where(CandidateContactCase.id.in_([case.id for case in cases]))
-            )
-        ).all()
-        queued_slots = [
+    async def queue_shape() -> tuple[list[int], int]:
+        async with AsyncSessionLocal() as read_db:
+            rows = (
+                await read_db.execute(
+                    select(
+                        CandidateContactCase.state,
+                        CandidateContactCase.queue_slot,
+                    ).where(CandidateContactCase.id.in_(case_ids))
+                )
+            ).all()
+        slots = [
             slot for state, slot in rows if state == CandidateContactState.queued.value
         ]
-        assert len(queued_slots) == 20
-        assert len(set(queued_slots)) == 20
-        assert set(queued_slots) == set(range(1, 21))
-        assert (
-            sum(
-                state == CandidateContactState.awaiting_capacity.value
-                for state, _ in rows
-            )
-            == 1
+        waiting = sum(
+            state == CandidateContactState.awaiting_capacity.value for state, _ in rows
         )
+        return slots, waiting
 
+    await asyncio.gather(run_worker(), run_worker())
+
+    # Współbieżni alokujący nie czekają już na swoje blokady wierszy userów
+    # (SKIP LOCKED w `_claim_from_pool` — inaczej kumulowane blokady userów
+    # potrafiły się zakleszczyć ze ścieżką API), więc JEDEN przebieg pod
+    # kontencją nie musi wypełnić kompletu. Ogrodzenie obowiązuje zawsze:
+    # żadnego duplikatu slotu i nigdy nic spoza 1..20.
+    contended_slots, _ = await queue_shape()
+    assert len(contended_slots) == len(set(contended_slots))
+    assert set(contended_slots) <= set(range(1, 21))
+
+    # Pominięty właściciel nie jest „brakiem uprawnionych": sprawy czekają
+    # w `awaiting_capacity`, więc następny — już niekonkurencyjny — przebieg
+    # dociąga kolejkę do kompletu. Utrata przepustowości jest odroczeniem
+    # o jeden tick, nie porzuceniem pracy.
+    await run_worker()
+
+    queued_slots, waiting = await queue_shape()
+    assert len(queued_slots) == 20
+    assert len(set(queued_slots)) == 20
+    assert set(queued_slots) == set(range(1, 21))
+    assert waiting == 1
+
+    async with AsyncSessionLocal() as verification_db:
         # The database fence must reject a duplicate active owner/slot even if
         # an application bug bypasses the allocator.
         waiting_case = await verification_db.scalar(
@@ -2806,6 +2825,137 @@ async def test_connected_releases_slot_but_keeps_handoff_owner_and_calendar_cycl
     )
 
 
+async def test_callback_requested_writes_no_reassignment_it_would_undo(
+    contact_db: ContactDb,
+) -> None:
+    """Jawny callback nie zapisuje przeniesienia, do którego nie dochodzi.
+
+    Zamknięcie jedynej oferty, z której właściciel czerpał uprawnienia, czyni
+    go w trakcie tego samego zgłoszenia nieuprawnionym — generyczne
+    przeliczenie rotowało wtedy sprawę na innego rekrutera i zapisywało
+    ``reassigned``, po czym kod jawnego callbacku przywracał starego
+    właściciela. Sprawa wracała, wpis w dzienniku nie: tabela jest append-only
+    (trigger na UPDATE/DELETE), więc audyt trwale twierdził, że sprawa zmieniła
+    właściciela.
+    """
+
+    owner = await contact_db.add_user(UserRole.recruiter, label="callback-owner")
+    successor = await contact_db.add_user(UserRole.recruiter, label="callback-next")
+    candidate = await contact_db.add_candidate(label="callback-audit")
+    owner_job = await contact_db.add_job(label="callback-owner-job", recruiter=owner)
+    other_job = await contact_db.add_job(label="callback-other-job", recruiter=successor)
+
+    case = await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=owner_job.id,
+        source="pipeline",
+        occurred_at=BASE_TIME,
+    )
+    await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=other_job.id,
+        source="shortlist",
+        occurred_at=BASE_TIME + timedelta(minutes=5),
+    )
+    case_id = case.id
+    version = case.version
+    held_slot = case.queue_slot
+    assert case.owner_user_id == owner.id
+    await contact_db.commit()
+
+    async with AsyncSessionLocal() as attempt_db:
+        result = await record_contact_attempt(
+            attempt_db,
+            case_id=case_id,
+            actor_user_id=owner.id,
+            outcome="callback_requested",
+            opportunity_outcomes={
+                owner_job.id: "not_interested",
+                other_job.id: "maybe",
+            },
+            expected_version=version,
+            idempotency_key=f"{contact_db.prefix}-callback-audit",
+            callback_at=BASE_TIME + timedelta(days=1),
+            occurred_at=BASE_TIME + timedelta(hours=1),
+        )
+        await attempt_db.commit()
+
+    async with AsyncSessionLocal() as audit_db:
+        rotation_events = (
+            (
+                await audit_db.execute(
+                    select(CandidateContactEvent.event_type).where(
+                        CandidateContactEvent.case_id == case_id,
+                        CandidateContactEvent.event_type.in_(
+                            ("reassigned", "awaiting_capacity")
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert list(rotation_events) == []
+
+    assert result.case.state == CandidateContactState.callback_due.value
+    assert result.case.owner_user_id == owner.id
+    assert result.case.queue_slot == held_slot
+    assert result.case.previous_owner_user_id is None
+
+    stored = await _case_snapshot(case_id)
+    assert stored.owner_user_id == owner.id
+    assert stored.previous_owner_user_id is None
+
+
+async def test_callback_requested_keeps_slot_when_every_job_is_interested(
+    contact_db: ContactDb,
+) -> None:
+    """Zainteresowanie na wszystkich ofertach nie przekazuje sprawy do handoffu.
+
+    Ta ścieżka trzyma slot bez przywracania go po fakcie — regresja dla
+    usuniętego „restore" w ``record_contact_attempt``.
+    """
+
+    owner = await contact_db.add_user(UserRole.recruiter, label="callback-keep")
+    candidate = await contact_db.add_candidate(label="callback-keep")
+    job = await contact_db.add_job(label="callback-keep", recruiter=owner)
+
+    case = await ensure_contact_opportunity(
+        contact_db.db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        source="pipeline",
+        occurred_at=BASE_TIME,
+    )
+    case_id = case.id
+    version = case.version
+    held_slot = case.queue_slot
+    await contact_db.commit()
+
+    callback_at = BASE_TIME + timedelta(days=1)
+    async with AsyncSessionLocal() as attempt_db:
+        result = await record_contact_attempt(
+            attempt_db,
+            case_id=case_id,
+            actor_user_id=owner.id,
+            outcome="callback_requested",
+            opportunity_outcomes={job.id: "interested"},
+            expected_version=version,
+            idempotency_key=f"{contact_db.prefix}-callback-keep",
+            callback_at=callback_at,
+            occurred_at=BASE_TIME + timedelta(hours=1),
+        )
+        await attempt_db.commit()
+
+    assert result.case.state == CandidateContactState.callback_due.value
+    assert result.case.owner_user_id == owner.id
+    assert result.case.queue_slot == held_slot
+    assert result.case.due_at == callback_at
+    assert result.case.completed_at is None
+
+
 async def test_restart_catches_friday_eod_once_on_monday_morning(
     contact_db: ContactDb,
 ) -> None:
@@ -3085,6 +3235,132 @@ async def test_skip_locked_worker_processes_other_due_case(
     assert stats.reassigned == 1
     assert available.owner_user_id == fallback_owner.id
     assert locked.owner_user_id == first_owner.id
+
+
+async def _assign_unassigned_case(
+    contact_db: ContactDb,
+    *,
+    candidate: Candidate,
+    job: Job,
+) -> CandidateContactCase:
+    """Sprawa czekająca na przydział — bez przechodzenia przez intake."""
+
+    case = CandidateContactCase(
+        candidate_id=candidate.id,
+        state=CandidateContactState.unassigned.value,
+        due_at=BASE_TIME + timedelta(hours=7),
+    )
+    contact_db.db.add(case)
+    await contact_db.db.flush()
+    contact_db.db.add(
+        CandidateContactOpportunity(
+            case_id=case.id,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            source="pipeline",
+            linked_at=BASE_TIME,
+        )
+    )
+    await contact_db.db.flush()
+    return case
+
+
+async def test_assignment_never_waits_on_a_user_row_locked_elsewhere(
+    contact_db: ContactDb,
+) -> None:
+    """Przydział pomija zajętego rekrutera zamiast czekać na jego wiersz.
+
+    Worker mieli całą paczkę w jednej transakcji, więc blokady userów kumulują
+    się przez kolejne sprawy w kolejności, której nie da się uzgodnić z pętlą po
+    stronie API. Dopóki przydział CZEKAŁ na cudzą blokadę, para takich
+    transakcji mogła się zakleszczyć. ``wait_for`` jest tu asercją: przed
+    poprawką ten przebieg blokował się do timeoutu.
+    """
+
+    busy = await contact_db.add_user(UserRole.recruiter, label="lock-busy")
+    free = await contact_db.add_user(UserRole.recruiter, label="lock-free")
+    candidate = await contact_db.add_candidate(label="lock-skip")
+    job = await contact_db.add_job(
+        label="lock-skip",
+        recruiter=None,
+        priority=JobPriority.high,
+    )
+    await contact_db.add_collaborator(job=job, user=busy)
+    await contact_db.add_collaborator(job=job, user=free)
+    # Bez kontencji wygrywa mniejsze id, czyli `busy` — wybór `free` dowodzi
+    # pominięcia, a nie przypadkowej kolejności.
+    assert busy.id < free.id
+    case = await _assign_unassigned_case(contact_db, candidate=candidate, job=job)
+    case_id = case.id
+    await contact_db.commit()
+
+    async with AsyncSessionLocal() as blocker:
+        assert (
+            await blocker.scalar(
+                select(User).where(User.id == busy.id).with_for_update()
+            )
+            is not None
+        )
+        try:
+            async with AsyncSessionLocal() as worker:
+                await asyncio.wait_for(
+                    process_contact_cases(
+                        worker,
+                        now=BASE_TIME + timedelta(hours=9),
+                        limit=50,
+                    ),
+                    timeout=15,
+                )
+                await worker.commit()
+        finally:
+            await blocker.rollback()
+
+    stored = await _case_snapshot(case_id)
+    assert stored.owner_user_id == free.id
+    assert stored.state == CandidateContactState.queued.value
+
+
+async def test_sole_owner_locked_elsewhere_leaves_case_retryable(
+    contact_db: ContactDb,
+) -> None:
+    """Kontencja to brak POJEMNOŚCI, nie brak uprawnionych.
+
+    Pominięcie przez SKIP LOCKED nie może wyglądać jak pusta pula — inaczej
+    sprawa lądowałaby w ``unassigned`` i gubiła informację, że kandydat ma
+    komu przypaść.
+    """
+
+    owner = await contact_db.add_user(UserRole.recruiter, label="lock-sole")
+    candidate = await contact_db.add_candidate(label="lock-sole")
+    job = await contact_db.add_job(label="lock-sole", recruiter=owner)
+    case = await _assign_unassigned_case(contact_db, candidate=candidate, job=job)
+    case_id = case.id
+    await contact_db.commit()
+
+    async with AsyncSessionLocal() as blocker:
+        assert (
+            await blocker.scalar(
+                select(User).where(User.id == owner.id).with_for_update()
+            )
+            is not None
+        )
+        try:
+            async with AsyncSessionLocal() as worker:
+                await asyncio.wait_for(
+                    process_contact_cases(
+                        worker,
+                        now=BASE_TIME + timedelta(hours=9),
+                        limit=50,
+                    ),
+                    timeout=15,
+                )
+                await worker.commit()
+        finally:
+            await blocker.rollback()
+
+    stored = await _case_snapshot(case_id)
+    assert stored.owner_user_id is None
+    assert stored.state == CandidateContactState.awaiting_capacity.value
 
 
 async def test_feature_and_assignment_flags_are_fail_closed(
