@@ -53,6 +53,14 @@ class Client(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Sufit trybu obróbki CV wysyłanego do tego klienta:
+    # "basic" | "polished" | "tailored"; NULL (domyślnie) = bez ograniczenia.
+    # Ustawia się go, gdy klient zgłosi, że CV wyglądają na pisane pod jego
+    # ogłoszenie — wtedy generator NIE pozwala wysłać wyżej niż sufit,
+    # niezależnie od tego, co rekruter wybierze w UI. Bez tego obietnica
+    # złożona klientowi zostaje deklaracją, którą znosi jeden checkbox.
+    cv_content_mode_cap: Mapped[Optional[str]] = mapped_column(String(16))
+
     # External source tracking — Traffit / future imports.
     # Migracja 0071 dodaje partial unique index na (external_source, external_id).
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)

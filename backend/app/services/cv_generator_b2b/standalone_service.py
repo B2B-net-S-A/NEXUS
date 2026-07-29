@@ -33,6 +33,7 @@ from sqlalchemy.orm import selectinload
 from app.models.call import Call
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument
+from app.models.client import Client
 from app.models.job import Job
 from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage
@@ -71,6 +72,59 @@ TEMPLATE_PATH = str(
 
 
 Language = Literal["pl", "en"]
+
+# How much presentation work the generator is allowed to do. The axis is
+# PRESENTATION, never truth: the anti-fabrication ceiling (prompt rules +
+# ``_fabrication_warnings``) is identical in all three modes — a higher mode
+# never licenses adding a fact the source does not carry.
+#
+#   * "basic"    — Przepisanie: facts only, source wording kept, no champion.
+#   * "polished" — Redakcja: same facts, cleaner language and terminology,
+#                  screening notes may enrich why_points, still no champion.
+#   * "tailored" — Pod ofertę: the client's Champion Profile drives ordering,
+#                  emphasis and bolding. This is the mode that made CVs read
+#                  as "written by AI against the job ad", so it is never the
+#                  default and can be capped per client (``Client.cv_content_mode_cap``).
+ContentMode = Literal["basic", "polished", "tailored"]
+
+CONTENT_MODES: tuple[str, ...] = ("basic", "polished", "tailored")
+
+#: Deliberately NOT "tailored" — the most-positioned variant must be an
+#: explicit choice, never what a recruiter gets by clicking through.
+DEFAULT_CONTENT_MODE: ContentMode = "polished"
+
+#: Ordered weakest → strongest positioning; used to apply the per-client cap.
+_CONTENT_MODE_RANK: dict[str, int] = {"basic": 0, "polished": 1, "tailored": 2}
+
+
+def normalize_content_mode(value: Any) -> ContentMode:
+    """Coerce free-form input to a known mode, defaulting to the safe middle.
+
+    Unknown values fall back to :data:`DEFAULT_CONTENT_MODE` rather than to
+    "tailored": a typo or a stale client must never silently upgrade a CV to
+    the most-positioned variant.
+    """
+    text = str(value or "").strip().lower()
+    return text if text in _CONTENT_MODE_RANK else DEFAULT_CONTENT_MODE  # type: ignore[return-value]
+
+
+def apply_content_mode_cap(requested: Any, cap: Any = None) -> tuple[ContentMode, bool]:
+    """Clamp ``requested`` to the client's ceiling.
+
+    Returns ``(effective_mode, was_capped)``. A ``cap`` of ``None`` (the
+    default for every client) means "no ceiling" — existing recruitments keep
+    working untouched. Setting a cap is what turns a promise made to a client
+    ("we stopped positioning CVs against your job ad") into something the
+    generator actually enforces, instead of a checkbox a recruiter can undo.
+    """
+    mode = normalize_content_mode(requested)
+    if cap is None:
+        return mode, False
+    ceiling = normalize_content_mode(cap)
+    if _CONTENT_MODE_RANK[mode] <= _CONTENT_MODE_RANK[ceiling]:
+        return mode, False
+    return ceiling, True
+
 
 # Calls have no job_id — scope transcripts to the recruitment by time window:
 # anything recorded since shortly before the candidate entered this job's
@@ -116,6 +170,7 @@ class UploadGenerationInput:
     screening_notes: str = ""
     champion_bytes: bytes | None = None
     champion_filename: str | None = None
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE
 
 
 @dataclass(frozen=True)
@@ -1053,12 +1108,18 @@ def _run_generation_pipeline(
     started_at: float,
     job_id: int | None = None,
     job_title: str | None = None,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
     Fully synchronous — wrap in ``run_in_threadpool`` from async callers.
     Used by both the DB-backed (New) and the manual-upload (Old) modes; the
     modes differ only in how the inputs are sourced.
+
+    ``content_mode`` gates every channel through which the client's job ad can
+    shape the document. Below "tailored" the Champion Profile is not sent to
+    the model at all, so the prompt's whole positioning section has nothing to
+    act on, and the client's requirement list stops driving what gets bolded.
     """
     # ── 1. Extract CV text ───────────────────────────────────────────────
     try:
@@ -1070,7 +1131,8 @@ def _run_generation_pipeline(
         ) from err
 
     # ── 2. Build prompt (system = instructions, user = data in tags) ─────
-    system_prompt = get_prompt(language, blind_cv)
+    mode = normalize_content_mode(content_mode)
+    system_prompt = get_prompt(language, blind_cv, mode)
 
     user_parts = [f"<cv>\n{cv_text.strip()}\n</cv>"]
     screening_section = build_screening_notes_section(screening_notes_text, language)
@@ -1078,8 +1140,14 @@ def _run_generation_pipeline(
         user_parts.append(
             f"<screening_notes>\n{screening_section.strip()}\n</screening_notes>"
         )
+    # Only "tailored" gets the client's requirements in front of the model.
+    # Withholding the section (rather than relying on the prompt to ignore it)
+    # is what makes the lower modes trustworthy: there is nothing to position
+    # against, so no instruction can leak the job ad into the document.
     champion_section = (
-        build_champion_section(champion_dto, language) if champion_dto else ""
+        build_champion_section(champion_dto, language)
+        if champion_dto and mode == "tailored"
+        else ""
     )
     if champion_section.strip():
         user_parts.append(
@@ -1089,13 +1157,14 @@ def _run_generation_pipeline(
 
     logger.info(
         "[cv_b2b][%s] Built prompt: cv_chars=%d, notes_chars=%d, champion_chars=%d, "
-        "lang=%s, blind=%s",
+        "lang=%s, blind=%s, content_mode=%s",
         request_id,
         len(cv_text),
         len(screening_notes_text),
         len(champion_section),
         language,
         blind_cv,
+        mode,
     )
 
     # ── 3. Claude call ───────────────────────────────────────────────────
@@ -1136,10 +1205,15 @@ def _run_generation_pipeline(
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
     candidate_data["language"] = language
     candidate_data["blind_cv"] = blind_cv
+    # Stamped BEFORE the render_payload snapshot so the saved row records which
+    # mode produced the document that actually reached the client.
+    candidate_data["content_mode"] = mode
 
     # Bold only the TECHNOLOGIES the client listed — must-have AND nice-to-have
     # (compile_keyword_patterns drops methodologies/concepts/requirement prose).
-    if champion_dto:
+    # Only in "tailored": bolding the client's requirement list is precisely
+    # what makes a CV read as a mirror of the job ad.
+    if champion_dto and mode == "tailored":
         highlight = [
             kw.strip()
             for kw in (champion_dto.must_have + champion_dto.nice_to_have)
@@ -1155,14 +1229,16 @@ def _run_generation_pipeline(
     # 5-year candidate); recompute the headline from the extracted dates.
     _fix_experience_years(candidate_data, language)
 
-    # The recruitment role (Champion Profile → Job.title) is the authoritative
-    # CV title: it drives both the header ("{position} – {name}") and the
-    # download filename, overriding the AI-derived position. Done BEFORE the
-    # render_payload snapshot so re-downloads reproduce the same header.
-    # Manual-upload mode passes no job_title → the AI position is kept.
+    # The recruitment role (Champion Profile → Job.title) names the vacancy, not
+    # the candidate — so it no longer overwrites ``position``. Putting the job
+    # ad's title in the CV header states something the source never said, which
+    # is the same class of defect clients report as "written against our advert".
+    # It stays the download filename (useful to the recruiter) and is rendered
+    # as a separate, clearly-labelled line. Set BEFORE the render_payload
+    # snapshot so re-downloads reproduce an identical header.
     role_title = (job_title or "").strip()
     if role_title:
-        candidate_data["position"] = role_title
+        candidate_data["considered_for"] = role_title
 
     # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
@@ -1357,6 +1433,7 @@ async def generate_cv_for_candidate(
     stage_id: int,
     language: Language = "pl",
     blind_cv: bool = False,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
 ) -> GenerationResult:
     """Generate the B2B-formatted CV for ``candidate_id`` using the champion
     + notes context tied to the given ``stage_id``.
@@ -1364,6 +1441,11 @@ async def generate_cv_for_candidate(
     Validates the readiness contract documented in
     :class:`StandaloneGenerationError`. Raises with a specific ``code`` so
     the API layer can map to the right HTTP status.
+
+    ``content_mode`` is clamped to the recruiting client's ceiling
+    (``Client.cv_content_mode_cap``) before it reaches the pipeline, so a
+    commitment made to a client holds regardless of what the recruiter picks
+    in the UI.
     """
     request_id = f"cvgen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     started_at = time.time()
@@ -1392,6 +1474,21 @@ async def generate_cv_for_candidate(
         raise StandaloneGenerationError(
             code="stage_not_found",
             message=f"Stage {stage_id} has no linked job",
+        )
+
+    # Per-client ceiling. NULL cap (the default everywhere) = no ceiling, so
+    # nothing changes for clients we have made no promise to.
+    client = await db.get(Client, job.client_id) if job.client_id else None
+    effective_mode, was_capped = apply_content_mode_cap(
+        content_mode, getattr(client, "cv_content_mode_cap", None)
+    )
+    if was_capped:
+        logger.info(
+            "[cv_b2b][%s] content_mode capped %s→%s by client %s",
+            request_id,
+            normalize_content_mode(content_mode),
+            effective_mode,
+            job.client_id,
         )
 
     # ── 1. CV file ────────────────────────────────────────────────────────
@@ -1567,6 +1664,7 @@ async def generate_cv_for_candidate(
             started_at=started_at,
             job_id=job.id,
             job_title=job.title,
+            content_mode=effective_mode,
         )
     )
 
@@ -1655,6 +1753,15 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
                 message=f"Nie udało się odczytać Profilu Championa: {err}",
             ) from err
 
+    # LUKA ŚWIADOMA — sufit per klient NIE obowiązuje na tej ścieżce.
+    # Tryb upload z założenia nie dotyka DB (brak stage'a, joba i klienta), więc
+    # nie ma z czego odczytać `Client.cv_content_mode_cap`. Rekruter generujący
+    # z wgranych plików + własnego DOCX-a championa może dostać "tailored" nawet
+    # dla klienta z sufitem "basic". Gwarancja sufitu obowiązuje WYŁĄCZNIE dla
+    # generacji z profilu kandydata (`generate_cv_for_candidate`).
+    # Zamknięcie tej ścieżki wymaga kontekstu klienta w trybie upload i jest
+    # zaplanowane razem z bramką dowodową — do tego czasu nie wolno twierdzić
+    # wobec klienta, że sufit jest nieobchodzalny.
     return _run_generation_pipeline(
         cv_bytes=payload.cv_bytes,
         cv_filename=payload.cv_filename,
@@ -1665,15 +1772,21 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
         request_id=request_id,
         fallback_name=None,
         started_at=started_at,
+        content_mode=payload.content_mode,
     )
 
 
 __all__ = [
+    "CONTENT_MODES",
+    "DEFAULT_CONTENT_MODE",
+    "ContentMode",
     "StandaloneGenerationError",
     "GenerationResult",
     "RecruitmentReadiness",
     "UploadGenerationInput",
+    "apply_content_mode_cap",
     "generate_cv_for_candidate",
     "generate_cv_from_uploads",
     "list_recruitments_with_readiness",
+    "normalize_content_mode",
 ]

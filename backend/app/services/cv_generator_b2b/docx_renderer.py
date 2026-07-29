@@ -987,6 +987,7 @@ TRANSLATIONS = {
         "experience": "DOŚWIADCZENIE",
         "company_name": "Nazwa firmy:",
         "position": "Stanowisko:",
+        "considered_for": "Rozważany na stanowisko:",
         "responsibilities": "Zakres zadań:",
         "technologies": "Technologie:",
         "rodo": (
@@ -1019,6 +1020,7 @@ TRANSLATIONS = {
         "experience": "EXPERIENCE",
         "company_name": "Company:",
         "position": "Position:",
+        "considered_for": "Considered for:",
         "responsibilities": "Tasks:",
         "technologies": "Technologies:",
         "rodo": (
@@ -1272,6 +1274,23 @@ def render_cv_to_bytes(
     header_run.font.size = Pt(24)
     header_para.paragraph_format.space_after = Pt(6)
     header_para.paragraph_format.space_before = Pt(2)
+
+    # The vacancy the candidate is being put forward for. Kept OUT of the main
+    # header on purpose: the header states the candidate's actual position, so
+    # the document never asserts a job title the source CV does not support.
+    considered_for = str(candidate_data.get("considered_for") or "").strip()
+    if considered_for:
+        sub_para = doc.add_paragraph()
+        label_run = sub_para.add_run(t["considered_for"] + " ")
+        label_run.font.name = "Montserrat SemiBold"
+        label_run.font.color.rgb = COLOR_HEADER
+        label_run.font.bold = False
+        label_run.font.size = Pt(10)
+        value_run = sub_para.add_run(considered_for)
+        value_run.font.name = "Montserrat"
+        value_run.font.size = Pt(10)
+        sub_para.paragraph_format.space_before = Pt(0)
+        sub_para.paragraph_format.space_after = Pt(4)
 
     add_horizontal_line(doc)
 

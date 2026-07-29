@@ -137,3 +137,49 @@ describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
     expect(input.value).toBe("");
   });
 });
+
+describe("CVGeneratorStandaloneV2 — tryb obróbki treści", () => {
+  beforeEach(() => {
+    getMock.mockClear();
+    postMock.mockClear();
+  });
+
+  /** Attach the required CV file and fire the Generate button. */
+  async function submitUpload() {
+    drop(cvInput(), new File(["x"], "kandydat.pdf"));
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/i }));
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    return postMock.mock.calls[0] as [string, FormData];
+  }
+
+  it("sends content_mode on the multipart upload, defaulting to Redakcja", async () => {
+    renderPage();
+    await openUploadMode();
+
+    const [url, body] = await submitUpload();
+
+    expect(url).toContain("/generate-upload");
+    // The default is deliberately NOT "tailored" — see DEFAULT_CV_CONTENT_MODE.
+    expect(body.get("content_mode")).toBe("polished");
+  });
+
+  it("sends the recruiter's pick instead of the default", async () => {
+    renderPage();
+    await openUploadMode();
+
+    fireEvent.click(screen.getByRole("radio", { name: /Przepisanie/ }));
+    const [, body] = await submitUpload();
+
+    expect(body.get("content_mode")).toBe("basic");
+  });
+
+  it("spells out the unprofiled-client caution instead of hiding it in a tooltip", async () => {
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        /Nie używaj dla klientów wymagających profili nieprofilowanych/,
+      ),
+    ).toBeInTheDocument();
+  });
+});

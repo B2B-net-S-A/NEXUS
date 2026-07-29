@@ -37,7 +37,19 @@ class CvGeneratedDocument(Base, TimestampMixin):
     position: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     language: Mapped[str] = mapped_column(String(2), default="pl", nullable=False)
     blind: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # UWAGA: `mode` to ścieżka generacji ("new" = z profilu kandydata /
+    # "upload" = z wgranych plików) — NIE tryb obróbki treści. Ten drugi
+    # siedzi w `content_mode` niżej; pomylenie ich zepsułoby badge "Upload"
+    # na liście wygenerowanych CV.
     mode: Mapped[str] = mapped_column(String(10), default="new", nullable=False)
+    # Ile obróbki prezentacyjnej zastosowano: "basic" | "polished" | "tailored".
+    # Zapisywane przy każdej generacji, żeby przy sporze z klientem dało się
+    # wykazać, którym trybem powstał konkretny wysłany dokument.
+    # server_default="tailored" jest prawdziwościowym backfillem historii —
+    # wiersze sprzed tej funkcji powstały z pełnym pozycjonowaniem pod ofertę.
+    content_mode: Mapped[str] = mapped_column(
+        String(16), server_default="tailored", default="polished", nullable=False
+    )
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     # Async-generation status. Generacja leci w tle (BackgroundTasks), więc wynik
     # nie ginie gdy rekruter zamknie kartę w trakcie tych 60-90 s:

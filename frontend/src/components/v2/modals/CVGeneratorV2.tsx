@@ -11,13 +11,19 @@ import {
 } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { type RecruitmentOption, extractErrorDetail } from "@/lib/cv-generator";
+import {
+  type CvContentMode,
+  type RecruitmentOption,
+  DEFAULT_CV_CONTENT_MODE,
+  extractErrorDetail,
+} from "@/lib/cv-generator";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/Toast";
+import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import { LanguageTiles } from "@/components/v2/LanguageTiles";
 
@@ -38,6 +44,9 @@ export function CVGeneratorV2({
   const [stageId, setStageId] = useState<string>("");
   const [language, setLanguage] = useState<"pl" | "en">("pl");
   const [blindCv, setBlindCv] = useState(false);
+  const [contentMode, setContentMode] = useState<CvContentMode>(
+    DEFAULT_CV_CONTENT_MODE,
+  );
   const [enqueued, setEnqueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,6 +91,7 @@ export function CVGeneratorV2({
           stage_id: selectedRecruitment.stage_id,
           language,
           blind_cv: blindCv,
+          content_mode: contentMode,
         },
         { timeout: 30_000 },
       );
@@ -237,6 +247,11 @@ export function CVGeneratorV2({
                   )}
                 </>
               )}
+            </div>
+
+            <div>
+              <Label className="mb-2 block">Obróbka treści</Label>
+              <ContentModeTiles value={contentMode} onChange={setContentMode} />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
