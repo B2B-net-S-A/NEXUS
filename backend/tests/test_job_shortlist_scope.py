@@ -16,14 +16,11 @@ Ten plik zamyka obie strony:
 - współpracownik odznaczony z auto-CC → 403 (bramka pyta o AKTYWNE
   współpracownictwo, nie o historyczne).
 
-Zostaje udokumentowana asymetria: cięższy bliźniak z tego samego ekranu,
-``POST /api/jobs/{job_id}/proposals/bulk``, wpisuje do pipeline'u DOWOLNEJ
-oferty bez żadnego sprawdzenia zakresu (``app/api/proposals_bulk.py``,
-``bulk_add_proposals`` — po 404 na brak oferty leci prosto do
-``_resolve_initial_stage``). Lżejsze parkowanie na shortliście jest zamknięte,
-cięższe wpisanie do pipeline'u otwarte. Test niżej jest oznaczony ``xfail``,
-żeby ta luka była widoczna w wyniku CI, a nie tylko w raporcie; gdy ktoś doda
-tam ``ensure_job_membership``, test zrobi XPASS i marker można zdjąć.
+Cięższy bliźniak z tego samego ekranu, ``POST /api/jobs/{job_id}/proposals/bulk``,
+ma teraz tę samą bramkę (``app/api/proposals_bulk.py``, ``bulk_add_proposals``
+— ``ensure_job_membership`` zaraz po 404 na brak oferty). Wcześniej lżejsze
+parkowanie na shortliście dawało 403, a cięższe wpisanie do pipeline'u tej samej
+obcej oferty przechodziło; test niżej pilnuje, żeby ta asymetria nie wróciła.
 """
 
 from __future__ import annotations
@@ -299,20 +296,12 @@ async def test_missing_job_is_404_not_403(
     assert resp.status_code == 404, resp.text
 
 
-# ── Udokumentowana asymetria ─────────────────────────────────────────────────
+# ── Cięższy bliźniak na tym samym ekranie ────────────────────────────────────
+# Domknięte: `bulk_add_proposals` ma teraz tę samą bramkę co shortlista.
+# Wcześniej parkowanie kandydata dawało 403, a wpisanie go wprost do
+# pipeline'u tej samej obcej oferty przechodziło.
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Znana luka: app/api/proposals_bulk.py::bulk_add_proposals nie ma bramki "
-        "zakresu, więc cięższy bliźniak z tego samego ekranu wpisuje do pipeline'u "
-        "dowolnej oferty, podczas gdy lżejsze parkowanie na shortliście zwraca 403. "
-        "Naprawa to jedna linia (`await ensure_job_membership(db, current_user, "
-        "job_id)` zaraz po 404 na brak oferty) w pliku poza zakresem tej zmiany. "
-        "Po jej dodaniu ten test zrobi XPASS — wtedy zdjąć marker."
-    ),
-    strict=False,
-)
 async def test_outsider_should_not_bulk_add_to_a_foreign_pipeline(
     app_client: AsyncClient, shortlist_setup: dict[str, Any]
 ) -> None:

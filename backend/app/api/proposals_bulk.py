@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
+from app.api.recruitment_access import ensure_job_membership
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict
@@ -235,6 +236,11 @@ async def bulk_add_proposals(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Ta sama bramka co na pięciu trasach shortlisty (`job_shortlist.py`).
+    # Bez niej containment był niespójny w gorszą stronę: zaparkowanie
+    # kandydata na shortliście dawało 403, a cięższe wpisanie go wprost do
+    # pipeline'u — z tego samego ekranu, na tę samą obcą ofertę — przechodziło.
+    await ensure_job_membership(db, current_user, job_id)
 
     stage_def = await _resolve_initial_stage(db, job, body.initial_stage_def_id)
     legacy_enum = PipelineStage.new
