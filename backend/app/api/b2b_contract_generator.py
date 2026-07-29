@@ -15,7 +15,7 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -247,6 +247,14 @@ async def _serialize_generated_contracts(
         job = jobs.get(row.job_id) if row.job_id is not None else None
         items.append(
             B2BGeneratedContractItem(
+                # Zmiana statusu handlowego celowo NIE wygasa po podpisaniu:
+                # wypowiedzenie i porozumienie o rozwiązaniu dotyczą właśnie
+                # umów podpisanych. Blokuje ją wyłącznie brak uprawnień.
+                can_change_status=is_admin or row.created_by == current_user.id,
+                contract_status=row.contract_status,
+                closure_reason=row.closure_reason,
+                closure_reason_other=row.closure_reason_other,
+                closure_date=row.closure_date,
                 id=row.id,
                 contract_number=row.contract_number,
                 partner_name=row.partner_name,
@@ -880,23 +888,73 @@ async def render_standalone(
     return _docx_response(data, number)
 
 
+def _like_needle(raw: str) -> str:
+    """Zamień frazę użytkownika na bezpieczny wzorzec ILIKE.
+
+    Escapujemy `%`, `_` i `\\`, żeby wpisanie ich w wyszukiwarce szukało tych
+    znaków, a nie działało jak wildcard (`%` bez escapu zwracał całą listę)."""
+    escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 @router.get("/generated", response_model=list[B2BGeneratedContractItem])
 async def list_generated_contracts(
     current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
+    q: str | None = Query(
+        None,
+        max_length=120,
+        description=(
+            "Szukaj po numerze umowy, nazwie Partnera/Klienta lub imieniu "
+            "i nazwisku powiązanego kandydata."
+        ),
+    ),
+    contract_status: str | None = Query(
+        None,
+        pattern="^(active|closed)$",
+        description="Filtr statusu handlowego umowy.",
+    ),
 ):
     """Ostatnio wygenerowane umowy (numer, partner, klient, data) — do zakładki
     „Wygenerowane umowy", by potwierdzić poprawność numeru.
 
+    ``q`` filtruje po stronie serwera (nie po `limit` pobranych wierszy), więc
+    znajduje też umowy starsze niż widoczna strona listy.
+
     ``can_delete`` mówi UI, czy bieżący użytkownik może usunąć dany wpis (autor
     wpisu lub admin)."""
+    query = select(B2BGeneratedContract)
+
+    needle = (q or "").strip()
+    if needle:
+        pattern = _like_needle(needle)
+        # OUTER JOIN, bo większość wierszy nie ma dowiązanego kandydata —
+        # INNER wyciąłby je z wyników wyszukiwania po numerze umowy.
+        query = query.outerjoin(
+            Candidate, Candidate.id == B2BGeneratedContract.candidate_id
+        ).where(
+            or_(
+                B2BGeneratedContract.contract_number.ilike(pattern, escape="\\"),
+                B2BGeneratedContract.partner_name.ilike(pattern, escape="\\"),
+                B2BGeneratedContract.client_name.ilike(pattern, escape="\\"),
+                Candidate.name.ilike(pattern, escape="\\"),
+                Candidate.lastname.ilike(pattern, escape="\\"),
+                # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
+                # kolumny wyżej same tego nie dopasują.
+                func.concat(Candidate.name, " ", Candidate.lastname).ilike(
+                    pattern, escape="\\"
+                ),
+            )
+        )
+
+    if contract_status:
+        query = query.where(B2BGeneratedContract.contract_status == contract_status)
+
     rows = list(
         (
             await db.execute(
-                select(B2BGeneratedContract)
-                .order_by(B2BGeneratedContract.created_at.desc())
-                .limit(limit)
+                query.order_by(B2BGeneratedContract.created_at.desc()).limit(limit)
             )
         )
         .scalars()
@@ -1145,12 +1203,16 @@ async def update_generated_contract(
     current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    """Popraw wpis na liście „Wygenerowane umowy" — obecnie tylko nazwę Klienta.
+    """Popraw wpis na liście „Wygenerowane umowy": nazwa Klienta i/lub status.
 
-    Aktualizuje zarówno kolumnę ``client_name`` (widoczną na liście), jak i
+    ``client_name`` aktualizuje zarówno kolumnę (widoczną na liście), jak i
     ``render_payload['client_name']`` — dzięki temu ponowne pobranie DOCX ma już
     poprawioną nazwę, a per-klienta klauzule (§/załączniki) dobiorą się pod nią.
-    Edytować może wyłącznie autor wpisu lub administrator (jak przy usuwaniu)."""
+    Edytować może wyłącznie autor wpisu lub administrator (jak przy usuwaniu).
+
+    Zmiana treści dokumentu jest zablokowana po podpisaniu, ale zmiana **statusu
+    handlowego** — nie: wypowiedzenie i porozumienie o rozwiązaniu dotyczą z
+    definicji umów już podpisanych. Zamknięcie nie usuwa wiersza."""
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -1158,7 +1220,15 @@ async def update_generated_contract(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
-    if row.signature_status == "signed_both":
+    fields = payload.model_fields_set
+    wants_client_name = "client_name" in fields
+    wants_status = "contract_status" in fields
+    if not wants_client_name and not wants_status:
+        raise HTTPException(
+            status_code=422,
+            detail="Nie przesłano żadnej zmiany.",
+        )
+    if wants_client_name and row.signature_status == "signed_both":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -1173,29 +1243,67 @@ async def update_generated_contract(
             detail="Możesz edytować tylko umowy, które samodzielnie wygenerowałeś.",
         )
 
-    old_client = row.client_name
-    new_client = (payload.client_name or "").strip() or None
-    row.client_name = new_client
-    # Zsynchronizuj zapisany payload → ponowny render DOCX i klauzule per-klient
-    # użyją już poprawionej nazwy. Reassign (nie mutacja in-place), by SQLAlchemy
-    # wykrył zmianę kolumny JSON.
-    if row.render_payload is not None:
-        row.render_payload = {**row.render_payload, "client_name": new_client}
-
-    db.add(
-        Activity(
-            entity_type="b2b_generated_contract",
-            entity_id=row.id,
-            action="updated",
-            user_id=current_user.id,
-            details={
-                "contract_number": row.contract_number,
-                "field": "client_name",
-                "old": old_client,
-                "new": new_client,
-            },
+    if wants_client_name:
+        old_client = row.client_name
+        new_client = (payload.client_name or "").strip() or None
+        row.client_name = new_client
+        # Zsynchronizuj zapisany payload → ponowny render DOCX i klauzule
+        # per-klient użyją już poprawionej nazwy. Reassign (nie mutacja
+        # in-place), by SQLAlchemy wykrył zmianę kolumny JSON.
+        if row.render_payload is not None:
+            row.render_payload = {**row.render_payload, "client_name": new_client}
+        db.add(
+            Activity(
+                entity_type="b2b_generated_contract",
+                entity_id=row.id,
+                action="updated",
+                user_id=current_user.id,
+                details={
+                    "contract_number": row.contract_number,
+                    "field": "client_name",
+                    "old": old_client,
+                    "new": new_client,
+                },
+            )
         )
-    )
+
+    if wants_status:
+        old_status = row.contract_status
+        row.contract_status = payload.contract_status
+        if payload.contract_status == "closed":
+            row.closure_reason = payload.closure_reason
+            row.closure_reason_other = (
+                (payload.closure_reason_other or "").strip() or None
+                if payload.closure_reason == "other"
+                else None
+            )
+            row.closure_date = payload.closure_date
+        else:
+            # Powrót na „Aktywna" czyści komplet pól zamknięcia — inaczej
+            # zostawałby osierocony powód, którego CHECK i tak by nie przepuścił.
+            row.closure_reason = None
+            row.closure_reason_other = None
+            row.closure_date = None
+        db.add(
+            Activity(
+                entity_type="b2b_generated_contract",
+                entity_id=row.id,
+                action="status_changed",
+                user_id=current_user.id,
+                details={
+                    "contract_number": row.contract_number,
+                    "field": "contract_status",
+                    "old": old_status,
+                    "new": row.contract_status,
+                    "closure_reason": row.closure_reason,
+                    "closure_reason_other": row.closure_reason_other,
+                    "closure_date": (
+                        row.closure_date.isoformat() if row.closure_date else None
+                    ),
+                },
+            )
+        )
+
     await db.commit()
     await db.refresh(row)
 

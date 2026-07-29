@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   ChevronsUpDown,
   CircleDashed,
+  CircleDot,
+  CircleSlash,
   Download,
   Eye,
   ExternalLink,
@@ -71,14 +73,18 @@ import api, {
   b2bGeneratorApi,
   extractErrorMsg,
   signingApi,
+  type B2BClosureReason,
   type B2BConfirmFullySignedResult,
+  type B2BContractStatus,
   type B2BGeneratedContractRow,
+  type B2BGeneratedContractUpdate,
   type B2BGeneratePayload,
   type B2BRenderPayload,
   type B2BRole,
   type B2BUopCheckResult,
 } from "@/lib/api";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
@@ -359,12 +365,14 @@ export function B2BContractGeneratorV2() {
   const isAdmin = hasRole(user, "admin");
 
   return (
-    // max-w-6xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
-    // (8 kolumn + akcje: status / Edytuj / Pobierz / Usuń). Przy 4xl kolumna akcji
-    // wychodziła poza wąski kontener i „Usuń" było ucięte poza ekranem —
-    // użytkownik nie widział opcji usunięcia. Szerszy kontener mieści wszystkie
-    // akcje w widocznym obszarze.
-    <div className="mx-auto max-w-6xl p-6">
+    // max-w-7xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
+    // (9 kolumn + akcje: status podpisu / status umowy / Edytuj / Pobierz /
+    // Usuń). Przy 4xl kolumna akcji wychodziła poza wąski kontener i „Usuń"
+    // było ucięte poza ekranem — użytkownik nie widział opcji usunięcia.
+    // Kolumna „Status umowy" (PR: status + wyszukiwarka) dołożyła szerokości,
+    // stąd 6xl → 7xl. Szerszy kontener mieści wszystkie akcje w widocznym
+    // obszarze.
+    <div className="mx-auto max-w-7xl p-6">
       <div className="mb-6 flex items-center gap-3">
         <FileSignature className="h-7 w-7 text-primary" />
         <div>
@@ -800,15 +808,235 @@ function ConfirmFullySignedDialog({
   );
 }
 
+// Etykiety PL dla statusu handlowego umowy. Trzymane w warstwie prezentacji
+// (nie w `lib/api`), bo to teksty UI, a nie kontrakt z backendem — i dzięki
+// temu testy mockujące `@/lib/api` nadal dostają prawdziwe napisy.
+export const B2B_CONTRACT_STATUS_LABEL: Record<B2BContractStatus, string> = {
+  active: "Aktywna",
+  closed: "Zamknięta",
+};
+
+export const B2B_CLOSURE_REASON_LABEL: Record<B2BClosureReason, string> = {
+  resignation_before_signing: "Rezygnacja przed podpisaniem umowy",
+  termination: "Wypowiedzenie",
+  mutual_agreement: "Porozumienie o rozwiązaniu umowy",
+  other: "Inne",
+};
+
+// Kolejność w liście rozwijanej „Powód zamknięcia umowy" — jak w zgłoszeniu.
+const CLOSURE_REASONS: B2BClosureReason[] = [
+  "resignation_before_signing",
+  "termination",
+  "mutual_agreement",
+  "other",
+];
+
+/**
+ * Zmiana statusu handlowego umowy. Zamknięcie NIE usuwa wpisu — dopisuje mu
+ * powód i datę zakończenia, więc umowa zostaje w rejestrze.
+ *
+ * Dialog (nie edycja „w miejscu" jak nazwa Klienta), bo „Zamknięta" odsłania
+ * trzy zależne pola, których nie da się sensownie zmieścić w komórce tabeli.
+ */
+export function ContractStatusDialog({
+  row,
+  open,
+  onOpenChange,
+}: {
+  row: B2BGeneratedContractRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [status, setStatus] = useState<B2BContractStatus>(row.contract_status);
+  const [reason, setReason] = useState<B2BClosureReason | "">(
+    row.closure_reason ?? "",
+  );
+  const [reasonOther, setReasonOther] = useState(row.closure_reason_other ?? "");
+  const [closureDate, setClosureDate] = useState(row.closure_date ?? "");
+
+  // Ponowne otwarcie dialogu na tym samym wierszu ma pokazać stan z serwera,
+  // a nie porzucony szkic z poprzedniej, anulowanej próby.
+  useEffect(() => {
+    if (!open) return;
+    setStatus(row.contract_status);
+    setReason(row.closure_reason ?? "");
+    setReasonOther(row.closure_reason_other ?? "");
+    setClosureDate(row.closure_date ?? "");
+  }, [open, row]);
+
+  const mut = useMutation({
+    mutationFn: (body: B2BGeneratedContractUpdate) =>
+      b2bGeneratorApi.updateGenerated(row.id, body),
+    onSuccess: (updated) => {
+      toast.showSuccess(
+        updated.contract_status === "closed"
+          ? "Umowa oznaczona jako zamknięta — wpis pozostaje na liście."
+          : "Umowa oznaczona jako aktywna.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      onOpenChange(false);
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const closing = status === "closed";
+  const submit = () => {
+    if (!closing) {
+      mut.mutate({ contract_status: "active" });
+      return;
+    }
+    // Te same reguły egzekwuje backend (422) i CHECK w bazie — tu tylko po to,
+    // żeby użytkownik zobaczył powód od razu, bez round-tripu.
+    if (!reason) {
+      toast.showError("Wybierz powód zamknięcia umowy.");
+      return;
+    }
+    if (reason === "other" && !reasonOther.trim()) {
+      toast.showError("Wpisz własny powód zamknięcia umowy.");
+      return;
+    }
+    if (!closureDate) {
+      toast.showError("Podaj datę zakończenia umowy.");
+      return;
+    }
+    mut.mutate({
+      contract_status: "closed",
+      closure_reason: reason,
+      closure_reason_other: reason === "other" ? reasonOther.trim() : null,
+      closure_date: closureDate,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Status umowy {row.contract_number}</DialogTitle>
+          <DialogDescription>
+            Zamknięcie umowy nie usuwa jej z systemu — wpis zostaje na liście
+            wraz z powodem i datą zakończenia.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="b2b-contract-status">Status umowy</Label>
+            <Select
+              value={status}
+              onValueChange={(v) => setStatus(v as B2BContractStatus)}
+            >
+              <SelectTrigger id="b2b-contract-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">
+                  {B2B_CONTRACT_STATUS_LABEL.active}
+                </SelectItem>
+                <SelectItem value="closed">
+                  {B2B_CONTRACT_STATUS_LABEL.closed}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {closing ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="b2b-closure-reason">
+                  Powód zamknięcia umowy
+                </Label>
+                <Select
+                  value={reason}
+                  onValueChange={(v) => setReason(v as B2BClosureReason)}
+                >
+                  <SelectTrigger id="b2b-closure-reason">
+                    <SelectValue placeholder="Wybierz powód…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLOSURE_REASONS.map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {B2B_CLOSURE_REASON_LABEL[key]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {reason === "other" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="b2b-closure-reason-other">Własny powód</Label>
+                  <Textarea
+                    id="b2b-closure-reason-other"
+                    rows={3}
+                    value={reasonOther}
+                    onChange={(e) => setReasonOther(e.target.value)}
+                    placeholder="Opisz powód zamknięcia umowy"
+                  />
+                </div>
+              ) : null}
+
+              <div className="space-y-1.5">
+                <Label htmlFor="b2b-closure-date">Data zakończenia umowy</Label>
+                {/* type="date" = wpisanie z klawiatury ORAZ natywny kalendarz. */}
+                <Input
+                  id="b2b-closure-date"
+                  type="date"
+                  value={closureDate}
+                  onChange={(e) => setClosureDate(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Pole obowiązkowe dla statusu „Zamknięta".
+                </p>
+              </div>
+            </>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={mut.isPending}
+            onClick={() => onOpenChange(false)}
+          >
+            Anuluj
+          </Button>
+          <Button type="button" disabled={mut.isPending} onClick={submit}>
+            {mut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Zapisz status
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function GeneratedContractsTab() {
   const toast = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [signatureRow, setSignatureRow] =
     useState<B2BGeneratedContractRow | null>(null);
+  const [statusRow, setStatusRow] = useState<B2BGeneratedContractRow | null>(
+    null,
+  );
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<B2BContractStatus | "all">(
+    "all",
+  );
+  // Debounce, żeby nie strzelać zapytaniem na każdą literę wpisaną w szukajkę.
+  const debouncedSearch = useDebouncedValue(search, 300);
   const q = useQuery({
-    queryKey: ["b2b-generated"],
-    queryFn: () => b2bGeneratorApi.generated(100),
+    queryKey: ["b2b-generated", debouncedSearch, statusFilter],
+    queryFn: () =>
+      b2bGeneratorApi.generated(100, {
+        q: debouncedSearch,
+        contractStatus: statusFilter === "all" ? undefined : statusFilter,
+      }),
     staleTime: 10_000,
   });
   const deleteMut = useMutation({
@@ -906,10 +1134,44 @@ export function GeneratedContractsTab() {
           Klienta poprawić („Edytuj"). Status podpisu jest widoczny w tabeli;
           potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
           Niepodpisany wpis może edytować lub usunąć osoba, która go
-          wygenerowała, albo administrator.
+          wygenerowała, albo administrator. Zamknięcie umowy („Status umowy")
+          nie usuwa jej z listy.
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {isForbidden(q.error) ? null : (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[18rem] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+                placeholder="Szukaj: numer umowy albo imię i nazwisko…"
+                aria-label="Szukaj wygenerowanych umów"
+              />
+            </div>
+            <Select
+              value={statusFilter}
+              onValueChange={(v) =>
+                setStatusFilter(v as B2BContractStatus | "all")
+              }
+            >
+              <SelectTrigger className="w-56" aria-label="Filtr statusu umowy">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Wszystkie statusy</SelectItem>
+                <SelectItem value="active">
+                  {B2B_CONTRACT_STATUS_LABEL.active}
+                </SelectItem>
+                <SelectItem value="closed">
+                  {B2B_CONTRACT_STATUS_LABEL.closed}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {q.isLoading ? (
           <p className="text-sm text-muted-foreground">Ładowanie…</p>
         ) : isForbidden(q.error) ? (
@@ -920,7 +1182,11 @@ export function GeneratedContractsTab() {
           />
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Brak wygenerowanych umów.
+            {/* Pustka po wyszukaniu ≠ brak umów w systemie — inaczej czyta się
+                to jak utratę danych (ten sam błąd co przy 403 wyżej). */}
+            {debouncedSearch.trim() || statusFilter !== "all"
+              ? "Brak umów pasujących do wyszukiwania."
+              : "Brak wygenerowanych umów."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -934,6 +1200,7 @@ export function GeneratedContractsTab() {
                   <th className="py-2 pr-4 font-medium">Wygenerowano</th>
                   <th className="py-2 pr-4 font-medium">Wygenerował</th>
                   <th className="py-2 pr-4 font-medium">Status podpisu</th>
+                  <th className="py-2 pr-4 font-medium">Status umowy</th>
                   <th className="py-2 text-right font-medium">Akcje</th>
                 </tr>
               </thead>
@@ -946,6 +1213,7 @@ export function GeneratedContractsTab() {
                   const editing = editingId === r.id;
                   const saving = updateMut.isPending && editing;
                   const signed = r.signature_status === "signed_both";
+                  const closed = r.contract_status === "closed";
                   return (
                     <tr key={r.id} className="border-b">
                       <td className="py-2 pr-4 font-medium">
@@ -1051,6 +1319,66 @@ export function GeneratedContractsTab() {
                             <span className="max-w-60 text-xs text-muted-foreground">
                               {r.blocked_reason}
                             </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <div className="flex min-w-44 flex-col items-start gap-1.5">
+                          <Badge
+                            variant={closed ? "warning" : "info"}
+                            size="md"
+                            title={
+                              closed
+                                ? [
+                                    r.closure_reason
+                                      ? `Powód: ${
+                                          r.closure_reason === "other"
+                                            ? r.closure_reason_other || "Inne"
+                                            : B2B_CLOSURE_REASON_LABEL[
+                                                r.closure_reason
+                                              ]
+                                        }`
+                                      : null,
+                                    r.closure_date
+                                      ? `Zakończenie: ${r.closure_date}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")
+                                : "Umowa w toku"
+                            }
+                          >
+                            {closed ? (
+                              <CircleSlash className="h-3.5 w-3.5" />
+                            ) : (
+                              <CircleDot className="h-3.5 w-3.5" />
+                            )}
+                            {B2B_CONTRACT_STATUS_LABEL[r.contract_status]}
+                          </Badge>
+
+                          {closed ? (
+                            <span className="max-w-56 text-xs text-muted-foreground">
+                              {r.closure_reason === "other"
+                                ? r.closure_reason_other
+                                : r.closure_reason
+                                  ? B2B_CLOSURE_REASON_LABEL[r.closure_reason]
+                                  : null}
+                              {r.closure_date ? ` · ${r.closure_date}` : ""}
+                            </span>
+                          ) : null}
+
+                          {r.can_change_status ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => setStatusRow(r)}
+                              title="Zmień status umowy"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              <span className="ml-1">Zmień status</span>
+                            </Button>
                           ) : null}
                         </div>
                       </td>
@@ -1160,6 +1488,15 @@ export function GeneratedContractsTab() {
             if (!open) setSignatureRow(null);
           }}
           onConfirmed={handleConfirmed}
+        />
+      ) : null}
+      {statusRow ? (
+        <ContractStatusDialog
+          row={statusRow}
+          open
+          onOpenChange={(open) => {
+            if (!open) setStatusRow(null);
+          }}
         />
       ) : null}
     </Card>

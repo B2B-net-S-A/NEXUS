@@ -7,6 +7,17 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# Status handlowy wygenerowanej umowy i katalog powodów zamknięcia. Wartości
+# muszą pokrywać się z CHECK-ami na `b2b_generated_contracts` (model + migracja
+# 0202 + safety-net entrypointu) — etykiety PL żyją po stronie frontendu.
+B2BContractStatus = Literal["active", "closed"]
+B2BClosureReason = Literal[
+    "resignation_before_signing",
+    "termination",
+    "mutual_agreement",
+    "other",
+]
+
 
 class B2BRoleResponse(BaseModel):
     id: int
@@ -305,6 +316,14 @@ class B2BGeneratedContractItem(BaseModel):
     signature_source: Optional[Literal["manual_confirmation", "validated_upload"]] = (
         None
     )
+    # Status handlowy umowy — niezależny od statusu podpisu.
+    contract_status: B2BContractStatus = "active"
+    closure_reason: Optional[B2BClosureReason] = None
+    closure_reason_other: Optional[str] = None
+    closure_date: Optional[date] = None
+    # Czy bieżący użytkownik może zmienić status umowy. W odróżnieniu od
+    # ``can_edit`` NIE wygasa po podpisaniu — podpisaną umowę też się wypowiada.
+    can_change_status: bool = False
     candidate_id: Optional[int] = None
     job_id: Optional[int] = None
     client_id: Optional[int] = None
@@ -319,14 +338,60 @@ class B2BGeneratedContractItem(BaseModel):
 
 
 class B2BGeneratedContractUpdate(BaseModel):
-    """Edycja wpisu „Wygenerowane umowy" — obecnie tylko korekta nazwy Klienta.
+    """Edycja wpisu „Wygenerowane umowy": nazwa Klienta i/lub status umowy.
 
-    Aktualizuje kolumnę ``client_name`` (widoczną na liście) oraz
+    ``client_name`` aktualizuje kolumnę (widoczną na liście) oraz
     ``render_payload['client_name']`` — dzięki temu ponowne pobranie DOCX ma już
     poprawioną nazwę, a per-klienta klauzule (§/załączniki) dobiorą się pod nią.
-    Pusta/whitespace nazwa → ``None`` (kolumna jest nullowalna)."""
+    Pusta/whitespace nazwa → ``None`` (kolumna jest nullowalna).
+
+    Pola są opcjonalne i rozróżniane po ``model_fields_set`` — pominięcie pola
+    zostawia je bez zmian, w odróżnieniu od jawnego przesłania ``null``. Bez
+    tego dodanie statusu kasowałoby nazwę Klienta przy każdej zmianie statusu.
+    """
 
     client_name: Optional[str] = None
+    contract_status: Optional[B2BContractStatus] = None
+    closure_reason: Optional[B2BClosureReason] = None
+    closure_reason_other: Optional[str] = None
+    closure_date: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _closure_fields_match_status(self) -> "B2BGeneratedContractUpdate":
+        """Lustro CHECK-a ``ck_b2b_generated_contracts_closure_coherence``.
+
+        Walidacja tutaj daje czytelny komunikat 422 po polsku zamiast surowego
+        IntegrityError z bazy — sama baza pozostaje ostateczną barierą.
+        """
+        if self.contract_status is None:
+            if {
+                "closure_reason",
+                "closure_reason_other",
+                "closure_date",
+            } & self.model_fields_set:
+                raise ValueError(
+                    "Pola zamknięcia można przesłać wyłącznie razem ze statusem umowy."
+                )
+            return self
+
+        if self.contract_status == "closed":
+            if self.closure_reason is None:
+                raise ValueError("Podaj powód zamknięcia umowy.")
+            if self.closure_date is None:
+                raise ValueError("Data zakończenia umowy jest obowiązkowa.")
+            other = (self.closure_reason_other or "").strip()
+            if self.closure_reason == "other" and not other:
+                raise ValueError("Wpisz własny powód zamknięcia umowy.")
+            if self.closure_reason != "other" and other:
+                raise ValueError("Własny powód można podać tylko dla powodu „Inne”.")
+            return self
+
+        # active → wszystkie pola zamknięcia muszą zostać wyczyszczone.
+        if self.closure_reason is not None or self.closure_date is not None:
+            raise ValueError("Aktywna umowa nie może mieć powodu ani daty zakończenia.")
+        if (self.closure_reason_other or "").strip():
+            raise ValueError("Aktywna umowa nie może mieć powodu ani daty zakończenia.")
+        return self
 
 
 class B2BConfirmFullySignedRequest(BaseModel):

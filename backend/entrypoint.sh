@@ -559,6 +559,20 @@ _COLUMN_STATEMENTS = [
        ON b2b_generated_contracts (contract_id)""",
     """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_signed_by_user_id
        ON b2b_generated_contracts (signed_by_user_id)""",
+    # Status handlowy wygenerowanej umowy (migracja 0202). Wszystkie istniejące
+    # wiersze stają się 'active' z defaultu — zamknięcie jest zawsze decyzją
+    # użytkownika, nigdy backfillem.
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS contract_status VARCHAR(16)
+       NOT NULL DEFAULT 'active'""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS closure_reason VARCHAR(32) NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS closure_reason_other TEXT NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS closure_date DATE NULL""",
+    """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_contract_status
+       ON b2b_generated_contracts (contract_status)""",
     # candidate_invite_links: token_sha256 + token_ct — hash+encrypt v2
     # (migracja 0183). Bez nich mint v2 wywala UndefinedColumn.
     """ALTER TABLE candidate_invite_links
@@ -2418,6 +2432,44 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT fk_b2b_generated_contracts_signed_by_user_id
             FOREIGN KEY (signed_by_user_id) REFERENCES users (id)
             ON DELETE SET NULL NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_contract_status
+            CHECK (contract_status IN ('active', 'closed')) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_closure_reason
+            CHECK (
+                closure_reason IS NULL OR
+                closure_reason IN (
+                    'resignation_before_signing',
+                    'termination',
+                    'mutual_agreement',
+                    'other'
+                )
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_closure_coherence
+            CHECK (
+                (
+                    contract_status = 'active'
+                    AND closure_reason IS NULL
+                    AND closure_date IS NULL
+                    AND closure_reason_other IS NULL
+                ) OR (
+                    contract_status = 'closed'
+                    AND closure_reason IS NOT NULL
+                    AND closure_date IS NOT NULL
+                    AND (
+                        (closure_reason = 'other')
+                        = (closure_reason_other IS NOT NULL)
+                    )
+                )
+            ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
 ]
 
