@@ -1,12 +1,41 @@
 import { describe, it, expect } from "vitest";
 import {
   CHAMPION_ACCEPT,
+  CV_CERTAIN_WARNING_PREFIXES,
   CV_CONTENT_MODES,
   DEFAULT_CV_CONTENT_MODE,
   MAX_UPLOAD_MB,
   fileValidationError,
+  isCertainWarning,
   parseDispositionFilename,
 } from "@/lib/cv-generator";
+
+describe("isCertainWarning", () => {
+  // Regresja: klasyfikator miał zahardkodowany polski prefiks, więc przy CV po
+  // angielsku KAŻDE pewne trafienie („NOT IN SOURCE") wpadało cicho do
+  // miękkich i czerwony blok nigdy się nie renderował.
+  it("recognises certain findings in both document languages", () => {
+    expect(
+      isCertainWarning("BRAK POKRYCIA: liczba '12 osob' (Dev) nie występuje…"),
+    ).toBe(true);
+    expect(
+      isCertainWarning("NOT IN SOURCE: figure '12 people' (Dev) does not appear…"),
+    ).toBe(true);
+  });
+
+  it("treats soft hints as not certain, in both languages", () => {
+    expect(isCertainWarning("WERYFIKUJ: technologia 'Kubernetes' …")).toBe(false);
+    expect(isCertainWarning("VERIFY: technology 'Kubernetes' …")).toBe(false);
+  });
+
+  it("keeps both backend prefixes — dropping one silently breaks a language", () => {
+    // Musi odpowiadać `_HIGH_PREFIX` w standalone_service.py.
+    expect([...CV_CERTAIN_WARNING_PREFIXES]).toEqual([
+      "BRAK POKRYCIA",
+      "NOT IN SOURCE",
+    ]);
+  });
+});
 
 describe("fileValidationError", () => {
   const file = (name: string, size = 1024) =>

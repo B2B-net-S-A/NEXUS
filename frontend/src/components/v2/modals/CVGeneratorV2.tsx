@@ -16,6 +16,7 @@ import {
   type RecruitmentOption,
   DEFAULT_CV_CONTENT_MODE,
   extractErrorDetail,
+  isCertainWarning,
 } from "@/lib/cv-generator";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -79,11 +80,12 @@ export function CVGeneratorV2({
 
   const result = resultQuery.data ?? null;
   const warnings = result?.warnings ?? [];
-  // „BRAK POKRYCIA" to trafienia pewne (liczba, której źródło nie zawiera);
-  // „WERYFIKUJ" to podpowiedzi do sprawdzenia. Rozdzielone, bo inaczej te
-  // pewne toną wśród miękkich i cała lista uczy się być ignorowaną.
-  const certainWarnings = warnings.filter((w) => w.startsWith("BRAK POKRYCIA"));
-  const softWarnings = warnings.filter((w) => !w.startsWith("BRAK POKRYCIA"));
+  // Trafienia pewne (liczba, której źródło nie zawiera) oddzielone od
+  // podpowiedzi do sprawdzenia — inaczej te pewne toną wśród miękkich i cała
+  // lista uczy się być ignorowaną. Klasyfikacja idzie przez `isCertainWarning`,
+  // bo prefiks zależy od języka WYGENEROWANEGO CV, nie od stanu komponentu.
+  const certainWarnings = warnings.filter(isCertainWarning);
+  const softWarnings = warnings.filter((w) => !isCertainWarning(w));
 
   const recruitmentsQuery = useQuery({
     queryKey: ["cv-gen-recruitments-modal", candidateId],

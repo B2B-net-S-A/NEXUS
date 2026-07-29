@@ -16,7 +16,11 @@ from typing import Any
 
 import pytest
 
-from app.services.cv_generator_b2b.standalone_service import _fabrication_warnings
+from app.services.cv_generator_b2b.standalone_service import (
+    _HIGH_PREFIX,
+    _MED_PREFIX,
+    _fabrication_warnings,
+)
 
 _HIGH = "BRAK POKRYCIA"
 _MED = "WERYFIKUJ"
@@ -215,6 +219,19 @@ def test_certain_findings_survive_truncation() -> None:
     issues = _run(data, "Praca nad zadaniami")
     assert issues[0].startswith(_HIGH)
     assert "47 osob" in issues[0]
+
+
+def test_severity_prefixes_are_frozen() -> None:
+    """Prefiksy są kontraktem z frontendem, nie kosmetyką.
+
+    `CVGeneratorV2.tsx` klasyfikuje uwagi po tych właśnie łańcuchach, żeby
+    oddzielić trafienia pewne od podpowiedzi. Zmiana któregokolwiek bez
+    aktualizacji `CV_CERTAIN_WARNING_PREFIXES` w `frontend/src/lib/cv-generator.ts`
+    sprawia, że pewne trafienia CICHO wpadają do miękkich i czerwony blok
+    przestaje się renderować — dokładnie tak zepsuła się ścieżka angielska.
+    """
+    assert _HIGH_PREFIX == {"pl": "BRAK POKRYCIA", "en": "NOT IN SOURCE"}
+    assert _MED_PREFIX == {"pl": "WERYFIKUJ", "en": "VERIFY"}
 
 
 @pytest.mark.parametrize("language", ["pl", "en"])

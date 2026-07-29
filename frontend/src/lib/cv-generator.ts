@@ -72,6 +72,29 @@ export const CV_CONTENT_MODES: readonly CvContentModeOption[] = [
 ];
 
 /**
+ * Prefiksy, którymi backend oznacza PEWNE trafienia bezpiecznika — liczbę albo
+ * twierdzenie, którego w źródłowym CV po prostu nie ma. Miękkie podpowiedzi
+ * („WERYFIKUJ" / „VERIFY") nie są tu wymienione celowo: klasyfikujemy po tym,
+ * co jest pewne, a wszystko inne traktujemy jako do sprawdzenia.
+ *
+ * MUSI być zgodne z `_HIGH_PREFIX` w
+ * `backend/app/services/cv_generator_b2b/standalone_service.py`.
+ *
+ * Obie wersje językowe są wymagane, bo o języku decyduje generacja, nie stan
+ * komponentu: wiersz wygenerowany po angielsku ma uwagi „NOT IN SOURCE", a
+ * lista bywa oglądana długo po tym, jak przełącznik języka wrócił na polski.
+ */
+export const CV_CERTAIN_WARNING_PREFIXES = [
+  "BRAK POKRYCIA",
+  "NOT IN SOURCE",
+] as const;
+
+/** Czy uwaga bezpiecznika jest trafieniem pewnym (a nie podpowiedzią). */
+export function isCertainWarning(warning: string): boolean {
+  return CV_CERTAIN_WARNING_PREFIXES.some((p) => warning.startsWith(p));
+}
+
+/**
  * Client-side upload precheck. Mirrors the server's `_validate_upload`
  * (`standalone_service.py`) so a file the backend would reject never costs the
  * recruiter a round trip — the server remains the authority.
