@@ -1649,6 +1649,13 @@ async def api_health_deep_check():
         RecruitmentPriorityUserMode,
     )
     from app.models.recruitment_process import RecruitmentProcess
+    from app.models.candidate_contact import (
+        CandidateContactCase,
+        CandidateContactEvent,
+        CandidateContactOpportunity,
+        CandidateContactTraffitCursor,
+        CandidateContactTraffitLedger,
+    )
 
     # (check_name, ORM model). Names are table-oriented so a red check in the
     # deploy log points straight at the drifted table. Cortex tables added after
@@ -1673,6 +1680,15 @@ async def api_health_deep_check():
         ("recruitment_priority_user_modes", RecruitmentPriorityUserMode),
         ("recruitment_priority_alerts", RecruitmentPriorityAlert),
         ("recruitment_priority_audit_events", RecruitmentPriorityAuditEvent),
+        # Kolejka kontaktu: prod ma osierocony alembic (bookmark 0152), więc
+        # schemat dowozi idempotentny safety-net z entrypoint.sh. Bez sondy brak
+        # tabeli wyszedłby dopiero przy włączeniu flagi — dokładnie ten scenariusz
+        # co incydent Cortexa 2026-07-12 (zielony deploy, 500 na pierwszym ruchu).
+        ("candidate_contact_cases", CandidateContactCase),
+        ("candidate_contact_opportunities", CandidateContactOpportunity),
+        ("candidate_contact_events", CandidateContactEvent),
+        ("candidate_contact_traffit_cursors", CandidateContactTraffitCursor),
+        ("candidate_contact_traffit_ledger", CandidateContactTraffitLedger),
         ("cortex_skill_facts", CortexSkillFact),
         ("cortex_unmatched_terms", CortexUnmatchedTerm),
         ("cortex_unmatched_observations", CortexUnmatchedObservation),
