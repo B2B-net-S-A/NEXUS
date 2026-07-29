@@ -87,6 +87,26 @@ describe("detectNotePersonMismatch", () => {
     ).toBeNull();
   });
 
+  it("ostrzega, gdy imię kandydata to tylko prefiks słowa z pola (Adam vs Adamczyk)", () => {
+    expect(
+      detectNotePersonMismatch(
+        "Imię i nazwisko: Janusz Adamczyk",
+        "Adam",
+        "Nowak",
+      ),
+    ).toBe("Janusz Adamczyk");
+  });
+
+  it("dopasowuje nazwisko wieloczłonowe zapisane z odstępami (Kuc - Grzyb)", () => {
+    expect(
+      detectNotePersonMismatch(
+        "Imię i nazwisko: Katarzyna Kuc - Grzyb",
+        "Katarzyna",
+        "Kuc-Grzyb",
+      ),
+    ).toBeNull();
+  });
+
   it("przycina zwracaną osobę do 80 znaków", () => {
     const long = `Imię i nazwisko: ${"X".repeat(200)} Ygrek`;
     const result = detectNotePersonMismatch(long, "Jan", "Kowalski");

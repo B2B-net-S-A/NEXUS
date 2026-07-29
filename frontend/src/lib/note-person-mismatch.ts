@@ -38,6 +38,19 @@ function usableToken(value?: string | null): string | null {
 
 const NAME_FIELD_RE = /imi[eę]\s+i\s+nazwisko\s*:\s*([^\n\r]+)/i;
 
+// Porównanie tokenowe (word-boundary), nie substring — "Adam" NIE może
+// łapać się w "Adamczyk". Nazwiska wieloczłonowe ("Kuc-Grzyb") pasują, gdy
+// wszystkie ich człony występują wśród tokenów pola (obsługuje też zapis
+// "Kuc - Grzyb").
+function toTokens(folded: string): string[] {
+  return folded.split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function allTokensPresent(candidate: string, mentioned: Set<string>): boolean {
+  const parts = toTokens(candidate);
+  return parts.length > 0 && parts.every((part) => mentioned.has(part));
+}
+
 /**
  * Zwraca osobę wymienioną w polu "Imię i nazwisko:" notatki, gdy NIE pasuje
  * ona do kandydata (pełny mismatch: ani imię, ani nazwisko). W pozostałych
@@ -59,17 +72,18 @@ export function detectNotePersonMismatch(
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const mentioned = fold(mentionedRaw);
+  const mentionedTokens = new Set(toTokens(fold(mentionedRaw)));
   // Pojedynczy token (samo imię, np. "Kateryna") nie identyfikuje innej osoby.
-  if (!mentioned || !mentioned.includes(" ")) return null;
+  if (mentionedTokens.size < 2) return null;
 
   const name = usableToken(candidateName);
   const lastname = usableToken(candidateLastname);
   // Bez realnych danych kandydata nie ma czego porównywać.
   if (!name && !lastname) return null;
 
-  const nameMatches = name != null && mentioned.includes(name);
-  const lastnameMatches = lastname != null && mentioned.includes(lastname);
+  const nameMatches = name != null && allTokensPresent(name, mentionedTokens);
+  const lastnameMatches =
+    lastname != null && allTokensPresent(lastname, mentionedTokens);
   if (nameMatches || lastnameMatches) return null;
 
   return mentionedRaw.slice(0, 80);
