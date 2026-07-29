@@ -172,6 +172,27 @@ dostała kolumnę **Status umowy** i wyszukiwarkę. Migracja `0203_b2b_generated
   pozycje ze swojej listy oczekiwanych, więc dołożenie kolumn/constraintów jej nie psuje.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
+## Podsumowanie aktywności kandydata (AI)
+
+Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydata
+(`CandidateActivitySummaryCard.tsx`) — krótka notatka AI kondensująca historię
+(wysyłki, feedbacki, preferencje, stawki, dostępność). PR #1003, migracja
+`0204_candidate_activity_summaries`. Pełny opis:
+`docs/candidate-activity-summary-completion-report.md`.
+
+- **GET nigdy nie generuje** (`/api/candidates/{id}/activity-summary` = cache-only) —
+  karta jest na domyślnej zakładce, auto-generacja przy 49k kandydatów = koszt.
+  Pierwsza generacja i aktualizacja wyłącznie przyciskiem → `POST …/refresh`.
+- **Refresh płaci tylko przy zmianie historii**: `input_hash` sekcji + wersji promptu
+  + modelu (wzorzec match justification). Bez zmian → `refreshed=false`, FE toastuje
+  „Podsumowanie jest aktualne". Bump wersji promptu `CANDIDATE_ACTIVITY_SUMMARY`
+  inwaliduje wszystkie cache.
+- **Kwoty**: `AIFeatureKey.candidate_summary` (slot zarezerwowany od 0085, teraz
+  użyty) — master toggle → feature toggle → miesięczny limit. Oba endpointy za
+  `OperationalUser`. Model override: env `CANDIDATE_SUMMARY_MODEL`.
+- Wyjście plaintext (nie JSON) + `thinking={"type": "disabled"}` (trap truncacji
+  Sonnet 5). Tabela ma lustro DDL w entrypoint.sh (jak każda zmiana schematu).
+
 ## CloudTalk (telefonia)
 
 5-fazowa integracja zdeployowana w PR #157 (Fazy 1-5 razem). Dormant na prod do momentu provisioning secret + flipnięcia killswitcha.
