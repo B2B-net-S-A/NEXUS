@@ -249,6 +249,10 @@ WRITE_ENDPOINTS = [
         "/api/candidates/bulk",
         {"action": "add_tags", "candidate_ids": [999999], "params": {"tags": ["x"]}},
     ),
+    # Upload pliku do teczki kandydata. Body celowo puste — guard roli musi
+    # zadziałać PRZED walidacją multiparta, więc dozwolone role dostają 422
+    # (brak `file`), a viewer 403.
+    ("POST", "/api/candidates/999999/documents", None),
 ]
 
 # M4 PR-01: stawka kandydata = osobne capability (admin/DL/tac/recruiter,

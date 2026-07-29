@@ -17,7 +17,6 @@ import {
  ChevronDown,
  ChevronUp,
  Download,
- Eye,
  FileSignature,
  FileText,
  Files,
@@ -118,12 +117,10 @@ import { CVShareLinkModal } from"@/components/v2/modals/CVShareLinkModal";
 import {
   FilePreviewModal,
   FilePreviewContent,
-  previewKind,
   downloadDocumentBlob,
-  formatFileSize,
-  fileIcon,
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
+import { CandidateFilesTab } from "@/components/v2/files/CandidateFilesTab";
 import {
  Dialog,
  DialogContent,
@@ -1323,7 +1320,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  onChange={(value) => setDocumentsView(value as CandidateDocumentView)}
  />
  {documentsView === "files" ? (
- <PlikiTab candidateId={Number(id)} />
+ <CandidateFilesTab candidateId={Number(id)} />
  ) : contractsQuery.error ? (
  <SectionError
  title="Nie udało się pobrać umów"
@@ -4326,237 +4323,6 @@ function NotatkiTab({
  );
 }
 
-// ── Pliki (multi-file CV — Faza A migracji Traffit) ────────────────────
-
-function PlikiTab({ candidateId }: { candidateId: number }) {
- const { showError, showToast } = useToast();
- const queryClient = useQueryClient();
- const currentUser = useAuthStore((state) => state.user);
- const canEditDocuments = hasRole(
- currentUser,
- "admin",
- "delivery_lead",
- "tac",
- "recruiter",
- "sourcer",
- );
- const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
- const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
- queryKey: candidateQueryKeys.documents(candidateId),
- queryFn: async () => {
- const res = await api.get<CandidateDocument[]>(
- `/api/candidates/${candidateId}/documents`,
- );
- return res.data;
- },
- staleTime: 30_000,
- });
- const metadataMutation = useMutation({
- mutationFn: ({
- docId,
- documentKind,
- isPrimary,
- }: {
- docId: number;
- documentKind?: CandidateDocument["document_kind"];
- isPrimary?: boolean;
- }) =>
- api.patch(`/api/candidates/${candidateId}/documents/${docId}`, {
- ...(documentKind ? { document_kind: documentKind } : {}),
- ...(isPrimary !== undefined ? { is_primary: isPrimary } : {}),
- }),
- onSuccess: () => {
- void queryClient.invalidateQueries({
- queryKey: candidateQueryKeys.documents(candidateId),
- });
- void queryClient.invalidateQueries({
- queryKey: candidateQueryKeys.cvDocuments(candidateId),
- });
- void queryClient.invalidateQueries({
- queryKey: candidateQueryKeys.quickView(candidateId),
- });
- showToast("Metadane dokumentu zaktualizowane.", "success");
- },
- onError: (mutationError) =>
- showError(
- extractErrorMsg(mutationError) ||
- "Nie udało się zaktualizować metadanych dokumentu.",
- ),
- });
-
- function handlePreview(doc: CandidateDocument) {
- // DOCX nie renderuje się natywnie w przeglądarce — `window.open` na blobie
- // DOCX wymusza download (to był zgłoszony bug: „Podgląd" pobierał CV).
- // Otwieramy in-app modal (PDF/obraz/DOCX). Formaty bez podglądu (legacy
- // .doc, xlsx, odt, pages…) pobieramy od razu.
- if (previewKind(doc) === "unsupported") {
- showToast(
- "Podgląd niedostępny dla tego formatu — pobieram plik.",
- "success",
- );
- handleDownload(doc);
- return;
- }
- setPreviewDoc(doc);
- }
-
- async function handleDownload(doc: CandidateDocument) {
- try {
- await downloadDocumentBlob(candidateId, doc);
- } catch {
- showError("Nie udało się pobrać pliku.");
- }
- }
-
- if (isLoading) {
- return (
- <div className="text-sm text-muted-foreground py-6 text-center">
- Ładowanie plików…
- </div>
- );
- }
-
- if (error) {
- return (
- <div className="text-sm text-[hsl(var(--accent-error))] py-6 text-center">
- Błąd ładowania plików.
- </div>
- );
- }
-
- const docs = documents ?? [];
- if (docs.length === 0) {
- return (
- <div className="text-sm text-muted-foreground py-6 text-center">
- Brak plików. Dodaj CV lub inne dokumenty przez profil.
- </div>
- );
- }
-
- return (
- <>
- <div className="space-y-2">
- {docs.map((doc) => (
- <div
- key={doc.id}
- className="flex items-center gap-3 rounded-lg bg-background/40 border border-border p-3 hover:bg-background/60 transition-colors"
- >
- {fileIcon(doc.content_type)}
- <div className="flex-1 min-w-0">
- <div className="flex items-baseline gap-2 flex-wrap">
- <span className="font-medium text-sm text-foreground truncate">
- {doc.filename}
- </span>
- {doc.is_primary && (
- <Badge size="sm" variant="success">
- primary
- </Badge>
- )}
- <Badge size="sm" variant="neutral">
- {doc.document_kind === "cv"
- ? "CV"
- : doc.document_kind === "cover_letter"
- ? "list motywacyjny"
- : doc.document_kind === "certificate"
- ? "certyfikat"
- : "inny"}
- </Badge>
- {doc.external_source === "traffit" && (
- <Badge size="sm" variant="info">
- z Traffita
- </Badge>
- )}
- </div>
- <div className="text-xs text-muted-foreground mt-0.5">
- {formatFileSize(doc.size_bytes)}
- {doc.uploaded_at && (
- <>
- <span className="mx-1.5">·</span>
- <span>
- {new Date(doc.uploaded_at).toLocaleDateString("pl-PL")}
- </span>
- </>
- )}
- {doc.content_type && (
- <>
- <span className="mx-1.5">·</span>
- <span>{doc.content_type}</span>
- </>
- )}
- </div>
- </div>
- <div className="flex items-center gap-3 shrink-0">
- {canEditDocuments ? (
- <select
- value={doc.document_kind}
- onChange={(event) =>
- metadataMutation.mutate({
- docId: doc.id,
- documentKind: event.target
- .value as CandidateDocument["document_kind"],
- })
- }
- disabled={metadataMutation.isPending}
- aria-label={`Rodzaj dokumentu ${doc.filename}`}
- className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
- >
- <option value="cv">CV</option>
- <option value="cover_letter">List motywacyjny</option>
- <option value="certificate">Certyfikat</option>
- <option value="other">Inny</option>
- </select>
- ) : null}
- {canEditDocuments && doc.document_kind === "cv" && !doc.is_primary ? (
- <button
- type="button"
- onClick={() =>
- metadataMutation.mutate({ docId: doc.id, isPrimary: true })
- }
- disabled={metadataMutation.isPending}
- className="text-xs font-medium text-[hsl(var(--accent-primary))] hover:underline disabled:opacity-50"
- >
- Ustaw jako primary
- </button>
- ) : null}
- <button
- type="button"
- onClick={() => handlePreview(doc)}
- className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
- title="Otwórz podgląd pliku"
- >
- <Eye className="h-3.5 w-3.5" />
- Podgląd
- </button>
- <button
- type="button"
- onClick={() => handleDownload(doc)}
- className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
- title="Pobierz plik na dysk"
- >
- <Download className="h-3.5 w-3.5" />
- Pobierz
- </button>
- </div>
- </div>
- ))}
- </div>
- <FilePreviewModal
- doc={previewDoc?.document_kind === "cv" ? undefined : previewDoc}
- documents={
- previewDoc?.document_kind === "cv"
- ? docs.filter((document) => document.document_kind === "cv")
- : undefined
- }
- initialDocumentId={
- previewDoc?.document_kind === "cv" ? previewDoc.id : null
- }
- candidateId={candidateId}
- onClose={() => setPreviewDoc(null)}
- onDownload={handleDownload}
- />
- </>
- );
-}
 
 // ── Screening summary (sticky, always visible across tabs) ─────────────
 
