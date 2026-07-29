@@ -2195,9 +2195,34 @@ _COLUMN_STATEMENTS = [
             CHECK (cv_content_mode_cap IS NULL
                    OR cv_content_mode_cap IN ('basic', 'polished', 'tailored'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0204: podsumowanie aktywności kandydata (AI) — nowa TABELA wymaga
+    # mirrora tutaj (precedens: cortex_skill_facts, incident 2026-07-12),
+    # inaczej /api/candidates/{id}/activity-summary 500-tkuje przy
+    # orphaned/multi-head alembicu mimo zielonego deployu.
+    """CREATE TABLE IF NOT EXISTS candidate_activity_summaries (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        summary TEXT NOT NULL,
+        model VARCHAR(64) NULL,
+        input_hash VARCHAR(64) NOT NULL,
+        generated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        generated_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_candidate_activity_summary UNIQUE (candidate_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_candidate_id "
+    "ON candidate_activity_summaries (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_input_hash "
+    "ON candidate_activity_summaries (input_hash)",
 ]
 
 _DATA_STATEMENTS = [
+    # 0204: seed zarezerwowanego feature'a AI `candidate_summary` (widoczność
+    # + licznik w Ustawieniach → AI). Idempotentny: WHERE NOT EXISTS.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'candidate_summary', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'candidate_summary')",
     # 0173: rejection_reasons.external_source backfill (integracja Traffit).
     "UPDATE rejection_reasons SET external_source = 'manual' "
     "WHERE external_source IS NULL",
