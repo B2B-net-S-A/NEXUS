@@ -52,6 +52,22 @@ Walidacja:
 Deduplikacja po SHA-256 treści (istniejący mechanizm) — ponowny upload tego
 samego pliku aktualizuje rekord zamiast tworzyć duplikat.
 
+**Ochrona aktywnego CV przy dedupie** (uwaga z review PR #998, commit
+`3d84ca67`). Pierwsza wersja przypisywała przy trafieniu w istniejący SHA
+`document_kind`/`is_primary` bezwarunkowo, co dawało dwie ścieżki cichej
+degradacji — obie osiągalne z UI:
+
+1. plik wgrany jako CV (primary), potem ten sam jako „certyfikat" → wiersz
+   przestawał być CV i tracił primary;
+2. ponowny upload aktywnego CV jako CV → endpoint liczy `is_primary` jako
+   „kandydat nie ma jeszcze primary CV", a primary **jest** (to ten sam wiersz
+   po SHA), więc zapisywał `is_primary=False`.
+
+Efekt w obu: pusta galeria CV i `cv_filename` wskazujące na plik, którego już
+tam nie ma. Teraz dedup nigdy nie zdejmuje primary z aktywnego CV, a próba
+przeklasyfikowania go uploadem zwraca **409** — zmiana rodzaju idzie przez listę
+plików (PATCH), gdzie jest świadomą akcją, a nie efektem ubocznym wgrania pliku.
+
 **Bez migracji** — schemat `candidate_documents` miał już wszystko. Świadomie
 nie dodano `UserActionType.document_uploaded` (natywny enum w Postgresie =
 migracja dla jednego wpisu leaderboardu); załącznik inny niż CV loguje się do
@@ -80,11 +96,13 @@ Role bez write-access nie widzą uploadu (parytet z resztą zakładki).
 
 ## Weryfikacja
 
-- `backend/tests/test_candidate_document_upload.py` — 8 testów: listing po
+- `backend/tests/test_candidate_document_upload.py` — 10 testów: listing po
   uploadzie + pobranie treści, content-type z rozszerzenia (nie z nagłówka),
   `is_primary` poza CV → 422, pierwsze CV przejmuje primary i ustawia
   `cv_filename`, obraz jako CV → 415, rozszerzenie spoza allowlisty → 415,
-  pusty plik → 400, dedup po SHA, traversal w nazwie ucięty. **8 passed.**
+  pusty plik → 400, dedup po SHA, traversal w nazwie ucięty, plus dwa testy
+  ochrony aktywnego CV przy dedupie (409 na przeklasyfikowanie, brak utraty
+  primary przy ponownym uploadzie). **10 passed.**
 - `test_candidate_module_access.py` — nowa trasa dopisana do macierzy write
   (viewer 403, role operacyjne przechodzą). **58 passed** razem z
   `test_route_authz_contract.py` (trasa liczona jako *gated*, baseline bez zmian)
@@ -98,8 +116,12 @@ Role bez write-access nie widzą uploadu (parytet z resztą zakładki).
 
 ### Znane ograniczenia weryfikacji
 
-- Pełny `pytest tests/` puszczony lokalnie w obrazie `nexus-test:fresh` na
-  świeżej bazie (migracje do `heads`); CI powtórzy go na swoim postgresie.
+- Backend CI (`ruff` + pełny `pytest tests/` z listą `--ignore` z `ci.yml`)
+  przechodzi na PR #998. Lokalny przebieg tej samej komendy ma 29 czerwonych,
+  wszystkie środowiskowe: kontrakty czytające `ci.yml` i env CI
+  (`test_ci_coverage_contract`, `test_ci_token_encryption_parity`), backup-drill
+  wymagający kredek B2, testy czasowe (`crash_window_durability`). Miarodajny
+  jest zielony job w CI.
 - Lokalne `node_modules` (dowiązane z głównego repo) mają **recharts 2.15.4**
   przy `^3.8.1` w `package.json` tej gałęzi — stąd 2 błędy `tsc` w
   `ui/chart.tsx` i padający `DlTrendChart.test.tsx`, oba **niezwiązane** ze
