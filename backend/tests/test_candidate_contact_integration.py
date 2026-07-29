@@ -908,16 +908,27 @@ async def test_concurrent_fallback_selection_observes_latest_load(
         cases.append(case)
     await contact_db.commit()
 
-    async def run_worker() -> None:
+    async def run_worker(limit: int) -> None:
         async with AsyncSessionLocal() as worker_db:
             await process_contact_cases(
                 worker_db,
                 now=BASE_TIME + timedelta(hours=1),
-                limit=1,
+                limit=limit,
             )
             await worker_db.commit()
 
-    await asyncio.gather(run_worker(), run_worker())
+    # `limit=1` wymusza, żeby każdy worker wziął po jednej sprawie — inaczej
+    # pierwszy zabrałby obie (SKIP LOCKED na wierszach spraw) i kontencji na
+    # warstwie userów w ogóle by nie było.
+    await asyncio.gather(run_worker(1), run_worker(1))
+    # Przebieg pod kontencją nie musi rozdać kompletu: pominięty wiersz usera
+    # (SKIP LOCKED w `_claim_from_pool`) zostawia sprawę w `awaiting_capacity`,
+    # a nie u przypadkowego właściciela. Domykamy kolejnym, już
+    # niekonkurencyjnym przebiegiem. Hojny `limit` jest tu konieczny: paczka
+    # workera jest globalna, a baza testowa dzielona z innymi modułami, więc
+    # ograniczona paczka potrafi się skończyć na cudzych sprawach, zanim
+    # dojdzie do tych dwóch.
+    await run_worker(500)
 
     async with AsyncSessionLocal() as verification_db:
         owners = set(
@@ -931,6 +942,10 @@ async def test_concurrent_fallback_selection_observes_latest_load(
             .scalars()
             .all()
         )
+    # Dwie sprawy u DWÓCH różnych właścicieli. Gdyby oba przebiegi wybrały
+    # najmniej obciążonego z tego samego, nieodświeżonego odczytu, zbiór miałby
+    # jeden element — i domykający przebieg by tego nie naprawił, bo sprawy są
+    # już wtedy zakolejkowane ze slotami.
     assert owners == {first_fallback.id, second_fallback.id}
 
 
@@ -965,12 +980,12 @@ async def test_parallel_workers_never_allocate_twenty_first_slot(
         cases.append(case)
     await contact_db.commit()
 
-    async def run_worker() -> Any:
+    async def run_worker(limit: int = 11) -> Any:
         async with AsyncSessionLocal() as worker_db:
             result = await process_contact_cases(
                 worker_db,
                 now=BASE_TIME + timedelta(hours=1),
-                limit=11,
+                limit=limit,
             )
             await worker_db.commit()
             return result
@@ -1009,8 +1024,11 @@ async def test_parallel_workers_never_allocate_twenty_first_slot(
     # Pominięty właściciel nie jest „brakiem uprawnionych": sprawy czekają
     # w `awaiting_capacity`, więc następny — już niekonkurencyjny — przebieg
     # dociąga kolejkę do kompletu. Utrata przepustowości jest odroczeniem
-    # o jeden tick, nie porzuceniem pracy.
-    await run_worker()
+    # o jeden tick, nie porzuceniem pracy. Domykający przebieg dostaje hojny
+    # `limit`, bo paczka workera jest globalna: baza testowa jest dzielona
+    # z innymi modułami i ograniczona paczka potrafi się skończyć na cudzych
+    # sprawach, zanim dociągnie te 21.
+    await run_worker(limit=500)
 
     queued_slots, waiting = await queue_shape()
     assert len(queued_slots) == 20
@@ -3212,15 +3230,22 @@ async def test_skip_locked_worker_processes_other_due_case(
     )
     await contact_db.commit()
 
+    locked_id = min(case_ids)
+    available_id = max(case_ids)
+    before_locked = await _case_snapshot(locked_id)
+    locked_state_before = before_locked.state
+    locked_version_before = before_locked.version
+
     async with AsyncSessionLocal() as blocker:
-        locked_id = min(case_ids)
         await blocker.scalar(
             select(CandidateContactCase)
             .where(CandidateContactCase.id == locked_id)
             .with_for_update()
         )
         async with AsyncSessionLocal() as worker:
-            stats = await process_contact_cases(
+            # Samo dojście tutaj jest asercją: blocker trzyma blokadę przez cały
+            # przebieg, więc zwykłe FOR UPDATE zawisłoby zamiast wrócić.
+            await process_contact_cases(
                 worker,
                 now=BASE_TIME + timedelta(hours=9),
                 limit=10,
@@ -3228,13 +3253,33 @@ async def test_skip_locked_worker_processes_other_due_case(
             await worker.commit()
         await blocker.rollback()
 
-    available_id = max(case_ids)
     available = await _case_snapshot(available_id)
     locked = await _case_snapshot(locked_id)
-    assert stats.scanned == 1
-    assert stats.reassigned == 1
-    assert available.owner_user_id == fallback_owner.id
+    # ``ProcessingStats`` liczy CAŁĄ tabelę, a baza testowa jest dzielona
+    # z pozostałymi modułami — te zostawiają po sobie sprawy w stanach
+    # ponawianych, które worker słusznie skanuje w każdym ticku. Globalny
+    # licznik nie mówi więc nic o TEJ parze; dowód pominięcia bierzemy
+    # z samych wierszy.
     assert locked.owner_user_id == first_owner.id
+    assert locked.state == locked_state_before
+    assert locked.version == locked_version_before
+    assert available.owner_user_id == fallback_owner.id
+
+    async with AsyncSessionLocal() as audit_db:
+        rotated = (
+            (
+                await audit_db.execute(
+                    select(CandidateContactEvent.case_id).where(
+                        CandidateContactEvent.case_id.in_(case_ids),
+                        CandidateContactEvent.event_type == "reassigned",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    # Worker dotknął dokładnie jednej z dwóch spraw tego testu.
+    assert list(rotated) == [available_id]
 
 
 async def _assign_unassigned_case(
