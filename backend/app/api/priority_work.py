@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +19,7 @@ from app.api.deps import (
     PriorityDemandCreator,
     PriorityDemandReader,
 )
+from app.api.recruitment_access import ensure_job_membership
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.cc_feedback import JobSecondaryCc
@@ -704,7 +706,16 @@ async def update_priority_demand(
     if "urgency" in changes and payload.urgency:
         row.proposed_rank = _rank_from_urgency(payload.urgency)
     if "expected_recommendations" in changes:
-        row.expected_recommendations = payload.expected_recommendations  # type: ignore[assignment]
+        # `Optional[int]` w schemacie koduje „pole nieobecne", nie „wyczyść
+        # wartość" — kolumna jest NOT NULL z CHECK >= 3, więc jawny null
+        # kończył się IntegrityError na commicie i wychodził jako 500.
+        # Sąsiednie pola null ignorują po cichu; tu mówimy głośno, bo ciche
+        # 200 znaczyłoby dla UI „zapisano", a nic nie zostałoby zapisane.
+        if payload.expected_recommendations is None:
+            raise HTTPException(
+                422, "expected_recommendations nie może być puste (minimum 3)"
+            )
+        row.expected_recommendations = payload.expected_recommendations
     if "deadline" in changes:
         row.due_at = _deadline(payload.deadline)
     if "channel" in changes:
@@ -750,6 +761,26 @@ async def create_priority_plan_draft(
     return _serialize_plan(plan, include_members=True) or {}
 
 
+def _plan_draft_invalid(exc: PydanticValidationError) -> HTTPException:
+    """Zamienia ValidationError z modelu domenowego na 422 z polami.
+
+    Walidatory `mode="after"` w `PriorityAssignmentInput` /
+    `PriorityPlanMemberInput` rzucają `ValidationError`, a FastAPI konwertuje
+    tylko `RequestValidationError` (parsowanie żądania) i
+    `ResponseValidationError`. Modele budowane RĘCZNIE w handlerze wychodziły
+    więc jako nieobsłużony 500 z pustą treścią i komunikat nigdy nie docierał
+    do UI. Reguła „pauza wymaga uzasadnienia" nie ma odpowiednika w serwisie,
+    więc pydantic jest jej JEDYNYM miejscem egzekwowania.
+    """
+    return HTTPException(
+        422,
+        {
+            "code": "PRIORITY_PLAN_INVALID",
+            "errors": exc.errors(include_url=False),
+        },
+    )
+
+
 async def _resolve_member_inputs(
     db: AsyncSession, members: list[PlanMemberUpdateRequest]
 ) -> list[PriorityPlanMemberInput]:
@@ -779,8 +810,8 @@ async def _resolve_member_inputs(
                     422, f"Request #{item.job_id} nie ma aktywnego demandu"
                 )
             extra_reason = item.extra_slot_reason or member.extra_slots_reason
-            assignments.append(
-                PriorityAssignmentInput(
+            try:
+                assignment_input = PriorityAssignmentInput(
                     demand_id=demand_id,
                     job_id=item.job_id,
                     rank=item.rank,
@@ -791,12 +822,14 @@ async def _resolve_member_inputs(
                     cc_exception_reason=item.cc_exception_reason,
                     extra_slot_reason=extra_reason,
                 )
-            )
+            except PydanticValidationError as exc:
+                raise _plan_draft_invalid(exc) from exc
+            assignments.append(assignment_input)
         capacity = member.verification_capacity
         if capacity is None:
             capacity = sum(item.verification_target for item in assignments)
-        resolved.append(
-            PriorityPlanMemberInput(
+        try:
+            member_input = PriorityPlanMemberInput(
                 user_id=member.user_id,
                 status=member.status,
                 verification_capacity=capacity,
@@ -804,7 +837,9 @@ async def _resolve_member_inputs(
                 paused_reason=member.paused_reason,
                 assignments=assignments,
             )
-        )
+        except PydanticValidationError as exc:
+            raise _plan_draft_invalid(exc) from exc
+        resolved.append(member_input)
     return resolved
 
 
@@ -856,6 +891,12 @@ async def get_job_priority_context(
     job = await db.scalar(select(Job.id).where(Job.id == job_id))
     if job is None:
         raise HTTPException(404, "Request nie istnieje")
+    # Zakres zasobu, nie tylko rola: odpowiedź niesie nazwiska przypisanych,
+    # treść blockerów i surowe `evidence`. Bez tej bramki był to JEDYNY
+    # osiągalny dla ról operacyjnych sposób odczytu alokacji per-osoba w CUDZEJ
+    # ofercie — `/mine` zawęża do siebie, `/team` jest HoR-only, a `/current`
+    # nie zwraca danych per-osoba. Wspólny helper, nie własna kopia reguły.
+    await ensure_job_membership(db, current_user, job_id)
     mode = await effective_priority_mode(db, current_user.id)
     plan = await current_plan(db)
     assignments = (
@@ -992,6 +1033,16 @@ async def update_priority_blocker(
         row.decision_reason = payload.decision_note
         event_type = "blocker_decided"
     elif payload.status == PriorityBlockerStatus.resolved:
+        # Warunek wstępny na stanie ŹRÓDŁOWYM, lustrzany do 409 z gałęzi
+        # decyzji wyżej. Bez niego blocker `rejected` dawało się „domknąć"
+        # ponownie, a `decision_note` nadpisywało `decision_reason` —
+        # uzasadnienie odrzucenia od HoR-a przepadało, bo audit event zapisuje
+        # tylko id i nowy status, więc poprzedniej treści nie da się odtworzyć.
+        if row.status not in {
+            PriorityBlockerStatus.pending,
+            PriorityBlockerStatus.accepted,
+        }:
+            raise HTTPException(409, "Blocker jest już zamknięty")
         assignment = await db.scalar(
             select(RecruitmentPriorityAssignment)
             .where(RecruitmentPriorityAssignment.id == row.assignment_id)
