@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
+from app.api.recruitment_access import ensure_job_membership
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict
@@ -48,7 +49,10 @@ from app.services.candidate_job_eligibility import (
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.priority_work_policy import milestone_counts_scope
-from app.services.recruitment_process_commands import open_process
+from app.services.recruitment_process_commands import (
+    canonical_candidate_lock_order,
+    open_process,
+)
 
 router = APIRouter()
 
@@ -139,6 +143,10 @@ async def list_assignable_stages(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Odczyt towarzyszący zapisowi niżej — bez tej samej bramki zamknięcie
+    # `bulk_add_proposals` byłoby połowiczne: dropdown etapów wciąż zdradzałby
+    # nazwy, identyfikatory i kolejność szablonu obcej rekrutacji.
+    await ensure_job_membership(db, current_user, job_id)
     if not job.pipeline_template_id:
         return []
     rows = (
@@ -222,9 +230,21 @@ async def bulk_add_proposals(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> BulkProposalsResponse:
+    # Kanoniczna kolejność blokad — patrz `canonical_candidate_lock_order`.
+    # Pętla niżej blokuje wiersz kandydata przez `open_process`, a jedyny commit
+    # jest po pętli, więc surowa lista z requestu znaczyła, że dwa nakładające
+    # się bulk-addy z odwróconą kolejnością zakleszczały się o siebie.
+    # Deduplikacja przy okazji kasuje zdublowane wiersze w `skipped`.
+    lock_ordered_ids = canonical_candidate_lock_order(body.candidate_ids)
+
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Ta sama bramka co na pięciu trasach shortlisty (`job_shortlist.py`).
+    # Bez niej containment był niespójny w gorszą stronę: zaparkowanie
+    # kandydata na shortliście dawało 403, a cięższe wpisanie go wprost do
+    # pipeline'u — z tego samego ekranu, na tę samą obcą ofertę — przechodziło.
+    await ensure_job_membership(db, current_user, job_id)
 
     stage_def = await _resolve_initial_stage(db, job, body.initial_stage_def_id)
     legacy_enum = PipelineStage.new
@@ -235,10 +255,18 @@ async def bulk_add_proposals(
             legacy_enum = PipelineStage.new
 
     # Pre-fetch in two batches so we don't issue 100×2 round-trips.
+    # Ten sam prefetch jest fazą 1 kolejności blokad: komplet kandydatów rosnąco
+    # ZANIM `open_process` weźmie w pętli blokadę oferty. Bez tego pętla
+    # przeplatała kandydat→oferta→kandydat i zakleszczała się z wsadowym
+    # `sync_external_observed_processes` (Traffit). `FOR UPDATE` nie dokłada
+    # rundy — to nadal jedno zapytanie.
     cand_rows = (
         (
             await db.execute(
-                select(Candidate).where(Candidate.id.in_(body.candidate_ids))
+                select(Candidate)
+                .where(Candidate.id.in_(lock_ordered_ids))
+                .order_by(Candidate.id)
+                .with_for_update()
             )
         )
         .scalars()
@@ -251,7 +279,7 @@ async def bulk_add_proposals(
             await db.execute(
                 select(CandidateStage.candidate_id).where(
                     CandidateStage.job_id == job_id,
-                    CandidateStage.candidate_id.in_(body.candidate_ids),
+                    CandidateStage.candidate_id.in_(lock_ordered_ids),
                 )
             )
         )
@@ -265,7 +293,7 @@ async def bulk_add_proposals(
         (
             await db.execute(
                 select(CandidateConflict).where(
-                    CandidateConflict.candidate_id.in_(body.candidate_ids),
+                    CandidateConflict.candidate_id.in_(lock_ordered_ids),
                     CandidateConflict.client_id == job.client_id,
                     CandidateConflict.active.is_(True),
                 )
@@ -288,7 +316,7 @@ async def bulk_add_proposals(
     # Standing rejections by THIS job's hiring manager, batched once. Costs no
     # query at all when the job has no hiring manager set.
     manager_verdicts = await load_manager_rejections(
-        db, job=job, candidate_ids=body.candidate_ids
+        db, job=job, candidate_ids=lock_ordered_ids
     )
     now = datetime.now(timezone.utc)
 
@@ -299,7 +327,7 @@ async def bulk_add_proposals(
     # Jeden skan progresu assignmentu na cały batch: bez tego każda
     # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
     with milestone_counts_scope():
-        for candidate_id in body.candidate_ids:
+        for candidate_id in lock_ordered_ids:
             candidate = candidates_by_id.get(candidate_id)
             if candidate is None:
                 skipped.append(

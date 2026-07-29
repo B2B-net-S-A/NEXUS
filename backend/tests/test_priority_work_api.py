@@ -22,6 +22,7 @@ from app.api import (
 from app.models.invite_link import CandidateInviteLink
 from app.models.recruitment_priority import (
     PriorityBlockerCategory,
+    PriorityBlockerStatus,
     PriorityMode,
     PriorityPlanStatus,
 )
@@ -613,3 +614,285 @@ def test_one_shot_exception_accepts_a_future_window() -> None:
         expires_at=now + timedelta(hours=1),
     )
     assert payload.expires_at > payload.valid_from
+
+
+# ── P2-24: /jobs/{job_id} musi przechodzić przez bramkę członkostwa ──────────
+
+
+def _job_context_db() -> SimpleNamespace:
+    """Fake sesji dla ``get_job_priority_context``.
+
+    ``db.scalar`` obsługuje kolejno: lookup ``Job.id`` (404-check) i licznik
+    carry-overów. ``db.execute`` to zapytanie o blockery — jeśli zostanie
+    zawołane dla nie-członka, znaczy że dane wyciekły mimo bramki.
+    """
+    blockers = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+    return SimpleNamespace(
+        scalar=AsyncMock(side_effect=[77, 0]),
+        execute=AsyncMock(return_value=blockers),
+        get=AsyncMock(return_value=SimpleNamespace(id=77)),
+    )
+
+
+def _stub_membership_inputs(monkeypatch, *, is_member: bool) -> None:
+    monkeypatch.setattr(
+        recruitment_access,
+        "is_member_of_job",
+        AsyncMock(return_value=is_member),
+    )
+    monkeypatch.setattr(
+        recruitment_access,
+        "effective_priority_mode",
+        AsyncMock(return_value=PriorityMode.off),
+    )
+    monkeypatch.setattr(
+        priority_work,
+        "effective_priority_mode",
+        AsyncMock(return_value=PriorityMode.off),
+    )
+    monkeypatch.setattr(priority_work, "current_plan", AsyncMock(return_value=None))
+
+
+async def test_job_priority_context_denies_non_member_before_serializing_anything(
+    monkeypatch,
+) -> None:
+    """Rola operacyjna spoza zespołu oferty nie może czytać cudzej alokacji.
+
+    Trasa oddawała nazwiska przypisanych, treść blockerów i surowe `evidence`
+    dla KAŻDEJ oferty każdemu poza read-only viewerem — jedyna taka ścieżka w
+    module (``/mine`` zawęża do siebie, ``/team`` jest HoR-only, ``/current``
+    nie zwraca danych per-osoba).
+    """
+    _stub_membership_inputs(monkeypatch, is_member=False)
+    db = _job_context_db()
+
+    with pytest.raises(HTTPException) as error:
+        await priority_work.get_job_priority_context(
+            77, _FakeUser(UserRole.recruiter), db
+        )
+
+    assert error.value.status_code == 403
+    assert db.execute.await_count == 0
+
+
+@pytest.mark.parametrize(
+    "role",
+    [UserRole.admin, UserRole.head_of_recruitment],
+)
+async def test_job_priority_context_keeps_oversight_roles_without_membership(
+    monkeypatch,
+    role: UserRole,
+) -> None:
+    _stub_membership_inputs(monkeypatch, is_member=False)
+    db = _job_context_db()
+
+    payload = await priority_work.get_job_priority_context(77, _FakeUser(role), db)
+
+    assert payload["assignments"] == []
+    assert payload["blockers"] == []
+
+
+async def test_job_priority_context_still_serves_a_job_member(monkeypatch) -> None:
+    _stub_membership_inputs(monkeypatch, is_member=True)
+    db = _job_context_db()
+
+    payload = await priority_work.get_job_priority_context(
+        77,
+        _FakeUser(UserRole.recruiter),
+        db,
+    )
+
+    assert payload["mode"] == "off"
+    assert payload["carry_over_count"] == 0
+
+
+def test_job_priority_context_uses_the_shared_membership_gate() -> None:
+    source = inspect.getsource(priority_work.get_job_priority_context)
+    assert "await ensure_job_membership(db, current_user, job_id)" in source
+
+
+# ── P2-25: błędy walidacji draftu planu to 422, nie 500 ─────────────────────
+
+
+async def test_paused_member_without_reason_is_a_422_not_a_500() -> None:
+    """Reguła „pauza wymaga uzasadnienia" żyje WYŁĄCZNIE w pydanticu.
+
+    Serwis nie ma jej odpowiednika, więc bez przechwycenia ValidationError
+    jedynym możliwym wyjściem był nieobsłużony 500 z pustą treścią.
+    """
+    member = priority_work.PlanMemberUpdateRequest(
+        user_id=7,
+        status="paused",
+    )
+
+    with pytest.raises(HTTPException) as error:
+        await priority_work._resolve_member_inputs(SimpleNamespace(), [member])
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "PRIORITY_PLAN_INVALID"
+    assert "paused_reason" in str(error.value.detail["errors"])
+
+
+async def test_extra_slot_without_reason_is_a_422_not_a_500() -> None:
+    member = priority_work.PlanMemberUpdateRequest(
+        user_id=7,
+        assignments=[
+            priority_work.AssignmentUpdateRequest(
+                job_id=3,
+                demand_id=5,
+                rank="D",
+                channel="linkedin",
+                verification_target=2,
+                recommendation_target=1,
+            )
+        ],
+    )
+
+    with pytest.raises(HTTPException) as error:
+        await priority_work._resolve_member_inputs(SimpleNamespace(), [member])
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "PRIORITY_PLAN_INVALID"
+    assert "extra_slot_reason" in str(error.value.detail["errors"])
+
+
+async def test_valid_member_input_still_resolves() -> None:
+    member = priority_work.PlanMemberUpdateRequest(
+        user_id=7,
+        assignments=[
+            priority_work.AssignmentUpdateRequest(
+                job_id=3,
+                demand_id=5,
+                rank="A",
+                channel="linkedin",
+                verification_target=2,
+                recommendation_target=1,
+            )
+        ],
+    )
+
+    resolved = await priority_work._resolve_member_inputs(SimpleNamespace(), [member])
+
+    assert [item.user_id for item in resolved] == [7]
+    assert resolved[0].verification_capacity == 2
+
+
+# ── P2-26: jawny null w NOT NULL kolumnie to 422, nie 500 ───────────────────
+
+
+async def test_explicit_null_expected_recommendations_is_rejected_with_422() -> None:
+    """Kolumna jest NOT NULL (CHECK >= 3) — null kończył się 500 na commicie."""
+    payload = priority_work.DemandUpdateRequest(
+        expected_version=1,
+        expected_recommendations=None,
+    )
+    row = SimpleNamespace(id=8, job_id=3, row_version=1, expected_recommendations=3)
+    db = SimpleNamespace(scalar=AsyncMock(return_value=row), commit=AsyncMock())
+
+    with pytest.raises(HTTPException) as error:
+        await priority_work.update_priority_demand(
+            8,
+            payload,
+            _FakeUser(UserRole.head_of_recruitment),
+            db,
+        )
+
+    assert error.value.status_code == 422
+    assert db.commit.await_count == 0
+    assert row.expected_recommendations == 3
+
+
+async def test_absent_expected_recommendations_leaves_the_column_untouched() -> None:
+    """„Pole nieobecne" i „pole jawnie null" to dwa różne żądania."""
+    payload = priority_work.DemandUpdateRequest(expected_version=1, brief_ready=True)
+    assert "expected_recommendations" not in payload.model_fields_set
+
+
+# ── P2-27: resolve nie może nadpisać zamkniętego blockera ───────────────────
+
+
+def _blocker_row(status: PriorityBlockerStatus) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=11,
+        assignment_id=2,
+        category=PriorityBlockerCategory.other,
+        description="Brak odpowiedzi klienta",
+        evidence=None,
+        status=status,
+        decision_reason="HoR: powód odrzucenia",
+        reported_by_user_id=41,
+        decided_by_user_id=9,
+        resolved_by_user_id=None,
+        created_at=None,
+        decided_at=None,
+        resolved_at=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [PriorityBlockerStatus.rejected, PriorityBlockerStatus.resolved],
+)
+async def test_closed_blocker_cannot_be_resolved_again(
+    status: PriorityBlockerStatus,
+) -> None:
+    """Ponowny resolve nadpisywał ``decision_reason`` uzasadnieniem zamknięcia.
+
+    Audit event zapisuje tylko id i nowy status, więc oryginalne uzasadnienie
+    HoR-a nie było odtwarzalne — kasowanie śladu, nie tylko zły kontrakt.
+    """
+    row = _blocker_row(status)
+    db = SimpleNamespace(scalar=AsyncMock(return_value=row), commit=AsyncMock())
+    payload = priority_work.BlockerUpdateRequest(
+        status=PriorityBlockerStatus.resolved,
+        decision_note="Zamykam",
+    )
+
+    with pytest.raises(HTTPException) as error:
+        await priority_work.update_priority_blocker(
+            11,
+            payload,
+            _FakeUser(UserRole.head_of_recruitment),
+            db,
+        )
+
+    assert error.value.status_code == 409
+    assert row.decision_reason == "HoR: powód odrzucenia"
+    assert row.status is status
+    assert db.commit.await_count == 0
+
+
+@pytest.mark.parametrize(
+    "status",
+    [PriorityBlockerStatus.pending, PriorityBlockerStatus.accepted],
+)
+async def test_open_blocker_can_still_be_resolved(
+    status: PriorityBlockerStatus,
+) -> None:
+    row = _blocker_row(status)
+    assignment = SimpleNamespace(
+        id=2,
+        job_id=3,
+        plan_member=SimpleNamespace(user_id=41),
+    )
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[row, assignment]),
+        add=lambda instance: None,
+        commit=AsyncMock(),
+        refresh=AsyncMock(),
+    )
+    payload = priority_work.BlockerUpdateRequest(
+        status=PriorityBlockerStatus.resolved,
+        decision_note="Klient odpowiedział",
+    )
+
+    result = await priority_work.update_priority_blocker(
+        11,
+        payload,
+        _FakeUser(UserRole.head_of_recruitment),
+        db,
+    )
+
+    assert result["status"] == "resolved"
+    assert row.resolved_by_user_id == 41
+    assert db.commit.await_count == 1

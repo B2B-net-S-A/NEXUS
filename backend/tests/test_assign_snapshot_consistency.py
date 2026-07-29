@@ -45,7 +45,11 @@ async def test_bulk_add_snapshots_each_candidate_cv() -> None:
         c2 = Candidate(name="B", lastname=f"Two-{u}")
         db.add_all([user, client, c1, c2])
         await db.flush()
-        job = Job(title=f"Snap Job {u}", client_id=client.id)
+        # Rekruter musi należeć do zespołu oferty — `bulk_add_proposals` ma
+        # teraz tę samą bramkę zakresu co shortlista. Ten test sprawdza
+        # inwariant snapshotu CV, więc aktor jest właścicielem rekrutacji,
+        # a nie osobą z zewnątrz.
+        job = Job(title=f"Snap Job {u}", client_id=client.id, recruiter_id=user.id)
         db.add(job)
         await db.commit()
         job_id, uid, ids = job.id, user.id, [c1.id, c2.id]

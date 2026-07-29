@@ -11,14 +11,27 @@ APP_ROOT = BACKEND_ROOT / "app"
 COMMAND_WRITER = APP_ROOT / "services" / "recruitment_process_commands.py"
 RAW_ADAPTER = APP_ROOT / "services" / "traffit" / "importer.py"
 RAW_METADATA_ADAPTER = APP_ROOT / "services" / "traffit" / "rejection_backfill.py"
+SCRIPTS_ROOT = BACKEND_ROOT / "scripts"
 ROOT_RUNTIME_WRITERS = (
     BACKEND_ROOT / "seed.py",
     BACKEND_ROOT / "seed_v6_pipeline.py",
+    BACKEND_ROOT / "seed_v4.py",
+    BACKEND_ROOT / "seed_v5.py",
+    BACKEND_ROOT / "embed_all.py",
 )
 
 
 def _python_files() -> list[Path]:
-    return sorted([*APP_ROOT.rglob("*.py"), *ROOT_RUNTIME_WRITERS])
+    # scripts/ i pozostałe seedy to też kod uruchamiany na produkcji, więc muszą
+    # podlegać temu samemu ogrodzeniu co app/ — wcześniej surowy zapis do
+    # CandidateStage w tych plikach był dla testu niewidoczny.
+    return sorted(
+        [
+            *APP_ROOT.rglob("*.py"),
+            *SCRIPTS_ROOT.rglob("*.py"),
+            *ROOT_RUNTIME_WRITERS,
+        ]
+    )
 
 
 def _display_path(path: Path) -> str:
@@ -271,6 +284,8 @@ def test_bulk_ingress_shares_one_assignment_progress_scan() -> None:
 
     source = (APP_ROOT / "api" / "proposals_bulk.py").read_text(encoding="utf-8")
     scope = source.index("with milestone_counts_scope():")
-    loop = source.index("for candidate_id in body.candidate_ids:")
+    # Lista kandydatów jest kanonizowana (sort+dedup) przed pętlą — patrz
+    # `canonical_candidate_lock_order`.
+    loop = source.index("for candidate_id in lock_ordered_ids:")
     ingress = source.index("await open_process(")
     assert scope < loop < ingress

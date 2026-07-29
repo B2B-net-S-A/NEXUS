@@ -2561,75 +2561,133 @@ _FKS = (
     ),
 )
 
+# Każdy krok idzie w OSOBNEJ, ograniczonej czasowo transakcji.
+#
+# Wcześniej całość leciała w jednej transakcji bez lock_timeout, a ALTER TABLE
+# ... ADD CONSTRAINT bierze ACCESS EXCLUSIVE na gorącym recruitment_processes.
+# Na obciążonej produkcji potrafił więc czekać bez końca — a czekając w kolejce
+# po ten zamek blokował KAŻDEGO czytelnika tabeli. To nie jest awaria, tylko
+# zwis, więc `|| echo ... continuing` na dole nigdy by go nie złapał.
+# Przy okazji jedna wywrotka kasowała też INSERT singletona i trzy CREATE INDEX
+# z tej samej transakcji.
+#
+# NOT VALID świadomie, tak jak w _CONSTRAINT_STATEMENTS wyżej: więz działa dla
+# nowych zapisów (łącznie z ON DELETE SET NULL) bez skanowania całej tabeli pod
+# ACCESS EXCLUSIVE. VALIDATE CONSTRAINT można odpalić później, świadomie.
+#
+# Awaria każdego kroku jest MIĘKKA: logujemy i idziemy dalej, następny deploy
+# ponowi. Ten skrypt nigdy nie może zatrzymać startu kontenera.
+_LOCK_TIMEOUT = "5s"
+_STATEMENT_TIMEOUT = "120s"
+
+
+def _process_fk_sql(name, column, target):
+    return f"""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint AS constraint_row
+                JOIN pg_attribute AS source_column
+                  ON source_column.attrelid = constraint_row.conrelid
+                 AND source_column.attnum = ANY(constraint_row.conkey)
+                WHERE constraint_row.contype = 'f'
+                  AND constraint_row.conrelid =
+                      'recruitment_processes'::regclass
+                  AND constraint_row.confrelid = '{target}'::regclass
+                  AND source_column.attname = '{column}'
+            ) THEN
+                ALTER TABLE recruitment_processes
+                    ADD CONSTRAINT {name}
+                    FOREIGN KEY ({column}) REFERENCES {target}(id)
+                    ON DELETE SET NULL NOT VALID;
+            END IF;
+        END $$
+    """
+
+
+_INVITE_FK_SQL = """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint AS constraint_row
+            JOIN pg_attribute AS source_column
+              ON source_column.attrelid = constraint_row.conrelid
+             AND source_column.attnum = ANY(constraint_row.conkey)
+            WHERE constraint_row.contype = 'f'
+              AND constraint_row.conrelid =
+                  'candidate_invite_links'::regclass
+              AND constraint_row.confrelid =
+                  'recruitment_priority_assignments'::regclass
+              AND source_column.attname = 'origin_assignment_id'
+        ) THEN
+            ALTER TABLE candidate_invite_links
+                ADD CONSTRAINT fk_invite_link_origin_priority_assignment
+                FOREIGN KEY (origin_assignment_id)
+                REFERENCES recruitment_priority_assignments(id)
+                ON DELETE SET NULL NOT VALID;
+        END IF;
+    END $$
+"""
+
+_INDEXES = (
+    (
+        "ix_candidate_invite_links_origin_assignment_id",
+        "CREATE INDEX IF NOT EXISTS "
+        "ix_candidate_invite_links_origin_assignment_id "
+        "ON candidate_invite_links (origin_assignment_id)",
+    ),
+    (
+        "ix_recruitment_processes_origin_assignment_id",
+        "CREATE INDEX IF NOT EXISTS "
+        "ix_recruitment_processes_origin_assignment_id "
+        "ON recruitment_processes (origin_assignment_id)",
+    ),
+    (
+        "ix_recruitment_processes_eligibility_assignment_id",
+        "CREATE INDEX IF NOT EXISTS "
+        "ix_recruitment_processes_eligibility_assignment_id "
+        "ON recruitment_processes (eligibility_assignment_id)",
+    ),
+)
+
+
+async def _guarded(label, statement):
+    """Jeden krok schematu. Nigdy nie podnosi wyjątku — zwraca True/False."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
+            await conn.execute(
+                text(f"SET LOCAL statement_timeout = '{_STATEMENT_TIMEOUT}'")
+            )
+            await conn.execute(text(statement))
+    except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
+        print(f"priority work schema finalization: {label} pominięte -> {exc!r}")
+        return False
+    return True
+
 async def finalize():
-    async with engine.begin() as conn:
-        for name, column, target in _FKS:
-            await conn.execute(text(f"""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM pg_constraint AS constraint_row
-                        JOIN pg_attribute AS source_column
-                          ON source_column.attrelid = constraint_row.conrelid
-                         AND source_column.attnum = ANY(constraint_row.conkey)
-                        WHERE constraint_row.contype = 'f'
-                          AND constraint_row.conrelid =
-                              'recruitment_processes'::regclass
-                          AND constraint_row.confrelid = '{target}'::regclass
-                          AND source_column.attname = '{column}'
-                    ) THEN
-                        ALTER TABLE recruitment_processes
-                            ADD CONSTRAINT {name}
-                            FOREIGN KEY ({column}) REFERENCES {target}(id)
-                            ON DELETE SET NULL;
-                    END IF;
-                END $$
-            """))
-        await conn.execute(text(
-            "INSERT INTO recruitment_priority_state (id) VALUES (1) "
-            "ON CONFLICT (id) DO NOTHING"
-        ))
-        await conn.execute(text("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_constraint AS constraint_row
-                    JOIN pg_attribute AS source_column
-                      ON source_column.attrelid = constraint_row.conrelid
-                     AND source_column.attnum = ANY(constraint_row.conkey)
-                    WHERE constraint_row.contype = 'f'
-                      AND constraint_row.conrelid =
-                          'candidate_invite_links'::regclass
-                      AND constraint_row.confrelid =
-                          'recruitment_priority_assignments'::regclass
-                      AND source_column.attname = 'origin_assignment_id'
-                ) THEN
-                    ALTER TABLE candidate_invite_links
-                        ADD CONSTRAINT fk_invite_link_origin_priority_assignment
-                        FOREIGN KEY (origin_assignment_id)
-                        REFERENCES recruitment_priority_assignments(id)
-                        ON DELETE SET NULL;
-                END IF;
-            END $$
-        """))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS "
-            "ix_candidate_invite_links_origin_assignment_id "
-            "ON candidate_invite_links (origin_assignment_id)"
-        ))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS "
-            "ix_recruitment_processes_origin_assignment_id "
-            "ON recruitment_processes (origin_assignment_id)"
-        ))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS "
-            "ix_recruitment_processes_eligibility_assignment_id "
-            "ON recruitment_processes (eligibility_assignment_id)"
-        ))
-    print("priority work schema finalization: ok")
+    steps = [
+        (name, _process_fk_sql(name, column, target))
+        for name, column, target in _FKS
+    ]
+    steps.append((
+        "recruitment_priority_state singleton",
+        "INSERT INTO recruitment_priority_state (id) VALUES (1) "
+        "ON CONFLICT (id) DO NOTHING",
+    ))
+    steps.append(("fk_invite_link_origin_priority_assignment", _INVITE_FK_SQL))
+    steps.extend(_INDEXES)
+
+    results = [await _guarded(label, statement) for label, statement in steps]
+    if all(results):
+        print("priority work schema finalization: ok")
+    else:
+        print(
+            "priority work schema finalization: częściowa "
+            f"({sum(results)}/{len(results)}) — następny deploy ponowi"
+        )
 
 asyncio.run(finalize())
 PY

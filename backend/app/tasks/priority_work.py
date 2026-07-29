@@ -233,20 +233,25 @@ async def run_priority_work_sweep(db) -> dict[str, Any]:
             payload=payload,
         )
 
-    unresolved = (
-        (
-            await db.execute(
-                select(RecruitmentPriorityAlert).where(
-                    RecruitmentPriorityAlert.resolved_at.is_(None)
+    # Przy mode=off alert_specs jest z definicji puste, więc auto-resolve poniżej
+    # zamknąłby KAŻDY otwarty alert. Rollback shadow → off (albo ostatni tick
+    # starego workera podczas rolling restartu) po cichu czyścił listę alertów
+    # zebranych w shadow. Sprzątamy tylko wtedy, gdy tryb faktycznie je wylicza.
+    if global_mode != "off":
+        unresolved = (
+            (
+                await db.execute(
+                    select(RecruitmentPriorityAlert).where(
+                        RecruitmentPriorityAlert.resolved_at.is_(None)
+                    )
                 )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    for alert in unresolved:
-        if alert.dedupe_key not in active_keys:
-            alert.resolved_at = now
+        for alert in unresolved:
+            if alert.dedupe_key not in active_keys:
+                alert.resolved_at = now
 
     metrics = {
         "mode": global_mode,
@@ -284,6 +289,16 @@ async def _persist_worker_error(exc: Exception) -> None:
 
 async def priority_work_loop() -> None:
     """Lifespan task. State lives in PostgreSQL, so restarts are harmless."""
+    # Kill-switch sprawdzany RAZ, przed pętlą (jak w cloudtalk_sync). Przy mode=off
+    # sweep i tak nie generuje alertów, ale przedtem co 300 s robił pełny skan
+    # RecruitmentProcess + SELECT ... FOR UPDATE na singletonie — czyli całą pracę
+    # przed sprawdzeniem trybu. Tryb siedzi w `Settings` (czytanym przy starcie
+    # procesu), więc jego zmiana i tak wymaga redeployu; dzięki temu health
+    # raportujący "disabled" przy mode=off wreszcie mówi prawdę.
+    if str(settings.RECRUITMENT_PRIORITY_MODE).lower() == "off":
+        logger.info("priority_work_loop not started — RECRUITMENT_PRIORITY_MODE=off")
+        return
+
     interval = _worker_interval_seconds()
     logger.info(
         "priority_work_loop started (mode=%s interval=%ds)",

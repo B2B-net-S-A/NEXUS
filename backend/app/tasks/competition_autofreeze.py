@@ -2,19 +2,20 @@
 
 Odpala raz na godzinę i sprawdza czy dla poprzedniego miesiąca/kwartału
 istnieje już zamrożony snapshot w `competition_winners`. Jeśli NIE — liczy
-ranking i zapisuje (idempotent — `freeze_competition` kasuje poprzednie
-przed wstawieniem).
+ranking i zapisuje.
 
 Dzięki temu każdy kwartał/miesiąc automatycznie zostaje rozliczony bez
-ingerencji admina. Admin może zawsze **ręcznie** wymusić re-freeze przez
-POST /api/competitions/freeze.
+ingerencji admina. Zamrożony okres jest **niezmienny**: ponowny freeze
+(także ręczny przez POST /api/competitions/freeze) nic nie nadpisuje —
+zwraca istniejące podium z `already_frozen=True`. Poprawienie błędnego
+podium wymaga świadomej, osobnej interwencji na danych, nie re-freeze'a.
 """
 
 import asyncio
 import logging
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.competition_winner import CompetitionType, CompetitionWinner
@@ -28,15 +29,36 @@ CHECK_INTERVAL_SECONDS = 3600
 
 
 async def _is_period_frozen(db, competition_type: CompetitionType, period: str) -> bool:
-    existing = (
-        await db.execute(
-            select(CompetitionWinner).where(
-                CompetitionWinner.competition_type == competition_type.value,
-                CompetitionWinner.period == period,
+    """Czy (typ, okres) ma JAKIKOLWIEK zamrożony wiersz.
+
+    Pytamy o EXISTS, nie o wiersz: zamrożony okres ma do 3 zwycięzców
+    (`rank IN (1,2,3)`), więc każde `scalar_one_or_none()` wywracało się na
+    MultipleResultsFound i ubijało całą iterację autofreeze'a.
+    """
+    return bool(
+        (
+            await db.execute(
+                select(
+                    exists().where(
+                        CompetitionWinner.competition_type == competition_type.value,
+                        CompetitionWinner.period == period,
+                    )
+                )
             )
-        )
-    ).scalar_one_or_none()
-    return existing is not None
+        ).scalar()
+    )
+
+
+async def _rollback_quietly(db) -> None:
+    """Odblokuj sesję po nieudanym typie, żeby następny mógł jeszcze pytać.
+
+    Bez tego sesja zostaje w stanie „pending rollback" i kolejny konkurs
+    dostaje błąd, którego sam nie spowodował — containment byłby pozorny.
+    """
+    try:
+        await db.rollback()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto-freeze rollback failed: %s", exc)
 
 
 async def _run_once(today: date | None = None) -> dict:
@@ -57,25 +79,33 @@ async def _run_once(today: date | None = None) -> dict:
             CompetitionType.monthly_recommendations,
             CompetitionType.monthly_placements,
         ):
-            if not await _is_period_frozen(db, ctype, prev_month_period):
-                try:
-                    created = await comp_service.freeze_competition(
-                        db, ctype, prev_month_period
-                    )
-                    results[f"{ctype.value}:{prev_month_period}"] = len(created)
-                    logger.info(
-                        "auto-freeze %s for %s: %d winners",
-                        ctype.value,
-                        prev_month_period,
-                        len(created),
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "auto-freeze failed for %s %s: %s",
-                        ctype.value,
-                        prev_month_period,
-                        exc,
-                    )
+            # Bramka W ŚRODKU try — jej awaria ma degradować JEDEN typ
+            # konkursu, a nie zjadać pozostałe typy w tej samej iteracji.
+            try:
+                if await _is_period_frozen(db, ctype, prev_month_period):
+                    continue
+                created = await comp_service.freeze_competition(
+                    db, ctype, prev_month_period
+                )
+                results[f"{ctype.value}:{prev_month_period}"] = created.saved_count
+                # `0 winners` jest dwuznaczne: nikt się nie zakwalifikował,
+                # czy okres był już zamrożony i nic nie zapisano? Bez tego
+                # rozróżnienia log nie nadaje się do diagnozy.
+                logger.info(
+                    "auto-freeze %s for %s: %d winners (%s)",
+                    ctype.value,
+                    prev_month_period,
+                    created.saved_count,
+                    "already frozen" if created.already_frozen else "written",
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "auto-freeze failed for %s %s: %s",
+                    ctype.value,
+                    prev_month_period,
+                    exc,
+                )
+                await _rollback_quietly(db)
 
         # Quarterly — tylko gdy bieżący kwartał != poprzedni (czyli weszliśmy
         # w nowy). Próbujemy freeze'a poprzedniego kwartału.
@@ -87,25 +117,30 @@ async def _run_once(today: date | None = None) -> dict:
                 CompetitionType.quarterly_champions_dl,
                 CompetitionType.quarterly_champions_recruiter,
             ):
-                if not await _is_period_frozen(db, ctype, prev_quarter_period):
-                    try:
-                        created = await comp_service.freeze_competition(
-                            db, ctype, prev_quarter_period
-                        )
-                        results[f"{ctype.value}:{prev_quarter_period}"] = len(created)
-                        logger.info(
-                            "auto-freeze %s for %s: %d winners",
-                            ctype.value,
-                            prev_quarter_period,
-                            len(created),
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning(
-                            "auto-freeze failed for %s %s: %s",
-                            ctype.value,
-                            prev_quarter_period,
-                            exc,
-                        )
+                try:
+                    if await _is_period_frozen(db, ctype, prev_quarter_period):
+                        continue
+                    created = await comp_service.freeze_competition(
+                        db, ctype, prev_quarter_period
+                    )
+                    results[f"{ctype.value}:{prev_quarter_period}"] = (
+                        created.saved_count
+                    )
+                    logger.info(
+                        "auto-freeze %s for %s: %d winners (%s)",
+                        ctype.value,
+                        prev_quarter_period,
+                        created.saved_count,
+                        "already frozen" if created.already_frozen else "written",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "auto-freeze failed for %s %s: %s",
+                        ctype.value,
+                        prev_quarter_period,
+                        exc,
+                    )
+                    await _rollback_quietly(db)
 
     return results
 

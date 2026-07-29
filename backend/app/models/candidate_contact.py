@@ -373,6 +373,10 @@ class CandidateContactTraffitLedger(Base, TimestampMixin):
             "status IN ('processed', 'exception')",
             name="ck_candidate_contact_traffit_ledger_status",
         ),
+        CheckConstraint(
+            "attempts >= 0",
+            name="ck_candidate_contact_traffit_ledger_attempts",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

@@ -4,6 +4,20 @@ A pre-pipeline evaluation list per job. Recruiters add candidates from search,
 track evaluation + outreach status, then promote approved entries into the
 pipeline (promotion lands in a follow-up). Updates use optimistic locking:
 the client echoes the ``version`` it read and a stale PATCH 409s.
+
+Zakres zasobu: każda z pięciu tras woła ``ensure_job_membership`` (#984) — bez
+flagi, bo bramka jest kontraktem, nie rolloutem. Obie strony tej decyzji trzyma
+``tests/test_job_shortlist_scope.py``: obcy dostaje 403, a właściciel oferty,
+aktywny współpracownik i admin dalej przechodzą. Test kontraktowy
+``test_job_scope_contract.py`` tego modułu nie obejmuje (nie ma go w
+``_SCOPED_MODULES``), więc plik z testami JEST tu jedynym zabezpieczeniem przed
+cichą regresją w którąkolwiek stronę.
+
+Cięższy bliźniak z tego samego ekranu, ``POST /api/jobs/{job_id}/proposals/bulk``
+w ``app/api/proposals_bulk.py``, oraz jego odczyt towarzyszący
+``GET /jobs/{job_id}/assignable-stages`` mają teraz tę samą bramkę. Wcześniej
+zamknięte było lżejsze parkowanie na shortliście, a otwarte cięższe wpisanie do
+pipeline'u — asymetrii pilnuje test w pliku wyżej.
 """
 
 from __future__ import annotations

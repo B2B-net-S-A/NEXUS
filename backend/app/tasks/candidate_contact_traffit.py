@@ -14,7 +14,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -34,6 +34,9 @@ from app.services.candidate_contact import (
     close_contact_opportunity,
     ensure_contact_opportunity,
 )
+from app.services.candidate_contact_coordination import (
+    _traffit_ledger_action as _ledger_contact_action,
+)
 from app.services.traffit.client import TraffitClient, TraffitConfig
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,12 @@ _LOCK_NAME = "nexus:candidate-contact:traffit-intake:v1"
 _OVERDUE_POLL_BACKOFF_SECONDS = 1.0
 _PAYLOAD_CONFLICT_MARKER = "_candidate_contact_payload_conflict"
 _PAYLOAD_CONFLICT_ERROR = "conflicting_payloads_for_external_event_id"
+_ERASED_LEDGER_SCRUB_LIMIT = 500
+# Fetch biegnie wewnątrz transakcji trzymającej blokadę adwizoryjną, więc
+# budżet ponowień musi być krótszy niż w imporcie dziennym: 3 ponowienia to
+# 4 x timeout + 7 s backoffu na stronę.  Timeout zostawiamy domyślny — jego
+# skrócenie zamieniłoby wolną stronę w trwałe zamrożenie kursora.
+_POLL_MAX_RETRIES = 1
 
 
 @dataclass
@@ -55,6 +64,7 @@ class TraffitContactIntakeStats:
     exceptions: int = 0
     malformed: int = 0
     ignored_stale_start: int = 0
+    erased_pii_scrubbed: int = 0
     lock_contended: bool = False
     filter_rejected: bool = False
 
@@ -63,6 +73,13 @@ _TERMINAL_WORKFLOW_TYPES = {"end-good", "end-bad", "wait"}
 
 
 def _workflow_contact_action(raw: dict[str, Any]) -> str | None:
+    """Klasyfikuj ŻYWY payload zdalny — czyta wyłącznie ``workflow_state``.
+
+    Świadomie nie honoruje ``contact_action``: pole pochodzące z Traffita nie
+    może sterować akcją pollera.  Wiersze ledgera klasyfikuje
+    ``_ledger_contact_action`` (jedna kopia, w serwisie koordynacji).
+    """
+
     workflow_state = raw.get("workflow_state")
     if not isinstance(workflow_state, dict):
         return None
@@ -187,7 +204,10 @@ async def _has_newer_processed_terminal(
         candidate_id=candidate_id,
         job_id=job_id,
     )
-    if latest is None or _workflow_contact_action(latest.raw_payload) != "close":
+    # Znak wodny zapisany przez `close_contact_opportunity` nie ma
+    # `workflow_state` — niesie tylko syntetyczne `contact_action`, więc
+    # klasyfikator payloadów zdalnych by go przeoczył.
+    if latest is None or _ledger_contact_action(latest.raw_payload) != "close":
         return False
     latest_key = (
         latest.source_created_at,
@@ -236,11 +256,16 @@ def _deduplicate_event_rows(
             output.append(variants[0])
             continue
 
-        conflict_count += 1
         if existing_conflicts and len(variants) == 1:
+            # Sam odtworzony znacznik (wiersz źródłowy zniknął) NIE jest nowym
+            # konfliktem.  Liczony jako konflikt blokował `allow_cursor_advance`
+            # w każdym kolejnym ticku, a ponieważ pętla retry odtwarza go w
+            # nieskończoność, kursor zamarzał na stałe.  Zostaje trwałym
+            # wyjątkiem w ledgerze, ale nie zatrzymuje pozostałych wierszy.
             output.append(existing_conflicts[0])
             continue
 
+        conflict_count += 1
         latest_at = max(_event_sort_key(raw)[0] for raw in variants)
         payload: dict[str, Any] = {
             "id": external_id,
@@ -365,6 +390,36 @@ async def _upsert_ledger(
     return ledger
 
 
+async def _scrub_erased_ledger_rows(db: AsyncSession, *, limit: int) -> int:
+    """Wyczyść dane osobowe z wierszy ledgera po skasowaniu kandydata (RODO).
+
+    ``candidate_id`` jest ``ON DELETE SET NULL``, więc usunięcie kandydata
+    zostawia wiersz z trwałym identyfikatorem osoby w Traffit
+    (``candidate_external_id``) i dosłownym zdalnym payloadem — nowy magazyn
+    PII, którego kaskada erasure nie dosięga.
+
+    Czyścimy WYŁĄCZNIE wiersze ``processed``: ``exception`` są odtwarzane z
+    ``raw_payload`` przez pętlę retry, więc ich wyczyszczenie zepsułoby
+    ponawianie.  Wiersz ``processed`` nigdy nie jest przepisywany (ponowny
+    fetch krótko-spina się jako duplikat), a dedup opiera się na
+    ``external_event_id``, więc scrub jest stabilny i idempotentny.
+    """
+
+    result = await db.execute(
+        text(
+            "UPDATE candidate_contact_traffit_ledger SET "
+            "candidate_external_id = NULL, raw_payload = '{}'::jsonb "
+            "WHERE id IN (SELECT id FROM candidate_contact_traffit_ledger "
+            "WHERE candidate_id IS NULL AND status = 'processed' "
+            "AND (candidate_external_id IS NOT NULL "
+            "OR raw_payload <> '{}'::jsonb) "
+            "ORDER BY id LIMIT :limit)"
+        ),
+        {"limit": limit},
+    )
+    return int(result.rowcount or 0)
+
+
 def _strict_filter(since: datetime) -> dict[str, dict[str, str]]:
     # Traffit's documented filter is day-granular.  The local tuple cursor and
     # ledger perform the precise boundary check after the overlapping read.
@@ -418,6 +473,12 @@ async def run_traffit_contact_intake_once(
         stats.lock_contended = True
         return stats
 
+    # Higiena RODO nie może zależeć od zdrowia Traffita — biegnie zanim
+    # cokolwiek poleci po sieci i zanim jakikolwiek błąd zdalny zrobi `return`.
+    stats.erased_pii_scrubbed = await _scrub_erased_ledger_rows(
+        db, limit=_ERASED_LEDGER_SCRUB_LIMIT
+    )
+
     cursor = await _get_or_create_cursor(db, activation_at=activation_at, now=tick_now)
     cursor_at = cursor.cursor_created_at or activation_at
     overlap = timedelta(
@@ -458,11 +519,26 @@ async def run_traffit_contact_intake_once(
         if row.raw_payload and row.external_event_id not in fetched_ids
     )
     sortable: list[dict[str, Any]] = []
+    # Wiersz nieparsowalny nie ma trwałego miejsca (`source_created_at` jest
+    # NOT NULL), więc jedyne co po nim zostaje to log i `last_error` — bez id
+    # operator nie ma jak wskazać wiersza, który zamroził kursor.
+    malformed_error: str | None = None
     for raw in fetched:
         try:
             _event_sort_key(raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
             stats.malformed += 1
+            raw_id = raw.get("id") if isinstance(raw, dict) else None
+            logger.warning(
+                "Candidate contact Traffit intake dropped malformed "
+                "recruitment_history row id=%s: %s",
+                raw_id,
+                exc,
+            )
+            if malformed_error is None:
+                malformed_error = (
+                    f"malformed recruitment_history row id={raw_id}: {exc}"
+                )[:2000]
             continue
         sortable.append(raw)
     sortable, within_batch_duplicates, payload_conflicts = _deduplicate_event_rows(
@@ -473,9 +549,7 @@ async def run_traffit_contact_intake_once(
 
     safe_cursor_created_at = cursor_at
     safe_cursor_external_id = cursor.cursor_external_id or "0"
-    first_error: str | None = (
-        "malformed recruitment_history row" if stats.malformed else None
-    )
+    first_error: str | None = malformed_error
     if payload_conflicts and first_error is None:
         first_error = _PAYLOAD_CONFLICT_ERROR
     allow_cursor_advance = not stats.malformed and not payload_conflicts
@@ -671,6 +745,12 @@ async def run_traffit_contact_intake_once(
     return stats
 
 
+def _poll_traffit_config() -> TraffitConfig:
+    """Konfiguracja klienta z przyciętym budżetem ponowień (patrz stała)."""
+
+    return replace(TraffitConfig.from_env(), max_retries=_POLL_MAX_RETRIES)
+
+
 async def traffit_contact_intake_loop() -> None:
     """Run the strict read-only poll at a clamped cadence."""
 
@@ -694,7 +774,7 @@ async def traffit_contact_intake_loop() -> None:
         loop = asyncio.get_running_loop()
         tick_started_at = loop.time()
         try:
-            config = TraffitConfig.from_env()
+            config = _poll_traffit_config()
             async with TraffitClient(config) as client, AsyncSessionLocal() as db:
                 stats = await run_traffit_contact_intake_once(db, client)
                 await db.commit()

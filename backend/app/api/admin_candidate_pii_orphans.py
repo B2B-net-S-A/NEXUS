@@ -7,9 +7,10 @@ changing anything:
 
 - **PII survives.** When a candidate row goes away, several stores keep the
   person's data. Some tables ``SET NULL`` the candidate FK but retain the
-  payload (e-mail bodies, generated CVs, calendar rows); one integration table
-  (``traffit_webhook_events``) never had a candidate FK at all, so the raw
-  Traffit candidate JSON persists indefinitely.
+  payload (e-mail bodies, generated CVs, calendar rows, the Traffit
+  contact-intake ledger); one integration table (``traffit_webhook_events``)
+  never had a candidate FK at all, so the raw Traffit candidate JSON persists
+  indefinitely.
 - **Evidence is over-deleted.** A candidate hard delete cascades into
   ``contracts`` and from there into ``invoices``, ``document_signatures`` and
   ``client_orders`` — destroying the commercial and legal trail that must be
@@ -50,7 +51,7 @@ from app.core.database import get_db
 
 router = APIRouter()
 
-QUERY_VERSION = "candidate-pii-orphans-v1"
+QUERY_VERSION = "candidate-pii-orphans-v2"
 CHECK_TIMEOUT_SECONDS = 20.0
 
 
@@ -75,6 +76,20 @@ _CHECKS: tuple[tuple[str, str, str, str], ...] = (
         "candidate FK at all, so a candidate erasure never reaches them. Every "
         "row is un-erasable candidate PII.",
         "SELECT count(*) AS n FROM traffit_webhook_events",
+    ),
+    (
+        "candidate_contact_traffit_ledger_orphaned_pii",
+        "high",
+        "Traffit contact-intake ledger rows whose candidate FK was SET NULL by "
+        "an erasure but which still carry the durable Traffit person id and/or "
+        "the verbatim remote event body. The poller scrubs `processed` rows on "
+        "each tick; `exception` rows are deliberately left intact because the "
+        "retry loop replays `raw_payload`, so they need a manual resolution "
+        "before they can be erased.",
+        "SELECT count(*) AS n FROM candidate_contact_traffit_ledger "
+        "WHERE candidate_id IS NULL "
+        "AND (candidate_external_id IS NOT NULL "
+        "OR raw_payload <> '{}'::jsonb)",
     ),
     (
         "cv_generated_documents_unlinked",

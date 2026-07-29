@@ -27,6 +27,8 @@ from app.models.recruitment_priority import (
     PriorityOriginKind,
     PriorityPlanStatus,
     RecruitmentPriorityAssignment,
+    RecruitmentPriorityDemand,
+    RecruitmentPriorityException,
     RecruitmentPriorityPlan,
     RecruitmentPriorityPlanMember,
 )
@@ -1180,7 +1182,40 @@ async def delete_job(
         )
         or 0
     )
-    if process_rows or stage_rows:
+    # Trzy tabele priority trzymają FK do jobs z ON DELETE RESTRICT (migracja 0200),
+    # a Job nie ma do nich relacji, więc db.delete(job) nie kasuje dzieci — bez tego
+    # zliczenia Postgres wywalał ForeignKeyViolation → nieobsłużone 500 zamiast 409.
+    priority_demand_rows = int(
+        await db.scalar(
+            select(func.count(RecruitmentPriorityDemand.id)).where(
+                RecruitmentPriorityDemand.job_id == job_id
+            )
+        )
+        or 0
+    )
+    priority_assignment_rows = int(
+        await db.scalar(
+            select(func.count(RecruitmentPriorityAssignment.id)).where(
+                RecruitmentPriorityAssignment.job_id == job_id
+            )
+        )
+        or 0
+    )
+    priority_exception_rows = int(
+        await db.scalar(
+            select(func.count(RecruitmentPriorityException.id)).where(
+                RecruitmentPriorityException.job_id == job_id
+            )
+        )
+        or 0
+    )
+    if (
+        process_rows
+        or stage_rows
+        or priority_demand_rows
+        or priority_assignment_rows
+        or priority_exception_rows
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -1188,6 +1223,9 @@ async def delete_job(
                 "job_id": job_id,
                 "process_rows": process_rows,
                 "candidate_stage_rows": stage_rows,
+                "priority_demand_rows": priority_demand_rows,
+                "priority_assignment_rows": priority_assignment_rows,
+                "priority_exception_rows": priority_exception_rows,
                 "message": (
                     "Request ma historię kandydatów lub otwarte carry-over. "
                     "Zamknij request zamiast usuwać jego audytowalny pipeline."

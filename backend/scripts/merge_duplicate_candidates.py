@@ -18,8 +18,12 @@ Merges a duplicate row into a canonical row, then deletes the duplicate:
    (never overwrites canonical data — purely additive enrichment).
 2. **Re-point child rows** (every table with a ``candidate_id`` /
    ``parsed_candidate_id`` FK, discovered from ``information_schema``) from the
-   duplicate to the canonical. On a unique-constraint clash the duplicate's
-   redundant child row is dropped instead.
+   duplicate to the canonical. On a unique-constraint clash (SQLSTATE 23505,
+   and only that) the duplicate's redundant child row is dropped instead; any
+   other DB error aborts the run loudly rather than silently deleting rows.
+   Append-only tables (``_APPEND_ONLY_TRIGGERS``) are re-pointed with their
+   immutability trigger disabled for the UPDATE — they carry no FK to
+   ``candidates``, so skipping them would leave orphaned PII behind.
 3. **DELETE** the now-childless duplicate row.
 
 Tiers (``--tier``)
@@ -62,7 +66,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from sqlalchemy import text  # noqa: E402
-from sqlalchemy.exc import IntegrityError  # noqa: E402
+from sqlalchemy.exc import DBAPIError  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
@@ -74,6 +78,61 @@ logger = logging.getLogger("merge_duplicate_candidates")
 _IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 OUT_DIR = BACKEND_ROOT / "scripts" / "out"
+
+# SQLSTATE 23505 — jedyny błąd, przy którym wolno zejść na kasowanie
+# nadmiarowego wiersza-dziecka. Każdy inny (check, FK, trigger) znaczy, że
+# repointu NIE da się wykonać, a DELETE zniszczyłby dane zamiast je przenieść.
+_UNIQUE_VIOLATION = "23505"
+
+# Tabele z triggerem append-only, który blokuje UPDATE *i* DELETE. Repoint
+# wymaga zdjęcia triggera na czas UPDATE-u — pominięcie tabeli nie wchodzi
+# w grę, bo `candidate_contact_events` nie ma FK do `candidates`, więc jej
+# wiersze przeżyłyby DELETE duplikatu jako osierocone PII wskazujące na
+# nieistniejącą osobę. Trigger: migracja 0201.
+_APPEND_ONLY_TRIGGERS: dict[str, str] = {
+    "candidate_contact_events": "trg_candidate_contact_events_immutable",
+}
+
+
+def _repoint_sql(table: str, col: str) -> str:
+    return (
+        f"UPDATE {table} t SET {col} = mp.canonical_id "
+        f"FROM merge_pairs mp WHERE t.{col} = mp.dup_id"
+    )
+
+
+def _drop_child_sql(table: str, col: str) -> str:
+    return f"DELETE FROM {table} t USING merge_pairs mp WHERE t.{col} = mp.dup_id"
+
+
+def _is_unique_violation(exc: DBAPIError) -> bool:
+    """Czy to naprawdę kolizja UNIQUE (asyncpg: `sqlstate`, psycopg: `pgcode`)?
+
+    Trigger append-only podnosi 55000, które asyncpg mapuje na goły
+    ``DBAPIError`` — poprzedni ``except IntegrityError`` w ogóle go nie łapał,
+    więc wyjątek wysadzał całą (jedną) transakcję runu.
+    """
+
+    orig = getattr(exc, "orig", None)
+    code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    return code == _UNIQUE_VIOLATION
+
+
+async def _repoint_append_only(
+    db: AsyncSession, table: str, col: str, trigger: str
+) -> int:
+    """Repoint w tabeli append-only — trigger zdjęty tylko na czas UPDATE-u.
+
+    ``DISABLE TRIGGER`` jest w PostgreSQL transakcyjny (dry-run go wycofuje
+    razem z resztą), ale bierze ACCESS EXCLUSIVE na tabeli do końca
+    transakcji — akceptowalne dla jednorazowego skryptu konserwacyjnego.
+    """
+
+    async with db.begin_nested():
+        await db.execute(text(f"ALTER TABLE {table} DISABLE TRIGGER {trigger}"))
+        res = await db.execute(text(_repoint_sql(table, col)))
+        await db.execute(text(f"ALTER TABLE {table} ENABLE TRIGGER {trigger}"))
+    return res.rowcount or 0
 
 
 # ── CV fields ported dup → canonical (only when canonical is empty) ──────────
@@ -216,23 +275,26 @@ async def merge_pairs(db: AsyncSession, pairs: list[tuple[int, int]]) -> MergeSt
     # 2) Re-point every child FK dup → canonical. On a unique clash, drop the
     #    duplicate's redundant child rows for that table instead.
     for table, col in await _fk_tables(db):
+        trigger = _APPEND_ONLY_TRIGGERS.get(table)
+        if trigger is not None:
+            # Bez fallbacku na DELETE: trigger jest BEFORE UPDATE *OR DELETE*,
+            # więc kasowanie padłoby tak samo, a historia append-only ma
+            # przeżyć merge pod kandydatem, który został.
+            stats.repointed[table] = await _repoint_append_only(db, table, col, trigger)
+            continue
         try:
             async with db.begin_nested():
-                res = await db.execute(
-                    text(
-                        f"UPDATE {table} t SET {col} = mp.canonical_id "
-                        f"FROM merge_pairs mp WHERE t.{col} = mp.dup_id"
-                    )
-                )
+                res = await db.execute(text(_repoint_sql(table, col)))
             stats.repointed[table] = (res.rowcount or 0)
-        except IntegrityError:
+        except DBAPIError as exc:
+            if not _is_unique_violation(exc):
+                raise RuntimeError(
+                    f"re-point {table}.{col} failed with a non-unique DB error "
+                    f"— refusing the DELETE fallback, which would destroy rows "
+                    f"instead of moving them: {exc.orig!r}"
+                ) from exc
             async with db.begin_nested():
-                res = await db.execute(
-                    text(
-                        f"DELETE FROM {table} t USING merge_pairs mp "
-                        f"WHERE t.{col} = mp.dup_id"
-                    )
-                )
+                res = await db.execute(text(_drop_child_sql(table, col)))
             stats.repoint_conflicts[table] = (res.rowcount or 0)
 
     # 3) Delete the duplicates (remaining CASCADE / SET NULL children handled by DB).

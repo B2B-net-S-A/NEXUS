@@ -112,6 +112,15 @@ class ContactCaseOwnershipError(ContactConflict):
     pass
 
 
+class ContactContentionError(ContactConflict):
+    """Wiersz właściciela jest chwilowo zablokowany przez inną transakcję.
+
+    Odrębny od `ContactCapacityError`, bo dla operatora to zupełnie inna
+    informacja: „spróbuj za chwilę" zamiast „ta osoba ma komplet 20 spraw".
+    Po wprowadzeniu SKIP LOCKED oba przypadki wyglądały tak samo (`None`).
+    """
+
+
 class ContactCapacityError(ContactConflict):
     pass
 
@@ -636,18 +645,30 @@ async def _claim_slot(
     db: AsyncSession,
     *,
     user_id: int,
+    report_contention: bool = False,
 ) -> Optional[int]:
     # The user-row lock serializes all slot allocation for this owner.  The
     # partial UNIQUE index and 1..20 CHECK remain the final DB-level fence.
     # populate_existing, bo ten sam user bywa już w sesji z niezablokowanego
     # odczytu (_eligible_users, auth) — kontrola is_active/roles musi patrzeć
     # na stan po zdjęciu blokady, nie na snapshot sprzed niej.
+    # SKIP LOCKED z tego samego powodu co w `_claim_from_pool`: nie wolno nam
+    # CZEKAĆ na cudzą blokadę wiersza usera. Zajęty wiersz znaczy „ktoś właśnie
+    # przydziela slot tej osobie" — czyli i tak nie znamy jej wolnych slotów.
+    # Własne blokady tej transakcji SKIP LOCKED zwraca normalnie.
     user = await db.scalar(
         select(User)
         .where(User.id == user_id)
-        .with_for_update()
+        .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
+    if user is None and report_contention:
+        # Pusty wynik przy SKIP LOCKED = wiersz trzyma inna transakcja. Ścieżki
+        # wsadowe traktują to jak „pomiń tę osobę", ale operator ręcznie
+        # przepisujący sprawę musi usłyszeć prawdę, a nie „brak wolnych slotów".
+        raise ContactContentionError(
+            f"user {user_id} is being assigned by another operation, retry"
+        )
     if user is None or not user.is_active or not user.has_any_role(*OPERATIONAL_ROLES):
         return None
     # AsyncSessionLocal disables autoflush. Persist earlier allocations made
@@ -714,10 +735,24 @@ async def _assign_best_owner(
         by_id = {user.id: user for user in users if user.id not in skipped}
 
         # Serialize the complete least-loaded decision, not only the final slot
-        # claim. Locking every eligible user in stable ID order means concurrent
-        # workers with overlapping pools cannot both observe the same stale load
-        # and select U1 while U2 has become less loaded.
+        # claim. Locking every eligible user means concurrent workers with
+        # overlapping pools cannot both observe the same stale load and select
+        # U1 while U2 has become less loaded.
+        #
+        # SKIP LOCKED, a nie zwykłe FOR UPDATE: worker mieli całą paczkę (do 200
+        # spraw) w JEDNEJ transakcji, więc blokady userów kumulują się przez
+        # kolejne sprawy, a zbiór userów jest odkrywany przyrostowo — następna
+        # sprawa potrafi potrzebować id NIŻSZEGO niż już trzymane. Żadna
+        # kolejność WEWNĄTRZ pojedynczego zapytania nie czyni więc sekwencji
+        # monotoniczną i ścieżka API (ensure/attempt, też w pętli po
+        # kandydatach) bierze te same wiersze w innej kolejności — klasyczna
+        # inwersja i zakleszczenie. SKIP LOCKED usuwa krawędź oczekiwania: nigdy
+        # nie czekamy na cudzą blokadę usera, tylko pomijamy tę osobę w tej
+        # rundzie. Nic nie tracimy — zajęty wiersz znaczy, że ktoś właśnie
+        # przydziela jej slot, więc jej obciążenie i tak jest nieaktualne.
+        contended = False
         if by_id:
+            requested_ids = sorted(by_id)
             # populate_existing: _eligible_users załadowało tych samych userów BEZ
             # blokady kilka linii wyżej, więc bez odświeżenia poniższy re-filtr
             # is_active/roles czytałby snapshot sprzed locka i byłby no-opem.
@@ -725,15 +760,19 @@ async def _assign_best_owner(
                 (
                     await db.execute(
                         select(User)
-                        .where(User.id.in_(sorted(by_id)))
+                        .where(User.id.in_(requested_ids))
                         .order_by(User.id)
-                        .with_for_update()
+                        .with_for_update(skip_locked=True)
                         .execution_options(populate_existing=True)
                     )
                 )
                 .scalars()
                 .all()
             )
+            # Wiersz pominięty przez SKIP LOCKED to kontencja, NIE brak
+            # uprawnionych: sprawa ma trafić w `awaiting_capacity` (stan
+            # ponawiany przez workera), a nie w `unassigned`.
+            contended = len(locked_users) < len(requested_ids)
             by_id = {
                 user.id: user
                 for user in locked_users
@@ -746,7 +785,7 @@ async def _assign_best_owner(
             await db.flush()
 
         if not by_id:
-            return False, False
+            return False, contended
 
         preferred = (
             [first_job.recruiter_id]
@@ -834,7 +873,20 @@ async def _recompute_case_after_opportunities(
     *,
     occurred_at: datetime,
     actor_user_id: Optional[int] = None,
+    preserve_owner: bool = False,
 ) -> None:
+    """Przelicz stan sprawy po zmianie zbioru otwartych ofert.
+
+    ``preserve_owner`` ustawia wywołujący, który sam rozstrzyga o właścicielu
+    i stanie (jawny ``callback_requested``). Bez tego generyczne przeliczenie
+    zwalniało/rotowało właściciela i ZAPISYWAŁO zdarzenie ``reassigned``, które
+    wywołujący natychmiast cofał na sprawie — ale nie na dzienniku, bo
+    ``candidate_contact_events`` jest append-only (trigger blokuje UPDATE
+    i DELETE). W bazie zostawał trwały wpis o przeniesieniu, do którego nigdy
+    nie doszło. Nie kompensujemy go zdarzeniem odwrotnym: rotacja nie została
+    zatwierdzona, więc nie ma czego kompensować — po prostu jej nie robimy.
+    """
+
     if case.state == CandidateContactState.suppressed.value:
         return
     open_opportunities = (
@@ -850,14 +902,16 @@ async def _recompute_case_after_opportunities(
         .all()
     )
     if not open_opportunities:
-        _complete_case(case, occurred_at)
+        if not preserve_owner:
+            _complete_case(case, occurred_at)
         return
     if all(
         opportunity.outcome == CandidateContactOpportunityOutcome.interested.value
         and opportunity.meeting_event_id is not None
         for opportunity in open_opportunities
     ):
-        _complete_case(case, occurred_at)
+        if not preserve_owner:
+            _complete_case(case, occurred_at)
         return
     # Closing one of several opportunities must not bypass a safety hold on
     # the candidate-global case. The final close may complete the case, but a
@@ -893,6 +947,9 @@ async def _recompute_case_after_opportunities(
             or case.state == CandidateContactState.callback_due.value
             else CandidateContactState.queued.value
         )
+        if preserve_owner:
+            case.state = desired_state
+            return
         owner_is_eligible = await _current_owner_is_eligible(db, case)
         if not owner_is_eligible or case.queue_slot is None:
             old_owner_id = case.owner_user_id
@@ -944,6 +1001,10 @@ async def _recompute_case_after_opportunities(
             )
         else:
             case.state = desired_state
+        return
+    if preserve_owner:
+        # Handoff też zwalnia slot i rotuje właściciela — a jawny callback
+        # znaczy, że przed przekazaniem ma być jeszcze jeden telefon.
         return
     case.queue_slot = None
     case.due_at = None
@@ -1793,8 +1854,6 @@ async def record_contact_attempt(
             "callback_requested is inconsistent when every job is not_interested"
         )
 
-    held_owner_id = case.owner_user_id
-    held_queue_slot = case.queue_slot
     call_status = {
         CandidateContactOutcome.connected.value: CallStatus.completed,
         CandidateContactOutcome.callback_requested.value: CallStatus.completed,
@@ -1913,18 +1972,21 @@ async def record_contact_attempt(
         case.attempt_count = 0
         case.due_at = callback_utc
         await db.flush()
+        keeps_owner = (
+            normalised_outcome == CandidateContactOutcome.callback_requested.value
+        )
         await _recompute_case_after_opportunities(
             db,
             case,
             occurred_at=now,
             actor_user_id=actor_user_id,
+            preserve_owner=keeps_owner,
         )
-        if normalised_outcome == CandidateContactOutcome.callback_requested.value:
+        if keeps_owner:
             # Explicit callback is authoritative even when all jobs are
             # interested: the caller promised another phone call before
-            # handoff. Restore the slot released by generic recompute.
-            case.owner_user_id = held_owner_id
-            case.queue_slot = held_queue_slot
+            # handoff. `preserve_owner` keeps owner and slot untouched, so
+            # there is nothing to restore here — only the state to pin.
             case.completed_at = None
             case.state = CandidateContactState.callback_due.value
             case.due_at = callback_utc
@@ -2094,7 +2156,7 @@ async def reassign_contact_case(
             raise CandidateContactError(
                 "target user is not an active operational member of a linked job"
             )
-        slot = await _claim_slot(db, user_id=target_user_id)
+        slot = await _claim_slot(db, user_id=target_user_id, report_contention=True)
         if slot is None:
             raise ContactCapacityError(f"user {target_user_id} has no free queue slot")
         case.owner_user_id = target_user_id
@@ -2797,6 +2859,7 @@ __all__ = [
     "ContactCaseOwnershipError",
     "ContactCaseVersionConflict",
     "ContactConflict",
+    "ContactContentionError",
     "ContactIdempotencyConflict",
     "ContactOpportunityNotFound",
     "ContactValidationError",

@@ -66,7 +66,14 @@ async def test_every_check_runs_without_error(
         "a check errored — likely an invalid column/table in its SQL: "
         f"{[c for c in body['checks'] if 'error' in c]}"
     )
-    assert summary["checks_run"] == len(body["checks"]) == 8
+    assert summary["checks_run"] == len(body["checks"]) == 9
+    # The Traffit contact-intake ledger is a PII store the report used to miss
+    # entirely: `candidate_id` is ON DELETE SET NULL, so an erasure leaves the
+    # durable Traffit person id and the verbatim remote event body behind, and
+    # `pii_bearing_rows_surviving` silently counted zero for it.
+    assert "candidate_contact_traffit_ledger_orphaned_pii" in {
+        c["key"] for c in body["checks"]
+    }
     for check in body["checks"]:
         assert isinstance(check.get("count"), int) and check["count"] >= 0, check
     # The two summary totals must be the sum of their halves — a wiring check.

@@ -233,7 +233,10 @@ def test_pipelines_upsert_carries_rejection_reason_and_never_clobbers():
     # powodu wybranego przez rekrutera ani z rejection_backfill).
     import inspect
 
-    src = inspect.getsource(TraffitImporter.import_pipelines)
-    assert ":rejection_reason_id" in src
-    assert "candidate_stages.rejection_reason_id" in src
-    assert "_fallback_rejection_reason_id" in src
+    # SQL mieszka w `_upsert_stage_row`, fallback liczy `import_pipelines`.
+    upsert_src = inspect.getsource(TraffitImporter._upsert_stage_row)
+    assert ":rejection_reason_id" in upsert_src
+    assert "candidate_stages.rejection_reason_id" in upsert_src
+    assert "_fallback_rejection_reason_id" in inspect.getsource(
+        TraffitImporter.import_pipelines
+    )

@@ -39,6 +39,7 @@ from app.schemas.candidate_contact import ContactAttemptCreate, ContactReassignR
 from app.services.candidate_contact import (
     CandidateContactError,
     ContactCapacityError,
+    ContactContentionError,
     ContactCaseNotFound,
     ContactCaseOwnershipError,
     ContactCaseVersionConflict,
@@ -477,6 +478,9 @@ def _translate_domain_error(exc: Exception) -> None:
             ContactCaseVersionConflict,
             ContactIdempotencyConflict,
             ContactCapacityError,
+            # Rywalizacja o wiersz właściciela jest ponawialna, więc 409 jak
+            # reszta konfliktów — nie 422, które sugeruje błędne żądanie.
+            ContactContentionError,
         ),
     ):
         raise HTTPException(status_code=409, detail=str(exc))
