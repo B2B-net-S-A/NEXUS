@@ -37,6 +37,7 @@ from app.core.rate_limit import limiter
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.models.activity import Activity
 from app.models.application_submission import (
     ApplicationSubmission,
@@ -598,6 +599,13 @@ async def submit_public_apply(
         # Snapshot CV — kandydat właśnie wgrał `stored_filename` powyżej, więc
         # `candidate.cv_file_content` już jest aktualny i pójdzie do snapshotu.
         await create_original_cv_snapshot(db, new_stage)
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=candidate.id,
+            job_id=link.job_id,
+            source="pipeline",
+            occurred_at=new_stage.moved_at,
+        )
 
     # Audit trail — link the Activity to the inviting recruiter.
     db.add(

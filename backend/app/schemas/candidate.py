@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.models.candidate import AvailabilityStatus, CandidateStatus
 from app.models.linkedin_snapshot import LinkedinChangeKind, LinkedinSyncStatus
 from app.models.recruitment_pipeline import PipelineStage
+from app.schemas.candidate_contact import ContactCaseSummaryResponse
 
 
 class EmploymentState(str, Enum):
@@ -415,6 +416,9 @@ class CandidateResponse(BaseModel):
     # Populated only by GET /candidates/{id} — latest invite-link apply event
     # resolved to label + recruiter name (+ previous owner if transferred).
     invite_source: Optional[InviteSourceBrief] = None
+    # Candidate-global first-contact ownership. Populated in one batch by list
+    # and detail endpoints; None while the feature is disabled or pre-cutover.
+    contact_case: Optional[ContactCaseSummaryResponse] = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 
@@ -498,6 +502,7 @@ class CandidateQuickViewCandidate(BaseModel):
     competence_category_id: Optional[int] = None
     competence_category: Optional[str] = None
     skills: Optional[Any] = None
+    contact_case: Optional[ContactCaseSummaryResponse] = None
 
 
 class CandidateQuickViewResponse(BaseModel):

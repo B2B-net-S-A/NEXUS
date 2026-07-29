@@ -25,6 +25,11 @@ from app.models.notification import Notification, NotificationType
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+from app.services.candidate_contact_hooks import (
+    load_contact_case_summaries,
+    maybe_close_contact_opportunity,
+    maybe_ensure_contact_opportunity,
+)
 from app.services.b2b_contract_automation import ensure_b2b_employment_draft
 from app.models.job import Job
 from app.models.pipeline_template import (
@@ -689,6 +694,23 @@ async def move_candidate(
         candidate_offer_response=data.candidate_offer_response,
     )
     await create_original_cv_snapshot(db, stage)
+    if is_terminal_target:
+        await maybe_close_contact_opportunity(
+            db,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            actor_user_id=current_user.id,
+            reason=f"pipeline_terminal:{legacy_enum.value}",
+            occurred_at=stage.moved_at,
+        )
+    else:
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            source="pipeline",
+            occurred_at=stage.moved_at,
+        )
 
     if needs_approval:
         candidate = await db.scalar(
@@ -1012,6 +1034,7 @@ async def get_kanban(
 
     # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
     candidate_ids = list(seen.keys())
+    contact_case_by_candidate = await load_contact_case_summaries(db, candidate_ids)
     name_by_id: dict[int, tuple[Optional[str], Optional[str]]] = {}
     if candidate_ids:
         rows = await db.execute(
@@ -1059,6 +1082,7 @@ async def get_kanban(
             added_to_job_by_name=added_by_name,
             added_to_job_at=added_at,
         )
+        payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         verdict = manager_verdicts.get(e.candidate_id)
         if verdict is not None:
             payload["hm_veto"] = HiringManagerVetoBrief(
@@ -1731,6 +1755,13 @@ async def reject_verification(
     )
     revert_stage = revert.stage
     await create_original_cv_snapshot(db, revert)
+    await maybe_ensure_contact_opportunity(
+        db,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        source="pipeline",
+        occurred_at=revert.moved_at,
+    )
 
     db.add(
         Activity(
@@ -1861,7 +1892,6 @@ async def bulk_move_candidates(
             status_code=422,
             detail=f"Nieistniejący kandydaci: {missing[:20]}",
         )
-
     # P1-PIPE-01: eligibility gate ── bulk-move only ever targets non-terminal
     # stages (terminal/verified/hired 422 above), so every candidate is a
     # forward move and the hard block applies to all. Fail-closed: any
@@ -1888,6 +1918,13 @@ async def bulk_move_candidates(
             notes=data.notes,
         )
         await create_original_cv_snapshot(db, entry)
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=cid,
+            job_id=data.job_id,
+            source="pipeline",
+            occurred_at=entry.moved_at,
+        )
         moved += 1
 
     await db.commit()

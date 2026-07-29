@@ -41,6 +41,7 @@ from app.services.m365.calendar import M365_SOURCE
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
 from app.services.m365.matcher import IncomingMessage
+from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
 
 logger = logging.getLogger(__name__)
 
@@ -557,6 +558,14 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
     if ev.get("@removed") or ev.get("isCancelled"):
         if existing:
             existing.status = EventStatus.cancelled
+            await maybe_remove_calendar_handoff(
+                db,
+                candidate_id=existing.candidate_id,
+                job_id=existing.job_id,
+                event_id=existing.id,
+                actor_user_id=conn.user_id,
+                occurred_at=datetime.now(timezone.utc),
+            )
         return False
 
     change_key = ev.get("changeKey")

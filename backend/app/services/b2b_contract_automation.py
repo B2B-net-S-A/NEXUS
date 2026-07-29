@@ -29,6 +29,7 @@ from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
 
@@ -510,6 +511,16 @@ async def _ensure_hired_stage(
             job.id,
         )
         return False
+    # Etap zapisuje command service (writer fence), więc kolejka kontaktu
+    # domyka się na jego wierszu — nie na własnym `CandidateStage`.
+    await maybe_close_contact_opportunity(
+        db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        actor_user_id=actor_id,
+        reason="pipeline_terminal:hired",
+        occurred_at=stage.moved_at,
+    )
     db.add(
         Activity(
             entity_type="pipeline",

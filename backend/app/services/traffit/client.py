@@ -227,6 +227,7 @@ class TraffitClient:
         page_size: int = 100,
         skip_on_5xx: bool = False,
         filter_: Optional[dict] = None,
+        fallback_on_filter_rejection: bool = True,
     ) -> AsyncIterator[dict]:
         """Yield each item across all pages. Sorts on `id ASC` for stability.
 
@@ -241,6 +242,12 @@ class TraffitClient:
             filter header with HTTP 400, we log and fall back to a full scan —
             the importer's upserts are idempotent, so a full scan is always safe,
             just slower.
+
+        fallback_on_filter_rejection: preserves the legacy importer's full-scan
+            fallback by default.  Strict near-real-time consumers must pass
+            ``False``: a rejected filter then raises without ever issuing an
+            unfiltered request.  This prevents a lightweight poll from silently
+            turning into a historical full scan.
         """
         # The filter may be dropped mid-flight if the server rejects it (400).
         active_filter = filter_
@@ -269,7 +276,12 @@ class TraffitClient:
             )
             # Tenant rejected the delta filter — degrade to a full scan. Safe
             # because every importer upsert is ON CONFLICT idempotent.
-            if resp.status_code == 400 and active_filter is not None and page == 1:
+            if (
+                resp.status_code == 400
+                and active_filter is not None
+                and page == 1
+                and fallback_on_filter_rejection
+            ):
                 logger.warning(
                     "GET %s rejected X-Request-Filter (HTTP 400) — "
                     "falling back to full scan without filter",
@@ -294,13 +306,17 @@ class TraffitClient:
                 )
             try:
                 items = resp.json()
-            except json.JSONDecodeError:
-                logger.error("Bad JSON from %s page=%d", path, page)
+            except (json.JSONDecodeError, ValueError) as exc:
+                message = f"Bad JSON from {path} page={page}"
+                if not fallback_on_filter_rejection:
+                    raise RuntimeError(message) from exc
+                logger.error("%s", message)
                 return
             if not isinstance(items, list):
-                logger.error(
-                    "Expected list, got %s from %s page=%d", type(items), path, page
-                )
+                message = f"Expected list, got {type(items)} from {path} page={page}"
+                if not fallback_on_filter_rejection:
+                    raise RuntimeError(message)
+                logger.error("%s", message)
                 return
             if not items:
                 return

@@ -150,6 +150,9 @@ import {
  serializeSkillBuckets,
 } from"@/lib/skill-expression";
 import { CandidatesTiles } from"@/components/v2/pages/CandidatesTiles";
+import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
+import type { CandidateContactSummary } from "@/lib/candidate-contact";
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
  formatCandidateLocation,
  getCandidateInitials,
@@ -466,6 +469,7 @@ interface Candidate {
  last_note_preview?: string | null;
  last_rejection_reason?: string | null;
  last_rate?: string | null;
+ contact_case?: CandidateContactSummary | null;
 }
 
 interface CandidateListResponse {
@@ -835,6 +839,7 @@ interface CandidateCellProps {
  /** Kandydat nowszy niż last_viewed_at aktywnego zapisanego wyszukiwania
   *  — renderuje badge „Nowy” przy nazwisku. */
  isNew?: boolean;
+ contactFeatureEnabled: boolean;
 }
 
 /** Single-cell renderer for the candidates table. Renders one cell per visible
@@ -849,6 +854,7 @@ function CandidateCell({
  stats,
  onOpenDetail,
  isNew = false,
+ contactFeatureEnabled,
 }: CandidateCellProps) {
  switch (columnId) {
  case "candidate": {
@@ -874,6 +880,12 @@ function CandidateCell({
  </span>
  {isNew && <Badge size="sm" variant="success">Nowy</Badge>}
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="shrink-0" />
+ {contactFeatureEnabled ? (
+ <ContactStatusBadge
+ contactCase={candidate.contact_case}
+ className="shrink-0"
+ />
+ ) : null}
  </div>
  {(secondary || location) && (
  <p className="mt-0.5 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
@@ -1259,6 +1271,7 @@ export function CandidatesListV2() {
  const setColumnPref = useUiStore((s) => s.setColumnPreference);
  const parentRef = useRef<HTMLDivElement>(null);
  const queryClient = useQueryClient();
+ const contactFeature = useCandidateContactFeature();
 
  // Global default column config (admin-editable via PUT /api/settings/candidates-columns).
  // Per-user overrides live in the zustand store — they always win.
@@ -3107,6 +3120,7 @@ export function CandidatesListV2() {
  ) : (
  <CandidatesTiles
  items={items}
+ contactFeatureEnabled={contactFeature.enabled}
  selectedIds={selectedIds}
  onToggleSelect={toggleId}
  onOpenDetail={(id) => {
@@ -3238,6 +3252,7 @@ export function CandidatesListV2() {
  stats={stats}
  onOpenDetail={openDetail}
  isNew={isNewMatch}
+ contactFeatureEnabled={contactFeature.enabled}
  />
  </div>
  ))}

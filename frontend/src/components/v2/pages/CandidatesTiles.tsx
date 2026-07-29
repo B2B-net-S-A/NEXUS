@@ -9,6 +9,8 @@ import { Checkbox } from"@/components/ui/checkbox";
 import { Badge } from"@/components/ui/badge";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
+import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
+import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import {
  formatCandidateLocation,
  getCandidateInitials,
@@ -43,10 +45,12 @@ interface TileCandidate {
  talent_pools?: Array<{ id: number; name: string }>;
  competence_category?: string | null;
  competence_category_id?: number | null;
+ contact_case?: CandidateContactSummary | null;
 }
 
 interface CandidatesTilesProps {
  items: TileCandidate[];
+ contactFeatureEnabled: boolean;
  selectedIds: Set<number>;
  onToggleSelect: (id: number) => void;
  onOpenDetail: (id: number) => void;
@@ -78,6 +82,7 @@ const AVAILABILITY_LABELS: Record<string, string> = {
 
 export function CandidatesTiles({
  items,
+ contactFeatureEnabled,
  selectedIds,
  onToggleSelect,
  onOpenDetail,
@@ -222,6 +227,12 @@ export function CandidatesTiles({
  ) : null;
  })()}
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="mt-1.5" />
+ {contactFeatureEnabled ? (
+ <ContactStatusBadge
+ contactCase={candidate.contact_case}
+ className="mt-1.5"
+ />
+ ) : null}
  </div>
  {candidate.status && (
  <Badge

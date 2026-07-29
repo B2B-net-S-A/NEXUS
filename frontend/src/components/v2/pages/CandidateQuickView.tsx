@@ -52,6 +52,16 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { CandidateDetailNavigation } from "@/components/v2/pages/CandidateDetailV2";
 import { getCandidateInitials } from "@/components/v2/pages/candidate-list-helpers";
 import { withCandidateProfileView } from "@/components/v2/pages/candidate-profile-navigation";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { ContactOutcomeSheet } from "@/components/candidate-contact/ContactOutcomeSheet";
+import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
+import {
+  candidateContactApi,
+  candidateContactQueryKeys,
+  type CandidateContactCase,
+  type CandidateContactSummary,
+} from "@/lib/candidate-contact";
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 
 type QuickViewDestination =
   | "summary"
@@ -75,6 +85,7 @@ interface QuickViewCandidate {
   competence_category_id?: number | null;
   competence_category?: string | null;
   skills?: Array<string | { name?: string | null }> | null;
+  contact_case?: CandidateContactSummary | null;
 }
 
 interface CandidateQuickViewData {
@@ -336,8 +347,13 @@ export function CandidateQuickView({
 }: CandidateQuickViewProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const currentUser = useAuthStore((state) => state.user);
+  const contactFeature = useCandidateContactFeature({
+    queryEnabled: Boolean(currentUser),
+  });
   const { showError } = useToast();
   const [assignOpen, setAssignOpen] = React.useState(false);
+  const [contactOutcomeOpen, setContactOutcomeOpen] = React.useState(false);
   const [previewDocumentId, setPreviewDocumentId] = React.useState<
     number | null
   >(null);
@@ -396,6 +412,22 @@ export function CandidateQuickView({
 
   const quickView = quickViewQuery.data;
   const candidate = quickView?.candidate;
+  const canOwnContact =
+    contactFeature.enabled &&
+    Boolean(candidate?.phone) &&
+    Boolean(candidate?.contact_case) &&
+    hasRole(currentUser, "tac", "recruiter", "sourcer") &&
+    candidate?.contact_case?.owner?.id === currentUser?.id &&
+    ["queued", "callback_due"].includes(
+      candidate?.contact_case?.status ?? "",
+    );
+  const fullContactCaseQuery = useQuery<CandidateContactCase | null>({
+    queryKey: candidateContactQueryKeys.candidate(candidateId),
+    queryFn: () => candidateContactApi.forCandidate(candidateId),
+    enabled: canOwnContact,
+    staleTime: 30_000,
+    retry: false,
+  });
   const cvDocuments = Array.isArray(documentsQuery.data)
     ? documentsQuery.data
     : [];
@@ -630,6 +662,12 @@ export function CandidateQuickView({
                       slug={candidate.competence_category}
                       size="sm"
                     />
+                    {contactFeature.enabled ? (
+                      <ContactStatusBadge
+                        contactCase={candidate.contact_case}
+                        size="sm"
+                      />
+                    ) : null}
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -690,6 +728,16 @@ export function CandidateQuickView({
                     <UserPlus className="h-5 w-5 shrink-0" />
                     Przypisz do rekrutacji
                   </Button>
+                  {canOwnContact && fullContactCaseQuery.data ? (
+                    <Button
+                      variant="outline"
+                      className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                      onClick={() => setContactOutcomeOpen(true)}
+                    >
+                      <Phone className="h-5 w-5 shrink-0" />
+                      Zaloguj wynik telefonu
+                    </Button>
+                  ) : null}
                   {candidate.employment?.state === "employed_at_client" ? (
                     <Button
                       variant="outline"
@@ -900,6 +948,20 @@ export function CandidateQuickView({
         candidateId={candidateId}
         onClose={() => setPreviewDocumentId(null)}
         onDownload={downloadDocument}
+      />
+      <ContactOutcomeSheet
+        contactCase={fullContactCaseQuery.data ?? null}
+        open={contactOutcomeOpen}
+        onOpenChange={setContactOutcomeOpen}
+        onSaved={() =>
+          void Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: candidateQueryKeys.quickView(candidateId),
+            }),
+            fullContactCaseQuery.refetch(),
+          ])
+        }
+        onConflict={() => void fullContactCaseQuery.refetch()}
       />
     </div>
   );

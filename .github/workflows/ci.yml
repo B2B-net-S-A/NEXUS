@@ -78,7 +78,7 @@ jobs:
         run: ruff check app/
       - name: Ruff format check
         run: ruff format --check app/
-      - name: Alembic legacy-row and retry probe
+      - name: Alembic legacy-row, retry, and contact-queue rollback probe
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
@@ -88,6 +88,9 @@ jobs:
           alembic -c alembic/alembic.ini upgrade heads
           alembic -c alembic/alembic.ini upgrade heads
           python scripts/verify_b2b_signature_migration.py verify
+          alembic -c alembic/alembic.ini downgrade 0199_candidate_stage_removals
+          alembic -c alembic/alembic.ini upgrade 0201_candidate_contact_coordination
+          alembic -c alembic/alembic.ini upgrade heads
       - name: Import smoke check
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test

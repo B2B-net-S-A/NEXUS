@@ -11,6 +11,7 @@ from app.models.recruitment_pipeline import (
     StageCategory,
     VerificationStatus,
 )
+from app.schemas.candidate_contact import ContactCaseSummaryResponse
 
 
 class StageMove(BaseModel):
@@ -109,6 +110,7 @@ class CandidateStageResponse(BaseModel):
     # is implicit there (it is this job's), so the card needs no name, and the
     # recruiter learns *before* dragging the card rather than from a 409.
     hm_veto: Optional["HiringManagerVetoBrief"] = None
+    contact_case: Optional[ContactCaseSummaryResponse] = None
 
     # ── Pending verification (migracja 0056) ──────────────────────────────
     verification_status: VerificationStatus = VerificationStatus.active

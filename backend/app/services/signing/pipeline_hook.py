@@ -21,6 +21,10 @@ from app.models.contract import Contract
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import PipelineStage
+from app.services.candidate_contact_hooks import (
+    maybe_close_contact_opportunity,
+    maybe_ensure_contact_opportunity,
+)
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
 
@@ -85,7 +89,7 @@ async def move_candidate_for_signing(
         legacy = PipelineStage.hired
 
     try:
-        await transition_process(
+        stage = await transition_process(
             db,
             candidate_id=contract.candidate_id,
             job_id=contract.job_id,
@@ -106,6 +110,26 @@ async def move_candidate_for_signing(
             contract.job_id,
         )
         return
+    # Kolejka kontaktu wisi na etapie zapisanym przez command service, nie na
+    # własnym `CandidateStage` — writer fence dopuszcza tylko tę jedną ścieżkę
+    # zapisu, a hook musi dostać `moved_at` faktycznie utrwalonego wiersza.
+    if legacy == PipelineStage.hired:
+        await maybe_close_contact_opportunity(
+            db,
+            candidate_id=contract.candidate_id,
+            job_id=contract.job_id,
+            actor_user_id=moved_by,
+            reason="pipeline_terminal:hired",
+            occurred_at=stage.moved_at,
+        )
+    else:
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=contract.candidate_id,
+            job_id=contract.job_id,
+            source="pipeline",
+            occurred_at=stage.moved_at,
+        )
     logger.info(
         "signing pipeline move: candidate %s → %r (job %s)",
         contract.candidate_id,

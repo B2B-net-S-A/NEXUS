@@ -73,6 +73,9 @@ import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { terminalOf } from"@/lib/kanban-terminal";
 import { assignErrorMessage } from "@/lib/assign-error";
+import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
+import type { CandidateContactSummary } from "@/lib/candidate-contact";
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -107,6 +110,7 @@ interface KanbanItem {
   rejection_reason_name: string;
   rejection_note?: string | null;
  } | null;
+ contact_case?: CandidateContactSummary | null;
 }
 
 const APPROVER_ROLES = new Set(["admin","delivery_lead","head_of_recruitment"]);
@@ -333,6 +337,7 @@ interface CardProps {
  onAcceptVerification?: (item: KanbanItem) => void;
  onRejectVerification?: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
+ contactFeatureEnabled: boolean;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -349,6 +354,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onAcceptVerification,
  onRejectVerification,
  onRemoveFromRecruitment,
+ contactFeatureEnabled,
 }: CardProps) {
  const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
@@ -429,6 +435,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  >
  {fullName}
  </div>
+ {contactFeatureEnabled ? (
+ <ContactStatusBadge
+ contactCase={item.contact_case}
+ className="mt-1"
+ />
+ ) : null}
  <div
  className={cn("flex items-center gap-1.5 mt-0.5 text-muted-foreground",
  density === "compact" ?"text-xs" :"text-base"
@@ -564,6 +576,7 @@ interface ColProps {
  onAcceptVerification: (item: KanbanItem) => void;
  onRejectVerification: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
+ contactFeatureEnabled: boolean;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -579,6 +592,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onAcceptVerification,
  onRejectVerification,
  onRemoveFromRecruitment,
+ contactFeatureEnabled,
 }: ColProps) {
  const dropId = colId(col);
  return (
@@ -655,6 +669,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onAcceptVerification={onAcceptVerification}
  onRejectVerification={onRejectVerification}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
+ contactFeatureEnabled={contactFeatureEnabled}
  />
  </div>
  )}
@@ -680,6 +695,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  const queryClient = useQueryClient();
+ const contactFeature = useCandidateContactFeature();
  const { showActionToast, showSuccess, showError } = useToast();
  // M4 PR-03: pełny zbiór ról (primary + secondary), nie tylko primary —
  // hybrydowy TAC+DL ma widzieć akcje approvera (parity z backendem #782).
@@ -1567,6 +1583,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  setPendingRejectVerification({ item, note: "" })
  }
  onRemoveFromRecruitment={(item) => setPendingRemoval(item)}
+ contactFeatureEnabled={contactFeature.enabled}
  />
  ))
  )}

@@ -2,7 +2,17 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -38,6 +48,20 @@ class Call(Base, TimestampMixin):
     """
 
     __tablename__ = "calls"
+    __table_args__ = (
+        CheckConstraint(
+            "contact_outcome IS NULL OR contact_outcome IN "
+            "('connected', 'no_answer', 'callback_requested', "
+            "'wrong_number', 'do_not_contact')",
+            name="ck_calls_contact_outcome",
+        ),
+        Index(
+            "ux_calls_contact_idempotency_key",
+            "contact_idempotency_key",
+            unique=True,
+            postgresql_where=text("contact_idempotency_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
@@ -55,6 +79,11 @@ class Call(Base, TimestampMixin):
     # Optional link to a contract — set when the call was about an active angaż.
     contract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    contact_case_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("candidate_contact_cases.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     # Dane rozmowy
@@ -94,12 +123,27 @@ class Call(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True, index=True
     )
 
+    # Candidate-contact coordination metadata. Existing manual/CloudTalk rows
+    # stay NULL and retain their historical semantics.
+    contact_outcome: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    contact_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    contact_idempotency_key: Mapped[Optional[str]] = mapped_column(
+        String(160), nullable=True
+    )
+    contact_request_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    callback_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Relationships
     candidate = relationship("Candidate", back_populates="calls")
     user = relationship("User", foreign_keys=[user_id])
     contract = relationship(
         "Contract", back_populates="contract_calls", foreign_keys=[contract_id]
     )
+    contact_case = relationship("CandidateContactCase", back_populates="calls")
 
     def __repr__(self) -> str:
         return f"<Call id={self.id} candidate_id={self.candidate_id} direction={self.direction} status={self.status}>"

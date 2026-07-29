@@ -29,6 +29,7 @@ from app.core.database import get_db
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.core.rate_limit import limiter
 from app.models.user import User, UserRole
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
@@ -1092,6 +1093,13 @@ async def assign_candidate_to_job(
         work_channel=PriorityChannel.database,
     )
     await create_original_cv_snapshot(db, stage)
+    await maybe_ensure_contact_opportunity(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        source="pipeline",
+        occurred_at=stage.moved_at,
+    )
     await db.commit()
     await db.refresh(stage)
 

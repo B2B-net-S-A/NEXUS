@@ -66,6 +66,10 @@ from app.services.champion_profile_events import (
     diff_champion_profile,
     summarize_sections,
 )
+from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
+from app.services.candidate_contact_hooks import (
+    maybe_close_job_contact_opportunities,
+)
 from app.services.marketplace_service import (
     is_significant_job_update,
     run_marketplace_scan_safe,
@@ -1032,7 +1036,7 @@ async def update_job(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Job).where(Job.id == job_id))
+    result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1101,6 +1105,13 @@ async def update_job(
     if status_flipped:
         if new_status == JobStatus.closed:
             job.closed_at = datetime.now(timezone.utc)
+            await maybe_close_job_contact_opportunities(
+                db,
+                job_id=job_id,
+                actor_user_id=current_user.id,
+                reason="job_closed",
+                occurred_at=job.closed_at,
+            )
         elif prev_status == JobStatus.closed:
             job.closed_at = None
 
@@ -1191,7 +1202,15 @@ async def delete_job(
             user_id=current_user.id,
         )
     )
+    await maybe_close_job_contact_opportunities(
+        db,
+        job_id=job_id,
+        actor_user_id=current_user.id,
+        reason="job_deleted",
+        occurred_at=datetime.now(timezone.utc),
+    )
     await db.delete(job)
+    await db.commit()
 
 
 @router.post("/{job_id}/close", response_model=JobResponse)
@@ -1208,7 +1227,7 @@ async def close_job(
     change. For unstructured close (legacy) use PATCH /jobs/{id} with
     `status=closed` — setter still writes `closed_at` but leaves reason NULL.
     """
-    result = await db.execute(select(Job).where(Job.id == job_id))
+    result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1217,6 +1236,13 @@ async def close_job(
     job.closed_at = datetime.now(timezone.utc)
     job.close_reason = data.reason
     job.close_notes = data.notes
+    await maybe_close_job_contact_opportunities(
+        db,
+        job_id=job_id,
+        actor_user_id=current_user.id,
+        reason="job_closed",
+        occurred_at=job.closed_at,
+    )
 
     db.add(
         Activity(
@@ -2522,6 +2548,13 @@ async def add_candidate_from_history(
         )
     )
     await db.flush()
+    await maybe_ensure_contact_opportunity(
+        db,
+        candidate_id=payload.candidate_id,
+        job_id=job_id,
+        source="pipeline",
+        occurred_at=stage.moved_at,
+    )
     # Update activity entity_id now that stage has an id.
     # Lazy approach: just commit — activity already references job_id+candidate_id
     # in details, that's sufficient for audit. Skip the second update query.

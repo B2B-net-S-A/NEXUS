@@ -11,6 +11,7 @@ import { PageHeader, StatCard, StatCardGrid } from"@/components/ds"
 import { ChampionsPodium } from"@/components/v2/gamification/ChampionsPodium"
 import { TeamKpiPanel } from"@/components/v2/kpi/TeamKpiPanel"
 import { TeamAllocationBoard } from "@/components/v2/priority-work"
+import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
 import { hasRole, useAuthStore } from"@/store/auth"
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -346,6 +347,8 @@ export default function HeadOfRecruitmentDashboard() {
 
  {/* KPI zespołu — lejek per osoba (verifier-anchored), filtry czas/rola/osoba */}
  <TeamKpiPanel />
+
+ <ContactOversightPanel />
 
  {/* Matrix: Sourcerzy × Kategorie */}
  <Card>
