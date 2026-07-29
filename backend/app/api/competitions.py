@@ -268,11 +268,15 @@ async def freeze(
     """Zamyka okres — pierwszy zapis TOP 3 jest niezmiennym snapshotem."""
     ctype = _parse_type(type)
     created = await comp_service.freeze_competition(db, ctype, period)
+    # `len(created)` to rozmiar podium, nie liczba ZAPISANYCH wierszy — przy
+    # ponownym zamrożeniu okresu serwis zwraca istniejący snapshot bez zapisu,
+    # więc odpowiedź meldowała „saved_count: 3" mimo że nic się nie stało.
     return {
         "ok": True,
         "type": ctype.value,
         "period": period,
-        "saved_count": len(created),
+        "saved_count": created.saved_count,
+        "already_frozen": created.already_frozen,
     }
 
 
