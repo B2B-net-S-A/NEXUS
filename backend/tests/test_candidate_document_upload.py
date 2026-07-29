@@ -244,6 +244,89 @@ async def test_reupload_of_identical_content_deduplicates(
     assert len(listing.json()) == 1
 
 
+async def test_reupload_of_the_active_cv_as_another_kind_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Dedup nie może po cichu zdegradować aktywnego CV.
+
+    Ten sam plik wgrany drugi raz trafia — po SHA — w TEN wiersz, który jest
+    primary CV. Przypisanie mu rodzaju „certyfikat" zostawiłoby kandydata bez
+    primary CV: pusta galeria, `cv_filename` wskazujące na plik, którego tam
+    już nie ma. Endpoint odmawia (409) zamiast zepsuć dane.
+    """
+    candidate_id = await _create_candidate(app_client, app_auth_headers)
+
+    first = await _upload(
+        app_client,
+        app_auth_headers,
+        candidate_id,
+        filename="cv.pdf",
+        content=MINIMAL_PDF,
+        content_type="application/pdf",
+        document_kind="cv",
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["is_primary"] is True
+
+    clash = await _upload(
+        app_client,
+        app_auth_headers,
+        candidate_id,
+        filename="ten-sam-plik.pdf",
+        content=MINIMAL_PDF,
+        content_type="application/pdf",
+        document_kind="certificate",
+    )
+    assert clash.status_code == 409, clash.text
+
+    listing = await app_client.get(
+        f"/api/candidates/{candidate_id}/documents", headers=app_auth_headers
+    )
+    assert [
+        (d["document_kind"], d["is_primary"], d["filename"]) for d in listing.json()
+    ] == [("cv", True, "cv.pdf")]
+
+
+async def test_reupload_of_the_active_cv_keeps_it_primary(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Ponowny upload tego samego CV nie zdejmuje flagi primary.
+
+    Endpoint liczy `is_primary` jako „kandydat nie ma jeszcze primary CV" —
+    a przy re-uploadzie primary JEST, i jest nim ten sam wiersz. Bez ochrony
+    dedup zapisałby `is_primary=False` i kandydat zostałby bez aktywnego CV.
+    """
+    candidate_id = await _create_candidate(app_client, app_auth_headers)
+
+    first = await _upload(
+        app_client,
+        app_auth_headers,
+        candidate_id,
+        filename="cv.pdf",
+        content=MINIMAL_PDF,
+        content_type="application/pdf",
+        document_kind="cv",
+    )
+    again = await _upload(
+        app_client,
+        app_auth_headers,
+        candidate_id,
+        filename="cv-ponownie.pdf",
+        content=MINIMAL_PDF,
+        content_type="application/pdf",
+        document_kind="cv",
+    )
+    assert first.status_code == 201, first.text
+    assert again.status_code == 201, again.text
+    assert again.json()["id"] == first.json()["id"]
+    assert again.json()["is_primary"] is True
+
+    listing = await app_client.get(
+        f"/api/candidates/{candidate_id}/documents?kind=cv", headers=app_auth_headers
+    )
+    assert [d["is_primary"] for d in listing.json()] == [True]
+
+
 async def test_filename_path_traversal_is_stripped(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:

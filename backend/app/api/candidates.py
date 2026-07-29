@@ -4282,8 +4282,26 @@ async def _store_candidate_document(
             .values(is_primary=False)
         )
     if existing is not None:
+        # Dedup nie może zdegradować aktywnego CV. Ten sam plik wgrany drugi
+        # raz — jako „certyfikat" albo jako kolejne (nie-primary) CV — trafia
+        # w TEN wiersz, więc ślepe przypisanie `document_kind`/`is_primary`
+        # kasowałoby kandydatowi primary CV i to bez żadnego sygnału: galeria
+        # CV nagle pusta, `cv_filename` wskazujące na plik, którego już tam
+        # nie ma.
+        existing_is_active_cv = (
+            existing.is_primary and existing.document_kind == CandidateDocumentKind.cv
+        )
+        if existing_is_active_cv and document_kind != CandidateDocumentKind.cv:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Ten plik jest już w teczce jako aktywne CV (primary). "
+                    "Żeby zmienić jego rodzaj, użyj listy plików — upload nie "
+                    "przeklasyfikuje aktywnego CV."
+                ),
+            )
         existing.document_kind = document_kind
-        existing.is_primary = is_primary
+        existing.is_primary = is_primary or existing_is_active_cv
         existing.filename = filename[:500]
         existing.content_type = content_type or None
         existing.size_bytes = len(content)
@@ -5032,7 +5050,9 @@ async def upload_candidate_document(
       (422), tak samo jak w `PATCH /documents/{doc_id}`.
 
     Deduplikacja po SHA-256 treści: ponowny upload tego samego pliku aktualizuje
-    istniejący rekord zamiast tworzyć duplikat.
+    istniejący rekord zamiast tworzyć duplikat. Jeden wyjątek — jeżeli trafia
+    w **aktywne CV** (primary), a deklarowany rodzaj to nie CV, endpoint zwraca
+    409 zamiast po cichu zdegradować kandydatowi primary CV.
     """
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()
