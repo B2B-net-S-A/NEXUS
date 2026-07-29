@@ -74,10 +74,11 @@ docker exec $(docker ps --format '{{.Names}}' | grep -m1 backend) alembic -c ale
 ```
 
 Alternatywa bez wchodzenia w kontener backendu (przez psql; wartość = aktualny head,
-sprawdź `alembic heads` w repo — dziś `0202_cv_content_mode`):
+sprawdź `alembic heads` w repo — w chwili pisania `0203_b2b_generated_contract_status`,
+po merge #1000):
 
 ```sql
-UPDATE alembic_version SET version_num = '0202_cv_content_mode';
+UPDATE alembic_version SET version_num = '0203_b2b_generated_contract_status';
 ```
 
 **Dlaczego stamp, nie upgrade:** 0181/0182/0183 nie są idempotentne wobec kolumn
