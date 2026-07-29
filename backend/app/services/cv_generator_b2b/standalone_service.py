@@ -1005,14 +1005,186 @@ def _term_in_source(term: str, source_norm: str) -> bool:
     return any(w in source_norm for w in tokens)
 
 
+#: Prefix for findings we are confident about (a figure the source simply does
+#: not contain). Kept distinct from "WERYFIKUJ"/"VERIFY" so the UI can show the
+#: certain ones first — and so truncation never drops them for softer hints.
+_HIGH_PREFIX = {"pl": "BRAK POKRYCIA", "en": "NOT IN SOURCE"}
+_MED_PREFIX = {"pl": "WERYFIKUJ", "en": "VERIFY"}
+
+#: A number is only judged when it is attached to something countable. Bare
+#: numbers are ignored on purpose: dates, versions and enumerations are noise,
+#: whereas "20 serwerów" or "SLA 99,9%" is exactly the kind of figure clients
+#: report as not holding up in interview.
+_SCALE_UNITS = (
+    r"osob\w*|pracownik\w*|czlonk\w*|specjalist\w*|programist\w*|deweloper\w*"
+    r"|serwer\w*|klient\w*|projekt\w*|uzytkownik\w*|instancj\w*|klastr\w*"
+    r"|aplikacj\w*|system\w*|wdrozen\w*|integracj\w*|oddzial\w*|lokalizacj\w*"
+    r"|people|persons|members|engineers|developers|servers|clients|customers"
+    r"|projects|users|instances|clusters|applications|systems|deployments"
+    r"|integrations|locations|teams|countries"
+)
+_SCALE_CLAIM_RE = re.compile(r"(\d[\d\s.,]*?)\s*(%|" + _SCALE_UNITS + r")")
+_YEARS_CLAIM_RE = re.compile(r"(\d{1,2})\s*(?:lat\w*|year)")
+_DIGIT_RUN_RE = re.compile(r"\d[\d.,]*")
+
+#: Scale words that turn one real task into an implied portfolio. This is the
+#: exact defect class reported in #627 ("integracja frontendu z WIELOMA usługami
+#: backendowymi dla RÓŻNYCH klientów i domen" for a plain React dev). Flagged
+#: only when the source carries no such word itself.
+_INFLATION_MARKERS = (
+    "wielu",
+    "wieloma",
+    "wiele",
+    "roznych",
+    "roznorodnych",
+    "szereg",
+    "liczne",
+    "licznych",
+    "multiple",
+    "various",
+    "numerous",
+    "wide range",
+)
+
+
+def _norm_number(raw: str) -> str:
+    """Normalise a figure for comparison: drop thousand separators, unify the
+    decimal mark, and strip a trailing decimal zero so "99,90" == "99.9"."""
+    text = raw.strip().replace(" ", "").replace(",", ".")
+    text = text.rstrip(".")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _numbers_in_source(source_norm: str) -> set[str]:
+    return {_norm_number(m.group(0)) for m in _DIGIT_RUN_RE.finditer(source_norm)}
+
+
+def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
+    """Year counts the pipeline itself computes from the extracted dates.
+
+    ``_fix_experience_years`` rewrites the headline ("6 lat jako…") from the
+    date ranges, so those figures legitimately need not appear verbatim in the
+    CV. Without this allowance the guard would flag its own arithmetic.
+    """
+    allowed: set[str] = set()
+    total = _total_experience_years(candidate_data.get("experience") or [])
+    if total is not None:
+        # ±1 absorbs the rounding _fix_experience_years applies.
+        allowed.update(str(total + delta) for delta in (-1, 0, 1) if total + delta >= 0)
+    for job in candidate_data.get("experience") or []:
+        span = _parse_date_range(str(job.get("dates") or ""))
+        if not span:
+            continue
+        start, end = span
+        now = datetime.now()
+        end = min(end, now.year * 12 + (now.month - 1))
+        years = max(0, (end - start) // 12)
+        allowed.update(str(years + delta) for delta in (0, 1))
+    return allowed
+
+
+def _free_text_fields(candidate_data: dict[str, Any]) -> list[tuple[str, str]]:
+    """(label, text) pairs of every prose field the model writes freely."""
+    out: list[tuple[str, str]] = []
+    for point in candidate_data.get("why_points") or []:
+        if isinstance(point, str) and point.strip():
+            out.append(("why_points", point))
+    for job in candidate_data.get("experience") or []:
+        role = job.get("position") or job.get("company") or "?"
+        for duty in job.get("responsibilities") or []:
+            if isinstance(duty, str) and duty.strip():
+                out.append((str(role), duty))
+    return out
+
+
+def _free_text_warnings(
+    candidate_data: dict[str, Any], source_norm: str, language: str
+) -> list[str]:
+    """Check CLAIMS in free prose, not words.
+
+    Term matching works for technologies (a closed vocabulary) but would drown
+    the recruiter in false alarms on prose, because "Redakcja" and "Pod ofertę"
+    are allowed to rephrase. A guard that cries wolf gets clicked away — that is
+    how the existing collapsed warnings badge became invisible. So we only
+    assert on things a rewrite must never change: figures, and claims of scale.
+    """
+    high = _HIGH_PREFIX["en" if language == "en" else "pl"]
+    med = _MED_PREFIX["en" if language == "en" else "pl"]
+    source_numbers = _numbers_in_source(source_norm)
+    allowed_years = _derivable_years(candidate_data)
+    issues: list[str] = []
+    seen: set[str] = set()
+
+    for label, text in _free_text_fields(candidate_data):
+        norm = _norm_for_guard(text)
+        snippet = text if len(text) <= 90 else text[:87] + "…"
+
+        for match in _SCALE_CLAIM_RE.finditer(norm):
+            number = _norm_number(match.group(1))
+            if not number or number in source_numbers:
+                continue
+            key = f"num:{label}:{number}:{match.group(2)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            issues.append(
+                f"{high}: figure '{match.group(0).strip()}' ({label}) does not appear "
+                f"in the CV or notes — „{snippet}”"
+                if language == "en"
+                else f"{high}: liczba '{match.group(0).strip()}' ({label}) nie występuje "
+                f"w CV ani notatkach — „{snippet}”"
+            )
+
+        for match in _YEARS_CLAIM_RE.finditer(norm):
+            years = match.group(1)
+            if years in source_numbers or years in allowed_years:
+                continue
+            key = f"yrs:{label}:{years}"
+            if key in seen:
+                continue
+            seen.add(key)
+            issues.append(
+                f"{high}: '{match.group(0).strip()}' ({label}) follows neither from the "
+                f"source nor from the dates — „{snippet}”"
+                if language == "en"
+                else f"{high}: '{match.group(0).strip()}' ({label}) nie wynika ani ze "
+                f"źródła, ani z dat — „{snippet}”"
+            )
+
+        for marker in _INFLATION_MARKERS:
+            if marker in norm and marker not in source_norm:
+                key = f"infl:{label}:{marker}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(
+                    f"{med}: scale claim '{marker}' ({label}) has no basis in the source "
+                    f"— „{snippet}”"
+                    if language == "en"
+                    else f"{med}: rozdmuchanie skali '{marker}' ({label}) bez pokrycia "
+                    f"w źródle — „{snippet}”"
+                )
+                break  # one scale flag per sentence is enough
+
+    return issues
+
+
 def _fabrication_warnings(
     candidate_data: dict[str, Any], source_text: str, language: str
 ) -> list[str]:
-    """Deterministic no-lying check: every technology and certification in the
-    output must be traceable to the CV text or the screening notes.
+    """Deterministic no-lying check against the CV text and screening notes.
 
-    The prompt already forbids fabrication; this is the seatbelt. Findings are
-    surfaced as warnings (the recruiter verifies), generation is not blocked.
+    Covers three surfaces, each with the matching technique:
+      * technologies + certifications — closed vocabulary, so term matching,
+      * ``skills[].content`` — comma-separated technologies, same treatment,
+      * free prose (``why_points``, ``responsibilities``) — claim checking,
+        see :func:`_free_text_warnings`.
+
+    Prose was unchecked until now, which is precisely where inflation lives:
+    the prompt forbids it, but a prompt rule is a request. Findings are
+    surfaced as warnings (the recruiter verifies); generation is not blocked.
     """
     source_norm = _norm_for_guard(source_text)
     issues: list[str] = []
@@ -1040,6 +1212,32 @@ def _fabrication_warnings(
                 issues.append(
                     f"WERYFIKUJ: certyfikat '{cert}' nie występuje w CV ani notatkach"
                 )
+
+    # SKILLS carry technologies too, just as prose ("Python, PostgreSQL, K8s"),
+    # so they get the same closed-vocabulary treatment as experience[].technologies.
+    for skill in candidate_data.get("skills") or []:
+        if not isinstance(skill, dict):
+            continue
+        label = str(skill.get("label") or "Umiejętności")
+        for item in re.split(r"[,;/]", str(skill.get("content") or "")):
+            item = item.strip()
+            if len(item) < 3 or _term_in_source(item, source_norm):
+                continue
+            if language == "en":
+                issues.append(
+                    f"VERIFY: skill '{item}' ({label}) not found in the CV or notes"
+                )
+            else:
+                issues.append(
+                    f"WERYFIKUJ: umiejętność '{item}' ({label}) nie występuje w CV ani notatkach"
+                )
+
+    issues.extend(_free_text_warnings(candidate_data, source_norm, language))
+
+    # Certain findings first: truncation must never drop a figure the source
+    # does not contain in favour of a softer "verify this" hint.
+    high = _HIGH_PREFIX["en" if language == "en" else "pl"]
+    issues.sort(key=lambda msg: 0 if msg.startswith(high) else 1)
 
     if len(issues) > 8:
         more = len(issues) - 8

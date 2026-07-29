@@ -34,6 +34,14 @@ interface Props {
   candidateName: string;
 }
 
+/** Podzbiór wiersza z `GET /api/cv-generator/generated` potrzebny w modalu. */
+type GeneratedCvSummary = {
+  id: number;
+  status: "processing" | "ready" | "failed";
+  warnings?: string[];
+  error_message?: string | null;
+};
+
 export function CVGeneratorV2({
   open,
   onOpenChange,
@@ -48,7 +56,34 @@ export function CVGeneratorV2({
     DEFAULT_CV_CONTENT_MODE,
   );
   const [enqueued, setEnqueued] = useState(false);
+  const [generatedId, setGeneratedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Do tej pory modal kończył się na „generacja ruszyła" i nigdy nie wracał po
+  // wynik. Uwagi bezpiecznika (wymyślona liczba, rozdmuchana skala) trafiały
+  // więc wyłącznie na listę w Generatorze CV — czyli nie widział ich nikt, kto
+  // generuje z profilu kandydata, a to najczęstsza ścieżka. Odpytujemy listę
+  // dokładnie tak jak strona standalone i pokazujemy uwagi tutaj.
+  const resultQuery = useQuery({
+    queryKey: ["cv-gen-result-modal", generatedId],
+    queryFn: async () => {
+      const res = await api.get<GeneratedCvSummary[]>(
+        "/api/cv-generator/generated",
+      );
+      return res.data.find((r) => r.id === generatedId) ?? null;
+    },
+    enabled: open && generatedId !== null,
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.status !== "processing" ? false : 4000,
+  });
+
+  const result = resultQuery.data ?? null;
+  const warnings = result?.warnings ?? [];
+  // „BRAK POKRYCIA" to trafienia pewne (liczba, której źródło nie zawiera);
+  // „WERYFIKUJ" to podpowiedzi do sprawdzenia. Rozdzielone, bo inaczej te
+  // pewne toną wśród miękkich i cała lista uczy się być ignorowaną.
+  const certainWarnings = warnings.filter((w) => w.startsWith("BRAK POKRYCIA"));
+  const softWarnings = warnings.filter((w) => !w.startsWith("BRAK POKRYCIA"));
 
   const recruitmentsQuery = useQuery({
     queryKey: ["cv-gen-recruitments-modal", candidateId],
@@ -97,9 +132,10 @@ export function CVGeneratorV2({
       );
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setError(null);
       setEnqueued(true);
+      setGeneratedId(data.id);
       toast.showSuccess(
         "Generacja ruszyła w tle — CV pojawi się w Generatorze CV, gdy będzie gotowe.",
       );
@@ -119,6 +155,7 @@ export function CVGeneratorV2({
   function handleOpenChange(next: boolean) {
     if (!next) {
       setEnqueued(false);
+      setGeneratedId(null);
       setError(null);
     }
     onOpenChange(next);
@@ -163,6 +200,63 @@ export function CVGeneratorV2({
                 </p>
               </div>
             </div>
+
+            {result?.status === "processing" && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Sprawdzam wygenerowaną treść…
+              </div>
+            )}
+
+            {result?.status === "failed" && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-foreground">
+                Generacja nie powiodła się
+                {result.error_message ? `: ${result.error_message}` : "."}
+              </div>
+            )}
+
+            {certainWarnings.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                  Treść, której nie ma w źródle ({certainWarnings.length})
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Generator napisał coś, czego nie znaleziono w CV kandydata ani
+                  w notatkach. Sprawdź te miejsca przed wysłaniem do klienta.
+                </p>
+                <ul className="space-y-1 text-xs text-foreground">
+                  {certainWarnings.map((w, i) => (
+                    <li key={i} className="leading-relaxed">
+                      • {w}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {softWarnings.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  Do weryfikacji ({softWarnings.length})
+                </div>
+                <ul className="space-y-1 text-xs text-muted-foreground">
+                  {softWarnings.map((w, i) => (
+                    <li key={i} className="leading-relaxed">
+                      • {w}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {result?.status === "ready" && warnings.length === 0 && (
+              <div className="text-xs text-muted-foreground">
+                Bezpiecznik nie znalazł treści spoza CV i notatek.
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2">
               <Button
                 variant="outline"
