@@ -99,6 +99,7 @@ import {
 } from"@/components/ui/dropdown-menu";
 import { Textarea } from"@/components/ui/textarea";
 import { MentionTextarea } from"@/components/v2/forms/MentionTextarea";
+import { detectNotePersonMismatch } from"@/lib/note-person-mismatch";
 import { useMentionableUsers, type MentionScope } from"@/hooks/useMentionableUsers";
 import {
  buildUsersByEmail,
@@ -1234,6 +1235,8 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  viewers={presenceViewers}
  currentUserId={currentUser?.id}
  setEditing={setPresenceEditing}
+ candidateName={candidate.name ?? null}
+ candidateLastname={candidate.lastname ?? null}
  />
  ) : (
  <TimelineTab items={timeline ?? []} />
@@ -1265,6 +1268,8 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  currentUserId={currentUser?.id}
  canModerate={hasRole(currentUser, "admin")}
  setEditing={setPresenceEditing}
+ candidateName={candidate.name ?? null}
+ candidateLastname={candidate.lastname ?? null}
  />
  )
  ) : null}
@@ -3846,6 +3851,8 @@ function NoteComposer({
  viewers = [],
  currentUserId,
  setEditing,
+ candidateName,
+ candidateLastname,
 }: {
  recruitments?: any[];
  defaultJobId?: number | null;
@@ -3856,6 +3863,8 @@ function NoteComposer({
  viewers?: PresenceViewer[];
  currentUserId?: number;
  setEditing?: (field: string, active: boolean) => void;
+ candidateName?: string | null;
+ candidateLastname?: string | null;
 }) {
  const recList = useMemo(
  () =>
@@ -3900,6 +3909,15 @@ function NoteComposer({
  ? { kind: "job", jobId: selectedJobId }
  : { kind: "global" };
 
+ // Bezpiecznik: wklejka formularza z polem "Imię i nazwisko:" wskazującym
+ // inną osobę niż otwarty profil (incydent 29.07.2026 — notatka o Marku
+ // Szczegodzińskim na profilu Tomasza Jarząba). Tylko ostrzeżenie — zapis
+ // nie jest blokowany, bo notatka MOŻE świadomie dotyczyć osoby poleconej.
+ const personMismatch = useMemo(
+ () => detectNotePersonMismatch(noteText, candidateName, candidateLastname),
+ [noteText, candidateName, candidateLastname],
+ );
+
  return (
  <div className="space-y-2">
  {recList.length > 0 && (
@@ -3940,6 +3958,18 @@ function NoteComposer({
  rows={3}
  ariaLabel="Treść nowej notatki"
  />
+ {personMismatch ? (
+ <div
+ role="alert"
+ className="flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs text-warning-muted-foreground"
+ >
+ <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+ <span>
+ Notatka wygląda na opis innej osoby („{personMismatch}") niż otwarty
+ profil. Upewnij się, że dodajesz ją na właściwym kandydacie.
+ </span>
+ </div>
+ ) : null}
  {othersEditingNotes.length > 0 ? (
  <div className="flex items-center gap-1.5 text-xs text-warning-muted-foreground">
  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
@@ -3985,6 +4015,8 @@ function PipelinePane({
  viewers = [],
  currentUserId,
  setEditing,
+ candidateName,
+ candidateLastname,
 }: {
  candidateId: number;
  cvFilename?: string | null;
@@ -3998,6 +4030,8 @@ function PipelinePane({
  viewers?: PresenceViewer[];
  currentUserId?: number;
  setEditing?: (field: string, active: boolean) => void;
+ candidateName?: string | null;
+ candidateLastname?: string | null;
 }) {
  const { showError } = useToast();
  const { data: documents } = useQuery<CandidateDocument[]>({
@@ -4082,6 +4116,8 @@ function PipelinePane({
  viewers={viewers}
  currentUserId={currentUserId}
  setEditing={setEditing}
+ candidateName={candidateName}
+ candidateLastname={candidateLastname}
  />
  <Separator />
  <div>
@@ -4111,6 +4147,8 @@ function NotatkiTab({
  currentUserId,
  canModerate = false,
  setEditing,
+ candidateName,
+ candidateLastname,
 }: {
  timeline: any[];
  recruitments?: any[];
@@ -4125,6 +4163,8 @@ function NotatkiTab({
  currentUserId?: number;
  canModerate?: boolean;
  setEditing?: (field: string, active: boolean) => void;
+ candidateName?: string | null;
+ candidateLastname?: string | null;
 }) {
  const items = Array.isArray(timeline) ? timeline : [];
  const notes = items.filter((t: any) => t.type === "note");
@@ -4180,6 +4220,8 @@ function NotatkiTab({
  viewers={viewers}
  currentUserId={currentUserId}
  setEditing={setEditing}
+ candidateName={candidateName}
+ candidateLastname={candidateLastname}
  />
 
  <Separator />
