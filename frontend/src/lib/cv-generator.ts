@@ -22,6 +22,56 @@ export const CHAMPION_ACCEPT = ".docx";
 export const MAX_UPLOAD_MB = 50;
 
 /**
+ * Jak mocno generator ma obrabiać treść CV. Wysyłane jako `content_mode`
+ * (pole JSON w trybie „new", pole formularza multipart w trybie „old").
+ */
+export type CvContentMode = "basic" | "polished" | "tailored";
+
+/**
+ * Domyślny tryb wysyłany przez UI. Świadomie „polished", NIE „tailored":
+ * wariant najmocniej dopasowany do ogłoszenia nie może być tym, który dostajesz
+ * bez podjęcia decyzji — część klientów wymaga profili nieprofilowanych.
+ */
+export const DEFAULT_CV_CONTENT_MODE: CvContentMode = "polished";
+
+export type CvContentModeOption = {
+  value: CvContentMode;
+  label: string;
+  description: string;
+  /**
+   * Ograniczenie zastosowania. Trzymane osobno od `description`, żeby dało się
+   * je wyróżnić wizualnie — ma być czytelne wprost, nie schowane pod ikonką.
+   */
+  caution?: string;
+};
+
+/**
+ * Trzy RÓWNORZĘDNE zastosowania, nie trzy poziomy jakości — stąd brak numeracji,
+ * gwiazdek i nazw typu „basic/pro". Kolejność odpowiada wartościom kontraktu API.
+ */
+export const CV_CONTENT_MODES: readonly CvContentModeOption[] = [
+  {
+    value: "basic",
+    label: "Przepisanie",
+    description:
+      "Tylko fakty z CV kandydata, bez obróbki językowej i bez dopasowania do oferty.",
+  },
+  {
+    value: "polished",
+    label: "Redakcja",
+    description:
+      "Te same fakty, poprawiony język i uporządkowana terminologia. Bez dopasowania do oferty.",
+  },
+  {
+    value: "tailored",
+    label: "Pod ofertę",
+    description:
+      "Treść ułożona pod wymagania z ogłoszenia: kolejność, akcenty i wyróżnienia.",
+    caution: "Nie używaj dla klientów wymagających profili nieprofilowanych.",
+  },
+];
+
+/**
  * Client-side upload precheck. Mirrors the server's `_validate_upload`
  * (`standalone_service.py`) so a file the backend would reject never costs the
  * recruiter a round trip — the server remains the authority.

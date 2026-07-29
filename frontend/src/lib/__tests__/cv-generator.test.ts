@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   CHAMPION_ACCEPT,
+  CV_CONTENT_MODES,
+  DEFAULT_CV_CONTENT_MODE,
   MAX_UPLOAD_MB,
   fileValidationError,
   parseDispositionFilename,
@@ -47,6 +49,39 @@ describe("fileValidationError", () => {
       value: (MAX_UPLOAD_MB + 1) * 1024 * 1024,
     });
     expect(fileValidationError(huge, CHAMPION_ACCEPT)).toContain("za duży");
+  });
+});
+
+describe("CV_CONTENT_MODES", () => {
+  it("covers exactly the values the API accepts", () => {
+    expect(CV_CONTENT_MODES.map((m) => m.value)).toEqual([
+      "basic",
+      "polished",
+      "tailored",
+    ]);
+  });
+
+  it("defaults to Redakcja, not the offer-tailored variant", () => {
+    // Wysyłanie „tailored" bez decyzji rekrutera złamałoby wymóg części klientów
+    // na profile nieprofilowane — default MUSI zostać zachowawczy.
+    expect(DEFAULT_CV_CONTENT_MODE).toBe("polished");
+    expect(CV_CONTENT_MODES.map((m) => m.value)).toContain(
+      DEFAULT_CV_CONTENT_MODE,
+    );
+  });
+
+  it("gives every option a Polish label and description", () => {
+    // Kafelek bez opisu zmusza rekrutera do zgadywania — pilnujemy, żeby
+    // dopisanie czwartego trybu nie przeszło z pustym tekstem.
+    for (const mode of CV_CONTENT_MODES) {
+      expect(mode.label.trim()).not.toBe("");
+      expect(mode.description.trim()).not.toBe("");
+    }
+  });
+
+  it("keeps the unprofiled-client caution on the tailored option", () => {
+    const tailored = CV_CONTENT_MODES.find((m) => m.value === "tailored");
+    expect(tailored?.caution).toContain("nieprofilowanych");
   });
 });
 

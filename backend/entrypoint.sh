@@ -2155,6 +2155,16 @@ _COLUMN_STATEMENTS = [
     # w każdej iteracji (zero maili do offline'owych userów).
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "
     "email_send_started_at TIMESTAMPTZ NULL",
+    # Tryb obróbki treści CV (migracja 0202_cv_content_mode). Pipeline zapisuje
+    # content_mode przy KAŻDEJ generacji, więc bez tej kolumny INSERT do
+    # cv_generated_documents => UndefinedColumn i generator CV pada w całości.
+    # DEFAULT 'tailored' jest prawdziwościowym backfillem historii — wiersze
+    # sprzed tej funkcji powstały z pełnym pozycjonowaniem pod ofertę klienta.
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "content_mode VARCHAR(16) NOT NULL DEFAULT 'tailored'",
+    # Sufit trybu per klient (NULL = bez ograniczenia). Czytany przy każdej
+    # generacji z profilu kandydata; bez kolumny SELECT clients => UndefinedColumn.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_content_mode_cap VARCHAR(16)",
 ]
 
 _DATA_STATEMENTS = [

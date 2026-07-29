@@ -72,7 +72,11 @@ PROMPT_NAME = "cv_b2b_extraction"
 # metodyk/kompetencji/ról/języków — model nie nazywa już wszystkich wymagań
 # „technologiami" ani nie tworzy dla nich sztucznych kategorii technicznych
 # (boldowanie i tak filtruje przez taksonomię, ale prompt nie ma mylić modelu).
-PROMPT_VERSION = 6
+# v7 (2026-07-29): trzy tryby obróbki treści (basic/polished/tailored) doklejane
+# jako addendum do promptu bazowego; kwoty wymuszające wypełniacz (min. 5 kategorii
+# umiejętności, min. 2 języki, 5-8 obowiązków) zamienione na górne limity — przy
+# ubogim CV model zwraca tyle, ile jest w źródle, zamiast dopisywać dla objętości.
+PROMPT_VERSION = 7
 
 
 def _model() -> str:

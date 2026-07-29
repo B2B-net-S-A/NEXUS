@@ -66,6 +66,8 @@ from app.models.candidate import Candidate
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.user import User, UserRole
 from app.services.cv_generator_b2b.standalone_service import (
+    DEFAULT_CONTENT_MODE,
+    ContentMode,
     StandaloneGenerationError,
     UploadGenerationInput,
     ascii_filename_fallback,
@@ -112,6 +114,9 @@ class GenerateRequest(BaseModel):
     stage_id: int = Field(..., ge=1)
     language: Literal["pl", "en"] = "pl"
     blind_cv: bool = False
+    # Defaults to "polished", never "tailored": the most-positioned variant has
+    # to be an explicit choice. May be lowered by the client's cap.
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE
 
 
 class GeneratedCvItem(BaseModel):
@@ -125,6 +130,8 @@ class GeneratedCvItem(BaseModel):
     language: str
     blind: bool
     mode: str
+    # Ile obróbki prezentacyjnej faktycznie zastosowano przy tej generacji.
+    content_mode: str = DEFAULT_CONTENT_MODE
     filename: str
     # Async generation lifecycle — the UI polls this list and renders a spinner
     # for "processing", the CV for "ready" and the reason for "failed".
@@ -224,10 +231,15 @@ async def _create_pending_row(
     language: str,
     blind_cv: bool,
     user_id: int,
+    content_mode: str,
 ) -> int:
     """Insert a „processing" placeholder so the CV shows on the list the moment
     generation is enqueued — the recruiter can then close the tab while the
     background job fills in ``render_payload`` / ``status``. Returns the row id.
+
+    ``content_mode`` is the REQUESTED mode; a per-client cap may lower it, and
+    :func:`_finalize_success` overwrites this with what the pipeline actually
+    used, so the stored value always describes the delivered document.
     """
     row = CvGeneratedDocument(
         candidate_id=candidate_id,
@@ -237,6 +249,7 @@ async def _create_pending_row(
         language=language,
         blind=blind_cv,
         mode=mode,
+        content_mode=content_mode,
         filename="",  # filled from the rendered filename on completion
         status="processing",
         render_payload=None,
@@ -265,6 +278,14 @@ async def _finalize_success(db: AsyncSession, generated_id: int, *, result) -> b
     row.filename = result.filename
     row.render_payload = result.render_payload
     row.warnings = list(result.warnings or [])
+    # The mode the pipeline ACTUALLY ran with — a per-client cap may have
+    # lowered what the recruiter requested, and the row has to describe the
+    # document that reached the client, not the intent behind it. Only written
+    # when the payload carries one, so re-finalising an older payload leaves
+    # the value the row was created with rather than blanking it.
+    payload_mode = payload.get("content_mode")
+    if payload_mode:
+        row.content_mode = str(payload_mode)
     row.error_message = None
     row.status = "ready"
     return True
@@ -297,6 +318,7 @@ async def _run_generate_new_job(
     language: Literal["pl", "en"],
     blind_cv: bool,
     user_id: int,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
 ) -> None:
     """Background worker for New-mode (DB-backed) generation."""
     async with AsyncSessionLocal() as db:
@@ -307,6 +329,7 @@ async def _run_generate_new_job(
                 stage_id=stage_id,
                 language=language,
                 blind_cv=blind_cv,
+                content_mode=content_mode,
             )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
@@ -330,6 +353,10 @@ async def _run_generate_new_job(
                         "stage_id": stage_id,
                         "language": language,
                         "blind_cv": blind_cv,
+                        "content_mode_requested": content_mode,
+                        "content_mode_used": (result.render_payload or {}).get(
+                            "content_mode"
+                        ),
                         "filename": result.filename,
                         "warnings_count": len(result.warnings),
                         "processing_time_ms": result.processing_time_ms,
@@ -374,6 +401,7 @@ async def _run_generate_upload_job(
                         "cv_filename": payload.cv_filename,
                         "language": payload.language,
                         "blind_cv": payload.blind_cv,
+                        "content_mode": payload.content_mode,
                         "filename": result.filename,
                         "warnings_count": len(result.warnings),
                         "processing_time_ms": result.processing_time_ms,
@@ -566,6 +594,7 @@ async def generate(
         language=payload.language,
         blind_cv=payload.blind_cv,
         user_id=current_user.id,
+        content_mode=payload.content_mode,
     )
     # Commit before scheduling/returning so the row is visible to both the poll
     # and the background job (which opens its own session).
@@ -579,6 +608,7 @@ async def generate(
         language=payload.language,
         blind_cv=payload.blind_cv,
         user_id=current_user.id,
+        content_mode=payload.content_mode,
     )
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=candidate_name
@@ -601,6 +631,7 @@ async def generate_from_upload(
     cv_file: Annotated[UploadFile, File(description="Plik CV (PDF / DOCX)")],
     language: Literal["pl", "en"] = Form("pl"),
     blind_cv: bool = Form(False),
+    content_mode: Literal["basic", "polished", "tailored"] = Form(DEFAULT_CONTENT_MODE),
     screening_notes: str = Form(""),
     champion_file: Annotated[
         Optional[UploadFile],
@@ -632,6 +663,7 @@ async def generate_from_upload(
         screening_notes=screening_notes or "",
         champion_bytes=champion_bytes,
         champion_filename=champion_filename,
+        content_mode=content_mode,
     )
 
     # Provisional label until Claude parses the real name out of the CV.
@@ -645,6 +677,7 @@ async def generate_from_upload(
         language=language,
         blind_cv=blind_cv,
         user_id=current_user.id,
+        content_mode=content_mode,
     )
     await db.commit()
 
@@ -695,6 +728,7 @@ async def list_generated_cvs(
             language=r.language,
             blind=r.blind,
             mode=r.mode,
+            content_mode=r.content_mode,
             filename=r.filename,
             status=r.status,
             error_message=r.error_message,

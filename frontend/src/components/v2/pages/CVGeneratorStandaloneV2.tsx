@@ -49,12 +49,15 @@ import { LanguageTiles } from "@/components/v2/LanguageTiles";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
+import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api from "@/lib/api";
 import {
+  type CvContentMode,
   type RecruitmentOption,
   CHAMPION_ACCEPT,
   CV_ACCEPT,
+  DEFAULT_CV_CONTENT_MODE,
   MAX_UPLOAD_MB,
   downloadBlob,
   extractErrorDetail,
@@ -138,6 +141,9 @@ export function CVGeneratorStandaloneV2() {
   // ── Shared options ──────────────────────────────────────────────────────
   const [language, setLanguage] = useState<"pl" | "en">("pl");
   const [blindCv, setBlindCv] = useState(false);
+  const [contentMode, setContentMode] = useState<CvContentMode>(
+    DEFAULT_CV_CONTENT_MODE,
+  );
   // Ids enqueued in THIS session with auto-download on — downloaded once they
   // flip to „ready" (see the effect below). A ref, not state: mutating it must
   // not re-render, and it needn't survive a reload.
@@ -217,6 +223,7 @@ export function CVGeneratorStandaloneV2() {
           stage_id: selectedRecruitment.stage_id,
           language,
           blind_cv: blindCv,
+          content_mode: contentMode,
         },
         { timeout: 30_000 },
       );
@@ -243,6 +250,7 @@ export function CVGeneratorStandaloneV2() {
       fd.append("cv_file", cvFile);
       fd.append("language", language);
       fd.append("blind_cv", String(blindCv));
+      fd.append("content_mode", contentMode);
       if (screeningNotes.trim()) fd.append("screening_notes", screeningNotes);
       if (championFile) fd.append("champion_file", championFile);
       const res = await api.post<EnqueuedResponse>(
@@ -460,6 +468,11 @@ export function CVGeneratorStandaloneV2() {
           <CardTitle>Opcje</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div>
+            <Label className="mb-2 block">Obróbka treści</Label>
+            <ContentModeTiles value={contentMode} onChange={setContentMode} />
+          </div>
+
           <div>
             <Label className="mb-2 block">Język CV</Label>
             <LanguageTiles
