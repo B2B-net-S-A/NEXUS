@@ -15,6 +15,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -4236,7 +4237,7 @@ async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> Non
         logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, e)
 
 
-async def _store_candidate_cv_document(
+async def _store_candidate_document(
     db: AsyncSession,
     *,
     candidate_id: int,
@@ -4244,9 +4245,19 @@ async def _store_candidate_cv_document(
     content: bytes,
     content_type: Optional[str],
     external_source: str,
+    document_kind: CandidateDocumentKind = CandidateDocumentKind.cv,
     is_primary: bool = True,
 ) -> CandidateDocument:
-    """Persist one CV version with content-level deduplication."""
+    """Persist one candidate attachment with content-level deduplication.
+
+    ``is_primary`` only ever applies to ``document_kind == cv`` — the primary
+    flag is what the CV gallery and enrichment read, and PATCH
+    ``/documents/{id}`` rejects it for every other kind. Callers must not pass
+    ``is_primary=True`` for a non-CV attachment.
+    """
+
+    if is_primary and document_kind != CandidateDocumentKind.cv:
+        raise ValueError("only a CV document can be primary")
 
     digest = hashlib.sha256(content).hexdigest()
     if is_primary:
@@ -4271,7 +4282,7 @@ async def _store_candidate_cv_document(
             .values(is_primary=False)
         )
     if existing is not None:
-        existing.document_kind = CandidateDocumentKind.cv
+        existing.document_kind = document_kind
         existing.is_primary = is_primary
         existing.filename = filename[:500]
         existing.content_type = content_type or None
@@ -4310,7 +4321,7 @@ async def _store_candidate_cv_document(
         storage_key=storage_key,
         content_type=(content_type or None),
         size_bytes=len(content),
-        document_kind=CandidateDocumentKind.cv,
+        document_kind=document_kind,
         is_primary=is_primary,
         uploaded_at=datetime.now(timezone.utc),
         external_source=external_source,
@@ -4319,6 +4330,30 @@ async def _store_candidate_cv_document(
     db.add(document)
     await db.flush()
     return document
+
+
+async def _store_candidate_cv_document(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    filename: str,
+    content: bytes,
+    content_type: Optional[str],
+    external_source: str,
+    is_primary: bool = True,
+) -> CandidateDocument:
+    """Persist one CV version with content-level deduplication."""
+
+    return await _store_candidate_document(
+        db,
+        candidate_id=candidate_id,
+        filename=filename,
+        content=content,
+        content_type=content_type,
+        external_source=external_source,
+        document_kind=CandidateDocumentKind.cv,
+        is_primary=is_primary,
+    )
 
 
 async def _candidate_document_bytes(
@@ -4721,67 +4756,101 @@ async def create_candidate_from_cv(
     )
 
 
-@router.post("/{candidate_id}/cv", response_model=CandidateResponse)
-async def upload_cv(
-    candidate_id: int,
-    current_user: RecruiterPlus,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    file: UploadFile = File(...),
-):
-    """Upload CV file for a candidate.
+# ── Upload plików kandydata ─────────────────────────────────────────────────
 
-    Saves the file, extracts text (PDF/DOCX/TXT) into `raw_cv_text`, and
-    schedules an async enrichment task that populates AI summary, companies
-    and skill facts in the background. Response returns as soon as the file
-    is on disk — callers don't block on the LLM.
+# CV: MIME + extension allowlist (PDF / DOC / DOCX). Either signal is enough
+# — clients sometimes send empty content_type, but the extension check catches
+# the obvious cases.
+_CV_ALLOWED_MIME = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_CV_ALLOWED_EXT = {".pdf", ".doc", ".docx"}
 
-    Security: validates size + MIME + extension, and strips path components
-    from the supplied filename. Same checks as the public_share invite-link
-    upload (`_validate_cv_file` in `public_share.py`).
+# Załączniki inne niż CV (certyfikaty, listy motywacyjne, skany dokumentów).
+# Content-type bierzemy Z ROZSZERZENIA, nie z nagłówka klienta: `/documents/
+# {id}/content?disposition=inline` oddaje zapisany `content_type`, więc plik
+# wgrany jako `skan.pdf` z podrobionym `text/html` renderowałby się jako HTML
+# na origin API. Mapa poniżej jest zarazem allowlistą rozszerzeń.
+_DOCUMENT_CONTENT_TYPES: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ),
+    ".odt": "application/vnd.oasis.opendocument.text",
+    ".rtf": "application/rtf",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ),
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".zip": "application/zip",
+}
+
+# Formaty dopuszczone dla `document_kind=cv` — tylko te, z których ekstraktor
+# tekstu ma szansę coś wyciągnąć. Bez tego skan JPG dałoby się ustawić jako
+# primary CV i wyzerować ścieżkę wzbogacania profilu.
+_CV_DOCUMENT_EXT = {".pdf", ".doc", ".docx", ".odt", ".rtf", ".txt"}
+
+
+def _sanitize_upload_filename(raw_filename: Optional[str], *, fallback: str) -> str:
+    """Strip directory components from a client-supplied filename.
+
+    `pathlib.Path(...).name` returns just the last segment, defeating
+    `../../etc/passwd` and similar traversal. The result is also what lands in
+    `candidates.cv_filename`, which the legacy `/cv-download` route joins onto
+    `UPLOAD_DIR` — so sanitising here closes the read path too.
     """
-    import asyncio
     import pathlib
 
-    from app.services import cv_text_extractor
+    name = pathlib.Path((raw_filename or "").strip()).name
+    return name or fallback
 
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
 
-    # Read content first so we can size-check before writing to disk.
-    content = await file.read()
+def _validate_upload_size(content: bytes, *, label: str) -> None:
     if len(content) == 0:
-        raise HTTPException(status_code=400, detail="CV file is empty")
+        raise HTTPException(status_code=400, detail=f"{label} is empty")
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=413,
-            detail=f"CV file too large (max {settings.MAX_UPLOAD_SIZE_MB} MB)",
+            detail=f"{label} too large (max {settings.MAX_UPLOAD_SIZE_MB} MB)",
         )
-    # MIME + extension allowlist (PDF / DOC / DOCX). Either signal is enough
-    # — clients sometimes send empty content_type, but the extension check
-    # catches the obvious cases.
-    _allowed_mime = {
-        "application/pdf",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    }
-    _allowed_ext = {".pdf", ".doc", ".docx"}
-    raw_filename = file.filename or "upload.pdf"
-    _, ext = os.path.splitext(raw_filename.lower())
-    mime_ok = (file.content_type or "") in _allowed_mime
-    ext_ok = ext in _allowed_ext
-    if not (mime_ok or ext_ok):
-        raise HTTPException(
-            status_code=415,
-            detail="Unsupported CV format. Use PDF, DOC, or DOCX.",
-        )
-    # Strip directory components — pathlib.Path(...).name returns just the
-    # last segment, defeating `../../etc/passwd` and similar traversal.
-    safe_filename = pathlib.Path(raw_filename).name
 
+
+async def _ingest_candidate_cv_file(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    content: bytes,
+    safe_filename: str,
+    content_type: Optional[str],
+    user_id: int,
+    external_source: str = "manual",
+) -> CandidateDocument:
+    """Persist an uploaded CV: disk copy, text extraction, row, audit trail.
+
+    Shared by `POST /{id}/cv` and the generic `POST /{id}/documents` upload, so
+    a CV added from the „Pliki" tab behaves exactly like one added from the CV
+    box: same legacy disk path for `/cv-download`, same `raw_cv_text` refresh,
+    same primary flag. Does NOT commit — the caller owns the transaction and
+    the post-commit work (embedding + enrichment task).
+    """
+    from app.services import cv_text_extractor
+
+    candidate_id = candidate.id
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(
         settings.UPLOAD_DIR, f"candidate_{candidate_id}_{safe_filename}"
@@ -4805,40 +4874,48 @@ async def upload_cv(
             f"[CV upload] text extraction failed for candidate {candidate_id}: {e}"
         )
 
-    # Persist the sanitized filename — read path (download_cv) reconstructs
-    # `UPLOAD_DIR/candidate_<id>_<cv_filename>`, so any directory components
-    # left in cv_filename would re-introduce traversal on read.
     candidate.cv_filename = safe_filename
     document = await _store_candidate_cv_document(
         db,
         candidate_id=candidate_id,
         filename=safe_filename,
         content=content,
-        content_type=file.content_type,
-        external_source="manual",
+        content_type=content_type,
+        external_source=external_source,
         is_primary=True,
     )
-    activity = Activity(
-        entity_type="candidate",
-        entity_id=candidate_id,
-        action="cv_uploaded",
-        user_id=current_user.id,
-        details={"filename": safe_filename},
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="cv_uploaded",
+            user_id=user_id,
+            details={"filename": safe_filename},
+        )
     )
-    db.add(activity)
-    user_activity = UserActivity(
-        user_id=current_user.id,
-        action_type=UserActionType.cv_uploaded,
-        entity_type="candidate",
-        entity_id=candidate_id,
-        details={"filename": file.filename},
+    db.add(
+        UserActivity(
+            user_id=user_id,
+            action_type=UserActionType.cv_uploaded,
+            entity_type="candidate",
+            entity_id=candidate_id,
+            details={"filename": safe_filename},
+        )
     )
-    db.add(user_activity)
-    await db.commit()
-    await db.refresh(candidate)
+    return document
 
-    # Phase 1: auto-embed candidate after CV upload.
-    # Non-blocking — CV is already saved; embedding failures are logged but not raised.
+
+async def _after_cv_commit(
+    db: AsyncSession,
+    background_tasks: BackgroundTasks,
+    *,
+    candidate: Candidate,
+    document: CandidateDocument,
+) -> None:
+    """Re-index + schedule enrichment once the CV row is durable."""
+    candidate_id = candidate.id
+    # Phase 1: auto-embed candidate after CV upload. Non-blocking — CV is
+    # already saved; embedding failures are logged but not raised.
     try:
         from app.services.index_outbox_service import schedule_or_embed_candidate
 
@@ -4858,6 +4935,58 @@ async def upload_cv(
             document.content_sha256,
         )
 
+
+@router.post("/{candidate_id}/cv", response_model=CandidateResponse)
+async def upload_cv(
+    candidate_id: int,
+    current_user: RecruiterPlus,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Upload CV file for a candidate.
+
+    Saves the file, extracts text (PDF/DOCX/TXT) into `raw_cv_text`, and
+    schedules an async enrichment task that populates AI summary, companies
+    and skill facts in the background. Response returns as soon as the file
+    is on disk — callers don't block on the LLM.
+
+    Security: validates size + MIME + extension, and strips path components
+    from the supplied filename. Same checks as the public_share invite-link
+    upload (`_validate_cv_file` in `public_share.py`).
+    """
+    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
+    candidate = result.scalar_one_or_none()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    # Read content first so we can size-check before writing to disk.
+    content = await file.read()
+    _validate_upload_size(content, label="CV file")
+
+    raw_filename = file.filename or "upload.pdf"
+    _, ext = os.path.splitext(raw_filename.lower())
+    mime_ok = (file.content_type or "") in _CV_ALLOWED_MIME
+    ext_ok = ext in _CV_ALLOWED_EXT
+    if not (mime_ok or ext_ok):
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported CV format. Use PDF, DOC, or DOCX.",
+        )
+    safe_filename = _sanitize_upload_filename(raw_filename, fallback="upload.pdf")
+
+    document = await _ingest_candidate_cv_file(
+        db,
+        candidate=candidate,
+        content=content,
+        safe_filename=safe_filename,
+        content_type=file.content_type,
+        user_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(candidate)
+    await _after_cv_commit(db, background_tasks, candidate=candidate, document=document)
+
     # Re-fetch with eager-loaded relations so CandidateResponse can build
     # the derived `employment` field; upload_cv used to return the bare
     # Candidate, which tripped the response schema when strict validation
@@ -4869,6 +4998,127 @@ async def upload_cv(
     )
     full = reloaded.scalar_one()
     return _candidate_to_response(full)
+
+
+@router.post(
+    "/{candidate_id}/documents",
+    response_model=CandidateDocumentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_candidate_document(
+    candidate_id: int,
+    current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    document_kind: Literal["cv", "cover_letter", "certificate", "other"] = Form(
+        "other"
+    ),
+    is_primary: bool = Form(False),
+):
+    """Dodaj dowolny plik do kandydata (zakładka „Pliki i umowy").
+
+    `POST /{id}/cv` przyjmuje wyłącznie CV i zawsze nadpisuje primary — ten
+    endpoint obsługuje resztę teczki kandydata (certyfikaty, listy
+    motywacyjne, skany) i jest write-path dla uploadu z profilu.
+
+    Zachowanie per `document_kind`:
+
+    - `cv` — pełna ścieżka CV: kopia na dysk (legacy `/cv-download`),
+      ekstrakcja tekstu do `raw_cv_text`, re-embedding i wzbogacanie AI w tle.
+      Plik zostaje primary gdy zażądano `is_primary` albo gdy kandydat nie ma
+      jeszcze żadnego primary CV.
+    - pozostałe rodzaje — sam załącznik; `is_primary` jest wtedy odrzucane
+      (422), tak samo jak w `PATCH /documents/{doc_id}`.
+
+    Deduplikacja po SHA-256 treści: ponowny upload tego samego pliku aktualizuje
+    istniejący rekord zamiast tworzyć duplikat.
+    """
+    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
+    candidate = result.scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    kind = CandidateDocumentKind(document_kind)
+    if is_primary and kind != CandidateDocumentKind.cv:
+        raise HTTPException(
+            status_code=422,
+            detail="Only a document classified as CV can be primary",
+        )
+
+    content = await file.read()
+    _validate_upload_size(content, label="File")
+
+    safe_filename = _sanitize_upload_filename(file.filename, fallback="upload")
+    _, ext = os.path.splitext(safe_filename.lower())
+    resolved_content_type = _DOCUMENT_CONTENT_TYPES.get(ext)
+    if resolved_content_type is None:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "Nieobsługiwany format pliku. Dozwolone: "
+                + ", ".join(sorted(_DOCUMENT_CONTENT_TYPES))
+            ),
+        )
+    if kind == CandidateDocumentKind.cv and ext not in _CV_DOCUMENT_EXT:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "CV musi być dokumentem tekstowym (PDF, DOC, DOCX, ODT, RTF, "
+                "TXT). Inne formaty dodaj jako certyfikat lub „inny”."
+            ),
+        )
+
+    if kind == CandidateDocumentKind.cv:
+        if not is_primary:
+            has_primary_cv = await db.scalar(
+                select(CandidateDocument.id).where(
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                    CandidateDocument.is_primary.is_(True),
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            is_primary = has_primary_cv is None
+        if is_primary:
+            document = await _ingest_candidate_cv_file(
+                db,
+                candidate=candidate,
+                content=content,
+                safe_filename=safe_filename,
+                content_type=resolved_content_type,
+                user_id=current_user.id,
+            )
+            await db.commit()
+            await db.refresh(candidate)
+            await db.refresh(document)
+            await _after_cv_commit(
+                db, background_tasks, candidate=candidate, document=document
+            )
+            return document
+
+    document = await _store_candidate_document(
+        db,
+        candidate_id=candidate_id,
+        filename=safe_filename,
+        content=content,
+        content_type=resolved_content_type,
+        external_source="manual",
+        document_kind=kind,
+        is_primary=False,
+    )
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="document_uploaded",
+            user_id=current_user.id,
+            details={"filename": safe_filename, "document_kind": kind.value},
+        )
+    )
+    await db.commit()
+    await db.refresh(document)
+    return document
 
 
 @router.get("/{candidate_id}/cv-download")
