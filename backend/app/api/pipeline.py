@@ -72,6 +72,8 @@ from app.services.rate_normalization import (
 )
 from app.services.recruitment_process_commands import (
     accept_pending_verification,
+    canonical_candidate_lock_order,
+    lock_candidates_stmt,
     reject_pending_verification,
     transition_process,
 )
@@ -1865,7 +1867,7 @@ async def bulk_move_candidates(
     # Canonical command service takes a row lock per candidate.  Stable order
     # prevents two overlapping bulk requests with reversed input order from
     # deadlocking each other.
-    unique_ids = sorted(dict.fromkeys(data.candidate_ids))
+    unique_ids = canonical_candidate_lock_order(data.candidate_ids)
     if len(unique_ids) > 100:
         raise HTTPException(
             status_code=422,
@@ -1881,10 +1883,14 @@ async def bulk_move_candidates(
     # job-specific) and before any candidate lookup.
     await ensure_job_membership(db, current_user, job.id)
 
+    # Faza 1 globalnej kolejności blokad: komplet kandydatów rosnąco, ZANIM
+    # `transition_process` w pętli niżej weźmie blokadę oferty. Bez tego pętla
+    # przeplatała kandydat→oferta→kandydat i zakleszczała się z wsadowym
+    # `sync_external_observed_processes` (Traffit), który blokuje wszystkich
+    # kandydatów przed jakąkolwiek ofertą. Sam sort tego nie zamykał.
+    # Kontrola istnienia jedzie na tym samym zapytaniu — zero dodatkowych rund.
     existing_ids = set(
-        (await db.execute(select(Candidate.id).where(Candidate.id.in_(unique_ids))))
-        .scalars()
-        .all()
+        (await db.execute(lock_candidates_stmt(unique_ids))).scalars().all()
     )
     missing = [cid for cid in unique_ids if cid not in existing_ids]
     if missing:

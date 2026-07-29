@@ -383,9 +383,13 @@ def test_unresolvable_withdrawn_counts_as_skip_not_error():
     src = inspect.getsource(TraffitImporter.import_pipelines)
     assert "progress.skipped += 1" in src
     assert "_fallback_rejection_reason_id" in src
-    # Fallback liczony PRZED INSERT-em, żeby nie ubijać transakcji.
+    # Fallback liczony PRZED INSERT-em, żeby nie ubijać transakcji. INSERT
+    # mieszka w `_upsert_stage_row`, więc kolejność mierzymy po jego wywołaniu.
+    assert "INSERT INTO candidate_stages" in inspect.getsource(
+        TraffitImporter._upsert_stage_row
+    )
     assert src.index("_fallback_rejection_reason_id") < src.index(
-        "INSERT INTO candidate_stages"
+        "_upsert_stage_row("
     )
 
 

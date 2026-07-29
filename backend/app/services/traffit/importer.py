@@ -2032,12 +2032,15 @@ class TraffitImporter:
         # The batch itself commits only after RecruitmentProcess is synced, so
         # a crash cannot persist one side of the canonical pair without the
         # other.
-        commit_every = 500
-        since_commit = 0
+        # Wsad trzyma FOR UPDATE na wszystkich swoich kandydatach i ofertach aż
+        # do commitu, więc 100 (jak w pozostałych fazach tego pliku) zamiast 500
+        # skraca okno rywalizacji z bulk-move; trwałość per-wiersz zapewnia
+        # `_replay_stage_rows`, nie rozmiar wsadu.
+        commit_every = 100
         unresolved_withdrawn = 0
-        pending_process_pairs: set[tuple[int, int]] = set()
-        pending_inserted = 0
-        pending_updated = 0
+        # (payload, rejection_reason_id, was_insert) — payload zostaje, bo bez
+        # niego nieudany wsad nie da się odtworzyć wiersz po wierszu.
+        pending_rows: list[tuple[dict[str, Any], Optional[int], bool]] = []
 
         async for raw in self.traffit.get_paginated(
             "/employees/recruitment_history",
@@ -2089,92 +2092,7 @@ class TraffitImporter:
                     )
                 continue
             try:
-                async with self.db.begin_nested():
-                    result = await self.db.execute(
-                        text(
-                            """
-                            INSERT INTO candidate_stages (
-                                external_id, external_source,
-                                candidate_id, job_id, stage_def_id, stage,
-                                moved_at, moved_by, rejection_reason_id,
-                                verification_status,
-                                created_at, updated_at
-                            ) VALUES (
-                                :external_id, 'traffit',
-                                :candidate_id, :job_id, :stage_def_id,
-                                CAST(:stage AS pipelinestage),
-                                CAST(:moved_at AS TIMESTAMPTZ), :moved_by,
-                                :rejection_reason_id,
-                                CAST('active' AS verificationstatus),
-                                NOW(), NOW()
-                            )
-                            ON CONFLICT (external_source, external_id)
-                            WHERE external_id IS NOT NULL
-                            DO UPDATE SET
-                                stage_def_id = EXCLUDED.stage_def_id,
-                                stage        = EXCLUDED.stage,
-                                moved_at     = EXCLUDED.moved_at,
-                                moved_by     = COALESCE(
-                                    EXCLUDED.moved_by,
-                                    candidate_stages.moved_by
-                                ),
-                                -- Fallback nigdy nie nadpisuje realnego powodu
-                                -- (wybranego przez rekrutera lub z backfillu).
-                                rejection_reason_id = COALESCE(
-                                    candidate_stages.rejection_reason_id,
-                                    EXCLUDED.rejection_reason_id
-                                ),
-                                updated_at   = NOW()
-                            RETURNING id, (xmax = 0) AS was_insert
-                            """
-                        ),
-                        {
-                            "external_id": payload["external_id"],
-                            "candidate_id": payload["candidate_id"],
-                            "job_id": payload["job_id"],
-                            "stage_def_id": payload["stage_def_id"],
-                            "stage": payload["stage_legacy_enum"],
-                            "moved_at": payload["moved_at"],
-                            "moved_by": payload["moved_by"],
-                            "rejection_reason_id": rejection_reason_id,
-                        },
-                    )
-                    row = result.fetchone()
-                if row is None:
-                    continue
-                # Kolejka kontaktu wisi na tym samym wierszu co import etapu.
-                # Hooki są poza savepointem: nieudany hook nie może wycofać
-                # zaimportowanego etapu (są `maybe_*`, czyli best-effort).
-                if payload["stage_legacy_enum"] in {
-                    "hired",
-                    "rejected",
-                    "withdrawn",
-                }:
-                    await maybe_close_contact_opportunity(
-                        self.db,
-                        candidate_id=payload["candidate_id"],
-                        job_id=payload["job_id"],
-                        actor_user_id=payload["moved_by"],
-                        reason=(
-                            f"traffit_pipeline_terminal:{payload['stage_legacy_enum']}"
-                        ),
-                        occurred_at=(
-                            payload["contact_source_created_at"] or payload["moved_at"]
-                        ),
-                        source="traffit",
-                        source_external_ref=payload["external_id"],
-                    )
-                else:
-                    await maybe_ensure_contact_opportunity(
-                        self.db,
-                        candidate_id=payload["candidate_id"],
-                        job_id=payload["job_id"],
-                        source="traffit",
-                        source_external_ref=payload["external_id"],
-                        occurred_at=(
-                            payload["contact_source_created_at"] or payload["moved_at"]
-                        ),
-                    )
+                was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
             except Exception as e:  # noqa: BLE001
                 msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
                 progress.add_error(msg)
@@ -2182,65 +2100,189 @@ class TraffitImporter:
                     logger.warning("Pipelines upsert error: %s", msg[:300])
                 continue
 
-            if row is None:
+            if was_insert is None:
                 continue
-            if row[1]:
-                pending_inserted += 1
-            else:
-                pending_updated += 1
-            pending_process_pairs.add((payload["candidate_id"], payload["job_id"]))
-            since_commit += 1
-            if since_commit >= commit_every:
-                try:
-                    await sync_external_observed_processes(
-                        self.db, pairs=sorted(pending_process_pairs)
-                    )
-                    await self.db.commit()
-                    progress.inserted += pending_inserted
-                    progress.updated += pending_updated
-                    pending_process_pairs.clear()
-                    pending_inserted = 0
-                    pending_updated = 0
-                    since_commit = 0
-                    logger.info(
-                        "Pipelines progress: %d/%d (inserted=%d updated=%d errors=%d)",
-                        progress.processed,
-                        progress.total_source,
-                        progress.inserted,
-                        progress.updated,
-                        progress.errors,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    await self.db.rollback()
-                    progress.add_error(
-                        "atomic stage/process sync failed for "
-                        f"{len(pending_process_pairs)} pairs: {e!r}"
-                    )
-                    pending_process_pairs.clear()
-                    pending_inserted = 0
-                    pending_updated = 0
-                    since_commit = 0
+            pending_rows.append((payload, rejection_reason_id, was_insert))
+            if len(pending_rows) >= commit_every:
+                await self._flush_stage_batch(progress, pending_rows)
+                pending_rows.clear()
+                logger.info(
+                    "Pipelines progress: %d/%d (inserted=%d updated=%d errors=%d)",
+                    progress.processed,
+                    progress.total_source,
+                    progress.inserted,
+                    progress.updated,
+                    progress.errors,
+                )
 
-        if not self.dry_run and since_commit > 0:
-            try:
-                await sync_external_observed_processes(
-                    self.db, pairs=sorted(pending_process_pairs)
-                )
-                await self.db.commit()
-                progress.inserted += pending_inserted
-                progress.updated += pending_updated
-            except Exception as e:  # noqa: BLE001
-                await self.db.rollback()
-                progress.add_error(
-                    "atomic final stage/process sync failed for "
-                    f"{len(pending_process_pairs)} pairs: {e!r}"
-                )
+        if not self.dry_run and pending_rows:
+            await self._flush_stage_batch(progress, pending_rows)
+            pending_rows.clear()
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Pipelines import done: %s",
             json.dumps(progress.as_dict(), default=str)[:500],
         )
         return progress
+
+    async def _upsert_stage_row(
+        self, payload: dict[str, Any], rejection_reason_id: Optional[int]
+    ) -> Optional[bool]:
+        """Upsert jednego wiersza `candidate_stages` + hooki kolejki kontaktu.
+
+        Zwraca `was_insert` (albo ``None``, gdy ON CONFLICT nic nie zwrócił).
+        Nie commituje — o granicy transakcji decyduje wołający, żeby etap i
+        `RecruitmentProcess` trafiły do bazy razem albo wcale.
+        """
+
+        async with self.db.begin_nested():
+            result = await self.db.execute(
+                text(
+                    """
+                    INSERT INTO candidate_stages (
+                        external_id, external_source,
+                        candidate_id, job_id, stage_def_id, stage,
+                        moved_at, moved_by, rejection_reason_id,
+                        verification_status,
+                        created_at, updated_at
+                    ) VALUES (
+                        :external_id, 'traffit',
+                        :candidate_id, :job_id, :stage_def_id,
+                        CAST(:stage AS pipelinestage),
+                        CAST(:moved_at AS TIMESTAMPTZ), :moved_by,
+                        :rejection_reason_id,
+                        CAST('active' AS verificationstatus),
+                        NOW(), NOW()
+                    )
+                    ON CONFLICT (external_source, external_id)
+                    WHERE external_id IS NOT NULL
+                    DO UPDATE SET
+                        stage_def_id = EXCLUDED.stage_def_id,
+                        stage        = EXCLUDED.stage,
+                        moved_at     = EXCLUDED.moved_at,
+                        moved_by     = COALESCE(
+                            EXCLUDED.moved_by,
+                            candidate_stages.moved_by
+                        ),
+                        -- Fallback nigdy nie nadpisuje realnego powodu
+                        -- (wybranego przez rekrutera lub z backfillu).
+                        rejection_reason_id = COALESCE(
+                            candidate_stages.rejection_reason_id,
+                            EXCLUDED.rejection_reason_id
+                        ),
+                        updated_at   = NOW()
+                    RETURNING id, (xmax = 0) AS was_insert
+                    """
+                ),
+                {
+                    "external_id": payload["external_id"],
+                    "candidate_id": payload["candidate_id"],
+                    "job_id": payload["job_id"],
+                    "stage_def_id": payload["stage_def_id"],
+                    "stage": payload["stage_legacy_enum"],
+                    "moved_at": payload["moved_at"],
+                    "moved_by": payload["moved_by"],
+                    "rejection_reason_id": rejection_reason_id,
+                },
+            )
+            row = result.fetchone()
+        if row is None:
+            return None
+        # Kolejka kontaktu wisi na tym samym wierszu co import etapu.
+        # Hooki są poza savepointem: nieudany hook nie może wycofać
+        # zaimportowanego etapu (są `maybe_*`, czyli best-effort).
+        if payload["stage_legacy_enum"] in {"hired", "rejected", "withdrawn"}:
+            await maybe_close_contact_opportunity(
+                self.db,
+                candidate_id=payload["candidate_id"],
+                job_id=payload["job_id"],
+                actor_user_id=payload["moved_by"],
+                reason=(f"traffit_pipeline_terminal:{payload['stage_legacy_enum']}"),
+                occurred_at=(
+                    payload["contact_source_created_at"] or payload["moved_at"]
+                ),
+                source="traffit",
+                source_external_ref=payload["external_id"],
+            )
+        else:
+            await maybe_ensure_contact_opportunity(
+                self.db,
+                candidate_id=payload["candidate_id"],
+                job_id=payload["job_id"],
+                source="traffit",
+                source_external_ref=payload["external_id"],
+                occurred_at=(
+                    payload["contact_source_created_at"] or payload["moved_at"]
+                ),
+            )
+        return bool(row[1])
+
+    async def _flush_stage_batch(
+        self,
+        progress: PhaseProgress,
+        pending_rows: list[tuple[dict[str, Any], Optional[int], bool]],
+    ) -> None:
+        """Domknij wsad: sync procesów + commit etapów i procesów razem."""
+
+        if not pending_rows:
+            return
+        pairs = sorted({(p["candidate_id"], p["job_id"]) for p, _, _ in pending_rows})
+        try:
+            await sync_external_observed_processes(self.db, pairs=pairs)
+            await self.db.commit()
+        except Exception as e:  # noqa: BLE001
+            # Rollback wsadu wyrzucał do `commit_every` zaimportowanych etapów
+            # (pierwszy run zgubił tak ~18k), a jedyny ślad — błąd wsadowy — nie
+            # ma `ext=<id>`, więc kwarantanna nie ma czego zaparkować i faza
+            # zamarza. Odtwarzamy więc wiersz po wierszu: każdy commituje etap
+            # RAZEM ze swoim procesem (niezmiennik zachowany), tracimy najwyżej
+            # jeden zamiast całego wsadu, a błąd niesie `ext=<id>`.
+            logger.warning(
+                "Pipelines batch commit failed (%d pairs) — replaying %d rows "
+                "individually: %r",
+                len(pairs),
+                len(pending_rows),
+                e,
+            )
+            await self._replay_stage_rows(progress, pending_rows)
+            return
+        for _, _, was_insert in pending_rows:
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
+
+    async def _replay_stage_rows(
+        self,
+        progress: PhaseProgress,
+        pending_rows: list[tuple[dict[str, Any], Optional[int], bool]],
+    ) -> None:
+        """Odtwórz wsad wiersz po wierszu, każdy w osobnej transakcji."""
+
+        await self.db.rollback()
+        for payload, rejection_reason_id, _ in pending_rows:
+            try:
+                was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
+                if was_insert is None:
+                    await self.db.rollback()
+                    continue
+                await sync_external_observed_processes(
+                    self.db, pairs=[(payload["candidate_id"], payload["job_id"])]
+                )
+                await self.db.commit()
+            except Exception as e:  # noqa: BLE001
+                await self.db.rollback()
+                # Format `<verb> <entity> ext=<id>` — patrz `_ERROR_REF_RE`:
+                # bez niego błąd jest nieprzypisywalny i blokuje watermark.
+                msg = f"replay stage ext={payload.get('external_id')}: {e!r}"
+                progress.add_error(msg)
+                if progress.errors <= 5 or progress.errors % 500 == 0:
+                    logger.warning("Pipelines replay error: %s", msg[:300])
+                continue
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
 
     # ── Faza 5b: candidate activities ───────────────────────────────────────
 

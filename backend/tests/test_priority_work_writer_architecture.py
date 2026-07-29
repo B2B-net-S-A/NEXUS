@@ -284,6 +284,8 @@ def test_bulk_ingress_shares_one_assignment_progress_scan() -> None:
 
     source = (APP_ROOT / "api" / "proposals_bulk.py").read_text(encoding="utf-8")
     scope = source.index("with milestone_counts_scope():")
-    loop = source.index("for candidate_id in body.candidate_ids:")
+    # Lista kandydatów jest kanonizowana (sort+dedup) przed pętlą — patrz
+    # `canonical_candidate_lock_order`.
+    loop = source.index("for candidate_id in lock_ordered_ids:")
     ingress = source.index("await open_process(")
     assert scope < loop < ingress

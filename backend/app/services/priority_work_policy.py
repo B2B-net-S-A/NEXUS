@@ -552,7 +552,19 @@ async def decide_priority_work_access(
             priority_compliant=None,
         )
 
-    if job_is_open is False and mode is not PriorityMode.off:
+    # `external_inbound` (zgłoszenie z publicznego linku) jest — jak
+    # `external_observed` wyżej — danymi przychodzącymi z zewnątrz, a nie pracą
+    # rekrutera, więc bramka „oferta zamknięta" go nie dotyczy. Przed tym
+    # wyjątkiem zamknięcie oferty zamrażało w shadow `kpi_eligible=True` z
+    # `eligibility_assignment_id=NULL` na twórcy linku: proces nigdy nie liczył
+    # się do targetu (`record_accepted_verification` wychodzi wcześniej, gdy
+    # `kpi_eligible` jest już ustawione), a przypisanie szło do tożsamości,
+    # której gałąź inbound świadomie nie kredytuje.
+    if (
+        job_is_open is False
+        and mode is not PriorityMode.off
+        and origin_kind != PriorityOriginKind.external_inbound
+    ):
         if mode is PriorityMode.shadow:
             return PriorityWorkDecision(
                 allowed=True,

@@ -11,13 +11,14 @@ and commit behaviour.  Commands flush, but never commit.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, delete, func, select, tuple_, update
+from sqlalchemy import Select, and_, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -65,6 +66,33 @@ _TERMINAL_STAGES = {
 # Stopnie, które `assignment_milestone_counts` faktycznie zlicza — tylko one
 # mogą unieważnić memo progresu otwarte przez `milestone_counts_scope`.
 _MILESTONE_COUNT_STAGES = {PipelineStage.verified, PipelineStage.cv_sent}
+
+
+def canonical_candidate_lock_order(candidate_ids: Iterable[int]) -> list[int]:
+    """Faza 1 globalnej kolejności blokad: kandydaci rosnąco, bez duplikatów.
+
+    Globalna kolejność brzmi: **wszyscy kandydaci operacji (rosnąco po id) →
+    dopiero potem oferty (rosnąco po id) → reszta**. Wsadowy
+    `sync_external_observed_processes` trzymał się jej od początku, ale
+    wywołujący w pętli (bulk-move, bulk-proposals) przeplatali
+    kandydat→oferta→kandydat, więc czekali na kolejnego kandydata trzymając już
+    blokadę oferty — klasyczne ABBA z wsadem Traffita. Każdy wywołujący, który
+    dotyka więcej niż jednej pary, musi wziąć komplet blokad kandydatów przez tę
+    funkcję ZANIM `transition_process` zablokuje pierwszą ofertę.
+    """
+
+    return sorted(dict.fromkeys(candidate_ids))
+
+
+def lock_candidates_stmt(candidate_ids: Iterable[int]) -> Select:
+    """``SELECT id ... FOR UPDATE`` w kanonicznej kolejności blokad."""
+
+    return (
+        select(Candidate.id)
+        .where(Candidate.id.in_(canonical_candidate_lock_order(candidate_ids)))
+        .order_by(Candidate.id)
+        .with_for_update()
+    )
 
 
 @dataclass(frozen=True)
@@ -1225,16 +1253,12 @@ async def sync_external_observed_processes(
         return 0
 
     # Lock all resources in the same Candidate -> Job order used by native
-    # commands. Sorted ids also give concurrent Traffit batches one deterministic
-    # order. Everything below is intentionally read after the locks so it sees a
-    # process committed while this batch was waiting instead of racing the same
-    # attempt number.
-    candidate_ids = sorted({candidate_id for candidate_id, _ in pair_keys})
+    # commands (patrz `canonical_candidate_lock_order`). Sorted ids also give
+    # concurrent Traffit batches one deterministic order. Everything below is
+    # intentionally read after the locks so it sees a process committed while
+    # this batch was waiting instead of racing the same attempt number.
     await db.execute(
-        select(Candidate.id)
-        .where(Candidate.id.in_(candidate_ids))
-        .order_by(Candidate.id)
-        .with_for_update()
+        lock_candidates_stmt(candidate_id for candidate_id, _ in pair_keys)
     )
     job_ids = sorted({job_id for _, job_id in pair_keys})
     jobs = {

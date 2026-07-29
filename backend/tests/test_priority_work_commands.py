@@ -479,12 +479,18 @@ def test_external_sync_locks_candidate_then_job_before_process_snapshot() -> Non
     batch_source = inspect.getsource(commands.sync_external_observed_processes)
     lock_source = inspect.getsource(commands._lock_external_pair)
 
+    # Wsadowa blokada kandydatów jedzie przez współdzieloną kanoniczną kolejkę
+    # (`lock_candidates_stmt`), której trzymają się też pętlowi wywołujący.
+    helper_source = inspect.getsource(commands.lock_candidates_stmt)
+    assert ".order_by(Candidate.id)" in helper_source
+    assert ".with_for_update()" in helper_source
+
     assert lock_source.index("select(Candidate.id)") < lock_source.index("select(Job)")
     assert lock_source.count(".with_for_update()") == 2
     assert single_source.index("_lock_external_pair") < single_source.index(
         "_latest_stage"
     )
-    assert batch_source.index("select(Candidate.id)") < batch_source.index(
+    assert batch_source.index("lock_candidates_stmt(") < batch_source.index(
         "select(Job)"
     )
     assert batch_source.index("select(Job)") < batch_source.index(
@@ -493,7 +499,8 @@ def test_external_sync_locks_candidate_then_job_before_process_snapshot() -> Non
     assert batch_source.index("select(CandidateStage)") < batch_source.index(
         "select(RecruitmentProcess)"
     )
-    assert batch_source.count(".with_for_update()") >= 3
+    # Job + RecruitmentProcess inline; kandydat w `lock_candidates_stmt` wyżej.
+    assert batch_source.count(".with_for_update()") >= 2
 
 
 async def test_live_command_resolves_published_custom_stage_semantics() -> None:
@@ -564,13 +571,18 @@ def test_traffit_stage_upsert_syncs_process_before_every_commit() -> None:
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "TraffitImporter"
     )
-    method = next(
-        node
+    methods = {
+        node.name: node
         for node in importer.body
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == "import_pipelines"
-    )
-    method_source = ast.get_source_segment(source, method) or ""
+        if isinstance(node, ast.AsyncFunctionDef)
+    }
 
+    # SAVEPOINT + upsert żyją w `_upsert_stage_row`; wsad i odtwarzanie wiersz
+    # po wierszu domykają je transakcyjnie (`_flush_stage_batch`,
+    # `_replay_stage_rows`). Rozbicie na metody nie może rozerwać niezmiennika:
+    # KAŻDY commit etapów musi być poprzedzony syncem procesu.
+    upsert = methods["_upsert_stage_row"]
+    upsert_source = ast.get_source_segment(source, upsert) or ""
     has_nested_transaction = any(
         isinstance(node, ast.AsyncWith)
         and any(
@@ -579,25 +591,39 @@ def test_traffit_stage_upsert_syncs_process_before_every_commit() -> None:
             and item.context_expr.func.attr == "begin_nested"
             for item in node.items
         )
-        for node in ast.walk(method)
+        for node in ast.walk(upsert)
     )
     assert has_nested_transaction
-    assert "INSERT INTO candidate_stages" in method_source
+    assert "INSERT INTO candidate_stages" in upsert_source
+    # Sam upsert nigdy nie commituje — granicę wyznacza wołający.
+    assert not any(
+        _awaited_call_name(node) == "commit"
+        for node in ast.walk(upsert)
+        if isinstance(node, ast.Await)
+    )
 
-    events: list[tuple[int, str]] = []
-    for node in ast.walk(method):
-        if not isinstance(node, ast.Await):
-            continue
-        name = _awaited_call_name(node)
-        if name in {"sync_external_observed_processes", "commit"}:
-            events.append((node.lineno, name))
-    ordered_events = [name for _line, name in sorted(events)]
-    assert ordered_events == [
-        "sync_external_observed_processes",
-        "commit",
-        "sync_external_observed_processes",
-        "commit",
+    # `import_pipelines` nie ma już własnego commitu — deleguje do flushu.
+    pipelines_events = [
+        _awaited_call_name(node)
+        for node in ast.walk(methods["import_pipelines"])
+        if isinstance(node, ast.Await)
     ]
+    assert "commit" not in pipelines_events
+    assert "_flush_stage_batch" in pipelines_events
+
+    for name in ("_flush_stage_batch", "_replay_stage_rows"):
+        events: list[tuple[int, str]] = []
+        for node in ast.walk(methods[name]):
+            if not isinstance(node, ast.Await):
+                continue
+            call_name = _awaited_call_name(node)
+            if call_name in {"sync_external_observed_processes", "commit"}:
+                events.append((node.lineno, call_name))
+        ordered_events = [call for _line, call in sorted(events)]
+        assert ordered_events == [
+            "sync_external_observed_processes",
+            "commit",
+        ], f"{name}: {ordered_events}"
 
 
 def test_backfill_locks_deterministically_and_never_reowns_live_processes() -> None:
