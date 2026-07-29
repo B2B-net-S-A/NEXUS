@@ -13,13 +13,18 @@ from pydantic import BaseModel
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.calendar_event import CalendarEvent, EventType, EventStatus
 from app.models.candidate import Candidate
+from app.models.candidate_contact import (
+    CandidateContactCase,
+    CandidateContactOpportunity,
+)
 from app.models.job import Job
 from app.models.client import Client
 from app.models.notification import Notification, NotificationType
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.api.recruitment_access import (
     CalendarWriteAccess,
     RecruitmentReadAccess,
@@ -52,6 +57,64 @@ def _is_contact_handoff_event(event: CalendarEvent) -> bool:
         and event.event_type in (EventType.screening, EventType.interview)
         and event.status in (EventStatus.scheduled, EventStatus.completed)
     )
+
+
+async def _owns_open_contact_opportunity(
+    db: AsyncSession,
+    user_id: int,
+    candidate_id: Optional[int],
+    job_id: Optional[int],
+) -> bool:
+    """Czy wołający prowadzi otwartą sprawę kontaktu obejmującą tę parę.
+
+    Kolejka kontaktu jest KANDYDATO-globalna, a członkostwo w ofercie — nie.
+    Właścicielem sprawy zostaje się przez przynależność do JEDNEJ z otwartych
+    ofert kandydata (``_eligible_users`` bierze sumę zespołów wszystkich
+    otwartych szans), ale domknięcie wymaga spotkania na KAŻDEJ z nich —
+    a jedyną ścieżką ustawienia ``meeting_event_id`` są trasy kalendarza.
+    Sama bramka członkostwa blokowała więc przekazanie, które koordynator już
+    zaprojektował: właściciel dostawał sprawę nie do domknięcia i musiał ją
+    eskalować.
+
+    To NIE jest poszerzenie ``ensure_job_membership`` — zakres jest wąski i
+    pochodny: dokładnie te oferty, które kolejka wręczyła TEMU właścicielowi,
+    tylko dopóki szansa jest otwarta, i tylko przy włączonym module (domyślnie
+    wyłączony, więc na produkcji zero zmiany zachowania).
+    """
+    if not settings.CANDIDATE_CONTACT_ENABLED or candidate_id is None or job_id is None:
+        return False
+    match = await db.scalar(
+        select(CandidateContactOpportunity.id)
+        .join(
+            CandidateContactCase,
+            CandidateContactCase.id == CandidateContactOpportunity.case_id,
+        )
+        .where(
+            CandidateContactOpportunity.candidate_id == candidate_id,
+            CandidateContactOpportunity.job_id == job_id,
+            CandidateContactOpportunity.closed_at.is_(None),
+            CandidateContactCase.owner_user_id == user_id,
+        )
+        .limit(1)
+    )
+    return match is not None
+
+
+async def _ensure_calendar_job_scope(
+    db: AsyncSession,
+    user: User,
+    *,
+    candidate_id: Optional[int],
+    job_id: Optional[int],
+) -> None:
+    """Zakres oferty dla zapisu kalendarza: członkostwo LUB własna sprawa kontaktu.
+
+    Jedno miejsce decyzji dla wszystkich tras zapisu, żeby drugie źródło zakresu
+    nie rozjechało się między tworzeniem a edycją.
+    """
+    if await _owns_open_contact_opportunity(db, user.id, candidate_id, job_id):
+        return
+    await ensure_optional_job_membership(db, user, job_id)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -219,7 +282,9 @@ async def create_event(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new calendar event."""
-    await ensure_optional_job_membership(db, current_user, body.job_id)
+    await _ensure_calendar_job_scope(
+        db, current_user, candidate_id=body.candidate_id, job_id=body.job_id
+    )
     event = CalendarEvent(
         title=body.title,
         description=body.description,
@@ -391,9 +456,35 @@ async def update_event(
         event.id,
         _is_contact_handoff_event(event),
     )
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(event, field, value)
-    await ensure_optional_job_membership(db, current_user, event.job_id)
+    # Bramkujemy PRZEJŚCIE `job_id`, nie wartość po mutacji — poprzedni wariant
+    # był jednocześnie za surowy i trywialnie omijalny:
+    # (a) przy nietkniętym `job_id` odbierał twórcy edycję WŁASNEGO wydarzenia,
+    #     gdy tylko wypadł z zespołu oferty. `user_can_mutate_event` wyżej i tak
+    #     zawęża do twórcy / admina / HoR, a wydarzenie związane z ofertą mógł
+    #     stworzyć tylko ktoś, kto w chwili tworzenia przez tę bramkę przeszedł;
+    # (b) jawne `"job_id": null` jest w `exclude_unset`, więc `setattr` zerował
+    #     atrybut PRZED sprawdzeniem i `ensure_optional_job_membership` wracał
+    #     na `None` — odpięcie od oferty, wraz z rozmontowaniem przekazania
+    #     kontaktu (`maybe_remove_calendar_handoff` niżej działa na SNAPSHOCIE),
+    #     przechodziło bez żadnej kontroli.
+    # Przepięcie i odpięcie wymagają teraz zakresu na obu ofertach — starej
+    # (z `previous_handoff`) i nowej. Warunkiem jest FAKTYCZNA zmiana wartości,
+    # nie sama obecność klucza: klient odsyłający cały obiekt (a więc i
+    # niezmienione `job_id`) nie robi żadnego przepięcia i nie może przez to
+    # wrócić do problemu (a).
+    if "job_id" in changes and event.job_id != previous_handoff[1]:
+        await _ensure_calendar_job_scope(
+            db,
+            current_user,
+            candidate_id=previous_handoff[0],
+            job_id=previous_handoff[1],
+        )
+        await _ensure_calendar_job_scope(
+            db, current_user, candidate_id=event.candidate_id, job_id=event.job_id
+        )
 
     current_handoff = (
         event.candidate_id,
@@ -782,7 +873,9 @@ async def create_m365_invite(
 
     if body.end <= body.start:
         raise HTTPException(status_code=422, detail="end must be after start")
-    await ensure_optional_job_membership(db, current_user, body.job_id)
+    await _ensure_calendar_job_scope(
+        db, current_user, candidate_id=body.candidate_id, job_id=body.job_id
+    )
 
     conn = await db.scalar(
         select(M365Connection).where(M365Connection.user_id == current_user.id)
