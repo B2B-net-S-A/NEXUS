@@ -559,7 +559,7 @@ _COLUMN_STATEMENTS = [
        ON b2b_generated_contracts (contract_id)""",
     """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_signed_by_user_id
        ON b2b_generated_contracts (signed_by_user_id)""",
-    # Status handlowy wygenerowanej umowy (migracja 0202). Wszystkie istniejące
+    # Status handlowy wygenerowanej umowy (migracja 0203). Wszystkie istniejące
     # wiersze stają się 'active' z defaultu — zamknięcie jest zawsze decyzją
     # użytkownika, nigdy backfillem.
     """ALTER TABLE b2b_generated_contracts

@@ -221,6 +221,83 @@ async def test_signed_contract_can_still_be_closed(app_client, app_auth_headers)
     assert blocked.status_code == 409
 
 
+async def _other_legal_user_headers(app_client) -> tuple[int, dict[str, str]]:
+    """Załóż innego użytkownika z dostępem do generatora (TAC) i zaloguj go.
+
+    TAC mieści się w `ContractLegalAccess`, więc przechodzi bramkę routera —
+    dzięki temu test sprawdza REGUŁĘ WŁASNOŚCI, a nie samą bramkę roli."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"pytest-tac-{unique}@example.com"
+    password = f"T3st_{unique}!PassX"
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name="Pytest TAC",
+            role=UserRole.tac,
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        uid = user.id
+
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert resp.status_code == 200, resp.text
+    return uid, {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def test_foreign_user_cannot_change_status(app_client, app_auth_headers):
+    """Nie-autor i nie-admin dostaje 403 przy zmianie statusu cudzej umowy."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _number = await _seed(admin_id)
+    _uid, other_headers = await _other_legal_user_headers(app_client)
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=other_headers,
+        json={
+            "contract_status": "closed",
+            "closure_reason": "termination",
+            "closure_date": "2026-08-31",
+        },
+    )
+    assert resp.status_code == 403, resp.text
+
+    # Status faktycznie się nie zmienił.
+    listing = await app_client.get(
+        PATH, headers=app_auth_headers, params={"limit": 200}
+    )
+    item = next(x for x in listing.json() if x["id"] == rid)
+    assert item["contract_status"] == "active"
+
+
+async def test_authorization_precedes_business_rules(app_client, app_auth_headers):
+    """403 leci PRZED 422/409 — kody odpowiedzi nie odpowiadają na pytania
+    o cudzy wiersz, zanim ustalimy prawo do niego."""
+    admin_id = await _admin_user_id(app_client)
+    signed_id, _ = await _seed(admin_id, signature_status="signed_both")
+    _uid, other_headers = await _other_legal_user_headers(app_client)
+
+    # Pusty payload: 403, nie 422 (które potwierdzałoby istnienie wiersza).
+    empty = await app_client.patch(
+        f"{PATH}/{signed_id}", headers=other_headers, json={}
+    )
+    assert empty.status_code == 403, empty.text
+
+    # Edycja podpisanej: 403, nie 409 (które zdradzałoby stan podpisu).
+    signed = await app_client.patch(
+        f"{PATH}/{signed_id}", headers=other_headers, json={"client_name": "X"}
+    )
+    assert signed.status_code == 403, signed.text
+
+
 async def test_status_filter_narrows_the_listing(app_client, app_auth_headers):
     admin_id = await _admin_user_id(app_client)
     active_id, _ = await _seed(admin_id)

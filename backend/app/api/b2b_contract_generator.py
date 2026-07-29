@@ -1220,6 +1220,16 @@ async def update_generated_contract(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    # Autoryzacja PRZED walidacją treści i regułami biznesowymi: inaczej kody
+    # odpowiedzi (422 „brak zmian" / 409 „podpisana") odpowiadałyby na pytania
+    # o cudzy wiersz, zanim ustalimy, że pytający ma do niego prawo.
+    is_admin = current_user.has_role(UserRole.admin)
+    if not is_admin and row.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Możesz edytować tylko umowy, które samodzielnie wygenerowałeś.",
+        )
+
     fields = payload.model_fields_set
     wants_client_name = "client_name" in fields
     wants_status = "contract_status" in fields
@@ -1235,12 +1245,6 @@ async def update_generated_contract(
                 "Podpisana umowa jest częścią historii zatrudnienia i nie może "
                 "być edytowana."
             ),
-        )
-    is_admin = current_user.has_role(UserRole.admin)
-    if not is_admin and row.created_by != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="Możesz edytować tylko umowy, które samodzielnie wygenerowałeś.",
         )
 
     if wants_client_name:
