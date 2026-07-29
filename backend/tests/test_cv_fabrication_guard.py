@@ -12,7 +12,6 @@ i wtedy nie chroni niczego. Dlatego sprawdzamy TWIERDZENIA (liczby, deklarowaną
 skalę), a nie słowa.
 """
 
-from datetime import datetime
 from typing import Any
 
 import pytest
@@ -89,16 +88,41 @@ def test_version_numbers_are_not_scale_claims() -> None:
     assert _run(data, "Praca z Pythonem i PostgreSQL") == []
 
 
+@pytest.mark.parametrize("figure", ["1 000", "1000", "1 000 000", "12 500"])
+def test_space_separated_thousands_match_the_source(figure: str) -> None:
+    """Polski separator tysięcy nie może generować alarmu na własnym źródle.
+
+    Regex twierdzeń łapie „1 000" ze spacją, więc indeks liczb w źródle musi
+    czytać ją tak samo. Zanim to naprawiono, IDENTYCZNY tekst w CV i w źródle
+    dawał „BRAK POKRYCIA" — czyli najgorszy możliwy rodzaj fałszywego alarmu.
+    """
+    text = f"Obsługa {figure} klientów w systemie CRM"
+    assert _run(_data(duties=[text]), text) == []
+
+
+def test_two_adjacent_numbers_stay_separately_matchable() -> None:
+    """Spacja między cyframi bywa separatorem tysięcy, a bywa granicą liczb.
+
+    Gdyby indeks czytał „2019 12" wyłącznie jako jedną liczbę, zgubiłby OBIE
+    składowe i wprowadził nowy fałszywy alarm w miejsce naprawionego.
+    """
+    data = _data(duties=["Zespół 12 osób"])
+    assert _run(data, "Projekt trwał od 2019 12 miesięcy") == []
+
+
 def test_years_derived_from_dates_are_not_flagged() -> None:
     """Staż liczy sam pipeline z dat, więc nie musi być w źródle dosłownie.
 
     `_fix_experience_years` przepisuje nagłówek why_points na podstawie
     zakresów dat. Bez tej tolerancji bezpiecznik flagowałby własną arytmetykę.
+
+    Zakres jest ZAMKNIĘTY celowo — „obecnie" wciągnęłoby `datetime.now()`
+    w asercję i test potrafiłby mrugać na przełomie roku (wyliczony staż
+    krótszy o rok wypada wtedy poza okno ±1).
     """
-    start_year = datetime.now().year - 6
     data = _data(
         why=["6 lat jako Backend Developer"],
-        dates=f"01.{start_year} – obecnie",
+        dates="01.2018 – 12.2023",
     )
     assert _high(_run(data, "Backend Developer w Acme")) == []
 

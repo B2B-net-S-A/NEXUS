@@ -1025,7 +1025,11 @@ _SCALE_UNITS = (
 )
 _SCALE_CLAIM_RE = re.compile(r"(\d[\d\s.,]*?)\s*(%|" + _SCALE_UNITS + r")")
 _YEARS_CLAIM_RE = re.compile(r"(\d{1,2})\s*(?:lat\w*|year)")
-_DIGIT_RUN_RE = re.compile(r"\d[\d.,]*")
+#: Spaces are allowed INSIDE a run so the Polish thousand separator ("1 000")
+#: is indexed the same way ``_SCALE_CLAIM_RE`` captures it. The trailing ``\d``
+#: keeps the run from swallowing a trailing space, and the ``|\d`` alternative
+#: preserves single-digit matches.
+_DIGIT_RUN_RE = re.compile(r"\d[\d\s.,]*\d|\d")
 
 #: Scale words that turn one real task into an implied portfolio. This is the
 #: exact defect class reported in #627 ("integracja frontendu z WIELOMA usługami
@@ -1058,7 +1062,23 @@ def _norm_number(raw: str) -> str:
 
 
 def _numbers_in_source(source_norm: str) -> set[str]:
-    return {_norm_number(m.group(0)) for m in _DIGIT_RUN_RE.finditer(source_norm)}
+    """Every figure the source states, indexed both ways.
+
+    A run is recorded whole ("1 000" → "1000", matching how the claim regex
+    captures a thousand separator) AND split on spaces ("2019", "12" out of a
+    date pair), because a space between digits is ambiguous: it separates
+    thousands in one place and two distinct numbers in another. Indexing both
+    readings keeps the guard from inventing a finding out of that ambiguity —
+    for a warning system, over-accepting is far cheaper than crying wolf.
+    """
+    numbers: set[str] = set()
+    for match in _DIGIT_RUN_RE.finditer(source_norm):
+        raw = match.group(0)
+        numbers.add(_norm_number(raw))
+        if " " in raw:
+            numbers.update(_norm_number(part) for part in raw.split() if part)
+    numbers.discard("")
+    return numbers
 
 
 def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
