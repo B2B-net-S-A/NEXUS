@@ -58,13 +58,17 @@ def upgrade() -> None:
         """
     )
     # 2) Jeśli nadal brak wyróżnionej pozycji → wstaw ręcznego klienta.
+    #    `nda_signed` jawnie: na prodzie kolumna jest NOT NULL BEZ defaultu
+    #    (drift względem 0001, które daje DEFAULT FALSE nullable) — INSERT bez
+    #    niej wywalał NotNullViolationError i blokował alembic_version na 0152.
     op.execute(
         """
         INSERT INTO clients
-            (name, display_name, status, hidden, external_source, created_at, updated_at)
+            (name, display_name, status, hidden, nda_signed,
+             external_source, created_at, updated_at)
         SELECT
             'Ministerstwo Sprawiedliwości', 'Ministerstwo Sprawiedliwości',
-            'prospect', false, 'manual', now(), now()
+            'prospect', false, false, 'manual', now(), now()
         WHERE NOT EXISTS (
             SELECT 1 FROM clients
             WHERE display_name = 'Ministerstwo Sprawiedliwości'
