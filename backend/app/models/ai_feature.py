@@ -78,9 +78,12 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Treść CV kandydatów (PDF/DOCX → tekst)",
     ],
     AIFeatureKey.candidate_summary: [
-        "Aktywności kandydata z timeline",
-        "Ostatnie 3 notatki",
-        "Tagi i Talenty kandydata",
+        "Historia rekrutacji (etapy, stawki, powody odrzuceń)",
+        "Feedback po interview i screeningi",
+        "Notatki rekruterów (ostatnie 30)",
+        "Umowy i historia stawek",
+        "Profil: preferencje, dostępność, skills",
+        "Podsumowania rozmów telefonicznych",
     ],
     AIFeatureKey.champion_draft: [
         "Treść CV kandydata-Championa",

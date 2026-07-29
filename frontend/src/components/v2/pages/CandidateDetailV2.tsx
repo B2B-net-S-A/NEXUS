@@ -154,6 +154,7 @@ import { useAuthStore, hasRole } from"@/store/auth";
 import CandidateChatTab from"@/components/v2/pages/CandidateChatTab";
 import CallsTimeline from"@/components/calls/CallsTimeline";
 import { DopasowanieTab } from"@/components/v2/pages/DopasowanieTab";
+import { CandidateActivitySummaryCard } from"@/components/v2/pages/CandidateActivitySummaryCard";
 import { CandidateNav } from"@/components/v2/CandidateNav";
 import {
  useCandidateNavigation,
@@ -1352,6 +1353,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  )}
  aria-label="Podsumowanie AI"
  >
+ <CandidateActivitySummaryCard candidateId={Number(id)} />
  {aiProfileQuery.error ? (
  <SectionError
  title="Podsumowanie AI jest niedostępne"

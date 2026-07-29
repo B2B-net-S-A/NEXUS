@@ -26,6 +26,7 @@ from app.api import (
     candidate_contact,
     candidate_pins,
     candidate_scoring,
+    candidate_activity_summary,
     jobs,
     clients,
     clients_team,
@@ -611,6 +612,11 @@ app.include_router(
 )
 app.include_router(
     candidate_scoring.router, prefix="/api/candidates", tags=["candidate-scoring"]
+)
+app.include_router(
+    candidate_activity_summary.router,
+    prefix="/api/candidates",
+    tags=["candidate-activity-summary"],
 )
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
 app.include_router(

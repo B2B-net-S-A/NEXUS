@@ -25,6 +25,8 @@ export const candidateQueryKeys = {
     ["candidate-calls", candidateId(id)] as const,
   aiProfile: (id: number | string) =>
     ["candidate-ai-profile", candidateId(id)] as const,
+  activitySummary: (id: number | string) =>
+    ["candidate-activity-summary", candidateId(id)] as const,
   documents: (id: number | string) =>
     ["candidate-documents", candidateId(id)] as const,
   cvDocuments: (id: number | string) =>

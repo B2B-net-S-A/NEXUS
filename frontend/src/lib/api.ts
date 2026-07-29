@@ -613,6 +613,33 @@ export const matchScoringApi = {
     ),
 };
 
+// ── AI activity summary ("Podsumowanie aktywności" card) ────────────────────
+export interface CandidateActivitySummary {
+  candidate_id: number;
+  /** Krótka notatka AI; null = jeszcze nie wygenerowana. */
+  summary: string | null;
+  model: string | null;
+  generated_at: string | null;
+  /**
+   * Tylko po refresh: false = historia bez zmian, zwrócono notatkę z cache
+   * (bez płatnego wywołania AI).
+   */
+  refreshed?: boolean | null;
+}
+
+export const activitySummaryApi = {
+  // Cached read — never triggers a paid generation (profile views stay free).
+  get: (candidateId: number) =>
+    api.get<CandidateActivitySummary>(
+      `/api/candidates/${candidateId}/activity-summary`,
+    ),
+  // "Aktualizuj notatkę" — re-gathers history; regenerates only when it changed.
+  refresh: (candidateId: number) =>
+    api.post<CandidateActivitySummary>(
+      `/api/candidates/${candidateId}/activity-summary/refresh`,
+    ),
+};
+
 // ── Talent Pools ──────────────────────────────────────────────────────────────
 export const talentPoolsApi = {
   list: () => api.get("/api/talent-pools"),
