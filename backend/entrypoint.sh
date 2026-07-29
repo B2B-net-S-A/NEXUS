@@ -2365,6 +2365,38 @@ _DATA_STATEMENTS = [
                    regexp_replace(cand.lastname, '[[(]?\s*zatrudnion(ego|ej|ych|ymi|[yaieą])?\s*[])]?', ' ', 'gi'),
                    '\s+', ' ', 'g'), ' -–,;'), ''), '?')
     WHERE cand.name ILIKE '%zatrudnion%' OR cand.lastname ILIKE '%zatrudnion%'""",
+    # 0153: wyróżniony klient „Ministerstwo Sprawiedliwości" w dropdownie
+    # generatora umów B2B. Migracja 0153 nigdy nie skomitowała się na prodzie
+    # (INSERT bez nda_signed vs NOT NULL bez defaultu → rollback, bookmark
+    # utknął na 0152) — lustro tutaj, jak dla pozostałych migracji >=0153.
+    # Oba kroki strażowane „nie ma jeszcze wyróżnionej pozycji" → no-op po
+    # pierwszym udanym runie i odporne na ręczne zmiany admina.
+    """UPDATE clients
+       SET display_name = 'Ministerstwo Sprawiedliwości'
+       WHERE id = (
+           SELECT id FROM clients
+           WHERE display_name IS NULL
+             AND hidden = false
+             AND lower(btrim(name)) = lower('Ministerstwo Sprawiedliwości')
+           ORDER BY id
+           LIMIT 1
+       )
+       AND NOT EXISTS (
+           SELECT 1 FROM clients
+           WHERE display_name = 'Ministerstwo Sprawiedliwości'
+             AND hidden = false
+       )""",
+    """INSERT INTO clients
+           (name, display_name, status, hidden, nda_signed,
+            external_source, created_at, updated_at)
+       SELECT
+           'Ministerstwo Sprawiedliwości', 'Ministerstwo Sprawiedliwości',
+           'prospect', false, false, 'manual', now(), now()
+       WHERE NOT EXISTS (
+           SELECT 1 FROM clients
+           WHERE display_name = 'Ministerstwo Sprawiedliwości'
+             AND hidden = false
+       )""",
 ]
 
 
