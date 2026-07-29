@@ -135,6 +135,43 @@ Zobacz `~/.claude/rules/observability.md` dla pełnego standardu (Sentry + Grafa
 - **Alloy sidecar:** profile-gated (`profiles: [observability]`). Bez `COMPOSE_PROFILES=observability` w Coolify nie startuje. Po dodaniu Grafana creds → `{app="nexus"}` zwraca logi z 4 services + structured fields (FastAPI JSON logging od PR #108).
 - **Cloudflare:** `api.nexus.dynaminds.pl` — proxy ON, Full strict TLS, OWASP CRS PL2, rate limit `/api/auth/*` 10 req/min/IP. Backend ma już `slowapi` rate limiter — Cloudflare to pierwsza linia, slowapi druga.
 
+## Generator Umów B2B — status umowy + wyszukiwarka
+
+Zakładka „Wygenerowane umowy" (`components/v2/pages/B2BContractGeneratorV2.tsx`)
+dostała kolumnę **Status umowy** i wyszukiwarkę. Migracja `0203_b2b_generated_contract_status`.
+
+- **Status handlowy ≠ status podpisu.** `contract_status` (`active` | `closed`) jest
+  **niezależny** od `signature_status`. Podpisaną umowę też się wypowiada, więc PATCH
+  statusu **nie jest** blokowany po podpisaniu — blokada 409 obejmuje wyłącznie treść
+  dokumentu (`client_name`). Gdyby status dziedziczył tę blokadę, funkcja byłaby martwa
+  w najczęstszym przypadku (wypowiedzenie / porozumienie). Stąd osobna flaga
+  `can_change_status` (= autor lub admin) obok `can_edit` (= autor/admin **i** niepodpisana).
+- **Zamknięcie NIE usuwa wiersza** — dopisuje `closure_reason`, opcjonalny
+  `closure_reason_other` i obowiązkowy `closure_date`. Powrót na `active` czyści komplet.
+- **Powody:** `resignation_before_signing` | `termination` | `mutual_agreement` | `other`.
+  Etykiety PL żyją w warstwie prezentacji (`B2B_CLOSURE_REASON_LABEL` w komponencie,
+  **nie** w `lib/api.ts`) — testy mockują `@/lib/api` w całości, więc stałe trzymane tam
+  wychodziłyby w testach jako `undefined`.
+- **Spójność wymuszona w bazie**, nie tylko w API: `ck_b2b_generated_contracts_closure_coherence`
+  odrzuca `closed` bez powodu/daty oraz `active` z wypełnionym powodem. `closure_reason_other`
+  jest wymagany dokładnie dla `other`. DTO `B2BGeneratedContractUpdate` to lustro tego CHECK-a
+  (czytelne 422 po polsku zamiast surowego IntegrityError).
+- **PATCH jest częściowy** — pola rozróżniane po `model_fields_set`, więc pominięcie pola
+  zostawia je bez zmian. Bez tego zmiana statusu kasowałaby `client_name` (wszystkie pola
+  są `Optional[...] = None`).
+- **Wyszukiwarka:** `GET /generated?q=` filtruje **po stronie serwera** (nie po pobranych
+  `limit` wierszach) po numerze umowy, `partner_name`, `client_name` oraz — przez OUTER JOIN
+  na `candidates` — po imieniu/nazwisku powiązanego kandydata (także pełne „Imię Nazwisko"
+  jednym ciągiem). Wildcardy `%`/`_` są escapowane, więc `%` szuka znaku, nie zwraca całej
+  listy. Dodatkowo `?contract_status=` jako filtr. FE debounce 300 ms.
+- **Pusty wynik wyszukiwania ma inny komunikat niż brak umów** — „Brak umów pasujących do
+  wyszukiwania" vs „Brak wygenerowanych umów" (ten sam błąd co przy 403 renderowanym jako
+  pustka: pustka czyta się jak utrata danych).
+- **Safety-net entrypointu** zawiera lustro DDL (kolumny + 3 CHECK-i) — prod alembic bywa
+  orphaned. `/health/deep` **nie wymagał zmiany**: sonda `b2b_signature_schema` liczy tylko
+  pozycje ze swojej listy oczekiwanych, więc dołożenie kolumn/constraintów jej nie psuje.
+- **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
+
 ## CloudTalk (telefonia)
 
 5-fazowa integracja zdeployowana w PR #157 (Fazy 1-5 razem). Dormant na prod do momentu provisioning secret + flipnięcia killswitcha.

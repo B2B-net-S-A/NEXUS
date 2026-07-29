@@ -23,6 +23,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -43,6 +44,34 @@ class B2BGeneratedContract(Base, TimestampMixin):
             "signature_source IS NULL OR "
             "signature_source IN ('manual_confirmation', 'validated_upload')",
             name="ck_b2b_generated_contracts_signature_source",
+        ),
+        CheckConstraint(
+            "contract_status IN ('active', 'closed')",
+            name="ck_b2b_generated_contracts_contract_status",
+        ),
+        CheckConstraint(
+            "closure_reason IS NULL OR closure_reason IN ("
+            "'resignation_before_signing', 'termination', "
+            "'mutual_agreement', 'other')",
+            name="ck_b2b_generated_contracts_closure_reason",
+        ),
+        # Domknięcie stanu: „Zamknięta" bez powodu albo bez daty zakończenia jest
+        # bezużyteczne (nie wiadomo, co i kiedy się skończyło), a „Aktywna" z
+        # wypełnionym powodem to sprzeczność. Wymuszamy to w bazie, nie tylko w
+        # API, bo dane wchodzą tu również safety-netem entrypointu.
+        CheckConstraint(
+            "("
+            "contract_status = 'active'"
+            " AND closure_reason IS NULL"
+            " AND closure_date IS NULL"
+            " AND closure_reason_other IS NULL"
+            ") OR ("
+            "contract_status = 'closed'"
+            " AND closure_reason IS NOT NULL"
+            " AND closure_date IS NOT NULL"
+            " AND ((closure_reason = 'other') = (closure_reason_other IS NOT NULL))"
+            ")",
+            name="ck_b2b_generated_contracts_closure_coherence",
         ),
     )
 
@@ -66,6 +95,21 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # ``manual_confirmation`` is an audited declaration by a trusted user. It
     # must never be confused with DocumentSignature/QES evidence.
     signature_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # Status handlowy umowy — NIEZALEŻNY od `signature_status`. Umowa podpisana
+    # też bywa zamykana (wypowiedzenie, porozumienie), a niepodpisana bywa
+    # zamknięta rezygnacją przed podpisem. Zamknięcie NIE usuwa wiersza —
+    # kończy jego bieg i zostaje w rejestrze.
+    contract_status: Mapped[str] = mapped_column(
+        String(16), default="active", server_default="active", nullable=False
+    )
+    # Wymagany przy `closed` (patrz ck_..._closure_coherence).
+    closure_reason: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # Własny powód wpisany przez użytkownika — wymagany dokładnie wtedy, gdy
+    # `closure_reason == 'other'`, i zabroniony w każdym innym przypadku.
+    closure_reason_other: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Data faktycznego zakończenia umowy (nie data kliknięcia w UI) — obowiązkowa
+    # dla statusu `closed`.
+    closure_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     candidate_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True, index=True
     )

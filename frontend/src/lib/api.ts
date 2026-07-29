@@ -2317,13 +2317,22 @@ export const b2bGeneratorApi = {
         params: { featured: true },
       })
       .then((r) => r.data),
-  generated: (limit = 50) =>
+  generated: (limit = 50, params: B2BGeneratedListParams = {}) =>
     api
       .get<B2BGeneratedContractRow[]>("/api/b2b-generator/generated", {
-        params: { limit },
+        // Wyszukiwanie i filtr statusu liczy backend (nie filtrujemy pobranych
+        // `limit` wierszy w przeglądarce) — inaczej fraza nie znalazłaby umów
+        // spoza widocznej strony listy.
+        params: {
+          limit,
+          ...(params.q?.trim() ? { q: params.q.trim() } : {}),
+          ...(params.contractStatus
+            ? { contract_status: params.contractStatus }
+            : {}),
+        },
       })
       .then((r) => r.data),
-  updateGenerated: (id: number, body: { client_name: string | null }) =>
+  updateGenerated: (id: number, body: B2BGeneratedContractUpdate) =>
     api
       .patch<B2BGeneratedContractRow>(
         `/api/b2b-generator/generated/${id}`,
@@ -2357,6 +2366,35 @@ export type B2BSignatureSource =
   | "manual_confirmation"
   | "validated_upload";
 
+/** Status handlowy umowy — niezależny od `B2BSignatureStatus`. */
+export type B2BContractStatus = "active" | "closed";
+export type B2BClosureReason =
+  | "resignation_before_signing"
+  | "termination"
+  | "mutual_agreement"
+  | "other";
+
+// Etykiety PL dla powyższych żyją w warstwie prezentacji
+// (`components/v2/pages/B2BContractGeneratorV2.tsx`) — tutaj tylko kontrakt
+// wartości wysyłanych na backend.
+
+export interface B2BGeneratedListParams {
+  q?: string;
+  contractStatus?: B2BContractStatus;
+}
+
+/**
+ * Pola pominięte zostają bez zmian (backend rozróżnia je po `model_fields_set`),
+ * więc zmiana statusu nie kasuje nazwy Klienta i odwrotnie.
+ */
+export interface B2BGeneratedContractUpdate {
+  client_name?: string | null;
+  contract_status?: B2BContractStatus;
+  closure_reason?: B2BClosureReason | null;
+  closure_reason_other?: string | null;
+  closure_date?: string | null;
+}
+
 export interface B2BGeneratedContractRow {
   id: number;
   contract_number: string;
@@ -2368,6 +2406,11 @@ export interface B2BGeneratedContractRow {
   created_by_name: string | null;
   signature_status: B2BSignatureStatus;
   signature_source: B2BSignatureSource | null;
+  contract_status: B2BContractStatus;
+  closure_reason: B2BClosureReason | null;
+  closure_reason_other: string | null;
+  closure_date: string | null;
+  can_change_status: boolean;
   candidate_id: number | null;
   job_id: number | null;
   client_id: number | null;
