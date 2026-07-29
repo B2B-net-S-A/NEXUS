@@ -2859,6 +2859,7 @@ __all__ = [
     "ContactCaseOwnershipError",
     "ContactCaseVersionConflict",
     "ContactConflict",
+    "ContactContentionError",
     "ContactIdempotencyConflict",
     "ContactOpportunityNotFound",
     "ContactValidationError",
