@@ -364,6 +364,13 @@ class B2BGeneratedContractUpdate(BaseModel):
         IntegrityError z bazy — sama baza pozostaje ostateczną barierą.
         """
         if self.contract_status is None:
+            # Jawne ``{"contract_status": null}`` != pominięcie pola. Bez tego
+            # rozróżnienia null przechodzi walidację jako „brak zmiany statusu",
+            # a potem ląduje w kolumnie NOT NULL → IntegrityError (500) zamiast
+            # czytelnego 422. `contract_status` nie jest kasowalny: umowa zawsze
+            # ma status.
+            if "contract_status" in self.model_fields_set:
+                raise ValueError("Status umowy nie może być pusty.")
             if {
                 "closure_reason",
                 "closure_reason_other",

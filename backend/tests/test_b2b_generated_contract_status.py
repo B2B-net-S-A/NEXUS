@@ -96,6 +96,17 @@ def test_update_dto_requires_free_text_only_for_other():
         )
 
 
+def test_update_dto_rejects_explicit_null_status():
+    """Jawny ``null`` != pominięcie pola.
+
+    Bez tego null przechodziłby jako „brak zmiany statusu" i lądował w kolumnie
+    NOT NULL → IntegrityError (500) zamiast 422."""
+    with pytest.raises(ValidationError, match="nie może być pusty"):
+        B2BGeneratedContractUpdate(contract_status=None)
+    # Pominięcie pola nadal jest legalne (edycja samej nazwy Klienta).
+    assert B2BGeneratedContractUpdate(client_name="X").contract_status is None
+
+
 def test_update_dto_rejects_closure_fields_without_status():
     """Same pola zamknięcia bez statusu zostawiłyby wiersz w sprzeczności."""
     with pytest.raises(ValidationError, match="wyłącznie razem"):
@@ -145,6 +156,19 @@ async def test_closing_keeps_the_row_and_records_reason_and_date(
     )
     assert listing.status_code == 200
     assert any(x["id"] == rid for x in listing.json()), "zamknięcie usunęło wiersz"
+
+
+async def test_explicit_null_status_is_422_not_500(app_client, app_auth_headers):
+    """Zepsuty payload ma dawać 422, nie 500 z IntegrityError."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _number = await _seed(admin_id)
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": None},
+    )
+    assert resp.status_code == 422, resp.text
 
 
 async def test_closing_other_stores_free_text(app_client, app_auth_headers):
