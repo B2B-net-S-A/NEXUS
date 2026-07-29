@@ -131,7 +131,11 @@ class GeneratedCvItem(BaseModel):
     blind: bool
     mode: str
     # Ile obróbki prezentacyjnej faktycznie zastosowano przy tej generacji.
-    content_mode: str = DEFAULT_CONTENT_MODE
+    # Celowo BEZ wartości domyślnej: każda domyślna zgadywałaby tryb dokumentu,
+    # który już poszedł do klienta. Historia to "tailored", nowe wiersze bywają
+    # dowolne — brak wartości ma być głośnym błędem serializacji, nie cichym
+    # przekłamaniem w panelu.
+    content_mode: str
     filename: str
     # Async generation lifecycle — the UI polls this list and renders a spinner
     # for "processing", the CV for "ready" and the reason for "failed".

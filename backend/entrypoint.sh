@@ -2165,6 +2165,22 @@ _COLUMN_STATEMENTS = [
     # Sufit trybu per klient (NULL = bez ograniczenia). Czytany przy każdej
     # generacji z profilu kandydata; bez kolumny SELECT clients => UndefinedColumn.
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_content_mode_cap VARCHAR(16)",
+    # CHECK-i z migracji 0202. Na prodzie alembic jest osierocony, więc to
+    # entrypoint JEST realną ścieżką tworzenia schematu — bez tych dwóch
+    # ograniczeń baza przyjęłaby dowolny łańcuch jako tryb (np. z ręcznego
+    # UPDATE ustawiającego sufit), a wtedy `apply_content_mode_cap` cicho
+    # zdegradowałoby żądanie do domyślnego zamiast wymusić zamierzony sufit.
+    """DO $$ BEGIN
+        ALTER TABLE cv_generated_documents
+            ADD CONSTRAINT ck_cv_generated_documents_content_mode
+            CHECK (content_mode IN ('basic', 'polished', 'tailored'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE clients
+            ADD CONSTRAINT ck_clients_cv_content_mode_cap
+            CHECK (cv_content_mode_cap IS NULL
+                   OR cv_content_mode_cap IN ('basic', 'polished', 'tailored'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
 ]
 
 _DATA_STATEMENTS = [

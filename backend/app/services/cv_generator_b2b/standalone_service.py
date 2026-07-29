@@ -1753,6 +1753,15 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
                 message=f"Nie udało się odczytać Profilu Championa: {err}",
             ) from err
 
+    # LUKA ŚWIADOMA — sufit per klient NIE obowiązuje na tej ścieżce.
+    # Tryb upload z założenia nie dotyka DB (brak stage'a, joba i klienta), więc
+    # nie ma z czego odczytać `Client.cv_content_mode_cap`. Rekruter generujący
+    # z wgranych plików + własnego DOCX-a championa może dostać "tailored" nawet
+    # dla klienta z sufitem "basic". Gwarancja sufitu obowiązuje WYŁĄCZNIE dla
+    # generacji z profilu kandydata (`generate_cv_for_candidate`).
+    # Zamknięcie tej ścieżki wymaga kontekstu klienta w trybie upload i jest
+    # zaplanowane razem z bramką dowodową — do tego czasu nie wolno twierdzić
+    # wobec klienta, że sufit jest nieobchodzalny.
     return _run_generation_pipeline(
         cv_bytes=payload.cv_bytes,
         cv_filename=payload.cv_filename,
