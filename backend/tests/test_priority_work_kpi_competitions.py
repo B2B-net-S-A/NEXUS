@@ -11,7 +11,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.competition_winner import CompetitionType
+from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job
 from app.models.recruitment_pipeline import (
     CandidateStage,
@@ -22,6 +22,7 @@ from app.models.skill import Skill as _Skill  # noqa: F401
 from app.models.user import User, UserRole
 from app.services import competitions
 from app.services.kpi_panel import PANEL_KPI_DEFAULTS, VERIFIER_ANCHORED_CTE
+from app.tasks import competition_autofreeze
 
 
 class _Result:
@@ -475,6 +476,165 @@ async def test_frozen_podium_is_write_once_and_never_recomputed(monkeypatch) -> 
     assert result == existing
     compute.assert_not_awaited()
     db.commit.assert_awaited_once()
+
+
+async def test_freeze_reports_that_a_frozen_period_was_left_untouched(
+    monkeypatch,
+) -> None:
+    """Niezmienność zostaje — nieodróżnialny raport nie.
+
+    `POST /freeze` na zamrożonym okresie wyglądał dla admina identycznie jak
+    świeży zapis: te same wiersze, ten sam `saved_count`. Podium nadal jest
+    write-once (patrz test wyżej), ale wynik mówi teraz wprost, że ten call
+    NIC nie zapisał — inaczej „poprawiłem podium" znaczy „nie poprawiłem".
+    """
+    existing = [SimpleNamespace(rank=1, user_id=7), SimpleNamespace(rank=2, user_id=8)]
+    compute = AsyncMock(side_effect=AssertionError("must not recompute history"))
+    monkeypatch.setattr(competitions, "compute_live", compute)
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[_Result([]), _Result(existing)]),
+        commit=AsyncMock(),
+    )
+
+    result = await competitions.freeze_competition(
+        db,
+        CompetitionType.monthly_placements,
+        "2026-06",
+    )
+
+    # Kontrakt zwrotu bez zmian — nadal lista zwycięzców.
+    assert result == existing
+    assert len(result) == 2
+    assert result.already_frozen is True
+    assert result.saved_count == 0
+    compute.assert_not_awaited()
+
+
+async def test_fresh_freeze_reports_the_rows_it_actually_wrote(monkeypatch) -> None:
+    """Druga strona kontraktu: realny zapis raportuje własne wiersze."""
+    ranked = [
+        competitions.RankedUser(
+            user_id=2,
+            name="Eligible A",
+            metric_value=90,
+            extras={"qualified": True},
+        ),
+        competitions.RankedUser(
+            user_id=3,
+            name="Eligible B",
+            metric_value=80,
+            extras={"qualified": True},
+        ),
+    ]
+    monkeypatch.setattr(competitions, "compute_live", AsyncMock(return_value=ranked))
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[_Result([]), _Result([])]),
+        add=lambda _row: None,
+        commit=AsyncMock(),
+    )
+
+    result = await competitions.freeze_competition(
+        db,
+        CompetitionType.monthly_recommendations,
+        "2026-07",
+    )
+
+    assert result.already_frozen is False
+    assert result.saved_count == len(result) == 2
+
+
+async def test_autofreeze_guard_accepts_a_full_three_person_podium() -> None:
+    """Zamrożony okres ma do 3 wierszy — bramka nie może żądać dokładnie jednego.
+
+    Mock tego nie złapie: MultipleResultsFound rzucał dopiero prawdziwy
+    `Result` z Postgresa, a wyjątek z bramki wywracał całą iterację.
+    """
+    ctype = CompetitionType.monthly_placements
+    period = f"T-{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"podium-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password("x"),
+            name="Podium",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        for rank in (1, 2, 3):
+            db.add(
+                CompetitionWinner(
+                    competition_type=ctype.value,
+                    period=period,
+                    user_id=user.id,
+                    rank=rank,
+                    points=10 - rank,
+                    metric_value=10 - rank,
+                    prize_pln=0,
+                )
+            )
+        await db.commit()
+
+        assert await competition_autofreeze._is_period_frozen(db, ctype, period) is True
+        assert (
+            await competition_autofreeze._is_period_frozen(db, ctype, f"{period}-none")
+            is False
+        )
+
+
+class _FakeFreezeSession:
+    """Sesja-atrapa dla `_run_once` — liczy rollbacki po nieudanym typie."""
+
+    def __init__(self) -> None:
+        self.rollbacks = 0
+
+    async def __aenter__(self) -> "_FakeFreezeSession":
+        return self
+
+    async def __aexit__(self, *_exc: object) -> bool:
+        return False
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+async def test_autofreeze_failure_in_one_type_does_not_starve_the_rest(
+    monkeypatch,
+) -> None:
+    """Jeden wywrócony konkurs nie może zabrać reszcie tej samej iteracji.
+
+    Bramka stała PRZED try, więc jej wyjątek uciekał aż do pętli: kolejne
+    typy miesięczne i cały blok kwartalny nie były w tej iteracji nawet
+    próbowane — a styczeń to jedyny moment, gdy Q4 jest do zamrożenia.
+    """
+    session = _FakeFreezeSession()
+    monkeypatch.setattr(competition_autofreeze, "AsyncSessionLocal", lambda: session)
+
+    async def _guard(_db, ctype, _period) -> bool:
+        if ctype is CompetitionType.monthly_recommendations:
+            raise RuntimeError("guard exploded")
+        return False
+
+    monkeypatch.setattr(competition_autofreeze, "_is_period_frozen", _guard)
+
+    frozen: list[str] = []
+
+    async def _freeze(_db, ctype, period):
+        frozen.append(f"{ctype.value}:{period}")
+        return competitions.FrozenPodium([object()], already_frozen=False)
+
+    monkeypatch.setattr(competitions, "freeze_competition", _freeze)
+
+    # Styczeń — poprzedni kwartał (Q4 2025) != bieżący, więc blok kwartalny leci.
+    results = await competition_autofreeze._run_once(date(2026, 1, 15))
+
+    assert frozen == [
+        "monthly_placements:2025-12",
+        "quarterly_champions_dl:Q4 2025",
+        "quarterly_champions_recruiter:Q4 2025",
+    ]
+    assert set(results) == set(frozen)
+    assert session.rollbacks == 1
 
 
 def test_kpi_defaults_preserve_four_per_day_and_75_percent() -> None:

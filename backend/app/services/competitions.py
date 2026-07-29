@@ -17,9 +17,10 @@ Formuły:
 snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
@@ -30,6 +31,8 @@ from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 
 # ── Konfiguracja nagród ──────────────────────────────────────────────────
@@ -675,12 +678,41 @@ def _prize_for(type_: CompetitionType, rank: int) -> int:
 # ── Freeze snapshot ─────────────────────────────────────────────────────
 
 
+class FrozenPodium(list):
+    """Podium zwrócone przez `freeze_competition` + czy ten call COŚ zapisał.
+
+    Podklasa `list`, bo write-once znaczy, że wywołanie na już zamrożonym
+    okresie zwraca komplet zwycięzców i wygląda dla wołającego identycznie
+    jak świeży zapis — `len()`, indeksowanie i porównanie z listą działają
+    jak dotąd, a `already_frozen` / `saved_count` pozwalają odróżnić realny
+    zapis od no-opu bez zmiany kontraktu istniejących wywołań.
+    """
+
+    __slots__ = ("already_frozen",)
+
+    def __init__(
+        self, winners: Iterable[CompetitionWinner], *, already_frozen: bool
+    ) -> None:
+        super().__init__(winners)
+        self.already_frozen = already_frozen
+
+    @property
+    def saved_count(self) -> int:
+        """Ile wierszy ten call REALNIE wstawił — 0, gdy okres był zamrożony."""
+        return 0 if self.already_frozen else len(self)
+
+
 async def freeze_competition(
     db: AsyncSession,
     type_: CompetitionType,
     period: str,
-) -> list[CompetitionWinner]:
-    """Write a podium once; a frozen historical period is immutable."""
+) -> FrozenPodium:
+    """Write a podium once; a frozen historical period is immutable.
+
+    Zwraca `FrozenPodium` — write-once ZOSTAJE (zamrożonej historii nie
+    przeliczamy), ale wołający musi umieć odróżnić „zapisałem podium" od
+    „nic nie zrobiłem, bo już było": patrz `already_frozen` / `saved_count`.
+    """
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:freeze_key))"),
         {"freeze_key": f"competition:{type_.value}:{period}"},
@@ -700,8 +732,17 @@ async def freeze_competition(
         .all()
     )
     if existing:
+        # Świadomy no-op. Logujemy, bo bez tego jedynym śladem po „freeze,
+        # który nic nie zmienił" byłaby odpowiedź nieodróżnialna od sukcesu.
+        logger.warning(
+            "freeze_competition no-op: %s %s already frozen (%d winners) — "
+            "podium is immutable, nothing was written",
+            type_.value,
+            period,
+            len(existing),
+        )
         await db.commit()
-        return list(existing)
+        return FrozenPodium(existing, already_frozen=True)
 
     ranked = await compute_live(db, type_, period)
     if type_ == CompetitionType.monthly_recommendations:
@@ -725,7 +766,7 @@ async def freeze_competition(
         created.append(winner)
 
     await db.commit()
-    return created
+    return FrozenPodium(created, already_frozen=False)
 
 
 async def previous_quarter_period(today: Optional[date] = None) -> str:
