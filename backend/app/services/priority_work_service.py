@@ -1018,3 +1018,102 @@ async def carry_over_rows(
             }
         )
     return result
+
+
+# ── Stały roster (przypisania od Delivery Leada) ──────────────────────────────
+#
+# Model planowy zakładał rytm, którego w tej firmie nie ma: nowe rekrutacje
+# wpadają codziennie, a DL rozdaje je na bieżąco. Bramka wymagająca publikacji
+# planu przez HoR odpalałaby się kilka razy dziennie — a jedyne legalne obejście
+# (jednorazowy wyjątek) ZERUJE KPI, więc rekruterzy traciliby kredyt za realnie
+# wykonaną pracę. Dlatego plan przestaje być wersjonowanym dokumentem i staje
+# się stałą listą, do której DL dopisuje przypisania sam.
+#
+# Zachowany zostaje sufit 5 na osobę — wymuszony przez bazę
+# (`UNIQUE (plan_member_id, rank)` + pięciowartościowy enum rang). To jest
+# świadomie zostawiony limit WIP, tyle że egzekwowany w MOMENCIE PRZYPISANIA
+# (DL od razu widzi „ta osoba ma komplet"), a nie w momencie pracy (rekruter
+# dostaje 409 w połowie zadania).
+
+
+async def ensure_standing_plan(
+    db: AsyncSession, *, actor_user_id: Optional[int] = None
+) -> RecruitmentPriorityPlan:
+    """Zwróć jedyny, nigdy nie zastępowany plan-roster; utwórz gdy nie istnieje.
+
+    Blokada na wierszu stanu serializuje tworzenie, więc dwa równoległe
+    przypisania nie zrobią dwóch „stałych" planów.
+    """
+    state = await ensure_priority_state(db, for_update=True)
+    if state.current_plan_id is not None:
+        plan = await load_plan(db, state.current_plan_id)
+        if plan is not None:
+            return plan
+
+    next_version = (
+        int(
+            await db.scalar(
+                select(func.coalesce(func.max(RecruitmentPriorityPlan.version), 0))
+            )
+            or 0
+        )
+        + 1
+    )
+    plan = RecruitmentPriorityPlan(
+        version=next_version,
+        status=PriorityPlanStatus.published,
+        previous_plan_id=None,
+        created_by_user_id=actor_user_id,
+        published_by_user_id=actor_user_id,
+        published_at=utcnow(),
+        effective_from=utcnow(),
+        notes="Stały roster — przypisania dodaje Delivery Lead na bieżąco.",
+        row_version=1,
+    )
+    db.add(plan)
+    await db.flush()
+    state.current_plan_id = plan.id
+    state.row_version = int(state.row_version or 0) + 1
+    await db.flush()
+    return plan
+
+
+async def ensure_plan_member(
+    db: AsyncSession, *, plan: RecruitmentPriorityPlan, user_id: int
+) -> RecruitmentPriorityPlanMember:
+    """Zwróć wiersz członka rosteru dla użytkownika; utwórz gdy brak."""
+    member = await db.scalar(
+        select(RecruitmentPriorityPlanMember)
+        .where(
+            RecruitmentPriorityPlanMember.plan_id == plan.id,
+            RecruitmentPriorityPlanMember.user_id == user_id,
+        )
+        .with_for_update()
+    )
+    if member is not None:
+        return member
+    member = RecruitmentPriorityPlanMember(
+        plan_id=plan.id,
+        user_id=user_id,
+        status=PriorityMemberStatus.active,
+        verification_capacity=DEFAULT_VERIFICATION_CAPACITY,
+    )
+    db.add(member)
+    await db.flush()
+    return member
+
+
+async def next_free_rank(db: AsyncSession, *, member_id: int) -> Optional[PriorityRank]:
+    """Najniższa wolna ranga A–E dla członka, albo None gdy komplet."""
+    taken = set(
+        (
+            await db.execute(
+                select(RecruitmentPriorityAssignment.rank).where(
+                    RecruitmentPriorityAssignment.plan_member_id == member_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return next((rank for rank in PriorityRank if rank not in taken), None)
