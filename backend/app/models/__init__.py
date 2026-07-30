@@ -15,6 +15,15 @@ from app.models.application_submission import (  # noqa: F401
     ApplicationSubmissionStatus,
 )
 from app.models.client import Client
+from app.models.client_directory import (
+    ClientAlias,
+    ClientImportRow,
+    ClientImportRowStatus,
+    ClientImportRun,
+    ClientImportRunStatus,
+    ClientPortfolioScope,
+    PortfolioCategory,
+)
 from app.models.candidate_risk import (
     CandidateOfferResponse,
     CandidateRiskProfile,
@@ -260,6 +269,13 @@ __all__ = [
     "ApplicationSubmission",
     "ApplicationSubmissionStatus",
     "Client",
+    "ClientAlias",
+    "ClientImportRow",
+    "ClientImportRowStatus",
+    "ClientImportRun",
+    "ClientImportRunStatus",
+    "ClientPortfolioScope",
+    "PortfolioCategory",
     "CandidateStage",
     "Note",
     "Contract",

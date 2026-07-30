@@ -2,9 +2,10 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import distinct, func, select
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.responses import RedirectResponse
 
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -110,6 +111,43 @@ def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResp
     return ClientSafeResponse
 
 
+def _effective_client_name():
+    return func.coalesce(
+        func.nullif(func.btrim(Client.display_name), ""),
+        Client.name,
+    )
+
+
+def _escaped_like_pattern(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _serialize_client(
+    client: Client,
+    *,
+    current_user: User,
+    effective_name: Optional[str] = None,
+) -> ClientResponse | ClientSafeResponse:
+    schema = _client_schema_for(current_user)
+    name = effective_name or (client.display_name or "").strip() or client.name
+    return schema.model_validate(client).model_copy(update={"name": name})
+
+
+def _merged_client_redirect(
+    client: Client,
+    *,
+    suffix: str = "",
+) -> Optional[RedirectResponse]:
+    if client.merged_into_client_id is None:
+        return None
+    return RedirectResponse(
+        url=f"/api/clients/{client.merged_into_client_id}{suffix}",
+        status_code=status.HTTP_308_PERMANENT_REDIRECT,
+        headers={"X-Merged-From-Client-Id": str(client.id)},
+    )
+
+
 def _days_to(target: Optional[date]) -> Optional[int]:
     if target is None:
         return None
@@ -124,17 +162,41 @@ async def list_clients(
     page_size: int = Query(20, ge=1, le=100),
     q: Optional[str] = None,
 ):
-    query = select(Client)
-    if q:
-        query = query.where(Client.name.ilike(f"%{q}%"))
+    effective_name = _effective_client_name()
+    query = (
+        select(Client, effective_name.label("effective_name"))
+        .where(
+            Client.hidden.is_(False),
+            Client.archived_at.is_(None),
+            Client.merged_into_client_id.is_(None),
+        )
+        .order_by(func.lower(effective_name).asc(), Client.id.asc())
+    )
+    normalized_q = (q or "").strip()
+    if normalized_q:
+        pattern = _escaped_like_pattern(normalized_q)
+        query = query.where(
+            or_(
+                effective_name.ilike(pattern, escape="\\"),
+                Client.name.ilike(pattern, escape="\\"),
+            )
+        )
     total = (
-        await db.execute(select(func.count()).select_from(query.subquery()))
-    ).scalar()
+        await db.execute(
+            select(func.count()).select_from(query.order_by(None).subquery())
+        )
+    ).scalar_one()
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
-    schema = _client_schema_for(current_user)
     return ClientList(
-        items=[schema.model_validate(c) for c in result.scalars().all()],
-        total=total,
+        items=[
+            _serialize_client(
+                client,
+                current_user=current_user,
+                effective_name=canonical_name,
+            )
+            for client, canonical_name in result.all()
+        ],
+        total=int(total),
         page=page,
         page_size=page_size,
     )
@@ -167,7 +229,12 @@ async def get_client(
     client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    return _client_schema_for(current_user).model_validate(client)
+    merged_redirect = _merged_client_redirect(client)
+    if merged_redirect is not None:
+        return merged_redirect
+    if client.hidden or client.archived_at is not None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return _serialize_client(client, current_user=current_user)
 
 
 @router.get("/{client_id}/profile", response_model=ClientProfileResponse)
@@ -184,10 +251,13 @@ async def get_client_profile(
     so the math stays consistent with the Contracts module.
     """
     # 404 early so we don't hand back empty sections for a phantom client.
-    client_exists = (
-        await db.execute(select(Client.id).where(Client.id == client_id))
-    ).scalar_one_or_none()
-    if not client_exists:
+    client = await db.scalar(select(Client).where(Client.id == client_id))
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    merged_redirect = _merged_client_redirect(client, suffix="/profile")
+    if merged_redirect is not None:
+        return merged_redirect
+    if client.hidden or client.archived_at is not None:
         raise HTTPException(status_code=404, detail="Client not found")
 
     today = date.today()

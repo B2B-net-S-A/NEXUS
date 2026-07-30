@@ -1,0 +1,676 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-07-30",
+  "source": {
+    "filename": "Aktywni klienci (2) 1.xlsx",
+    "sha256": "1d3957d0907036d19976f887b0167d80061f5ea4bc9cd8f8f8c265dc423a6658",
+    "sheets": {
+      "active": "Aktywni Klienci",
+      "relationship": "Relacyjni klienci",
+      "inactive": "Niekatywni klienci"
+    }
+  },
+  "known_anomalies": [
+    {
+      "code": "sheet_name_typo_normalized",
+      "sheet": "Niekatywni klienci",
+      "normalized_category": "inactive"
+    },
+    {
+      "code": "category_status_date_mismatch",
+      "source_key": "active:ey",
+      "details": "Arkusz aktywny wygrywa, mimo statusu nieaktywny i zakończonej MSA."
+    },
+    {
+      "code": "legal_display_name_transition",
+      "source_key": "active:santander",
+      "details": "Nazwa prawna ERSTE BANK POLSKA, alias arkusza Santander; istniejąca przyjazna nazwa NEXUS zostaje zachowana."
+    }
+  ],
+  "rows": [
+    {
+      "client_key": "alior-bank-spolka-akcyjna",
+      "source_key": "active:alior",
+      "sheet": "Aktywni Klienci",
+      "row_number": 2,
+      "category": "active",
+      "legal_name": "ALIOR BANK SPÓŁKA AKCYJNA",
+      "display_name": "Alior",
+      "force_display_name": false,
+      "aliases": [
+        "Alior",
+        "ALIOR BANK SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2023-06-21",
+      "expiry_date": "2028-06-21",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "bank-pocztowy-spolka-akcyjna",
+      "source_key": "active:bank-pocztowy",
+      "sheet": "Aktywni Klienci",
+      "row_number": 3,
+      "category": "active",
+      "legal_name": "BANK POCZTOWY SPÓŁKA AKCYJNA",
+      "display_name": "Bank Pocztowy",
+      "force_display_name": false,
+      "aliases": [
+        "Bank Pocztowy",
+        "BANK POCZTOWY SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-10-16",
+      "expiry_date": "2027-09-30",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "biuro-informacji-kredytowej-spolka-akcyjna",
+      "source_key": "active:bik",
+      "sheet": "Aktywni Klienci",
+      "row_number": 4,
+      "category": "active",
+      "legal_name": "BIURO INFORMACJI KREDYTOWEJ SPÓŁKA AKCYJNA",
+      "display_name": "BIK",
+      "force_display_name": false,
+      "aliases": [
+        "BIK",
+        "BIURO INFORMACJI KREDYTOWEJ SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2018-02-27",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "bnp-paribas-bank-polska-spolka-akcyjna",
+      "source_key": "active:bnp",
+      "sheet": "Aktywni Klienci",
+      "row_number": 5,
+      "category": "active",
+      "legal_name": "BNP PARIBAS BANK POLSKA SPÓŁKA AKCYJNA",
+      "display_name": "BNP",
+      "force_display_name": false,
+      "aliases": [
+        "BNP",
+        "BNP PARIBAS BANK POLSKA SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2021-12-16",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "bnp-paribas-s-a-oddzial-w-polsce",
+      "source_key": "active:bnp-cib",
+      "sheet": "Aktywni Klienci",
+      "row_number": 6,
+      "category": "active",
+      "legal_name": "BNP PARIBAS S.A ODDZIAŁ W POLSCE",
+      "display_name": "BNP CIB",
+      "force_display_name": false,
+      "aliases": [
+        "BNP CIB",
+        "BNP PARIBAS S.A ODDZIAŁ W POLSCE"
+      ],
+      "scope_label": null,
+      "effective_date": "2022-03-01",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "robert-bosch-gmbh",
+      "source_key": "active:bosch",
+      "sheet": "Aktywni Klienci",
+      "row_number": 7,
+      "category": "active",
+      "legal_name": "Robert Bosch GmbH",
+      "display_name": "Bosch",
+      "force_display_name": false,
+      "aliases": [
+        "Bosch",
+        "Robert Bosch GmbH"
+      ],
+      "scope_label": null,
+      "effective_date": "2019-01-01",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "cardif-assurances-risques-divers-spolka-akcyjna-oddzial-w-polsce",
+      "source_key": "active:cardif-assurances-risques-divers-spolka-akcyjna-oddzial-w-polsce",
+      "sheet": "Aktywni Klienci",
+      "row_number": 8,
+      "category": "active",
+      "legal_name": "CARDIF - ASSURANCES RISQUES DIVERS SPÓŁKA AKCYJNA ODDZIAŁ W POLSCE",
+      "display_name": "CARDIF - ASSURANCES RISQUES DIVERS SPÓŁKA AKCYJNA ODDZIAŁ W POLSCE",
+      "force_display_name": false,
+      "aliases": [
+        "CARDIF - ASSURANCES RISQUES DIVERS SPÓŁKA AKCYJNA ODDZIAŁ W POLSCE"
+      ],
+      "scope_label": null,
+      "effective_date": "2017-07-03",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "erste-bank-polska-spolka-akcyjna",
+      "source_key": "active:santander",
+      "sheet": "Aktywni Klienci",
+      "row_number": 9,
+      "category": "active",
+      "legal_name": "ERSTE BANK POLSKA SPÓŁKA AKCYJNA",
+      "display_name": "Santander",
+      "force_display_name": false,
+      "aliases": [
+        "Santander",
+        "ERSTE BANK POLSKA SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-11-15",
+      "expiry_date": "2030-11-14",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "ergo-technology-services-spolka-akcyjna",
+      "source_key": "active:ergo",
+      "sheet": "Aktywni Klienci",
+      "row_number": 10,
+      "category": "active",
+      "legal_name": "ERGO TECHNOLOGY & SERVICES SPÓŁKA AKCYJNA",
+      "display_name": "Ergo",
+      "force_display_name": false,
+      "aliases": [
+        "Ergo",
+        "ERGO TECHNOLOGY & SERVICES SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2019-05-02",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "ernst-young-spolka-z-ograniczona-odpowiedzialnoscia-consulting-spolka-komandytowa",
+      "source_key": "active:ey",
+      "sheet": "Aktywni Klienci",
+      "row_number": 11,
+      "category": "active",
+      "legal_name": "ERNST & YOUNG SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ CONSULTING SPÓŁKA KOMANDYTOWA",
+      "display_name": "EY",
+      "force_display_name": false,
+      "aliases": [
+        "EY",
+        "ERNST & YOUNG SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ CONSULTING SPÓŁKA KOMANDYTOWA"
+      ],
+      "scope_label": null,
+      "effective_date": "2022-03-29",
+      "expiry_date": "2026-03-29",
+      "expiry_is_open_ended": false,
+      "workbook_status": "nieaktywny"
+    },
+    {
+      "client_key": "centrum-e-zdrowia",
+      "source_key": "active:centrum-e-zdrowia",
+      "sheet": "Aktywni Klienci",
+      "row_number": 12,
+      "category": "active",
+      "legal_name": "Centrum e-Zdrowia",
+      "display_name": "Centrum e-Zdrowia",
+      "force_display_name": false,
+      "aliases": [
+        "Centrum e-Zdrowia"
+      ],
+      "scope_label": null,
+      "effective_date": null,
+      "expiry_date": null,
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "grupa-dealer-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:grupa-dealer",
+      "sheet": "Aktywni Klienci",
+      "row_number": 13,
+      "category": "active",
+      "legal_name": "GRUPA DEALER SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "Grupa Dealer",
+      "force_display_name": false,
+      "aliases": [
+        "Grupa Dealer",
+        "GRUPA DEALER SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-07-01",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "krajowa-izba-rozliczeniowa-spolka-akcyjna",
+      "source_key": "active:kir",
+      "sheet": "Aktywni Klienci",
+      "row_number": 14,
+      "category": "active",
+      "legal_name": "KRAJOWA IZBA ROZLICZENIOWA SPÓŁKA AKCYJNA",
+      "display_name": "Krajowa Izba Rozliczeń",
+      "force_display_name": true,
+      "aliases": [
+        "KIR",
+        "KRAJOWA IZBA ROZLICZENIOWA SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2026-07-12",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "mleasing-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:m-leasing",
+      "sheet": "Aktywni Klienci",
+      "row_number": 15,
+      "category": "active",
+      "legal_name": "MLEASING SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "m-Leasing",
+      "force_display_name": false,
+      "aliases": [
+        "m-Leasing",
+        "MLEASING SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2017-11-21",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "ms-enter-prise-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:ms-enter-prise",
+      "sheet": "Aktywni Klienci",
+      "row_number": 16,
+      "category": "active",
+      "legal_name": "MS ENTER-PRISE SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "MS Enter Prise",
+      "force_display_name": false,
+      "aliases": [
+        "MS Enter Prise",
+        "MS ENTER-PRISE SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2022-06-24",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "nationale-nederlanden-towarzystwo-ubezpieczen-na-zycie-spolka-akcyjna",
+      "source_key": "active:nationale",
+      "sheet": "Aktywni Klienci",
+      "row_number": 17,
+      "category": "active",
+      "legal_name": "NATIONALE-NEDERLANDEN TOWARZYSTWO UBEZPIECZEŃ NA ŻYCIE SPÓŁKA AKCYJNA",
+      "display_name": "Nationale",
+      "force_display_name": false,
+      "aliases": [
+        "Nationale",
+        "NATIONALE-NEDERLANDEN TOWARZYSTWO UBEZPIECZEŃ NA ŻYCIE SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2017-09-05",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "nordea-bank-abp",
+      "source_key": "active:nordea",
+      "sheet": "Aktywni Klienci",
+      "row_number": 18,
+      "category": "active",
+      "legal_name": "Nordea Bank Abp",
+      "display_name": "Nordea ABP",
+      "force_display_name": true,
+      "aliases": [
+        "Nordea",
+        "Nordea Bank Abp"
+      ],
+      "scope_label": null,
+      "effective_date": "2024-03-01",
+      "expiry_date": "2028-02-28",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "orlen-spolka-akcyjna",
+      "source_key": "active:orlen",
+      "sheet": "Aktywni Klienci",
+      "row_number": 19,
+      "category": "active",
+      "legal_name": "ORLEN SPÓŁKA AKCYJNA",
+      "display_name": "Orlen",
+      "force_display_name": false,
+      "aliases": [
+        "Orlen",
+        "ORLEN SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-05-20",
+      "expiry_date": "2028-05-20",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "bank-polska-kasa-opieki-spolka-akcyjna",
+      "source_key": "active:pekao",
+      "sheet": "Aktywni Klienci",
+      "row_number": 20,
+      "category": "active",
+      "legal_name": "BANK POLSKA KASA OPIEKI - SPÓŁKA AKCYJNA",
+      "display_name": "PEKAO",
+      "force_display_name": false,
+      "aliases": [
+        "PEKAO",
+        "BANK POLSKA KASA OPIEKI - SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2024-05-08",
+      "expiry_date": "2027-05-08",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "panstwowy-fundusz-rehabilitacji-osob-niepelnosprawnych",
+      "source_key": "active:pfron",
+      "sheet": "Aktywni Klienci",
+      "row_number": 21,
+      "category": "active",
+      "legal_name": "PAŃSTWOWY FUNDUSZ REHABILITACJI OSÓB NIEPEŁNOSPRAWNYCH",
+      "display_name": "PFRON",
+      "force_display_name": false,
+      "aliases": [
+        "PFRON",
+        "PAŃSTWOWY FUNDUSZ REHABILITACJI OSÓB NIEPEŁNOSPRAWNYCH"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-04-25",
+      "expiry_date": "2027-04-25",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "powszechna-kasa-oszczednosci-bank-polski-spolka-akcyjna",
+      "source_key": "active:pko-bp",
+      "sheet": "Aktywni Klienci",
+      "row_number": 22,
+      "category": "active",
+      "legal_name": "POWSZECHNA KASA OSZCZĘDNOŚCI BANK POLSKI SPÓŁKA AKCYJNA",
+      "display_name": "Powszechna Kasa Oszczędności S.A",
+      "force_display_name": true,
+      "aliases": [
+        "PKO BP",
+        "POWSZECHNA KASA OSZCZĘDNOŚCI BANK POLSKI SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-08-19",
+      "expiry_date": "2028-08-19",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "cyfrowy-polsat-spolka-akcyjna",
+      "source_key": "active:cyfrowy-polsat",
+      "sheet": "Aktywni Klienci",
+      "row_number": 23,
+      "category": "active",
+      "legal_name": "CYFROWY POLSAT SPÓŁKA AKCYJNA",
+      "display_name": "Cyfrowy Polsat",
+      "force_display_name": false,
+      "aliases": [
+        "Cyfrowy Polsat",
+        "CYFROWY POLSAT SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2018-05-10",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "polkomtel-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:polkomtel",
+      "sheet": "Aktywni Klienci",
+      "row_number": 24,
+      "category": "active",
+      "legal_name": "POLKOMTEL SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "Polkomtel",
+      "force_display_name": false,
+      "aliases": [
+        "Polkomtel",
+        "POLKOMTEL SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2018-06-11",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "rits-professional-services-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:rits",
+      "sheet": "Aktywni Klienci",
+      "row_number": 25,
+      "category": "active",
+      "legal_name": "RITS PROFESSIONAL SERVICES SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "RITS",
+      "force_display_name": false,
+      "aliases": [
+        "RITS",
+        "RITS PROFESSIONAL SERVICES SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2024-07-02",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "velobank-spolka-akcyjna",
+      "source_key": "active:velobank",
+      "sheet": "Aktywni Klienci",
+      "row_number": 26,
+      "category": "active",
+      "legal_name": "VELOBANK SPÓŁKA AKCYJNA",
+      "display_name": "Velobank",
+      "force_display_name": false,
+      "aliases": [
+        "Velobank",
+        "VELOBANK SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2023-02-09",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "vip-solutions-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:vip-solution",
+      "sheet": "Aktywni Klienci",
+      "row_number": 27,
+      "category": "active",
+      "legal_name": "VIP SOLUTIONS SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "VIP-Solution",
+      "force_display_name": false,
+      "aliases": [
+        "VIP-Solution",
+        "VIP SOLUTIONS SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2021-07-30",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "lotte-wedel-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:wedel",
+      "sheet": "Aktywni Klienci",
+      "row_number": 28,
+      "category": "active",
+      "legal_name": "LOTTE WEDEL SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "Wedel",
+      "force_display_name": false,
+      "aliases": [
+        "Wedel",
+        "LOTTE WEDEL SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2026-04-10",
+      "expiry_date": null,
+      "expiry_is_open_ended": true,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "tauron-nowa-energia-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "active:tauron-nowa-energia-sp-z-o-o",
+      "sheet": "Aktywni Klienci",
+      "row_number": 29,
+      "category": "active",
+      "legal_name": "TAURON NOWA ENERGIA SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "TAURON Nowa Energia sp. z o.o.",
+      "force_display_name": false,
+      "aliases": [
+        "TAURON Nowa Energia sp. z o.o.",
+        "TAURON NOWA ENERGIA SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ],
+      "scope_label": null,
+      "effective_date": "2026-06-16",
+      "expiry_date": "2028-06-16",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "polska-agencja-zeglugi-powietrznej",
+      "source_key": "active:polska-agencja-zeglugi-powietrznej",
+      "sheet": "Aktywni Klienci",
+      "row_number": 30,
+      "category": "active",
+      "legal_name": "POLSKA AGENCJA ŻEGLUGI POWIETRZNEJ",
+      "display_name": "Polska Agencja Żeglugi Powietrznej",
+      "force_display_name": false,
+      "aliases": [
+        "Polska Agencja Żeglugi Powietrznej",
+        "POLSKA AGENCJA ŻEGLUGI POWIETRZNEJ"
+      ],
+      "scope_label": null,
+      "effective_date": "2026-06-19",
+      "expiry_date": "2029-12-31",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "credit-agricole-bank-polska-spolka-akcyjna",
+      "source_key": "active:credit-agricole",
+      "sheet": "Aktywni Klienci",
+      "row_number": 31,
+      "category": "active",
+      "legal_name": "CREDIT AGRICOLE BANK POLSKA SPÓŁKA AKCYJNA",
+      "display_name": "CREDIT AGRICOLE",
+      "force_display_name": false,
+      "aliases": [
+        "CREDIT AGRICOLE",
+        "CREDIT AGRICOLE BANK POLSKA SPÓŁKA AKCYJNA"
+      ],
+      "scope_label": null,
+      "effective_date": "2026-05-11",
+      "expiry_date": "2027-12-31",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "cancer-center-spolka-z-ograniczona-odpowiedzialnoscia",
+      "source_key": "relationship:cancer-center-spolka-z-ograniczona-odpowiedzialnoscia",
+      "sheet": "Relacyjni klienci",
+      "row_number": 2,
+      "category": "relationship",
+      "legal_name": "CANCER CENTER SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+      "display_name": "Cancer Center",
+      "force_display_name": false,
+      "aliases": [
+        "CANCER CENTER SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+        "Cancer Center"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-10-14",
+      "expiry_date": "2026-10-30",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "consdata",
+      "source_key": "relationship:consdata",
+      "sheet": "Relacyjni klienci",
+      "row_number": 3,
+      "category": "relationship",
+      "legal_name": "Consdata",
+      "display_name": "Consdata",
+      "force_display_name": false,
+      "aliases": [
+        "Consdata"
+      ],
+      "scope_label": null,
+      "effective_date": null,
+      "expiry_date": null,
+      "expiry_is_open_ended": false,
+      "workbook_status": "brak umowy"
+    },
+    {
+      "client_key": "nordea-bank-abp",
+      "source_key": "relationship:nordea-bank-abp:pentesty",
+      "sheet": "Relacyjni klienci",
+      "row_number": 4,
+      "category": "relationship",
+      "legal_name": "Nordea Bank Abp",
+      "display_name": "Nordea ABP",
+      "force_display_name": true,
+      "aliases": [
+        "Nordea Bank Abp - Pentesty",
+        "Nordea Bank Abp",
+        "Nordea ABP"
+      ],
+      "scope_label": "Pentesty",
+      "effective_date": "2025-05-15",
+      "expiry_date": "2028-02-28",
+      "expiry_is_open_ended": false,
+      "workbook_status": "aktywny"
+    },
+    {
+      "client_key": "narodowy-bank-polski",
+      "source_key": "inactive:narodowy-bank-polski",
+      "sheet": "Niekatywni klienci",
+      "row_number": 2,
+      "category": "inactive",
+      "legal_name": "NARODOWY BANK POLSKI",
+      "display_name": "Narodowy Bank Polski",
+      "force_display_name": false,
+      "aliases": [
+        "NARODOWY BANK POLSKI",
+        "Narodowy Bank Polski"
+      ],
+      "scope_label": null,
+      "effective_date": "2025-06-02",
+      "expiry_date": "2026-05-31",
+      "expiry_is_open_ended": false,
+      "workbook_status": "nieaktywny"
+    }
+  ]
+}

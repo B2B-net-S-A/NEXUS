@@ -1,7 +1,17 @@
 import enum
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Enum, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -20,6 +30,12 @@ class Client(Base, TimestampMixin):
     """
 
     __tablename__ = "clients"
+    __table_args__ = (
+        CheckConstraint(
+            "merged_into_client_id IS NULL OR merged_into_client_id <> id",
+            name="ck_clients_not_merged_into_self",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
@@ -68,6 +84,20 @@ class Client(Base, TimestampMixin):
         String(50), default="manual", index=True
     )
 
+    # Local canonicalisation lifecycle. A duplicate can be archived and point
+    # at the retained client while preserving (rather than deleting) history.
+    # These fields are intentionally independent from Traffit's external
+    # identity and from the legacy operational ``status``.
+    merged_into_client_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("clients.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    archived_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Relationships
     jobs = relationship("Job", back_populates="client")
     contracts = relationship("Contract", back_populates="client")
@@ -76,6 +106,31 @@ class Client(Base, TimestampMixin):
         back_populates="client",
         cascade="all, delete-orphan",
     )
+    merged_into = relationship(
+        "Client",
+        remote_side=[id],
+        foreign_keys=[merged_into_client_id],
+        back_populates="merged_clients",
+    )
+    merged_clients = relationship(
+        "Client",
+        foreign_keys=[merged_into_client_id],
+        back_populates="merged_into",
+    )
+    archived_by_user = relationship("User", foreign_keys=[archived_by])
+    portfolio_scopes = relationship(
+        "ClientPortfolioScope",
+        back_populates="client",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    aliases = relationship(
+        "ClientAlias",
+        back_populates="client",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    import_rows = relationship("ClientImportRow", back_populates="matched_client")
 
     def __repr__(self) -> str:
         return f"<Client id={self.id} name={self.name}>"

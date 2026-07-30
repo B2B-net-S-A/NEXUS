@@ -205,6 +205,14 @@ const ADVANCED_LINKS: Array<{
     roles: ["admin", "head_of_recruitment"],
   },
   {
+    href: "/settings/client-portfolio-preview",
+    title: "Podgląd importu klientów",
+    description:
+      "Read-only plan Excela: dopasowania, KIR, blockery i podejrzenia duplikatów przed apply-once.",
+    icon: <FileText className="w-5 h-5" />,
+    roles: ["admin"],
+  },
+  {
     href: "/settings/hiring-managers",
     title: "Top hiring managers",
     description: "KPI hiring managerów w klientach (Phase 9b).",

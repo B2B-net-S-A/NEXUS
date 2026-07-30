@@ -132,6 +132,9 @@ async def _to_read(
         uploaded_by=fc.uploaded_by,
         uploaded_at=fc.uploaded_at,
         notes=fc.notes,
+        source_system=fc.source_system,
+        source_key=fc.source_key,
+        import_run_id=fc.import_run_id,
         created_at=fc.created_at,
         updated_at=fc.updated_at,
         amendments_count=amendments_count or 0,
@@ -208,6 +211,15 @@ async def create_framework_contract(
     notes: Optional[str] = Form(None),
 ):
     await _assert_client(db, client_id)
+    if (
+        effective_date is not None
+        and expiry_date is not None
+        and expiry_date < effective_date
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="expiry_date cannot be earlier than effective_date",
+        )
 
     relative_path = None
     size = None
@@ -285,6 +297,17 @@ async def update_framework_contract(
         raise HTTPException(404, detail="Framework contract not found")
 
     data = payload.model_dump(exclude_unset=True)
+    next_effective_date = data.get("effective_date", fc.effective_date)
+    next_expiry_date = data.get("expiry_date", fc.expiry_date)
+    if (
+        next_effective_date is not None
+        and next_expiry_date is not None
+        and next_expiry_date < next_effective_date
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="expiry_date cannot be earlier than effective_date",
+        )
     for field, value in data.items():
         setattr(fc, field, value)
 
