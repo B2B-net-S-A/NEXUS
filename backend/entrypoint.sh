@@ -482,6 +482,37 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'external_observed'",
     "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'manager_inbound'",
     "ALTER TYPE priorityoriginkind ADD VALUE IF NOT EXISTS 'approved_exception'",
+    # 0205: lokalna klasyfikacja katalogu klientów. Tworzymy typ przed
+    # kolumnami/tabelami safety-netu; ADD VALUE naprawia też częściowy typ po
+    # przerwanym ręcznym wdrożeniu.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_type WHERE typname = 'clientportfoliocategory'
+        ) THEN
+            CREATE TYPE clientportfoliocategory AS ENUM (
+                'active', 'relationship', 'inactive'
+            );
+        END IF;
+    END $$""",
+    "ALTER TYPE clientportfoliocategory ADD VALUE IF NOT EXISTS 'active'",
+    "ALTER TYPE clientportfoliocategory ADD VALUE IF NOT EXISTS 'relationship'",
+    "ALTER TYPE clientportfoliocategory ADD VALUE IF NOT EXISTS 'inactive'",
+    # 0087 zwykle już utworzyło ten enum. Guard zabezpiecza odtworzoną /
+    # osieroconą bazę, a legacy_import oznacza zakres MSA z Excela bez PDF-a.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_type WHERE typname = 'frameworkcontractsignedvia'
+        ) THEN
+            CREATE TYPE frameworkcontractsignedvia AS ENUM (
+                'upload', 'autenti', 'legacy_import'
+            );
+        END IF;
+    END $$""",
+    "ALTER TYPE frameworkcontractsignedvia ADD VALUE IF NOT EXISTS 'upload'",
+    "ALTER TYPE frameworkcontractsignedvia ADD VALUE IF NOT EXISTS 'autenti'",
+    "ALTER TYPE frameworkcontractsignedvia ADD VALUE IF NOT EXISTS 'legacy_import'",
 ]
 
 _COLUMN_STATEMENTS = [
@@ -2215,6 +2246,220 @@ _COLUMN_STATEMENTS = [
     "ON candidate_activity_summaries (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_input_hash "
     "ON candidate_activity_summaries (input_hash)",
+    # 0205: katalog klientów jest addytywny i niezależny od legacy
+    # clients.status / integracji Traffit. Soft-merge zachowuje rekord źródłowy
+    # i jego historię; ten blok jest wyłącznie DDL i nie mutuje danych klienta.
+    """ALTER TABLE clients
+       ADD COLUMN IF NOT EXISTS merged_into_client_id INTEGER NULL,
+       ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ NULL,
+       ADD COLUMN IF NOT EXISTS archived_by INTEGER NULL""",
+    """DO $$ BEGIN
+        ALTER TABLE clients
+            ADD CONSTRAINT fk_clients_merged_into_client_id
+            FOREIGN KEY (merged_into_client_id) REFERENCES clients(id)
+            ON DELETE RESTRICT;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE clients
+            ADD CONSTRAINT fk_clients_archived_by
+            FOREIGN KEY (archived_by) REFERENCES users(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE clients
+            ADD CONSTRAINT ck_clients_not_merged_into_self
+            CHECK (
+                merged_into_client_id IS NULL OR merged_into_client_id <> id
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "CREATE INDEX IF NOT EXISTS ix_clients_merged_into_client_id "
+    "ON clients (merged_into_client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_clients_archived_at ON clients (archived_at)",
+    "CREATE INDEX IF NOT EXISTS ix_clients_archived_by ON clients (archived_by)",
+    # Audyt importu istnieje przed FK z MSA. Hash pliku daje retry-safe
+    # identyfikację runu, a rolled_back zostawia czytelny ślad odwrócenia.
+    """CREATE TABLE IF NOT EXISTS client_import_runs (
+        id SERIAL PRIMARY KEY,
+        source_system VARCHAR(32) NOT NULL DEFAULT 'client_excel',
+        source_filename VARCHAR(255) NOT NULL,
+        source_sha256 VARCHAR(64) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
+        summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NULL,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        approved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        approved_at TIMESTAMPTZ NULL,
+        applied_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_client_import_runs_status CHECK (
+            status IN (
+                'uploaded', 'reviewed', 'applying', 'applied',
+                'rolled_back', 'failed'
+            )
+        ),
+        CONSTRAINT ck_client_import_runs_source_system_nonempty
+            CHECK (char_length(btrim(source_system)) > 0),
+        CONSTRAINT ck_client_import_runs_source_sha256
+            CHECK (char_length(source_sha256) = 64)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_import_runs_status "
+    "ON client_import_runs (status)",
+    "ALTER TABLE client_import_runs "
+    "DROP CONSTRAINT IF EXISTS uq_client_import_runs_source_sha256",
+    "CREATE UNIQUE INDEX IF NOT EXISTS "
+    "ux_client_import_runs_applied_source_sha256 "
+    "ON client_import_runs (source_system, source_sha256) "
+    "WHERE status = 'applied'",
+    # MSA jest źródłem Start/Koniec umowy. source_system/source_key zapewniają
+    # idempotentne ponowienie zatwierdzonego wiersza importu.
+    """ALTER TABLE client_framework_contracts
+       ADD COLUMN IF NOT EXISTS source_system VARCHAR(32)
+           NOT NULL DEFAULT 'manual',
+       ADD COLUMN IF NOT EXISTS source_key VARCHAR(255) NULL,
+       ADD COLUMN IF NOT EXISTS import_run_id INTEGER NULL""",
+    """DO $$ BEGIN
+        ALTER TABLE client_framework_contracts
+            ADD CONSTRAINT fk_client_framework_contracts_import_run_id
+            FOREIGN KEY (import_run_id) REFERENCES client_import_runs(id)
+            ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_framework_contracts
+            ADD CONSTRAINT ck_client_framework_contracts_dates
+            CHECK (
+                effective_date IS NULL OR expiry_date IS NULL
+                OR expiry_date >= effective_date
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_framework_contracts
+            ADD CONSTRAINT ck_client_framework_contracts_source_system_nonempty
+            CHECK (char_length(btrim(source_system)) > 0) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_framework_contracts
+            ADD CONSTRAINT ck_client_framework_contracts_source_key_nonempty
+            CHECK (
+                source_key IS NULL OR char_length(btrim(source_key)) > 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "CREATE INDEX IF NOT EXISTS ix_client_framework_contracts_import_run_id "
+    "ON client_framework_contracts (import_run_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS "
+    "ux_client_framework_contracts_source_key "
+    "ON client_framework_contracts (source_system, source_key) "
+    "WHERE source_key IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS client_portfolio_scopes (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        framework_contract_id INTEGER NULL
+            REFERENCES client_framework_contracts(id) ON DELETE SET NULL,
+        category clientportfoliocategory NOT NULL DEFAULT 'inactive',
+        label VARCHAR(255) NULL,
+        source_system VARCHAR(32) NOT NULL DEFAULT 'manual',
+        source_key VARCHAR(255) NULL,
+        archived_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_client_portfolio_scopes_label_nonempty
+            CHECK (label IS NULL OR char_length(btrim(label)) > 0),
+        CONSTRAINT ck_client_portfolio_scopes_source_system_nonempty
+            CHECK (char_length(btrim(source_system)) > 0),
+        CONSTRAINT ck_client_portfolio_scopes_source_key_nonempty
+            CHECK (source_key IS NULL OR char_length(btrim(source_key)) > 0)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_portfolio_scopes_client_id "
+    "ON client_portfolio_scopes (client_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS "
+    "ux_client_portfolio_scopes_framework_contract_active "
+    "ON client_portfolio_scopes (framework_contract_id) "
+    "WHERE framework_contract_id IS NOT NULL AND archived_at IS NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS "
+    "ux_client_portfolio_scopes_source_key_active "
+    "ON client_portfolio_scopes (source_system, source_key) "
+    "WHERE source_key IS NOT NULL AND archived_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS "
+    "ix_client_portfolio_scopes_category_label_active "
+    "ON client_portfolio_scopes (category, label) WHERE archived_at IS NULL",
+    """CREATE TABLE IF NOT EXISTS client_aliases (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        alias VARCHAR(255) NOT NULL,
+        normalized_alias VARCHAR(255) NOT NULL,
+        source_system VARCHAR(32) NOT NULL DEFAULT 'manual',
+        source_key VARCHAR(255) NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_client_aliases_client_normalized
+            UNIQUE (client_id, normalized_alias),
+        CONSTRAINT ck_client_aliases_alias_nonempty
+            CHECK (char_length(btrim(alias)) > 0),
+        CONSTRAINT ck_client_aliases_normalized_nonempty
+            CHECK (char_length(btrim(normalized_alias)) > 0),
+        CONSTRAINT ck_client_aliases_source_system_nonempty
+            CHECK (char_length(btrim(source_system)) > 0),
+        CONSTRAINT ck_client_aliases_source_key_nonempty
+            CHECK (source_key IS NULL OR char_length(btrim(source_key)) > 0)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_aliases_client_id "
+    "ON client_aliases (client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_aliases_normalized_alias "
+    "ON client_aliases (normalized_alias)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_aliases_source_key "
+    "ON client_aliases (source_system, source_key) WHERE source_key IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS client_import_rows (
+        id SERIAL PRIMARY KEY,
+        import_run_id INTEGER NOT NULL
+            REFERENCES client_import_runs(id) ON DELETE CASCADE,
+        sheet_name VARCHAR(255) NOT NULL,
+        row_number INTEGER NOT NULL,
+        source_key VARCHAR(255) NULL,
+        source_name VARCHAR(255) NOT NULL,
+        normalized_name VARCHAR(255) NULL,
+        proposed_display_name VARCHAR(255) NULL,
+        proposed_legal_name VARCHAR(255) NULL,
+        category clientportfoliocategory NOT NULL,
+        start_date DATE NULL,
+        end_date DATE NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+        match_confidence NUMERIC(5, 4) NULL,
+        raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NULL,
+        matched_client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL,
+        portfolio_scope_id INTEGER NULL
+            REFERENCES client_portfolio_scopes(id) ON DELETE SET NULL,
+        framework_contract_id INTEGER NULL
+            REFERENCES client_framework_contracts(id) ON DELETE SET NULL,
+        resolved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        resolved_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_client_import_rows_sheet_row
+            UNIQUE (import_run_id, sheet_name, row_number),
+        CONSTRAINT ck_client_import_rows_row_number_positive
+            CHECK (row_number >= 1),
+        CONSTRAINT ck_client_import_rows_source_name_nonempty
+            CHECK (char_length(btrim(source_name)) > 0),
+        CONSTRAINT ck_client_import_rows_status CHECK (
+            status IN (
+                'pending', 'matched', 'create', 'ambiguous',
+                'ignored', 'applied', 'failed'
+            )
+        ),
+        CONSTRAINT ck_client_import_rows_match_confidence CHECK (
+            match_confidence IS NULL
+            OR (match_confidence >= 0 AND match_confidence <= 1)
+        ),
+        CONSTRAINT ck_client_import_rows_dates CHECK (
+            start_date IS NULL OR end_date IS NULL OR end_date >= start_date
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_import_rows_import_run_id "
+    "ON client_import_rows (import_run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_import_rows_matched_client_id "
+    "ON client_import_rows (matched_client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_import_rows_status "
+    "ON client_import_rows (status)",
 ]
 
 _DATA_STATEMENTS = [

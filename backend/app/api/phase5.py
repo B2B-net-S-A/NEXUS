@@ -366,8 +366,15 @@ async def clients_lookup(
 
     from app.models.client import Client
 
-    name_col = func.coalesce(Client.display_name, Client.name)
-    stmt = select(Client.id, name_col).where(Client.hidden.is_(False))
+    name_col = func.coalesce(
+        func.nullif(func.btrim(Client.display_name), ""),
+        Client.name,
+    )
+    stmt = select(Client.id, name_col).where(
+        Client.hidden.is_(False),
+        Client.archived_at.is_(None),
+        Client.merged_into_client_id.is_(None),
+    )
     if featured:
         stmt = stmt.where(Client.display_name.isnot(None))
     rows = await db.execute(stmt.order_by(name_col))
