@@ -212,7 +212,11 @@ async def create_client(
     db: AsyncSession = Depends(get_db),
     portfolio_category: PortfolioCategory = Query(PortfolioCategory.active),
 ):
-    """Create a client and its initial local directory scope atomically."""
+    """Create a client and its initial local directory scope atomically.
+
+    ``portfolio_category`` deliberately comes from the currently selected
+    directory tab; direct API callers may make the same explicit choice.
+    """
 
     client = Client(**data.model_dump())
     db.add(client)

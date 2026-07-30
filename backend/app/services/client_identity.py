@@ -60,7 +60,9 @@ async def resolve_visible_client(
 
     Merge chains are not expected, but following them defensively prevents a
     stale foreign key from revealing an intermediate duplicate.  A broken
-    target or cycle fails closed.
+    target or cycle fails closed. Reads remain lock-free: a concurrent merge or
+    rollback can therefore cause a transient fail-closed response that succeeds
+    on retry instead of blocking the identity write.
     """
 
     current_id = client_id
