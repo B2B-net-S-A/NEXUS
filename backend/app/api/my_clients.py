@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -27,7 +27,7 @@ from app.models.client_framework_contract import (
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.my_clients import (
     ClientDashboardResponse,
     ExpiringAlert,
@@ -42,6 +42,33 @@ from app.services.client_identity import (
 )
 
 router = APIRouter()
+
+
+async def require_dl_assigned_or_admin_after_merge(
+    client_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Authorize dashboard access against the canonical client identity."""
+    canonical = await resolve_visible_client(db, client_id, follow_merge=True)
+    if canonical is None:
+        raise HTTPException(404, detail="Client not found")
+
+    # The merge moves client FK rows (including DL assignments) atomically.
+    # Authorizing the canonical record avoids retaining access granted only by
+    # an archived source identity.
+    await require_dl_assigned_or_admin(
+        client_id=canonical.id,
+        current_user=current_user,
+        db=db,
+    )
+    return current_user
+
+
+CanonicalDlAssignedOrAdmin = Annotated[
+    User,
+    Depends(require_dl_assigned_or_admin_after_merge),
+]
 
 
 def _days_to(target: Optional[date]) -> Optional[int]:
@@ -236,7 +263,7 @@ async def list_my_clients(
 @router.get("/{client_id}/dashboard", response_model=ClientDashboardResponse)
 async def client_dashboard(
     client_id: int,
-    user: CurrentUser,
+    user: CanonicalDlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     client = await db.scalar(select(Client).where(Client.id == client_id))
@@ -246,16 +273,6 @@ async def client_dashboard(
         canonical = await resolve_visible_client(db, client_id, follow_merge=True)
         if canonical is None:
             raise HTTPException(404, detail="Client not found")
-        # Authorization follows the canonical identity deliberately. The
-        # merge moves client FK rows (including DL assignments) in the same
-        # transaction and aborts on uniqueness conflicts. Checking the hidden
-        # source would otherwise preserve access that the canonical record no
-        # longer grants.
-        await require_dl_assigned_or_admin(
-            client_id=canonical.id,
-            current_user=user,
-            db=db,
-        )
         return RedirectResponse(
             url=f"/api/my-clients/{canonical.id}/dashboard",
             status_code=status.HTTP_308_PERMANENT_REDIRECT,
@@ -263,11 +280,6 @@ async def client_dashboard(
         )
     if not is_client_visible(client):
         raise HTTPException(404, detail="Client not found")
-    await require_dl_assigned_or_admin(
-        client_id=client.id,
-        current_user=user,
-        db=db,
-    )
 
     # Revenue: lifetime total / active / completed
     rev_rows = list(
