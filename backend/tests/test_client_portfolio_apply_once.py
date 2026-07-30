@@ -295,26 +295,39 @@ async def test_alias_upsert_records_provenance_and_revives_archived_record() -> 
 
 
 @pytest.mark.asyncio
-async def test_apply_write_surface_locks_clients_aliases_scopes_msas_and_candidates() -> (
-    None
-):
+async def test_apply_write_surface_locks_matching_inputs_and_kir_rows() -> None:
     db = SimpleNamespace(execute=AsyncMock())
 
-    await _lock_import_write_surface(db)
+    await _lock_import_write_surface(
+        db,
+        kir_client_ids=(24, 32),
+        include_candidates=True,
+    )
 
     assert db.execute.await_count == 2
     table_lock, row_lock = db.execute.await_args_list
     lock_sql = str(table_lock.args[0])
-    for table in (
-        "clients",
-        "client_aliases",
-        "candidates",
-        "client_portfolio_scopes",
-        "client_framework_contracts",
-    ):
+    for table in ("clients", "client_aliases", "candidates"):
         assert table in lock_sql
+    assert "client_portfolio_scopes" not in lock_sql
+    assert "client_framework_contracts" not in lock_sql
     assert "SHARE ROW EXCLUSIVE" in lock_sql
-    assert "FOR UPDATE" in str(row_lock.args[0].compile(dialect=postgresql.dialect()))
+    row_sql = str(row_lock.args[0].compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE" in row_sql
+    assert "WHERE clients.id IN" in row_sql
+
+
+@pytest.mark.asyncio
+async def test_apply_write_surface_skips_candidate_and_row_locks_without_kir() -> None:
+    db = SimpleNamespace(execute=AsyncMock())
+
+    await _lock_import_write_surface(db)
+
+    db.execute.assert_awaited_once()
+    lock_sql = str(db.execute.await_args.args[0])
+    assert "clients" in lock_sql
+    assert "client_aliases" in lock_sql
+    assert "candidates" not in lock_sql
 
 
 @pytest.mark.asyncio
