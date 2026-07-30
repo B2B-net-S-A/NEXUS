@@ -289,8 +289,10 @@
       "force_display_name": false,
       "aliases": [
         "m-Leasing",
+        "mLeasing",
         "MLEASING SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
       ],
+      "approved_match_alias": "mLeasing",
       "scope_label": null,
       "effective_date": "2017-11-21",
       "expiry_date": null,
@@ -308,8 +310,10 @@
       "force_display_name": false,
       "aliases": [
         "MS Enter Prise",
+        "MS Enter Price",
         "MS ENTER-PRISE SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
       ],
+      "approved_match_alias": "MS Enter Price",
       "scope_label": null,
       "effective_date": "2022-06-24",
       "expiry_date": null,
@@ -577,8 +581,10 @@
       "force_display_name": false,
       "aliases": [
         "Polska Agencja Żeglugi Powietrznej",
+        "PANSA - Polska Agencja Żeglugli Powietrznej",
         "POLSKA AGENCJA ŻEGLUGI POWIETRZNEJ"
       ],
+      "approved_match_alias": "PANSA - Polska Agencja Żeglugli Powietrznej",
       "scope_label": null,
       "effective_date": "2026-06-19",
       "expiry_date": "2029-12-31",
