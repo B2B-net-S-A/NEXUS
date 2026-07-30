@@ -289,8 +289,8 @@
       "force_display_name": false,
       "aliases": [
         "m-Leasing",
-        "mLeasing",
-        "MLEASING SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+        "MLEASING SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+        "mLeasing"
       ],
       "approved_match_alias": "mLeasing",
       "scope_label": null,
@@ -310,8 +310,8 @@
       "force_display_name": false,
       "aliases": [
         "MS Enter Prise",
-        "MS Enter Price",
-        "MS ENTER-PRISE SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+        "MS ENTER-PRISE SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+        "MS Enter Price"
       ],
       "approved_match_alias": "MS Enter Price",
       "scope_label": null,
@@ -581,8 +581,8 @@
       "force_display_name": false,
       "aliases": [
         "Polska Agencja Żeglugi Powietrznej",
-        "PANSA - Polska Agencja Żeglugli Powietrznej",
-        "POLSKA AGENCJA ŻEGLUGI POWIETRZNEJ"
+        "POLSKA AGENCJA ŻEGLUGI POWIETRZNEJ",
+        "PANSA - Polska Agencja Żeglugli Powietrznej"
       ],
       "approved_match_alias": "PANSA - Polska Agencja Żeglugli Powietrznej",
       "scope_label": null,
