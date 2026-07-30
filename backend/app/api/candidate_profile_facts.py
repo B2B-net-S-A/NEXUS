@@ -8,7 +8,10 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidateProfileFactsAccess
+from app.api.candidate_access import (
+    CandidateProfileFactsReadAccess,
+    CandidateProfileFactsWriteAccess,
+)
 from app.core.database import get_db
 from app.schemas.candidate_profile_facts import (
     CandidateLanguagesPut,
@@ -110,7 +113,7 @@ def _set_etag(
 async def get_candidate_languages(
     candidate_id: int,
     response: Response,
-    current_user: CandidateProfileFactsAccess,
+    current_user: CandidateProfileFactsReadAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateLanguagesResponse:
     del current_user  # role dependency is the complete read gate
@@ -139,7 +142,7 @@ async def put_candidate_languages(
     candidate_id: int,
     payload: CandidateLanguagesPut,
     response: Response,
-    current_user: CandidateProfileFactsAccess,
+    current_user: CandidateProfileFactsWriteAccess,
     if_match: str | None = Header(default=None, alias="If-Match"),
     db: AsyncSession = Depends(get_db),
 ) -> CandidateLanguagesResponse:
@@ -201,7 +204,7 @@ def _profile_rate_response(candidate) -> CandidateProfileRateResponse:  # type: 
 async def get_candidate_profile_rate(
     candidate_id: int,
     response: Response,
-    current_user: CandidateProfileFactsAccess,
+    current_user: CandidateProfileFactsReadAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateProfileRateResponse:
     del current_user
@@ -226,7 +229,7 @@ async def patch_candidate_profile_rate(
     candidate_id: int,
     payload: CandidateProfileRatePatch,
     response: Response,
-    current_user: CandidateProfileFactsAccess,
+    current_user: CandidateProfileFactsWriteAccess,
     if_match: str | None = Header(default=None, alias="If-Match"),
     db: AsyncSession = Depends(get_db),
 ) -> CandidateProfileRateResponse:
@@ -268,7 +271,7 @@ async def patch_candidate_profile_rate(
 )
 async def get_candidate_recent_recruitments(
     candidate_id: int,
-    current_user: CandidateProfileFactsAccess,
+    current_user: CandidateProfileFactsReadAccess,
     limit: int = Query(default=5, ge=1, le=5),
     db: AsyncSession = Depends(get_db),
 ) -> CandidateRecentRecruitmentsResponse:

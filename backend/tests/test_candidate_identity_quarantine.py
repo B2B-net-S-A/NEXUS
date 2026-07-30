@@ -7,9 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 from app.api.candidate_identity_quarantine import _serialize
+from app.core.config import Settings
 from app.models.index_outbox import IndexOutboxEvent
 from app.models.note import Note
 from app.models.user import User, UserRole
@@ -95,6 +97,49 @@ def test_identity_fingerprint_is_deterministic_but_not_an_unkeyed_name_hash() ->
 
     assert one == two
     assert one != unkeyed
+
+
+def test_production_identity_fingerprint_key_is_required_and_distinct(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    jwt_key = "jwt-signing-key-that-is-long-enough-for-production-123456"
+    monkeypatch.setenv("DEBUG", "false")
+
+    with pytest.raises(ValidationError, match="is required in production"):
+        Settings(
+            _env_file=None,
+            DEBUG=False,
+            SECRET_KEY=jwt_key,
+            CANDIDATE_IDENTITY_FINGERPRINT_KEY="",
+        )
+
+    with pytest.raises(ValidationError, match="is required in production"):
+        Settings(
+            _env_file=None,
+            DEBUG=False,
+            SECRET_KEY=jwt_key,
+            CANDIDATE_IDENTITY_FINGERPRINT_KEY=(
+                "change-me-to-a-different-long-random-string-min-48-chars"
+            ),
+        )
+
+    with pytest.raises(ValidationError, match="must not equal SECRET_KEY"):
+        Settings(
+            _env_file=None,
+            DEBUG=False,
+            SECRET_KEY=jwt_key,
+            CANDIDATE_IDENTITY_FINGERPRINT_KEY=jwt_key,
+        )
+
+    configured = Settings(
+        _env_file=None,
+        DEBUG=False,
+        SECRET_KEY=jwt_key,
+        CANDIDATE_IDENTITY_FINGERPRINT_KEY=(
+            "candidate-identity-key-distinct-from-jwt-and-long-enough"
+        ),
+    )
+    assert configured.CANDIDATE_IDENTITY_FINGERPRINT_KEY != configured.SECRET_KEY
 
 
 def test_source_eligibility_is_a_correlated_not_exists_guard() -> None:

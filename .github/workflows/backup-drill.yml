@@ -229,6 +229,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://drill:drill-password@localhost:5432/nexus_drill
           SECRET_KEY: drill-only-not-for-production-at-least-48-chars-long
+          CANDIDATE_IDENTITY_FINGERPRINT_KEY: drill-only-distinct-candidate-identity-key-at-least-48-chars
         run: alembic -c alembic/alembic.ini upgrade head
 
       - name: Validate restored data

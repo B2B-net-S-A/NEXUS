@@ -813,6 +813,9 @@ async def _notes_section(
                 .where(
                     Note.candidate_id == candidate_id,
                     Note.source_deleted_at.is_(None),
+                    # A candidate-global note has no job membership proof. The
+                    # summary is scope-bound, so NULL job_id is deliberately
+                    # rejected instead of being shared across disjoint teams.
                     _scope_filter(Note.job_id, visible_job_ids, null_ok=False),
                     source_is_eligible_clause(
                         candidate_id_column=Note.candidate_id,
@@ -1473,6 +1476,9 @@ async def get_or_generate(
         db,
         visibility_scope_hash=context.visibility_scope_hash,
     )
+    # ``force`` is the explicit refresh contract: callers may regenerate even
+    # when the deterministic source version has not changed (for example after
+    # an operator judges the prose stale). Normal GETs still use the cache.
     if row is not None and not force and row.source_version == context.source_version:
         return _state(row, context), False
 

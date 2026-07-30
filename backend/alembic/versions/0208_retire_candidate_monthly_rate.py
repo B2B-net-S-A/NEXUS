@@ -144,6 +144,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Removed criteria and disabled alerts cannot be reconstructed safely.
-    op.drop_column("saved_searches", "requires_reapproval")
-    op.execute("ALTER TABLE candidates ALTER COLUMN salary_currency SET DEFAULT 'PLN'")
+    # Upgrade strips retired criteria and disables their alerts. Neither the
+    # original filters nor the previous notify flags can be reconstructed, so
+    # pretending to downgrade would silently leave partially reverted data.
+    raise NotImplementedError(
+        "0208_monthly_rate_retired is intentionally irreversible; "
+        "roll back application code while retaining this additive migration"
+    )

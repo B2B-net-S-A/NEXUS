@@ -394,7 +394,14 @@ def _fingerprint(first: str, last: str) -> str:
     # Names have too little entropy for an unkeyed digest. A domain-separated
     # HMAC supports reproducible provenance without enabling a dictionary
     # attack against leaked review rows.
-    key = settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY or settings.SECRET_KEY
+    key = settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip()
+    if not key:
+        # Production configuration fails during Settings validation. Keep this
+        # call-site fail-closed as well so a deliberately DEBUG deployment
+        # cannot create fingerprints under an implicit or ephemeral key.
+        raise RuntimeError(
+            "CANDIDATE_IDENTITY_FINGERPRINT_KEY is required for identity evidence"
+        )
     message = f"{IDENTITY_DETECTOR_VERSION}\x00{first}\x1f{last}".encode("utf-8")
     return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
 

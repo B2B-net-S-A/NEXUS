@@ -130,7 +130,7 @@ from app.api.candidate_access import (
     CandidateExportAccess,
     CandidateFinanceAccess,
     CandidatePIIAccess,
-    CandidateProfileFactsAccess,
+    CandidateProfileFactsWriteAccess,
     CandidateSearchAccess,
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
@@ -5734,7 +5734,7 @@ async def create_engagement_declaration_link(
 async def update_candidate_location(
     candidate_id: int,
     data: CandidateLocationUpdate,
-    current_user: CandidateProfileFactsAccess,
+    current_user: CandidateProfileFactsWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Update consultant structured location (city / country / hub)."""

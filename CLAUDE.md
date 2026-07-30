@@ -63,6 +63,7 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - `DATABASE_URL` (postgresql+asyncpg://...)
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` (na serwerze override DATABASE_URL przez compose service names)
 - `SECRET_KEY` (JWT signing, min 48 chars)
+- `CANDIDATE_IDENTITY_FINGERPRINT_KEY` (osobny, stabilny klucz HMAC; nie może być równy `SECRET_KEY`)
 - `QDRANT_HOST`, `QDRANT_PORT`
 - `VOYAGE_API_KEY` (embeddings)
 - `SENTRY_DSN` (opcjonalnie)

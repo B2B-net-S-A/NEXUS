@@ -4,7 +4,7 @@ import warnings
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,9 @@ class Settings(BaseSettings):
     # tables; falls back to SECRET_KEY when unset so ids are never stored raw.
     AI_MATCH_TELEMETRY_ENABLED: bool = False
     AI_MATCH_TELEMETRY_SALT: str = ""
-    # Pepper for low-entropy candidate/source identity fingerprints. Keep it
-    # independent in production; SECRET_KEY is the safe compatibility fallback.
+    # Dedicated pepper for low-entropy candidate/source identity fingerprints.
+    # It must be stable and independent from JWT signing material: rotating
+    # SECRET_KEY must not invalidate the provenance audit trail.
     CANDIDATE_IDENTITY_FINGERPRINT_KEY: str = ""
 
     # ── AI scoring contract v2 (plan PR4) ─────────────────────────────────────
@@ -972,6 +973,45 @@ class Settings(BaseSettings):
                 stacklevel=2,
             )
         return v
+
+    @model_validator(mode="after")
+    def validate_candidate_identity_fingerprint_key(self) -> "Settings":
+        key = self.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip()
+        is_placeholder = key.casefold() in {
+            "change-me",
+            "change-me-in-production",
+            "change-me-to-a-different-long-random-string-min-48-chars",
+        }
+        if not key or is_placeholder:
+            if not self.DEBUG:
+                raise ValueError(
+                    "CANDIDATE_IDENTITY_FINGERPRINT_KEY is required in production "
+                    "and must be independent from SECRET_KEY."
+                )
+            warnings.warn(
+                "CANDIDATE_IDENTITY_FINGERPRINT_KEY is empty or a placeholder. "
+                "Identity quarantine fingerprints are unavailable until a "
+                "dedicated key is configured.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return self
+        if key == self.SECRET_KEY:
+            raise ValueError(
+                "CANDIDATE_IDENTITY_FINGERPRINT_KEY must not equal SECRET_KEY."
+            )
+        if len(key) < 32:
+            if not self.DEBUG:
+                raise ValueError(
+                    "CANDIDATE_IDENTITY_FINGERPRINT_KEY must contain at least "
+                    "32 characters in production."
+                )
+            warnings.warn(
+                "CANDIDATE_IDENTITY_FINGERPRINT_KEY is shorter than 32 characters.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        return self
 
     class Config:
         env_file = ".env"

@@ -15,6 +15,7 @@ from app.api.candidate_profile_facts import (
     make_profile_fact_etag,
     parse_if_match_version,
 )
+from app.api.candidate_access import CANDIDATE_PROFILE_FACT_WRITE_ROLES
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.client import Client
@@ -40,6 +41,18 @@ def _user(*, user_id: int, role: UserRole) -> User:
         roles=[role.value],
         is_active=True,
     )
+
+
+def test_global_profile_fact_writer_role_set_is_explicit_and_complete():
+    assert set(CANDIDATE_PROFILE_FACT_WRITE_ROLES) == {
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+    }
+    assert UserRole.user not in CANDIDATE_PROFILE_FACT_WRITE_ROLES
 
 
 def test_profile_fact_etag_round_trip_and_resource_binding():

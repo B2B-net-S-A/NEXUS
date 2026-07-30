@@ -328,6 +328,27 @@ def test_migration_sanitizer_matches_runtime_for_mixed_v3_and_preferences():
     assert migration._sanitize(filters) == sanitize_candidate_saved_search(filters)
 
 
+def test_monthly_rate_retirement_migration_refuses_lossy_downgrade():
+    import importlib.util
+
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0208_retire_candidate_monthly_rate.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "candidate_rate_0208_irreversible",
+        migration_path,
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    with pytest.raises(NotImplementedError, match="intentionally irreversible"):
+        migration.downgrade()
+
+
 async def test_saved_search_reapproval_requires_explicit_confirmation():
     saved_search = SimpleNamespace(
         id=71,
