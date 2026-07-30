@@ -30,6 +30,7 @@ from app.schemas.candidate_search import (
 )
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
+from app.services.candidate_profile_rate import canonical_profile_rate_amount
 from app.services.structured_candidate_search import (
     build_filter_groups,
     build_structured_filter,
@@ -64,6 +65,10 @@ def _fts_rank_order() -> Any:
 
 
 def _candidate_to_item(c: Candidate, score: float) -> CandidateSearchItem:
+    profile_rate = canonical_profile_rate_amount(
+        c.expected_rate_hourly,
+        c.expected_rate_currency,
+    )
     return CandidateSearchItem(
         id=c.id,
         name=c.name,
@@ -78,8 +83,7 @@ def _candidate_to_item(c: Candidate, score: float) -> CandidateSearchItem:
         source=c.source,
         competence_category=c.competence_category,
         competence_category_id=c.competence_category_id,
-        salary_expectation=c.salary_expectation,
-        salary_currency=c.salary_currency,
+        expected_rate_hourly=profile_rate,
         availability_date=c.availability_date.isoformat()
         if c.availability_date
         else None,
@@ -653,8 +657,10 @@ async def semantic_search(
                         "location": c.location,
                         "status": c.status.value if c.status else None,
                         "competence_category": c.competence_category,
-                        "salary_expectation": c.salary_expectation,
-                        "salary_currency": c.salary_currency,
+                        "expected_rate_hourly": canonical_profile_rate_amount(
+                            c.expected_rate_hourly,
+                            c.expected_rate_currency,
+                        ),
                         "availability_date": c.availability_date.isoformat()
                         if c.availability_date
                         else None,
@@ -709,8 +715,10 @@ async def semantic_search(
                     "location": c.location,
                     "status": c.status.value if c.status else None,
                     "competence_category": c.competence_category,
-                    "salary_expectation": c.salary_expectation,
-                    "salary_currency": c.salary_currency,
+                    "expected_rate_hourly": canonical_profile_rate_amount(
+                        c.expected_rate_hourly,
+                        c.expected_rate_currency,
+                    ),
                     "availability_date": c.availability_date.isoformat()
                     if c.availability_date
                     else None,

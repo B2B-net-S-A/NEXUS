@@ -492,6 +492,10 @@ def build_schema_a(dsn: str, backend_dir: Path) -> SchemaABuild:
     env.setdefault(
         "SECRET_KEY", "schema-inventory-tool-ci-secret-key-min-48-chars-xxxxxx"
     )
+    env.setdefault(
+        "CANDIDATE_IDENTITY_FINGERPRINT_KEY",
+        "schema-inventory-candidate-identity-key-min-48-chars-xxxxxx",
+    )
     proc = subprocess.run(
         ["alembic", "-c", "alembic/alembic.ini", "upgrade", "heads"],
         cwd=str(backend_dir),
@@ -545,6 +549,10 @@ async def build_schema_b_create_all(dsn: str, repair_fks: bool) -> CreateAllResu
     os.environ["DATABASE_URL"] = to_sqlalchemy_dsn(dsn)
     os.environ.setdefault(
         "SECRET_KEY", "schema-inventory-tool-ci-secret-key-min-48-chars-xxxxxx"
+    )
+    os.environ.setdefault(
+        "CANDIDATE_IDENTITY_FINGERPRINT_KEY",
+        "schema-inventory-candidate-identity-key-min-48-chars-xxxxxx",
     )
     os.environ.setdefault(
         "M365_TOKEN_ENCRYPTION_KEY",

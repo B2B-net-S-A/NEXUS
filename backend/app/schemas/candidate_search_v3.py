@@ -19,22 +19,28 @@ Contract properties (enforced by ``tests/test_candidate_search_v3.py``):
    the one documented normalisation is that the legacy flat ``q_any`` bucket
    is group 0 of ``query.any_groups`` (an equivalent predicate).
 
-Rates are a LIST of unit-tagged constraints (``hour`` / ``month``) instead of
-a single ambiguous pair — the exact confusion behind SEARCH-P0-01. V3-only
-capabilities (per-skill level/years/recency, soft preferences with weights,
-retrieval rerank) are modelled now so later phases don't re-break the wire.
+Rates are hourly-only candidate expectations with immutable semantics:
+B2B, PLN, net, per hour. Monthly candidate-rate filters are retired and
+rejected at validation time. V3-only capabilities (per-skill
+level/years/recency, soft preferences with weights, retrieval rerank) are
+modelled now so later phases don't re-break the wire.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal, Optional
+from decimal import Decimal
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.schemas.candidate_search import (
     CandidateSearchRequest,
     LanguageRequirement,
+)
+from app.services.candidate_monthly_rate_retirement import (
+    reject_retired_candidate_rate,
 )
 
 # ── Building blocks ──────────────────────────────────────────────────────────
@@ -55,16 +61,30 @@ class SkillFilters(BaseModel):
 
 
 class RateFilter(BaseModel):
-    """One unit-tagged rate constraint. ``meaning`` records what the number IS
-    (the business ambiguity behind SEARCH-P0-01)."""
+    """Hourly global candidate-rate constraint with immutable semantics."""
 
-    unit: Literal["hour", "month"]
-    min: Optional[int] = Field(default=None, ge=0)
-    max: Optional[int] = Field(default=None, ge=0)
-    currency: Optional[str] = None
-    meaning: Literal[
-        "candidate_expectation", "candidate_budget", "client_sell_rate"
-    ] = "candidate_expectation"
+    @model_validator(mode="before")
+    @classmethod
+    def reject_retired_monthly_unit(cls, data: Any) -> Any:
+        if isinstance(data, dict) and str(data.get("unit", "")).strip().lower() in {
+            "month",
+            "monthly",
+            "miesiac",
+            "miesiąc",
+        }:
+            raise PydanticCustomError(
+                "candidate_monthly_rate_retired",
+                "candidate_monthly_rate_retired",
+            )
+        return data
+
+    unit: Literal["hour"] = "hour"
+    min: Optional[Decimal] = Field(default=None, ge=0)
+    max: Optional[Decimal] = Field(default=None, ge=0)
+    currency: Literal["PLN"] = "PLN"
+    tax_basis: Literal["net"] = "net"
+    contract_type: Literal["b2b"] = "b2b"
+    meaning: Literal["candidate_expectation"] = "candidate_expectation"
 
 
 class AvailabilityFilters(BaseModel):
@@ -145,6 +165,11 @@ class PageSpec(BaseModel):
 
 
 class CandidateSearchQueryV3(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def reject_retired_monthly_rate(cls, data: Any) -> Any:
+        return reject_retired_candidate_rate(data)
+
     version: Literal[3] = 3
     context: QueryContext = Field(default_factory=QueryContext)
     query: QueryText = Field(default_factory=QueryText)
@@ -166,15 +191,6 @@ def from_legacy(req: CandidateSearchRequest) -> CandidateSearchQueryV3:
     any_groups.extend([list(g) for g in req.q_any_groups])
 
     rates: list[RateFilter] = []
-    if req.salary_min is not None or req.salary_max is not None or req.salary_currency:
-        rates.append(
-            RateFilter(
-                unit="month",
-                min=req.salary_min,
-                max=req.salary_max,
-                currency=req.salary_currency,
-            )
-        )
     if req.rate_hourly_min is not None or req.rate_hourly_max is not None:
         rates.append(
             RateFilter(unit="hour", min=req.rate_hourly_min, max=req.rate_hourly_max)
@@ -237,7 +253,6 @@ def to_legacy(v3: CandidateSearchQueryV3) -> CandidateSearchRequest:
     level/years/recency, ``retrieval.rerank``, cursor paging, strategy refs
     and the strict/lenient mode are dropped (legacy cannot express them).
     """
-    monthly = next((r for r in v3.hard_filters.rates if r.unit == "month"), None)
     hourly = next((r for r in v3.hard_filters.rates if r.unit == "hour"), None)
 
     q_any: list[str] = []
@@ -265,9 +280,6 @@ def to_legacy(v3: CandidateSearchQueryV3) -> CandidateSearchRequest:
         availability_status=list(v3.hard_filters.availability.statuses),  # type: ignore[arg-type]
         availability_date_before=v3.hard_filters.availability.date_before,
         notice_period_max=v3.hard_filters.availability.notice_period_max_days,
-        salary_min=monthly.min if monthly else None,
-        salary_max=monthly.max if monthly else None,
-        salary_currency=monthly.currency if monthly else None,
         rate_hourly_min=hourly.min if hourly else None,
         rate_hourly_max=hourly.max if hourly else None,
         sources=list(v3.hard_filters.sources),

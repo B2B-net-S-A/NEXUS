@@ -99,7 +99,10 @@ class TestLanguages:
             languages=[LanguageRequirement(code="EN", min_level="B2")]
         )
         sql = _compile(build_structured_filter(req))
-        # Accepted levels for B2: B2, C1, C2, native
+        assert "candidate_languages" in sql
+        assert "deleted_at IS NULL" in sql
+        assert "is_native IS true" in sql
+        # Accepted CEFR levels for B2: B2, C1, C2; native is a separate flag.
         assert "B2" in sql
         assert "C1" in sql
         assert "EN" in sql
@@ -194,35 +197,20 @@ class TestBoolToggles:
         assert "is not null" in sql.lower()
 
 
-class TestSalaryRange:
-    def test_min_max_currency(self):
-        req = CandidateSearchRequest(
-            salary_min=10000, salary_max=25000, salary_currency="pln"
-        )
-        sql = _compile(build_structured_filter(req)).lower()
-        assert "salary_expectation" in sql
-        assert "10000" in sql and "25000" in sql
-        assert "pln" in sql
-
-
 class TestHourlyRate:
-    """SEARCH-P0-01: hourly rate filters on ``expected_rate_hourly`` (NOT the
-    monthly ``salary_expectation``) and treats a missing rate as included."""
+    """Global rate is B2B PLN net/hour and missing data stays included."""
 
     def test_min_only_targets_hourly_column(self):
         req = CandidateSearchRequest(rate_hourly_min=90)
         sql = _compile(build_structured_filter(req)).lower()
         assert "expected_rate_hourly" in sql
         assert "90" in sql
-        # Must NOT touch the monthly expectation column.
-        assert "salary_expectation" not in sql
 
     def test_max_only_targets_hourly_column(self):
         req = CandidateSearchRequest(rate_hourly_max=150)
         sql = _compile(build_structured_filter(req)).lower()
         assert "expected_rate_hourly" in sql
         assert "150" in sql
-        assert "salary_expectation" not in sql
 
     def test_missing_rate_is_included(self):
         req = CandidateSearchRequest(rate_hourly_min=90, rate_hourly_max=150)
@@ -232,15 +220,6 @@ class TestHourlyRate:
         sql = _compile(clauses).lower()
         assert "is null" in sql
         assert "90" in sql and "150" in sql
-
-    def test_hourly_is_independent_of_monthly_salary(self):
-        req = CandidateSearchRequest(
-            salary_min=10000, salary_max=25000, rate_hourly_min=90
-        )
-        sql = _compile(build_structured_filter(req)).lower()
-        # both columns present, distinct filters
-        assert "salary_expectation" in sql
-        assert "expected_rate_hourly" in sql
 
 
 class TestExcludeBlacklisted:

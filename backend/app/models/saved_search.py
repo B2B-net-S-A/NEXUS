@@ -51,6 +51,11 @@ class SavedSearch(Base, TimestampMixin):
     notify_new_matches: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"
     )
+    # Set when retired candidate monthly-rate criteria were removed. Alerts
+    # stay disabled until the owner explicitly confirms the rewritten search.
+    requires_reapproval: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
     last_seen_candidate_id: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True
     )

@@ -87,6 +87,9 @@ def report(
     out_dir = tmp_path_factory.mktemp("schema_inv_out")
     env = dict(os.environ)
     env["SECRET_KEY"] = "schema-inventory-test-secret-key-at-least-48-chars-xxxxxx"
+    env["CANDIDATE_IDENTITY_FINGERPRINT_KEY"] = (
+        "schema-inventory-test-candidate-identity-key-at-least-48-chars"
+    )
     env.setdefault("M365_TOKEN_ENCRYPTION_KEY", "0" * 43 + "=")
     proc = subprocess.run(
         [

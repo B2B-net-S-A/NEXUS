@@ -27,6 +27,7 @@ missing fixtures are acceptable — the guard is what's under test).
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -150,6 +151,16 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/999999/quick-view", None),
     ("GET", "/api/candidates/999999/timeline", None),
     ("GET", "/api/candidates/999999/history", None),
+    ("GET", "/api/candidates/999999/languages", None),
+    ("GET", "/api/candidates/999999/profile-rate", None),
+    ("GET", "/api/candidates/999999/recent-recruitments?limit=5", None),
+    ("GET", "/api/candidates/999999/activity-summary", None),
+    ("POST", "/api/candidates/999999/activity-summary/refresh", None),
+    (
+        "GET",
+        "/api/candidates/999999/identity-quarantine/note/999999",
+        None,
+    ),
     ("GET", "/api/candidates/999999/documents", None),
     ("GET", "/api/candidates/999999/cv-download", None),
     ("GET", "/api/candidates/999999/documents/1/content", None),
@@ -234,6 +245,130 @@ async def test_viewer_gets_403_not_404_for_existing_and_missing_ids(
     assert r_missing.status_code == 403
 
 
+PROFILE_FACT_WRITE_ENDPOINTS = [
+    (
+        "PUT",
+        "/api/candidates/999999/languages",
+        {"languages": []},
+        '"candidate-languages-999999-v1"',
+    ),
+    (
+        "PATCH",
+        "/api/candidates/999999/profile-rate",
+        {"amount": "150.00"},
+        '"candidate-profile-rate-999999-v1"',
+    ),
+    (
+        "PATCH",
+        "/api/candidates/999999/location",
+        {"city": "Warszawa", "country": "PL"},
+        None,
+    ),
+]
+
+
+@pytest.mark.parametrize("method,path,body,if_match", PROFILE_FACT_WRITE_ENDPOINTS)
+async def test_profile_fact_writer_role_matrix(
+    m2_client: AsyncClient,
+    headers_by_role: dict[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+    body,
+    if_match: str | None,
+):
+    for role in ROLES:
+        headers = dict(headers_by_role[role])
+        if if_match:
+            headers["If-Match"] = if_match
+        response = await m2_client.request(
+            method,
+            path,
+            headers=headers,
+            json=body,
+        )
+        if role in OPERATIONAL_ROLES:
+            assert response.status_code != 403, (
+                f"[{role.value}] {method} {path} unexpectedly forbidden"
+            )
+        else:
+            assert response.status_code == 403, (
+                f"[{role.value}] {method} {path} expected 403, "
+                f"got {response.status_code}"
+            )
+
+
+async def test_profile_fact_etags_reject_stale_writers_and_rate_clears_to_null(
+    m2_client: AsyncClient,
+    headers_by_role: dict[UserRole, dict[str, str]],
+):
+    """Two callers reading the same version cannot silently overwrite facts."""
+
+    candidate_id = await _seed_candidate()
+    headers = headers_by_role[UserRole.admin]
+
+    languages_read = await m2_client.get(
+        f"/api/candidates/{candidate_id}/languages",
+        headers=headers,
+    )
+    assert languages_read.status_code == 200, languages_read.text
+    languages_etag = languages_read.headers["etag"]
+    first_languages = await m2_client.put(
+        f"/api/candidates/{candidate_id}/languages",
+        headers={**headers, "If-Match": languages_etag},
+        json={
+            "languages": [
+                {
+                    "language_code": "en",
+                    "language_name": "English",
+                    "cefr_level": "C1",
+                    "is_level_unknown": False,
+                }
+            ]
+        },
+    )
+    assert first_languages.status_code == 200, first_languages.text
+    assert first_languages.headers["etag"] != languages_etag
+    stale_languages = await m2_client.put(
+        f"/api/candidates/{candidate_id}/languages",
+        headers={**headers, "If-Match": languages_etag},
+        json={"languages": []},
+    )
+    assert stale_languages.status_code in {409, 412}
+
+    rate_read = await m2_client.get(
+        f"/api/candidates/{candidate_id}/profile-rate",
+        headers=headers,
+    )
+    assert rate_read.status_code == 200, rate_read.text
+    rate_etag = rate_read.headers["etag"]
+    first_rate = await m2_client.patch(
+        f"/api/candidates/{candidate_id}/profile-rate",
+        headers={**headers, "If-Match": rate_etag},
+        json={"amount": "199.99"},
+    )
+    assert first_rate.status_code == 200, first_rate.text
+    assert first_rate.json()["amount"] == "199.99"
+    current_rate_etag = first_rate.headers["etag"]
+
+    stale_rate = await m2_client.patch(
+        f"/api/candidates/{candidate_id}/profile-rate",
+        headers={**headers, "If-Match": rate_etag},
+        json={"amount": None},
+    )
+    assert stale_rate.status_code in {409, 412}
+    cleared_rate = await m2_client.patch(
+        f"/api/candidates/{candidate_id}/profile-rate",
+        headers={**headers, "If-Match": current_rate_etag},
+        json={"amount": None},
+    )
+    assert cleared_rate.status_code == 200, cleared_rate.text
+    assert cleared_rate.json()["amount"] is None
+    assert cleared_rate.json()["currency"] == "PLN"
+    assert cleared_rate.json()["unit"] == "hour"
+    assert cleared_rate.json()["tax_basis"] == "net"
+    assert cleared_rate.json()["contract_type"] == "b2b"
+
+
 # ── M2-SEC-04: write surfaces — viewer (and below-write roles) 403 ───────────
 
 WRITE_ENDPOINTS = [
@@ -241,6 +376,11 @@ WRITE_ENDPOINTS = [
     ("POST", "/api/candidates/999999/sources", {"channel": "other"}),
     ("POST", "/api/talent-pools", {"name": "m2-denied"}),
     ("POST", "/api/candidates/999999/assign-to-job/999999", None),
+    (
+        "PUT",
+        "/api/candidates/999999/identity-quarantine/note/999999",
+        {"provenance": "manual_review"},
+    ),
     # expected-rate przeniesiony z write- do rate-edit-matrix (M4 PR-01):
     # sourcer stracił edycję stawek — patrz test niżej i
     # tests/test_recruitment_module_access.py.
@@ -323,6 +463,70 @@ async def test_client_rate_requires_finance_capability(
             assert resp.status_code == 403, (
                 f"[{role.value}] expected 403, got {resp.status_code}"
             )
+
+
+async def test_identity_quarantine_override_is_admin_or_hor_only(
+    m2_client: AsyncClient,
+    headers_by_role: dict[UserRole, dict[str, str]],
+):
+    path = "/api/candidates/999999/identity-quarantine/note/999999/override"
+    for role in ROLES:
+        response = await m2_client.post(
+            path,
+            headers=headers_by_role[role],
+            json={"reason": "Zweryfikowano właściciela źródła"},
+        )
+        if role in {UserRole.admin, UserRole.head_of_recruitment}:
+            assert response.status_code != 403, (
+                f"[{role.value}] override unexpectedly forbidden"
+            )
+        else:
+            assert response.status_code == 403, (
+                f"[{role.value}] override expected 403, got {response.status_code}"
+            )
+
+
+async def test_denied_activity_and_override_calls_never_reach_services(
+    m2_client: AsyncClient,
+    headers_by_role: dict[UserRole, dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    summary_service = AsyncMock()
+    refresh_service = AsyncMock()
+    override_service = AsyncMock()
+    monkeypatch.setattr(
+        "app.api.candidate_activity_summary.get_summary_state",
+        summary_service,
+    )
+    monkeypatch.setattr(
+        "app.api.candidate_activity_summary.get_or_generate",
+        refresh_service,
+    )
+    monkeypatch.setattr(
+        "app.api.candidate_identity_quarantine.override_identity_quarantine",
+        override_service,
+    )
+
+    summary_response = await m2_client.get(
+        "/api/candidates/999999/activity-summary",
+        headers=headers_by_role[UserRole.user],
+    )
+    refresh_response = await m2_client.post(
+        "/api/candidates/999999/activity-summary/refresh",
+        headers=headers_by_role[UserRole.user],
+    )
+    override_response = await m2_client.post(
+        "/api/candidates/999999/identity-quarantine/note/999999/override",
+        headers=headers_by_role[UserRole.recruiter],
+        json={"reason": "Zweryfikowano właściciela źródła"},
+    )
+
+    assert summary_response.status_code == 403
+    assert refresh_response.status_code == 403
+    assert override_response.status_code == 403
+    summary_service.assert_not_awaited()
+    refresh_service.assert_not_awaited()
+    override_service.assert_not_awaited()
 
 
 # ── Export: TAC-and-up + immutable audit ─────────────────────────────────────

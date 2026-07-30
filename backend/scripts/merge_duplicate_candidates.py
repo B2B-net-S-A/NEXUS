@@ -137,8 +137,14 @@ async def _repoint_append_only(
 
 # ── CV fields ported dup → canonical (only when canonical is empty) ──────────
 # Pairs of (column, "is-empty" SQL predicate template using alias `{a}`).
-_TEXT_COLS = ("raw_cv_text", "cv_filename", "location")
-_JSON_COLS = ("cv_extracted_data", "skills", "languages")
+# Location is intentionally absent. ``city``/``country`` are canonical and the
+# legacy ``location`` column must never be copied as an independently authored
+# value by this maintenance path.
+_TEXT_COLS = ("raw_cv_text", "cv_filename")
+# ``languages`` is intentionally absent: candidate_languages is canonical and
+# is repointed as a child table by the generic FK pass below. Writing the
+# legacy JSONB projection here would create a second language writer.
+_JSON_COLS = ("cv_extracted_data", "skills")
 _NULLABLE_COLS = ("cv_storage_key", "cv_file_content", "years_it_experience")
 
 
@@ -179,6 +185,30 @@ def _build_cv_port_sql() -> str:
     for col in _NULLABLE_COLS:
         set_parts.append(f"{col} = COALESCE(c.{col}, d.{col})")
         enrich_parts.append(f"(c.{col} IS NULL AND d.{col} IS NOT NULL)")
+
+    effective_location: dict[str, str] = {}
+    for col in ("city", "country"):
+        unlocked = (
+            "COALESCE(c.cv_extracted_data->>'_manual_override_"
+            f"{col}', 'false') <> 'true'"
+        )
+        should_copy = (
+            f"({_empty_text('c', col)} AND NOT {_empty_text('d', col)} AND {unlocked})"
+        )
+        effective = f"CASE WHEN {should_copy} THEN d.{col} ELSE c.{col} END"
+        effective_location[col] = effective
+        set_parts.append(f"{col} = {effective}")
+        enrich_parts.append(should_copy)
+
+    # ``location`` is a compatibility projection, never an independent merge
+    # input. Repeat the effective expressions because PostgreSQL SET clauses
+    # all read the pre-update row.
+    set_parts.append(
+        "location = NULLIF(CONCAT_WS(', ', "
+        f"NULLIF(btrim({effective_location['city']}), ''), "
+        f"NULLIF(btrim({effective_location['country']}), '')"
+        "), '')"
+    )
 
     set_clause = ",\n            ".join(set_parts) + ",\n            updated_at = NOW()"
     enrich_clause = "\n              OR ".join(enrich_parts)

@@ -19,6 +19,10 @@ from app.api.candidate_access import CandidateSearchAccess
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.saved_search import MatchHistory, SavedSearch
+from app.services.candidate_monthly_rate_retirement import (
+    RETIRED_MONTHLY_RATE_CODE,
+    sanitize_candidate_saved_search,
+)
 
 router = APIRouter()
 
@@ -47,6 +51,7 @@ class SavedSearchUpdate(BaseModel):
     # ``None`` means "no change"; pass ``0`` to clear (special-cased below).
     pinned_to_job_id: Optional[int] = None
     notify_new_matches: Optional[bool] = None
+    confirm_reapproval: bool = False
 
 
 class SavedSearchOut(BaseModel):
@@ -58,6 +63,7 @@ class SavedSearchOut(BaseModel):
     shared: bool
     description: Optional[str]
     pinned_to_job_id: Optional[int] = None
+    requires_reapproval: bool = False
     created_at: str
     updated_at: str
 
@@ -75,6 +81,7 @@ def _ss_to_dict(s: SavedSearch) -> dict:
         "description": s.description,
         "pinned_to_job_id": s.pinned_to_job_id,
         "notify_new_matches": s.notify_new_matches,
+        "requires_reapproval": s.requires_reapproval,
         "unseen_count": s.unseen_count or 0,
         "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -84,6 +91,12 @@ def _ss_to_dict(s: SavedSearch) -> dict:
 
 def _has_api_params(filters: Optional[dict]) -> bool:
     return isinstance((filters or {}).get("api"), dict)
+
+
+def _is_candidate_entity(entity: str) -> bool:
+    """Accept the legacy singular spelling while new clients use plural."""
+
+    return entity in {"candidate", "candidates"}
 
 
 @router.get("/saved-searches")
@@ -148,6 +161,21 @@ async def list_saved_searches(
         q = q.where(SavedSearch.entity == entity)
     q = q.order_by(SavedSearch.updated_at.desc())
     rows = (await db.execute(q)).scalars().all()
+    sanitized_any = False
+    for row in rows:
+        if not _is_candidate_entity(row.entity):
+            continue
+        sanitized, retired_criteria_removed = sanitize_candidate_saved_search(
+            row.filters or {}
+        )
+        if not retired_criteria_removed:
+            continue
+        row.filters = sanitized
+        row.notify_new_matches = False
+        row.requires_reapproval = True
+        sanitized_any = True
+    if sanitized_any:
+        await db.commit()
     return [_ss_to_dict(r) for r in rows]
 
 
@@ -178,16 +206,27 @@ async def create_saved_search(
             ),
         )
 
+    filters = data.filters
+    retired_criteria_removed = False
+    if _is_candidate_entity(data.entity):
+        filters, retired_criteria_removed = sanitize_candidate_saved_search(filters)
+
     ss = SavedSearch(
         user_id=current_user.id,
         name=data.name,
         entity=data.entity,
-        filters=data.filters,
+        filters=filters,
         shared=data.shared,
         description=data.description,
         pinned_to_job_id=data.pinned_to_job_id,
-        notify_new_matches=data.notify_new_matches,
+        notify_new_matches=data.notify_new_matches and not retired_criteria_removed,
+        requires_reapproval=retired_criteria_removed,
     )
+    if retired_criteria_removed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=RETIRED_MONTHLY_RATE_CODE,
+        )
     if data.notify_new_matches:
         if not _has_api_params(data.filters):
             raise HTTPException(
@@ -226,8 +265,32 @@ async def update_saved_search(
     if not ss:
         raise HTTPException(status_code=404, detail="Search not found")
     payload = data.model_dump(exclude_unset=True)
+    confirm_reapproval = bool(payload.pop("confirm_reapproval", False))
+    if "filters" in payload and _is_candidate_entity(ss.entity):
+        sanitized, retired_criteria_removed = sanitize_candidate_saved_search(
+            payload["filters"]
+        )
+        if retired_criteria_removed:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=RETIRED_MONTHLY_RATE_CODE,
+            )
+        payload["filters"] = sanitized
     for k, v in payload.items():
         setattr(ss, k, v)
+    if confirm_reapproval:
+        _, still_retired = sanitize_candidate_saved_search(ss.filters or {})
+        if still_retired:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=RETIRED_MONTHLY_RATE_CODE,
+            )
+        ss.requires_reapproval = False
+    if payload.get("notify_new_matches") is True and ss.requires_reapproval:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="saved_search_requires_reapproval",
+        )
     # Validate only when THIS request turns alerts on — a rename of an old
     # search (filters without `api`) must not 400. A stale enabled search
     # without api params is simply skipped by the scanner.

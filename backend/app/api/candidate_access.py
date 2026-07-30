@@ -23,9 +23,9 @@ Capability → allowed roles:
   sourcer intentionally lose bulk export (matrix section 9 of the audit:
   "domyślnie nie recruiter"); exports are audited via ``candidate_audit``.
 - **finance** (client-facing pricing, e.g. „stawka do klienta") — admin,
-  delivery_lead, tac. The candidate's own expected rate stays a write-level
-  operation because the kanban verified-stage flow sets it (RecruiterPlus
-  parity with POST /api/pipeline/move).
+  delivery_lead, tac. The candidate's own global B2B profile rate is a separate
+  typed-fact capability available to all internal operational roles; it does
+  not widen client sell-rate or contract permissions.
 - **privacy execute** (anonymize / erase / hard delete) — NOBODY until the
   PR 2 privacy executor lands. Endpoints answer 409 with a clear message;
   see ``privacy_workflow_unavailable``.
@@ -81,6 +81,11 @@ CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
 )
+
+# Global Talent 360 facts are a deliberately broader write capability than
+# ordinary profile mutations. Product policy allows every internal operational
+# role, including Head of Recruitment and sourcer, to maintain these facts.
+CANDIDATE_PROFILE_FACT_WRITE_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 
 def user_has_candidate_read(user: User) -> bool:
@@ -181,4 +186,27 @@ CandidateExportAccess = Annotated[User, Depends(require_roles(*CANDIDATE_EXPORT_
 # Client-facing pricing mutations („stawka do klienta").
 CandidateFinanceAccess = Annotated[
     User, Depends(require_roles(*CANDIDATE_FINANCE_ROLES))
+]
+
+# Typed global profile facts are readable by every internal operational role.
+CandidateProfileFactsReadAccess = Annotated[
+    User, Depends(require_roles(*CANDIDATE_READ_ROLES))
+]
+
+# Their dedicated OCC writers deliberately use the product-specific role set,
+# not the narrower generic CandidateWriteAccess or client-rate finance guard.
+CandidateProfileFactsWriteAccess = Annotated[
+    User, Depends(require_roles(*CANDIDATE_PROFILE_FACT_WRITE_ROLES))
+]
+
+# Releasing a source that is confirmed to describe another person is a
+# management exception, not an ordinary candidate edit.
+CandidateIdentityQuarantineOverrideAccess = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+        )
+    ),
 ]

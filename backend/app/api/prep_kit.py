@@ -267,14 +267,6 @@ async def generate_prep_kit(
             if isinstance(sk, dict) and sk.get("level") == "none":
                 gaps.append(f"Brak umiejętności: {sk.get('skill', '')}")
 
-    # Salary gap
-    if candidate.salary_expectation and job.salary_max:
-        if candidate.salary_expectation > job.salary_max:
-            diff = candidate.salary_expectation - job.salary_max
-            gaps.append(
-                f"Oczekiwania finansowe ({candidate.salary_expectation:,} PLN) powyżej widełek o {diff:,} PLN — negocjacja konieczna"
-            )
-
     if not gaps:
         gaps = ["Brak zidentyfikowanych luk — profil pasuje do wymagań"]
 

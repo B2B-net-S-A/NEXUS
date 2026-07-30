@@ -289,17 +289,16 @@ _UPSERT_CANDIDATE = text(
     """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
-        location, status, profile_about, languages, cv_filename,
+        status, profile_about, cv_filename,
         cv_extracted_data, source, created_by,
         notes_count, champion, availability_status,
         linkedin_sync_status,
         created_at, updated_at
     ) VALUES (
         :external_id, :external_source, :name, :lastname, :email, :phone,
-        :linkedin, :location,
+        :linkedin,
         CAST(:status AS candidatestatus),
         :profile_about,
-        CAST(:languages AS JSONB),
         :cv_filename,
         CAST(:cv_extracted_data AS JSONB),
         :source, :created_by,
@@ -315,15 +314,36 @@ _UPSERT_CANDIDATE = text(
         email             = COALESCE(EXCLUDED.email, candidates.email),
         phone             = COALESCE(EXCLUDED.phone, candidates.phone),
         linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
-        location          = COALESCE(EXCLUDED.location, candidates.location),
         status            = EXCLUDED.status,
         profile_about     = COALESCE(
             EXCLUDED.profile_about,
             candidates.profile_about
         ),
-        languages         = EXCLUDED.languages,
         cv_filename       = COALESCE(EXCLUDED.cv_filename, candidates.cv_filename),
-        cv_extracted_data = candidates.cv_extracted_data || EXCLUDED.cv_extracted_data,
+        cv_extracted_data = candidates.cv_extracted_data
+                            || EXCLUDED.cv_extracted_data
+                            || CASE
+                                 WHEN COALESCE(
+                                   candidates.cv_extracted_data
+                                     ->>'_manual_override_city',
+                                   'false'
+                                 ) = 'true'
+                                 THEN jsonb_build_object(
+                                   '_manual_override_city', true
+                                 )
+                                 ELSE '{}'::jsonb
+                               END
+                            || CASE
+                                 WHEN COALESCE(
+                                   candidates.cv_extracted_data
+                                     ->>'_manual_override_country',
+                                   'false'
+                                 ) = 'true'
+                                 THEN jsonb_build_object(
+                                   '_manual_override_country', true
+                                 )
+                                 ELSE '{}'::jsonb
+                               END,
         updated_at        = NOW()
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -343,20 +363,40 @@ _UPDATE_CANDIDATE_ADOPT = text(
         lastname        = CAST(:lastname AS varchar(100)),
         phone           = COALESCE(CAST(:phone AS varchar(50)), candidates.phone),
         linkedin        = COALESCE(CAST(:linkedin AS varchar(255)), candidates.linkedin),
-        location        = COALESCE(CAST(:location AS varchar(255)), candidates.location),
         status          = CAST(:status AS candidatestatus),
         profile_about   = COALESCE(
             CAST(:profile_about AS text),
             candidates.profile_about
         ),
-        languages       = CAST(:languages AS JSONB),
         cv_filename     = COALESCE(CAST(:cv_filename AS varchar(255)),
                                    candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
                             || CAST(:cv_extracted_data AS JSONB)
                             || jsonb_build_object(
                                  'legacy_source', candidates.external_source
-                               ),
+                               )
+                            || CASE
+                                 WHEN COALESCE(
+                                   candidates.cv_extracted_data
+                                     ->>'_manual_override_city',
+                                   'false'
+                                 ) = 'true'
+                                 THEN jsonb_build_object(
+                                   '_manual_override_city', true
+                                 )
+                                 ELSE '{}'::jsonb
+                               END
+                            || CASE
+                                 WHEN COALESCE(
+                                   candidates.cv_extracted_data
+                                     ->>'_manual_override_country',
+                                   'false'
+                                 ) = 'true'
+                                 THEN jsonb_build_object(
+                                   '_manual_override_country', true
+                                 )
+                                 ELSE '{}'::jsonb
+                               END,
         updated_at      = NOW()
     WHERE id = :nexus_id
     RETURNING id
@@ -1184,19 +1224,20 @@ class TraffitImporter:
                         "lastname": payload["lastname"],
                         "phone": payload.get("phone"),
                         "linkedin": payload.get("linkedin"),
-                        "location": payload.get("location"),
                         "status": payload["status"],
                         "profile_about": payload.get("profile_about"),
-                        "languages": json.dumps(payload["languages"]),
                         "cv_filename": payload.get("cv_filename"),
                         "cv_extracted_data": json.dumps(payload["cv_extracted_data"]),
                     }
-                    await self.db.execute(_UPDATE_CANDIDATE_ADOPT, params)
+                    result = await self.db.execute(_UPDATE_CANDIDATE_ADOPT, params)
+                    row = result.fetchone()
+                    if row is None:
+                        continue
+                    candidate_id = row[0]
                     progress.updated += 1
                     adopted += 1
                 else:
                     params = dict(payload)
-                    params["languages"] = json.dumps(payload["languages"])
                     params["cv_extracted_data"] = json.dumps(
                         payload["cv_extracted_data"]
                     )
@@ -1204,6 +1245,7 @@ class TraffitImporter:
                     row = result.fetchone()
                     if row is None:
                         continue
+                    candidate_id = row[0]
                     if row[1]:
                         progress.inserted += 1
                         # Newly inserted — record its email so subsequent
@@ -1222,6 +1264,30 @@ class TraffitImporter:
                         new_candidate_ids.append(row[0])
                     else:
                         progress.updated += 1
+                if payload.get("languages"):
+                    from app.services.candidate_language_writer import (
+                        sync_candidate_languages_from_source,
+                    )
+
+                    await sync_candidate_languages_from_source(
+                        self.db,
+                        candidate_id=candidate_id,
+                        raw_languages=payload["languages"],
+                        provenance="traffit",
+                        source_ref=f"traffit:{payload['external_id']}",
+                    )
+                if payload.get("city") or payload.get("country"):
+                    from app.services.candidate_location_writer import (
+                        sync_candidate_location_from_source,
+                    )
+
+                    await sync_candidate_location_from_source(
+                        self.db,
+                        candidate_id=candidate_id,
+                        city=payload.get("city"),
+                        country=payload.get("country"),
+                        overwrite_existing=True,
+                    )
                 since_commit += 1
                 if since_commit >= commit_every:
                     await self._record_new_candidate_index_intent(

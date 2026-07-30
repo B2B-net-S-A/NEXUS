@@ -339,55 +339,6 @@ export function FiltersPanel({
           </div>
         </div>
 
-        {/* Salary range */}
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-            Stawka oczekiwana
-          </Label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              value={value.salary_min ?? ""}
-              onChange={(e) =>
-                patch({
-                  salary_min: e.target.value
-                    ? Number.parseInt(e.target.value, 10)
-                    : null,
-                })
-              }
-              placeholder="min"
-              className="w-24 text-sm"
-            />
-            <span className="text-zinc-400">–</span>
-            <Input
-              type="number"
-              min={0}
-              value={value.salary_max ?? ""}
-              onChange={(e) =>
-                patch({
-                  salary_max: e.target.value
-                    ? Number.parseInt(e.target.value, 10)
-                    : null,
-                })
-              }
-              placeholder="max"
-              className="w-24 text-sm"
-            />
-            <select
-              value={value.salary_currency ?? "PLN"}
-              onChange={(e) =>
-                patch({ salary_currency: e.target.value || null })
-              }
-              className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-            >
-              <option value="PLN">PLN</option>
-              <option value="EUR">EUR</option>
-              <option value="USD">USD</option>
-            </select>
-          </div>
-        </div>
-
         {/* City picker */}
         <div className="space-y-1.5">
           <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">

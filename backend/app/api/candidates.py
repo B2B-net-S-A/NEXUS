@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
-from typing import Literal, Optional
+from decimal import Decimal
+from typing import Any, Literal, Optional
 import asyncio
 import hashlib
 import io
@@ -24,7 +25,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import (
     and_,
     case,
@@ -129,6 +130,7 @@ from app.api.candidate_access import (
     CandidateExportAccess,
     CandidateFinanceAccess,
     CandidatePIIAccess,
+    CandidateProfileFactsWriteAccess,
     CandidateSearchAccess,
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
@@ -142,8 +144,21 @@ from app.api.financial_access import (
 from app.api.recruitment_access import (
     RecruitmentRateEditAccess,
     ensure_job_membership,
+    job_scope_clause,
 )
 from app.services import candidate_audit
+from app.services.candidate_monthly_rate_retirement import (
+    RETIRED_MONTHLY_FILTER_KEYS,
+    reject_retired_candidate_rate,
+)
+from app.services.candidate_profile_rate import (
+    canonical_profile_rate_amount,
+    canonical_profile_rate_currency_clause,
+)
+from app.services.candidate_location_writer import (
+    apply_candidate_location_from_source,
+    normalize_candidate_location,
+)
 from app.services.recruitment_process_commands import (
     open_process,
     update_latest_client_rate,
@@ -185,10 +200,8 @@ class CandidateFilterSpec(BaseModel):
     skills_any: Optional[list[str]] = None
     skills_none: Optional[list[str]] = None
     remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = None
-    min_salary: Optional[int] = Field(None, ge=0)
-    max_salary: Optional[int] = Field(None, ge=0)
-    min_rate: Optional[int] = Field(None, ge=0)
-    max_rate: Optional[int] = Field(None, ge=0)
+    min_rate: Optional[Decimal] = Field(None, ge=0)
+    max_rate: Optional[Decimal] = Field(None, ge=0)
     min_experience: Optional[int] = Field(None, ge=0, le=60)
     max_experience: Optional[int] = Field(None, ge=0, le=60)
     employment: Optional[list[str]] = None
@@ -219,6 +232,11 @@ class CandidateFilterSpec(BaseModel):
     id_after: Optional[int] = Field(None, ge=1)
     updated_after: Optional[datetime] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_retired_monthly_rate(cls, value):  # type: ignore[no-untyped-def]
+        return reject_retired_candidate_rate(value)
+
     @field_validator("remote_policy", mode="before")
     @classmethod
     def coerce_legacy_remote_policy(cls, value):
@@ -246,6 +264,14 @@ class CandidateExportRequest(BaseModel):
 
 def _build_response(data: dict) -> dict:
     return {"success": True, "data": data}
+
+
+def _reject_retired_candidate_query(request: Request) -> None:
+    if any(key in RETIRED_MONTHLY_FILTER_KEYS for key in request.query_params):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="candidate_monthly_rate_retired",
+        )
 
 
 # Cap on how many open jobs we score per candidate when populating match stats.
@@ -866,10 +892,10 @@ async def _build_candidate_filtered_query(
                 ]
             )
         )
-    if f.min_salary is not None:
-        query = query.where(Candidate.salary_expectation >= f.min_salary)
-    if f.max_salary is not None:
-        query = query.where(Candidate.salary_expectation <= f.max_salary)
+    if f.min_rate is not None or f.max_rate is not None:
+        query = query.where(
+            canonical_profile_rate_currency_clause(Candidate.expected_rate_currency)
+        )
     if f.min_rate is not None:
         query = query.where(Candidate.expected_rate_hourly >= f.min_rate)
     if f.max_rate is not None:
@@ -1093,6 +1119,7 @@ def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
 @router.get("", response_model=CandidateList)
 async def list_candidates(
     current_user: CandidateSearchAccess,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -1140,17 +1167,7 @@ async def list_candidates(
         None,
         description="Filter by candidate remote preference (remote/hybrid/onsite).",
     ),
-    min_salary: Optional[int] = Query(
-        None,
-        ge=0,
-        description="Minimum salary expectation (PLN) — exclusive of nulls.",
-    ),
-    max_salary: Optional[int] = Query(
-        None,
-        ge=0,
-        description="Maximum salary expectation (PLN) — exclusive of nulls.",
-    ),
-    min_rate: Optional[int] = Query(
+    min_rate: Optional[Decimal] = Query(
         None,
         ge=0,
         description=(
@@ -1158,7 +1175,7 @@ async def list_candidates(
             "`expected_rate_hourly`. Exclusive of nulls, like salary."
         ),
     ),
-    max_rate: Optional[int] = Query(
+    max_rate: Optional[Decimal] = Query(
         None,
         ge=0,
         description=("Maximum expected hourly rate (B2B, PLN/h) — see `min_rate`."),
@@ -1495,6 +1512,7 @@ async def list_candidates(
         ),
     ),
 ):
+    _reject_retired_candidate_query(request)
     filters = CandidateFilterSpec(
         status=status,
         location=location,
@@ -1504,8 +1522,6 @@ async def list_candidates(
         skills_any=skills_any,
         skills_none=skills_none,
         remote_policy=remote_policy,
-        min_salary=min_salary,
-        max_salary=max_salary,
         min_rate=min_rate,
         max_rate=max_rate,
         min_experience=min_experience,
@@ -1946,10 +1962,7 @@ _EXPORT_COLUMNS = [
     "tags",
     "status",
     "source",
-    "salary_expectation",
-    "salary_currency",
-    "expected_rate_hourly",
-    "expected_rate_currency",
+    "expected_rate_hourly_pln_net_b2b",
     "availability_date",
     "champion",
     "created_at",
@@ -1973,6 +1986,10 @@ def _skill_names_flat(raw) -> str:
 
 
 def _row_for_export(c: Candidate) -> list:
+    profile_rate = canonical_profile_rate_amount(
+        c.expected_rate_hourly,
+        c.expected_rate_currency,
+    )
     return [
         c.id,
         c.name or "",
@@ -1986,10 +2003,7 @@ def _row_for_export(c: Candidate) -> list:
         _skill_names_flat(c.tags),
         c.status.value if c.status else "",
         c.source or "",
-        c.salary_expectation if c.salary_expectation is not None else "",
-        c.salary_currency or "",
-        c.expected_rate_hourly if c.expected_rate_hourly is not None else "",
-        c.expected_rate_currency or "",
+        profile_rate if profile_rate is not None else "",
         c.availability_date.isoformat() if c.availability_date else "",
         "true" if c.champion else "false",
         c.created_at.isoformat() if c.created_at else "",
@@ -1999,6 +2013,7 @@ def _row_for_export(c: Candidate) -> list:
 @router.get("/export")
 async def export_candidates(
     current_user: CandidateExportAccess,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     format: str = Query("csv", regex="^(csv|xlsx)$"),
     status_: Optional[CandidateStatus] = Query(None, alias="status"),
@@ -2007,6 +2022,7 @@ async def export_candidates(
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Stream candidates as CSV or Excel file respecting the same filters as list."""
+    _reject_retired_candidate_query(request)
     query = select(Candidate)
     if status_:
         query = query.where(Candidate.status == status_)
@@ -2216,6 +2232,12 @@ async def create_candidate(
     db: AsyncSession = Depends(get_db),
 ):
     candidate = Candidate(**data.model_dump())
+    apply_candidate_location_from_source(
+        candidate,
+        city=candidate.city,
+        country=candidate.country,
+        overwrite_existing=True,
+    )
     candidate.created_by = current_user.id
     db.add(candidate)
     await db.flush()
@@ -2555,12 +2577,15 @@ async def create_candidate_from_linkedin(
     preview_location: Optional[str] = (
         data.preview.location if data.preview is not None else None
     )
+    canonical_location = normalize_candidate_location(raw_location=preview_location)
 
     candidate = Candidate(
         name=name,
         lastname=lastname,
         linkedin=normalized,
-        location=preview_location,
+        city=canonical_location.city,
+        country=canonical_location.country,
+        location=canonical_location.projection,
         source="linkedin_extension",
         created_by=current_user.id,
         tags=data.tags or None,
@@ -3027,6 +3052,7 @@ _HIDDEN_TIMELINE_ACTIONS = (
     # Financial audit event: its details carry the client rate, and the
     # timeline feed is served to non-finance roles without redaction (P1-11).
     candidate_audit.CLIENT_RATE_CHANGED,
+    candidate_audit.PROFILE_RATE_CHANGED,
 )
 
 
@@ -3267,6 +3293,7 @@ async def get_candidate_history(
             RejectionReason.id == CandidateStage.rejection_reason_id,
         )
         .where(CandidateStage.candidate_id == candidate_id)
+        .where(job_scope_clause(current_user, CandidateStage.job_id))
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
 
@@ -3348,6 +3375,7 @@ async def get_candidate_history(
         select(Contract, Client.name.label("client_name"))
         .join(Client, Contract.client_id == Client.id)
         .where(Contract.candidate_id == candidate_id)
+        .where(job_scope_clause(current_user, Contract.job_id))
         .order_by(Contract.start_date.desc())
     )
     contracts_history = []
@@ -4075,7 +4103,7 @@ _MATCH_CACHE_INVALIDATING_FIELDS = frozenset(
         "skills",
         "verified_tech",
         "tags",
-        "salary_expectation",
+        "expected_rate_hourly",
         "availability_date",
         "preferences",
         "location",
@@ -4115,6 +4143,17 @@ async def update_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     updates = data.model_dump(exclude_unset=True)
+    if {"expected_rate_hourly", "expected_rate_currency"} & updates.keys():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "candidate_profile_rate_requires_dedicated_endpoint",
+                "message": (
+                    "Globalną stawkę B2B edytuj przez "
+                    f"/api/candidates/{candidate_id}/profile-rate z If-Match."
+                ),
+            },
+        )
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.
@@ -4204,6 +4243,36 @@ from app.services.cv_enrichment import (  # noqa: E402
     _CV_PLACEHOLDER_NAME,
     _apply_cv_enrichment,
 )
+from app.services.candidate_language_writer import (  # noqa: E402
+    normalize_language_payload,
+    sync_candidate_languages_from_source,
+)
+from app.services.candidate_identity_quarantine import (  # noqa: E402
+    record_detected_identity,
+)
+
+
+async def _parsed_source_is_quarantined(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    parsed: dict,
+    source_kind: Literal["document", "legacy_cv"],
+    source_id: int,
+    provenance: str,
+) -> bool:
+    """Persist the identity decision before any parsed CV fact is projected."""
+
+    review = await record_detected_identity(
+        db,
+        candidate=candidate,
+        source_kind=source_kind,
+        source_id=source_id,
+        observed_first_name=parsed.get("first_name"),
+        observed_last_name=parsed.get("last_name"),
+        provenance=provenance,
+    )
+    return review.is_quarantined
 
 
 async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> None:
@@ -4448,6 +4517,31 @@ async def _enrich_candidate_from_document_task(
             )
             if current_primary != document_id:
                 return
+            if await _parsed_source_is_quarantined(
+                db,
+                candidate=candidate,
+                parsed=parsed,
+                source_kind="document",
+                source_id=document.id,
+                provenance="cv_parser:document",
+            ):
+                # Keep the source available for human review, but do not let a
+                # confirmed different person alter the candidate projection.
+                await db.commit()
+                return
+            current_primary_after_review = await db.scalar(
+                select(CandidateDocument.id).where(
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                    CandidateDocument.is_primary.is_(True),
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            if current_primary_after_review != document_id:
+                # Persist the source review, but never let a superseded upload
+                # win a race and overwrite facts from the newer primary CV.
+                await db.commit()
+                return
 
             candidate.raw_cv_text = raw_text
             candidate.cv_filename = document.filename
@@ -4457,6 +4551,26 @@ async def _enrich_candidate_from_document_task(
                 source_document_id=document.id,
                 source_hash=document.content_sha256,
             )
+            if parsed.get("languages"):
+                await sync_candidate_languages_from_source(
+                    db,
+                    candidate_id=candidate_id,
+                    raw_languages=parsed["languages"],
+                    provenance="cv",
+                    source_ref=document.content_sha256 or f"document:{document.id}",
+                )
+            try:
+                from app.services.index_outbox_service import (
+                    schedule_or_embed_candidate,
+                )
+
+                await schedule_or_embed_candidate(candidate_id, db)
+            except Exception as exc:  # pragma: no cover - enrichment is best effort
+                logger.warning(
+                    "[cv_enrich] re-embed failed candidate=%s: %s",
+                    candidate_id,
+                    exc,
+                )
             await db.commit()
             await mark_stale_for_candidate(db, candidate_id)
             await db.commit()
@@ -4538,6 +4652,40 @@ async def _enrich_candidate_cv_task(
                     return
                 if source_hash and still_primary.content_sha256 != source_hash:
                     return
+            source_kind: Literal["document", "legacy_cv"]
+            review_source_id: int
+            if source_document_id is None:
+                source_kind = "legacy_cv"
+                review_source_id = candidate_id
+            else:
+                source_kind = "document"
+                review_source_id = source_document_id
+            if await _parsed_source_is_quarantined(
+                db,
+                candidate=candidate,
+                parsed=parsed,
+                source_kind=source_kind,
+                source_id=review_source_id,
+                provenance="cv_parser:stored_text",
+            ):
+                # This legacy path may already have copied source text onto the
+                # candidate row. Remove that unsafe projection immediately.
+                candidate.raw_cv_text = None
+                candidate.cv_filename = None
+                await db.commit()
+                return
+            if source_document_id is not None:
+                current_primary_after_review = await db.scalar(
+                    select(CandidateDocument.id).where(
+                        CandidateDocument.candidate_id == candidate_id,
+                        CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                        CandidateDocument.is_primary.is_(True),
+                        CandidateDocument.source_deleted_at.is_(None),
+                    )
+                )
+                if current_primary_after_review != source_document_id:
+                    await db.commit()
+                    return
 
             written = _apply_cv_enrichment(
                 candidate,
@@ -4545,6 +4693,19 @@ async def _enrich_candidate_cv_task(
                 source_document_id=source_document_id,
                 source_hash=source_hash,
             )
+            if parsed.get("languages"):
+                await sync_candidate_languages_from_source(
+                    db,
+                    candidate_id=candidate_id,
+                    raw_languages=parsed["languages"],
+                    provenance="cv",
+                    source_ref=source_hash
+                    or (
+                        f"document:{source_document_id}"
+                        if source_document_id is not None
+                        else f"legacy-cv:{candidate_id}"
+                    ),
+                )
             await db.commit()
 
             # v4: CC auto-classification after enrichment writes skills/summary.
@@ -4712,12 +4873,30 @@ async def create_candidate_from_cv(
         external_source="from_cv",
         is_primary=True,
     )
+    # The candidate identity is initialized from this same parse, but persist
+    # the match provenance so every document has an explicit review state.
+    await _parsed_source_is_quarantined(
+        db,
+        candidate=candidate,
+        parsed=parsed,
+        source_kind="document",
+        source_id=document.id,
+        provenance="cv_parser:from_cv",
+    )
     _apply_cv_enrichment(
         candidate,
         parsed,
         source_document_id=document.id,
         source_hash=document.content_sha256,
     )
+    if parsed.get("languages"):
+        await sync_candidate_languages_from_source(
+            db,
+            candidate_id=candidate.id,
+            raw_languages=parsed["languages"],
+            provenance="cv",
+            source_ref=document.content_sha256 or f"document:{document.id}",
+        )
 
     activity = Activity(
         entity_type="candidate",
@@ -4858,16 +5037,14 @@ async def _ingest_candidate_cv_file(
     user_id: int,
     external_source: str = "manual",
 ) -> CandidateDocument:
-    """Persist an uploaded CV: disk copy, text extraction, row, audit trail.
+    """Persist an uploaded CV: disk copy, document row and audit trail.
 
     Shared by `POST /{id}/cv` and the generic `POST /{id}/documents` upload, so
     a CV added from the „Pliki" tab behaves exactly like one added from the CV
-    box: same legacy disk path for `/cv-download`, same `raw_cv_text` refresh,
-    same primary flag. Does NOT commit — the caller owns the transaction and
-    the post-commit work (embedding + enrichment task).
+    box. Text extraction and every derived projection run after an identity
+    decision in ``_enrich_candidate_from_document_task``. Does NOT commit —
+    the caller owns the transaction and post-commit task.
     """
-    from app.services import cv_text_extractor
-
     candidate_id = candidate.id
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(
@@ -4875,23 +5052,11 @@ async def _ingest_candidate_cv_file(
     )
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(content)
-
-    # Phase D4: extract text from PDF/DOCX/TXT so the enrichment task has
-    # something to work with. Heavy libraries run in a thread to keep the
-    # event loop responsive.
-    try:
-        raw_text = await asyncio.to_thread(
-            cv_text_extractor.extract_text, file_path, safe_filename
-        )
-        if raw_text:
-            candidate.raw_cv_text = raw_text
-    except cv_text_extractor.UnsupportedCvFormat as e:
-        logger.info(f"[CV upload] unsupported format for {candidate_id}: {e}")
-    except Exception as e:  # pragma: no cover — defensive
-        logger.warning(
-            f"[CV upload] text extraction failed for candidate {candidate_id}: {e}"
-        )
-
+    # Keep the legacy download pointer in the same transaction as the primary
+    # document. Parsed text and derived facts remain identity-gated below, but
+    # a valid primary upload must not lose its filename merely because OCR
+    # returns no text. A confirmed identity mismatch clears this projection in
+    # ``_clear_quarantined_cv_projection``.
     candidate.cv_filename = safe_filename
     document = await _store_candidate_cv_document(
         db,
@@ -4930,28 +5095,16 @@ async def _after_cv_commit(
     candidate: Candidate,
     document: CandidateDocument,
 ) -> None:
-    """Re-index + schedule enrichment once the CV row is durable."""
+    """Schedule identity-gated extraction/enrichment once the row is durable."""
     candidate_id = candidate.id
-    # Phase 1: auto-embed candidate after CV upload. Non-blocking — CV is
-    # already saved; embedding failures are logged but not raised.
-    try:
-        from app.services.index_outbox_service import schedule_or_embed_candidate
-
-        await schedule_or_embed_candidate(candidate_id, db)
-    except Exception as e:  # pragma: no cover — defensive
-        logger.warning(
-            f"[CV upload] embedding failed for candidate {candidate_id}: {e}"
-        )
-
-    # Phase D4: schedule AI enrichment off the request path. Task runs in a
-    # fresh DB session so it survives the response lifecycle.
-    if candidate.raw_cv_text:
-        background_tasks.add_task(
-            _enrich_candidate_cv_task,
-            candidate_id,
-            document.id,
-            document.content_sha256,
-        )
+    # The task reads the immutable document bytes, extracts identity first and
+    # only then updates raw_cv_text, search vectors or profile facts.
+    background_tasks.add_task(
+        _enrich_candidate_from_document_task,
+        candidate_id,
+        document.id,
+        document.content_sha256,
+    )
 
 
 @router.post("/{candidate_id}/cv", response_model=CandidateResponse)
@@ -5313,26 +5466,128 @@ async def bulk_cv_download(
 
 @router.post("/bulk-import", status_code=status.HTTP_201_CREATED)
 async def bulk_import_candidates(
-    data: list[CandidateCreate],
+    data: list[dict[str, Any]],
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    """Import multiple candidates at once."""
-    created = []
-    for item in data:
-        candidate = Candidate(**item.model_dump())
-        candidate.created_by = current_user.id
-        db.add(candidate)
-        await db.flush()
-        created.append(candidate.id)
-        user_activity = UserActivity(
-            user_id=current_user.id,
-            action_type=UserActionType.candidate_added,
-            entity_type="candidate",
-            entity_id=candidate.id,
-            details={"name": f"{candidate.name} {candidate.lastname}", "bulk": True},
+    """Import records independently; retired fields never poison valid data."""
+
+    from pydantic import ValidationError
+
+    created: list[int] = []
+    item_results: list[dict[str, Any]] = []
+    for index, raw_item in enumerate(data):
+        raw = dict(raw_item)
+        raw_languages = raw.pop("languages", None)
+        language_present = "languages" in raw_item
+        field_errors: list[dict[str, str]] = []
+        for retired_field in ("salary_expectation", "salary_currency"):
+            if retired_field in raw:
+                raw.pop(retired_field, None)
+                field_errors.append(
+                    {
+                        "field": retired_field,
+                        "code": "candidate_monthly_rate_retired",
+                    }
+                )
+        for dedicated_field in (
+            "expected_rate_hourly",
+            "expected_rate_currency",
+        ):
+            if dedicated_field in raw:
+                raw.pop(dedicated_field, None)
+                field_errors.append(
+                    {
+                        "field": dedicated_field,
+                        "code": "candidate_profile_rate_requires_dedicated_endpoint",
+                    }
+                )
+
+        _normalized_languages, invalid_languages = normalize_language_payload(
+            raw_languages
         )
-        db.add(user_activity)
+        if invalid_languages:
+            field_errors.append(
+                {
+                    "field": "languages",
+                    "code": "invalid_candidate_languages",
+                }
+            )
+        try:
+            item = CandidateCreate.model_validate(raw)
+        except ValidationError as exc:
+            item_results.append(
+                {
+                    "index": index,
+                    "status": "error",
+                    "field_errors": field_errors
+                    + [
+                        {
+                            "field": ".".join(str(part) for part in error["loc"]),
+                            "code": str(error["type"]),
+                        }
+                        for error in exc.errors()
+                    ],
+                }
+            )
+            continue
+
+        try:
+            async with db.begin_nested():
+                candidate = Candidate(**item.model_dump())
+                apply_candidate_location_from_source(
+                    candidate,
+                    city=candidate.city,
+                    country=candidate.country,
+                    overwrite_existing=True,
+                )
+                candidate.created_by = current_user.id
+                db.add(candidate)
+                await db.flush()
+                if language_present:
+                    await sync_candidate_languages_from_source(
+                        db,
+                        candidate_id=candidate.id,
+                        raw_languages=raw_languages,
+                        provenance="csv",
+                        source_ref=f"bulk-import:{index}",
+                    )
+                user_activity = UserActivity(
+                    user_id=current_user.id,
+                    action_type=UserActionType.candidate_added,
+                    entity_type="candidate",
+                    entity_id=candidate.id,
+                    details={
+                        "name": f"{candidate.name} {candidate.lastname}",
+                        "bulk": True,
+                    },
+                )
+                db.add(user_activity)
+                await db.flush()
+        except Exception as exc:  # noqa: BLE001 - isolate each imported record
+            logger.warning(
+                "Bulk candidate import failed at index=%s error=%s",
+                index,
+                type(exc).__name__,
+            )
+            item_results.append(
+                {
+                    "index": index,
+                    "status": "error",
+                    "field_errors": field_errors,
+                    "reason": "candidate_import_failed",
+                }
+            )
+            continue
+        created.append(candidate.id)
+        item_results.append(
+            {
+                "index": index,
+                "status": ("created_with_field_errors" if field_errors else "created"),
+                "candidate_id": candidate.id,
+                "field_errors": field_errors,
+            }
+        )
     activity = Activity(
         entity_type="candidate",
         entity_id=0,
@@ -5341,7 +5596,7 @@ async def bulk_import_candidates(
         details={"count": len(created), "ids": created},
     )
     db.add(activity)
-    return {"created": len(created), "ids": created}
+    return {"created": len(created), "ids": created, "items": item_results}
 
 
 @router.post("/check-duplicates")
@@ -5485,7 +5740,7 @@ async def create_engagement_declaration_link(
 async def update_candidate_location(
     candidate_id: int,
     data: CandidateLocationUpdate,
-    current_user: RecruiterPlus,
+    current_user: CandidateProfileFactsWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Update consultant structured location (city / country / hub)."""
@@ -5493,6 +5748,8 @@ async def update_candidate_location(
         select(Candidate)
         .options(*_candidate_list_options())
         .where(Candidate.id == candidate_id)
+        .execution_options(populate_existing=True)
+        .with_for_update(of=Candidate)
     )
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -5500,17 +5757,38 @@ async def update_candidate_location(
     updates = data.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=422, detail="No location fields provided")
+    canonical_location_fields = {"city", "country"} & updates.keys()
+    if canonical_location_fields:
+        normalized_location = normalize_candidate_location(
+            city=updates.get("city", candidate.city),
+            country=updates.get("country", candidate.country),
+        )
+        if "city" in canonical_location_fields:
+            updates["city"] = normalized_location.city
+        if "country" in canonical_location_fields:
+            updates["country"] = normalized_location.country
     for k, v in updates.items():
         setattr(candidate, k, v)
+    if canonical_location_fields:
+        candidate.location = normalize_candidate_location(
+            city=candidate.city,
+            country=candidate.country,
+        ).projection
 
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=candidate_id,
-            action="location_updated",
-            user_id=current_user.id,
-            details=updates,
-        )
+    extracted = dict(candidate.cv_extracted_data or {})
+    for field in updates:
+        extracted[f"_manual_override_{field}"] = True
+    candidate.cv_extracted_data = extracted
+
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.LOCATION_CHANGED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={
+            "changed_fields": sorted(updates),
+            "manual_lock": True,
+        },
     )
     await db.flush()
     await db.refresh(candidate)

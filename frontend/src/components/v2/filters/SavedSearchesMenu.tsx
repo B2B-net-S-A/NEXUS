@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, BellRing, Bookmark, ChevronDown, Plus, Trash2 } from "lucide-react";
+import {
+ AlertTriangle,
+ Bell,
+ BellRing,
+ Bookmark,
+ ChevronDown,
+ Plus,
+ Trash2,
+} from "lucide-react";
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import { buildCandidateSavedSearchPayload } from "@/lib/candidate-saved-search";
@@ -72,11 +80,24 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  const alertMutation = useMutation({
  mutationFn: (ss: SavedSearchRow) => {
  const enable = !ss.notify_new_matches;
+ if (
+ enable &&
+ ss.requires_reapproval &&
+ !confirm(
+ `Zapis „${ss.name}" zawierał wycofane miesięczne kryteria stawki. Zostały usunięte bez konwersji. Czy zatwierdzasz pozostałe filtry i chcesz ponownie włączyć alert?`,
+ )
+ ) {
+ return Promise.resolve(null);
+ }
  const qs = typeof ss.filters.qs === "string" ? ss.filters.qs : "";
  return savedSearchesApi.update(
  ss.id,
  enable
- ? { notify_new_matches: true, filters: buildCandidateSavedSearchPayload(qs) }
+ ? {
+ notify_new_matches: true,
+ filters: buildCandidateSavedSearchPayload(qs),
+ confirm_reapproval: ss.requires_reapproval,
+ }
  : { notify_new_matches: false },
  );
  },
@@ -135,6 +156,15 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  title={ss.description ?? ss.name}
  >
  <span className="truncate">{ss.name}</span>
+ {ss.requires_reapproval ? (
+ <span
+ className="inline-flex shrink-0 items-center gap-1 rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-medium text-warning-muted-foreground"
+ title="Miesięczne kryteria stawki zostały usunięte bez konwersji. Sprawdź pozostałe filtry przed ponownym włączeniem alertu."
+ >
+ <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+ Ponownie zatwierdź
+ </span>
+ ) : null}
  {isMine && ss.unseen_count > 0 && (
  <span className="shrink-0 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold">
  {ss.unseen_count > 99 ? "99+" : ss.unseen_count}

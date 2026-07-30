@@ -16,11 +16,15 @@ populated by the matching circuit breaker (``recommendations.py``) — opaque
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
+from app.services.candidate_monthly_rate_retirement import (
+    reject_retired_candidate_rate,
+)
 
 SortOrder = Literal["relevance", "recent", "name"]
 AiStatus = Literal["ok", "degraded", "down"]
@@ -38,6 +42,12 @@ class LanguageRequirement(BaseModel):
 
 class CandidateSearchRequest(BaseModel):
     """All-in-one request schema for ``POST /api/search/candidates``."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_retired_monthly_rate(cls, data: Any) -> Any:
+        """Fail loudly instead of silently accepting retired monthly filters."""
+        return reject_retired_candidate_rate(data)
 
     # === Boolean text (Traffit-style; AND-of-buckets, ILIKE) ==================
     q_all: list[str] = Field(default_factory=list, max_length=20)
@@ -66,16 +76,10 @@ class CandidateSearchRequest(BaseModel):
     availability_status: list[AvailabilityStatus] = Field(default_factory=list)
     availability_date_before: Optional[date] = None
     notice_period_max: Optional[int] = Field(default=None, ge=0, le=365)
-    salary_min: Optional[int] = Field(default=None, ge=0)
-    salary_max: Optional[int] = Field(default=None, ge=0)
-    salary_currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
-    # Hourly B2B rate (PLN/h). Compared against ``Candidate.expected_rate_hourly``
-    # — a SEPARATE field from the monthly ``salary_*`` above. Used by the
-    # job-context manual search (a job's rate is stored in ``Job.salary_min/max``
-    # but is *hourly* per the job form). A candidate with no hourly rate is
-    # ``unknown`` and is NOT excluded. See SEARCH-P0-01.
-    rate_hourly_min: Optional[int] = Field(default=None, ge=0)
-    rate_hourly_max: Optional[int] = Field(default=None, ge=0)
+    # Global candidate rate has one immutable meaning: B2B, PLN net/hour.
+    # A missing rate remains unknown and is never excluded by the filter.
+    rate_hourly_min: Optional[Decimal] = Field(default=None, ge=0)
+    rate_hourly_max: Optional[Decimal] = Field(default=None, ge=0)
     sources: list[str] = Field(default_factory=list, max_length=10)
     tags: list[str] = Field(default_factory=list, max_length=20)
     has_cv: Optional[bool] = None
@@ -123,8 +127,7 @@ class CandidateSearchItem(BaseModel):
     source: Optional[str] = None
     competence_category: Optional[str] = None
     competence_category_id: Optional[int] = None
-    salary_expectation: Optional[int] = None
-    salary_currency: Optional[str] = None
+    expected_rate_hourly: Optional[Decimal] = None
     availability_date: Optional[str] = None
     years_it_experience: Optional[int] = None
     # Each of these JSONB columns is either a dict or a list in production

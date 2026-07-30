@@ -298,6 +298,9 @@ async def scan_once() -> int:
     from app.main import app
     from app.models.saved_search import SavedSearch
     from app.models.user import User
+    from app.services.candidate_monthly_rate_retirement import (
+        sanitize_candidate_saved_search,
+    )
 
     notified = 0
     async with AsyncSessionLocal() as db:
@@ -307,7 +310,8 @@ async def scan_once() -> int:
                 .join(User, User.id == SavedSearch.user_id)
                 .where(
                     SavedSearch.notify_new_matches.is_(True),
-                    SavedSearch.entity == "candidates",
+                    SavedSearch.requires_reapproval.is_(False),
+                    SavedSearch.entity.in_(("candidate", "candidates")),
                     User.is_active.is_(True),
                 )
                 .order_by(SavedSearch.id)
@@ -321,6 +325,24 @@ async def scan_once() -> int:
         ) as client:
             for ss, owner in rows:
                 try:
+                    # Defense in depth for deployments where a historic
+                    # migration was skipped: never replay a retired monthly
+                    # criterion as a broader search. Quarantine the alert and
+                    # require the owner to approve the sanitized remainder.
+                    sanitized_filters, retired_criteria_removed = (
+                        sanitize_candidate_saved_search(ss.filters or {})
+                    )
+                    if retired_criteria_removed:
+                        ss.filters = sanitized_filters
+                        ss.notify_new_matches = False
+                        ss.requires_reapproval = True
+                        await db.commit()
+                        logger.warning(
+                            "saved_search_alerts: disabled search %s with "
+                            "retired candidate monthly-rate criteria",
+                            ss.id,
+                        )
+                        continue
                     if ss.last_scanned_at is None:
                         await _baseline_one(client, db, ss, owner)
                     elif await _incremental_one(client, db, ss, owner):

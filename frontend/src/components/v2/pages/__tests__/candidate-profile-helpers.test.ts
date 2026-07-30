@@ -81,12 +81,10 @@ describe("getCandidateSummaryLine", () => {
         linkedin_current_title: "Senior Python Developer",
         years_it_experience: 7,
         city: "Warszawa",
-        expected_salary: 20000,
-        currency: "PLN",
         availability_status: "open_to_offers",
       }),
     ).toBe(
-      "Senior Python Developer · 7+ lat · Warszawa · 20k PLN · otwarty na oferty",
+      "Senior Python Developer · 7+ lat · Warszawa · otwarty na oferty",
     );
   });
 
@@ -108,12 +106,6 @@ describe("getCandidateSummaryLine", () => {
     ).toBe("Data Engineer · 3 lat");
   });
 
-  it("formats sub-1000 salary verbatim and falls back to salary_expectation", () => {
-    expect(
-      getCandidateSummaryLine({ salary_expectation: 800, salary_currency: "EUR" }),
-    ).toBe("800 EUR");
-  });
-
   it("uses location when city is absent", () => {
     expect(getCandidateSummaryLine({ location: "Remote PL" })).toBe("Remote PL");
   });
@@ -132,6 +124,5 @@ describe("getCandidateSummaryLine", () => {
 
   it("returns null when nothing meaningful is available", () => {
     expect(getCandidateSummaryLine({})).toBeNull();
-    expect(getCandidateSummaryLine({ expected_salary: 0 })).toBeNull();
   });
 });

@@ -1,5 +1,10 @@
 from app.models.user import User
 from app.models.candidate import Candidate
+from app.models.candidate_language import CandidateLanguage  # noqa: F401
+from app.models.candidate_source_identity_review import (  # noqa: F401
+    CandidateSourceIdentityReview,
+)
+from app.models.skill import Skill  # noqa: F401
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.competence_category import (

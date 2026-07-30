@@ -42,7 +42,9 @@ def test_apply_populates_summary_companies_and_experience():
     written = _apply_cv_enrichment(c, parsed)
 
     assert written == 2
-    assert c.ai_summary == "8 lat Pythona w fintechu."
+    assert c.ai_summary == (
+        "8 lat Pythona w fintechu.\nAktualna rola: Senior Python Developer."
+    )
     assert c.years_it_experience == 8
     assert c.cv_extracted_data["companies"] == ["Acme Corp", "Globex"]
     assert c.cv_extracted_data["_source"] == "claude:cv_enrichment:v2"
@@ -102,7 +104,9 @@ def test_apply_respects_manual_override_flag():
     written = _apply_cv_enrichment(c, parsed)
 
     assert written == 0
-    assert c.ai_summary == "summary"  # non-contested field still updated
+    assert c.ai_summary == (
+        "summary · 10 lat doświadczenia."
+    )  # non-contested field still updated
     assert c.experience == rich_experience  # contested field preserved
     # Flag survives across writes.
     assert c.cv_extracted_data["_manual_override_experience"] is True
@@ -185,7 +189,7 @@ def _blank_candidate() -> Candidate:
     """A fresh candidate with empty contact fields — mirrors /from-cv insert."""
     return Candidate(
         id=42,
-        name="Nieznane",      # placeholder written by /from-cv when LLM returned null
+        name="Nieznane",  # placeholder written by /from-cv when LLM returned null
         lastname="Nieznane",
         email=None,
         phone=None,
@@ -223,6 +227,35 @@ def test_apply_fills_empty_contact_fields():
     assert c.phone == "+48 600 123 456"
     assert c.city == "Warszawa"
     assert c.location == "Warszawa"  # legacy column mirrors city
+
+
+def test_apply_cv_city_respects_manual_lock_and_rebuilds_projection():
+    c = Candidate(
+        id=43,
+        name="Anna",
+        lastname="Nowak",
+        city="Kraków",
+        country="PL",
+        location="legacy-stale",
+        raw_cv_text="whatever",
+        experience=[],
+        cv_extracted_data={"_manual_override_city": True},
+    )
+
+    _apply_cv_enrichment(
+        c,
+        {
+            "city": "Warszawa",
+            "skills": [],
+            "education": [],
+            "languages": [],
+            "companies": [],
+        },
+    )
+
+    assert c.city == "Kraków"
+    assert c.country == "PL"
+    assert c.location == "Kraków, PL"
 
 
 def test_apply_preserves_manually_typed_contact_fields():
@@ -311,11 +344,11 @@ def test_apply_respects_per_field_manual_override_flag():
 def test_apply_truncates_long_contact_values():
     c = _blank_candidate()
     parsed = {
-        "first_name": "A" * 200,     # name column is VARCHAR(100)
+        "first_name": "A" * 200,  # name column is VARCHAR(100)
         "last_name": "B" * 300,
         "email": "x@" + "y" * 260 + ".pl",  # > 255
-        "phone": "+48 " + "9" * 100,        # > 30
-        "city": "C" * 200,                  # > 120
+        "phone": "+48 " + "9" * 100,  # > 30
+        "city": "C" * 200,  # > 120
         "skills": [],
         "education": [],
         "languages": [],

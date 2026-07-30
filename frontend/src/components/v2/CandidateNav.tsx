@@ -68,6 +68,7 @@ export function CandidateNav({
  <Button
  size="sm"
  variant="outline"
+ className="min-h-11 min-w-11"
  onClick={onPrev}
  disabled={!hasPrev || isLoading}
  aria-label="Poprzedni kandydat"
@@ -104,6 +105,7 @@ export function CandidateNav({
  <Button
  size="sm"
  variant="outline"
+ className="min-h-11 min-w-11"
  onClick={onNext}
  disabled={!hasNext || isLoading}
  aria-label="Następny kandydat"
@@ -124,6 +126,7 @@ export function CandidateNav({
  <Button
  size="sm"
  variant="ghost"
+ className="min-h-11 min-w-11"
  onClick={onExpand}
  aria-label="Otwórz w pełnym widoku"
  >
@@ -137,6 +140,7 @@ export function CandidateNav({
  <Button
  size="sm"
  variant="ghost"
+ className="min-h-11 min-w-11"
  onClick={onClose}
  aria-label="Zamknij profil"
  >
@@ -151,7 +155,11 @@ export function CandidateNav({
  >
  <span>{error}</span>
  {onRetry ? (
- <button type="button" onClick={onRetry} className="font-medium underline">
+ <button
+ type="button"
+ onClick={onRetry}
+ className="inline-flex min-h-11 min-w-11 items-center justify-center font-medium underline"
+ >
  Ponów
  </button>
  ) : null}

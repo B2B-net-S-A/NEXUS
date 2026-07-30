@@ -88,6 +88,46 @@ jobs:
     # skipped too → the whole workflow no-ops without touching prod.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
+      - name: Ensure dedicated candidate identity fingerprint key
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set -euo pipefail
+          base="${COOLIFY_URL%/}"
+          auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
+          curl -fsS "${auth[@]}" \
+            "${base}/api/v1/applications/${COOLIFY_APP_UUID}/envs" \
+            -o /tmp/candidate_identity_envs.json
+          present=$(jq -r \
+            'any(.[]?; .key=="CANDIDATE_IDENTITY_FINGERPRINT_KEY")' \
+            /tmp/candidate_identity_envs.json)
+          # Coolify may mask or indirect env values in this response. Presence
+          # is the only safe automation signal: never rotate an existing key,
+          # because that would invalidate the provenance HMAC trail. Settings
+          # validation rejects an empty, placeholder or JWT-equal value before
+          # the application starts.
+          if [ "$present" = "true" ]; then
+            echo "Dedicated candidate identity fingerprint key is present."
+            exit 0
+          fi
+
+          value=$(openssl rand -base64 48 | tr -d '\n')
+          payload=$(jq -n --arg v "$value" \
+            '{key:"CANDIDATE_IDENTITY_FINGERPRINT_KEY", value:$v, is_buildtime:false, is_runtime:true, is_preview:false}')
+          code=$(curl -sS -o /tmp/candidate_identity_env_response.json \
+            -w "%{http_code}" -X POST "${auth[@]}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "${base}/api/v1/applications/${COOLIFY_APP_UUID}/envs")
+          unset value payload
+          if [ "$code" -ge 400 ]; then
+            echo "::error::Failed to provision candidate identity fingerprint key (HTTP $code)."
+            exit 1
+          fi
+          echo "Provisioned a dedicated candidate identity fingerprint key."
+
       - name: Trigger deployment
         id: trigger
         run: |

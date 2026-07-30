@@ -10,10 +10,10 @@ Why a separate module:
 * :func:`build_structured_filter` is pure — no I/O, no session — and unit-test
   friendly. The endpoint composes the WHERE clause, runs the query, and
   formats the response.
-* JSONB lookups (``skills``, ``tags``, ``languages``) live here so the
-  endpoint stays declarative.
-* Language-level comparison sorts CEFR strings lexicographically; this works
-  because ``A1 < A2 < B1 < B2 < C1 < C2`` is monotonic in ASCII.
+* JSONB lookups (``skills``, ``tags``) and normalized language-fact lookups
+  live here so the endpoint stays declarative.
+* Language-level comparison uses an explicit accepted-level set over
+  ``candidate_languages``; native and unknown are distinct states.
 """
 
 from __future__ import annotations
@@ -29,9 +29,13 @@ from app.models.candidate import (
     Candidate,
     CandidateStatus,
 )
+from app.models.candidate_language import CandidateLanguage
 from app.schemas.candidate_search import (
     CandidateSearchRequest,
     LanguageRequirement,
+)
+from app.services.candidate_profile_rate import (
+    canonical_profile_rate_currency_clause,
 )
 
 # CEFR ordering — monotonic in ASCII so plain ``>=`` on the JSON value works.
@@ -160,78 +164,36 @@ def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
 
 
 def _language_clause(req: LanguageRequirement) -> Optional[ColumnElement]:
-    """Match a candidate whose ``languages`` JSONB carries ``req.code`` at or
-    above ``req.min_level`` — with the code and the level bound to the SAME
-    element (SEARCH-18).
+    """Match an active normalized fact at/above the requested CEFR level.
 
-    The prior implementation cast the whole ``languages`` array to text and ran
-    a single ILIKE (``%"EN"%"B2"%``), so ``EN`` in one element and ``B2`` in a
-    *different* element counted as a match: a candidate with
-    ``[{lang:EN,level:A2},{lang:DE,level:C2}]`` wrongly satisfied ``EN>=B2``.
-    We now require one element to carry both fields.
-
-    Two stored shapes are supported, per-element correct in both:
-
-    * array of dicts — ``[{"lang": "EN", "level": "B2"}, ...]`` (``code`` is an
-      accepted alias for ``lang``);
-    * flat map — ``{"EN": "B2", ...}`` where the key *is* the language code.
-
-    Code and level are both case-folded (preserving the old ILIKE tolerance);
-    ``level`` acceptance follows the CEFR ordering in ``_LEVEL_ORDER``.
+    ``native`` is a distinct fact and satisfies every CEFR threshold.  An
+    unknown/descriptive level deliberately satisfies none: descriptive labels
+    are suggestions, never silently promoted to CEFR.
     """
     code_upper = req.code.upper()
     try:
         min_idx = _LEVEL_ORDER.index(req.min_level)
     except ValueError:
         return None
-    accepted_levels = [lvl.upper() for lvl in _LEVEL_ORDER[min_idx:]]
+    accepted_levels = [lvl for lvl in _LEVEL_ORDER[min_idx:] if lvl != "native"]
 
-    langs = Candidate.languages
-
-    # Array shape: ONE element must carry both the code and an accepted level.
-    # ``jsonb_array_elements`` errors on non-arrays, so guard the type first.
-    array_elem = func.jsonb_array_elements(
-        case(
-            (func.jsonb_typeof(langs) == "array", langs),
-            else_=func.jsonb_build_array(),
-        )
-    ).table_valued("value")
-    elem_code = func.upper(
-        func.coalesce(
-            array_elem.c.value.op("->>")("lang"),
-            array_elem.c.value.op("->>")("code"),
-            "",
-        )
-    )
-    elem_level = func.upper(func.coalesce(array_elem.c.value.op("->>")("level"), ""))
-    array_match = (
-        select(array_elem.c.value)
-        .where(and_(elem_code == code_upper, elem_level.in_(accepted_levels)))
-        .correlate(Candidate)
-        .exists()
-    )
-
-    # Flat-map shape: the key is the code, the value its level — inherently
-    # per-element. ``jsonb_each_text`` gives case-insensitive key matching.
-    map_kv = func.jsonb_each_text(
-        case(
-            (func.jsonb_typeof(langs) == "object", langs),
-            else_=func.jsonb_build_object(),
-        )
-    ).table_valued("key", "value")
-    map_match = (
-        select(map_kv.c.value)
+    return (
+        select(CandidateLanguage.id)
         .where(
+            CandidateLanguage.candidate_id == Candidate.id,
+            CandidateLanguage.deleted_at.is_(None),
+            func.upper(CandidateLanguage.language_code) == code_upper,
             and_(
-                func.upper(map_kv.c.key) == code_upper,
-                func.upper(map_kv.c.value).in_(accepted_levels),
-            )
+                CandidateLanguage.is_level_unknown.is_(False),
+                or_(
+                    CandidateLanguage.is_native.is_(True),
+                    CandidateLanguage.cefr_level.in_(accepted_levels),
+                ),
+            ),
         )
         .correlate(Candidate)
         .exists()
     )
-
-    return or_(array_match, map_match)
 
 
 def _bool_eq(col: ColumnElement, value: Optional[bool]) -> Optional[ColumnElement]:
@@ -348,20 +310,9 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
         )
     add("availability", "Dyspozycyjność", availability)
 
-    salary: list[ColumnElement] = []
-    if req.salary_min is not None:
-        salary.append(Candidate.salary_expectation >= req.salary_min)
-    if req.salary_max is not None:
-        salary.append(Candidate.salary_expectation <= req.salary_max)
-    if req.salary_currency:
-        salary.append(
-            func.upper(Candidate.salary_currency) == req.salary_currency.upper()
-        )
-    add("salary_monthly", "Wynagrodzenie miesięczne", salary)
-
-    # Hourly rate (PLN/h) — filter on ``expected_rate_hourly``, NOT the monthly
-    # ``salary_expectation``. Missing rate is unknown → included (never a hard
-    # exclusion), matching the availability/notice-period NULL policy above.
+    # Global candidate rate has fixed semantics: B2B, PLN net/hour. Missing rate
+    # is unknown → included (never a hard exclusion), matching the
+    # availability/notice-period NULL policy above.
     rate: list[ColumnElement] = []
     if req.rate_hourly_min is not None or req.rate_hourly_max is not None:
         bounds: list[ColumnElement] = []
@@ -369,7 +320,14 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
             bounds.append(Candidate.expected_rate_hourly >= req.rate_hourly_min)
         if req.rate_hourly_max is not None:
             bounds.append(Candidate.expected_rate_hourly <= req.rate_hourly_max)
-        rate.append(Candidate.expected_rate_hourly.is_(None) | and_(*bounds))
+        comparable = canonical_profile_rate_currency_clause(
+            Candidate.expected_rate_currency
+        )
+        rate.append(
+            Candidate.expected_rate_hourly.is_(None)
+            | ~comparable
+            | (comparable & and_(*bounds))
+        )
     add("rate_hourly", "Stawka godzinowa", rate)
 
     sources: list[ColumnElement] = []

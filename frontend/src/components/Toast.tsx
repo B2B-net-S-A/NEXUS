@@ -106,6 +106,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
+            role={toast.type === "error" ? "alert" : "status"}
+            aria-live={toast.type === "error" ? "assertive" : "polite"}
+            aria-atomic="true"
             className={cn(
               "flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium pointer-events-auto",
               "animate-in slide-in-from-right-5 fade-in-0 duration-200",
@@ -118,30 +121,42 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             )}
           >
             {toast.type === "success" && (
-              <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+              <CheckCircle
+                aria-hidden="true"
+                className="w-4 h-4 text-emerald-500 shrink-0"
+              />
             )}
             {toast.type === "error" && (
-              <AlertCircle className="w-4 h-4 text-destructive shrink-0" />
+              <AlertCircle
+                aria-hidden="true"
+                className="w-4 h-4 text-destructive shrink-0"
+              />
             )}
             {toast.type === "action" && (
-              <Undo2 className="w-4 h-4 text-primary shrink-0" />
+              <Undo2
+                aria-hidden="true"
+                className="w-4 h-4 text-primary shrink-0"
+              />
             )}
             <span className="flex-1">
               {kidsMode && toast.type === "success" ? `🎉 ${toast.message}` : toast.message}
             </span>
             {toast.type === "action" && toast.actionLabel && (
               <button
+                type="button"
                 onClick={() => handleAction(toast)}
-                className="text-primary dark:text-primary font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity whitespace-nowrap"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-primary dark:text-primary font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity whitespace-nowrap"
               >
                 {toast.actionLabel}
               </button>
             )}
             <button
+              type="button"
               onClick={() => dismiss(toast.id)}
-              className="text-current opacity-50 hover:opacity-100 transition-opacity ml-1"
+              aria-label="Zamknij powiadomienie"
+              className="ml-1 inline-flex min-h-11 min-w-11 items-center justify-center text-current opacity-50 hover:opacity-100 transition-opacity"
             >
-              <X className="w-3.5 h-3.5" />
+              <X aria-hidden="true" className="w-3.5 h-3.5" />
             </button>
           </div>
         ))}

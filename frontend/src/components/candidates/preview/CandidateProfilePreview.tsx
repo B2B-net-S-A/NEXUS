@@ -9,6 +9,7 @@ import {
   CalendarClock,
   ExternalLink,
   FileText,
+  Languages as LanguagesIcon,
   Linkedin,
   Mail,
   MapPin,
@@ -51,11 +52,9 @@ const candidate = CANDIDATE_PREVIEW_FIXTURES[0]
 
 const FACTS: KeyFact[] = [
   { id: "availability", label: "Dostępność", value: candidate.availability, icon: CalendarClock },
-  { id: "rate", label: "Oczekiwana stawka", value: candidate.rate, icon: WalletCards },
+  { id: "rate", label: "Stawka B2B", value: candidate.rate.replace("PLN/h", "PLN netto/h"), icon: WalletCards },
   { id: "location", label: "Lokalizacja", value: candidate.location, icon: MapPin },
-  { id: "source", label: "Źródło", value: "Polecenie · Anna Kowalska" },
-  { id: "owner", label: "Opiekun", value: "Marta Nowak" },
-  { id: "contact", label: "Ostatni kontakt", value: "Dzisiaj, 09:42" },
+  { id: "languages", label: "Języki", value: "Angielski · C1, polski · ojczysty", icon: LanguagesIcon },
 ]
 
 function CandidateIdentity({ compact = false }: { compact?: boolean }) {
@@ -173,6 +172,9 @@ function FullProfilePreview() {
   return (
     <section aria-label="Pełny profil kandydata" className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="border-b border-border p-4 sm:p-6"><CandidateIdentity /></div>
+      <div className="border-b border-border bg-muted/20 p-4 sm:px-6">
+        <KeyFacts facts={FACTS} columns={4} density="compact" />
+      </div>
       <div className="border-b border-border p-3 md:hidden">
         <label htmlFor="preview-profile-section" className="mb-1 block text-xs font-medium text-muted-foreground">Sekcja profilu</label>
         <select
@@ -188,13 +190,12 @@ function FullProfilePreview() {
         <TabsContent value="summary" className="mt-0 p-4 sm:p-6">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <div className="space-y-6">
-              <Card><CardHeader><CardTitle>Najważniejsze informacje</CardTitle></CardHeader><CardContent><KeyFacts facts={FACTS} columns={3} /></CardContent></Card>
-              <Card><CardHeader><CardTitle>Podsumowanie AI</CardTitle></CardHeader><CardContent><p className="text-sm leading-6 text-muted-foreground">{candidate.summary}</p><div className="mt-4 flex flex-wrap gap-1.5">{candidate.skills.map((skill) => <Badge key={skill} variant="neutral">{skill}</Badge>)}</div></CardContent></Card>
+              <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="flex items-center gap-2"><Sparkles aria-hidden className="size-4 text-primary" />Podsumowanie historii AI</CardTitle><Badge variant="success">Aktualne</Badge></div></CardHeader><CardContent><p className="text-sm leading-6 text-foreground">{candidate.summary}</p><div className="mt-4 rounded-lg border border-border bg-muted/30 p-3"><p className="text-xs font-medium text-foreground">Zakres źródeł</p><div className="mt-2 flex flex-wrap gap-1.5"><Badge variant="neutral">Rekrutacje: 5</Badge><Badge variant="neutral">Feedback: 3</Badge><Badge variant="neutral">Rozmowy: 2</Badge></div></div><p className="mt-4 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">Zweryfikuj przed decyzją. Podsumowanie celowo nie zawiera informacji finansowych.</p></CardContent></Card>
               <Card><CardHeader><CardTitle>Dane handlowe i administracyjne</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm">Dodaj stawkę</Button><Button variant="outline" size="sm">Dodaj konflikt</Button></div></CardContent></Card>
             </div>
             <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+              <Card><CardHeader><div className="flex items-center justify-between gap-2"><CardTitle>Ostatnie rekrutacje</CardTitle><Badge variant="neutral">2</Badge></div></CardHeader><CardContent className="space-y-2"><div className="rounded-lg border border-border p-3"><p className="text-sm font-medium text-foreground">{candidate.recruitment}</p><p className="mt-1 text-xs text-muted-foreground">{candidate.stage} · wczoraj</p></div><div className="rounded-lg border border-border p-3"><p className="text-sm font-medium text-foreground">Cloud Security Engineer</p><p className="mt-1 text-xs text-muted-foreground">Screening · 4 dni temu</p></div></CardContent></Card>
               <Card><CardHeader><CardTitle>CV</CardTitle></CardHeader><CardContent><p className="flex items-center gap-2 text-sm text-foreground"><FileText aria-hidden className="size-4 text-muted-foreground" />{candidate.cvName}</p><Button variant="outline" size="sm" className="mt-3">Otwórz CV</Button></CardContent></Card>
-              <Card><CardHeader><CardTitle>Ostatnia aktywność</CardTitle></CardHeader><CardContent><Activities /></CardContent></Card>
             </aside>
           </div>
         </TabsContent>

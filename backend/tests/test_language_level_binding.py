@@ -1,13 +1,4 @@
-"""Real-DB regression for SEARCH-18: the language filter must bind ``code`` and
-``level`` to the SAME JSONB element.
-
-The bug: ``_language_clause`` cast the whole ``languages`` array to text and ran
-one ILIKE (``%"EN"%"B2"%``). A candidate whose English is only A2 but who also
-speaks German at C2 (``[{lang:EN,level:A2},{lang:DE,level:C2}]``) wrongly
-satisfied ``EN>=B2`` — the required code and the required level lived in two
-different array elements. These tests seed real rows and assert per-element
-binding through Postgres, which the pure SQL-string tests in
-``test_structured_candidate_search.py`` cannot exercise.
+"""Real-DB regressions for normalized candidate-language search facts.
 
 Runs against the CI postgres service (``DATABASE_URL``); rows are inserted with
 ``flush()`` and rolled back, so no cleanup or committed state leaks.
@@ -28,10 +19,12 @@ import app.models  # noqa: F401
 import app.models.skill  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
+from app.models.candidate_language import CandidateLanguage
 from app.schemas.candidate_search import (
     CandidateSearchRequest,
     LanguageRequirement,
 )
+from app.services.candidate_language_writer import normalize_language_payload
 from app.services.structured_candidate_search import build_structured_filter
 
 
@@ -53,6 +46,22 @@ async def _seed(db, languages: Any) -> int:
     """
     cand = Candidate(name="LangTest", lastname="Case", languages=languages)
     db.add(cand)
+    await db.flush()
+    normalized, _invalid = normalize_language_payload(languages)
+    for language in normalized:
+        db.add(
+            CandidateLanguage(
+                candidate_id=cand.id,
+                language_code=language.language_code,
+                language_name=language.language_name,
+                cefr_level=language.cefr_level,
+                is_native=language.is_native,
+                is_level_unknown=language.is_level_unknown,
+                provenance="legacy",
+                manual_lock=False,
+                version=1,
+            )
+        )
     await db.flush()
     return cand.id
 
@@ -120,3 +129,12 @@ async def test_empty_and_null_languages_never_match(db):
     matched = await _matching_ids(db, [a, b], _req_en_b2())
 
     assert matched == set(), f"empty/null languages must not match, got {matched}"
+
+
+async def test_native_matches_but_unknown_does_not(db):
+    native = await _seed(db, [{"code": "EN", "name": "English", "level": "native"}])
+    unknown = await _seed(db, [{"code": "EN", "name": "English", "level": "advanced"}])
+
+    matched = await _matching_ids(db, [native, unknown], _req_en_b2())
+
+    assert matched == {native}

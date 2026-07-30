@@ -59,9 +59,10 @@ export function PinButton({
         onClick={() => toggleMutation.mutate()}
         disabled={isLoading || toggleMutation.isPending}
         aria-pressed={isPinned}
+        aria-label={isPinned ? "Odepnij kandydata" : "Przypnij kandydata"}
         title={isPinned ? "Odepnij" : "Przypnij"}
         className={cn(
-          "p-1.5 rounded-md transition-colors",
+          "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-1.5 transition-colors",
           isPinned
             ? "text-primary bg-primary/10 hover:bg-primary/20"
             : "text-muted-foreground hover:bg-primary/10 hover:text-foreground",
@@ -69,9 +70,9 @@ export function PinButton({
         )}
       >
         {isPinned ? (
-          <PinOff className="h-4 w-4" />
+          <PinOff aria-hidden="true" className="h-4 w-4" />
         ) : (
-          <Pin className="h-4 w-4" />
+          <Pin aria-hidden="true" className="h-4 w-4" />
         )}
       </button>
     );
@@ -85,7 +86,7 @@ export function PinButton({
       disabled={isLoading || toggleMutation.isPending}
       title={isPinned ? "Odepnij kandydata" : "Przypnij do short-listy"}
       aria-pressed={isPinned}
-      className={className}
+      className={cn("min-h-11 min-w-11", className)}
     >
       {isPinned ? (
         <>

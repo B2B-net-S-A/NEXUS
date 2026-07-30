@@ -49,14 +49,10 @@ export interface CandidateSearchRequest {
   availability_status?: AvailabilityStatusValue[];
   availability_date_before?: string | null; // ISO date
   notice_period_max?: number | null;
-  salary_min?: number | null;
-  salary_max?: number | null;
-  salary_currency?: string | null;
   /**
-   * Hourly B2B rate (PLN/h) — filters on the candidate's `expected_rate_hourly`
-   * field, NOT the monthly `salary_*` above. Used by the job-context search
-   * (a job's rate lives in `salary_min/max` but is hourly). Missing candidate
-   * rate is treated as unknown and is NOT excluded. See SEARCH-P0-01.
+   * Hourly B2B rate (PLN net/hour), backed by the candidate's global profile
+   * rate. A job's budget still lives in its own `salary_min/max` fields; those
+   * values are job data and are never copied into the candidate profile.
    */
   rate_hourly_min?: number | null;
   rate_hourly_max?: number | null;
@@ -98,8 +94,6 @@ export interface CandidateSearchItem {
   source: string | null;
   competence_category: string | null;
   competence_category_id: number | null;
-  salary_expectation: number | null;
-  salary_currency: string | null;
   availability_date: string | null;
   years_it_experience: number | null;
   tags: Record<string, unknown> | null;
@@ -261,6 +255,7 @@ export interface SavedSearchOut {
   shared: boolean;
   description: string | null;
   pinned_to_job_id: number | null;
+  requires_reapproval: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -274,6 +269,10 @@ export interface SavedSearchCreate {
   pinned_to_job_id?: number | null;
 }
 
+export interface SavedSearchUpdate {
+  confirm_reapproval?: boolean;
+}
+
 export const savedSearchesApi = {
   list: (params: {
     entity?: string;
@@ -285,6 +284,10 @@ export const savedSearchesApi = {
       .then((r) => r.data),
   create: (body: SavedSearchCreate): Promise<SavedSearchOut> =>
     api.post<SavedSearchOut>("/api/saved-searches", body).then((r) => r.data),
+  update: (id: number, body: SavedSearchUpdate): Promise<SavedSearchOut> =>
+    api
+      .patch<SavedSearchOut>(`/api/saved-searches/${id}`, body)
+      .then((r) => r.data),
   remove: (id: number): Promise<void> =>
     api.delete(`/api/saved-searches/${id}`).then(() => undefined),
 };

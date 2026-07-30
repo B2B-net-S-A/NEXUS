@@ -64,9 +64,7 @@ async def test_wrapper_flag_off_embeds_inline(monkeypatch):
         called["id"] = cid
         return True
 
-    monkeypatch.setattr(
-        "app.services.embedding_service.embed_candidate", _fake_embed
-    )
+    monkeypatch.setattr("app.services.embedding_service.embed_candidate", _fake_embed)
     async with AsyncSessionLocal() as db:
         ok = await outbox.schedule_or_embed_candidate(BASE + 2, db)
     assert ok is True
@@ -143,7 +141,8 @@ async def test_process_failure_then_dead_after_max(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_superseded_event_skips_reindex():
+@pytest.mark.parametrize("operation", ["upsert", "delete"])
+async def test_superseded_event_skips_reindex(operation):
     # A newer revision already indexed done for the same entity.
     await _insert_event(
         entity_id=BASE + 14,
@@ -152,7 +151,10 @@ async def test_superseded_event_skips_reindex():
         indexed_revision=200,
     )
     stale_id = await _insert_event(
-        entity_id=BASE + 14, status="processing", entity_revision=100
+        entity_id=BASE + 14,
+        status="processing",
+        entity_revision=100,
+        operation=operation,
     )
     calls = {"n": 0}
 

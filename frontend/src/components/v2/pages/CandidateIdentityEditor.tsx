@@ -79,6 +79,7 @@ export function IdentityEditor({
         <div>
           <Label className="text-xs">Imię</Label>
           <Input
+            className="min-h-11"
             autoFocus
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -88,6 +89,7 @@ export function IdentityEditor({
         <div>
           <Label className="text-xs">Nazwisko</Label>
           <Input
+            className="min-h-11"
             value={form.lastname}
             onChange={(e) => setForm((f) => ({ ...f, lastname: e.target.value }))}
             placeholder="Kowalski"
@@ -96,6 +98,7 @@ export function IdentityEditor({
         <div>
           <Label className="text-xs">E-mail</Label>
           <Input
+            className="min-h-11"
             type="email"
             value={form.email}
             onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -105,6 +108,7 @@ export function IdentityEditor({
         <div>
           <Label className="text-xs">Telefon</Label>
           <Input
+            className="min-h-11"
             type="tel"
             value={form.phone}
             onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
@@ -113,13 +117,20 @@ export function IdentityEditor({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Button type="submit" size="sm" variant="primary" disabled={save.isPending}>
+        <Button
+          type="submit"
+          size="sm"
+          variant="primary"
+          className="min-h-11 min-w-11"
+          disabled={save.isPending}
+        >
           {save.isPending ? "Zapisywanie…" : "Zapisz"}
         </Button>
         <Button
           type="button"
           size="sm"
           variant="outline"
+          className="min-h-11 min-w-11"
           onClick={onClose}
           disabled={save.isPending}
         >

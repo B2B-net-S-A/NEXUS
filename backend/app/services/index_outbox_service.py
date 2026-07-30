@@ -340,7 +340,7 @@ async def process_event(
     fn = reindex_fn or _default_reindex
     max_attempts = int(getattr(settings, "AI_INDEX_MAX_ATTEMPTS", 5))
 
-    if ev.operation == "upsert" and await _superseded(db, ev):
+    if await _superseded(db, ev):
         ev.status = "done"
         ev.last_error = "superseded by newer revision"
         await db.flush()

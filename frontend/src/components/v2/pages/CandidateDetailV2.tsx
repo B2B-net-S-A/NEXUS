@@ -22,7 +22,6 @@ import {
  Files,
  Gauge,
  GraduationCap,
- Languages as LanguagesIcon,
  Link2,
  Linkedin,
  Loader2,
@@ -68,7 +67,6 @@ import { ExpandableText } from"@/components/v2/ExpandableText";
 import {
  getCandidateSummaryLine,
  getEducationList,
- getLanguageList,
 } from"@/components/v2/pages/candidate-profile-helpers";
 import {
  formatCandidateLocation,
@@ -125,9 +123,6 @@ import { CandidateFilesTab } from "@/components/v2/files/CandidateFilesTab";
 import {
  Dialog,
  DialogContent,
- DialogFooter,
- DialogHeader,
- DialogTitle,
 } from"@/components/ui/dialog";
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
 import { RiskBadge } from"@/components/v2/RiskBadge";
@@ -156,6 +151,8 @@ import CandidateChatTab from"@/components/v2/pages/CandidateChatTab";
 import CallsTimeline from"@/components/calls/CallsTimeline";
 import { DopasowanieTab } from"@/components/v2/pages/DopasowanieTab";
 import { CandidateActivitySummaryCard } from"@/components/v2/pages/CandidateActivitySummaryCard";
+import { CandidateProfileFactsBar } from"@/components/v2/pages/CandidateProfileFactsBar";
+import { CandidateRecentRecruitmentsCard } from"@/components/v2/pages/CandidateRecentRecruitmentsCard";
 import { CandidateNav } from"@/components/v2/CandidateNav";
 import {
  useCandidateNavigation,
@@ -170,10 +167,14 @@ import {
 } from"@/lib/url-filters";
 import { candidateQueryKeys } from"@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
+import { useCandidateHistoryQuery } from"@/components/v2/pages/candidate-history-query";
 import {
  ACTIVITY_VIEWS,
  DOCUMENT_VIEWS,
+ focusCandidateRecruitmentCard,
+ parseCandidateRecruitmentFocus,
  parseCandidateProfileView,
+ resolveVisibleRecruitmentFocus,
  type CandidateActivityView,
  type CandidateDocumentView,
  type CandidateProfileSection,
@@ -276,7 +277,7 @@ export function CandidateDetailV2({
  const router = useRouter();
  const id = candidateId ?? Number(routeParams?.id);
  const queryClient = useQueryClient();
- const { showError, showSuccess } = useToast();
+ const { showError } = useToast();
  const openTab = useTabsStore((s) => s.openTab);
 
  // ── Prev/Next candidate navigation context ─────────────────────────────
@@ -285,6 +286,12 @@ export function CandidateDetailV2({
  // Use `useSearchParams` so the value re-evaluates after client hydration
  // and on every push() — `window.location` inside useMemo wouldn't.
  const searchParamsForNav = useSearchParams();
+ const requestedFocusJobId = React.useMemo(() => {
+ if (embedded || !searchParamsForNav) return null;
+ return parseCandidateRecruitmentFocus(
+ new URLSearchParams(searchParamsForNav.toString()),
+ );
+ }, [embedded, searchParamsForNav]);
  const urlNav = React.useMemo(() => {
  if (embedded) return null; // embedded uses props, not URL
  if (!searchParamsForNav) return null;
@@ -575,20 +582,17 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  }));
 
  // History API returns `{ jobs: [...], contracts: [...] }` — flatten jobs.
- const historyQuery = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
- queryKey: candidateQueryKeys.history(id),
- queryFn: ({ signal }) =>
- api.get(`/api/candidates/${id}/history`, { signal }).then((r) => r.data),
  // Także na zakładce "notatki" — potrzebujemy listy rekrutacji do selektora
  // "przypisz notatkę do rekrutacji".
- enabled:
+ const historyQuery = useCandidateHistoryQuery(
+ id,
  !!id &&
  (activeTab === "recruitments" ||
  activeTab === "matching" ||
  (activeTab === "activity" &&
  (activityView === "timeline" || activityView === "notes"))),
- });
- const { data: historyRaw } = historyQuery;
+ );
+ const historyRaw = historyQuery.visibleData;
 
  // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
  // Recompute następuje event-driven po każdej tranzycji + TTL 24h, więc
@@ -601,12 +605,34 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  staleTime: 5 * 60 * 1000,
  });
  const { data: riskProfile } = riskQuery;
- const history: any[] = Array.isArray(historyRaw)
- ? historyRaw
- : (historyRaw?.jobs ?? []);
+ const history = React.useMemo<any[]>(
+ () => (Array.isArray(historyRaw) ? historyRaw : (historyRaw?.jobs ?? [])),
+ [historyRaw],
+ );
  const historyContracts: any[] = Array.isArray(historyRaw)
  ? []
  : (historyRaw?.contracts ?? []);
+ const visibleFocusJobId = React.useMemo(
+ () => resolveVisibleRecruitmentFocus(requestedFocusJobId, history),
+ [history, requestedFocusJobId],
+ );
+ const handledRecruitmentFocusRef = React.useRef<string | null>(null);
+
+ React.useEffect(() => {
+ if (
+ activeTab !== "recruitments" ||
+ !historyQuery.isSuccess ||
+ visibleFocusJobId == null
+ ) {
+ return;
+ }
+
+ const focusKey = `${id}:${visibleFocusJobId}`;
+ if (handledRecruitmentFocusRef.current === focusKey) return;
+
+ if (!focusCandidateRecruitmentCard(visibleFocusJobId)) return;
+ handledRecruitmentFocusRef.current = focusKey;
+ }, [activeTab, historyQuery.isSuccess, id, visibleFocusJobId]);
 
  const aiProfileQuery = useQuery<any>({
  queryKey: candidateQueryKeys.aiProfile(id),
@@ -738,16 +764,24 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <p className="mt-2 max-w-md text-sm text-muted-foreground">{description}</p>
  <div className="mt-5 flex gap-2">
  {status !== 403 && status !== 404 ? (
- <Button variant="primary" onClick={() => candidateQuery.refetch()}>
+ <Button
+ variant="primary"
+ className="min-h-11 min-w-11"
+ onClick={() => candidateQuery.refetch()}
+ >
  Spróbuj ponownie
  </Button>
  ) : null}
  {embedded && onClose ? (
- <Button variant="outline" onClick={onClose}>
+ <Button
+ variant="outline"
+ className="min-h-11 min-w-11"
+ onClick={onClose}
+ >
  Zamknij
  </Button>
  ) : (
- <Button variant="outline" asChild>
+ <Button variant="outline" className="min-h-11 min-w-11" asChild>
  <Link href="/candidates">Wróć do kandydatów</Link>
  </Button>
  )}
@@ -798,7 +832,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {backJobId != null ? (
  <Link
  href={`/jobs/${backJobId}`}
- className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary min-w-0 max-w-88"
+ className="inline-flex min-h-11 min-w-11 max-w-88 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-primary"
  title={backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` :"Wróć do rekrutacji"}
  >
  <ArrowLeft className="h-4 w-4 shrink-0" />
@@ -809,7 +843,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  ) : (
  <Link
  href="/candidates"
- className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
+ className="inline-flex min-h-11 min-w-11 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-primary"
  >
  <ArrowLeft className="h-4 w-4" /> Wróć do kandydatów
  </Link>
@@ -841,7 +875,11 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
  >
  <span>Ocena ryzyka jest chwilowo niedostępna.</span>
- <button type="button" className="font-medium underline" onClick={() => riskQuery.refetch()}>
+ <button
+ type="button"
+ className="inline-flex min-h-11 min-w-11 items-center justify-center font-medium underline"
+ onClick={() => riskQuery.refetch()}
+ >
  Ponów
  </button>
  </div>
@@ -906,7 +944,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <button
  type="button"
  onClick={() => setEditingIdentity(true)}
- className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+ className="inline-flex min-h-11 min-w-11 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
  title="Edytuj imię, nazwisko, e-mail i telefon"
  >
  <PencilLine className="h-3.5 w-3.5" />
@@ -926,7 +964,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {candidate.email && (
  <a
  href={`mailto:${candidate.email}`}
- className="inline-flex items-center gap-1.5 hover:text-primary"
+ className="inline-flex min-h-11 min-w-11 items-center gap-1.5 hover:text-primary"
  >
  <Mail className="h-3.5 w-3.5 text-muted-foreground" />
  {candidate.email}
@@ -937,6 +975,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateId={Number(id)}
  phone={candidate.phone}
  compact
+ className="min-h-11 min-w-11"
  />
  )}
  {candidate.phone &&
@@ -948,6 +987,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  type="button"
  size="sm"
  variant="outline"
+ className="min-h-11 min-w-11"
  onClick={() => setContactOutcomeOpen(true)}
  >
  Zaloguj wynik
@@ -967,7 +1007,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  href={candidate.linkedin_url}
  target="_blank"
  rel="noreferrer"
- className="inline-flex items-center gap-1.5 hover:text-primary"
+ className="inline-flex min-h-11 min-w-11 items-center gap-1.5 hover:text-primary"
  >
  <Linkedin className="h-3.5 w-3.5 text-brand-linkedin" />
  LinkedIn
@@ -1011,9 +1051,10 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {/* Close button (embedded fallback — when nav strip isn't shown). */}
  {embedded && !showNav && onClose && (
  <button
+ type="button"
  onClick={onClose}
  aria-label="Zamknij"
- className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+ className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
  >
  <X className="h-5 w-5" />
  </button>
@@ -1027,6 +1068,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <Button
  size="sm"
  variant="primary"
+ className="min-h-11 min-w-11"
  onClick={() => setAssignOpen(true)}
  disabled={!candidate}
  >
@@ -1036,7 +1078,13 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {/* Utility cluster — secondary actions collapse into "Więcej" so only the
  primary "Przypisz do oferty" task stays visible in the strip. */}
  <div className="mx-0.5 hidden h-5 w-px bg-border sm:block" />
- {candidate && <PinButton candidateId={candidate.id} iconOnly />}
+ {candidate && (
+ <PinButton
+ candidateId={candidate.id}
+ iconOnly
+ className="min-h-11 min-w-11"
+ />
+ )}
  {/* modal={false} is load-bearing: a default (modal) dropdown leaves
  body pointer-events locked while it closes, so a Radix Dialog opened
  from a menu item (Email / interview / CV) is dismissed on the same
@@ -1045,13 +1093,14 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  menu, so all three can live here instead of crowding the action row. */}
  <DropdownMenu modal={false}>
  <DropdownMenuTrigger asChild>
- <Button size="sm" variant="outline">
+ <Button size="sm" variant="outline" className="min-h-11 min-w-11">
  Więcej
  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
  </Button>
  </DropdownMenuTrigger>
  <DropdownMenuContent align="end" className="w-52">
  <DropdownMenuItem
+ className="min-h-11"
  disabled={!candidate.email}
  onSelect={() => openFromMenu(() => setEmailOpen(true))}
  >
@@ -1059,6 +1108,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  Email
  </DropdownMenuItem>
  <DropdownMenuItem
+ className="min-h-11"
  disabled={!candidate.email}
  title={candidate.email ?"Zaplanuj interview w Outlook (M365)" :"Kandydat nie ma adresu email"}
  onSelect={() => openFromMenu(() => setScheduleOpen(true))}
@@ -1066,16 +1116,25 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <Calendar className="h-4 w-4" />
  Zaplanuj interview
  </DropdownMenuItem>
- <DropdownMenuItem onSelect={() => openFromMenu(() => setCvOpen(true))}>
+ <DropdownMenuItem
+ className="min-h-11"
+ onSelect={() => openFromMenu(() => setCvOpen(true))}
+ >
  <FileText className="h-4 w-4" />
  Generuj CV
  </DropdownMenuItem>
  <DropdownMenuSeparator />
- <DropdownMenuItem onSelect={() => openFromMenu(() => setEditOpen(true))}>
+ <DropdownMenuItem
+ className="min-h-11"
+ onSelect={() => openFromMenu(() => setEditOpen(true))}
+ >
  <PencilLine className="h-4 w-4" />
  Edytuj
  </DropdownMenuItem>
- <DropdownMenuItem onSelect={() => openFromMenu(() => setMarketplaceOpen(true))}>
+ <DropdownMenuItem
+ className="min-h-11"
+ onSelect={() => openFromMenu(() => setMarketplaceOpen(true))}
+ >
  <Store className="h-4 w-4" />
  Wrzuć na targ
  </DropdownMenuItem>
@@ -1088,6 +1147,8 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  scannable source — see ProfilTab FactTile grid. */}
  </div>
  </Card>
+
+ <CandidateProfileFactsBar candidate={candidate} />
 
  {/* Only the summary uses a secondary rail. At narrower widths it naturally
  stacks below the main content instead of squeezing cards into a narrow strip. */}
@@ -1126,7 +1187,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  id="candidate-profile-section"
  value={activeTab}
  onChange={(event) => setActiveTab(event.target.value)}
- className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+ className="h-11 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
  >
  {Object.entries(PROFILE_SECTION_LABELS).map(([value, label]) => (
  <option key={value} value={value}>
@@ -1138,6 +1199,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
 
  <div className="p-4 sm:p-5">
  <TabsContent value="summary" className="mt-0 space-y-5">
+ <CandidateActivitySummaryCard candidateId={Number(id)} />
  <ProfilTab candidate={candidate} onOpenTab={setActiveTab} />
  <section aria-labelledby="candidate-commercial-data">
  <h2
@@ -1175,6 +1237,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  history={history}
  candidateId={Number(id)}
  candidateName={`${candidate.name} ${candidate.lastname}`}
+ focusedJobId={visibleFocusJobId}
  />
  </div>
  <div className="space-y-4">
@@ -1356,36 +1419,19 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  "space-y-4",
  !embedded && "xl:sticky xl:top-4",
  )}
- aria-label="Podsumowanie AI"
+ aria-label="Kontekst profilu kandydata"
  >
- <CandidateActivitySummaryCard candidateId={Number(id)} />
+ <CandidateRecentRecruitmentsCard candidateId={Number(id)} />
  {aiProfileQuery.error ? (
  <SectionError
- title="Podsumowanie AI jest niedostępne"
+ title="Podsumowanie screeningów jest niedostępne"
  onRetry={() => aiProfileQuery.refetch()}
  />
  ) : aiProfileQuery.isPending ? (
- <SectionLoading label="Ładowanie podsumowania AI…" />
- ) : (
- <>
- {aiProfile?.summary ? (
- <Card variant="default" size="md" className="py-4!">
- <div className="flex items-start gap-2">
- <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
- <div className="min-w-0 flex-1">
- <h3 className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary">
- AI Screening
- </h3>
- <ExpandableText text={aiProfile.summary} maxLines={3} className="italic" />
- </div>
- </div>
- </Card>
- ) : null}
- {aiProfile && aiProfile.screening_count > 0 ? (
+ <SectionLoading label="Ładowanie podsumowania screeningów…" />
+ ) : aiProfile && aiProfile.screening_count > 0 ? (
  <ScreeningSummary aiProfile={aiProfile} />
  ) : null}
- </>
- )}
  </aside>
  ) : null}
  </div>
@@ -2313,13 +2359,10 @@ function SellRatePanel({
  candidateId: number;
  onOpenTab?: (tab: string) => void;
 }) {
- const { data: historyRaw } = useQuery<{ jobs?: any[] } | any[]>({
- queryKey: candidateQueryKeys.history(candidateId),
- queryFn: () =>
- api.get(`/api/candidates/${candidateId}/history`).then((r) => r.data),
- enabled: !!candidateId,
- staleTime: 30_000,
- });
+ const { visibleData: historyRaw } = useCandidateHistoryQuery(
+ candidateId,
+ !!candidateId,
+ );
  const jobs: any[] = Array.isArray(historyRaw)
  ? historyRaw
  : (historyRaw?.jobs ?? []);
@@ -2413,22 +2456,10 @@ function ProfilTab({
  const aiSource: string = candidate.cv_extracted_data?._source ??"";
  const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
  const education = getEducationList(candidate);
- const languages = getLanguageList(candidate);
  const verifiedTech = verifiedTechList(candidate);
  const verifiedSet = new Set(verifiedTech.map((t) => t.toLowerCase()));
  const title = getCurrentTitle(candidate);
  const expLabel = getExperienceLabel(candidate.years_it_experience);
- const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
- const salary =
- candidate.expected_salary != null
- ? `${candidate.expected_salary.toLocaleString("pl-PL")} ${candidate.currency ??"PLN"}`
- : null;
- const availability = candidate.available_from
- ? formatDate(candidate.available_from)
- : null;
- const notice = candidate.notice_period_weeks
- ? `${candidate.notice_period_weeks * 7} dni`
- : null;
 
  // Mini activity feed — last 5 events, so the recruiter sees recent history
  // without switching to the Timeline tab (Traffit's Podsumowanie centerpiece).
@@ -2492,10 +2523,6 @@ function ProfilTab({
  label: "Doświadczenie",
  value: <Badge size="sm" variant={expLabel.variant}>{expLabel.label}</Badge>,
  });
- if (location) facts.push({ icon: <MapPin className="h-3 w-3" />, label: "Lokalizacja", value: location });
- if (salary) facts.push({ icon: <Wallet className="h-3 w-3" />, label: "Oczekiwania", value: salary });
- if (notice) facts.push({ icon: <Calendar className="h-3 w-3" />, label: "Wypowiedzenie", value: notice });
- if (availability) facts.push({ icon: <Calendar className="h-3 w-3" />, label: "Dostępność", value: availability });
 
  return (
  <>
@@ -2733,31 +2760,6 @@ function ProfilTab({
  {edu.school}
  {edu.year ? ` · ${edu.year}` :""}
  </div>
- </div>
- ))}
- </div>
- </section>
- )}
-
- {/* 9. Języki (NOWE) */}
- {languages.length > 0 && (
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
- <LanguagesIcon className="h-3.5 w-3.5" />
- Języki
- </h3>
- <div className="flex flex-wrap gap-2">
- {languages.map((l, i) => (
- <div
- key={i}
- className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border"
- >
- <span className="text-sm font-medium text-foreground">{l.lang}</span>
- {l.level && (
- <Badge size="sm" variant="soft">
- {l.level}
- </Badge>
- )}
  </div>
  ))}
  </div>
@@ -3444,10 +3446,12 @@ function RekrutacjeTab({
  history,
  candidateId,
  candidateName,
+ focusedJobId,
 }: {
  history: any[];
  candidateId: number;
  candidateName: string;
+ focusedJobId: number | null;
 }) {
  if (!Array.isArray(history) || history.length === 0) {
  return (
@@ -3464,6 +3468,7 @@ function RekrutacjeTab({
  job={job}
  candidateId={candidateId}
  candidateName={candidateName}
+ focusedJobId={focusedJobId}
  />
  ))}
  </div>
@@ -3474,15 +3479,19 @@ function RekrutacjaCard({
  job,
  candidateId,
  candidateName,
+ focusedJobId,
 }: {
  job: any;
  candidateId: number;
  candidateName: string;
+ focusedJobId: number | null;
 }) {
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
  const stageId: number | null = job.latest_stage_id ?? null;
  const jobId: number = job.job_id ?? job.id;
+ const isFocused = focusedJobId === jobId;
+ const recruitmentTitleId = `candidate-recruitment-${jobId}-title`;
  const [openOriginal, setOpenOriginal] = useState(false);
  const [openBranded, setOpenBranded] = useState(false);
  const [openShare, setOpenShare] = useState(false);
@@ -3529,7 +3538,7 @@ function RekrutacjaCard({
  // Lista po lewej (zakładka Rekrutacje + badge) oraz panel po prawej
  // („W jakich pipeline'ach…") — oba muszą się odświeżyć.
  queryClient.invalidateQueries({
- queryKey: candidateQueryKeys.history(candidateId),
+ queryKey: candidateQueryKeys.historyRoot(candidateId),
  });
  queryClient.invalidateQueries({
  queryKey: candidateQueryKeys.recommendationsRoot(candidateId),
@@ -3551,10 +3560,22 @@ function RekrutacjaCard({
  (branded?.status as"none" |"draft" |"finalized" | undefined) ??"none";
 
  return (
- <div className="rounded-lg border border-border p-3 hover:border-primary/40 transition-colors">
+ <div
+ id={`candidate-recruitment-${jobId}`}
+ role="group"
+ aria-labelledby={recruitmentTitleId}
+ tabIndex={isFocused ? -1 : undefined}
+ aria-current={isFocused ? "true" : undefined}
+ data-focused-recruitment={isFocused ? "true" : undefined}
+ className={cn(
+ "rounded-lg border border-border p-3 transition-colors hover:border-primary/40",
+ isFocused && "border-primary ring-2 ring-ring ring-offset-2",
+ )}
+ >
  <div className="flex items-start justify-between gap-3 flex-wrap">
  <div className="min-w-0 flex-1">
  <Link
+ id={recruitmentTitleId}
  href={`/jobs/${job.job_id ?? job.id}`}
  className="font-medium text-foreground hover:underline"
  >
@@ -4399,14 +4420,6 @@ interface VerifiedSkillAgg {
  notes?: string;
 }
 
-interface SalarySummary {
- min: number;
- max: number;
- latest: number;
- currency: string;
- negotiable: boolean;
-}
-
 interface LastScreeningMeta {
  id: number;
  created_at: string;
@@ -4417,7 +4430,6 @@ interface LastScreeningMeta {
 interface AiProfile {
  screening_count: number;
  motivation_top?: string | null;
- salary_summary?: SalarySummary | null;
  readiness_avg?: number | null;
  overall_impression_avg?: number | null;
  counteroffer_risk_dominant?: string | null;
@@ -4451,7 +4463,6 @@ function ScreeningSummary({
  const {
  screening_count,
  motivation_top,
- salary_summary,
  readiness_avg,
  overall_impression_avg,
  counteroffer_risk_dominant,
@@ -4476,7 +4487,7 @@ function ScreeningSummary({
  >
  {/* Header */}
  <div className="flex items-center gap-2 flex-wrap">
- <Sparkles className="h-4 w-4 text-primary shrink-0" />
+ <MessageSquare className="h-4 w-4 text-primary shrink-0" />
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">
  Podsumowanie screeningów
  </h3>
@@ -4491,7 +4502,7 @@ function ScreeningSummary({
  <button
  type="button"
  onClick={() => setExpanded((e) => !e)}
- className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+ className="ml-auto inline-flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 text-xs text-muted-foreground hover:text-primary transition-colors"
  aria-expanded={expanded}
  >
  {expanded ?"Zwiń" :"Rozwiń"}
@@ -4509,16 +4520,6 @@ function ScreeningSummary({
  <Badge variant="soft" size="md">
  <Target className="h-3 w-3" />
  Motywacja: {MOTIVATION_LABEL_PL[motivation_top] ?? motivation_top}
- </Badge>
- )}
- {salary_summary && (
- <Badge variant="plum" size="md">
- <Wallet className="h-3 w-3" />
- {salary_summary.min === salary_summary.max
- ? salary_summary.latest.toLocaleString("pl-PL")
- : `${salary_summary.min.toLocaleString("pl-PL")}–${salary_summary.max.toLocaleString("pl-PL")}`}{""}
- {salary_summary.currency}
- {salary_summary.negotiable ?"(neg.)" :""}
  </Badge>
  )}
  {readiness_avg != null && (

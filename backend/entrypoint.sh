@@ -515,6 +515,21 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE frameworkcontractsignedvia ADD VALUE IF NOT EXISTS 'legacy_import'",
 ]
 
+_PROFILE_RATE_TARGET_TYPE = "numeric(10,2)"
+_PROFILE_RATE_TABLE_QUERY = "SELECT to_regclass('candidates') IS NOT NULL"
+_PROFILE_RATE_TYPE_QUERY = """
+    SELECT format_type(attribute.atttypid, attribute.atttypmod)
+    FROM pg_attribute AS attribute
+    WHERE attribute.attrelid = to_regclass('candidates')
+      AND attribute.attname = 'expected_rate_hourly'
+      AND attribute.attnum > 0
+      AND NOT attribute.attisdropped
+"""
+_PROFILE_RATE_ALTER_SQL = (
+    "ALTER TABLE candidates ALTER COLUMN expected_rate_hourly "
+    "TYPE NUMERIC(10,2) USING expected_rate_hourly::numeric(10,2)"
+)
+
 _COLUMN_STATEMENTS = [
     # Recruitment Priority Lock (0200) — provenance/eligibility is added to the
     # existing canonical aggregate. New priority-work tables are created by the
@@ -1832,6 +1847,58 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS document_kind candidatedocumentkind NOT NULL DEFAULT 'other'",
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_documents_candidate_sha ON candidate_documents (candidate_id, content_sha256) WHERE content_sha256 IS NOT NULL AND source_deleted_at IS NULL',
     'CREATE INDEX IF NOT EXISTS ix_candidate_documents_manifest ON candidate_documents (candidate_id, source_manifest_fingerprint)',
+    # 0207: durable, PII-minimized identity quarantine for candidate sources.
+    """CREATE TABLE IF NOT EXISTS candidate_source_identity_reviews (
+        id                  SERIAL PRIMARY KEY,
+        candidate_id        INTEGER NOT NULL
+                                REFERENCES candidates(id) ON DELETE CASCADE,
+        source_kind         VARCHAR(24) NOT NULL,
+        source_id           BIGINT NOT NULL,
+        decision            VARCHAR(32) NOT NULL,
+        provenance          VARCHAR(80) NOT NULL,
+        detector_version    VARCHAR(64) NOT NULL,
+        evidence            JSONB NOT NULL DEFAULT '{}'::jsonb,
+        reviewed_by_id      INTEGER NULL
+                                REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at         TIMESTAMPTZ NOT NULL,
+        override_reason     TEXT NULL,
+        override_by_id      INTEGER NULL
+                                REFERENCES users(id) ON DELETE SET NULL,
+        override_at         TIMESTAMPTZ NULL,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_candidate_source_identity_review
+            UNIQUE (candidate_id, source_kind, source_id),
+        CONSTRAINT ck_candidate_source_identity_review_kind
+            CHECK (
+                source_kind IN (
+                    'note', 'document', 'legacy_cv', 'talent_radar_cv'
+                )
+            ),
+        CONSTRAINT ck_candidate_source_identity_review_decision
+            CHECK (
+                decision IN (
+                    'confirmed_match', 'confirmed_mismatch', 'inconclusive'
+                )
+            ),
+        CONSTRAINT ck_candidate_source_identity_review_override
+            CHECK (
+                (
+                    override_at IS NULL
+                    AND override_by_id IS NULL
+                    AND override_reason IS NULL
+                )
+                OR
+                (
+                    override_at IS NOT NULL
+                    AND override_by_id IS NOT NULL
+                    AND override_reason IS NOT NULL
+                    AND length(btrim(override_reason)) >= 3
+                )
+            )
+    )""",
+    'CREATE INDEX IF NOT EXISTS ix_candidate_source_identity_reviews_candidate ON candidate_source_identity_reviews (candidate_id)',
+    "CREATE INDEX IF NOT EXISTS ix_candidate_source_identity_reviews_quarantine ON candidate_source_identity_reviews (candidate_id, source_kind, source_id) WHERE decision = 'confirmed_mismatch' AND override_at IS NULL",
     'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS external_source VARCHAR(50)',
     'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS external_id VARCHAR(100)',
     'CREATE INDEX IF NOT EXISTS ix_rejection_reasons_external_source ON rejection_reasons (external_source)',
@@ -2226,22 +2293,151 @@ _COLUMN_STATEMENTS = [
             CHECK (cv_content_mode_cap IS NULL
                    OR cv_content_mode_cap IN ('basic', 'polished', 'tailored'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0204: podsumowanie aktywności kandydata (AI) — nowa TABELA wymaga
+    # 0206: typed candidate profile facts. Existing candidate rows need OCC
+    # counters even when orphaned Alembic skipped the migration; create_all
+    # cannot add columns to an existing table.
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "
+    "languages_version INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "
+    "profile_rate_version INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "
+    "profile_rate_updated_at TIMESTAMPTZ NULL",
+    """CREATE TABLE IF NOT EXISTS candidate_languages (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        language_code VARCHAR(16) NOT NULL,
+        language_name VARCHAR(100) NOT NULL,
+        cefr_level VARCHAR(2) NULL,
+        is_native BOOLEAN NOT NULL DEFAULT FALSE,
+        is_level_unknown BOOLEAN NOT NULL DEFAULT TRUE,
+        provenance VARCHAR(32) NOT NULL DEFAULT 'unknown',
+        manual_lock BOOLEAN NOT NULL DEFAULT FALSE,
+        source_ref VARCHAR(255) NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        deleted_at TIMESTAMPTZ NULL,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_candidate_languages_candidate_code
+            UNIQUE (candidate_id, language_code),
+        CONSTRAINT ck_candidate_languages_code
+            CHECK (language_code ~ '^[a-z][a-z0-9-]{1,15}$'),
+        CONSTRAINT ck_candidate_languages_cefr
+            CHECK (cefr_level IS NULL
+                   OR cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1', 'C2')),
+        CONSTRAINT ck_candidate_languages_proficiency_state CHECK (
+            (is_native IS TRUE AND is_level_unknown IS FALSE AND cefr_level IS NULL)
+            OR
+            (is_native IS FALSE AND is_level_unknown IS TRUE AND cefr_level IS NULL)
+            OR
+            (is_native IS FALSE AND is_level_unknown IS FALSE AND cefr_level IS NOT NULL)
+        ),
+        CONSTRAINT ck_candidate_languages_provenance CHECK (
+            provenance IN (
+                'manual', 'cv', 'traffit', 'talent_radar',
+                'csv', 'legacy', 'unknown'
+            )
+        ),
+        CONSTRAINT ck_candidate_languages_version_positive CHECK (version > 0)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_languages_candidate_id "
+    "ON candidate_languages (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_languages_candidate_active "
+    "ON candidate_languages (candidate_id, language_code) "
+    "WHERE deleted_at IS NULL",
+    # 0208: the monthly candidate-rate columns stay physically present, but
+    # no new row may silently repopulate the deprecated currency. The saved
+    # search flag is schema-only here; data rewriting remains in Alembic and
+    # the runtime scanner fails closed if that migration was skipped.
+    "ALTER TABLE candidates ALTER COLUMN salary_currency DROP DEFAULT",
+    "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS "
+    "requires_reapproval BOOLEAN NOT NULL DEFAULT FALSE",
+    # 0204 + 0207: scope-aware, no-finance activity-summary cache.  The
+    # nullable output fields also represent a short committed generation lease.
     # mirrora tutaj (precedens: cortex_skill_facts, incident 2026-07-12),
     # inaczej /api/candidates/{id}/activity-summary 500-tkuje przy
     # orphaned/multi-head alembicu mimo zielonego deployu.
     """CREATE TABLE IF NOT EXISTS candidate_activity_summaries (
         id SERIAL PRIMARY KEY,
         candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-        summary TEXT NOT NULL,
+        summary TEXT NULL,
         model VARCHAR(64) NULL,
         input_hash VARCHAR(64) NOT NULL,
+        source_version VARCHAR(64) NULL,
+        visibility_scope_hash VARCHAR(64) NOT NULL DEFAULT 'legacy-unscoped',
+        content_policy_version VARCHAR(64) NOT NULL DEFAULT 'legacy-unscoped',
+        source_manifest JSONB NOT NULL DEFAULT '{}'::jsonb,
         generated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        generated_at TIMESTAMPTZ NOT NULL,
+        generated_at TIMESTAMPTZ NULL,
+        generation_lease_token VARCHAR(36) NULL,
+        generation_lease_expires_at TIMESTAMPTZ NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_candidate_activity_summary UNIQUE (candidate_id)
+        CONSTRAINT uq_candidate_activity_summary_scope_policy
+            UNIQUE (
+                candidate_id,
+                visibility_scope_hash,
+                content_policy_version
+            ),
+        CONSTRAINT ck_candidate_activity_summary_lease_pair CHECK (
+            (generation_lease_token IS NULL
+             AND generation_lease_expires_at IS NULL)
+            OR
+            (generation_lease_token IS NOT NULL
+             AND generation_lease_expires_at IS NOT NULL)
+        )
     )""",
+    """ALTER TABLE candidate_activity_summaries
+        ALTER COLUMN summary DROP NOT NULL,
+        ALTER COLUMN generated_at DROP NOT NULL,
+        ADD COLUMN IF NOT EXISTS source_version VARCHAR(64) NULL,
+        ADD COLUMN IF NOT EXISTS visibility_scope_hash VARCHAR(64)
+            NOT NULL DEFAULT 'legacy-unscoped',
+        ADD COLUMN IF NOT EXISTS content_policy_version VARCHAR(64)
+            NOT NULL DEFAULT 'legacy-unscoped',
+        ADD COLUMN IF NOT EXISTS source_manifest JSONB
+            NOT NULL DEFAULT '{}'::jsonb,
+        ADD COLUMN IF NOT EXISTS generation_lease_token VARCHAR(36) NULL,
+        ADD COLUMN IF NOT EXISTS generation_lease_expires_at TIMESTAMPTZ NULL""",
+    """DO $$ BEGIN
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uq_candidate_activity_summary'
+              AND conrelid = 'candidate_activity_summaries'::regclass
+        ) THEN
+            ALTER TABLE candidate_activity_summaries
+                DROP CONSTRAINT uq_candidate_activity_summary;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uq_candidate_activity_summary_scope_policy'
+              AND conrelid = 'candidate_activity_summaries'::regclass
+        ) THEN
+            ALTER TABLE candidate_activity_summaries
+                ADD CONSTRAINT uq_candidate_activity_summary_scope_policy
+                UNIQUE (
+                    candidate_id,
+                    visibility_scope_hash,
+                    content_policy_version
+                );
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_candidate_activity_summary_lease_pair'
+              AND conrelid = 'candidate_activity_summaries'::regclass
+        ) THEN
+            ALTER TABLE candidate_activity_summaries
+                ADD CONSTRAINT ck_candidate_activity_summary_lease_pair
+                CHECK (
+                    (generation_lease_token IS NULL
+                     AND generation_lease_expires_at IS NULL)
+                    OR
+                    (generation_lease_token IS NOT NULL
+                     AND generation_lease_expires_at IS NOT NULL)
+                );
+        END IF;
+    END $$""",
     "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_candidate_id "
     "ON candidate_activity_summaries (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_input_hash "
@@ -2460,6 +2656,12 @@ _COLUMN_STATEMENTS = [
     "ON client_import_rows (matched_client_id)",
     "CREATE INDEX IF NOT EXISTS ix_client_import_rows_status "
     "ON client_import_rows (status)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_scope_policy "
+    "ON candidate_activity_summaries "
+    "(candidate_id, visibility_scope_hash, content_policy_version)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_lease_expires_at "
+    "ON candidate_activity_summaries (generation_lease_expires_at) "
+    "WHERE generation_lease_expires_at IS NOT NULL",
 ]
 
 _DATA_STATEMENTS = [
@@ -2834,6 +3036,46 @@ _INDEX_STATEMENTS = [
 ]
 
 
+async def _ensure_profile_rate_numeric(conn):
+    """Run the hot-table ALTER only when needed and never wait indefinitely."""
+
+    table_exists = await conn.fetchval(_PROFILE_RATE_TABLE_QUERY)
+    if not table_exists:
+        # A fresh/debug database is completed by metadata.create_all below.
+        print("backfill profile rate type: candidates table not present; skipped")
+        return True
+    current_type = await conn.fetchval(_PROFILE_RATE_TYPE_QUERY)
+    if current_type is None:
+        # create_all does not add columns to an existing table. The application
+        # lifespan performs the final fail-closed assertion and refuses traffic.
+        print("backfill profile rate type: required column is missing")
+        return False
+    if current_type == _PROFILE_RATE_TARGET_TYPE:
+        return True
+
+    try:
+        async with conn.transaction():
+            await conn.execute("SET LOCAL lock_timeout = '5s'")
+            await conn.execute("SET LOCAL statement_timeout = '30s'")
+            # Another starting container may have completed the conversion
+            # between the catalog probe and this bounded transaction.
+            current_type = await conn.fetchval(_PROFILE_RATE_TYPE_QUERY)
+            if current_type != _PROFILE_RATE_TARGET_TYPE:
+                await conn.execute(_PROFILE_RATE_ALTER_SQL)
+    except Exception as exc:
+        print(f"backfill profile rate type skipped safely -> {exc!r}")
+        return False
+
+    verified_type = await conn.fetchval(_PROFILE_RATE_TYPE_QUERY)
+    if verified_type != _PROFILE_RATE_TARGET_TYPE:
+        print(
+            "backfill profile rate type verification failed: "
+            f"observed={verified_type!r}"
+        )
+        return False
+    return True
+
+
 async def backfill():
     url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://nexus:nexus@postgres:5432/nexus")
     url = url.replace("postgresql+asyncpg://", "postgresql://")
@@ -2850,6 +3092,7 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill column skip: {stmt!r} -> {e!r}")
+        await _ensure_profile_rate_numeric(conn)
         for stmt in _DATA_STATEMENTS:
             try:
                 await conn.execute(stmt)

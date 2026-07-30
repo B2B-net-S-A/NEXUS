@@ -72,7 +72,7 @@ const DialogContent = React.forwardRef<
  {children}
  {!hideClose && (
  <DialogPrimitive.Close
- className={cn("absolute right-4 top-4 rounded-md p-1","text-muted-foreground hover:text-foreground","hover:bg-primary/10 transition-colors","focus:outline-hidden"
+ className={cn("absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-md","text-muted-foreground hover:text-foreground","hover:bg-primary/10 transition-colors","focus:outline-hidden"
  )}
  >
  <X className="h-4 w-4" />
@@ -86,7 +86,7 @@ DialogContent.displayName ="DialogContent";
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
  <div
- className={cn("flex flex-col gap-1 px-6 pt-6 pb-4 shrink-0","border-b border-border",
+ className={cn("flex flex-col gap-1 pl-6 pr-16 pt-6 pb-4 shrink-0","border-b border-border",
  className
  )}
  {...props}

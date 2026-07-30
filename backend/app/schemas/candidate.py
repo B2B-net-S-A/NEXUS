@@ -1,13 +1,19 @@
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
 from app.models.linkedin_snapshot import LinkedinChangeKind, LinkedinSyncStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.candidate_contact import ContactCaseSummaryResponse
+from app.services.candidate_monthly_rate_retirement import (
+    reject_retired_candidate_rate,
+    sanitize_candidate_preferences,
+)
 
 
 class EmploymentState(str, Enum):
@@ -90,12 +96,9 @@ class CandidateCreate(BaseModel):
     lastname: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
-    location: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = Field(default=None, max_length=2)
     linkedin: Optional[str] = None
-    salary_expectation: Optional[int] = None
-    salary_currency: Optional[str] = "PLN"
-    expected_rate_hourly: Optional[int] = None
-    expected_rate_currency: Optional[str] = "PLN"
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
@@ -110,16 +113,48 @@ class CandidateCreate(BaseModel):
     skills: Optional[List[Any]] = None
     experience: Optional[List[Any]] = None
     education: Optional[List[Any]] = None
-    languages: Optional[List[Any]] = None
     preferences: Optional[dict] = None
     champion: bool = False
     verifier_id: Optional[int] = None
     verified_tech: Optional[List[Any]] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _enforce_typed_profile_fact_writers(cls, data: Any) -> Any:
+        data = reject_retired_candidate_rate(data)
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        if {"expected_rate_hourly", "expected_rate_currency"} & normalized.keys():
+            raise PydanticCustomError(
+                "candidate_profile_rate_requires_dedicated_endpoint",
+                "candidate_profile_rate_requires_dedicated_endpoint",
+            )
+        if "languages" in normalized:
+            raise PydanticCustomError(
+                "candidate_languages_require_dedicated_endpoint",
+                "candidate_languages_require_dedicated_endpoint",
+            )
+        # Transitional input compatibility: a legacy free-text location is
+        # accepted only as the canonical city value. It is removed before ORM
+        # construction; the API derives ``Candidate.location`` as a projection.
+        if "location" in normalized:
+            if "city" not in normalized:
+                normalized["city"] = normalized["location"]
+            normalized.pop("location", None)
+        return normalized
+
     @field_validator("skills", "verified_tech", mode="before")
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def _uppercase_country(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().upper() or None
+        return v
 
 
 class CandidateUpdate(BaseModel):
@@ -127,12 +162,7 @@ class CandidateUpdate(BaseModel):
     lastname: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
-    location: Optional[str] = None
     linkedin: Optional[str] = None
-    salary_expectation: Optional[int] = None
-    salary_currency: Optional[str] = None
-    expected_rate_hourly: Optional[int] = None
-    expected_rate_currency: Optional[str] = None
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
@@ -147,7 +177,6 @@ class CandidateUpdate(BaseModel):
     skills: Optional[List[Any]] = None
     experience: Optional[List[Any]] = None
     education: Optional[List[Any]] = None
-    languages: Optional[List[Any]] = None
     preferences: Optional[dict] = None
     champion: Optional[bool] = None
     verifier_id: Optional[int] = None
@@ -159,13 +188,6 @@ class CandidateUpdate(BaseModel):
     open_to_sales_support: Optional[bool] = None
     open_to_expert_consult: Optional[bool] = None
     engagement_notes: Optional[str] = None
-    # Structured location.
-    city: Optional[str] = None
-    country: Optional[str] = Field(default=None, max_length=2)
-    region: Optional[str] = None
-    hub_city: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
     # Business entity / JDG (migracja 0058) — używane przy generowaniu umów.
     legal_name: Optional[str] = None
     nip: Optional[str] = None
@@ -173,17 +195,42 @@ class CandidateUpdate(BaseModel):
     business_address: Optional[str] = None
     business_form: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _enforce_typed_profile_fact_writers(cls, data: Any) -> Any:
+        data = reject_retired_candidate_rate(data)
+        if not isinstance(data, dict):
+            return data
+        keys = set(data)
+        if {"expected_rate_hourly", "expected_rate_currency"} & keys:
+            raise PydanticCustomError(
+                "candidate_profile_rate_requires_dedicated_endpoint",
+                "candidate_profile_rate_requires_dedicated_endpoint",
+            )
+        if "languages" in keys:
+            raise PydanticCustomError(
+                "candidate_languages_require_dedicated_endpoint",
+                "candidate_languages_require_dedicated_endpoint",
+            )
+        if {
+            "location",
+            "city",
+            "country",
+            "region",
+            "hub_city",
+            "latitude",
+            "longitude",
+        } & keys:
+            raise PydanticCustomError(
+                "candidate_location_requires_dedicated_endpoint",
+                "candidate_location_requires_dedicated_endpoint",
+            )
+        return data
+
     @field_validator("skills", "verified_tech", mode="before")
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
-
-    @field_validator("country", mode="before")
-    @classmethod
-    def _uppercase_country(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            return v.strip().upper() or None
-        return v
 
 
 class CandidateEngagementUpdate(BaseModel):
@@ -309,10 +356,8 @@ class CandidateResponse(BaseModel):
     location: Optional[str]
     linkedin: Optional[str]
     avatar_url: Optional[str] = None
-    salary_expectation: Optional[int]
-    salary_currency: Optional[str] = "PLN"
-    expected_rate_hourly: Optional[int] = None
-    expected_rate_currency: Optional[str] = "PLN"
+    expected_rate_hourly: Optional[Decimal] = None
+    expected_rate_currency: Optional[str] = None
     availability_date: Optional[date]
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
@@ -373,6 +418,25 @@ class CandidateResponse(BaseModel):
     # under Pydantic's from_attributes. Detail endpoint trims to the 5 most
     # recent; list endpoint strips to None to keep list responses small.
     linkedin_snapshots: Optional[List[LinkedinSnapshotSummary]] = None
+
+    @field_validator("preferences", mode="before")
+    @classmethod
+    def _remove_retired_finance_preferences(cls, value: Any) -> Any:
+        return sanitize_candidate_preferences(value)
+
+    @model_validator(mode="after")
+    def _hide_non_pln_legacy_profile_rate(self) -> "CandidateResponse":
+        currency = (self.expected_rate_currency or "").strip().upper()
+        if self.expected_rate_hourly is None:
+            self.expected_rate_currency = None
+        elif currency and currency != "PLN":
+            self.expected_rate_hourly = None
+            self.expected_rate_currency = None
+        else:
+            # NULL/blank currency is a documented legacy PLN value.
+            self.expected_rate_currency = "PLN"
+        return self
+
     # Phase D4: AI-extracted CV data (companies, career_summary, _source tag,
     # manual-override flag). Surfaced to the frontend so the profile view can
     # render "Firmy z CV" / "Podsumowanie AI" sections without a second fetch.

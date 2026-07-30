@@ -44,7 +44,7 @@ export function ExpandableText({
     <div className={className}>
       <p
         className={cn(
-          "text-sm text-foreground whitespace-pre-line",
+          "break-words text-sm text-foreground whitespace-pre-line [overflow-wrap:anywhere]",
           collapsible && !expanded && _CLAMP_CLASS[maxLines],
         )}
       >
@@ -54,7 +54,7 @@ export function ExpandableText({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-1 text-xs font-medium text-primary hover:underline"
+          className="mt-1 inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-xs font-medium text-primary hover:underline"
           aria-expanded={expanded}
         >
           {expanded ? "Zwiń" : "Rozwiń"}

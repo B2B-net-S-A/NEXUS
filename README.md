@@ -50,7 +50,8 @@ Previously developed internally as DynaMinds ATS. Full-stack, async-first, AI-re
 ```bash
 cd Nexus
 cp .env.example .env
-# Edit .env — add VOYAGE_API_KEY, set SECRET_KEY
+# Edit .env — add VOYAGE_API_KEY, set SECRET_KEY and a distinct
+# CANDIDATE_IDENTITY_FINGERPRINT_KEY
 ```
 
 ### 2. Start with Docker

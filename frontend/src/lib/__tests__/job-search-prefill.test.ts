@@ -148,17 +148,14 @@ describe("buildJobSearchQueryText", () => {
 });
 
 describe("buildJobSearchPrefill", () => {
-  it("maps a job's hourly rate to rate_hourly_* (not salary_*)", () => {
+  it("does not project an untyped job budget into the hourly candidate rate", () => {
     const prefill = buildJobSearchPrefill({
       title: "Data Engineer (ZOB-2846)",
       salary_min: 90,
       salary_max: 150,
     });
-    expect(prefill.rate_hourly_min).toBe(90);
-    expect(prefill.rate_hourly_max).toBe(150);
-    // Monthly salary fields must NOT be set from the hourly job rate.
-    expect(prefill.salary_min).toBeUndefined();
-    expect(prefill.salary_max).toBeUndefined();
+    expect(prefill.rate_hourly_min).toBeUndefined();
+    expect(prefill.rate_hourly_max).toBeUndefined();
   });
 
   it("strips the ref number from the query", () => {

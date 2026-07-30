@@ -23,10 +23,101 @@ export interface CandidateProfileView {
   hasExplicitTab: boolean;
 }
 
+type VisibleRecruitment = {
+  job_id?: unknown;
+  id?: unknown;
+};
+
 const isOneOf = <T extends readonly string[]>(
   value: string | null,
   values: T,
 ): value is T[number] => Boolean(value && values.includes(value as T[number]));
+
+const isPositiveSafeInteger = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isSafeInteger(value) &&
+  value > 0;
+
+/**
+ * Parse a recruitment focus request without accepting coercible or ambiguous
+ * values such as decimals, exponents, whitespace or signed numbers.
+ */
+export function parseCandidateRecruitmentFocus(
+  params: URLSearchParams,
+): number | null {
+  const rawFocusJobId = params.get("focusJobId");
+  if (!rawFocusJobId || !/^[1-9]\d*$/.test(rawFocusJobId)) return null;
+
+  const focusJobId = Number(rawFocusJobId);
+  return isPositiveSafeInteger(focusJobId) ? focusJobId : null;
+}
+
+/**
+ * Build the only supported link from the recent-recruitments rail. Invalid
+ * identifiers intentionally render as plain text rather than as a link.
+ */
+export function candidateRecruitmentFocusHref(
+  candidateId: number,
+  jobId: number,
+): string | null {
+  if (
+    !isPositiveSafeInteger(candidateId) ||
+    !isPositiveSafeInteger(jobId)
+  ) {
+    return null;
+  }
+
+  return `/candidates/${candidateId}?tab=recruitments&focusJobId=${jobId}`;
+}
+
+/**
+ * Resolve a requested focus only against the already authorised history
+ * response. The URL value must never be used to fetch or construct a process.
+ */
+export function resolveVisibleRecruitmentFocus(
+  requestedJobId: number | null,
+  history: VisibleRecruitment[],
+): number | null {
+  if (!isPositiveSafeInteger(requestedJobId) || !Array.isArray(history)) {
+    return null;
+  }
+
+  const isVisible = history.some((recruitment) => {
+    const jobId = recruitment.job_id ?? recruitment.id;
+    return isPositiveSafeInteger(jobId) && jobId === requestedJobId;
+  });
+
+  return isVisible ? requestedJobId : null;
+}
+
+/**
+ * Focus an existing recruitment card. This helper only touches an element
+ * already rendered from the authorised history response and never loads data.
+ */
+export function focusCandidateRecruitmentCard(
+  jobId: number | null,
+): boolean {
+  if (!isPositiveSafeInteger(jobId) || typeof document === "undefined") {
+    return false;
+  }
+
+  const recruitmentCard = document.getElementById(
+    `candidate-recruitment-${jobId}`,
+  );
+  if (!(recruitmentCard instanceof HTMLElement)) return false;
+
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  recruitmentCard.focus({ preventScroll: true });
+  recruitmentCard.scrollIntoView?.({
+    behavior: prefersReducedMotion ? "auto" : "smooth",
+    block: "center",
+  });
+  return true;
+}
 
 /**
  * Translate the pre-PR2, nine-tab URLs to the five-section information

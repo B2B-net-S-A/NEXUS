@@ -5,7 +5,7 @@ Layered scoring — each layer returns points that add up to 100:
 
   semantic        0-40pt   Qdrant cosine similarity between job query and candidate embedding
   skills          0-30pt   weighted must/nice overlap (must=20pt, nice=10pt)
-  salary_fit      0-15pt   candidate rate fits inside job salary_min..salary_max
+  salary_fit      0-15pt   comparable financial fit, otherwise non-penalizing
   location_fit    0-10pt   remote/hybrid compat + country + city bonus
   availability    0-5pt    candidate availability_date before/at job deadline
 
@@ -178,6 +178,7 @@ SCORING_ALGORITHM_VERSION: str = (
     if getattr(settings, "AI_SCORING_CONTRACT_V2", False)
     else "score-v1-legacy"
 ) + f"+emb-{getattr(settings, 'VOYAGE_MODEL', 'unknown')}"
+SCORING_ALGORITHM_VERSION += "+candidate-rate-hourly-v2"
 
 
 DEFAULT_PROFILE = WeightProfile()
@@ -232,6 +233,7 @@ class LayerResult:
     points: float
     max_points: float
     reason: str = ""
+    status: Optional[str] = None
 
 
 @dataclass
@@ -293,6 +295,7 @@ class ScoreBreakdown:
                 "points": round(self.salary.points, 1),
                 "max": self.salary.max_points,
                 "reason": self.salary.reason,
+                "status": self.salary.status or "scored",
             },
             "location": {
                 "points": round(self.location.points, 1),
@@ -792,53 +795,48 @@ def _score_skills(
 def _score_salary(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> LayerResult:
-    """Salary fit — full points in range, linear decay outside. 0 if missing data."""
+    """Financial fit without mixing the retired monthly candidate salary.
+
+    The global candidate fact is always B2B PLN net/hour, while the legacy
+    ``Job.salary_min/max`` budget is PLN/month. There is no automatic
+    conversion policy for this profile fact. A known cross-unit pair is
+    therefore explicitly ``not_comparable`` and cannot reduce the score.
+    """
     max_pts = profile.salary
-    cand_rate = candidate.salary_expectation
+    cand_rate = getattr(candidate, "expected_rate_hourly", None)
+    cand_currency = getattr(candidate, "expected_rate_currency", None)
     job_min = job.salary_min
     job_max = job.salary_max
 
-    # Prefer structured preferences.rate_min/rate_max if available
-    prefs = getattr(candidate, "preferences", None) or {}
-    if isinstance(prefs, dict):
-        cand_rate = prefs.get("rate_min") or cand_rate or prefs.get("rate_max")
+    from app.services.candidate_profile_rate import (
+        is_canonical_profile_rate_currency,
+    )
 
-    if not cand_rate or (not job_min and not job_max):
-        # No data to judge salary fit → neutral (benefit of the doubt), matching
-        # the availability/champion_fit convention. Hard-zeroing here was a main
-        # driver of deflated composites: ~99% of imported candidates have no
-        # stated rate. A *known* mismatch still decays below this neutral value
-        # via the out-of-range branch below. UNKNOWN_NEUTRAL_FRACTION=0.0 restores
-        # the legacy 0.
+    if cand_rate is not None and not is_canonical_profile_rate_currency(cand_currency):
+        return LayerResult(
+            points=max_pts,
+            max_points=max_pts,
+            reason=(
+                "not_comparable: historyczna stawka ma niekanoniczną walutę "
+                "i wymaga ręcznej korekty"
+            ),
+            status="not_comparable",
+        )
+
+    if cand_rate is None or (job_min is None and job_max is None):
         return LayerResult(
             points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
             max_points=max_pts,
             reason="brak danych (neutralnie)",
+            status="unknown",
         )
 
-    # Inside range → full points
-    if (job_min is None or cand_rate >= job_min) and (
-        job_max is None or cand_rate <= job_max
-    ):
-        return LayerResult(points=max_pts, max_points=max_pts, reason="w widełkach")
-
-    # Outside: linear decay within ±30% of nearest bound
-    if job_max and cand_rate > job_max:
-        over = cand_rate - job_max
-        decay = max(0.0, 1.0 - (over / (job_max * 0.3)))
-        pts = max_pts * decay
-        return LayerResult(
-            points=pts, max_points=max_pts, reason=f"powyżej widełek o {over} PLN"
-        )
-    if job_min and cand_rate < job_min:
-        under = job_min - cand_rate
-        decay = max(0.0, 1.0 - (under / (job_min * 0.3)))
-        pts = max_pts * decay
-        return LayerResult(
-            points=pts, max_points=max_pts, reason=f"poniżej widełek o {under} PLN"
-        )
-
-    return LayerResult(points=0.0, max_points=max_pts, reason="poza widełkami")
+    return LayerResult(
+        points=max_pts,
+        max_points=max_pts,
+        reason="not_comparable: kandydat PLN netto/h, budżet joba PLN/mies.",
+        status="not_comparable",
+    )
 
 
 def _score_location(

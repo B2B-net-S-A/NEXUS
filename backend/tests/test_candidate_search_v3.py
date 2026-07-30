@@ -9,10 +9,14 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+from pydantic import ValidationError
+
 from app.models.candidate import AvailabilityStatus, CandidateStatus
 from app.schemas.candidate_search import CandidateSearchRequest, LanguageRequirement
 from app.schemas.candidate_search_v3 import (
     CandidateSearchQueryV3,
+    RateFilter,
     SoftPreference,
     from_legacy,
     to_legacy,
@@ -39,9 +43,6 @@ def full_request() -> CandidateSearchRequest:
         availability_status=[AvailabilityStatus.actively_looking],
         availability_date_before=date(2026, 12, 31),
         notice_period_max=30,
-        salary_min=10000,
-        salary_max=25000,
-        salary_currency="PLN",
         rate_hourly_min=90,
         rate_hourly_max=150,
         sources=["linkedin"],
@@ -89,20 +90,30 @@ class TestV3Canonical:
 
 
 class TestRateUnits:
-    def test_units_are_kept_separate(self):
+    def test_hourly_rate_has_fixed_semantics(self):
         v3 = from_legacy(full_request())
         units = {r.unit for r in v3.hard_filters.rates}
-        assert units == {"hour", "month"}
+        assert units == {"hour"}
         hourly = next(r for r in v3.hard_filters.rates if r.unit == "hour")
-        monthly = next(r for r in v3.hard_filters.rates if r.unit == "month")
         assert (hourly.min, hourly.max) == (90, 150)
-        assert (monthly.min, monthly.max, monthly.currency) == (10000, 25000, "PLN")
+        assert hourly.currency == "PLN"
+        assert hourly.tax_basis == "net"
+        assert hourly.contract_type == "b2b"
 
     def test_hourly_only_maps_back_to_hourly_fields(self):
         req = CandidateSearchRequest(rate_hourly_max=120)
         rt = to_legacy(from_legacy(req))
         assert rt.rate_hourly_max == 120
-        assert rt.salary_max is None
+
+    def test_monthly_legacy_filter_is_rejected_with_domain_code(self):
+        with pytest.raises(ValidationError) as exc:
+            CandidateSearchRequest.model_validate({"salary_max": 25000})
+        assert exc.value.errors()[0]["type"] == "candidate_monthly_rate_retired"
+
+    def test_monthly_v3_unit_is_rejected_with_domain_code(self):
+        with pytest.raises(ValidationError) as exc:
+            RateFilter.model_validate({"unit": "month", "max": 25000})
+        assert exc.value.errors()[0]["type"] == "candidate_monthly_rate_retired"
 
 
 class TestV3OnlyRichnessIsDroppedExplicitly:

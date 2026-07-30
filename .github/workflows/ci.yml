@@ -82,24 +82,32 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+          CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
         run: |
           alembic -c alembic/alembic.ini upgrade 0195_candidate_document_kind
           python scripts/verify_b2b_signature_migration.py seed
-          alembic -c alembic/alembic.ini upgrade heads
-          alembic -c alembic/alembic.ini upgrade heads
+          # Stop at the last reversible revision for the legacy rollback probe.
+          # 0208 intentionally strips retired saved-search criteria and refuses
+          # downgrade because those user choices cannot be reconstructed.
+          alembic -c alembic/alembic.ini upgrade 0207_candidate_summary_security
+          alembic -c alembic/alembic.ini upgrade 0207_candidate_summary_security
           python scripts/verify_b2b_signature_migration.py verify
           alembic -c alembic/alembic.ini downgrade 0199_candidate_stage_removals
           alembic -c alembic/alembic.ini upgrade 0201_candidate_contact_coordination
+          alembic -c alembic/alembic.ini upgrade heads
+          alembic -c alembic/alembic.ini upgrade heads
           alembic -c alembic/alembic.ini upgrade heads
       - name: Import smoke check
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+          CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
         run: python -c "from app.main import app; print('app importable:', app.title)"
       - name: Pytest (unit + in-process integration)
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+          CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
           # Ensure live-server tests are skipped — our CI uses app_client fixture
           RUN_LIVE_TESTS: "0"
           # Production HAS this set, so every token path that branches on it

@@ -111,7 +111,7 @@ interface CandidateSearchViewProps {
  * Owns the request state, debounces user edits, and renders results below
  * the filter panel. The UI intentionally mirrors the structure of the AI
  * proposals tab so users moving between AI and manual search find the same
- * row layout (avatar, name, CC chip, skills, salary).
+ * row layout (avatar, name, CC chip and skills).
  */
 export function CandidateSearchView({
   initial,
@@ -153,6 +153,11 @@ export function CandidateSearchView({
   const [saveName, setSaveName] = useState("");
   const [savePinToJob, setSavePinToJob] = useState(true);
   const [savePending, setSavePending] = useState(false);
+  const [reapprovalSearchId, setReapprovalSearchId] = useState<number | null>(
+    null,
+  );
+  const [reapprovalPending, setReapprovalPending] = useState(false);
+  const [reapprovalError, setReapprovalError] = useState<string | null>(null);
 
   const refreshSavedSearches = useCallback(() => {
     savedSearchesApi
@@ -199,6 +204,14 @@ export function CandidateSearchView({
   const clearSelection = () => setSelected(new Set());
 
   const loadSavedSearch = (ss: SavedSearchOut) => {
+    if (ss.requires_reapproval) {
+      setError(null);
+      setReapprovalError(null);
+      setReapprovalSearchId(ss.id);
+      return;
+    }
+    setReapprovalError(null);
+    setReapprovalSearchId(null);
     // SEARCH-P0-05 containment: saved searches from the GLOBAL candidates list
     // use a different payload ({qs, api}); opening one here used to silently
     // apply EMPTY filters. Detect and route instead — never open defaults.
@@ -223,6 +236,39 @@ export function CandidateSearchView({
       ...filters,
       page: 1,
     });
+  };
+
+  const approveAndLoadSavedSearch = async () => {
+    const savedSearch = savedSearches.find(
+      (search) => search.id === reapprovalSearchId,
+    );
+    if (!savedSearch) {
+      setReapprovalSearchId(null);
+      return;
+    }
+    setReapprovalPending(true);
+    setReapprovalError(null);
+    try {
+      const approved = await savedSearchesApi.update(savedSearch.id, {
+        confirm_reapproval: true,
+      });
+      if (approved.requires_reapproval) {
+        throw new Error("Backend nie potwierdził ponownej akceptacji zapisu.");
+      }
+      setSavedSearches((current) =>
+        current.map((search) => (search.id === approved.id ? approved : search)),
+      );
+      setReapprovalSearchId(null);
+      loadSavedSearch(approved);
+    } catch (err) {
+      setReapprovalError(
+        err instanceof Error
+          ? err.message
+          : "Ponowne zatwierdzenie nie powiodło się",
+      );
+    } finally {
+      setReapprovalPending(false);
+    }
   };
 
   const saveCurrentSearch = async () => {
@@ -254,6 +300,10 @@ export function CandidateSearchView({
   const deleteSavedSearch = async (id: number) => {
     try {
       await savedSearchesApi.remove(id);
+      if (reapprovalSearchId === id) {
+        setReapprovalSearchId(null);
+        setReapprovalError(null);
+      }
       refreshSavedSearches();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Usunięcie nie powiodło się");
@@ -440,6 +490,10 @@ export function CandidateSearchView({
 
   const totalPages =
     data && data.page_size > 0 ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
+  const savedSearchAwaitingReapproval =
+    reapprovalSearchId === null
+      ? null
+      : savedSearches.find((search) => search.id === reapprovalSearchId) ?? null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
@@ -529,6 +583,15 @@ export function CandidateSearchView({
                   pin
                 </Badge>
               )}
+              {ss.requires_reapproval && (
+                <Badge
+                  variant="warning"
+                  className="h-4 px-1 text-[10px]"
+                  title="Miesięczne kryteria stawki zostały usunięte bez konwersji. Sprawdź zapis przed ponownym włączeniem alertów."
+                >
+                  ponownie zatwierdź
+                </Badge>
+              )}
               <button
                 type="button"
                 aria-label={`Usuń ${ss.name}`}
@@ -610,6 +673,59 @@ export function CandidateSearchView({
           <Bookmark className="h-3 w-3" />
           Zapisz to wyszukiwanie
         </Button>
+      )}
+      {savedSearchAwaitingReapproval && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex items-start gap-2">
+            <TriangleAlert
+              className="mt-0.5 h-4 w-4 shrink-0"
+              aria-hidden="true"
+            />
+            <p>
+              Z zapisanej konfiguracji „{savedSearchAwaitingReapproval.name}”
+              usunięto miesięczne kryteria stawki bez konwersji. Nie zastosujemy
+              pozostałych filtrów, dopóki jawnie ich nie zatwierdzisz.
+              {reapprovalError && (
+                <span className="mt-1 block font-medium">
+                  {reapprovalError}
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => {
+                setReapprovalSearchId(null);
+                setReapprovalError(null);
+              }}
+              disabled={reapprovalPending}
+            >
+              Anuluj
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="min-h-11"
+              onClick={() => void approveAndLoadSavedSearch()}
+              disabled={reapprovalPending}
+            >
+              {reapprovalPending && (
+                <Loader2
+                  className="mr-1 h-4 w-4 animate-spin"
+                  aria-hidden="true"
+                />
+              )}
+              Zatwierdź i zastosuj
+            </Button>
+          </div>
+        </div>
       )}
 
       {/* Sort + status row */}
@@ -1002,12 +1118,6 @@ function CandidateSearchRow({
         )}
       </div>
       <div className="text-right text-xs text-zinc-500 dark:text-zinc-400 tabular-nums whitespace-nowrap">
-        {item.salary_expectation && (
-          <div>
-            {item.salary_expectation.toLocaleString("pl-PL")}{" "}
-            {item.salary_currency ?? "PLN"}
-          </div>
-        )}
         {item.availability_status && (
           <div className="capitalize">
             {item.availability_status.replace(/_/g, " ")}
@@ -1047,9 +1157,15 @@ function MatchScoreDetail({ breakdown }: { breakdown: MatchBreakdown }) {
           {s.layers.map((l) => (
             <span key={l.key} className="tabular-nums">
               {l.label}{" "}
-              <strong>
-                {l.points}/{l.max}
-              </strong>
+              {l.status === "not_comparable" ? (
+                <strong title={l.reason}>nieporównywalne</strong>
+              ) : l.status === "unknown" ? (
+                <strong title={l.reason}>brak danych</strong>
+              ) : (
+                <strong>
+                  {l.points}/{l.max}
+                </strong>
+              )}
             </span>
           ))}
         </div>

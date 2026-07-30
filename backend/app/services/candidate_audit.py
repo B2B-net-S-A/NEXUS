@@ -37,6 +37,13 @@ BULK_ACTION_EXECUTED = "bulk_action_executed"
 # rate change leaves a trail (P1-11). Financial payload — must stay out of any
 # non-finance-redacted read surface (e.g. the candidate timeline feed).
 CLIENT_RATE_CHANGED = "client_rate_changed"
+PROFILE_RATE_CHANGED = "profile_rate_changed"
+LANGUAGES_REPLACED = "candidate_languages_replaced"
+LOCATION_CHANGED = "candidate_location_changed"
+IDENTITY_SOURCE_QUARANTINED = "candidate_identity_source_quarantined"
+IDENTITY_SOURCE_QUARANTINE_OVERRIDDEN = (
+    "candidate_identity_source_quarantine_overridden"
+)
 
 
 def record_candidate_audit(

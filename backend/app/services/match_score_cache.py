@@ -60,6 +60,7 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
             points=float(d.get("points", 0.0)),
             max_points=float(d.get("max", 0.0)),
             reason=str(d.get("reason", "") or ""),
+            status=str(d["status"]) if d.get("status") is not None else None,
         )
 
     return ScoreBreakdown(

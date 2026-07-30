@@ -396,6 +396,132 @@ export const candidatesApi = {
     api.delete(`/api/candidates/${candidateId}/recruitments/${jobId}`),
 };
 
+export type CandidateLanguageCefrLevel =
+  | "A1"
+  | "A2"
+  | "B1"
+  | "B2"
+  | "C1"
+  | "C2";
+
+export type CandidateLanguageProvenance =
+  | "manual"
+  | "cv"
+  | "traffit"
+  | "talent_radar"
+  | "csv"
+  | "legacy"
+  | "unknown";
+
+export interface CandidateLanguage {
+  id: number;
+  language_code: string;
+  language_name: string;
+  cefr_level: CandidateLanguageCefrLevel | null;
+  is_native: boolean;
+  is_level_unknown: boolean;
+  provenance: CandidateLanguageProvenance;
+  manual_lock: boolean;
+  version: number;
+}
+
+export interface CandidateLanguagesResponse {
+  candidate_id: number;
+  version: number;
+  languages: CandidateLanguage[];
+}
+
+export interface CandidateLanguageInput {
+  language_code: string;
+  language_name: string;
+  cefr_level: CandidateLanguageCefrLevel | null;
+  is_native: boolean;
+  is_level_unknown: boolean;
+}
+
+export interface CandidateProfileRate {
+  candidate_id: number;
+  amount: string | null;
+  currency: "PLN";
+  unit: "hour";
+  tax_basis: "net";
+  contract_type: "b2b";
+  version: number;
+  updated_at: string | null;
+}
+
+export interface CandidateRecentRecruitment {
+  job_id: number;
+  job_title: string;
+  client_id: number | null;
+  client_name: string | null;
+  latest_stage_id: number;
+  stage: string;
+  stage_label: string;
+  last_activity_at: string;
+}
+
+export interface CandidateRecentRecruitmentsResponse {
+  candidate_id: number;
+  items: CandidateRecentRecruitment[];
+}
+
+function responseEtag(headers: Record<string, unknown>): string | null {
+  const value = headers.etag ?? headers.ETag;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+/**
+ * Deterministic, profile-wide candidate facts. The edit endpoints use ETags
+ * instead of silent last-write-wins so a stale drawer cannot overwrite a
+ * recruiter's newer correction.
+ */
+export const candidateFactsApi = {
+  getLanguages: async (candidateId: number) => {
+    const response = await api.get<CandidateLanguagesResponse>(
+      `/api/candidates/${candidateId}/languages`,
+    );
+    return { data: response.data, etag: responseEtag(response.headers) };
+  },
+  updateLanguages: async (
+    candidateId: number,
+    languages: CandidateLanguageInput[],
+    etag: string,
+  ) => {
+    const response = await api.put<CandidateLanguagesResponse>(
+      `/api/candidates/${candidateId}/languages`,
+      { languages },
+      { headers: { "If-Match": etag } },
+    );
+    return { data: response.data, etag: responseEtag(response.headers) };
+  },
+  getProfileRate: async (candidateId: number) => {
+    const response = await api.get<CandidateProfileRate>(
+      `/api/candidates/${candidateId}/profile-rate`,
+    );
+    return { data: response.data, etag: responseEtag(response.headers) };
+  },
+  updateProfileRate: async (
+    candidateId: number,
+    amount: string | null,
+    etag: string,
+  ) => {
+    const response = await api.patch<CandidateProfileRate>(
+      `/api/candidates/${candidateId}/profile-rate`,
+      { amount },
+      { headers: { "If-Match": etag } },
+    );
+    return { data: response.data, etag: responseEtag(response.headers) };
+  },
+  getRecentRecruitments: (candidateId: number, limit = 5) =>
+    api
+      .get<CandidateRecentRecruitmentsResponse>(
+        `/api/candidates/${candidateId}/recent-recruitments`,
+        { params: { limit: Math.min(5, Math.max(1, limit)) } },
+      )
+      .then((response) => response.data),
+};
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 export interface ImportTaskStatus {
   task_id: string;
@@ -620,6 +746,23 @@ export interface CandidateActivitySummary {
   summary: string | null;
   model: string | null;
   generated_at: string | null;
+  /** Version of the exact, visibility-scoped source set used for this row. */
+  source_version: string | null;
+  /** Version calculated from the source set visible to the current user now. */
+  current_source_version: string;
+  is_stale: boolean;
+  /** Opaque scope identifier. Never contains job ids or user-visible secrets. */
+  visibility_scope_hash: string;
+  source_manifest: {
+    content_policy_version: string;
+    sources: Array<{
+      name: string;
+      included_items: number;
+      truncated_items: number;
+      redacted_financial_fragments: number;
+      redacted_instruction_fragments: number;
+    }>;
+  };
   /**
    * Tylko po refresh: false = historia bez zmian, zwrócono notatkę z cache
    * (bez płatnego wywołania AI).
@@ -1886,8 +2029,6 @@ export interface CandidateMatch {
     email: string | null;
     location: string | null;
     champion: boolean;
-    salary_expectation: number | null;
-    salary_currency: string | null;
     years_it_experience: number | null;
     competence_category: string | null;
     tags?: unknown;
@@ -2090,6 +2231,7 @@ export interface SavedSearchRow {
   // needs `filters.api` (output of filtersToApiParams) stored next to the
   // classic `filters.qs` — the menu writes both on create/toggle.
   notify_new_matches: boolean;
+  requires_reapproval: boolean;
   unseen_count: number;
   last_viewed_at: string | null;
   created_at: string | null;
@@ -2117,6 +2259,7 @@ export const savedSearchesApi = {
       shared: boolean;
       description: string;
       notify_new_matches: boolean;
+      confirm_reapproval: boolean;
     }>,
   ) => api.patch<SavedSearchRow>(`/api/saved-searches/${id}`, data),
   delete: (id: number) => api.delete(`/api/saved-searches/${id}`),
@@ -2783,8 +2926,6 @@ export interface SeekingContractorRow {
     location: string | null;
     competence_category: string | null;
     years_it_experience: number | null;
-    salary_expectation: number | null;
-    salary_currency: string | null;
     availability_status: string | null;
     champion: boolean;
     avatar_url: string | null;
@@ -2891,8 +3032,6 @@ export interface ProposalCandidateItem {
     avatar_url: string | null;
     competence_category: string | null;
     years_it_experience: number | null;
-    salary_expectation: number | null;
-    salary_currency: string | null;
     status: string | null;
     champion: boolean | null;
   };
