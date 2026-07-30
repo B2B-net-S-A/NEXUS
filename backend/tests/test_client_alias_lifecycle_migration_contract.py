@@ -1,4 +1,4 @@
-"""Contract checks for reversible imported client aliases (revision 0206)."""
+"""Contract checks for reversible imported client aliases (revision 0209)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic/versions/0206_client_alias_lifecycle.py"
+MIGRATION = BACKEND / "alembic/versions/0209_client_alias_lifecycle.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 MODEL = BACKEND / "app/models/client_directory.py"
 
@@ -26,10 +26,8 @@ def test_alias_lifecycle_revision_is_linear_and_additive() -> None:
     source = MIGRATION.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    assert _literal_assignment(tree, "revision") == "0206_client_alias_lifecycle"
-    assert _literal_assignment(tree, "down_revision") == (
-        "0205_client_directory_portfolio"
-    )
+    assert _literal_assignment(tree, "revision") == "0209_client_alias_lifecycle"
+    assert _literal_assignment(tree, "down_revision") == "0208_monthly_rate_retired"
     upgrade = source[source.index("def upgrade") : source.index("def downgrade")]
     assert "DELETE FROM" not in upgrade.upper()
     assert "DROP COLUMN" not in upgrade.upper()

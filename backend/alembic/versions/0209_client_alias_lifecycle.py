@@ -1,7 +1,7 @@
 """Add reversible lifecycle provenance to imported client aliases.
 
-Revision ID: 0206_client_alias_lifecycle
-Revises: 0205_client_directory_portfolio
+Revision ID: 0209_client_alias_lifecycle
+Revises: 0208_monthly_rate_retired
 Create Date: 2026-07-30
 
 Aliases created or revived by a portfolio import remain durable audit records.
@@ -13,8 +13,8 @@ import-owned alias.
 from alembic import op
 
 
-revision = "0206_client_alias_lifecycle"
-down_revision = "0205_client_directory_portfolio"
+revision = "0209_client_alias_lifecycle"
+down_revision = "0208_monthly_rate_retired"
 branch_labels = None
 depends_on = None
 

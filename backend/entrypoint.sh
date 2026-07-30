@@ -2599,7 +2599,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_client_aliases_source_key_nonempty
             CHECK (source_key IS NULL OR char_length(btrim(source_key)) > 0)
     )""",
-    # 0206: aliasy utworzone przez import są podczas rollbacku archiwizowane,
+    # 0209: aliasy utworzone przez import są podczas rollbacku archiwizowane,
     # nie usuwane. Pochodzenie runu pozwala odtworzyć/re-aktywować ten sam
     # rekord bez łamania unikalności aliasu lub source_key.
     """ALTER TABLE client_aliases
