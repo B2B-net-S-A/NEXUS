@@ -3,7 +3,7 @@
 DL widzi tylko klientów do których ma `DeliveryLeadClientAssignment`.
 Admin / head_of_recruitment widzą wszystkich.
 
-Dashboard endpoint chroniony przez `DlAssignedOrAdmin` (per-client check).
+Dashboard stosuje ten sam per-client guard, po rozwiązaniu merge redirectu.
 """
 
 from __future__ import annotations
@@ -12,11 +12,12 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import RedirectResponse
 
-from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.deps import CurrentUser, require_dl_assigned_or_admin
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -31,6 +32,13 @@ from app.schemas.my_clients import (
     ClientDashboardResponse,
     ExpiringAlert,
     MyClientRow,
+)
+from app.services.client_identity import (
+    client_display_name,
+    client_display_name_expression,
+    is_client_visible,
+    resolve_visible_client,
+    visible_client_predicates,
 )
 
 router = APIRouter()
@@ -54,10 +62,15 @@ async def list_my_clients(
     # Multi-role aware (M1-RBAC-02): hybryda np. recruiter+DL ma przejść
     # po roli dodatkowej, nie tylko primary.
     is_admin = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+    client_name = client_display_name_expression()
 
     if is_admin:
         # Admin: wszyscy klienci, is_head_dl ustawione na False (admin nie ma DL assignment)
-        clients_stmt = select(Client).order_by(Client.name)
+        clients_stmt = (
+            select(Client)
+            .where(*visible_client_predicates())
+            .order_by(func.lower(client_name).asc(), Client.id.asc())
+        )
         clients = list((await db.execute(clients_stmt)).scalars())
         client_ids = [c.id for c in clients]
         head_lookup: dict[int, bool] = {}
@@ -74,15 +87,14 @@ async def list_my_clients(
                     select(
                         DeliveryLeadClientAssignment.client_id,
                         DeliveryLeadClientAssignment.is_head,
-                        Client.name,
-                        Client.industry,
                     )
                     .join(
                         Client,
                         Client.id == DeliveryLeadClientAssignment.client_id,
                     )
                     .where(
-                        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+                        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id,
+                        *visible_client_predicates(),
                     )
                 )
             )
@@ -95,8 +107,11 @@ async def list_my_clients(
                 (
                     await db.execute(
                         select(Client)
-                        .where(Client.id.in_(client_ids))
-                        .order_by(Client.name)
+                        .where(
+                            Client.id.in_(client_ids),
+                            *visible_client_predicates(),
+                        )
+                        .order_by(func.lower(client_name).asc(), Client.id.asc())
                     )
                 ).scalars()
             )
@@ -201,7 +216,7 @@ async def list_my_clients(
         items.append(
             MyClientRow(
                 client_id=c.id,
-                name=c.name,
+                name=client_display_name(c),
                 industry=getattr(c, "industry", None),
                 is_head_dl=head_lookup.get(c.id, False) if not is_admin else False,
                 active_orders_count=oa.active_count if oa else 0,
@@ -221,12 +236,33 @@ async def list_my_clients(
 @router.get("/{client_id}/dashboard", response_model=ClientDashboardResponse)
 async def client_dashboard(
     client_id: int,
-    _user: DlAssignedOrAdmin,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
         raise HTTPException(404, detail="Client not found")
+    if client.merged_into_client_id is not None:
+        canonical = await resolve_visible_client(db, client_id, follow_merge=True)
+        if canonical is None:
+            raise HTTPException(404, detail="Client not found")
+        await require_dl_assigned_or_admin(
+            client_id=canonical.id,
+            current_user=user,
+            db=db,
+        )
+        return RedirectResponse(
+            url=f"/api/my-clients/{canonical.id}/dashboard",
+            status_code=status.HTTP_308_PERMANENT_REDIRECT,
+            headers={"X-Merged-From-Client-Id": str(client.id)},
+        )
+    if not is_client_visible(client):
+        raise HTTPException(404, detail="Client not found")
+    await require_dl_assigned_or_admin(
+        client_id=client.id,
+        current_user=user,
+        db=db,
+    )
 
     # Revenue: lifetime total / active / completed
     rev_rows = list(
@@ -388,7 +424,7 @@ async def client_dashboard(
 
     return ClientDashboardResponse(
         client_id=client_id,
-        client_name=client.name,
+        client_name=client_display_name(client),
         total_revenue_all_time=total_rev or None,
         active_revenue=active_rev or None,
         completed_revenue=completed_rev or None,

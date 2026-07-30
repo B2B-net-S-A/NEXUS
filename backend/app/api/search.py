@@ -31,6 +31,12 @@ from app.schemas.candidate_search import (
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
+from app.services.client_identity import (
+    client_display_name,
+    client_display_name_expression,
+    resolve_visible_client,
+    visible_client_predicates,
+)
 from app.services.structured_candidate_search import (
     build_filter_groups,
     build_structured_filter,
@@ -454,19 +460,23 @@ async def unified_search(
         ]
 
     if not entity or entity == "clients":
+        client_name = client_display_name_expression()
         result = await db.execute(
-            select(Client)
+            select(Client, client_name.label("client_name"))
             .where(
+                *visible_client_predicates(),
                 or_(
+                    client_name.ilike(f"%{q}%"),
                     Client.name.ilike(f"%{q}%"),
                     Client.industry.ilike(f"%{q}%"),
-                )
+                ),
             )
+            .order_by(func.lower(client_name).asc(), Client.id.asc())
             .limit(10)
         )
         results["clients"] = [
-            {"id": c.id, "name": c.name, "status": c.status}
-            for c in result.scalars().all()
+            {"id": client.id, "name": effective_name, "status": client.status}
+            for client, effective_name in result.all()
         ]
 
     return {"query": q, "results": results}
@@ -524,12 +534,13 @@ async def global_search(
         # Get client name via client_id
         client_name = ""
         if j.client_id:
-            client_res = await db.execute(
-                select(Client).where(Client.id == j.client_id)
+            client = await resolve_visible_client(
+                db,
+                j.client_id,
+                follow_merge=True,
             )
-            client = client_res.scalar_one_or_none()
             if client:
-                client_name = client.name
+                client_name = client_display_name(client)
         jobs_list.append(
             {
                 "id": j.id,
@@ -540,24 +551,28 @@ async def global_search(
         )
 
     # Clients
+    client_name = client_display_name_expression()
     clients_result = await db.execute(
-        select(Client)
+        select(Client, client_name.label("client_name"))
         .where(
+            *visible_client_predicates(),
             or_(
+                client_name.ilike(f"%{q}%"),
                 Client.name.ilike(f"%{q}%"),
                 Client.industry.ilike(f"%{q}%"),
-            )
+            ),
         )
+        .order_by(func.lower(client_name).asc(), Client.id.asc())
         .limit(LIMIT)
     )
     clients_list = [
         {
-            "id": c.id,
-            "name": c.name,
-            "subtitle": c.industry or "",
-            "url": "/clients",
+            "id": client.id,
+            "name": effective_name,
+            "subtitle": client.industry or "",
+            "url": f"/clients/{client.id}",
         }
-        for c in clients_result.scalars().all()
+        for client, effective_name in clients_result.all()
     ]
 
     # Contacts — same containment as candidates above. Contact rows carry
