@@ -144,7 +144,9 @@ def _merged_client_redirect(
         return None
     return RedirectResponse(
         url=f"/api/clients/{client.merged_into_client_id}{suffix}",
-        status_code=status.HTTP_308_PERMANENT_REDIRECT,
+        # Merges are reversible by import run, so clients must not cache this
+        # redirect permanently across a supported rollback.
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
         headers={"X-Merged-From-Client-Id": str(client.id)},
     )
 

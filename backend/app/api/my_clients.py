@@ -275,7 +275,8 @@ async def client_dashboard(
             raise HTTPException(404, detail="Client not found")
         return RedirectResponse(
             url=f"/api/my-clients/{canonical.id}/dashboard",
-            status_code=status.HTTP_308_PERMANENT_REDIRECT,
+            # Merge rollback is supported, so avoid a permanent browser cache.
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
             headers={"X-Merged-From-Client-Id": str(client.id)},
         )
     if not is_client_visible(client):
