@@ -805,6 +805,12 @@ async def create_priority_assignment(
     # Assignment wymaga demandu (FK NOT NULL). DL i tak jest właścicielem obu
     # akcji, więc brakujący demand zakładamy w locie zamiast zmuszać do
     # dwóch kliknięć.
+    #
+    # Kanał demandu i kanał assignmentu MOGĄ się różnić i nie jest to niespójność:
+    # demand mówi, czego DL potrzebuje, assignment — jak konkretna osoba będzie
+    # nad tym pracować. Jedna rekrutacja bywa obsadzona równolegle sourcerem
+    # (database) i rekruterem (linkedin); wymuszenie równości zablokowałoby ten
+    # układ.
     demand = await db.scalar(
         select(RecruitmentPriorityDemand)
         .where(
@@ -847,7 +853,25 @@ async def create_priority_assignment(
     if duplicate is not None:
         raise HTTPException(409, "Ta osoba ma już tę rekrutację przypisaną")
 
-    rank = payload.rank or await next_free_rank(db, member_id=member.id)
+    if payload.rank is not None:
+        # Jawna ranga MUSI przejść tę samą kontrolę co automatyczna. Bez tego
+        # kolizja wychodziła dopiero jako IntegrityError na INSERT i wracała
+        # jako „ranga zajęta przez równoległe przypisanie" — komunikat mylący,
+        # bo żadnej równoległości nie było.
+        taken = await db.scalar(
+            select(RecruitmentPriorityAssignment.id).where(
+                RecruitmentPriorityAssignment.plan_member_id == member.id,
+                RecruitmentPriorityAssignment.rank == payload.rank,
+            )
+        )
+        if taken is not None:
+            raise HTTPException(
+                409,
+                f"Ranga {payload.rank.value} jest już zajęta u tej osoby",
+            )
+        rank = payload.rank
+    else:
+        rank = await next_free_rank(db, member_id=member.id)
     if rank is None:
         raise HTTPException(
             409,
@@ -923,16 +947,22 @@ async def delete_priority_assignment(
     if not is_hor and job.delivery_lead_id != current_user.id:
         raise HTTPException(403, "Możesz zdejmować tylko z własnych requestów")
 
-    member_user_id = await db.scalar(
-        select(RecruitmentPriorityPlanMember.user_id).where(
-            RecruitmentPriorityPlanMember.id == assignment.plan_member_id
+    member_row = (
+        await db.execute(
+            select(
+                RecruitmentPriorityPlanMember.user_id,
+                RecruitmentPriorityPlanMember.plan_id,
+            ).where(RecruitmentPriorityPlanMember.id == assignment.plan_member_id)
         )
-    )
+    ).first()
+    member_user_id = member_row.user_id if member_row else None
+    member_plan_id = member_row.plan_id if member_row else None
 
     audit_event(
         db,
         "assignment_removed",
         actor_user_id=current_user.id,
+        plan_id=member_plan_id,
         subject_user_id=member_user_id,
         job_id=assignment.job_id,
         assignment_id=assignment.id,

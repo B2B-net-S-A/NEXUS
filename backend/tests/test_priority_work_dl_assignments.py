@@ -169,3 +169,59 @@ async def test_delete_is_scoped_to_the_requests_delivery_lead() -> None:
         await priority_work.delete_priority_assignment(1, dl, db)
 
     assert err.value.status_code == 403
+
+
+async def test_explicit_rank_that_is_taken_gets_an_honest_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Jawna ranga przechodzi tę samą kontrolę co automatyczna.
+
+    Wcześniej kolizja wychodziła dopiero jako IntegrityError na INSERT i
+    wracała jako „ranga zajęta przez równoległe przypisanie" — a żadnej
+    równoległości nie było.
+    """
+    dl = _FakeUser(5, UserRole.delivery_lead)
+    job = SimpleNamespace(id=7, delivery_lead_id=5, status=JobStatus.published)
+    recruiter = _FakeUser(42, UserRole.recruiter)
+    demand = SimpleNamespace(id=3)
+    plan = SimpleNamespace(id=1)
+    member = SimpleNamespace(id=11, status=priority_work.PriorityMemberStatus.active)
+
+    db = SimpleNamespace(
+        # job, assignee, demand, brak duplikatu joba, ranga ZAJĘTA
+        scalar=AsyncMock(side_effect=[job, recruiter, demand, None, 99]),
+        flush=AsyncMock(),
+        add=lambda *_: None,
+    )
+    monkeypatch.setattr(
+        priority_work, "ensure_standing_plan", AsyncMock(return_value=plan)
+    )
+    monkeypatch.setattr(
+        priority_work, "ensure_plan_member", AsyncMock(return_value=member)
+    )
+    free = AsyncMock(return_value=PriorityRank.B)
+    monkeypatch.setattr(priority_work, "next_free_rank", free)
+
+    with pytest.raises(HTTPException) as err:
+        await priority_work.create_priority_assignment(_payload(rank="C"), dl, db)
+
+    assert err.value.status_code == 409
+    assert "Ranga C" in err.value.detail
+    # Jawna ranga NIE może po cichu wylądować na wolnej — DL prosił o konkretną.
+    free.assert_not_awaited()
+
+
+async def test_plan_member_creation_is_an_upsert_not_select_then_insert() -> None:
+    """`SELECT ... FOR UPDATE` nie blokuje wiersza, którego jeszcze nie ma.
+
+    Dwa równoległe pierwsze przypisania do tej samej osoby oba widziały None,
+    oba robiły INSERT, drugie dostawało IntegrityError na
+    `uq_priority_plan_member_user` -> 500. Kontrakt: upsert.
+    """
+    import inspect
+
+    from app.services import priority_work_service
+
+    source = inspect.getsource(priority_work_service.ensure_plan_member)
+    assert "pg_insert" in source
+    assert "on_conflict_do_nothing" in source

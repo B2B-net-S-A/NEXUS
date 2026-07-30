@@ -1082,6 +1082,26 @@ async def ensure_plan_member(
     db: AsyncSession, *, plan: RecruitmentPriorityPlan, user_id: int
 ) -> RecruitmentPriorityPlanMember:
     """Zwróć wiersz członka rosteru dla użytkownika; utwórz gdy brak."""
+    # `SELECT ... FOR UPDATE` blokuje tylko ISTNIEJĄCY wiersz. Przy pierwszym
+    # przypisaniu do danej osoby dwa równoległe żądania oba widzą None, oba
+    # próbują INSERT, drugie dostaje IntegrityError na
+    # `uq_priority_plan_member_user` -> 500. Stąd upsert, tak samo jak w
+    # `ensure_priority_state`.
+    await db.execute(
+        pg_insert(RecruitmentPriorityPlanMember)
+        .values(
+            plan_id=plan.id,
+            user_id=user_id,
+            status=PriorityMemberStatus.active,
+            verification_capacity=DEFAULT_VERIFICATION_CAPACITY,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[
+                RecruitmentPriorityPlanMember.plan_id,
+                RecruitmentPriorityPlanMember.user_id,
+            ]
+        )
+    )
     member = await db.scalar(
         select(RecruitmentPriorityPlanMember)
         .where(
@@ -1090,16 +1110,8 @@ async def ensure_plan_member(
         )
         .with_for_update()
     )
-    if member is not None:
-        return member
-    member = RecruitmentPriorityPlanMember(
-        plan_id=plan.id,
-        user_id=user_id,
-        status=PriorityMemberStatus.active,
-        verification_capacity=DEFAULT_VERIFICATION_CAPACITY,
-    )
-    db.add(member)
-    await db.flush()
+    if member is None:  # pragma: no cover - upsert gwarantuje wiersz
+        raise RuntimeError("Nie udało się utworzyć wiersza członka rosteru")
     return member
 
 
