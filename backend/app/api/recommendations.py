@@ -315,8 +315,6 @@ async def _recommend_candidates_core(
                 "location": c.location,
                 "status": c.status.value if c.status else None,
                 "competence_category": c.competence_category,
-                "salary_expectation": c.salary_expectation,
-                "salary_currency": c.salary_currency,
                 "years_it_experience": c.years_it_experience,
                 "champion": c.champion,
                 "avatar_url": c.avatar_url,
@@ -1161,8 +1159,6 @@ def _shape_seek_candidate(c: Candidate) -> dict:
         "location": c.location,
         "competence_category": c.competence_category,
         "years_it_experience": c.years_it_experience,
-        "salary_expectation": c.salary_expectation,
-        "salary_currency": c.salary_currency,
         "availability_status": (
             c.availability_status.value if c.availability_status else None
         ),

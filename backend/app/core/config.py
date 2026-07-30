@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # tables; falls back to SECRET_KEY when unset so ids are never stored raw.
     AI_MATCH_TELEMETRY_ENABLED: bool = False
     AI_MATCH_TELEMETRY_SALT: str = ""
+    # Pepper for low-entropy candidate/source identity fingerprints. Keep it
+    # independent in production; SECRET_KEY is the safe compatibility fallback.
+    CANDIDATE_IDENTITY_FINGERPRINT_KEY: str = ""
 
     # ── AI scoring contract v2 (plan PR4) ─────────────────────────────────────
     # OFF by default → scoring behaviour is byte-for-byte unchanged. When ON, a

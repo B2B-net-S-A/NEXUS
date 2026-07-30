@@ -141,8 +141,6 @@ def _build_match_info(
             "location": candidate.location,
             "status": candidate.status.value if candidate.status else None,
             "competence_category": candidate.competence_category,
-            "salary_expectation": candidate.salary_expectation,
-            "salary_currency": candidate.salary_currency,
             "tags": candidate.tags,
             "skills": candidate.skills,
             "ai_summary": candidate.ai_summary,

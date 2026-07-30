@@ -17,24 +17,23 @@ transport layer that maps domain errors to HTTP status codes.
 # guardach (OperationalUser); ten sam trap co slowapi #579.
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.models.candidate import Candidate
-from app.models.candidate_activity_summary import CandidateActivitySummary
 from app.services.ai_quota import AIQuotaExceeded
 from app.services.candidate_activity_summary_service import (
+    CandidateActivitySummaryBusy,
     CandidateActivitySummaryLLMError,
     CandidateActivitySummaryNotFound,
-    get_cached,
+    CandidateActivitySummaryState,
     get_or_generate,
+    get_summary_state,
 )
 
 router = APIRouter()
@@ -46,6 +45,12 @@ class CandidateActivitySummaryOut(BaseModel):
     summary: Optional[str] = None
     model: Optional[str] = None
     generated_at: Optional[datetime] = None
+    # Version of sources used by the stored prose and the version visible now.
+    source_version: Optional[str] = None
+    current_source_version: str
+    is_stale: bool = False
+    visibility_scope_hash: str
+    source_manifest: dict[str, Any]
     # Only meaningful on the refresh endpoint: False = history unchanged,
     # cached note served without a paid LLM call.
     refreshed: Optional[bool] = None
@@ -53,17 +58,21 @@ class CandidateActivitySummaryOut(BaseModel):
 
 def _serialize(
     candidate_id: int,
-    row: Optional[CandidateActivitySummary],
+    state: CandidateActivitySummaryState,
     *,
     refreshed: Optional[bool] = None,
 ) -> CandidateActivitySummaryOut:
-    if row is None:
-        return CandidateActivitySummaryOut(candidate_id=candidate_id)
+    row = state.row
     return CandidateActivitySummaryOut(
         candidate_id=candidate_id,
-        summary=row.summary,
-        model=row.model,
-        generated_at=row.generated_at,
+        summary=row.summary if row else None,
+        model=row.model if row else None,
+        generated_at=row.generated_at if row else None,
+        source_version=row.source_version if row else None,
+        current_source_version=state.current_source_version,
+        is_stale=state.is_stale,
+        visibility_scope_hash=state.visibility_scope_hash,
+        source_manifest=(row.source_manifest if row else state.current_source_manifest),
         refreshed=refreshed,
     )
 
@@ -81,17 +90,19 @@ async def get_activity_summary(
 ) -> CandidateActivitySummaryOut:
     """Cached activity note. Never triggers a (paid) generation — profile
     views stay free; use the refresh endpoint to (re)generate."""
-    row = await get_cached(candidate_id, db)
-    if row is None:
-        # Only the empty-cache path needs the existence probe: a stored note
-        # already proves the candidate exists (FK), so the common cached read
-        # stays a single query.
-        exists = await db.scalar(
-            select(Candidate.id).where(Candidate.id == candidate_id)
+    try:
+        state = await get_summary_state(
+            candidate_id,
+            db,
+            user=current_user,
         )
-        if exists is None:
-            raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
-    return _serialize(candidate_id, row)
+    except CandidateActivitySummaryNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AIQuotaExceeded as exc:
+        # Serve and generate use the same kill-switch.  A disabled feature must
+        # never continue exposing an older cached note.
+        raise HTTPException(status_code=503, detail=str(exc.reason)) from exc
+    return _serialize(candidate_id, state)
 
 
 @router.post(
@@ -111,8 +122,11 @@ async def refresh_activity_summary(
     the note. If nothing changed since the last generation, the cached note is
     returned (``refreshed=false``) without spending an AI call."""
     try:
-        row, generated = await get_or_generate(
-            candidate_id, db, user_id=current_user.id
+        state, generated = await get_or_generate(
+            candidate_id,
+            db,
+            user=current_user,
+            user_id=current_user.id,
         )
     except CandidateActivitySummaryNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -124,4 +138,10 @@ async def refresh_activity_summary(
             status_code=502,
             detail=f"Nie udało się wygenerować podsumowania AI: {exc}",
         ) from exc
-    return _serialize(candidate_id, row, refreshed=generated)
+    except CandidateActivitySummaryBusy as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+            headers={"Retry-After": "3"},
+        ) from exc
+    return _serialize(candidate_id, state, refreshed=generated)

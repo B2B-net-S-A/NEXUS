@@ -557,10 +557,7 @@ async def submit_public_apply(
     await db.flush()
 
     # Persist CV onto the new candidate.
-    stored_filename, raw_text = await _persist_cv(candidate.id, cv, content)
-    candidate.cv_filename = stored_filename
-    if raw_text:
-        candidate.raw_cv_text = raw_text
+    stored_filename, _raw_text = await _persist_cv(candidate.id, cv, content)
     content_hash = hashlib.sha256(content).hexdigest()
     document = CandidateDocument(
         candidate_id=candidate.id,
@@ -708,7 +705,7 @@ async def _invite_post_apply_task(
     # (1) Reuse the authenticated-flow enrichment task — it already runs in
     # a fresh session and is the single source of truth for CV parsing.
     try:
-        from app.api.candidates import _enrich_candidate_cv_task
+        from app.api.candidates import _enrich_candidate_from_document_task
 
         if source_document_id is None:
             async with AsyncSessionLocal() as db:
@@ -728,10 +725,8 @@ async def _invite_post_apply_task(
             if primary is not None:
                 source_document_id = primary.id
                 source_hash = primary.content_sha256
-        if source_document_id is None:
-            await _enrich_candidate_cv_task(candidate_id)
-        else:
-            await _enrich_candidate_cv_task(
+        if source_document_id is not None:
+            await _enrich_candidate_from_document_task(
                 candidate_id,
                 source_document_id,
                 source_hash,

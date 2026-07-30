@@ -18,6 +18,8 @@ import re
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
+from app.services.candidate_location_writer import normalize_candidate_location
+
 # Legacy Traffit hack: recruiters flagged placed consultants by stuffing
 # "[zatrudniony]" into the candidate's name/lastname, because Traffit had no
 # employment status field. Nexus derives employment properly (active contract /
@@ -410,6 +412,9 @@ def traffit_employee_to_candidate(
         languages = raw_langs
     else:
         languages = []
+    candidate_location = normalize_candidate_location(
+        raw_location=payload.get("candidate_location")
+    )
 
     return {
         "external_id": str(traffit_id),
@@ -421,7 +426,9 @@ def traffit_employee_to_candidate(
             _pick_nonempty(payload.get("mobile"), payload.get("phone")), 30
         ),
         "linkedin": _trunc(_pick_nonempty(payload.get("linkedin")), 500),
-        "location": _trunc(_pick_nonempty(payload.get("candidate_location")), 255),
+        "city": candidate_location.city,
+        "country": candidate_location.country,
+        "location": candidate_location.projection,
         "status": normalize_candidate_status(payload.get("status")),
         # Traffit ``candidate_about`` is recruiter-authored profile text, not
         # an AI summary generated from the CV. Keep the two provenance domains

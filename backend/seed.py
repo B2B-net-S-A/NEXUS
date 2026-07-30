@@ -59,6 +59,22 @@ def hours_ago(n: int) -> datetime:
     return now - timedelta(hours=n)
 
 
+def _candidate_seed_payload(data: dict) -> dict:
+    """Build a fresh candidate without reviving retired monthly-rate fields."""
+
+    payload = dict(data)
+    payload.pop("salary_expectation", None)
+    payload.pop("salary_currency", None)
+
+    legacy_location = str(payload.pop("location", "") or "").strip()
+    if legacy_location and not payload.get("city"):
+        payload["city"] = legacy_location
+    payload["location"] = ", ".join(
+        value for value in (payload.get("city"), payload.get("country")) if value
+    ) or None
+    return payload
+
+
 async def seed():
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -962,7 +978,7 @@ async def seed():
         ]
         candidates = []
         for cd in candidates_data:
-            c = Candidate(**cd)
+            c = Candidate(**_candidate_seed_payload(cd))
             db.add(c)
             candidates.append(c)
         await db.flush()
@@ -2539,7 +2555,7 @@ async def seed_extended():
             if cd["email"] in existing_emails:
                 skipped += 1
                 continue
-            c = Candidate(**cd)
+            c = Candidate(**_candidate_seed_payload(cd))
             db.add(c)
             new_candidates.append(c)
         await db.flush()

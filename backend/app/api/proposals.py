@@ -76,8 +76,6 @@ def _hydrate_items(
                     avatar_url=cand.avatar_url,
                     competence_category=cand.competence_category,
                     years_it_experience=cand.years_it_experience,
-                    salary_expectation=cand.salary_expectation,
-                    salary_currency=cand.salary_currency,
                     status=cand.status.value if cand.status else None,
                     champion=cand.champion,
                 ),

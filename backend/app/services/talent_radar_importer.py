@@ -24,9 +24,8 @@ Mapping (source → Nexus):
   skills (jsonb)          → skills
   experience_years (int)  → years_it_experience
   seniority (varchar)     → competence_category  (normalized to junior/mid/senior/lead/architect)
-  languages (jsonb)       → languages
-  location                → location
-  finance_expectations    → salary_expectation (parsed: regex \\d{4,6})
+  languages (jsonb)       → candidate_languages (canonical writer)
+  location                → city/country + compatibility projection
   availability            → availability_date  (parsed: ISO date or None)
   cv_language             → cv_language
   cv_date (date)          → cv_parsed_at       (date → datetime midnight UTC)
@@ -43,15 +42,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
 from typing import Any, AsyncIterator, Optional
 
 import asyncpg
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.candidate_location_writer import normalize_candidate_location
 from app.services.dedup_service import find_candidate_duplicates
 
 logger = logging.getLogger(__name__)
@@ -90,15 +89,6 @@ _MERGE_CV_INTO_EXISTING = text(
                                        :years_it_experience),
         competence_category = COALESCE(candidates.competence_category,
                                        :competence_category),
-        languages = CASE
-            WHEN candidates.languages IS NULL
-              OR candidates.languages::text IN ('[]', '{}', 'null')
-            THEN CAST(:languages AS JSONB)
-            ELSE candidates.languages END,
-        location          = COALESCE(NULLIF(btrim(candidates.location), ''),
-                                     :location),
-        salary_expectation = COALESCE(candidates.salary_expectation,
-                                      :salary_expectation),
         availability_date  = COALESCE(candidates.availability_date,
                                       :availability_date),
         cv_language        = COALESCE(candidates.cv_language, :cv_language),
@@ -223,22 +213,6 @@ def normalize_seniority(raw: Optional[str]) -> Optional[str]:
     return _SENIORITY_MAP.get(key, key)  # keep as-is if unknown
 
 
-_SALARY_RE = re.compile(r"(\d{4,6})")
-
-
-def parse_salary(raw: Optional[str]) -> Optional[int]:
-    """Extract the first 4-6 digit number from a free-text expectation."""
-    if not raw:
-        return None
-    m = _SALARY_RE.search(raw.replace(" ", "").replace(",", ""))
-    if not m:
-        return None
-    try:
-        return int(m.group(1))
-    except (TypeError, ValueError):
-        return None
-
-
 _AVAILABILITY_KEYWORDS = {
     "natychmiast": 0,
     "od zaraz": 0,
@@ -322,6 +296,38 @@ class TalentRadarImporter:
         self._ext_id_to_id: dict[str, int] = {}
         self._email_to_id: dict[str, int] = {}
         self.adopted = 0
+        self.quarantined = 0
+
+    async def _existing_source_is_quarantined(
+        self,
+        candidate_id: int,
+        payload: dict[str, Any],
+    ) -> bool:
+        """Evaluate the external CV identity before any candidate projection."""
+
+        from app.models.candidate import Candidate
+        from app.services.candidate_identity_quarantine import (
+            record_detected_identity,
+        )
+
+        source_id = payload.get("talent_radar_source_id")
+        if not isinstance(source_id, int) or source_id <= 0:
+            raise ValueError("Talent Radar source row id is required")
+        candidate = await self.target_db.scalar(
+            select(Candidate).where(Candidate.id == candidate_id)
+        )
+        if candidate is None:
+            raise LookupError(f"candidate {candidate_id} not found")
+        review = await record_detected_identity(
+            self.target_db,
+            candidate=candidate,
+            source_kind="talent_radar_cv",
+            source_id=source_id,
+            observed_first_name=payload.get("name"),
+            observed_last_name=payload.get("lastname"),
+            provenance="talent_radar_import",
+        )
+        return review.is_quarantined
 
     async def _count_source(self, source_conn: asyncpg.Connection) -> int:
         row = await source_conn.fetchrow(
@@ -337,7 +343,7 @@ class TalentRadarImporter:
             SELECT id, traffit_id, email, name, lastname, raw_cv_text,
                    cv_content, cv_filename, extracted_data, skills,
                    experience_years, seniority, languages, location,
-                   finance_expectations, availability, cv_language, cv_date
+                   availability, cv_language, cv_date
             FROM public.candidates
             ORDER BY id
             LIMIT $1 OFFSET $2
@@ -349,41 +355,25 @@ class TalentRadarImporter:
     def _to_payload(self, row: asyncpg.Record) -> dict[str, Any]:
         """Map a source row to our INSERT parameters.
 
-        cv_content (BYTEA z source DB) jest uploadowane do Hetzner Object
-        Storage (audit-2026-05-07 Faza 3) i `cv_storage_key` zapisany w nexus
-        candidates. Source `cv_file_content` zostaje NULL (legacy column).
+        This stage is deliberately side-effect free. Object-storage upload is
+        deferred until after the existing-person identity gate, so a dry-run or
+        mismatched CV can never leave an orphaned PII object.
         """
-        cv_storage_key: str | None = None
         cv_content = row["cv_content"]
         cv_bytes = bytes(cv_content) if cv_content else None
-        if cv_content:
-            from app.services.object_storage import (
-                is_available as _storage_available,
-                upload_cv as _upload_cv,
-            )
 
-            if _storage_available():
-                try:
-                    cv_storage_key = _upload_cv(
-                        content=cv_bytes,
-                        filename=row["cv_filename"] or "cv",
-                        content_type=None,
-                    )
-                except Exception:
-                    # Best-effort: na crash storage, zachowuj BYTEA fallback,
-                    # żeby import nie blokował się na S3 outage.
-                    cv_storage_key = None
-
+        candidate_location = normalize_candidate_location(raw_location=row["location"])
         return {
+            "talent_radar_source_id": int(row["id"]),
             "external_id": str(row["traffit_id"]),
             "external_source": "talent_radar",
             "email": (row["email"] or "").strip() or None,
             "name": (row["name"] or "").strip() or "?",
             "lastname": (row["lastname"] or "").strip() or "?",
             "raw_cv_text": row["raw_cv_text"],
-            # cv_file_content zostaje BYTEA tylko gdy upload do S3 nie zadziałał.
-            "cv_file_content": cv_bytes if cv_storage_key is None else None,
-            "cv_storage_key": cv_storage_key,
+            # BYTEA remains an in-memory fallback until the post-gate upload.
+            "cv_file_content": cv_bytes,
+            "cv_storage_key": None,
             "cv_filename": row["cv_filename"],
             "cv_content_sha256": (
                 hashlib.sha256(cv_bytes).hexdigest() if cv_bytes else None
@@ -393,14 +383,40 @@ class TalentRadarImporter:
             "years_it_experience": row["experience_years"],
             "competence_category": normalize_seniority(row["seniority"]),
             "languages": row["languages"] or [],
-            "location": row["location"],
-            "salary_expectation": parse_salary(row["finance_expectations"]),
+            "city": candidate_location.city,
+            "country": candidate_location.country,
+            "location": candidate_location.projection,
             "availability_date": parse_availability(row["availability"]),
             "cv_language": row["cv_language"],
             "cv_parsed_at": to_datetime_utc(row["cv_date"]),
             "source": "talent_radar",
             "status": "active",
         }
+
+    @staticmethod
+    def _materialize_payload_cv(payload: dict[str, Any]) -> None:
+        """Upload an accepted source CV, retaining BYTEA on storage failure."""
+
+        content = payload.get("cv_file_content")
+        if not content or payload.get("cv_storage_key"):
+            return
+        from app.services.object_storage import (
+            is_available as storage_available,
+            upload_cv,
+        )
+
+        if not storage_available():
+            return
+        try:
+            payload["cv_storage_key"] = upload_cv(
+                content=content,
+                filename=payload.get("cv_filename") or "cv",
+                content_type=None,
+            )
+            payload["cv_file_content"] = None
+        except Exception:
+            # Best-effort: on storage outage retain the bounded BYTEA fallback.
+            payload["cv_storage_key"] = None
 
     async def _preload_dedup_maps(self) -> None:
         """Pre-load existing-candidate lookup maps so we never create a parallel
@@ -485,9 +501,6 @@ class TalentRadarImporter:
             "skills": json.dumps(p.get("skills") or []),
             "years_it_experience": p.get("years_it_experience"),
             "competence_category": p.get("competence_category"),
-            "languages": json.dumps(p.get("languages") or []),
-            "location": p.get("location"),
-            "salary_expectation": p.get("salary_expectation"),
             "availability_date": p.get("availability_date"),
             "cv_language": p.get("cv_language"),
             "cv_parsed_at": p.get("cv_parsed_at"),
@@ -501,8 +514,8 @@ class TalentRadarImporter:
         INSERT INTO candidates (
             external_id, external_source, email, name, lastname,
             raw_cv_text, cv_file_content, cv_storage_key, cv_filename, cv_extracted_data,
-            skills, years_it_experience, competence_category, languages,
-            location, salary_expectation, availability_date,
+            skills, years_it_experience, competence_category,
+            availability_date,
             cv_language, cv_parsed_at, source, status,
             notes_count, champion,
             created_at, updated_at
@@ -510,7 +523,6 @@ class TalentRadarImporter:
             :external_id, :external_source, :email, :name, :lastname,
             :raw_cv_text, :cv_file_content, :cv_storage_key, :cv_filename, CAST(:cv_extracted_data AS JSONB),
             CAST(:skills AS JSONB), :years_it_experience, :competence_category,
-            CAST(:languages AS JSONB), :location, :salary_expectation,
             :availability_date, :cv_language, :cv_parsed_at, :source, :status,
             0, false,
             NOW(), NOW()
@@ -525,13 +537,26 @@ class TalentRadarImporter:
             cv_file_content   = COALESCE(EXCLUDED.cv_file_content, candidates.cv_file_content),
             cv_storage_key    = COALESCE(EXCLUDED.cv_storage_key, candidates.cv_storage_key),
             cv_filename       = EXCLUDED.cv_filename,
-            cv_extracted_data = EXCLUDED.cv_extracted_data,
+            cv_extracted_data = EXCLUDED.cv_extracted_data
+                || CASE
+                     WHEN COALESCE(
+                       candidates.cv_extracted_data->>'_manual_override_city',
+                       'false'
+                     ) = 'true'
+                     THEN jsonb_build_object('_manual_override_city', true)
+                     ELSE '{}'::jsonb
+                   END
+                || CASE
+                     WHEN COALESCE(
+                       candidates.cv_extracted_data->>'_manual_override_country',
+                       'false'
+                     ) = 'true'
+                     THEN jsonb_build_object('_manual_override_country', true)
+                     ELSE '{}'::jsonb
+                   END,
             skills            = EXCLUDED.skills,
             years_it_experience = EXCLUDED.years_it_experience,
             competence_category = EXCLUDED.competence_category,
-            languages         = EXCLUDED.languages,
-            location          = EXCLUDED.location,
-            salary_expectation = EXCLUDED.salary_expectation,
             availability_date  = EXCLUDED.availability_date,
             cv_language        = EXCLUDED.cv_language,
             cv_parsed_at       = EXCLUDED.cv_parsed_at,
@@ -560,9 +585,43 @@ class TalentRadarImporter:
             existing_id = await self._find_existing_id(p)
 
             if existing_id is not None:
+                if await self._existing_source_is_quarantined(existing_id, p):
+                    self.quarantined += 1
+                    logger.warning(
+                        "talent_radar_import: identity_mismatch_quarantined "
+                        "candidate_id=%s source_id=%s",
+                        existing_id,
+                        p["talent_radar_source_id"],
+                    )
+                    continue
+                await asyncio.to_thread(self._materialize_payload_cv, p)
                 await self.target_db.execute(
                     _MERGE_CV_INTO_EXISTING, self._merge_params(p, existing_id)
                 )
+                if p.get("languages"):
+                    from app.services.candidate_language_writer import (
+                        sync_candidate_languages_from_source,
+                    )
+
+                    await sync_candidate_languages_from_source(
+                        self.target_db,
+                        candidate_id=existing_id,
+                        raw_languages=p["languages"],
+                        provenance="talent_radar",
+                        source_ref=f"talent-radar:{p.get('external_id') or existing_id}",
+                    )
+                if p.get("city") or p.get("country"):
+                    from app.services.candidate_location_writer import (
+                        sync_candidate_location_from_source,
+                    )
+
+                    await sync_candidate_location_from_source(
+                        self.target_db,
+                        candidate_id=existing_id,
+                        city=p.get("city"),
+                        country=p.get("country"),
+                        overwrite_existing=False,
+                    )
                 await self._upsert_candidate_document(existing_id, p)
                 updated += 1
                 self.adopted += 1
@@ -571,15 +630,39 @@ class TalentRadarImporter:
                     self._ext_id_to_id.setdefault(p["external_id"], existing_id)
                 continue
 
+            await asyncio.to_thread(self._materialize_payload_cv, p)
             params = dict(p)
             params["skills"] = json.dumps(p["skills"])
-            params["languages"] = json.dumps(p["languages"])
             params["cv_extracted_data"] = json.dumps(p["cv_extracted_data"])
             result = await self.target_db.execute(self._INSERT_SQL, params)
             row = result.fetchone()
             if row is None:
                 continue
             new_id, was_insert = row[0], row[1]
+            if p.get("languages"):
+                from app.services.candidate_language_writer import (
+                    sync_candidate_languages_from_source,
+                )
+
+                await sync_candidate_languages_from_source(
+                    self.target_db,
+                    candidate_id=new_id,
+                    raw_languages=p["languages"],
+                    provenance="talent_radar",
+                    source_ref=f"talent-radar:{p.get('external_id') or new_id}",
+                )
+            if p.get("city") or p.get("country"):
+                from app.services.candidate_location_writer import (
+                    sync_candidate_location_from_source,
+                )
+
+                await sync_candidate_location_from_source(
+                    self.target_db,
+                    candidate_id=new_id,
+                    city=p.get("city"),
+                    country=p.get("country"),
+                    overwrite_existing=True,
+                )
             await self._upsert_candidate_document(new_id, p)
             if was_insert:
                 inserted += 1
@@ -659,9 +742,11 @@ class TalentRadarImporter:
                             )
 
                 try:
+                    quarantined_before = self.quarantined
                     inserted, updated = await self._upsert(payloads)
                     progress.inserted += inserted
                     progress.updated += updated
+                    progress.skipped += self.quarantined - quarantined_before
                 except Exception as e:  # noqa: BLE001
                     progress.errors += len(payloads)
                     if len(progress.error_samples) < 20:

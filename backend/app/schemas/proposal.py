@@ -24,8 +24,6 @@ class ProposalCandidate(BaseModel):
     avatar_url: Optional[str] = None
     competence_category: Optional[str] = None
     years_it_experience: Optional[int] = None
-    salary_expectation: Optional[int] = None
-    salary_currency: Optional[str] = None
     status: Optional[str] = None
     champion: Optional[bool] = None
 

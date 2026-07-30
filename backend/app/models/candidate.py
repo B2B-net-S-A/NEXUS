@@ -1,5 +1,6 @@
 import enum
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
@@ -91,13 +92,29 @@ class Candidate(Base, TimestampMixin):
 
     # Oczekiwania finansowe (PLN/mies.)
     salary_expectation: Mapped[Optional[int]] = mapped_column(Integer)
-    salary_currency: Mapped[Optional[str]] = mapped_column(String(3), default="PLN")
-    # Oczekiwana stawka godzinowa (B2B, PLN/h) — osobne pole od miesięcznego
-    # `salary_expectation`. Napędza filtr „Stawka godzinowa (od–do)" na
-    # /candidates (migracja 0138). Indeks częściowy: ix_candidates_expected_rate_hourly.
-    expected_rate_hourly: Mapped[Optional[int]] = mapped_column(Integer, index=True)
-    expected_rate_currency: Mapped[Optional[str]] = mapped_column(
-        String(3), default="PLN"
+    # Deprecated monthly-rate companion. It intentionally has no default:
+    # new candidate rows must not repopulate legacy state after cleanup.
+    salary_currency: Mapped[Optional[str]] = mapped_column(String(3))
+    # Jedyna aktywna globalna stawka profilu: B2B, PLN, netto, godzina.
+    # Miesięczne kolumny wyżej są fizycznym legacy i nie są kontraktem runtime.
+    expected_rate_hourly: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), index=True
+    )
+    # NULL when the amount is absent. The public profile-rate contract still
+    # exposes the immutable literal PLN; persistence must not invent a fact for
+    # an otherwise empty profile.
+    expected_rate_currency: Mapped[Optional[str]] = mapped_column(String(3))
+    # Collection-level optimistic-concurrency tokens for typed profile facts.
+    # They are incremented while the candidate row is locked by the canonical
+    # profile-facts service.
+    languages_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    profile_rate_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    profile_rate_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     availability_date: Mapped[Optional[date]] = mapped_column(Date)
     notice_period: Mapped[Optional[int]] = mapped_column(
@@ -134,7 +151,6 @@ class Candidate(Base, TimestampMixin):
     # Shape:
     #   {
     #     "remote_modes": ["remote", "hybrid", "onsite"],
-    #     "rate_min": int, "rate_max": int, "rate_currency": str,
     #     "industries": ["fintech", "banking", ...],
     #     "excluded_clients": [client_id, ...],
     #     "contract_types": ["b2b", "uop", "zlecenie"],
@@ -367,6 +383,12 @@ class Candidate(Base, TimestampMixin):
         back_populates="candidate",
         cascade="all, delete-orphan",
         order_by="desc(CandidateLinkedinSnapshot.fetched_at)",
+    )
+    language_facts = relationship(
+        "CandidateLanguage",
+        back_populates="candidate",
+        cascade="all, delete-orphan",
+        order_by="CandidateLanguage.language_code",
     )
 
     def __repr__(self) -> str:

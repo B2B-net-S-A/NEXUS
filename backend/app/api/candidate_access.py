@@ -182,3 +182,23 @@ CandidateExportAccess = Annotated[User, Depends(require_roles(*CANDIDATE_EXPORT_
 CandidateFinanceAccess = Annotated[
     User, Depends(require_roles(*CANDIDATE_FINANCE_ROLES))
 ]
+
+# Typed global profile facts (languages + the candidate's own B2B expectation)
+# are available to every internal operational role. This deliberately differs
+# from client sell-rate access: the read-only/client persona ``user`` remains
+# excluded, while sourcer and Head of Recruitment may maintain global facts.
+CandidateProfileFactsAccess = Annotated[
+    User, Depends(require_roles(*CANDIDATE_READ_ROLES))
+]
+
+# Releasing a source that is confirmed to describe another person is a
+# management exception, not an ordinary candidate edit.
+CandidateIdentityQuarantineOverrideAccess = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+        )
+    ),
+]

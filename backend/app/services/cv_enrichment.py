@@ -19,6 +19,9 @@ from datetime import datetime, timezone
 
 from app.models.candidate import Candidate
 from app.services.candidate_quick_view import format_cv_highlight_bullets
+from app.services.candidate_location_writer import (
+    apply_candidate_location_from_source,
+)
 
 _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
 
@@ -50,9 +53,8 @@ def _apply_cv_contact_fields(
       - the candidate has no value yet (empty string / None / placeholder), AND
       - no `_manual_override_<field>` flag is set in `cv_extracted_data`.
 
-    The location mapping writes to BOTH `candidate.location` (legacy
-    free-text) and `candidate.city` (structured column) to keep the two
-    columns aligned for existing filters and heat-maps.
+    Location writes are delegated to the canonical city/country writer;
+    ``location`` is rebuilt only as their compatibility projection.
     """
 
     def _locked(field: str) -> bool:
@@ -75,14 +77,12 @@ def _apply_cv_contact_fields(
         candidate.phone = str(phone).strip()[:30]
 
     city = parsed.get("city")
-    if city and not _locked("city"):
-        city_value = str(city).strip()[:120]
-        if _is_blank_name(candidate.city):
-            candidate.city = city_value
-        if _is_blank_name(candidate.location):
-            # Legacy free-text column mirrors the structured city for filters
-            # that still read from `location`.
-            candidate.location = city_value[:255]
+    if city:
+        apply_candidate_location_from_source(
+            candidate,
+            city=city,
+            overwrite_existing=False,
+        )
 
 
 def _apply_cv_enrichment(
@@ -121,8 +121,8 @@ def _apply_cv_enrichment(
         candidate.skills = parsed["skills"]
     if parsed.get("education"):
         candidate.education = parsed["education"]
-    if parsed.get("languages"):
-        candidate.languages = parsed["languages"]
+    # Language facts are persisted by the async canonical writer at each
+    # caller.  This pure helper must not write the legacy JSONB column.
     # Only backfill LinkedIn URL when the recruiter hasn't set one manually —
     # we never want to clobber a curated value with a noisy regex hit.
     if parsed.get("linkedin_url") and not candidate.linkedin:

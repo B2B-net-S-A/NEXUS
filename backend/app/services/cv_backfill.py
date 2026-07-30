@@ -19,6 +19,7 @@ can be re-run freely and stops touching a row once its name is resolved.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -30,6 +31,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
+from app.models.candidate_document import CandidateDocument
 from app.services.cv_enrichment import _CV_PLACEHOLDER_NAMES, _apply_cv_enrichment
 
 logger = logging.getLogger(__name__)
@@ -163,6 +165,7 @@ async def enrich_candidate_from_cv_bytes(
         "name_source": None,
         "resolved": False,
         "email_collision": False,
+        "identity_quarantined": False,
     }
 
     raw_text: Optional[str] = None
@@ -179,7 +182,6 @@ async def enrich_candidate_from_cv_bytes(
 
     parsed: dict[str, Any] = {}
     if raw_text and raw_text.strip():
-        candidate.raw_cv_text = raw_text
         result["text_extracted"] = True
         try:
             parsed = await parse_cv(raw_text, prefer_llm=prefer_llm) or {}
@@ -199,6 +201,38 @@ async def enrich_candidate_from_cv_bytes(
             parsed["last_name"] = f_last
             result["name_source"] = result["name_source"] or "filename"
 
+    content_hash: str | None = None
+    document_id: int | None = None
+    if db is not None and hasattr(db, "add") and hasattr(db, "flush"):
+        from app.services.candidate_identity_quarantine import (
+            record_detected_identity,
+        )
+
+        content_hash = hashlib.sha256(cv_bytes).hexdigest() if cv_bytes else None
+        document_id = (
+            await db.scalar(
+                select(CandidateDocument.id).where(
+                    CandidateDocument.candidate_id == candidate.id,
+                    CandidateDocument.content_sha256 == content_hash,
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            if content_hash
+            else None
+        )
+        review = await record_detected_identity(
+            db,
+            candidate=candidate,
+            source_kind="document" if document_id is not None else "legacy_cv",
+            source_id=document_id if document_id is not None else candidate.id,
+            observed_first_name=parsed.get("first_name"),
+            observed_last_name=parsed.get("last_name"),
+            provenance="cv_parser:backfill",
+        )
+        if review.is_quarantined:
+            result["identity_quarantined"] = True
+            return result
+
     # Guard the UNIQUE(email) constraint: duplicate Traffit rows (same CV) would
     # otherwise collide on commit and lose the whole enrichment. Drop a parsed
     # email that already belongs to another candidate so the name/phone still
@@ -216,7 +250,30 @@ async def enrich_candidate_from_cv_bytes(
             parsed.pop("email", None)
             result["email_collision"] = True
 
-    _apply_cv_enrichment(candidate, parsed)
+    if raw_text and raw_text.strip():
+        candidate.raw_cv_text = raw_text
+    _apply_cv_enrichment(
+        candidate,
+        parsed,
+        source_document_id=document_id,
+        source_hash=content_hash,
+    )
+    if parsed.get("languages") and db is not None:
+        from app.services.candidate_language_writer import (
+            sync_candidate_languages_from_source,
+        )
+
+        await sync_candidate_languages_from_source(
+            db,
+            candidate_id=candidate.id,
+            raw_languages=parsed["languages"],
+            provenance="cv",
+            source_ref=(
+                content_hash or f"document:{document_id}"
+                if document_id is not None
+                else f"legacy-cv:{candidate.id}"
+            ),
+        )
     result["resolved"] = _name_resolved(candidate)
     return result
 

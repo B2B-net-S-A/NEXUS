@@ -266,15 +266,6 @@ async def try_parse_cv(
             CandidateDocument.source_deleted_at.is_(None),
         )
     )
-    await db.execute(
-        update(CandidateDocument)
-        .where(
-            CandidateDocument.candidate_id == candidate.id,
-            CandidateDocument.document_kind == CandidateDocumentKind.cv,
-            CandidateDocument.source_deleted_at.is_(None),
-        )
-        .values(is_primary=False)
-    )
     if document is None:
         document = CandidateDocument(
             candidate_id=candidate.id,
@@ -283,7 +274,7 @@ async def try_parse_cv(
             content_type=attachment.content_type,
             size_bytes=len(content),
             document_kind=CandidateDocumentKind.cv,
-            is_primary=True,
+            is_primary=False,
             uploaded_at=email_row.received_at or attachment.cv_parse_attempted_at,
             external_source="m365",
             external_id=(attachment.m365_attachment_id or "")[:100] or None,
@@ -293,7 +284,36 @@ async def try_parse_cv(
         await db.flush()
     else:
         document.document_kind = CandidateDocumentKind.cv
-        document.is_primary = True
+
+    from app.services.candidate_identity_quarantine import record_detected_identity
+
+    review = await record_detected_identity(
+        db,
+        candidate=candidate,
+        source_kind="document",
+        source_id=document.id,
+        observed_first_name=parsed.get("first_name"),
+        observed_last_name=parsed.get("last_name"),
+        provenance="cv_parser:m365",
+    )
+    if review.is_quarantined:
+        document.is_primary = False
+        attachment.parsed_candidate_id = candidate.id
+        attachment.parse_error = "identity_mismatch_quarantined"
+        return
+
+    # Only a source that passed the identity gate may replace the active CV.
+    await db.execute(
+        update(CandidateDocument)
+        .where(
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.id != document.id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+        .values(is_primary=False)
+    )
+    document.is_primary = True
 
     from app.services.cv_enrichment import _apply_cv_enrichment
 
@@ -305,6 +325,18 @@ async def try_parse_cv(
         source_document_id=document.id,
         source_hash=content_hash,
     )
+    if parsed.get("languages"):
+        from app.services.candidate_language_writer import (
+            sync_candidate_languages_from_source,
+        )
+
+        await sync_candidate_languages_from_source(
+            db,
+            candidate_id=candidate.id,
+            raw_languages=parsed["languages"],
+            provenance="cv",
+            source_ref=content_hash,
+        )
 
     attachment.parsed_candidate_id = candidate.id
     attachment.parse_error = None

@@ -9,7 +9,7 @@ import io
 import codecs
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -30,6 +30,13 @@ from app.models.activity import Activity
 # samej roli masowo tworzyc kandydatow.
 from app.api.candidate_access import CandidateExportAccess, CandidateWriteAccess
 from app.services import candidate_audit
+from app.services import candidate_profile_facts
+from app.services.candidate_language_writer import (
+    normalize_language_payload,
+    sync_candidate_languages_from_source,
+)
+from app.services.candidate_profile_rate import canonical_profile_rate_amount
+from app.services.candidate_location_writer import normalize_candidate_location
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -40,10 +47,13 @@ EXPECTED_COLUMNS = {
     "lastname",
     "email",
     "phone",
+    "city",
+    "country",
     "location",
     "source",
     "skills",
-    "salary_expectation",
+    "languages",
+    "expected_rate_hourly",
 }
 
 
@@ -54,11 +64,16 @@ def _parse_skills(raw: str) -> list:
     return [{"name": s.strip()} for s in raw.split(",") if s.strip()]
 
 
-def _safe_int(val: str) -> Optional[int]:
+def _parse_profile_rate(raw: str) -> Decimal:
     try:
-        return int(str(val).strip().replace(" ", "").replace(",", ""))
-    except (ValueError, TypeError):
-        return None
+        amount = Decimal(raw.strip().replace(" ", "").replace(",", "."))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("invalid_profile_rate") from exc
+    if not amount.is_finite() or amount < 0 or amount.as_tuple().exponent < -2:
+        raise ValueError("invalid_profile_rate")
+    if amount >= Decimal("100000000"):
+        raise ValueError("invalid_profile_rate")
+    return amount
 
 
 @router.post("/import/candidates")
@@ -105,7 +120,8 @@ async def import_candidates(
     def get_col(row: dict, col: str) -> str:
         original = normalized_fields.get(col)
         if original and original in row:
-            return str(row[original]).strip()
+            value = row[original]
+            return "" if value is None else str(value).strip()
         return ""
 
     imported = 0
@@ -113,6 +129,7 @@ async def import_candidates(
     errors = 0
     details = []
     imported_ids: list[int] = []
+    field_errors = 0
 
     for row_num, row in enumerate(reader, start=2):  # start=2 (header is row 1)
         try:
@@ -149,45 +166,140 @@ async def import_candidates(
                     continue
 
             skills_raw = get_col(row, "skills")
-            salary_raw = get_col(row, "salary_expectation")
+            rate_raw = get_col(row, "expected_rate_hourly")
+            rate_currency = get_col(row, "expected_rate_currency").upper()
             source_raw = get_col(row, "source") or "manual"
-
-            candidate = Candidate(
-                name=name or "—",
-                lastname=lastname or "",
-                email=email,
-                phone=get_col(row, "phone") or None,
-                location=get_col(row, "location") or None,
-                source=source_raw[:100],
-                skills=_parse_skills(skills_raw),
-                salary_expectation=_safe_int(salary_raw),
-                status=CandidateStatus.active,
+            raw_country = get_col(row, "country")
+            location = normalize_candidate_location(
+                city=get_col(row, "city") or None,
+                country=raw_country or None,
+                raw_location=get_col(row, "location") or None,
             )
-            db.add(candidate)
-            await db.flush()
+            row_field_errors: list[dict[str, str]] = []
+            if raw_country and location.country is None:
+                row_field_errors.append(
+                    {
+                        "field": "country",
+                        "code": "invalid_candidate_country",
+                    }
+                )
+            languages_raw = get_col(row, "languages")
+            if languages_raw:
+                _normalized_languages, invalid_languages = normalize_language_payload(
+                    languages_raw
+                )
+                if invalid_languages:
+                    row_field_errors.append(
+                        {
+                            "field": "languages",
+                            "code": "invalid_candidate_languages",
+                        }
+                    )
+
+            # A retired column is an error by schema presence, even when every
+            # cell is empty.  This prevents an obsolete template from looking
+            # successfully migrated while silently dropping the field.
+            for retired_field in ("salary_expectation", "salary_currency"):
+                if retired_field in normalized_fields:
+                    row_field_errors.append(
+                        {
+                            "field": retired_field,
+                            "code": "candidate_monthly_rate_retired",
+                        }
+                    )
+
+            parsed_rate: Decimal | None = None
+            if rate_raw:
+                if rate_currency and rate_currency != "PLN":
+                    row_field_errors.append(
+                        {
+                            "field": "expected_rate_currency",
+                            "code": "candidate_profile_rate_requires_pln",
+                        }
+                    )
+                else:
+                    try:
+                        amount = _parse_profile_rate(rate_raw)
+                    except ValueError:
+                        row_field_errors.append(
+                            {
+                                "field": "expected_rate_hourly",
+                                "code": "invalid_profile_rate",
+                            }
+                        )
+                    else:
+                        parsed_rate = amount
+            elif rate_currency:
+                row_field_errors.append(
+                    {
+                        "field": "expected_rate_currency",
+                        "code": "candidate_profile_rate_amount_required",
+                    }
+                )
+
+            # A savepoint protects the outer bulk transaction if any persistence
+            # hook fails after validation; no half-created candidate survives.
+            async with db.begin_nested():
+                candidate = Candidate(
+                    name=name or "—",
+                    lastname=lastname or "",
+                    email=email,
+                    phone=get_col(row, "phone") or None,
+                    city=location.city,
+                    country=location.country,
+                    location=location.projection,
+                    source=source_raw[:100],
+                    skills=_parse_skills(skills_raw),
+                    status=CandidateStatus.active,
+                )
+                db.add(candidate)
+                await db.flush()
+
+                if languages_raw:
+                    await sync_candidate_languages_from_source(
+                        db,
+                        candidate_id=candidate.id,
+                        raw_languages=languages_raw,
+                        provenance="csv",
+                        source_ref=f"csv-row:{row_num}",
+                    )
+
+                if parsed_rate is not None:
+                    await candidate_profile_facts.update_candidate_profile_rate(
+                        db,
+                        candidate_id=candidate.id,
+                        amount=parsed_rate,
+                        expected_version=candidate.profile_rate_version,
+                        actor_id=current_user.id,
+                    )
+
+                activity = Activity(
+                    entity_type="candidate",
+                    entity_id=candidate.id,
+                    action="imported",
+                    user_id=current_user.id,
+                    details={
+                        "name": f"{candidate.name} {candidate.lastname}",
+                        "source": "csv_import",
+                    },
+                )
+                db.add(activity)
+                await db.flush()
+
             imported_ids.append(candidate.id)
 
-            activity = Activity(
-                entity_type="candidate",
-                entity_id=candidate.id,
-                action="imported",
-                user_id=current_user.id,
-                details={
-                    "name": f"{candidate.name} {candidate.lastname}",
-                    "source": "csv_import",
-                },
-            )
-            db.add(activity)
-
             imported += 1
-            details.append(
-                {
-                    "row": row_num,
-                    "status": "imported",
-                    "name": f"{name} {lastname}".strip(),
-                    "email": email,
-                }
-            )
+            detail = {
+                "row": row_num,
+                "status": "imported",
+                "name": f"{name} {lastname}".strip(),
+                "email": email,
+            }
+            if row_field_errors:
+                field_errors += len(row_field_errors)
+                detail["status"] = "imported_with_field_errors"
+                detail["field_errors"] = row_field_errors
+            details.append(detail)
 
         except Exception as exc:
             errors += 1
@@ -217,6 +329,7 @@ async def import_candidates(
         "imported": imported,
         "skipped": skipped,
         "errors": errors,
+        "field_errors": field_errors,
         "details": details,
     }
 
@@ -242,7 +355,7 @@ def _build_candidates_csv(candidates) -> bytes:
             "source",
             "status",
             "skills",
-            "salary_expectation",
+            "expected_rate_hourly",
             "created_at",
             "open_to_side_projects",
             "open_to_sales_support",
@@ -261,6 +374,10 @@ def _build_candidates_csv(candidates) -> bytes:
             skills_str = ""
 
         created = c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else ""
+        profile_rate = canonical_profile_rate_amount(
+            c.expected_rate_hourly,
+            c.expected_rate_currency,
+        )
 
         writer.writerow(
             [
@@ -273,7 +390,7 @@ def _build_candidates_csv(candidates) -> bytes:
                 c.source or "",
                 c.status.value if c.status else "",
                 skills_str,
-                c.salary_expectation or "",
+                profile_rate if profile_rate is not None else "",
                 created,
                 "tak" if c.open_to_side_projects else "",
                 "tak" if c.open_to_sales_support else "",

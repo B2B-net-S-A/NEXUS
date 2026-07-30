@@ -27,6 +27,8 @@ from app.api import (
     candidate_pins,
     candidate_scoring,
     candidate_activity_summary,
+    candidate_identity_quarantine,
+    candidate_profile_facts,
     jobs,
     clients,
     client_directory,
@@ -417,6 +419,33 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
+    # The legacy entrypoint fallback bounds the hot-table INTEGER -> NUMERIC
+    # conversion so a deploy cannot wait indefinitely for ACCESS EXCLUSIVE.
+    # A timed-out fallback must not let the application serve decimal writes
+    # against an INTEGER (or missing) column, so verify the physical contract
+    # after every schema path and fail startup before accepting traffic.
+    from app.services.candidate_profile_rate import (
+        assert_candidate_profile_rate_schema,
+    )
+
+    async with engine.connect() as _profile_rate_schema_conn:
+        await assert_candidate_profile_rate_schema(_profile_rate_schema_conn)
+
+    # Migration 0207 rewrites every historic candidate saved search. Production
+    # also has a legacy fail-open Alembic path, so repeat the idempotent rewrite
+    # before accepting traffic and fail the startup if safety cannot be proven.
+    from app.core.database import AsyncSessionLocal
+    from app.services.candidate_monthly_rate_retirement import (
+        retire_candidate_saved_searches,
+    )
+
+    async with AsyncSessionLocal() as _saved_search_db:
+        retired_searches = await retire_candidate_saved_searches(_saved_search_db)
+    logger.info(
+        "Candidate monthly-rate retirement: sanitized_saved_searches=%d",
+        retired_searches,
+    )
+
     # Startup: ensure Qdrant collection exists
     import asyncio
     from app.services.embedding_service import init_qdrant_collection
@@ -593,7 +622,10 @@ app.add_middleware(
         "X-Impersonate-User-Id",
         # Durable de-duplication for manually logged phone outcomes.
         "Idempotency-Key",
+        # Optimistic concurrency for typed candidate profile facts.
+        "If-Match",
     ],
+    expose_headers=["ETag"],
 )
 
 # Register routers
@@ -606,6 +638,16 @@ app.include_router(
     candidate_pins.router, prefix="/api/candidates", tags=["candidate-pins"]
 )
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
+app.include_router(
+    candidate_profile_facts.router,
+    prefix="/api/candidates",
+    tags=["candidate-profile-facts"],
+)
+app.include_router(
+    candidate_identity_quarantine.router,
+    prefix="/api/candidates",
+    tags=["candidate-identity-quarantine"],
+)
 app.include_router(
     candidate_contact.router,
     prefix="/api/candidate-contact",
