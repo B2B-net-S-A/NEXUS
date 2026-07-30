@@ -236,7 +236,7 @@
       "workbook_status": "aktywny"
     },
     {
-      "client_key": "grupa-dealer-spolka-z-ograniczona-odpowiedzialnoscia",
+      "client_key": "grupa_dealer-spolka-z-ograniczona-odpowiedzialnoscia",
       "source_key": "active:grupa-dealer",
       "sheet": "Aktywni Klienci",
       "row_number": 13,
