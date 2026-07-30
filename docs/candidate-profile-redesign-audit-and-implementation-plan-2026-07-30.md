@@ -346,8 +346,8 @@ Aktualne dowody lokalne:
 |---|---|
 | backend, testy fokusowe profilu i bezpieczeństwa | 202 passed, 4 skipped; skipy PostgreSQL wykona hosted CI |
 | Ruff `app/` | lint i format check zielone |
-| Alembic | jedna głowa: `0207_monthly_rate_retired` |
-| import/OpenAPI | aplikacja importuje się; 676 ścieżek i 825 operacji |
+| Alembic | jedna głowa: `0208_monthly_rate_retired` |
+| import/OpenAPI | aplikacja importuje się; 684 ścieżki i 834 operacje |
 | frontend, testy zmienionych powierzchni | 126/126 zielone |
 | frontend lint | zero błędów; historyczne ostrzeżenia mieszczą się w limicie repo |
 | guard tokenów design systemu | zielony |

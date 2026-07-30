@@ -1,7 +1,7 @@
 """Typed candidate profile facts: languages and global B2B rate.
 
-Revision ID: 0205_candidate_profile_facts
-Revises: 0204_candidate_activity_summaries
+Revision ID: 0206_candidate_profile_facts
+Revises: 0205_client_directory_portfolio
 Create Date: 2026-07-30
 
 The migration is additive for language facts and OCC metadata. The existing
@@ -13,8 +13,8 @@ parity report.
 
 from alembic import op
 
-revision = "0205_candidate_profile_facts"
-down_revision = "0204_candidate_activity_summaries"
+revision = "0206_candidate_profile_facts"
+down_revision = "0205_client_directory_portfolio"
 branch_labels = None
 depends_on = None
 

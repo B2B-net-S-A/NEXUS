@@ -309,7 +309,7 @@ def test_migration_sanitizer_matches_runtime_for_mixed_v3_and_preferences():
         Path(__file__).resolve().parents[1]
         / "alembic"
         / "versions"
-        / "0207_retire_candidate_monthly_rate.py"
+        / "0208_retire_candidate_monthly_rate.py"
     )
     spec = importlib.util.spec_from_file_location("candidate_rate_0207", migration_path)
     assert spec is not None and spec.loader is not None

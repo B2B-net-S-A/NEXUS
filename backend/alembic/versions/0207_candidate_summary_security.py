@@ -9,14 +9,14 @@ Nullable output fields let a row act as a short generation lease; the service
 commits that lease before calling the provider and publishes through a CAS
 token afterwards.
 
-Revision ID: 0206_candidate_summary_security
-Revises: 0205_candidate_profile_facts
+Revision ID: 0207_candidate_summary_security
+Revises: 0206_candidate_profile_facts
 """
 
 from alembic import op
 
-revision = "0206_candidate_summary_security"
-down_revision = "0205_candidate_profile_facts"
+revision = "0207_candidate_summary_security"
+down_revision = "0206_candidate_profile_facts"
 branch_labels = None
 depends_on = None
 

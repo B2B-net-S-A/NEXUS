@@ -24,7 +24,7 @@ def _load_migration():
         Path(__file__).resolve().parents[1]
         / "alembic"
         / "versions"
-        / "0206_candidate_summary_security.py"
+        / "0207_candidate_summary_security.py"
     )
     spec = importlib.util.spec_from_file_location(
         "candidate_summary_security_0206_replay",
@@ -41,7 +41,7 @@ def test_0206_quarantines_only_rows_that_still_have_a_legacy_marker():
         Path(__file__).resolve().parents[1]
         / "alembic"
         / "versions"
-        / "0206_candidate_summary_security.py"
+        / "0207_candidate_summary_security.py"
     ).read_text(encoding="utf-8")
 
     assert "WHERE visibility_scope_hash = 'legacy-unscoped'" in source

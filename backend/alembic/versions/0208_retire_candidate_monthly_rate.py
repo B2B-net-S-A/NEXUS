@@ -1,7 +1,7 @@
 """Retire candidate monthly-rate filters in saved searches.
 
-Revision ID: 0207_monthly_rate_retired
-Revises: 0206_candidate_summary_security
+Revision ID: 0208_monthly_rate_retired
+Revises: 0207_candidate_summary_security
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0207_monthly_rate_retired"
-down_revision: Union[str, None] = "0206_candidate_summary_security"
+revision: str = "0208_monthly_rate_retired"
+down_revision: Union[str, None] = "0207_candidate_summary_security"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

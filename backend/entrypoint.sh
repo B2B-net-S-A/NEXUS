@@ -1847,7 +1847,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS document_kind candidatedocumentkind NOT NULL DEFAULT 'other'",
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_documents_candidate_sha ON candidate_documents (candidate_id, content_sha256) WHERE content_sha256 IS NOT NULL AND source_deleted_at IS NULL',
     'CREATE INDEX IF NOT EXISTS ix_candidate_documents_manifest ON candidate_documents (candidate_id, source_manifest_fingerprint)',
-    # 0206: durable, PII-minimized identity quarantine for candidate sources.
+    # 0207: durable, PII-minimized identity quarantine for candidate sources.
     """CREATE TABLE IF NOT EXISTS candidate_source_identity_reviews (
         id                  SERIAL PRIMARY KEY,
         candidate_id        INTEGER NOT NULL
@@ -2293,7 +2293,7 @@ _COLUMN_STATEMENTS = [
             CHECK (cv_content_mode_cap IS NULL
                    OR cv_content_mode_cap IN ('basic', 'polished', 'tailored'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0205: typed candidate profile facts. Existing candidate rows need OCC
+    # 0206: typed candidate profile facts. Existing candidate rows need OCC
     # counters even when orphaned Alembic skipped the migration; create_all
     # cannot add columns to an existing table.
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "
@@ -2346,14 +2346,14 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_candidate_languages_candidate_active "
     "ON candidate_languages (candidate_id, language_code) "
     "WHERE deleted_at IS NULL",
-    # 0207: the monthly candidate-rate columns stay physically present, but
+    # 0208: the monthly candidate-rate columns stay physically present, but
     # no new row may silently repopulate the deprecated currency. The saved
     # search flag is schema-only here; data rewriting remains in Alembic and
     # the runtime scanner fails closed if that migration was skipped.
     "ALTER TABLE candidates ALTER COLUMN salary_currency DROP DEFAULT",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS "
     "requires_reapproval BOOLEAN NOT NULL DEFAULT FALSE",
-    # 0204 + 0206: scope-aware, no-finance activity-summary cache.  The
+    # 0204 + 0207: scope-aware, no-finance activity-summary cache.  The
     # nullable output fields also represent a short committed generation lease.
     # mirrora tutaj (precedens: cortex_skill_facts, incident 2026-07-12),
     # inaczej /api/candidates/{id}/activity-summary 500-tkuje przy
