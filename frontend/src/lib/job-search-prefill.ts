@@ -4,9 +4,10 @@
  * Extracted from the job "Wyszukaj manualnie" tab so the mapping is unit
  * testable. Addresses the Phase-1 correctness containment findings:
  *
- * - SEARCH-P0-01: a job's rate is stored in ``salary_min/max`` but is *hourly*,
- *   so it must prefill ``rate_hourly_min/max`` (compared server-side against
- *   ``expected_rate_hourly``), NOT the monthly ``salary_min/max`` fields.
+ * - Candidate-profile rate policy: ``salary_min/max`` belongs to the job
+ *   budget while ``expected_rate_hourly`` is an immutable B2B PLN net/hour
+ *   candidate fact. The job fields do not carry a safe, typed unit contract,
+ *   so they must never prefill ``rate_hourly_min/max`` or be converted.
  * - SEARCH-P0-02: ``location`` is free text like ``"Warszawa / Remote"`` — it
  *   must be split into real cities with remote/hybrid tokens dropped, not
  *   passed whole as a single ``location_cities`` entry.
@@ -219,8 +220,6 @@ export function buildJobSearchPrefill(
       ? [job.competence_category_id]
       : [],
     skills_must: extractSkillNames(job.must_skills),
-    rate_hourly_min: job.salary_min ?? null,
-    rate_hourly_max: job.salary_max ?? null,
     location_cities: parseJobLocationCities(job.location),
     sort: "relevance",
   };

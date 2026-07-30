@@ -2,13 +2,24 @@ import { describe, it, expect, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { AddClientModal } from "@/components/AppShell";
+import {
+  AddClientModal,
+  EditCandidateModal,
+} from "@/components/AppShell";
+import api, { phase5Api } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
-  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
   aiWriterApi: {},
-  phase5Api: {},
+  phase5Api: { clientsLookup: vi.fn() },
   pipelineTemplatesApi: {},
   requestHistoryApi: {},
 }));
@@ -159,5 +170,48 @@ describe("AppShell <Modal> — a11y", () => {
 
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("EditCandidateModal — profile rate boundary", () => {
+  it("does not expose or submit the OCC-managed profile rate", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
+      data: [],
+    } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{
+            id: 7,
+            name: "Jan",
+            lastname: "Kowalski",
+            expected_rate_hourly: "160.00",
+            expected_rate_currency: "PLN",
+          }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.queryByText(/Stawka B2B.*PLN netto\/h/i),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("expected_rate_hourly");
+    expect(payload).not.toHaveProperty("expected_rate_currency");
   });
 });

@@ -46,6 +46,19 @@ beforeEach(() => {
 });
 
 describe("IdentityEditor", () => {
+  it("utrzymuje cele dotykowe formularza nagłówka na poziomie co najmniej 44px", () => {
+    renderEditor();
+
+    for (const input of screen.getAllByRole("textbox")) {
+      expect(input.classList.contains("min-h-11")).toBe(true);
+    }
+    for (const name of ["Zapisz", "Anuluj"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.classList.contains("min-h-11")).toBe(true);
+      expect(button.classList.contains("min-w-11")).toBe(true);
+    }
+  });
+
   it("zapisuje przycięte imię, nazwisko, e-mail i telefon", async () => {
     const { onClose } = renderEditor();
 

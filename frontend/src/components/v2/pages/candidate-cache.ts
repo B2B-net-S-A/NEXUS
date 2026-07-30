@@ -17,7 +17,7 @@ export function candidateInvalidationKeys(
   switch (kind) {
     case "assignment":
       return [
-        candidateQueryKeys.history(candidateId),
+        candidateQueryKeys.historyRoot(candidateId),
         candidateQueryKeys.recommendationsRoot(candidateId),
         ["candidate-pipelines", Number(candidateId)],
         listKey,
@@ -38,7 +38,7 @@ export function candidateInvalidationKeys(
       ];
     case "rate":
       return [
-        candidateQueryKeys.history(candidateId),
+        candidateQueryKeys.historyRoot(candidateId),
         candidateQueryKeys.detail(candidateId),
         candidateQueryKeys.recommendationsRoot(candidateId),
         listKey,

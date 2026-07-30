@@ -40,7 +40,7 @@ function calcScore(c: any): number {
   let score = 0;
   const fields = [
     c.name, c.lastname, c.email, c.phone, c.location,
-    c.competence_category, c.ai_summary, c.salary_expectation,
+    c.competence_category, c.ai_summary,
   ];
   score += fields.filter(Boolean).length * 5;
   if (Array.isArray(c.skills) && c.skills.length > 0) score += Math.min(c.skills.length * 3, 30);
@@ -131,14 +131,6 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
 
       {/* Info rows */}
       <div className="px-5 py-3 space-y-2 border-b border-border dark:border-border text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Wynagrodzenie:</span>
-          <span className="font-medium">
-            {candidate.salary_expectation
-              ? `${candidate.salary_expectation.toLocaleString()} ${candidate.salary_currency || "PLN"}`
-              : "—"}
-          </span>
-        </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Dostępność:</span>
           <span className="font-medium">

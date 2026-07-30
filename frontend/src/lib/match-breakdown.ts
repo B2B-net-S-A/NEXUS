@@ -9,6 +9,7 @@ export interface MatchLayer {
   points: number;
   max: number;
   reason?: string;
+  status?: "scored" | "unknown" | "not_comparable" | string;
 }
 
 export interface MatchBreakdown {
@@ -30,6 +31,8 @@ export interface BreakdownLayer {
   label: string;
   points: number;
   max: number;
+  status?: MatchLayer["status"];
+  reason?: string;
 }
 
 export interface BreakdownSummary {
@@ -45,7 +48,7 @@ const LAYER_LABELS: Array<[keyof MatchBreakdown, string]> = [
   ["semantic", "Semantyczne"],
   ["location", "Lokalizacja"],
   ["availability", "Dyspozycyjność"],
-  ["salary", "Wynagrodzenie"],
+  ["salary", "Stawka B2B"],
   ["champion_fit", "Champion"],
 ];
 
@@ -70,6 +73,8 @@ export function summarizeBreakdown(
           label,
           points: Math.round(layer.points ?? 0),
           max: Math.round(layer.max),
+          status: layer.status,
+          reason: layer.reason,
         });
       }
     }

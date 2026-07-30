@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import api, {
   aiWriterApi,
+  candidateProfileApi,
   phase5Api,
   pipelineTemplatesApi,
   requestHistoryApi,
@@ -285,13 +286,10 @@ interface CandidateFormData {
   lastname: string;
   email: string;
   phone: string;
-  location: string;
+  city: string;
+  country: string;
   source: string;
   linkedin: string;
-  salary_expectation: string;
-  salary_currency: string;
-  expected_rate_hourly: string;
-  expected_rate_currency: string;
   availability_date: string;
   notice_period: string;
   notice_period_unit: string; // "days" | "weeks" | "months"
@@ -306,20 +304,17 @@ interface CandidateFormData {
   verified_tech: string; // comma separated
   // Preferences JSONB
   pref_remote_modes: string[]; // ['remote','hybrid','on_site']
-  pref_rate_min: string;
-  pref_rate_max: string;
   pref_industries: string; // comma separated
   pref_contract_types: string[]; // ['b2b','uop','zlecenie']
   pref_excluded_clients: string; // comma separated client ids
 }
 
 const EMPTY_CANDIDATE: CandidateFormData = {
-  name: "", lastname: "", email: "", phone: "", location: "",
-  source: "manual", linkedin: "", salary_expectation: "", salary_currency: "PLN",
-  expected_rate_hourly: "", expected_rate_currency: "PLN",
+  name: "", lastname: "", email: "", phone: "", city: "", country: "",
+  source: "manual", linkedin: "",
   availability_date: "", notice_period: "", notice_period_unit: "days", status: "active", availability_status: "unknown", tags: "", notes: "",
   years_it_experience: "", champion: false, verifier_id: "", verified_tech: "",
-  pref_remote_modes: [], pref_rate_min: "", pref_rate_max: "",
+  pref_remote_modes: [],
   pref_industries: "", pref_contract_types: [], pref_excluded_clients: "",
 };
 
@@ -345,13 +340,10 @@ function candidateToForm(c: any): CandidateFormData {
     lastname: c.lastname ?? "",
     email: c.email ?? "",
     phone: c.phone ?? "",
-    location: c.location ?? "",
+    city: c.city ?? c.location ?? "",
+    country: c.country ?? "",
     source: c.source ?? "manual",
     linkedin: c.linkedin ?? "",
-    salary_expectation: c.salary_expectation ? String(c.salary_expectation) : "",
-    salary_currency: c.salary_currency ?? "PLN",
-    expected_rate_hourly: c.expected_rate_hourly ? String(c.expected_rate_hourly) : "",
-    expected_rate_currency: c.expected_rate_currency ?? "PLN",
     availability_date: c.availability_date ? c.availability_date.slice(0, 10) : "",
     notice_period: c.notice_period != null ? String(c.notice_period) : "",
     notice_period_unit: c.notice_period_unit ?? (c.notice_period != null ? "days" : "days"),
@@ -364,8 +356,6 @@ function candidateToForm(c: any): CandidateFormData {
     verifier_id: c.verifier_id != null ? String(c.verifier_id) : "",
     verified_tech: _verifiedTechToString(c.verified_tech),
     pref_remote_modes: Array.isArray(prefs.remote_modes) ? prefs.remote_modes : [],
-    pref_rate_min: prefs.rate_min != null ? String(prefs.rate_min) : "",
-    pref_rate_max: prefs.rate_max != null ? String(prefs.rate_max) : "",
     pref_industries: Array.isArray(prefs.industries) ? prefs.industries.join(", ") : "",
     pref_contract_types: Array.isArray(prefs.contract_types) ? prefs.contract_types : [],
     pref_excluded_clients: Array.isArray(prefs.excluded_clients)
@@ -393,8 +383,6 @@ function candidateFormToPayload(form: CandidateFormData) {
 
   const preferences: Record<string, unknown> = {};
   if (form.pref_remote_modes.length) preferences.remote_modes = form.pref_remote_modes;
-  if (form.pref_rate_min) preferences.rate_min = Number(form.pref_rate_min);
-  if (form.pref_rate_max) preferences.rate_max = Number(form.pref_rate_max);
   if (industries.length) preferences.industries = industries;
   if (form.pref_contract_types.length) preferences.contract_types = form.pref_contract_types;
   if (excluded.length) preferences.excluded_clients = excluded;
@@ -404,13 +392,10 @@ function candidateFormToPayload(form: CandidateFormData) {
     lastname: form.lastname,
     email: form.email || undefined,
     phone: form.phone || undefined,
-    location: form.location || undefined,
+    city: form.city || undefined,
+    country: form.country.trim().toUpperCase() || undefined,
     source: form.source,
     linkedin: form.linkedin || undefined,
-    salary_expectation: form.salary_expectation ? Number(form.salary_expectation) : undefined,
-    salary_currency: form.salary_currency,
-    expected_rate_hourly: form.expected_rate_hourly ? Number(form.expected_rate_hourly) : undefined,
-    expected_rate_currency: form.expected_rate_currency || undefined,
     availability_date: form.availability_date || undefined,
     notice_period: form.notice_period ? Number(form.notice_period) : undefined,
     notice_period_unit: form.notice_period ? (form.notice_period_unit || "days") : undefined,
@@ -479,8 +464,16 @@ function CandidateFormFields({
         <FieldGroup label="Telefon">
           <Input type="tel" value={form.phone} onChange={e => onChange("phone", e.target.value)} placeholder="+48 500..." />
         </FieldGroup>
-        <FieldGroup label="Lokalizacja">
-          <Input value={form.location} onChange={e => onChange("location", e.target.value)} placeholder="Warszawa" />
+        <FieldGroup label="Miasto">
+          <Input value={form.city} onChange={e => onChange("city", e.target.value)} placeholder="Warszawa" />
+        </FieldGroup>
+        <FieldGroup label="Kraj (ISO)">
+          <Input
+            value={form.country}
+            onChange={e => onChange("country", e.target.value.slice(0, 2).toUpperCase())}
+            placeholder="PL"
+            maxLength={2}
+          />
         </FieldGroup>
         <FieldGroup label="Źródło">
           <Select value={form.source} onChange={e => onChange("source", e.target.value)}>
@@ -496,17 +489,7 @@ function CandidateFormFields({
       <FieldGroup label="LinkedIn URL">
         <Input value={form.linkedin} onChange={e => onChange("linkedin", e.target.value)} placeholder="https://linkedin.com/in/..." />
       </FieldGroup>
-      <div className="grid grid-cols-3 gap-3">
-        <FieldGroup label="Oczekiwania finansowe">
-          <Input type="number" value={form.salary_expectation} onChange={e => onChange("salary_expectation", e.target.value)} placeholder="20000" />
-        </FieldGroup>
-        <FieldGroup label="Waluta">
-          <Select value={form.salary_currency} onChange={e => onChange("salary_currency", e.target.value)}>
-            <option value="PLN">PLN</option>
-            <option value="EUR">EUR</option>
-            <option value="USD">USD</option>
-          </Select>
-        </FieldGroup>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FieldGroup label="Okres wypowiedzenia">
           <div className="grid grid-cols-[1fr_1.2fr] gap-2">
             <Input
@@ -527,24 +510,6 @@ function CandidateFormFields({
               <option value="months">miesiące</option>
             </Select>
           </div>
-        </FieldGroup>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Stawka godzinowa B2B (PLN/h)">
-          <Input
-            type="number"
-            min={0}
-            value={form.expected_rate_hourly}
-            onChange={e => onChange("expected_rate_hourly", e.target.value)}
-            placeholder="np. 150"
-          />
-        </FieldGroup>
-        <FieldGroup label="Waluta stawki">
-          <Select value={form.expected_rate_currency} onChange={e => onChange("expected_rate_currency", e.target.value)}>
-            <option value="PLN">PLN</option>
-            <option value="EUR">EUR</option>
-            <option value="USD">USD</option>
-          </Select>
         </FieldGroup>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -653,24 +618,6 @@ function CandidateFormFields({
             <CB field="pref_contract_types" value="zlecenie" label="Zlecenie" />
           </div>
         </FieldGroup>
-        <div className="grid grid-cols-2 gap-3">
-          <FieldGroup label="Stawka min (PLN)">
-            <Input
-              type="number"
-              value={form.pref_rate_min}
-              onChange={e => onChange("pref_rate_min", e.target.value)}
-              placeholder="12000"
-            />
-          </FieldGroup>
-          <FieldGroup label="Stawka max (PLN)">
-            <Input
-              type="number"
-              value={form.pref_rate_max}
-              onChange={e => onChange("pref_rate_max", e.target.value)}
-              placeholder="20000"
-            />
-          </FieldGroup>
-        </div>
         <FieldGroup label="Preferowane branże (rozdzielone przecinkami)">
           <Input
             value={form.pref_industries}
@@ -874,7 +821,20 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError("");
     try {
-      await api.patch(`/api/candidates/${candidate.id}`, candidateFormToPayload(form));
+      const { city: _city, country: _country, ...profilePayload } =
+        candidateFormToPayload(form);
+      await api.patch(`/api/candidates/${candidate.id}`, profilePayload);
+
+      const nextCity = form.city.trim();
+      const nextCountry = form.country.trim().toUpperCase();
+      const currentCity = String(candidate.city ?? candidate.location ?? "").trim();
+      const currentCountry = String(candidate.country ?? "").trim().toUpperCase();
+      if (nextCity !== currentCity || nextCountry !== currentCountry) {
+        await candidateProfileApi.updateLocation(candidate.id, {
+          city: nextCity || null,
+          country: nextCountry || null,
+        });
+      }
       onSuccess("Kandydat zaktualizowany");
       onClose();
     } catch (err: any) {

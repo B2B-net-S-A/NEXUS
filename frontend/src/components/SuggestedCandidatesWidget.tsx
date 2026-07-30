@@ -74,8 +74,6 @@ function snapshotToMatches(snap: ProposalSnapshot): ScoredCandidateMatch[] {
       email: item.candidate.email,
       location: item.candidate.location,
       champion: item.candidate.champion ?? false,
-      salary_expectation: item.candidate.salary_expectation,
-      salary_currency: item.candidate.salary_currency,
       years_it_experience: item.candidate.years_it_experience,
       competence_category: item.candidate.competence_category,
       avatar_url: item.candidate.avatar_url,
@@ -500,11 +498,6 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
                     )}
                     {cand.years_it_experience != null && (
                       <span>{cand.years_it_experience}y IT</span>
-                    )}
-                    {cand.salary_expectation != null && (
-                      <span>
-                        💰 {cand.salary_expectation.toLocaleString()} {cand.salary_currency ?? "PLN"}
-                      </span>
                     )}
                     {cand.competence_category && (
                       <span className="text-[11px]">· {cand.competence_category}</span>

@@ -10,16 +10,12 @@ export interface AdvancedFilters {
   skills: string[];
   skillCombine: "and" | "or";
   remotePolicy: "" | "remote" | "hybrid" | "onsite";
-  minSalary: number | null;
-  maxSalary: number | null;
 }
 
 export const EMPTY_ADVANCED_FILTERS: AdvancedFilters = {
   skills: [],
   skillCombine: "and",
   remotePolicy: "",
-  minSalary: null,
-  maxSalary: null,
 };
 
 interface AdvancedFilterBarProps {
@@ -167,7 +163,8 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
         )}
       </div>
 
-      {/* Row: remote + salary */}
+      {/* Work-mode filters. Candidate rate is handled only by the typed
+          hourly profile/search contract, never by legacy salary aliases. */}
       <div className="flex gap-2 flex-wrap">
         <div className="flex gap-1 border border-border dark:border-border rounded-lg p-0.5 bg-card dark:bg-muted">
           {REMOTE_OPTIONS.map((opt) => {
@@ -192,34 +189,6 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
             );
           })}
         </div>
-        <input
-          type="number"
-          value={value.minSalary ?? ""}
-          min={0}
-          step={1000}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              minSalary: e.target.value === "" ? null : Number(e.target.value),
-            })
-          }
-          placeholder="od PLN"
-          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-hidden focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
-        />
-        <input
-          type="number"
-          value={value.maxSalary ?? ""}
-          min={0}
-          step={1000}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              maxSalary: e.target.value === "" ? null : Number(e.target.value),
-            })
-          }
-          placeholder="do PLN"
-          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-hidden focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
-        />
       </div>
     </div>
   );

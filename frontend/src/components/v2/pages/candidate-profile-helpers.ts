@@ -33,12 +33,6 @@ export interface CandidateProfileLite extends CandidateLite {
   languages?: unknown;
   city?: string | null;
   location?: string | null;
-  // Detail endpoint exposes salary as expected_salary/currency (hero stat tile
-  // reads these); the list endpoint uses salary_expectation. Accept both.
-  expected_salary?: number | null;
-  salary_expectation?: number | null;
-  currency?: string | null;
-  salary_currency?: string | null;
   availability_status?: string | null;
 }
 
@@ -101,20 +95,11 @@ const _AVAILABILITY_LABEL: Record<string, string> = {
   not_looking: "nie szuka",
 };
 
-/** Format an expected-salary value as a compact "20k PLN" style string. */
-function _formatSalary(c: CandidateProfileLite): string | null {
-  const value = c.expected_salary ?? c.salary_expectation ?? null;
-  if (value == null || value <= 0) return null;
-  const currency = c.currency ?? c.salary_currency ?? "PLN";
-  const k = value >= 1000 ? `${Math.round(value / 1000)}k` : String(value);
-  return `${k} ${currency}`;
-}
-
 /** Build a scannable one-line summary for the profile header.
  *
  *  Joins the available high-signal facts with " · ", skipping any segment
  *  that has no data:
- *    "Senior Python Developer · 7+ lat · Warszawa · 20k PLN · otwarty na oferty"
+ *    "Senior Python Developer · 7+ lat · Warszawa · otwarty na oferty"
  *
  *  Returns null when nothing meaningful is available, so the caller can fall
  *  back to the existing current_role line or render nothing. */
@@ -129,9 +114,6 @@ export function getCandidateSummaryLine(c: CandidateProfileLite): string | null 
 
   const loc = formatCandidateLocation(c.city ?? c.location ?? null);
   if (loc) segments.push(loc);
-
-  const salary = _formatSalary(c);
-  if (salary) segments.push(salary);
 
   const availability = c.availability_status
     ? _AVAILABILITY_LABEL[c.availability_status]

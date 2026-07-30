@@ -31,6 +31,25 @@ describe("summarizeBreakdown", () => {
       label: "Umiejętności",
       points: 28,
       max: 35,
+      status: undefined,
+      reason: "Python, AWS",
+    });
+  });
+
+  it("preserves the not-comparable financial state for honest rendering", () => {
+    const s = summarizeBreakdown({
+      salary: {
+        points: 10,
+        max: 10,
+        status: "not_comparable",
+        reason: "candidate hourly, job monthly",
+      },
+    });
+
+    expect(s.layers[0]).toMatchObject({
+      key: "salary",
+      status: "not_comparable",
+      reason: "candidate hourly, job monthly",
     });
   });
 

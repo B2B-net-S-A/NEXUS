@@ -31,8 +31,6 @@ const REQUEST_KEYS = [
   "languages",
   "rate_hourly_min",
   "rate_hourly_max",
-  "salary_min",
-  "salary_max",
   "status",
   "availability_status",
   "search_mode",

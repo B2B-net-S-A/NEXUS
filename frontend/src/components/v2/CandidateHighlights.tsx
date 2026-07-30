@@ -277,7 +277,7 @@ export function AtOurClientBanner({
  {employment.contract_id ? (
  <Link
  href={`/contracts/${employment.contract_id}?from=candidate`}
- className={cn("inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-md border border-primary-foreground/30 px-3 py-1.5 sm:w-auto",
+ className={cn("inline-flex min-h-11 min-w-11 w-full shrink-0 items-center justify-center gap-1 rounded-md border border-primary-foreground/30 px-3 py-1.5 sm:w-auto",
  "text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-foreground"
  )}
  >

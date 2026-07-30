@@ -66,8 +66,6 @@ function candidateMatch(
       email: null,
       location: "Warszawa",
       champion: false,
-      salary_expectation: null,
-      salary_currency: null,
       years_it_experience: 6,
       competence_category: "Backend",
     },
