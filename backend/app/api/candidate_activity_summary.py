@@ -28,16 +28,13 @@ from app.api.deps import OperationalUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
-from app.models.candidate_activity_summary import CandidateActivitySummary
-from app.services.ai_quota import AIQuotaExceeded
-from app.services.candidate_activity_summary_service import (
-    CandidateActivitySummaryLLMError,
-    CandidateActivitySummaryNotFound,
-    get_cached,
-    get_or_generate,
-)
 
 router = APIRouter()
+
+_CONTAINMENT_DETAIL = (
+    "Podsumowanie aktywności AI jest tymczasowo wyłączone do czasu "
+    "bezpiecznej regeneracji cache."
+)
 
 
 class CandidateActivitySummaryOut(BaseModel):
@@ -51,23 +48,6 @@ class CandidateActivitySummaryOut(BaseModel):
     refreshed: Optional[bool] = None
 
 
-def _serialize(
-    candidate_id: int,
-    row: Optional[CandidateActivitySummary],
-    *,
-    refreshed: Optional[bool] = None,
-) -> CandidateActivitySummaryOut:
-    if row is None:
-        return CandidateActivitySummaryOut(candidate_id=candidate_id)
-    return CandidateActivitySummaryOut(
-        candidate_id=candidate_id,
-        summary=row.summary,
-        model=row.model,
-        generated_at=row.generated_at,
-        refreshed=refreshed,
-    )
-
-
 @router.get(
     "/{candidate_id}/activity-summary",
     response_model=CandidateActivitySummaryOut,
@@ -79,19 +59,17 @@ async def get_activity_summary(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateActivitySummaryOut:
-    """Cached activity note. Never triggers a (paid) generation — profile
-    views stay free; use the refresh endpoint to (re)generate."""
-    row = await get_cached(candidate_id, db)
-    if row is None:
-        # Only the empty-cache path needs the existence probe: a stored note
-        # already proves the candidate exists (FK), so the common cached read
-        # stays a single query.
-        exists = await db.scalar(
-            select(Candidate.id).where(Candidate.id == candidate_id)
-        )
-        if exists is None:
-            raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
-    return _serialize(candidate_id, row)
+    """Fail closed while legacy cache entries have no visibility scope.
+
+    Revision 0204 created one shared cache row per candidate. Those rows can
+    contain financial facts and data from recruitments that are not visible to
+    the current user. Until scope-aware cache keys and a financial-content
+    policy are deployed, the API deliberately behaves like an empty cache.
+    """
+    exists = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
+    return CandidateActivitySummaryOut(candidate_id=candidate_id)
 
 
 @router.post(
@@ -107,21 +85,5 @@ async def refresh_activity_summary(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateActivitySummaryOut:
-    """ "Aktualizuj notatkę": re-gather the candidate history and regenerate
-    the note. If nothing changed since the last generation, the cached note is
-    returned (``refreshed=false``) without spending an AI call."""
-    try:
-        row, generated = await get_or_generate(
-            candidate_id, db, user_id=current_user.id
-        )
-    except CandidateActivitySummaryNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except AIQuotaExceeded as exc:
-        # AI globally off / feature disabled / monthly limit hit.
-        raise HTTPException(status_code=503, detail=str(exc.reason)) from exc
-    except CandidateActivitySummaryLLMError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Nie udało się wygenerować podsumowania AI: {exc}",
-        ) from exc
-    return _serialize(candidate_id, row, refreshed=generated)
+    """Block generation while the only available cache format is unscoped."""
+    raise HTTPException(status_code=503, detail=_CONTAINMENT_DETAIL)
