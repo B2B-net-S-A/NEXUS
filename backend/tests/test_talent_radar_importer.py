@@ -1,6 +1,8 @@
 """Unit tests for TalentRadarImporter normalizers (Phase 7a)."""
 
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -30,38 +32,6 @@ def test_seniority_unknown_kept_as_lowercase():
 def test_seniority_none_returns_none():
     assert tri.normalize_seniority(None) is None
     assert tri.normalize_seniority("") is None
-
-
-# ── parse_salary ─────────────────────────────────────────────────────────────
-
-
-def test_salary_plain_number():
-    assert tri.parse_salary("15000") == 15000
-
-
-def test_salary_with_currency_and_text():
-    assert tri.parse_salary("15000 PLN netto") == 15000
-    assert tri.parse_salary("oczekiwania: 25000 zł") == 25000
-
-
-def test_salary_with_range_takes_first_number():
-    assert tri.parse_salary("15000-20000") == 15000
-
-
-def test_salary_with_spaces_and_commas():
-    assert tri.parse_salary("15 000") == 15000
-    assert tri.parse_salary("15,000 PLN") == 15000
-
-
-def test_salary_none_for_empty_or_non_numeric():
-    assert tri.parse_salary(None) is None
-    assert tri.parse_salary("") is None
-    assert tri.parse_salary("negotiable") is None
-
-
-def test_salary_rejects_too_short_numbers():
-    # Regex requires 4-6 digits, so "500" won't match
-    assert tri.parse_salary("500") is None
 
 
 # ── parse_availability ───────────────────────────────────────────────────────
@@ -142,3 +112,118 @@ def test_import_progress_caps_error_samples_at_20():
     for i in range(30):
         p.error_samples.append(f"error {i}")
     assert len(p.as_dict()["error_samples"]) == 20
+
+
+def test_payload_normalizes_location_to_canonical_facts():
+    importer = tri.TalentRadarImporter(
+        source_dsn="",
+        target_db=object(),
+        dry_run=True,
+    )
+    row = {
+        "id": 987,
+        "traffit_id": 123,
+        "email": None,
+        "name": "Anna",
+        "lastname": "Nowak",
+        "raw_cv_text": None,
+        "cv_content": None,
+        "cv_filename": None,
+        "extracted_data": None,
+        "skills": None,
+        "experience_years": None,
+        "seniority": None,
+        "languages": None,
+        "location": "Berlin, Niemcy",
+        "availability": None,
+        "cv_language": None,
+        "cv_date": None,
+    }
+
+    payload = importer._to_payload(row)  # type: ignore[arg-type]
+
+    assert payload["city"] == "Berlin"
+    assert payload["country"] == "DE"
+    assert payload["location"] == "Berlin, DE"
+    assert payload["talent_radar_source_id"] == 987
+
+
+@pytest.mark.asyncio
+async def test_existing_talent_radar_identity_is_reviewed_before_merge(monkeypatch):
+    candidate = SimpleNamespace(id=7, name="Jan", lastname="Kowalski")
+    review = SimpleNamespace(is_quarantined=True)
+    db = SimpleNamespace(scalar=AsyncMock(return_value=candidate))
+    captured: dict[str, object] = {}
+
+    async def fake_record(_db, **kwargs):
+        captured.update(kwargs)
+        return review
+
+    monkeypatch.setattr(
+        "app.services.candidate_identity_quarantine.record_detected_identity",
+        fake_record,
+    )
+    importer = tri.TalentRadarImporter(
+        source_dsn="",
+        target_db=db,
+        dry_run=False,
+    )
+    payload = {
+        "talent_radar_source_id": 987,
+        "name": "Anna",
+        "lastname": "Nowak",
+    }
+
+    assert await importer._existing_source_is_quarantined(7, payload) is True
+    assert captured["source_kind"] == "talent_radar_cv"
+    assert captured["source_id"] == 987
+    assert captured["observed_first_name"] == "Anna"
+    assert captured["observed_last_name"] == "Nowak"
+
+
+@pytest.mark.asyncio
+async def test_quarantined_talent_radar_source_never_reaches_merge_writers(
+    monkeypatch,
+):
+    db = SimpleNamespace(execute=AsyncMock(), commit=AsyncMock())
+    importer = tri.TalentRadarImporter("", db, dry_run=False)
+    monkeypatch.setattr(importer, "_find_existing_id", AsyncMock(return_value=7))
+    monkeypatch.setattr(
+        importer,
+        "_existing_source_is_quarantined",
+        AsyncMock(return_value=True),
+    )
+    storage_work = AsyncMock()
+    monkeypatch.setattr(tri.asyncio, "to_thread", storage_work)
+
+    result = await importer._upsert(
+        [
+            {
+                "talent_radar_source_id": 987,
+                "external_id": "123",
+                "name": "Anna",
+                "lastname": "Nowak",
+                "languages": [{"code": "en", "name": "English"}],
+                "city": "Berlin",
+                "country": "DE",
+            }
+        ]
+    )
+
+    assert result == (0, 0)
+    assert importer.quarantined == 1
+    storage_work.assert_not_awaited()
+    db.execute.assert_not_awaited()
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_talent_radar_dry_run_never_uploads_cv(monkeypatch):
+    importer = tri.TalentRadarImporter("", object(), dry_run=True)
+    storage_work = AsyncMock()
+    monkeypatch.setattr(tri.asyncio, "to_thread", storage_work)
+
+    assert await importer._upsert(
+        [{"talent_radar_source_id": 1, "cv_file_content": b"private"}]
+    ) == (0, 0)
+    storage_work.assert_not_awaited()

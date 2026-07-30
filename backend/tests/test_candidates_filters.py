@@ -69,7 +69,9 @@ async def _seed_pool_with(candidate_ids: list[int], name: str) -> int:
         return pool.id
 
 
-async def _cleanup(candidate_ids: list[int], pool_id: int | None, user_ids: list[int]) -> None:
+async def _cleanup(
+    candidate_ids: list[int], pool_id: int | None, user_ids: list[int]
+) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.talent_pool import TalentPool, TalentPoolMembership
@@ -154,9 +156,7 @@ async def test_filter_by_added_by_mixed_sentinel_and_users(
 
 
 @pytest.mark.asyncio
-async def test_filter_by_talent_pool(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_filter_by_talent_pool(app_client: AsyncClient, app_auth_headers: dict):
     in_pool_1 = await _seed_candidate(location="Łódź", created_by=None)
     in_pool_2 = await _seed_candidate(location="Łódź", created_by=None)
     outside = await _seed_candidate(location="Łódź", created_by=None)
@@ -288,9 +288,7 @@ async def test_availability_filter_accepts_multiple_values(
     op = await _seed_candidate_with_status(
         status="active", availability="open_to_offers"
     )
-    nl = await _seed_candidate_with_status(
-        status="active", availability="not_looking"
-    )
+    nl = await _seed_candidate_with_status(status="active", availability="not_looking")
     try:
         r = await app_client.get(
             "/api/candidates?availability=actively_looking"
@@ -405,9 +403,7 @@ async def test_create_candidate_sets_created_by(
         "lastname": f"CreatedBy-{uuid.uuid4().hex[:6]}",
         "email": f"seed-{uuid.uuid4().hex[:8]}@example.com",
     }
-    r = await app_client.post(
-        "/api/candidates", json=payload, headers=app_auth_headers
-    )
+    r = await app_client.post("/api/candidates", json=payload, headers=app_auth_headers)
     assert r.status_code == 201, r.text
     data = r.json()
     assert isinstance(data.get("created_by"), int) and data["created_by"] > 0
@@ -425,9 +421,15 @@ async def test_filter_by_expected_rate_hourly_range(
     candidate with no expected rate never matches a bounded query.
     """
     low = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=100)
-    inside = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=150)
-    high = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=250)
-    none = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=None)
+    inside = await _seed_candidate(
+        location="W", created_by=None, expected_rate_hourly=150
+    )
+    high = await _seed_candidate(
+        location="W", created_by=None, expected_rate_hourly=250
+    )
+    none = await _seed_candidate(
+        location="W", created_by=None, expected_rate_hourly=None
+    )
     try:
         r = await app_client.get(
             "/api/candidates?min_rate=120&max_rate=200&page_size=100",
@@ -435,10 +437,10 @@ async def test_filter_by_expected_rate_hourly_range(
         )
         assert r.status_code == 200, r.text
         ids = {item["id"] for item in r.json()["items"]}
-        assert inside in ids          # 150 ∈ [120, 200]
-        assert low not in ids         # 100 < 120
-        assert high not in ids        # 250 > 200
-        assert none not in ids        # NULL excluded (exclusive of nulls)
+        assert inside in ids  # 150 ∈ [120, 200]
+        assert low not in ids  # 100 < 120
+        assert high not in ids  # 250 > 200
+        assert none not in ids  # NULL excluded (exclusive of nulls)
     finally:
         await _cleanup([low, inside, high, none], None, [])
 
@@ -448,8 +450,12 @@ async def test_filter_by_expected_rate_hourly_min_only(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     low = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=90)
-    high = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=200)
-    none = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=None)
+    high = await _seed_candidate(
+        location="W", created_by=None, expected_rate_hourly=200
+    )
+    none = await _seed_candidate(
+        location="W", created_by=None, expected_rate_hourly=None
+    )
     try:
         r = await app_client.get(
             "/api/candidates?min_rate=120&page_size=100",
@@ -457,9 +463,9 @@ async def test_filter_by_expected_rate_hourly_min_only(
         )
         assert r.status_code == 200, r.text
         ids = {item["id"] for item in r.json()["items"]}
-        assert high in ids            # 200 >= 120
-        assert low not in ids         # 90 < 120
-        assert none not in ids        # NULL excluded
+        assert high in ids  # 200 >= 120
+        assert low not in ids  # 90 < 120
+        assert none not in ids  # NULL excluded
     finally:
         await _cleanup([low, high, none], None, [])
 
@@ -468,7 +474,7 @@ async def test_filter_by_expected_rate_hourly_min_only(
 async def test_filter_expected_rate_response_roundtrips(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """PATCH sets expected_rate_hourly/currency and the response echoes them."""
+    """The generic PATCH cannot bypass the OCC-managed profile-rate writer."""
     cid = await _seed_candidate(location="W", created_by=None)
     try:
         patch = await app_client.patch(
@@ -476,9 +482,10 @@ async def test_filter_expected_rate_response_roundtrips(
             json={"expected_rate_hourly": 175, "expected_rate_currency": "PLN"},
             headers=app_auth_headers,
         )
-        assert patch.status_code == 200, patch.text
-        body = patch.json()
-        assert body["expected_rate_hourly"] == 175
-        assert body["expected_rate_currency"] == "PLN"
+        assert patch.status_code == 422, patch.text
+        assert (
+            patch.json()["detail"][0]["type"]
+            == "candidate_profile_rate_requires_dedicated_endpoint"
+        )
     finally:
         await _cleanup([cid], None, [])

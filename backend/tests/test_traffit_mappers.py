@@ -353,6 +353,21 @@ class TestTraffitEmployeeToCandidate:
         result = traffit_employee_to_candidate(payload)
         assert result["languages"] == [{"lang": "Polish, English", "level": None}]
 
+    def test_location_blob_is_normalized_to_city_country_projection(self):
+        payload = {
+            "id": 1,
+            "name": "X",
+            "candidate_location": {
+                "locality": "Warszawa",
+                "country": "Polska",
+                "region1": "Mazowieckie",
+            },
+        }
+        result = traffit_employee_to_candidate(payload)
+        assert result["city"] == "Warszawa"
+        assert result["country"] == "PL"
+        assert result["location"] == "Warszawa, PL"
+
     def test_no_files(self):
         payload = {"id": 1, "name": "X", "files": []}
         result = traffit_employee_to_candidate(payload)

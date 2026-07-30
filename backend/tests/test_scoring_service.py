@@ -24,8 +24,7 @@ def make_candidate(**overrides) -> SimpleNamespace:
         verified_tech=[],
         location=None,
         availability_date=None,
-        salary_expectation=None,
-        salary_currency="PLN",
+        expected_rate_hourly=None,
         preferences={},
     )
     defaults.update(overrides)
@@ -80,7 +79,10 @@ def test_skill_names_from_dict_with_technologies_list():
 
 def test_skill_names_from_dict_with_mixed_key_variants():
     """Also accept 'skills', 'stack', 'tech' keys (robustness)."""
-    assert ss._skill_names({"skills": ["React", "TypeScript"]}) == ["react", "typescript"]
+    assert ss._skill_names({"skills": ["React", "TypeScript"]}) == [
+        "react",
+        "typescript",
+    ]
     assert ss._skill_names({"stack": ["Go"]}) == ["go"]
 
 
@@ -163,7 +165,7 @@ def test_skill_names_preserves_slash_compounds():
 
 def test_skill_names_malformed_json_string_falls_back_to_split():
     # Not valid JSON → comma split (never broken '["java' tokens).
-    assert ss._skill_names('[Java, Spring') == ["[java", "spring"]
+    assert ss._skill_names("[Java, Spring") == ["[java", "spring"]
 
 
 # ── _skills_from_cv_extracted ─────────────────────────────────────────────────
@@ -216,7 +218,9 @@ def test_candidate_skill_names_empty_everything():
 def test_score_skills_uses_cv_extracted_when_skills_empty():
     """Jacek Karwowski (id 25479) regression: empty `skills`, tech lives in
     cv_extracted_data.traffit_technologie. Must skills should match, not gap."""
-    job = make_job(must_skills=[{"name": "Java"}, {"name": "Spring"}, {"name": "PostgreSQL"}])
+    job = make_job(
+        must_skills=[{"name": "Java"}, {"name": "Spring"}, {"name": "PostgreSQL"}]
+    )
     cand = make_candidate(
         skills=[],
         verified_tech=[],
@@ -279,35 +283,30 @@ def test_score_skills_raw_cv_fallback(alias_map_loaded):
 # ── _score_salary ────────────────────────────────────────────────────────────
 
 
-def test_salary_in_range_full_points():
+def test_cross_unit_rate_is_not_comparable_and_does_not_reduce_score():
     job = make_job(salary_min=15000, salary_max=25000)
-    cand = make_candidate(salary_expectation=20000)
+    cand = make_candidate(expected_rate_hourly=150)
     r = ss._score_salary(cand, job)
     assert r.points == pytest.approx(ss.SALARY_MAX)
-    assert "widełkach" in r.reason
+    assert r.status == "not_comparable"
+    assert "not_comparable" in r.reason
 
 
-def test_salary_above_range_decays():
-    job = make_job(salary_min=15000, salary_max=20000)
-    cand = make_candidate(salary_expectation=22000)  # 10% over
-    r = ss._score_salary(cand, job)
-    assert 0 < r.points < ss.SALARY_MAX
-    assert "powyżej" in r.reason
+def test_zero_hourly_rate_is_still_a_known_cross_unit_value():
+    candidate = make_candidate(expected_rate_hourly=0)
+    job = make_job(salary_min=10_000, salary_max=20_000)
 
+    result = ss._score_salary(candidate, job)
 
-def test_salary_below_range_decays():
-    job = make_job(salary_min=20000, salary_max=30000)
-    cand = make_candidate(salary_expectation=18000)  # 10% under
-    r = ss._score_salary(cand, job)
-    assert 0 < r.points < ss.SALARY_MAX
-    assert "poniżej" in r.reason
+    assert result.status == "not_comparable"
+    assert result.points == pytest.approx(ss.SALARY_MAX)
 
 
 def test_salary_missing_data_gets_neutral():
     # Recalibration: unknown salary is "no signal", not a negative → neutral
     # half-budget (matching availability/champion), not a hard 0.
     job = make_job(salary_min=None, salary_max=None)
-    cand = make_candidate(salary_expectation=None)
+    cand = make_candidate(expected_rate_hourly=None)
     r = ss._score_salary(cand, job)
     assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
     assert "brak" in r.reason
@@ -316,32 +315,20 @@ def test_salary_missing_data_gets_neutral():
 def test_salary_missing_job_range_gets_neutral():
     # Candidate has a rate but the job has no range → still unjudgeable → neutral.
     job = make_job(salary_min=None, salary_max=None)
-    cand = make_candidate(salary_expectation=20000)
+    cand = make_candidate(expected_rate_hourly=150)
     r = ss._score_salary(cand, job)
     assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
 
 
-def test_salary_in_range_beats_unknown_beats_far_over():
-    # The neutral convention must keep the sensible ordering:
-    #   in-range (full) > unknown (neutral) > badly-out-of-range (decayed).
+def test_not_comparable_beats_unknown_without_penalty():
     job = make_job(salary_min=50000, salary_max=60000)
-    in_range = ss._score_salary(make_candidate(salary_expectation=55000), job)
+    not_comparable = ss._score_salary(make_candidate(expected_rate_hourly=200), job)
     unknown = ss._score_salary(
-        make_candidate(salary_expectation=None),
+        make_candidate(expected_rate_hourly=None),
         make_job(salary_min=None, salary_max=None),
     )
-    far_over = ss._score_salary(make_candidate(salary_expectation=80000), job)
-    assert in_range.points > unknown.points > far_over.points
-
-
-def test_salary_preferences_override_salary_expectation():
-    job = make_job(salary_min=15000, salary_max=25000)
-    cand = make_candidate(
-        salary_expectation=None,
-        preferences={"rate_min": 18000, "rate_max": 22000},
-    )
-    r = ss._score_salary(cand, job)
-    assert r.points == pytest.approx(ss.SALARY_MAX)
+    assert not_comparable.points == pytest.approx(ss.SALARY_MAX)
+    assert not_comparable.points > unknown.points
 
 
 # ── _score_location ──────────────────────────────────────────────────────────
@@ -462,7 +449,9 @@ def test_location_known_mismatch_still_zero():
     # pref the job doesn't offer AND a different city earns a hard 0 — known
     # mismatches are not given benefit of the doubt.
     job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
-    cand = make_candidate(location='{"locality":"Gdańsk"}', preferences={"remote_modes": ["remote"]})
+    cand = make_candidate(
+        location='{"locality":"Gdańsk"}', preferences={"remote_modes": ["remote"]}
+    )
     r = ss._score_location(cand, job)
     assert r.points == 0.0
     assert r.reason == "brak dopasowania"
@@ -511,7 +500,7 @@ def test_semantic_mid_similarity_calibrated():
     # gamma power curve (default 0.6): 0.5 ** 0.6 ≈ 0.66 of budget — lifts the
     # deflated middle above the old linear 0.5.
     r = ss.score_semantic(0.5)
-    expected = (0.5 ** ss.SEMANTIC_CALIBRATION_GAMMA) * ss.SEMANTIC_MAX
+    expected = (0.5**ss.SEMANTIC_CALIBRATION_GAMMA) * ss.SEMANTIC_MAX
     assert r.points == pytest.approx(expected)
     if ss.SEMANTIC_CALIBRATION_GAMMA < 1.0:
         assert r.points > ss.SEMANTIC_MAX * 0.5
@@ -528,7 +517,7 @@ def test_semantic_gamma_curve_monotonic_and_pinned():
     assert pts[-1] == pytest.approx(ss.SEMANTIC_MAX)
     # each point follows the configured power curve
     for s, p in zip(sims, pts):
-        assert p == pytest.approx((s ** g) * ss.SEMANTIC_MAX)
+        assert p == pytest.approx((s**g) * ss.SEMANTIC_MAX)
 
 
 # ── _score_champion_fit (Phase 10/11) ────────────────────────────────────────
@@ -560,8 +549,16 @@ async def test_champion_fit_perfect_fit_full_points():
     stage = SimpleNamespace(
         screening_answers={
             "answers": [
-                {"question_id": "q1", "response": "świetna odpowiedź", "deal_breaker_hit": False},
-                {"question_id": "q2", "response": "druga odpowiedź", "deal_breaker_hit": False},
+                {
+                    "question_id": "q1",
+                    "response": "świetna odpowiedź",
+                    "deal_breaker_hit": False,
+                },
+                {
+                    "question_id": "q2",
+                    "response": "druga odpowiedź",
+                    "deal_breaker_hit": False,
+                },
             ],
             "overall_fit": "fit",
             "notes": "",
@@ -623,7 +620,11 @@ async def test_champion_fit_partial_answers_proportional():
     stage = SimpleNamespace(
         screening_answers={
             "answers": [
-                {"question_id": "q1", "response": "konkretna odpowiedź", "deal_breaker_hit": False},
+                {
+                    "question_id": "q1",
+                    "response": "konkretna odpowiedź",
+                    "deal_breaker_hit": False,
+                },
                 {"question_id": "q2", "response": "", "deal_breaker_hit": False},
             ],
             "overall_fit": "fit",
@@ -704,7 +705,12 @@ def _breakdown(total: float) -> ss.ScoreBreakdown:
 
 
 def test_summarize_match_stats_counts_above_threshold():
-    breakdowns = [_breakdown(80.0), _breakdown(55.0), _breakdown(30.0), _breakdown(50.0)]
+    breakdowns = [
+        _breakdown(80.0),
+        _breakdown(55.0),
+        _breakdown(30.0),
+        _breakdown(50.0),
+    ]
     stats = ss.summarize_match_stats(breakdowns, total_open=4, min_score=50.0)
     # 50.0 inclusive; 55 and 80 also pass
     assert stats == {"open_count": 3, "total_open": 4, "top_score": 80.0}
@@ -764,12 +770,23 @@ async def test_sparse_traffit_job_metadata_all_neutral():
     availability/champion). The composite is lifted well above the old ~55 cap."""
     db = _FakeScalarDB(None)  # no screening, no conflict
     job = make_job(
-        id=1, location=None, deadline=None, salary_min=None, salary_max=None,
-        must_skills=[], nice_skills=[], client_id=None,
+        id=1,
+        location=None,
+        deadline=None,
+        salary_min=None,
+        salary_max=None,
+        must_skills=[],
+        nice_skills=[],
+        client_id=None,
     )
     cand = make_candidate(
-        id=1, skills=[], verified_tech=[], tags=[],
-        location=None, availability_date=None, salary_expectation=None,
+        id=1,
+        skills=[],
+        verified_tech=[],
+        tags=[],
+        location=None,
+        availability_date=None,
+        expected_rate_hourly=None,
         preferences={},
     )
     b = await ss.score_candidate_job(cand, job, db, semantic_similarity=0.5)
@@ -791,9 +808,11 @@ def test_legacy_reproduced_with_gamma_1_and_neutral_0(monkeypatch):
     assert ss.score_semantic(0.5).points == pytest.approx(ss.SEMANTIC_MAX * 0.5)
 
     job = make_job(salary_min=None, salary_max=None)
-    cand = make_candidate(salary_expectation=None)
+    cand = make_candidate(expected_rate_hourly=None)
     assert ss._score_salary(cand, job).points == 0.0
 
-    job_loc = make_job(location="Kraków", remote_policy=SimpleNamespace(value="on_site"))
+    job_loc = make_job(
+        location="Kraków", remote_policy=SimpleNamespace(value="on_site")
+    )
     cand_loc = make_candidate(location=None, preferences={})
     assert ss._score_location(cand_loc, job_loc).points == 0.0

@@ -8,7 +8,7 @@ a candidate curated by hand stayed searchable on months-stale vector content.
 
 Fix: ``update_candidate`` now calls ``schedule_or_embed_candidate`` when any
 ``_EMBEDDING_TEXT_FIELDS`` field changed (outbox-on → fast enqueue; off → inline
-embed), and NOT when only a non-text field (e.g. salary_expectation) changed.
+embed), and NOT when only a non-text field (e.g. availability status) changed.
 
 Behavioural against a real Postgres, patching the re-embed call so no Voyage /
 Qdrant network is needed; plus an AST guard on the wiring.
@@ -77,10 +77,10 @@ async def test_patch_does_not_reembed_on_nontext_field(monkeypatch) -> None:
 
     async with AsyncSessionLocal() as db:
         cid, uid = await _seed(db)
-        # salary_expectation invalidates the score cache but is NOT embedding text.
+        # Availability status is a profile edit but not embedding text.
         await update_candidate(
             cid,
-            CandidateUpdate(salary_expectation=12000),
+            CandidateUpdate(availability_status="open_to_offers"),
             current_user=SimpleNamespace(id=uid),
             db=db,
         )

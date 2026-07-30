@@ -63,7 +63,12 @@ async def test_external_id_match_wins_over_email():
     imp = _make_importer()
     imp._ext_id_to_id = {"123": 10}
     imp._email_to_id = {"jan@x.pl": 20}
-    payload = {"external_id": "123", "email": "jan@x.pl", "name": "Jan", "lastname": "K"}
+    payload = {
+        "external_id": "123",
+        "email": "jan@x.pl",
+        "name": "Jan",
+        "lastname": "K",
+    }
     assert await imp._find_existing_id(payload) == 10
 
 
@@ -72,7 +77,12 @@ async def test_falls_back_to_email_when_external_id_unknown():
     imp = _make_importer()
     imp._ext_id_to_id = {}
     imp._email_to_id = {"jan@x.pl": 20}
-    payload = {"external_id": "999", "email": "JAN@x.pl ", "name": "Jan", "lastname": "K"}
+    payload = {
+        "external_id": "999",
+        "email": "JAN@x.pl ",
+        "name": "Jan",
+        "lastname": "K",
+    }
     assert await imp._find_existing_id(payload) == 20
 
 
@@ -80,24 +90,36 @@ async def test_falls_back_to_email_when_external_id_unknown():
 async def test_namesake_only_dedup_is_rejected(monkeypatch):
     """A bare name match (no hard corroborator) must NOT merge — different
     people share names."""
+
     async def fake_dupes(*args, **kwargs):
         return [{"candidate_id": 30, "match_reasons": ["name_exact"]}]
 
     monkeypatch.setattr(tri, "find_candidate_duplicates", fake_dupes)
     imp = _make_importer()
-    payload = {"external_id": "new-1", "email": None, "name": "Anna", "lastname": "Nowak"}
+    payload = {
+        "external_id": "new-1",
+        "email": None,
+        "name": "Anna",
+        "lastname": "Nowak",
+    }
     assert await imp._find_existing_id(payload) is None
 
 
 @pytest.mark.asyncio
 async def test_corroborated_dedup_merges(monkeypatch):
     """Name + a hard corroborator (phone/linkedin/email) is trusted."""
+
     async def fake_dupes(*args, **kwargs):
         return [{"candidate_id": 30, "match_reasons": ["name_exact", "phone_exact"]}]
 
     monkeypatch.setattr(tri, "find_candidate_duplicates", fake_dupes)
     imp = _make_importer()
-    payload = {"external_id": "new-2", "email": None, "name": "Anna", "lastname": "Nowak"}
+    payload = {
+        "external_id": "new-2",
+        "email": None,
+        "name": "Anna",
+        "lastname": "Nowak",
+    }
     assert await imp._find_existing_id(payload) == 30
 
 
@@ -108,7 +130,12 @@ async def test_no_match_returns_none(monkeypatch):
 
     monkeypatch.setattr(tri, "find_candidate_duplicates", fake_dupes)
     imp = _make_importer()
-    payload = {"external_id": "brand-new", "email": "fresh@x.pl", "name": "Ola", "lastname": "Z"}
+    payload = {
+        "external_id": "brand-new",
+        "email": "fresh@x.pl",
+        "name": "Ola",
+        "lastname": "Z",
+    }
     assert await imp._find_existing_id(payload) is None
 
 
@@ -143,8 +170,12 @@ def test_merge_params_serializes_json_and_sets_nexus_id():
     params = tri.TalentRadarImporter._merge_params(payload, nexus_id=42)
     assert params["nexus_id"] == 42
     assert params["skills"] == '["python", "go"]'
-    assert params["languages"] == '["pl", "en"]'
+    # Languages are persisted only by candidate_language_writer after the
+    # candidate id is resolved; the raw SQL candidate merge cannot write them.
+    assert "languages" not in params
     assert params["cv_extracted_data"] == '{"a": 1}'
     # absent keys default to safe values (None / empty JSON), never KeyError
     assert params["phone"] is None
-    assert params["location"] is None
+    # Location is persisted exclusively by the canonical writer after the
+    # candidate id is resolved, never by this raw-SQL parameter set.
+    assert "location" not in params
