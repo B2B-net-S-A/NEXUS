@@ -246,6 +246,11 @@ async def client_dashboard(
         canonical = await resolve_visible_client(db, client_id, follow_merge=True)
         if canonical is None:
             raise HTTPException(404, detail="Client not found")
+        # Authorization follows the canonical identity deliberately. The
+        # merge moves client FK rows (including DL assignments) in the same
+        # transaction and aborts on uniqueness conflicts. Checking the hidden
+        # source would otherwise preserve access that the canonical record no
+        # longer grants.
         await require_dl_assigned_or_admin(
             client_id=canonical.id,
             current_user=user,

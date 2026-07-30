@@ -56,16 +56,6 @@ KIR_DUPLICATE_NAME_KEY = "krajowa izba rozliczen s a"
 
 # One-shot cutover contract for the reviewed 2026-07-30 workbook snapshot.
 # Re-cutting the source requires updating these constants and the checked-in
-# manifest together so accidental row/category drift fails before planning.
-_EXPECTED_CUTOVER_ROWS = 34
-_EXPECTED_CUTOVER_CATEGORY_COUNTS = {
-    "active": 30,
-    "relationship": 3,
-    "inactive": 1,
-}
-
-# One-shot cutover contract for the reviewed 2026-07-30 workbook snapshot.
-# Re-cutting the source requires updating these constants and the checked-in
 # manifest together so an accidental row/category drift fails before planning.
 _EXPECTED_CUTOVER_ROWS = 34
 _EXPECTED_CUTOVER_CATEGORY_COUNTS = {
@@ -125,19 +115,40 @@ async def _acquire_import_advisory_lock(db: AsyncSession) -> bool:
     return True
 
 
-async def _lock_import_write_surface(db: AsyncSession) -> None:
-    """Freeze match inputs and import-owned MSA/scope rows for one apply."""
+async def _lock_import_write_surface(
+    db: AsyncSession,
+    *,
+    kir_client_ids: tuple[int, ...] = (),
+    include_candidates: bool = False,
+) -> None:
+    """Freeze complete matching inputs, plus KIR-only surfaces when needed.
 
+    The planner classifies every visible client (including NEXUS-only rows), so
+    ``clients`` and ``client_aliases`` need short table locks to prevent an
+    insert from changing that complete population. Scope/MSA writes use unique
+    source keys and row locks and therefore do not require global table locks.
+    Candidate JSONB is unrelated unless the reviewed KIR merge is present.
+    """
+
+    tables = ["clients", "client_aliases"]
+    if include_candidates:
+        tables.append("candidates")
     await db.execute(
         text(
-            "LOCK TABLE clients, client_aliases, candidates, "
-            "client_portfolio_scopes, client_framework_contracts "
+            f"LOCK TABLE {', '.join(tables)} "  # noqa: S608 - fixed identifiers
             "IN SHARE ROW EXCLUSIVE MODE"
         )
     )
-    # A foreign-key insert takes a KEY SHARE row lock on its referenced
-    # client. FOR UPDATE therefore closes the dependency race around KIR.
-    await db.execute(select(Client.id).order_by(Client.id).with_for_update())
+    if kir_client_ids:
+        # A foreign-key insert takes a KEY SHARE row lock on its referenced
+        # client. Locking only the reviewed source/target closes that race
+        # without taking FOR UPDATE on the complete client directory.
+        await db.execute(
+            select(Client.id)
+            .where(Client.id.in_(kir_client_ids))
+            .order_by(Client.id)
+            .with_for_update()
+        )
 
 
 def normalize_client_name(value: str | None) -> str:
@@ -168,6 +179,35 @@ def _stable_hash(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()
     ).hexdigest()
+
+
+def _append_plan_blocker(
+    plan: dict[str, Any], blocker: dict[str, Any]
+) -> dict[str, Any]:
+    """Return a self-consistent plan after a post-plan concurrency blocker."""
+
+    plan_core = {
+        key: plan[key]
+        for key in (
+            "manifest_sha256",
+            "snapshot_date",
+            "groups",
+            "nexus_only",
+            "kir_merge",
+            "duplicate_candidates",
+            "blockers",
+            "warnings",
+        )
+    }
+    plan_core["blockers"] = [*plan_core["blockers"], blocker]
+    return {
+        **plan_core,
+        "plan_sha256": _stable_hash(plan_core),
+        "summary": {
+            **plan["summary"],
+            "blockers": len(plan_core["blockers"]),
+        },
+    }
 
 
 def _normalized_manifest_sha256(manifest: dict[str, Any]) -> str:
@@ -1798,15 +1838,43 @@ async def apply_client_portfolio_manifest(
             "summary": existing_run.summary,
         }
 
+    plan = await build_client_portfolio_plan(db, manifest=manifest)
     if has_postgres_lock:
         # The advisory lock coordinates importer instances only. During a
-        # zero-downtime deploy the previous API can still write, so freeze the
-        # matching population and JSONB exclusion surface for the short,
-        # single-transaction apply. Plain reads continue normally. The no-op
-        # restart path above deliberately never takes these table locks.
-        await _lock_import_write_surface(db)
-
-    plan = await build_client_portfolio_plan(db, manifest=manifest)
+        # zero-downtime deploy the previous API can still write. Freeze only
+        # the complete matching population and any KIR-specific surface, then
+        # rebuild under those locks. A changed plan blocks instead of silently
+        # applying a different decision. Plain reads continue normally.
+        kir_merge = plan.get("kir_merge")
+        kir_client_ids = (
+            tuple(
+                sorted(
+                    {
+                        int(kir_merge["source"]["id"]),
+                        int(kir_merge["target"]["id"]),
+                    }
+                )
+            )
+            if isinstance(kir_merge, dict)
+            else ()
+        )
+        await _lock_import_write_surface(
+            db,
+            kir_client_ids=kir_client_ids,
+            include_candidates=bool(kir_merge),
+        )
+        locked_plan = await build_client_portfolio_plan(db, manifest=manifest)
+        if locked_plan["plan_sha256"] != plan["plan_sha256"]:
+            plan = _append_plan_blocker(
+                locked_plan,
+                {
+                    "code": "plan_changed_while_acquiring_write_locks",
+                    "before_plan_sha256": plan["plan_sha256"],
+                    "locked_plan_sha256": locked_plan["plan_sha256"],
+                },
+            )
+        else:
+            plan = locked_plan
     run = ClientImportRun(
         source_system=SOURCE_SYSTEM,
         source_filename=manifest["source"]["filename"],
@@ -2299,9 +2367,15 @@ async def rollback_client_portfolio_import(
     """Restore the audited before-state, or make no business-data changes.
 
     Rollback is intentionally optimistic: every import-owned field must still
-    equal its recorded ``after`` snapshot.  A later edit therefore blocks the
-    whole rollback instead of being overwritten.  Rows created by the import
+    equal its recorded ``after`` snapshot. A later edit therefore blocks the
+    whole rollback instead of being overwritten. Rows created by the import
     are archived/superseded, never deleted.
+
+    Unlike apply, rollback does not freeze the complete matching population.
+    It locks every audited ORM row and candidate plus every catalog-discovered
+    KIR child row before comparing current state. The KIR client ``FOR UPDATE``
+    locks also conflict with FK ``KEY SHARE`` inserts. Concurrent writers thus
+    wait until commit and are re-evaluated on retry, without global table locks.
     """
 
     await _acquire_import_advisory_lock(db)
@@ -2833,6 +2907,9 @@ async def rollback_client_portfolio_import(
     msas: dict[int, ClientFrameworkContract] = {}
     aliases: dict[int, ClientAlias] = {}
     candidates: dict[int, Candidate] = {}
+    # These locks stay held through both compare_current and the nested restore
+    # savepoint, closing the read/restore window without blocking unrelated
+    # client, scope, MSA, alias or candidate rows.
     if client_ids:
         loaded = (
             (
