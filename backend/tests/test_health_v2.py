@@ -146,7 +146,9 @@ async def test_api_health_includes_database_check(env_with_metadata):
 
 
 @pytest.mark.asyncio
-async def test_api_health_autenti_unconfigured_by_default(env_with_metadata, monkeypatch):
+async def test_api_health_autenti_unconfigured_by_default(
+    env_with_metadata, monkeypatch
+):
     monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", False)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
@@ -177,9 +179,7 @@ async def test_api_health_autenti_healthy_when_fully_configured(
 ):
     monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", True)
     monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_ID", "test-id")
-    monkeypatch.setattr(
-        "app.core.config.settings.AUTENTI_CLIENT_SECRET", "test-secret"
-    )
+    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_SECRET", "test-secret")
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
@@ -221,10 +221,20 @@ async def test_api_health_deep_returns_shape(env_with_metadata):
     assert isinstance(body["checks"], dict)
     assert CORE_DEEP_CHECK_TABLES.issubset(body["checks"].keys())
     assert "b2b_signature_schema" in body["checks"]
+    assert "client_portfolio_import" in body["checks"]
+    assert body["client_portfolio_import"]["status"] in {
+        "applied",
+        "not_applied",
+        "inconsistent",
+        "error",
+    }
+    assert len(body["client_portfolio_import"]["expected_source_sha256"] or "") == 64
 
 
 @pytest.mark.asyncio
-async def test_api_health_deep_healthy_when_schema_matches(env_with_metadata):
+async def test_api_health_deep_healthy_when_schema_matches(
+    env_with_metadata, monkeypatch
+):
     """DB reachable + schema matches the ORM → 200 + all core probes healthy.
 
     CI runs `alembic upgrade heads` on a fresh Postgres before pytest, so every
@@ -232,6 +242,35 @@ async def test_api_health_deep_healthy_when_schema_matches(env_with_metadata):
     gone RED on the 0154 drift. Gated on DB availability so it's a no-op locally
     without Postgres (there every probe fails → 503 + unhealthy).
     """
+
+    async def _applied_client_portfolio(*args, **kwargs):
+        manifest = kwargs["manifest"]
+        return {
+            "expected_source_sha256": manifest["source"]["sha256"],
+            "status": "applied",
+            "run_id": 1,
+            "applied_at": "2026-07-30T12:00:00+00:00",
+            "counts": {
+                "expected_manifest_rows": len(manifest["rows"]),
+                "imported_manifest_rows": len(manifest["rows"]),
+                "nexus_only_rows": 0,
+                "audit_rows": len(manifest["rows"]),
+                "unique_clients": 33,
+                "portfolio_scopes": len(manifest["rows"]),
+                "framework_contracts": 28,
+                "category_rows": {
+                    "active": 30,
+                    "relationship": 3,
+                    "inactive": 1,
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.services.client_portfolio_import.get_client_portfolio_import_health",
+        _applied_client_portfolio,
+    )
+
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:

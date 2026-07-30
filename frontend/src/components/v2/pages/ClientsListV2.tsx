@@ -1,380 +1,742 @@
 "use client";
 
-import { useMemo, useState } from"react";
-import Link from"next/link";
-import { keepPreviousData, useQuery } from"@tanstack/react-query";
-import { ArrowDown, ArrowUp, Building2, Plus, Search, Shield, ShieldCheck } from"lucide-react";
-import api from"@/lib/api";
-import { formatRelativeTime } from"@/lib/utils";
-import { useDebouncedValue } from"@/lib/use-debounced-value";
-import { resolveViewState } from"@/lib/view-state";
-import { useCapability } from"@/hooks/useCapability";
-import { AddClientModal } from"@/components/AppShell";
-import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
-import { Avatar, AvatarFallback } from"@/components/ui/avatar";
-import { Badge } from"@/components/ui/badge";
-import { Button } from"@/components/ui/button";
-import { Input } from"@/components/ui/input";
 import {
- Table,
- TableBody,
- TableCell,
- TableHead,
- TableHeader,
- TableRow,
-} from"@/components/ui/table";
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Archive,
+  Building2,
+  CheckCircle2,
+  Handshake,
+  Info,
+  Plus,
+  Search,
+  SearchX,
+  X,
+} from "lucide-react";
 
-interface ClientRow {
- id: number;
- name: string;
- industry?: string | null;
- status?: string;
- nda_signed?: boolean;
- created_at?: string;
-}
+import {
+  clientsDirectoryApi,
+  type ClientDirectoryCategory,
+  type ClientDirectoryCategoryCounts,
+  type ClientDirectoryItem,
+} from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import {
+  httpStatusFromError,
+  resolveViewState,
+  type ViewState,
+} from "@/lib/view-state";
+import { useCapability } from "@/hooks/useCapability";
+import { AddClientModal } from "@/components/AppShell";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
-interface HitRatioRow {
- client_id: number;
- closed_jobs: number;
- filled_jobs: number;
- lost_jobs: number;
- hit_ratio: number; // 0..100
- fill_rate: number;
- placements: number;
- active_jobs: number;
- target_achieved: boolean;
-}
+const PAGE_SIZE = 50;
+const CATEGORY_ORDER: ClientDirectoryCategory[] = [
+  "active",
+  "relationship",
+  "inactive",
+];
 
-interface HitRatioResponse {
- period: string;
- clients: HitRatioRow[];
- overall: { avg_hit_ratio: number; hit_ratio_target_pct: number };
-}
-
-const STATUS_VARIANT: Record<string, "success" |"neutral" |"soft"> = {
- active: "success",
- inactive: "neutral",
- prospect: "soft",
+const EMPTY_COUNTS: ClientDirectoryCategoryCounts = {
+  active: 0,
+  relationship: 0,
+  inactive: 0,
 };
 
-const MIN_CLOSED_FOR_RATIO = 3;
+const CATEGORY_META: Record<
+  ClientDirectoryCategory,
+  {
+    title: string;
+    description: string;
+    icon: typeof CheckCircle2;
+    iconClassName: string;
+  }
+> = {
+  active: {
+    title: "Aktywni klienci",
+    description: "Klienci z podpisaną współpracą",
+    icon: CheckCircle2,
+    iconClassName: "bg-success-muted text-success-muted-foreground",
+  },
+  relationship: {
+    title: "Klienci relacyjni",
+    description: "Utrzymywany kontakt, brak aktywnych zleceń",
+    icon: Handshake,
+    iconClassName: "bg-primary/10 text-primary",
+  },
+  inactive: {
+    title: "Nieaktywni klienci",
+    description: "Brak kontaktu / zakończona współpraca",
+    icon: Archive,
+    iconClassName: "bg-muted text-muted-foreground",
+  },
+};
 
-type HitSortDir ="asc" |"desc" | null;
+const STATUS_META: Record<
+  ClientDirectoryItem["client_status"],
+  { label: string; variant: "success" | "neutral" | "soft" }
+> = {
+  active: { label: "Aktywny", variant: "success" },
+  inactive: { label: "Nieaktywny", variant: "neutral" },
+  prospect: { label: "Prospekt", variant: "soft" },
+};
 
-function HitRatioCell({ row }: { row: HitRatioRow | undefined }) {
- if (!row || row.closed_jobs === 0) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- if (row.closed_jobs < MIN_CLOSED_FOR_RATIO) {
- return (
- <span
- className="text-xs text-muted-foreground"
- title={`Za mało danych (min. ${MIN_CLOSED_FOR_RATIO} zamkniętych). ${row.filled_jobs} z ${row.closed_jobs}.`}
- >
- {row.filled_jobs} / {row.closed_jobs}
- </span>
- );
- }
- // Color bands — >=50% zielony, 20-49% amber, <20% czerwony
- const tone =
- row.hit_ratio >= 50
- ?"bg-[#dcfce7] text-[#166534]"
- : row.hit_ratio >= 20
- ?"bg-[#fef3c7] text-[#92400e]"
- :"bg-[#fee2e2] text-[#991b1b]";
- return (
- <span
- className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}
- title={`${row.filled_jobs} z ${row.closed_jobs} zamkniętych · ${row.placements} zatrudnień`}
- >
- {row.hit_ratio.toFixed(1)}%
- </span>
- );
+function parseCategory(value: string | null): ClientDirectoryCategory {
+  return CATEGORY_ORDER.includes(value as ClientDirectoryCategory)
+    ? (value as ClientDirectoryCategory)
+    : "active";
+}
+
+function parsePage(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function formatDirectoryDate(value: string | null): string {
+  if (!value) return "—";
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (dateOnly) return `${dateOnly[3]}.${dateOnly[2]}.${dateOnly[1]}`;
+  return "—";
+}
+
+function contractEndLabel(item: ClientDirectoryItem): string {
+  if (item.msa_id === null) return "—";
+  if (item.expiry_date === null) return "Bezterminowa";
+  return formatDirectoryDate(item.expiry_date);
+}
+
+function initialsFor(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+function countLabel(
+  count: number,
+  singular: string,
+  paucal: string,
+  plural: string,
+): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const noun =
+    count === 1
+      ? singular
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? paucal
+        : plural;
+  return `${count} ${noun}`;
 }
 
 export function ClientsListV2() {
- const [search, setSearch] = useState("");
- const [page, setPage] = useState(1);
- const [showAdd, setShowAdd] = useState(false);
- const [toast, setToast] = useState<string | null>(null);
- const [hitSort, setHitSort] = useState<HitSortDir>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
- // Bramka „Nowy klient" = POST /api/clients (TacPlus). Ta sama capability
- // steruje przyciskiem w nagłówku i akcją w pustym stanie — wcześniej empty
- // state był nieobramkowany i rekruter dostawał tam „Dodaj pierwszego"
- // prowadzące w 403 (audyt F-19).
- const canCreateClient = useCapability("client.create");
+  const urlCategory = parseCategory(searchParams.get("category"));
+  const urlSearch = searchParams.get("q") ?? "";
+  const urlPage = parsePage(searchParams.get("page"));
 
- // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
- // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
- const debouncedSearch = useDebouncedValue(search, 300);
+  const [category, setCategory] =
+    useState<ClientDirectoryCategory>(urlCategory);
+  const [search, setSearch] = useState(urlSearch);
+  const [querySearch, setQuerySearch] = useState(urlSearch.trim());
+  const [page, setPage] = useState(urlPage);
+  const [counts, setCounts] =
+    useState<ClientDirectoryCategoryCounts>(EMPTY_COUNTS);
+  const [showAdd, setShowAdd] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const didCanonicalizeUrl = useRef(false);
+  const searchSyncTarget = useRef<string | null>(null);
 
- const { data, isLoading, isError, error, refetch } = useQuery({
- queryKey: ["clients-v2", debouncedSearch, page],
- queryFn: () =>
- api
- .get("/api/clients", {
- params: { q: debouncedSearch || undefined, page, page_size: 50 },
- })
- .then((r) => r.data),
- // Poprzednia strona wyników zostaje na ekranie do czasu przyjścia nowej —
- // bez tego lista migocze pustym stanem ładowania przy każdej zmianie filtra.
- placeholderData: keepPreviousData,
- });
+  // Back/forward and external deep-link changes remain authoritative.
+  useEffect(() => setCategory(urlCategory), [urlCategory]);
+  useEffect(() => {
+    searchSyncTarget.current = urlSearch;
+    setSearch(urlSearch);
+    setQuerySearch(urlSearch.trim());
+  }, [urlSearch]);
+  useEffect(() => setPage(urlPage), [urlPage]);
 
- // Hit ratio per client (12m) — joined by client_id on render.
- // RBAC: admin/delivery_lead/tac/HoR. Recruiter/sourcer see undefined →"—".
- const { data: ratioData } = useQuery<HitRatioResponse>({
- queryKey: ["clients-hit-ratio","year"],
- queryFn: () =>
- api
- .get("/api/reports/clients", { params: { period: "year", min_closed: 0 } })
- .then((r) => r.data),
- staleTime: 5 * 60 * 1000, // backend cache is 5min, match it
- retry: false, // 403 for recruiters — just hide the column data
- });
+  const replaceUrl = useCallback(
+    (
+      next: {
+        category: ClientDirectoryCategory;
+        q: string;
+        page: number;
+      },
+      mode: "push" | "replace",
+    ) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("category", next.category);
+      if (next.q.trim()) params.set("q", next.q.trim());
+      else params.delete("q");
+      params.set("page", String(next.page));
+      const href = `${pathname || "/clients"}?${params.toString()}`;
+      router[mode](href, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
- const ratioByClient = useMemo(() => {
- const map = new Map<number, HitRatioRow>();
- ratioData?.clients.forEach((r) => map.set(r.client_id, r));
- return map;
- }, [ratioData]);
+  // Canonical URL makes the default state copyable too, while invalid or
+  // missing category/page values fail closed to active + page 1.
+  useEffect(() => {
+    if (didCanonicalizeUrl.current) return;
+    didCanonicalizeUrl.current = true;
+    if (
+      searchParams.get("category") === category &&
+      searchParams.get("page") === String(page)
+    ) {
+      return;
+    }
+    replaceUrl({ category, q: urlSearch, page }, "replace");
+  }, [category, page, replaceUrl, searchParams, urlSearch]);
 
- const rawItems: ClientRow[] = data?.items ?? [];
- const items = useMemo(() => {
- if (!hitSort) return rawItems;
- // Client-side sort by hit_ratio. Clients without data go to the end.
- const withRatio: Array<{ c: ClientRow; r?: HitRatioRow }> = rawItems.map((c) => ({
- c,
- r: ratioByClient.get(c.id),
- }));
- withRatio.sort((a, b) => {
- const aHas = a.r && a.r.closed_jobs >= MIN_CLOSED_FOR_RATIO;
- const bHas = b.r && b.r.closed_jobs >= MIN_CLOSED_FOR_RATIO;
- if (!aHas && !bHas) return 0;
- if (!aHas) return 1;
- if (!bHas) return -1;
- const diff = (a.r!.hit_ratio ?? 0) - (b.r!.hit_ratio ?? 0);
- return hitSort === "asc" ? diff : -diff;
- });
- return withRatio.map((x) => x.c);
- }, [rawItems, hitSort, ratioByClient]);
- const total = data?.total ?? 0;
- const pageSize = data?.page_size ?? 50;
- const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const previousDebouncedSearch = useRef(debouncedSearch);
 
- // 403/404/5xx NIE mogą renderować się jako pusta lista (audyt F-20).
- const viewState = resolveViewState({
- isLoading,
- isError,
- error,
- isEmpty: items.length === 0,
- });
- const failed =
- viewState === "forbidden" ||
- viewState === "not_found" ||
- viewState === "error";
+  useEffect(() => {
+    if (previousDebouncedSearch.current === debouncedSearch) return;
+    previousDebouncedSearch.current = debouncedSearch;
+    const normalized = debouncedSearch.trim();
+    if (searchSyncTarget.current !== null) {
+      if (normalized === searchSyncTarget.current.trim()) {
+        searchSyncTarget.current = null;
+      }
+      return;
+    }
+    setQuerySearch(normalized);
+    if (normalized === urlSearch) return;
+    replaceUrl({ category, q: normalized, page: 1 }, "replace");
+  }, [category, debouncedSearch, replaceUrl, urlSearch]);
 
- const toggleHitSort = () =>
- setHitSort((prev) => (prev === "desc" ?"asc" : prev === "asc" ? null : "desc"));
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery({
+    queryKey: ["clients-directory", category, querySearch, page],
+    queryFn: ({ signal }) =>
+      clientsDirectoryApi
+        .list(
+          {
+            category,
+            q: querySearch || undefined,
+            page,
+            page_size: PAGE_SIZE,
+          },
+          signal,
+        )
+        .then((response) => response.data),
+    placeholderData: (previousData, previousQuery) => {
+      const previousKey = previousQuery?.queryKey;
+      if (
+        previousKey?.[1] === category &&
+        previousKey?.[2] === querySearch
+      ) {
+        return previousData;
+      }
+      return undefined;
+    },
+  });
 
- const onAdded = (msg: string) => {
- setShowAdd(false);
- setToast(msg);
- setTimeout(() => setToast(null), 3000);
- };
+  useEffect(() => {
+    if (data?.category_counts) setCounts(data.category_counts);
+  }, [data?.category_counts]);
 
- return (
- <div className="max-w-[1400px] mx-auto space-y-4">
- {/* Header */}
- <div className="flex items-end justify-between flex-wrap gap-3">
- <div>
- <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
- Delivery · Klienci
- </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
- Klienci
- </h1>
- <p className="text-sm text-muted-foreground mt-1" aria-live="polite">
- {isLoading
- ?"Ładowanie…"
- : failed
- ?"Nie udało się pobrać listy"
- : `${total} firm w portfelu`}
- </p>
- </div>
- {/* Capability `client.create` = backendowy TacPlus. Świadomie NIE ranga:
-    head_of_recruitment (ROLE_RANK 4.5 > tac) przechodził przez hasMinRole,
-    a backend firm mu zakładać nie pozwala. */}
- {canCreateClient && (
- <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
- <Plus className="h-4 w-4" /> Nowy klient
- </Button>
- )}
- </div>
+  const canCreateClient = useCapability("client.create");
+  const items = data?.items ?? [];
+  const totalRows = data?.total_rows ?? 0;
+  const totalClients = data?.total_clients ?? 0;
+  const pageSize = data?.page_size ?? PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const viewState = resolveViewState({
+    isLoading,
+    isError,
+    error,
+    isEmpty: items.length === 0,
+  });
+  const failed =
+    viewState === "forbidden" ||
+    viewState === "not_found" ||
+    viewState === "error";
 
- {/* Search */}
- <div className="max-w-md">
- <Input
- leadingIcon={<Search className="h-4 w-4" />}
- placeholder="Szukaj po nazwie firmy, branży, emailu…"
- value={search}
- onChange={(e) => {
- setSearch(e.target.value);
- setPage(1);
- }}
- />
- </div>
+  const selectCategory = (next: ClientDirectoryCategory) => {
+    if (next === category) return;
+    const normalizedSearch = search.trim();
+    setCategory(next);
+    setQuerySearch(normalizedSearch);
+    setPage(1);
+    replaceUrl({ category: next, q: normalizedSearch, page: 1 }, "push");
+  };
 
- {/* Table */}
- <Table density="cozy">
- <TableHeader>
- <TableRow>
- <TableHead>Firma</TableHead>
- <TableHead>Branża</TableHead>
- <TableHead>Status</TableHead>
- <TableHead>
- <button
- onClick={toggleHitSort}
- className="inline-flex items-center gap-1 text-inherit font-inherit cursor-pointer select-none hover:opacity-80"
- title="Hit ratio = % zamkniętych zapytań z co najmniej jednym zatrudnieniem (ostatnie 12 mies.)"
- >
- Hit ratio
- {hitSort === "desc" && <ArrowDown className="h-3.5 w-3.5" />}
- {hitSort === "asc" && <ArrowUp className="h-3.5 w-3.5" />}
- </button>
- </TableHead>
- <TableHead>NDA</TableHead>
- <TableHead>Dodano</TableHead>
- </TableRow>
- </TableHeader>
- <TableBody>
- {viewState === "loading" ? (
- <TableRow>
- <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
- Ładowanie…
- </TableCell>
- </TableRow>
- ) : failed ? (
- <TableRow>
- <TableCell colSpan={7} className="p-0">
- <QueryStateNotice
- state={viewState as "forbidden" | "not_found" | "error"}
- className="border-0"
- description={
- viewState === "forbidden"
- ?"Twoja rola nie ma dostępu do bazy klientów. Lista NIE jest pusta — poproś administratora o uprawnienia."
- : undefined
- }
- onRetry={() => void refetch()}
- />
- </TableCell>
- </TableRow>
- ) : viewState === "empty" ? (
- <TableRow>
- <TableCell colSpan={7} className="text-center py-10">
- <Building2 className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
- <p className="text-sm text-muted-foreground">
- Brak klientów.{" "}
- {canCreateClient && (
- <>
- <button
- onClick={() => setShowAdd(true)}
- className="text-primary hover:underline"
- >
- Dodaj pierwszego
- </button>
- .
- </>
- )}
- </p>
- </TableCell>
- </TableRow>
- ) : (
- items.map((c) => {
- const initials = c.name
- .split(/\s+/)
- .map((w) => w[0])
- .slice(0, 2)
- .join("")
- .toUpperCase();
- return (
- <TableRow key={c.id} interactive>
- <TableCell>
- <Link href={`/clients/${c.id}`} className="flex items-center gap-3">
- <Avatar size="sm">
- <AvatarFallback>{initials}</AvatarFallback>
- </Avatar>
- <span className="font-medium text-foreground">{c.name}</span>
- </Link>
- </TableCell>
- <TableCell>{c.industry ??"—"}</TableCell>
- <TableCell>
- {c.status ? (
- <Badge size="sm" variant={STATUS_VARIANT[c.status] ??"neutral"}>
- {c.status}
- </Badge>
- ) : (
- <span className="text-xs text-muted-foreground">—</span>
- )}
- </TableCell>
- <TableCell>
- <HitRatioCell row={ratioByClient.get(c.id)} />
- </TableCell>
- <TableCell>
- {c.nda_signed ? (
- <span className="inline-flex items-center gap-1 text-xs text-[#1d5e31]">
- <ShieldCheck className="h-3.5 w-3.5" /> Podpisana
- </span>
- ) : (
- <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
- <Shield className="h-3.5 w-3.5" /> Brak
- </span>
- )}
- </TableCell>
- <TableCell className="text-xs text-muted-foreground">
- {c.created_at ? formatRelativeTime(c.created_at) : "—"}
- </TableCell>
- </TableRow>
- );
- })
- )}
- </TableBody>
- </Table>
+  const handleCategoryKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: ClientDirectoryCategory,
+  ) => {
+    const currentIndex = CATEGORY_ORDER.indexOf(current);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % CATEGORY_ORDER.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex =
+        (currentIndex - 1 + CATEGORY_ORDER.length) % CATEGORY_ORDER.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = CATEGORY_ORDER.length - 1;
+    }
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const next = CATEGORY_ORDER[nextIndex];
+    selectCategory(next);
+    document.getElementById(`clients-category-${next}`)?.focus();
+  };
 
- {/* Pagination */}
- {viewState === "ready" && total > pageSize && (
- <div className="flex items-center justify-between text-sm">
- <span className="text-muted-foreground">
- Strona <strong className="text-foreground">{page}</strong> z {totalPages}
- </span>
- <div className="flex gap-2">
- <Button
- size="sm"
- variant="outline"
- disabled={page <= 1}
- onClick={() => setPage((p) => p - 1)}
- >
- Poprzednia
- </Button>
- <Button
- size="sm"
- variant="outline"
- disabled={page >= totalPages}
- onClick={() => setPage((p) => p + 1)}
- >
- Następna
- </Button>
- </div>
- </div>
- )}
+  const goToPage = (next: number) => {
+    setPage(next);
+    replaceUrl({ category, q: search, page: next }, "push");
+  };
 
- {showAdd && <AddClientModal onClose={() => setShowAdd(false)} onSuccess={onAdded} />}
- {toast && (
- <div className="fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
- {toast}
- </div>
- )}
- </div>
- );
+  const clearSearch = () => {
+    searchSyncTarget.current = null;
+    setSearch("");
+    setQuerySearch("");
+    setPage(1);
+    replaceUrl({ category, q: "", page: 1 }, "replace");
+  };
+
+  const onAdded = (message: string) => {
+    setShowAdd(false);
+    setToast(message);
+    void queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  return (
+    <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
+            Delivery · Klienci
+          </p>
+          <h1 className="mt-1 text-3xl font-extrabold tracking-heading-tight text-foreground">
+            Klienci
+          </h1>
+          <p
+            className="mt-1 text-sm text-muted-foreground"
+            aria-live="polite"
+          >
+            {isLoading
+              ? "Ładowanie portfela…"
+              : failed
+                ? "Nie udało się pobrać portfela klientów"
+                : `${countLabel(
+                    totalRows,
+                    "zakres",
+                    "zakresy",
+                    "zakresów",
+                  )} dla ${countLabel(
+                    totalClients,
+                    "klienta",
+                    "klientów",
+                    "klientów",
+                  )}`}
+          </p>
+        </div>
+        {canCreateClient ? (
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => setShowAdd(true)}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Nowy klient
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="max-w-lg">
+        <label
+          htmlFor="client-directory-search"
+          className="mb-1.5 block text-sm font-medium text-foreground"
+        >
+          Wyszukaj klienta
+        </label>
+        <div className="relative">
+          <Input
+            id="client-directory-search"
+            leadingIcon={<Search className="h-4 w-4" />}
+            className={cn(search && "pr-10")}
+            placeholder="Nazwa firmy lub branża"
+            value={search}
+            onChange={(event) => {
+              searchSyncTarget.current = null;
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+            aria-describedby="client-directory-search-help"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Wyczyść wyszukiwanie"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+        <p
+          id="client-directory-search-help"
+          className="mt-1.5 text-xs text-muted-foreground"
+        >
+          Wyszukiwanie obejmuje tylko aktualnie wybraną kategorię.
+        </p>
+      </div>
+
+      <div
+        role="tablist"
+        aria-label="Kategorie klientów"
+        className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
+      >
+        {CATEGORY_ORDER.map((itemCategory) => {
+          const meta = CATEGORY_META[itemCategory];
+          const Icon = meta.icon;
+          const selected = itemCategory === category;
+          return (
+            <button
+              id={`clients-category-${itemCategory}`}
+              key={itemCategory}
+              type="button"
+              role="tab"
+              aria-label={`${meta.title}, ${countLabel(
+                counts[itemCategory],
+                "klient",
+                "klientów",
+                "klientów",
+              )}`}
+              aria-selected={selected}
+              aria-controls="client-directory-panel"
+              tabIndex={selected ? 0 : -1}
+              onClick={() => selectCategory(itemCategory)}
+              onKeyDown={(event) =>
+                handleCategoryKeyDown(event, itemCategory)
+              }
+              className={cn(
+                "flex min-h-24 items-center gap-3 rounded-xl border bg-card p-4 text-left transition-colors",
+                "hover:border-primary/50 hover:bg-primary/5",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                selected
+                  ? "border-primary bg-primary/5 shadow-sm"
+                  : "border-border",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+                  meta.iconClassName,
+                )}
+              >
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-foreground">
+                  {meta.title}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {meta.description}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "text-xl font-semibold tabular-nums",
+                  selected ? "text-primary" : "text-foreground",
+                )}
+              >
+                {counts[itemCategory]}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <section
+        id="client-directory-panel"
+        role="tabpanel"
+        aria-labelledby={`clients-category-${category}`}
+        aria-busy={isFetching}
+      >
+        <TooltipProvider delayDuration={200}>
+          <Table density="cozy" className="min-w-[900px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Firma</TableHead>
+                <TableHead>Branża</TableHead>
+                <TableHead>Aktywni konsultanci</TableHead>
+                <TableHead>Start umowy</TableHead>
+                <TableHead>Koniec umowy</TableHead>
+                <TableHead>Status klienta</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {viewState === "loading" ? (
+                Array.from({ length: 5 }, (_, index) => (
+                  <TableRow key={`client-skeleton-${index}`}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <div className="space-y-1.5">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                    </TableCell>
+                    {Array.from({ length: 5 }, (_, cellIndex) => (
+                      <TableCell key={cellIndex}>
+                        <Skeleton className="h-4 w-24" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : failed ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="p-0">
+                    <QueryStateNotice
+                      state={
+                        viewState as Extract<
+                          ViewState,
+                          "forbidden" | "not_found" | "error"
+                        >
+                      }
+                      className="border-0"
+                      description={
+                        viewState === "forbidden"
+                          ? "Twoja rola nie ma dostępu do portfela klientów. Dane nie są puste — poproś administratora o uprawnienia."
+                          : viewState === "error" &&
+                              httpStatusFromError(error) === undefined
+                            ? "Nie udało się połączyć z serwerem. Sprawdź internet lub VPN i spróbuj ponownie."
+                            : undefined
+                      }
+                      onRetry={
+                        viewState === "error"
+                          ? () => void refetch()
+                          : undefined
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
+              ) : viewState === "empty" ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-12 text-center">
+                    {querySearch ? (
+                      <>
+                        <SearchX
+                          className="mx-auto mb-3 h-10 w-10 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <p className="text-sm font-medium text-foreground">
+                          Brak wyników w kategorii „
+                          {CATEGORY_META[category].title}”
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Zmień frazę lub wyczyść wyszukiwanie.
+                        </p>
+                        <Button
+                          className="mt-4"
+                          size="sm"
+                          variant="outline"
+                          onClick={clearSearch}
+                        >
+                          Wyczyść wyszukiwanie
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Building2
+                          className="mx-auto mb-3 h-10 w-10 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <p className="text-sm font-medium text-foreground">
+                          Brak klientów w kategorii „
+                          {CATEGORY_META[category].title}”
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Klienci pojawią się tutaj po przypisaniu zakresu do tej
+                          kategorii.
+                        </p>
+                        {canCreateClient ? (
+                          <Button
+                            className="mt-4"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setShowAdd(true)}
+                          >
+                            <Plus className="h-4 w-4" aria-hidden="true" />
+                            Dodaj klienta
+                          </Button>
+                        ) : null}
+                      </>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) => {
+                  const status = STATUS_META[item.client_status];
+                  return (
+                    <TableRow key={item.scope_id} interactive>
+                      <TableCell>
+                        <Link
+                          href={`/clients/${item.client_id}`}
+                          className="flex items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <Avatar size="sm">
+                            <AvatarFallback>
+                              {initialsFor(item.display_name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0">
+                            <span className="block font-medium text-foreground">
+                              {item.display_name}
+                            </span>
+                            {item.scope_label ? (
+                              <span className="mt-0.5 block text-xs text-muted-foreground">
+                                {item.scope_label}
+                              </span>
+                            ) : null}
+                          </span>
+                        </Link>
+                      </TableCell>
+                      <TableCell>{item.industry || "—"}</TableCell>
+                      <TableCell>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              className="inline-flex cursor-help items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              tabIndex={0}
+                              aria-label={`${item.active_consultants_count} aktywnych konsultantów u klienta, łącznie we wszystkich zakresach`}
+                            >
+                              <span className="font-medium tabular-nums">
+                                {item.active_consultants_count}
+                              </span>
+                              <Info
+                                className="h-3.5 w-3.5 text-muted-foreground"
+                                aria-hidden="true"
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Liczba dla całego klienta: aktywni konsultanci
+                            łącznie we wszystkich zakresach.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>
+                        {formatDirectoryDate(item.effective_date)}
+                      </TableCell>
+                      <TableCell>{contractEndLabel(item)}</TableCell>
+                      <TableCell>
+                        <Badge size="sm" variant={status.variant}>
+                          {status.label}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </TooltipProvider>
+      </section>
+
+      {viewState === "ready" && totalRows > pageSize ? (
+        <nav
+          className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+          aria-label="Paginacja klientów"
+        >
+          <span className="text-muted-foreground">
+            Strona <strong className="text-foreground">{page}</strong> z{" "}
+            {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+              size="sm"
+              variant="outline"
+              aria-disabled={page <= 1 || isFetching}
+              onClick={() => {
+                if (page > 1 && !isFetching) goToPage(page - 1);
+              }}
+            >
+              Poprzednia
+            </Button>
+            <Button
+              className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+              size="sm"
+              variant="outline"
+              aria-disabled={page >= totalPages || isFetching}
+              onClick={() => {
+                if (page < totalPages && !isFetching) goToPage(page + 1);
+              }}
+            >
+              Następna
+            </Button>
+          </div>
+        </nav>
+      ) : null}
+
+      {showAdd ? (
+        <AddClientModal
+          onClose={() => setShowAdd(false)}
+          onSuccess={onAdded}
+          category={category}
+        />
+      ) : null}
+      {toast ? (
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 z-[9999] rounded-lg bg-card px-4 py-3 text-sm text-foreground shadow-md"
+        >
+          {toast}
+        </div>
+      ) : null}
+    </div>
+  );
 }

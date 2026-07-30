@@ -24,7 +24,10 @@ import api, {
   pipelineTemplatesApi,
   requestHistoryApi,
 } from "@/lib/api";
-import type { RequestHistoryResponse } from "@/lib/api";
+import type {
+  ClientDirectoryCategory,
+  RequestHistoryResponse,
+} from "@/lib/api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
@@ -1679,7 +1682,15 @@ function ClientFormFields({ form, onChange, onCheckbox }: {
   );
 }
 
-export function AddClientModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+export function AddClientModal({
+  onClose,
+  onSuccess,
+  category,
+}: {
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+  category?: ClientDirectoryCategory;
+}) {
   const [form, setForm] = useState<ClientFormData>(EMPTY_CLIENT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1692,16 +1703,24 @@ export function AddClientModal({ onClose, onSuccess }: { onClose: () => void; on
     if (!form.name) { setError("Nazwa firmy jest wymagana"); return; }
     setSaving(true); setError("");
     try {
-      await api.post("/api/clients", {
-        name: form.name,
-        industry: form.industry || undefined,
-        website: form.website || undefined,
-        address: form.address || undefined,
-        status: form.status,
-        nda_signed: form.nda_signed,
-        contract_type: form.contract_type || undefined,
-        notes: form.notes || undefined,
-      });
+      await api.post(
+        "/api/clients",
+        {
+          name: form.name,
+          industry: form.industry || undefined,
+          website: form.website || undefined,
+          address: form.address || undefined,
+          status: form.status,
+          nda_signed: form.nda_signed,
+          contract_type: form.contract_type || undefined,
+          notes: form.notes || undefined,
+        },
+        {
+          params: {
+            portfolio_category: category ?? "active",
+          },
+        },
+      );
       onSuccess("Firma dodana pomyślnie");
       onClose();
     } catch (err: any) {

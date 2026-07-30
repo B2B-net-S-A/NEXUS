@@ -250,6 +250,63 @@ api.interceptors.response.use(
   },
 );
 
+// ── Clients directory ────────────────────────────────────────────────────────
+
+/**
+ * Portfolio category is an explicit business classification stored on a
+ * client scope. It is intentionally separate from both MSA dates and the
+ * legacy client lifecycle status (`active | inactive | prospect`).
+ */
+export type ClientDirectoryCategory = "active" | "relationship" | "inactive";
+
+export interface ClientDirectoryItem {
+  /** Stable row identity. One client may have more than one directory scope. */
+  scope_id: number;
+  client_id: number;
+  msa_id: number | null;
+  display_name: string;
+  legal_name: string | null;
+  scope_label: string | null;
+  industry: string | null;
+  active_consultants_count: number;
+  effective_date: string | null;
+  expiry_date: string | null;
+  category: ClientDirectoryCategory;
+  client_status: "active" | "inactive" | "prospect";
+}
+
+export interface ClientDirectoryCategoryCounts {
+  /** Unique clients in each category, never the number of scope rows. */
+  active: number;
+  relationship: number;
+  inactive: number;
+}
+
+export interface ClientDirectoryResponse {
+  items: ClientDirectoryItem[];
+  total_rows: number;
+  total_clients: number;
+  page: number;
+  page_size: number;
+  category_counts: ClientDirectoryCategoryCounts;
+  as_of: string;
+}
+
+export interface ClientDirectoryParams {
+  category: ClientDirectoryCategory;
+  q?: string;
+  page: number;
+  page_size: number;
+}
+
+export const clientsDirectoryApi = {
+  list: (params: ClientDirectoryParams, signal?: AbortSignal) =>
+    api.get<ClientDirectoryResponse>("/api/clients/directory", {
+      params,
+      signal,
+    }),
+};
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 export const authApi = {
   /** Self-service password change for the logged-in user. */

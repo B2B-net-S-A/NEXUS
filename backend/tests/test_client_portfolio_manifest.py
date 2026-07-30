@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -10,6 +12,7 @@ from app.services.client_portfolio_import import (
     ClientPortfolioImportError,
     _derived_manifest_warnings,
     _msa_status,
+    build_client_portfolio_plan,
     load_client_portfolio_manifest,
     loose_client_name,
     normalize_client_name,
@@ -154,3 +157,27 @@ def test_manifest_discrepancies_are_reported_but_sheet_category_wins() -> None:
         and warning["source_key"] == "relationship:nordea-bank-abp:pentesty"
         for warning in warnings
     )
+
+
+@pytest.mark.asyncio
+async def test_fresh_database_creates_kir_without_requiring_merge(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.client_portfolio_import._load_directory_clients",
+        AsyncMock(return_value=([], {})),
+    )
+
+    plan = await build_client_portfolio_plan(
+        SimpleNamespace(),
+        manifest=load_client_portfolio_manifest(),
+    )
+
+    kir_group = next(
+        group
+        for group in plan["groups"]
+        if group["client_key"] == "krajowa-izba-rozliczeniowa-spolka-akcyjna"
+    )
+    assert kir_group["action"] == "create"
+    assert plan["blockers"] == []
+    assert {"code": "kir_records_not_present_create_from_manifest"} in plan["warnings"]

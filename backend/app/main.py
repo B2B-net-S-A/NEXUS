@@ -2361,12 +2361,60 @@ async def api_health_deep_check():
         errors["priority_work_schema"] = type(exc).__name__
         logger.warning("health/deep: priority_work_schema probe failed: %r", exc)
 
+    # The client-directory deploy is not complete until the exact checked-in
+    # manifest hash has one consistent applied run.  Expose only the hash,
+    # status and aggregate counters: no source/client names or row payloads.
+    from app.services.client_portfolio_import import (
+        get_client_portfolio_import_health,
+        load_client_portfolio_manifest,
+    )
+
+    portfolio_manifest = None
+    portfolio_import: dict = {
+        "expected_source_sha256": None,
+        "expected_manifest_sha256": None,
+        "status": "error",
+        "run_id": None,
+        "applied_at": None,
+        "counts": {},
+    }
+    try:
+        portfolio_manifest = load_client_portfolio_manifest()
+        portfolio_import["expected_source_sha256"] = portfolio_manifest["source"][
+            "sha256"
+        ]
+        portfolio_import["counts"] = {
+            "expected_manifest_rows": len(portfolio_manifest["rows"])
+        }
+        async with AsyncSessionLocal() as session:
+            portfolio_import = await asyncio.wait_for(
+                get_client_portfolio_import_health(
+                    session,
+                    manifest=portfolio_manifest,
+                ),
+                timeout=3.0,
+            )
+        import_status = portfolio_import["status"]
+        checks["client_portfolio_import"] = (
+            "healthy" if import_status == "applied" else "unhealthy"
+        )
+        if import_status != "applied":
+            errors["client_portfolio_import"] = {
+                "not_applied": "ManifestNotApplied",
+                "inconsistent": "ImportCountMismatch",
+            }.get(import_status, "ImportStateInvalid")
+    except Exception as exc:  # noqa: BLE001
+        checks["client_portfolio_import"] = "unhealthy"
+        errors["client_portfolio_import"] = type(exc).__name__
+        logger.warning("health/deep: client portfolio import probe failed: %r", exc)
+
     all_healthy = all(v == "healthy" for v in checks.values())
 
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
         "version": os.environ.get("GIT_SHA", "unknown"),
         "checks": checks,
+        "client_portfolio_import": portfolio_import,
     }
     if errors:
         body["errors"] = errors

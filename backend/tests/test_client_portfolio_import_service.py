@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 import app.models.skill  # noqa: F401  (register relationship target)
 from app.core.database import AsyncSessionLocal
+from app.models.activity import Activity
 from app.models.client import Client, ClientStatus
 from app.models.client_directory import (
+    ClientAlias,
     ClientImportRow,
     ClientImportRowStatus,
     ClientImportRun,
@@ -28,7 +31,11 @@ from app.services.client_portfolio_import import (
     SOURCE_SYSTEM,
     _client_state,
     _msa_state,
+    _public_client,
     _scope_state,
+    apply_client_portfolio_manifest,
+    build_client_portfolio_plan,
+    normalize_client_name,
     rollback_client_portfolio_import,
 )
 
@@ -48,6 +55,13 @@ async def _cleanup(
         await db.execute(
             delete(ClientImportRow).where(ClientImportRow.import_run_id == run_id)
         )
+        if client_ids:
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "client",
+                    Activity.entity_id.in_(client_ids),
+                )
+            )
         if scope_ids:
             await db.execute(
                 delete(ClientPortfolioScope).where(
@@ -64,6 +78,45 @@ async def _cleanup(
         if client_ids:
             await db.execute(delete(Client).where(Client.id.in_(client_ids)))
         await db.commit()
+
+
+def _manifest_row(
+    *,
+    suffix: str,
+    client_key: str,
+    display_name: str,
+    row_number: int,
+    aliases: list[str] | None = None,
+    category: str = "active",
+) -> dict:
+    return {
+        "source_key": f"pytest:{suffix}:{row_number}",
+        "client_key": client_key,
+        "sheet": f"pytest-{category}",
+        "row_number": row_number,
+        "legal_name": display_name,
+        "display_name": display_name,
+        "aliases": aliases or [],
+        "scope_label": None,
+        "category": category,
+        "effective_date": None,
+        "expiry_date": None,
+        "expiry_is_open_ended": False,
+        "workbook_status": None,
+    }
+
+
+def _manifest(*, suffix: str, rows: list[dict]) -> dict:
+    return {
+        "schema_version": 1,
+        "snapshot_date": "2026-07-30",
+        "source": {
+            "filename": f"pytest-{suffix}.xlsx",
+            "sha256": uuid.uuid4().hex * 2,
+        },
+        "known_anomalies": [],
+        "rows": rows,
+    }
 
 
 def _import_row(
@@ -465,3 +518,515 @@ async def test_rollback_kir_reference_ledger_gap_blocks_before_scope_mutation() 
             scope_ids=[scope_id],
             msa_ids=[],
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_plan_prefers_alias_and_blocks_ambiguous_or_fuzzy_matches() -> None:
+    suffix = uuid.uuid4().hex[:12]
+    alias_label = f"Reviewed Alias {suffix}"
+    ambiguous_label = f"Ambiguous Holdings {suffix}"
+    fuzzy_client_label = f"Fuzzy Consulting {suffix}"
+    clients: list[Client] = [
+        Client(name="KIR", status=ClientStatus.active),
+        Client(
+            name=f"Canonical Alias Target {suffix}",
+            status=ClientStatus.active,
+        ),
+        # The exact-name record must lose to the reviewed alias above.
+        Client(name=alias_label, status=ClientStatus.active),
+        Client(name=ambiguous_label, status=ClientStatus.active),
+        Client(name=ambiguous_label, status=ClientStatus.inactive),
+        Client(name=fuzzy_client_label, status=ClientStatus.active),
+        Client(
+            name=f"NEXUS Only {suffix}",
+            status=ClientStatus.prospect,
+        ),
+    ]
+    client_ids: list[int] = []
+    alias_id: int | None = None
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add_all(clients)
+            await db.flush()
+            alias_target = clients[1]
+            nexus_only = clients[-1]
+            reviewed_alias = ClientAlias(
+                client_id=alias_target.id,
+                alias=alias_label,
+                normalized_alias=normalize_client_name(alias_label),
+                source_system="pytest",
+                source_key=f"pytest-plan-alias:{suffix}",
+            )
+            db.add(reviewed_alias)
+            await db.commit()
+            client_ids = [client.id for client in clients]
+            alias_id = reviewed_alias.id
+            alias_target_id = alias_target.id
+            nexus_only_id = nexus_only.id
+
+        rows = [
+            _manifest_row(
+                suffix=suffix,
+                client_key="alias",
+                display_name=alias_label,
+                row_number=2,
+            ),
+            _manifest_row(
+                suffix=suffix,
+                client_key="new",
+                display_name=f"Brand New Portfolio {suffix}",
+                row_number=3,
+            ),
+            _manifest_row(
+                suffix=suffix,
+                client_key="ambiguous",
+                display_name=ambiguous_label,
+                row_number=4,
+            ),
+            _manifest_row(
+                suffix=suffix,
+                client_key="fuzzy",
+                display_name=f"Fuzzy Consultng {suffix}",
+                row_number=5,
+            ),
+        ]
+        manifest = _manifest(suffix=suffix, rows=rows)
+
+        async with AsyncSessionLocal() as db:
+            plan = await build_client_portfolio_plan(db, manifest=manifest)
+
+        groups = {group["client_key"]: group for group in plan["groups"]}
+        blockers = {blocker["client_key"]: blocker for blocker in plan["blockers"]}
+
+        assert groups["alias"]["action"] == "match"
+        assert groups["alias"]["match_method"] == "approved_alias"
+        assert groups["alias"]["target_client"]["id"] == alias_target_id
+        assert groups["new"]["action"] == "create"
+        assert groups["ambiguous"]["action"] == "blocked"
+        assert blockers["ambiguous"]["code"] == "ambiguous_exact_match"
+        assert groups["fuzzy"]["action"] == "blocked"
+        assert blockers["fuzzy"]["code"] == "plausible_duplicate_requires_review"
+        assert nexus_only_id in {client["id"] for client in plan["nexus_only"]}
+    finally:
+        if client_ids:
+            async with AsyncSessionLocal() as db:
+                if alias_id is not None:
+                    await db.execute(
+                        delete(ClientAlias).where(ClientAlias.id == alias_id)
+                    )
+                await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+                await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_apply_creates_client_adds_nexus_only_scope_and_is_idempotent(
+    monkeypatch,
+) -> None:
+    suffix = uuid.uuid4().hex[:12]
+    existing_client_id: int | None = None
+    created_client_id: int | None = None
+    run_id: int | None = None
+    scope_ids: list[int] = []
+    try:
+        async with AsyncSessionLocal() as db:
+            existing = Client(
+                name=f"Existing NEXUS Only {suffix}",
+                status=ClientStatus.prospect,
+            )
+            db.add(existing)
+            await db.commit()
+            await db.refresh(existing)
+            existing_client_id = existing.id
+            nexus_only_snapshot = _public_client(existing)
+
+        row = _manifest_row(
+            suffix=suffix,
+            client_key=f"new-{suffix}",
+            display_name=f"New Imported Client {suffix}",
+            row_number=2,
+        )
+        manifest = _manifest(suffix=suffix, rows=[row])
+        plan = {
+            "manifest_sha256": manifest["source"]["sha256"],
+            "snapshot_date": manifest["snapshot_date"],
+            "groups": [
+                {
+                    "client_key": row["client_key"],
+                    "action": "create",
+                    "rows": [row],
+                }
+            ],
+            "nexus_only": [nexus_only_snapshot],
+            "kir_merge": None,
+            "duplicate_candidates": [],
+            "blockers": [],
+            "warnings": [],
+            "plan_sha256": uuid.uuid4().hex * 2,
+            "summary": {
+                "manifest_rows": 1,
+                "matched_groups": 0,
+                "created_groups": 1,
+                "blocked_groups": 0,
+                "nexus_only_clients": 1,
+                "duplicate_candidates": 0,
+                "blockers": 0,
+                "warnings": 0,
+            },
+        }
+        plan_builder = AsyncMock(return_value=plan)
+        monkeypatch.setattr(
+            "app.services.client_portfolio_import.build_client_portfolio_plan",
+            plan_builder,
+        )
+
+        async with AsyncSessionLocal() as db:
+            first = await apply_client_portfolio_manifest(db, manifest=manifest)
+            assert first["status"] == "applied"
+            await db.commit()
+            run_id = first["run_id"]
+
+            second = await apply_client_portfolio_manifest(db, manifest=manifest)
+            assert second["status"] == "already_applied"
+            assert second["run_id"] == run_id
+            await db.rollback()
+
+        assert plan_builder.await_count == 1
+        async with AsyncSessionLocal() as db:
+            created = await db.scalar(
+                select(Client).where(
+                    Client.external_source == SOURCE_SYSTEM,
+                    Client.name == row["display_name"],
+                )
+            )
+            assert created is not None
+            created_client_id = created.id
+            assert created.status == ClientStatus.active
+
+            existing = await db.get(Client, existing_client_id)
+            assert existing is not None
+            assert existing.status == ClientStatus.prospect
+
+            scopes = (
+                (
+                    await db.execute(
+                        select(ClientPortfolioScope).where(
+                            ClientPortfolioScope.client_id.in_(
+                                [created_client_id, existing_client_id]
+                            )
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            scope_ids = [scope.id for scope in scopes]
+            categories = {
+                scope.client_id: scope.category
+                for scope in scopes
+                if scope.archived_at is None
+            }
+            assert categories == {
+                created_client_id: PortfolioCategory.active,
+                existing_client_id: PortfolioCategory.inactive,
+            }
+
+            runs = (
+                (
+                    await db.execute(
+                        select(ClientImportRun).where(
+                            ClientImportRun.source_sha256
+                            == manifest["source"]["sha256"]
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert [run.status for run in runs] == [ClientImportRunStatus.applied]
+    finally:
+        if run_id is not None and existing_client_id is not None:
+            await _cleanup(
+                run_id=run_id,
+                client_ids=[
+                    client_id
+                    for client_id in (existing_client_id, created_client_id)
+                    if client_id is not None
+                ],
+                scope_ids=scope_ids,
+                msa_ids=[],
+            )
+        elif existing_client_id is not None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Client).where(Client.id == existing_client_id))
+                await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_rollback_then_reapply_revives_same_scope_client_and_alias(
+    monkeypatch,
+) -> None:
+    suffix = uuid.uuid4().hex[:12]
+    alias_text = f"Reversible Alias {suffix}"
+    row = _manifest_row(
+        suffix=suffix,
+        client_key=f"reversible-{suffix}",
+        display_name=f"Reversible Client {suffix}",
+        row_number=2,
+        aliases=[alias_text],
+    )
+    manifest = _manifest(suffix=suffix, rows=[row])
+    plan = {
+        "manifest_sha256": manifest["source"]["sha256"],
+        "snapshot_date": manifest["snapshot_date"],
+        "groups": [
+            {
+                "client_key": row["client_key"],
+                "action": "create",
+                "rows": [row],
+            }
+        ],
+        "nexus_only": [],
+        "kir_merge": None,
+        "duplicate_candidates": [],
+        "blockers": [],
+        "warnings": [],
+        "plan_sha256": uuid.uuid4().hex * 2,
+        "summary": {
+            "manifest_rows": 1,
+            "matched_groups": 0,
+            "created_groups": 1,
+            "blocked_groups": 0,
+            "nexus_only_clients": 0,
+            "duplicate_candidates": 0,
+            "blockers": 0,
+            "warnings": 0,
+        },
+    }
+    plan_builder = AsyncMock(side_effect=[plan, plan])
+    monkeypatch.setattr(
+        "app.services.client_portfolio_import.build_client_portfolio_plan",
+        plan_builder,
+    )
+
+    first_run_id: int | None = None
+    second_run_id: int | None = None
+    client_id: int | None = None
+    scope_id: int | None = None
+    alias_id: int | None = None
+    try:
+        async with AsyncSessionLocal() as db:
+            first = await apply_client_portfolio_manifest(db, manifest=manifest)
+            assert first["status"] == "applied"
+            first_run_id = first["run_id"]
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            client = await db.scalar(
+                select(Client).where(
+                    Client.external_source == SOURCE_SYSTEM,
+                    Client.name == row["display_name"],
+                )
+            )
+            assert client is not None
+            client_id = client.id
+            scope = await db.scalar(
+                select(ClientPortfolioScope).where(
+                    ClientPortfolioScope.source_system == SOURCE_SYSTEM,
+                    ClientPortfolioScope.source_key == row["source_key"],
+                )
+            )
+            alias = await db.scalar(
+                select(ClientAlias).where(
+                    ClientAlias.client_id == client_id,
+                    ClientAlias.normalized_alias == normalize_client_name(alias_text),
+                )
+            )
+            assert scope is not None
+            assert alias is not None
+            scope_id = scope.id
+            alias_id = alias.id
+            assert scope.archived_at is None
+            assert alias.archived_at is None
+            assert alias.import_run_id == first_run_id
+
+        async with AsyncSessionLocal() as db:
+            rolled_back = await rollback_client_portfolio_import(
+                db, run_id=first_run_id
+            )
+            assert rolled_back["status"] == "rolled_back"
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            client = await db.get(Client, client_id)
+            scope = await db.get(ClientPortfolioScope, scope_id)
+            alias = await db.get(ClientAlias, alias_id)
+            assert client is not None
+            assert client.hidden is True
+            assert client.archived_at is not None
+            assert scope is not None
+            assert scope.archived_at is not None
+            assert alias is not None
+            assert alias.archived_at is not None
+            assert alias.import_run_id == first_run_id
+
+        async with AsyncSessionLocal() as db:
+            second = await apply_client_portfolio_manifest(db, manifest=manifest)
+            assert second["status"] == "applied"
+            second_run_id = second["run_id"]
+            assert second_run_id != first_run_id
+            await db.commit()
+
+        assert plan_builder.await_count == 2
+        async with AsyncSessionLocal() as db:
+            client = await db.get(Client, client_id)
+            scopes = (
+                (
+                    await db.execute(
+                        select(ClientPortfolioScope).where(
+                            ClientPortfolioScope.source_system == SOURCE_SYSTEM,
+                            ClientPortfolioScope.source_key == row["source_key"],
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            aliases = (
+                (
+                    await db.execute(
+                        select(ClientAlias).where(
+                            ClientAlias.client_id == client_id,
+                            ClientAlias.normalized_alias
+                            == normalize_client_name(alias_text),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert client is not None
+            assert client.hidden is False
+            assert client.archived_at is None
+            assert [scope.id for scope in scopes] == [scope_id]
+            assert scopes[0].archived_at is None
+            assert [alias.id for alias in aliases] == [alias_id]
+            assert aliases[0].archived_at is None
+            assert aliases[0].import_run_id == second_run_id
+    finally:
+        if second_run_id is not None:
+            await _cleanup(
+                run_id=second_run_id,
+                client_ids=[],
+                scope_ids=[],
+                msa_ids=[],
+            )
+        if first_run_id is not None:
+            await _cleanup(
+                run_id=first_run_id,
+                client_ids=[client_id] if client_id is not None else [],
+                scope_ids=[scope_id] if scope_id is not None else [],
+                msa_ids=[],
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_apply_failure_rolls_back_all_business_rows_but_keeps_failed_audit(
+    monkeypatch,
+) -> None:
+    suffix = uuid.uuid4().hex[:12]
+    first_row = _manifest_row(
+        suffix=suffix,
+        client_key=f"first-{suffix}",
+        display_name=f"First Atomic Client {suffix}",
+        row_number=2,
+    )
+    second_row = _manifest_row(
+        suffix=suffix,
+        client_key=f"second-{suffix}",
+        display_name=f"Second Atomic Client {suffix}",
+        row_number=3,
+    )
+    manifest = _manifest(suffix=suffix, rows=[first_row, second_row])
+    plan = {
+        "manifest_sha256": manifest["source"]["sha256"],
+        "snapshot_date": manifest["snapshot_date"],
+        "groups": [
+            {
+                "client_key": first_row["client_key"],
+                "action": "create",
+                "rows": [first_row],
+            },
+            {
+                "client_key": second_row["client_key"],
+                "action": "invalid-test-action",
+                "rows": [second_row],
+            },
+        ],
+        "nexus_only": [],
+        "kir_merge": None,
+        "duplicate_candidates": [],
+        "blockers": [],
+        "warnings": [],
+        "plan_sha256": uuid.uuid4().hex * 2,
+        "summary": {},
+    }
+    monkeypatch.setattr(
+        "app.services.client_portfolio_import.build_client_portfolio_plan",
+        AsyncMock(return_value=plan),
+    )
+    run_id: int | None = None
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await apply_client_portfolio_manifest(db, manifest=manifest)
+            assert result["status"] == "failed"
+            assert "Unexpected group action" in result["error"]
+            run_id = result["run_id"]
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            imported_clients = (
+                (
+                    await db.execute(
+                        select(Client).where(
+                            Client.external_source == SOURCE_SYSTEM,
+                            Client.name.in_(
+                                [
+                                    first_row["display_name"],
+                                    second_row["display_name"],
+                                ]
+                            ),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            import_rows = (
+                (
+                    await db.execute(
+                        select(ClientImportRow).where(
+                            ClientImportRow.import_run_id == run_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            run = await db.get(ClientImportRun, run_id)
+
+            assert imported_clients == []
+            assert import_rows == []
+            assert run is not None
+            assert run.status == ClientImportRunStatus.failed
+    finally:
+        if run_id is not None:
+            await _cleanup(
+                run_id=run_id,
+                client_ids=[],
+                scope_ids=[],
+                msa_ids=[],
+            )

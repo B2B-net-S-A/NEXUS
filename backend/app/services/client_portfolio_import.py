@@ -49,6 +49,7 @@ MANIFEST_PATH = (
 )
 SOURCE_SYSTEM = "client_excel"
 ADVISORY_LOCK_KEY = 0x434C49454E5453  # ASCII-ish "CLIENTS", stable across deploys
+POSTGRES_LOCK_TIMEOUT = "15s"
 FUZZY_BLOCK_THRESHOLD = 0.88
 SYSTEM_CLIENT_NAMES = {"__traffit_orphans"}
 
@@ -83,6 +84,42 @@ class ClientPortfolioImportError(RuntimeError):
     """Raised for an invalid manifest or a blocked apply."""
 
 
+async def _acquire_import_advisory_lock(db: AsyncSession) -> bool:
+    """Acquire the transaction lock with a bounded PostgreSQL wait.
+
+    ``lock_timeout`` applies to both the advisory lock and every later table/
+    row lock in this transaction. A stuck production writer therefore makes
+    startup fail red and retry instead of leaving a deploy pending forever.
+    """
+
+    if db.get_bind().dialect.name != "postgresql":
+        return False
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": POSTGRES_LOCK_TIMEOUT},
+    )
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": ADVISORY_LOCK_KEY},
+    )
+    return True
+
+
+async def _lock_import_write_surface(db: AsyncSession) -> None:
+    """Freeze match inputs and import-owned MSA/scope rows for one apply."""
+
+    await db.execute(
+        text(
+            "LOCK TABLE clients, client_aliases, candidates, "
+            "client_portfolio_scopes, client_framework_contracts "
+            "IN SHARE ROW EXCLUSIVE MODE"
+        )
+    )
+    # A foreign-key insert takes a KEY SHARE row lock on its referenced
+    # client. FOR UPDATE therefore closes the dependency race around KIR.
+    await db.execute(select(Client.id).order_by(Client.id).with_for_update())
+
+
 def normalize_client_name(value: str | None) -> str:
     """Case/diacritic/punctuation-insensitive exact-match key."""
 
@@ -111,6 +148,12 @@ def _stable_hash(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()
     ).hexdigest()
+
+
+def _normalized_manifest_sha256(manifest: dict[str, Any]) -> str:
+    """Digest the reviewed JSON, independently from the source XLSX hash."""
+
+    return _stable_hash(manifest)
 
 
 def load_client_portfolio_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
@@ -204,6 +247,184 @@ def load_client_portfolio_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]
             f"Unexpected category counts: {dict(counts)!r}"
         )
     return manifest
+
+
+async def get_client_portfolio_import_health(
+    db: AsyncSession,
+    *,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a count-only readiness view for the checked-in manifest.
+
+    The deep-health endpoint deliberately exposes no client names or row
+    payloads.  The applied run is selected by the exact source hash, while the
+    counters make a partial/corrupt audit trail visible instead of reporting a
+    misleading ``applied`` state.
+    """
+
+    manifest = manifest or load_client_portfolio_manifest()
+    expected_source_sha256 = manifest["source"]["sha256"]
+    expected_manifest_sha256 = _normalized_manifest_sha256(manifest)
+    expected_category_rows = {
+        category.value: sum(
+            row["category"] == category.value for row in manifest["rows"]
+        )
+        for category in PortfolioCategory
+    }
+    expected_manifest_rows = len(manifest["rows"])
+    expected_framework_contracts = sum(
+        row.get("effective_date") is not None for row in manifest["rows"]
+    )
+    empty_counts = {
+        "expected_manifest_rows": expected_manifest_rows,
+        "expected_framework_contracts": expected_framework_contracts,
+        "imported_manifest_rows": 0,
+        "nexus_only_rows": 0,
+        "audit_rows": 0,
+        "unique_clients": 0,
+        "portfolio_scopes": 0,
+        "framework_contracts": 0,
+        "live_portfolio_scopes": 0,
+        "live_framework_contracts": 0,
+        "category_rows": {category.value: 0 for category in PortfolioCategory},
+    }
+
+    run = await db.scalar(
+        select(ClientImportRun)
+        .where(
+            ClientImportRun.source_system == SOURCE_SYSTEM,
+            ClientImportRun.source_sha256 == expected_source_sha256,
+            ClientImportRun.status == ClientImportRunStatus.applied,
+        )
+        .order_by(ClientImportRun.id.desc())
+        .limit(1)
+    )
+    if run is None:
+        return {
+            "expected_source_sha256": expected_source_sha256,
+            "expected_manifest_sha256": expected_manifest_sha256,
+            "status": "not_applied",
+            "run_id": None,
+            "applied_at": None,
+            "counts": empty_counts,
+        }
+
+    count_row = (
+        await db.execute(
+            select(
+                func.count(ClientImportRow.id).label("audit_rows"),
+                func.count(ClientImportRow.id)
+                .filter(ClientImportRow.sheet_name != "NEXUS-only")
+                .label("imported_manifest_rows"),
+                func.count(ClientImportRow.id)
+                .filter(ClientImportRow.sheet_name == "NEXUS-only")
+                .label("nexus_only_rows"),
+                func.count(func.distinct(ClientImportRow.matched_client_id)).label(
+                    "unique_clients"
+                ),
+                func.count(func.distinct(ClientImportRow.portfolio_scope_id)).label(
+                    "portfolio_scopes"
+                ),
+                func.count(func.distinct(ClientImportRow.framework_contract_id)).label(
+                    "framework_contracts"
+                ),
+                *(
+                    func.count(ClientImportRow.id)
+                    .filter(
+                        ClientImportRow.sheet_name != "NEXUS-only",
+                        ClientImportRow.category == category,
+                    )
+                    .label(f"{category.value}_rows")
+                    for category in PortfolioCategory
+                ),
+            ).where(ClientImportRow.import_run_id == run.id)
+        )
+    ).one()
+    live_scope_rows = int(
+        (
+            await db.execute(
+                select(func.count(ClientImportRow.id))
+                .select_from(ClientImportRow)
+                .join(
+                    ClientPortfolioScope,
+                    ClientPortfolioScope.id == ClientImportRow.portfolio_scope_id,
+                )
+                .where(
+                    ClientImportRow.import_run_id == run.id,
+                    ClientPortfolioScope.archived_at.is_(None),
+                    ClientPortfolioScope.client_id == ClientImportRow.matched_client_id,
+                    ClientPortfolioScope.category == ClientImportRow.category,
+                    ClientPortfolioScope.source_system == SOURCE_SYSTEM,
+                    ClientPortfolioScope.source_key == ClientImportRow.source_key,
+                    ClientPortfolioScope.framework_contract_id.is_not_distinct_from(
+                        ClientImportRow.framework_contract_id
+                    ),
+                )
+            )
+        ).scalar_one()
+    )
+    live_framework_contracts = int(
+        (
+            await db.execute(
+                select(func.count(ClientImportRow.id))
+                .select_from(ClientImportRow)
+                .join(
+                    ClientFrameworkContract,
+                    ClientFrameworkContract.id == ClientImportRow.framework_contract_id,
+                )
+                .where(
+                    ClientImportRow.import_run_id == run.id,
+                    ClientImportRow.sheet_name != "NEXUS-only",
+                    ClientFrameworkContract.client_id
+                    == ClientImportRow.matched_client_id,
+                    ClientFrameworkContract.source_system == SOURCE_SYSTEM,
+                    ClientFrameworkContract.source_key == ClientImportRow.source_key,
+                    ClientFrameworkContract.import_run_id == run.id,
+                    ClientFrameworkContract.effective_date.is_not_distinct_from(
+                        ClientImportRow.start_date
+                    ),
+                    ClientFrameworkContract.expiry_date.is_not_distinct_from(
+                        ClientImportRow.end_date
+                    ),
+                )
+            )
+        ).scalar_one()
+    )
+    counts = {
+        "expected_manifest_rows": expected_manifest_rows,
+        "expected_framework_contracts": expected_framework_contracts,
+        "imported_manifest_rows": int(count_row.imported_manifest_rows),
+        "nexus_only_rows": int(count_row.nexus_only_rows),
+        "audit_rows": int(count_row.audit_rows),
+        "unique_clients": int(count_row.unique_clients),
+        "portfolio_scopes": int(count_row.portfolio_scopes),
+        "framework_contracts": int(count_row.framework_contracts),
+        "live_portfolio_scopes": live_scope_rows,
+        "live_framework_contracts": live_framework_contracts,
+        "category_rows": {
+            category.value: int(getattr(count_row, f"{category.value}_rows"))
+            for category in PortfolioCategory
+        },
+    }
+    applied_manifest_sha256 = (run.summary or {}).get("normalized_manifest_sha256")
+    is_consistent = (
+        run.applied_at is not None
+        and applied_manifest_sha256 == expected_manifest_sha256
+        and counts["imported_manifest_rows"] == expected_manifest_rows
+        and counts["category_rows"] == expected_category_rows
+        and counts["portfolio_scopes"] == counts["audit_rows"]
+        and counts["live_portfolio_scopes"] == counts["audit_rows"]
+        and counts["framework_contracts"] == expected_framework_contracts
+        and counts["live_framework_contracts"] == expected_framework_contracts
+    )
+    return {
+        "expected_source_sha256": expected_source_sha256,
+        "expected_manifest_sha256": expected_manifest_sha256,
+        "status": "applied" if is_consistent else "inconsistent",
+        "run_id": run.id,
+        "applied_at": _iso_datetime(run.applied_at),
+        "counts": counts,
+    }
 
 
 def _derived_manifest_warnings(
@@ -343,7 +564,11 @@ async def _load_directory_clients(
     )
     aliases_by_client: dict[int, list[str]] = defaultdict(list)
     for client_id, alias in (
-        await db.execute(select(ClientAlias.client_id, ClientAlias.alias))
+        await db.execute(
+            select(ClientAlias.client_id, ClientAlias.alias).where(
+                ClientAlias.archived_at.is_(None)
+            )
+        )
     ).all():
         aliases_by_client[int(client_id)].append(alias)
     return [
@@ -705,6 +930,10 @@ async def build_client_portfolio_plan(
                     "jsonb_candidates": jsonb_candidates,
                 }
             )
+    elif not kir_targets and not kir_losers:
+        # Fresh/DR databases legitimately have no pre-existing KIR records.
+        # The manifest group will create the canonical client without a merge.
+        warnings.append({"code": "kir_records_not_present_create_from_manifest"})
     elif len(kir_targets) != 1:
         blockers.append(
             {
@@ -795,27 +1024,60 @@ async def _upsert_alias(
     *,
     client_id: int,
     alias: str,
+    import_run_id: int,
     source_key: str | None = None,
-) -> None:
+) -> dict[str, Any] | None:
+    """Create/revive one import-owned alias and return its rollback audit.
+
+    An already-active alias is preserved verbatim, including manual
+    provenance. Archived aliases may only be revived when they are owned by
+    this importer; otherwise the uniqueness collision is a fail-closed review
+    blocker rather than an implicit ownership transfer.
+    """
+
     normalized = normalize_client_name(alias)
     if not normalized:
-        return
+        return None
     existing = await db.scalar(
-        select(ClientAlias).where(
+        select(ClientAlias)
+        .where(
             ClientAlias.client_id == client_id,
             ClientAlias.normalized_alias == normalized,
         )
+        .with_for_update()
     )
     if existing is None:
-        db.add(
-            ClientAlias(
-                client_id=client_id,
-                alias=alias.strip(),
-                normalized_alias=normalized,
-                source_system=SOURCE_SYSTEM,
-                source_key=source_key,
-            )
+        created = ClientAlias(
+            client_id=client_id,
+            alias=alias.strip(),
+            normalized_alias=normalized,
+            source_system=SOURCE_SYSTEM,
+            source_key=source_key,
+            import_run_id=import_run_id,
         )
+        db.add(created)
+        await db.flush()
+        return {
+            "alias_id": created.id,
+            "before": None,
+            "after": _alias_state(created),
+        }
+    if existing.archived_at is None:
+        return None
+    if existing.source_system != SOURCE_SYSTEM:
+        raise ClientPortfolioImportError(
+            f"Archived alias belongs to another source: {existing.id}"
+        )
+    before = _alias_state(existing)
+    existing.alias = alias.strip()
+    existing.source_key = source_key
+    existing.import_run_id = import_run_id
+    existing.archived_at = None
+    return {
+        "alias_id": existing.id,
+        "before": before,
+        "after": _alias_state(existing),
+    }
 
 
 async def _replace_candidate_excluded_client(
@@ -888,6 +1150,19 @@ def _scope_state(scope: ClientPortfolioScope) -> dict[str, Any]:
     }
 
 
+def _alias_state(alias: ClientAlias) -> dict[str, Any]:
+    return {
+        "id": alias.id,
+        "client_id": alias.client_id,
+        "alias": alias.alias,
+        "normalized_alias": alias.normalized_alias,
+        "source_system": alias.source_system,
+        "source_key": alias.source_key,
+        "import_run_id": alias.import_run_id,
+        "archived_at": _iso_datetime(alias.archived_at),
+    }
+
+
 def _msa_state(msa: ClientFrameworkContract) -> dict[str, Any]:
     return {
         "id": msa.id,
@@ -933,6 +1208,16 @@ def _restore_scope_state(scope: ClientPortfolioScope, state: dict[str, Any]) -> 
     scope.archived_at = _parse_optional_datetime(state["archived_at"])
 
 
+def _restore_alias_state(alias: ClientAlias, state: dict[str, Any]) -> None:
+    alias.client_id = state["client_id"]
+    alias.alias = state["alias"]
+    alias.normalized_alias = state["normalized_alias"]
+    alias.source_system = state["source_system"]
+    alias.source_key = state["source_key"]
+    alias.import_run_id = state["import_run_id"]
+    alias.archived_at = _parse_optional_datetime(state["archived_at"])
+
+
 def _restore_msa_state(msa: ClientFrameworkContract, state: dict[str, Any]) -> None:
     msa.client_id = state["client_id"]
     msa.name = state["name"]
@@ -954,6 +1239,7 @@ async def _merge_kir(
     expected_source_updated_at: str | None,
     expected_target_updated_at: str | None,
     archived_by: int | None,
+    import_run_id: int,
 ) -> dict[str, Any]:
     """Repoint direct FKs, preserve aliases and archive the loser.
 
@@ -997,6 +1283,7 @@ async def _merge_kir(
             "already_merged": True,
             "moved_references": [],
             "jsonb_candidates": 0,
+            "alias_audits": [],
         }
     if target.merged_into_client_id is not None:
         raise ClientPortfolioImportError(
@@ -1076,13 +1363,26 @@ async def _merge_kir(
         source.external_source = "merged"
         source.external_id = None
     target.display_name = "Krajowa Izba Rozliczeń"
-    await _upsert_alias(db, client_id=target.id, alias="KIR", source_key="kir")
-    await _upsert_alias(
-        db,
-        client_id=target.id,
-        alias=source.display_name or source.name,
-        source_key="kir-duplicate-name",
-    )
+    alias_audits = [
+        audit
+        for audit in (
+            await _upsert_alias(
+                db,
+                client_id=target.id,
+                alias="KIR",
+                source_key="kir",
+                import_run_id=import_run_id,
+            ),
+            await _upsert_alias(
+                db,
+                client_id=target.id,
+                alias=source.display_name or source.name,
+                source_key="kir-duplicate-name",
+                import_run_id=import_run_id,
+            ),
+        )
+        if audit is not None
+    ]
     source.hidden = True
     source.archived_at = datetime.now(timezone.utc)
     source.archived_by = archived_by
@@ -1097,6 +1397,7 @@ async def _merge_kir(
         "moved_references": moved,
         "jsonb_candidates": jsonb_candidates,
         "job_ids_reindexed": job_ids,
+        "alias_audits": alias_audits,
         "source_before": source_before,
         "source_after": _client_state(source),
         "target_before": target_before,
@@ -1108,11 +1409,17 @@ async def _find_existing_scope(
     db: AsyncSession, source_key: str
 ) -> ClientPortfolioScope | None:
     return await db.scalar(
-        select(ClientPortfolioScope).where(
+        select(ClientPortfolioScope)
+        .where(
             ClientPortfolioScope.source_system == SOURCE_SYSTEM,
             ClientPortfolioScope.source_key == source_key,
-            ClientPortfolioScope.archived_at.is_(None),
         )
+        .order_by(
+            ClientPortfolioScope.archived_at.is_not(None),
+            ClientPortfolioScope.id.desc(),
+        )
+        .limit(1)
+        .with_for_update()
     )
 
 
@@ -1120,10 +1427,12 @@ async def _find_existing_msa(
     db: AsyncSession, source_key: str
 ) -> ClientFrameworkContract | None:
     return await db.scalar(
-        select(ClientFrameworkContract).where(
+        select(ClientFrameworkContract)
+        .where(
             ClientFrameworkContract.source_system == SOURCE_SYSTEM,
             ClientFrameworkContract.source_key == source_key,
         )
+        .with_for_update()
     )
 
 
@@ -1136,12 +1445,9 @@ async def apply_client_portfolio_manifest(
     """Fail-closed, idempotent apply in one savepoint under an advisory lock."""
 
     manifest = manifest or load_client_portfolio_manifest()
-    if db.get_bind().dialect.name == "postgresql":
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_key)"),
-            {"lock_key": ADVISORY_LOCK_KEY},
-        )
+    has_postgres_lock = await _acquire_import_advisory_lock(db)
 
+    normalized_manifest_sha256 = _normalized_manifest_sha256(manifest)
     existing_run = await db.scalar(
         select(ClientImportRun).where(
             ClientImportRun.source_system == SOURCE_SYSTEM,
@@ -1150,11 +1456,34 @@ async def apply_client_portfolio_manifest(
         )
     )
     if existing_run is not None:
+        applied_manifest_sha256 = (existing_run.summary or {}).get(
+            "normalized_manifest_sha256"
+        )
+        if applied_manifest_sha256 != normalized_manifest_sha256:
+            return {
+                "status": "blocked",
+                "run_id": existing_run.id,
+                "blockers": [
+                    {
+                        "code": "normalized_manifest_digest_mismatch",
+                        "expected": normalized_manifest_sha256,
+                        "applied": applied_manifest_sha256,
+                    }
+                ],
+            }
         return {
             "status": "already_applied",
             "run_id": existing_run.id,
             "summary": existing_run.summary,
         }
+
+    if has_postgres_lock:
+        # The advisory lock coordinates importer instances only. During a
+        # zero-downtime deploy the previous API can still write, so freeze the
+        # matching population and JSONB exclusion surface for the short,
+        # single-transaction apply. Plain reads continue normally. The no-op
+        # restart path above deliberately never takes these table locks.
+        await _lock_import_write_surface(db)
 
     plan = await build_client_portfolio_plan(db, manifest=manifest)
     run = ClientImportRun(
@@ -1163,6 +1492,7 @@ async def apply_client_portfolio_manifest(
         source_sha256=manifest["source"]["sha256"],
         status=ClientImportRunStatus.applying,
         summary={
+            "normalized_manifest_sha256": normalized_manifest_sha256,
             "plan_sha256": plan["plan_sha256"],
             "plan_summary": plan["summary"],
             "warnings": plan["warnings"],
@@ -1188,6 +1518,18 @@ async def apply_client_portfolio_manifest(
 
     try:
         async with db.begin_nested():
+            alias_audits_by_id: dict[int, dict[str, Any]] = {}
+
+            def record_alias_audit(audit: dict[str, Any] | None) -> None:
+                if audit is None:
+                    return
+                alias_id = int(audit["alias_id"])
+                previous = alias_audits_by_id.setdefault(alias_id, audit)
+                if previous != audit:
+                    raise ClientPortfolioImportError(
+                        f"Inconsistent alias audit during apply: {alias_id}"
+                    )
+
             merge_result: dict[str, Any] | None = None
             if plan["kir_merge"]:
                 merge_result = await _merge_kir(
@@ -1201,7 +1543,20 @@ async def apply_client_portfolio_manifest(
                         "updated_at"
                     ],
                     archived_by=actor_id,
+                    import_run_id=run.id,
                 )
+                for alias_audit in merge_result.get("alias_audits") or []:
+                    record_alias_audit(alias_audit)
+                moved_reference_rows = sum(
+                    int(item.get("rows") or 0)
+                    for item in merge_result.get("moved_references") or []
+                )
+                jsonb_candidates = int(merge_result.get("jsonb_candidates") or 0)
+                if moved_reference_rows or jsonb_candidates:
+                    raise ClientPortfolioImportError(
+                        "KIR dependencies changed after validation; "
+                        "the merge was rolled back"
+                    )
 
             groups_by_key = {group["client_key"]: group for group in plan["groups"]}
             clients_by_key: dict[str, Client] = {}
@@ -1301,11 +1656,14 @@ async def apply_client_portfolio_manifest(
                 }
                 for row in rows:
                     for alias_index, alias in enumerate(row.get("aliases") or []):
-                        await _upsert_alias(
-                            db,
-                            client_id=client.id,
-                            alias=alias,
-                            source_key=f"{row['source_key']}:{alias_index}",
+                        record_alias_audit(
+                            await _upsert_alias(
+                                db,
+                                client_id=client.id,
+                                alias=alias,
+                                source_key=f"{row['source_key']}:{alias_index}",
+                                import_run_id=run.id,
+                            )
                         )
 
             snapshot = date.fromisoformat(manifest["snapshot_date"])
@@ -1372,6 +1730,7 @@ async def apply_client_portfolio_manifest(
                     scope.framework_contract_id = msa.id if msa else None
                     scope.category = PortfolioCategory(manifest_row["category"])
                     scope.label = manifest_row.get("scope_label")
+                    scope.archived_at = None
                 scope_ids.append(scope.id)
 
                 db.add(
@@ -1492,6 +1851,10 @@ async def apply_client_portfolio_manifest(
                 "changed_client_ids": sorted(changed_client_ids),
                 "created_msa_ids": created_msa_ids,
                 "scope_ids": scope_ids,
+                "alias_audits": [
+                    alias_audits_by_id[alias_id]
+                    for alias_id in sorted(alias_audits_by_id)
+                ],
                 "rows_applied": len(manifest["rows"]),
                 "nexus_only_applied": len(plan["nexus_only"]),
             }
@@ -1526,11 +1889,7 @@ async def rollback_client_portfolio_import(
     are archived/superseded, never deleted.
     """
 
-    if db.get_bind().dialect.name == "postgresql":
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_key)"),
-            {"lock_key": ADVISORY_LOCK_KEY},
-        )
+    await _acquire_import_advisory_lock(db)
 
     run = await db.scalar(
         select(ClientImportRun).where(ClientImportRun.id == run_id).with_for_update()
@@ -1602,6 +1961,7 @@ async def rollback_client_portfolio_import(
     client_audits: dict[int, dict[str, Any]] = {}
     scope_audits: dict[int, dict[str, Any]] = {}
     msa_audits: dict[int, dict[str, Any]] = {}
+    alias_audits: dict[int, dict[str, Any]] = {}
 
     required_client_fields = {
         "id",
@@ -1638,6 +1998,16 @@ async def rollback_client_portfolio_import(
         "source_key",
         "import_run_id",
         "notes",
+    }
+    required_alias_fields = {
+        "id",
+        "client_id",
+        "alias",
+        "normalized_alias",
+        "source_system",
+        "source_key",
+        "import_run_id",
+        "archived_at",
     }
 
     def register_audit(
@@ -1692,6 +2062,31 @@ async def rollback_client_portfolio_import(
                 }
             )
 
+    raw_alias_audits = (run.summary or {}).get("alias_audits", [])
+    if not isinstance(raw_alias_audits, list):
+        conflicts.append({"reason": "invalid_alias_rollback_audit_collection"})
+    else:
+        for index, alias_audit in enumerate(raw_alias_audits):
+            if not isinstance(alias_audit, dict) or not isinstance(
+                alias_audit.get("alias_id"), int
+            ):
+                conflicts.append(
+                    {
+                        "reason": "invalid_alias_rollback_audit",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            register_audit(
+                entity="alias",
+                entity_id=alias_audit["alias_id"],
+                before=alias_audit.get("before"),
+                after=alias_audit.get("after"),
+                required_fields=required_alias_fields,
+                registry=alias_audits,
+                row_id=-(index + 1),
+            )
+
     for row in rows:
         payload = row.raw_payload or {}
         client_audit = payload.get("client")
@@ -1743,10 +2138,12 @@ async def rollback_client_portfolio_import(
     client_ids = set(client_audits) | kir_client_ids
     scope_ids = set(scope_audits)
     msa_ids = set(msa_audits)
+    alias_ids = set(alias_audits)
 
     clients: dict[int, Client] = {}
     scopes: dict[int, ClientPortfolioScope] = {}
     msas: dict[int, ClientFrameworkContract] = {}
+    aliases: dict[int, ClientAlias] = {}
     if client_ids:
         loaded = (
             (
@@ -1789,6 +2186,20 @@ async def rollback_client_portfolio_import(
             .all()
         )
         msas = {msa.id: msa for msa in loaded}
+    if alias_ids:
+        loaded = (
+            (
+                await db.execute(
+                    select(ClientAlias)
+                    .where(ClientAlias.id.in_(alias_ids))
+                    .order_by(ClientAlias.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        aliases = {alias.id: alias for alias in loaded}
 
     def compare_current(
         *,
@@ -1843,6 +2254,14 @@ async def rollback_client_portfolio_import(
             current=_msa_state(msa) if msa else None,
             expected=audit["after"],
         )
+    for alias_id, audit in alias_audits.items():
+        alias = aliases.get(alias_id)
+        compare_current(
+            entity="alias",
+            entity_id=alias_id,
+            current=_alias_state(alias) if alias else None,
+            expected=audit["after"],
+        )
 
     if merge and not merge.get("already_merged"):
         source_after = merge.get("source_after")
@@ -1895,6 +2314,14 @@ async def rollback_client_portfolio_import(
     now = datetime.now(timezone.utc)
     try:
         async with db.begin_nested():
+            for alias_id, audit in alias_audits.items():
+                alias = aliases[alias_id]
+                before = audit["before"]
+                if before is None:
+                    alias.archived_at = now
+                else:
+                    _restore_alias_state(alias, before)
+
             for scope_id, audit in scope_audits.items():
                 scope = scopes[scope_id]
                 before = audit["before"]

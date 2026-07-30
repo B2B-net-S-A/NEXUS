@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client, ClientStatus
 from app.models.client_directory import (
@@ -100,23 +101,32 @@ async def _seed_directory() -> dict[str, object]:
             ),
         ]
         db.add_all(scopes)
-        db.add(
-            ClientAlias(
-                client_id=zulu.id,
-                alias=f"Legacy Alias {suffix}",
-                normalized_alias=f"legacy alias {suffix}",
-                source_system="test",
-                source_key=f"{suffix}:alias",
-            )
+        archived_alias = f"Archived Alias {suffix}"
+        db.add_all(
+            [
+                ClientAlias(
+                    client_id=zulu.id,
+                    alias=f"Legacy Alias {suffix}",
+                    normalized_alias=f"legacy alias {suffix}",
+                    source_system="test",
+                    source_key=f"{suffix}:alias",
+                ),
+                ClientAlias(
+                    client_id=zulu.id,
+                    alias=archived_alias,
+                    normalized_alias=archived_alias.lower(),
+                    source_system="test",
+                    source_key=f"{suffix}:archived-alias",
+                    archived_at=datetime.now(timezone.utc),
+                ),
+            ]
         )
 
         candidate_one = Candidate(name="Anna", lastname=f"One-{suffix}")
         candidate_two = Candidate(name="Jan", lastname=f"Two-{suffix}")
         candidate_future = Candidate(name="Future", lastname=f"Three-{suffix}")
         candidate_ended = Candidate(name="Ended", lastname=f"Four-{suffix}")
-        db.add_all(
-            (candidate_one, candidate_two, candidate_future, candidate_ended)
-        )
+        db.add_all((candidate_one, candidate_two, candidate_future, candidate_ended))
         await db.flush()
         contracts = [
             Contract(
@@ -160,6 +170,7 @@ async def _seed_directory() -> dict[str, object]:
         await db.commit()
         return {
             "suffix": suffix,
+            "archived_alias": archived_alias,
             "client_ids": [alpha.id, zulu.id, hidden.id],
             "candidate_ids": [
                 candidate_one.id,
@@ -192,6 +203,94 @@ async def _cleanup_directory(seed: dict[str, object]) -> None:
         await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
         await db.execute(delete(Client).where(Client.id.in_(client_ids)))
         await db.commit()
+
+
+@pytest.mark.parametrize(
+    ("portfolio_category", "expected_category"),
+    [
+        (None, PortfolioCategory.active),
+        (PortfolioCategory.relationship.value, PortfolioCategory.relationship),
+    ],
+)
+async def test_create_client_atomically_creates_initial_portfolio_scope(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    portfolio_category: str | None,
+    expected_category: PortfolioCategory,
+) -> None:
+    name = f"Atomic client {uuid.uuid4().hex[:10]}"
+    client_id: int | None = None
+    params = (
+        {"portfolio_category": portfolio_category}
+        if portfolio_category is not None
+        else None
+    )
+
+    try:
+        response = await app_client.post(
+            "/api/clients",
+            params=params,
+            json={
+                "name": name,
+                "industry": "Test",
+                "status": "inactive",
+            },
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        client_id = body["id"]
+        # Portfolio category is independent of the legacy client status.
+        assert body["status"] == "inactive"
+
+        async with AsyncSessionLocal() as db:
+            scopes = list(
+                (
+                    await db.scalars(
+                        select(ClientPortfolioScope).where(
+                            ClientPortfolioScope.client_id == client_id
+                        )
+                    )
+                ).all()
+            )
+            assert len(scopes) == 1
+            assert scopes[0].category == expected_category
+            assert scopes[0].source_system == "manual"
+            assert scopes[0].framework_contract_id is None
+    finally:
+        if client_id is not None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    delete(Activity).where(
+                        Activity.entity_type == "client",
+                        Activity.entity_id == client_id,
+                    )
+                )
+                await db.execute(
+                    delete(ClientPortfolioScope).where(
+                        ClientPortfolioScope.client_id == client_id
+                    )
+                )
+                await db.execute(delete(Client).where(Client.id == client_id))
+                await db.commit()
+
+
+async def test_create_client_rejects_unknown_portfolio_category_without_writes(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    name = f"Invalid portfolio category {uuid.uuid4().hex[:10]}"
+
+    response = await app_client.post(
+        "/api/clients",
+        params={"portfolio_category": "not-a-category"},
+        json={"name": name},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(Client.id).where(Client.name == name)) is None
 
 
 async def test_directory_requires_auth(app_client: AsyncClient) -> None:
@@ -265,8 +364,7 @@ async def test_directory_search_is_scoped_to_selected_category(
         assert active.status_code == 200, active.text
         assert active.json()["total_clients"] == 1
         assert all(
-            item["display_name"].startswith("Zulu")
-            for item in active.json()["items"]
+            item["display_name"].startswith("Zulu") for item in active.json()["items"]
         )
 
         relationship = await app_client.get(
@@ -280,6 +378,24 @@ async def test_directory_search_is_scoped_to_selected_category(
             assert relationship.json()["items"][0]["scope_label"] == "Pentesty"
         else:
             assert relationship.json()["total_rows"] == 0
+    finally:
+        await _cleanup_directory(seed)
+
+
+async def test_directory_search_ignores_archived_aliases(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()
+    try:
+        response = await app_client.get(
+            "/api/clients/directory",
+            params={"category": "active", "q": seed["archived_alias"]},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["total_rows"] == 0
+        assert response.json()["total_clients"] == 0
     finally:
         await _cleanup_directory(seed)
 

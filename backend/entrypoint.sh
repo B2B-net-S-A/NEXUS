@@ -2584,6 +2584,8 @@ _COLUMN_STATEMENTS = [
         normalized_alias VARCHAR(255) NOT NULL,
         source_system VARCHAR(32) NOT NULL DEFAULT 'manual',
         source_key VARCHAR(255) NULL,
+        import_run_id INTEGER NULL,
+        archived_at TIMESTAMPTZ NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT uq_client_aliases_client_normalized
@@ -2597,10 +2599,26 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_client_aliases_source_key_nonempty
             CHECK (source_key IS NULL OR char_length(btrim(source_key)) > 0)
     )""",
+    # 0206: aliasy utworzone przez import są podczas rollbacku archiwizowane,
+    # nie usuwane. Pochodzenie runu pozwala odtworzyć/re-aktywować ten sam
+    # rekord bez łamania unikalności aliasu lub source_key.
+    """ALTER TABLE client_aliases
+       ADD COLUMN IF NOT EXISTS import_run_id INTEGER NULL,
+       ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ NULL""",
+    """DO $$ BEGIN
+        ALTER TABLE client_aliases
+            ADD CONSTRAINT fk_client_aliases_import_run_id
+            FOREIGN KEY (import_run_id) REFERENCES client_import_runs(id)
+            ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "CREATE INDEX IF NOT EXISTS ix_client_aliases_client_id "
     "ON client_aliases (client_id)",
     "CREATE INDEX IF NOT EXISTS ix_client_aliases_normalized_alias "
     "ON client_aliases (normalized_alias)",
+    "CREATE INDEX IF NOT EXISTS ix_client_aliases_import_run_id "
+    "ON client_aliases (import_run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_aliases_archived_at "
+    "ON client_aliases (archived_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_aliases_source_key "
     "ON client_aliases (source_system, source_key) WHERE source_key IS NOT NULL",
     """CREATE TABLE IF NOT EXISTS client_import_rows (
@@ -3373,6 +3391,15 @@ PY
 # Run seed (idempotent - skips if already seeded)
 echo "Running seed data..."
 python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
+
+# Apply the checked-in client-portfolio manifest exactly once per source hash.
+# This command is intentionally fail-closed and has no ``|| ... continuing``:
+# the importer validates the complete plan under a transaction-scoped advisory
+# lock, commits only a successful all-or-nothing apply, and exits non-zero after
+# rolling back on every blocker or exception.  A previously applied hash is a
+# read-only no-op, so ordinary container restarts remain safe.
+echo "Applying client portfolio manifest (transactional apply-once)..."
+python -m app.cli.client_portfolio_import --apply-once
 
 # Start the application
 echo "Starting uvicorn..."
