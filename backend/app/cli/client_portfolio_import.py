@@ -54,10 +54,12 @@ async def _run(*, dry_run: bool, apply_once: bool, rollback_run_id: int | None) 
                     await db.rollback()
                     _print(result)
                     return 0
-                # A blocked/failed plan may have built an in-memory audit run,
-                # but startup is fail-closed: no row or business-data mutation
-                # survives when the process exits non-zero.
-                await db.rollback()
+                # The service keeps all business mutations inside a savepoint.
+                # A blocked plan performs none, while a failed apply rolls that
+                # savepoint back before returning. Commit the outer transaction
+                # so the failed ClientImportRun audit remains durable; startup
+                # still fails closed because the command exits non-zero.
+                await db.commit()
                 _print(result)
                 if result["status"] == "blocked":
                     return 2

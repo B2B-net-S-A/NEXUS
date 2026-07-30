@@ -19,8 +19,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
 
-from sqlalchemy import cast, func, or_, select, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
@@ -52,6 +51,18 @@ ADVISORY_LOCK_KEY = 0x434C49454E5453  # ASCII-ish "CLIENTS", stable across deplo
 POSTGRES_LOCK_TIMEOUT = "15s"
 FUZZY_BLOCK_THRESHOLD = 0.88
 SYSTEM_CLIENT_NAMES = {"__traffit_orphans"}
+KIR_SURVIVOR_NAME_KEY = "kir"
+KIR_DUPLICATE_NAME_KEY = "krajowa izba rozliczen s a"
+
+# One-shot cutover contract for the reviewed 2026-07-30 workbook snapshot.
+# Re-cutting the source requires updating these constants and the checked-in
+# manifest together so accidental row/category drift fails before planning.
+_EXPECTED_CUTOVER_ROWS = 34
+_EXPECTED_CUTOVER_CATEGORY_COUNTS = {
+    "active": 30,
+    "relationship": 3,
+    "inactive": 1,
+}
 
 # One-shot cutover contract for the reviewed 2026-07-30 workbook snapshot.
 # Re-cutting the source requires updating these constants and the checked-in
@@ -84,6 +95,15 @@ class ClientPortfolioImportError(RuntimeError):
     """Raised for an invalid manifest or a blocked apply."""
 
 
+def _database_dialect_name(db: AsyncSession) -> str | None:
+    """Resolve the dialect through AsyncSession's supported bind API."""
+
+    get_bind = getattr(db, "get_bind", None)
+    bind = get_bind() if callable(get_bind) else getattr(db, "bind", None)
+    dialect = getattr(bind, "dialect", None)
+    return getattr(dialect, "name", None)
+
+
 async def _acquire_import_advisory_lock(db: AsyncSession) -> bool:
     """Acquire the transaction lock with a bounded PostgreSQL wait.
 
@@ -92,7 +112,7 @@ async def _acquire_import_advisory_lock(db: AsyncSession) -> bool:
     startup fail red and retry instead of leaving a deploy pending forever.
     """
 
-    if db.get_bind().dialect.name != "postgresql":
+    if _database_dialect_name(db) != "postgresql":
         return False
     await db.execute(
         text("SELECT set_config('lock_timeout', :timeout, true)"),
@@ -170,7 +190,7 @@ def load_client_portfolio_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]
     rows = manifest.get("rows")
     if not isinstance(rows, list) or len(rows) != _EXPECTED_CUTOVER_ROWS:
         raise ClientPortfolioImportError(
-            f"2026-07-30 cutover manifest must contain exactly "
+            "2026-07-30 cutover manifest must contain exactly "
             f"{_EXPECTED_CUTOVER_ROWS} rows"
         )
     expected_counts = _EXPECTED_CUTOVER_CATEGORY_COUNTS
@@ -530,6 +550,8 @@ def _public_client(client: Client) -> dict[str, Any]:
         "name": client.name,
         "display_name": client.display_name,
         "legal_name": client.legal_name,
+        "nip": client.nip,
+        "regon": client.regon,
         "external_source": client.external_source,
         "external_id": client.external_id,
         "updated_at": client.updated_at.isoformat() if client.updated_at else None,
@@ -579,48 +601,108 @@ async def _load_directory_clients(
 def _duplicate_candidates(
     clients: list[Client], aliases_by_client: dict[int, list[str]]
 ) -> list[dict[str, Any]]:
-    """Return report-only likely duplicates; never used to merge."""
+    """Return report-only likely duplicates; never use suggestions to merge.
+
+    Identifier equality is stronger than a name/alias collision, which in turn
+    is stronger than a fuzzy suggestion. ``setdefault`` preserves that
+    deterministic precedence when one pair matches more than one signal.
+    """
 
     results: dict[tuple[int, int], dict[str, Any]] = {}
-    loose_groups: dict[str, list[Client]] = defaultdict(list)
-    labels: dict[int, str] = {}
+    preferred_names = {
+        client.id: client.display_name or client.legal_name or client.name
+        for client in clients
+    }
+
+    def record_group(
+        grouped_ids: dict[str, set[int]],
+        *,
+        reason: str,
+        evidence_key: str,
+    ) -> None:
+        for evidence, client_ids in sorted(grouped_ids.items()):
+            ordered_ids = sorted(client_ids)
+            for index, left_id in enumerate(ordered_ids):
+                for right_id in ordered_ids[index + 1 :]:
+                    pair = (left_id, right_id)
+                    results.setdefault(
+                        pair,
+                        {
+                            "client_ids": list(pair),
+                            "names": [
+                                preferred_names[left_id],
+                                preferred_names[right_id],
+                            ],
+                            "reason": reason,
+                            "score": 1.0,
+                            evidence_key: evidence,
+                        },
+                    )
+
+    nip_groups: dict[str, set[int]] = defaultdict(set)
+    regon_groups: dict[str, set[int]] = defaultdict(set)
+    exact_label_groups: dict[str, set[int]] = defaultdict(set)
+    loose_label_groups: dict[str, set[int]] = defaultdict(set)
+    normalized_labels: dict[int, set[str]] = {}
+    loose_labels: dict[int, set[str]] = {}
     for client in clients:
-        preferred = client.display_name or client.legal_name or client.name
-        labels[client.id] = preferred
-        key = loose_client_name(preferred)
-        if len(key) >= 3:
-            loose_groups[key].append(client)
-    for key, group in loose_groups.items():
-        if len(group) < 2:
-            continue
-        for index, left in enumerate(group):
-            for right in group[index + 1 :]:
-                pair = tuple(sorted((left.id, right.id)))
-                results[pair] = {
-                    "client_ids": list(pair),
-                    "names": [labels[pair[0]], labels[pair[1]]],
-                    "reason": "same_normalized_legal_name",
-                    "score": 1.0,
-                }
+        nip = re.sub(r"\W+", "", str(getattr(client, "nip", None) or "")).casefold()
+        regon = re.sub(r"\W+", "", str(getattr(client, "regon", None) or "")).casefold()
+        if nip:
+            nip_groups[nip].add(client.id)
+        if regon:
+            regon_groups[regon].add(client.id)
+
+        normalized_labels[client.id] = _client_labels(
+            client, aliases_by_client.get(client.id, [])
+        )
+        loose_labels[client.id] = {
+            loose
+            for label in normalized_labels[client.id]
+            if len(loose := loose_client_name(label)) >= 3
+        }
+        for label in normalized_labels[client.id]:
+            exact_label_groups[label].add(client.id)
+        for label in loose_labels[client.id]:
+            loose_label_groups[label].add(client.id)
+
+    record_group(nip_groups, reason="same_nip", evidence_key="nip")
+    record_group(regon_groups, reason="same_regon", evidence_key="regon")
+    record_group(
+        exact_label_groups,
+        reason="same_normalized_name_or_alias",
+        evidence_key="normalized_label",
+    )
+    record_group(
+        loose_label_groups,
+        reason="same_loose_legal_name_or_alias",
+        evidence_key="normalized_label",
+    )
 
     # Small portfolio: O(n²) suggestion pass is deterministic and cheap.
-    for index, left in enumerate(clients):
-        left_label = loose_client_name(labels[left.id])
-        if len(left_label) < 4:
+    ordered_clients = sorted(clients, key=lambda client: client.id)
+    for index, left in enumerate(ordered_clients):
+        if not loose_labels[left.id]:
             continue
-        for right in clients[index + 1 :]:
-            right_label = loose_client_name(labels[right.id])
-            if len(right_label) < 4:
+        for right in ordered_clients[index + 1 :]:
+            if not loose_labels[right.id]:
                 continue
-            score = SequenceMatcher(None, left_label, right_label).ratio()
+            score = max(
+                SequenceMatcher(None, left_label, right_label).ratio()
+                for left_label in loose_labels[left.id]
+                for right_label in loose_labels[right.id]
+            )
             if score < 0.9:
                 continue
-            pair = tuple(sorted((left.id, right.id)))
+            pair = (left.id, right.id)
             results.setdefault(
                 pair,
                 {
                     "client_ids": list(pair),
-                    "names": [labels[pair[0]], labels[pair[1]]],
+                    "names": [
+                        preferred_names[pair[0]],
+                        preferred_names[pair[1]],
+                    ],
                     "reason": "fuzzy_name_similarity",
                     "score": round(score, 4),
                 },
@@ -628,14 +710,18 @@ def _duplicate_candidates(
     return sorted(results.values(), key=lambda item: item["client_ids"])
 
 
-async def _direct_client_fk_counts(
-    db: AsyncSession, source_client_id: int
-) -> list[dict[str, Any]]:
-    """Inventory every direct FK to clients using the Postgres catalog."""
+def _validate_identifier(identifier: str) -> str:
+    if not _SAFE_IDENTIFIER.fullmatch(identifier):
+        raise ClientPortfolioImportError("Unsafe identifier from database catalog")
+    return identifier
 
-    if db.get_bind().dialect.name != "postgresql":
+
+async def _direct_client_fk_specs(db: AsyncSession) -> list[dict[str, Any]]:
+    """Return direct client FK columns and their row-addressable primary keys."""
+
+    if _database_dialect_name(db) != "postgresql":
         return []
-    rows = (
+    fk_rows = (
         await db.execute(
             text(
                 """
@@ -657,14 +743,52 @@ async def _direct_client_fk_counts(
             )
         )
     ).all()
+    specs: list[dict[str, Any]] = []
+    for raw_table_name, raw_column_name in fk_rows:
+        table_name = _validate_identifier(str(raw_table_name))
+        column_name = _validate_identifier(str(raw_column_name))
+        primary_key_columns = [
+            _validate_identifier(str(column_name))
+            for column_name in (
+                await db.execute(
+                    text(
+                        """
+                        SELECT kcu.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.constraint_schema = kcu.constraint_schema
+                        WHERE tc.constraint_type = 'PRIMARY KEY'
+                          AND tc.table_schema = current_schema()
+                          AND tc.table_name = :table_name
+                        ORDER BY kcu.ordinal_position
+                        """
+                    ),
+                    {"table_name": table_name},
+                )
+            )
+            .scalars()
+            .all()
+        ]
+        specs.append(
+            {
+                "table": table_name,
+                "column": column_name,
+                "primary_key_columns": primary_key_columns,
+            }
+        )
+    return specs
+
+
+async def _direct_client_fk_counts(
+    db: AsyncSession, source_client_id: int
+) -> list[dict[str, Any]]:
+    """Inventory every direct FK to clients using the Postgres catalog."""
+
     impact: list[dict[str, Any]] = []
-    for table_name, column_name in rows:
-        if table_name == "clients":
-            continue
-        if not _SAFE_IDENTIFIER.fullmatch(table_name) or not _SAFE_IDENTIFIER.fullmatch(
-            column_name
-        ):
-            raise ClientPortfolioImportError("Unsafe FK identifier from catalog")
+    for spec in await _direct_client_fk_specs(db):
+        table_name = spec["table"]
+        column_name = spec["column"]
         count = await db.scalar(
             text(
                 f'SELECT count(*) FROM "{table_name}" '
@@ -678,6 +802,8 @@ async def _direct_client_fk_counts(
                     "table": table_name,
                     "column": column_name,
                     "rows": int(count),
+                    "primary_key_columns": spec["primary_key_columns"],
+                    "rollback_supported": bool(spec["primary_key_columns"]),
                 }
             )
     return impact
@@ -686,30 +812,29 @@ async def _direct_client_fk_counts(
 async def _candidate_excluded_client_count(db: AsyncSession, client_id: int) -> int:
     """Count non-FK JSON references used by candidate exclusion preferences."""
 
-    if db.get_bind().dialect.name == "postgresql":
-        numeric_payload = json.dumps({"excluded_clients": [client_id]})
-        string_payload = json.dumps({"excluded_clients": [str(client_id)]})
-        return int(
-            (
-                await db.scalar(
-                    select(func.count())
-                    .select_from(Candidate)
-                    .where(
-                        Candidate.preferences.is_not(None),
-                        or_(
-                            Candidate.preferences.op("@>")(
-                                cast(numeric_payload, JSONB)
-                            ),
-                            Candidate.preferences.op("@>")(cast(string_payload, JSONB)),
-                        ),
-                    )
-                )
-            )
-            or 0
+    dialect_name = _database_dialect_name(db)
+    if dialect_name == "postgresql":
+        count = await db.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM candidates
+                WHERE preferences @> CAST(:numeric_payload AS jsonb)
+                   OR preferences @> CAST(:string_payload AS jsonb)
+                """
+            ),
+            {
+                "numeric_payload": json.dumps({"excluded_clients": [client_id]}),
+                "string_payload": json.dumps({"excluded_clients": [str(client_id)]}),
+            },
+        )
+        return int(count or 0)
+    if dialect_name != "sqlite":
+        raise ClientPortfolioImportError(
+            "Candidate JSON dependency inventory requires PostgreSQL"
         )
 
-    # Unit tests use SQLite, whose JSON implementation has no PostgreSQL @>
-    # operator. Keep the small compatibility fallback out of production.
+    # SQLite is used only by focused tests and has no PostgreSQL JSONB @>.
     count = 0
     rows = (
         await db.execute(
@@ -793,11 +918,13 @@ async def build_client_portfolio_plan(
             kir_ids = {
                 client.id
                 for client in clients
-                if "kir" in _client_labels(client, aliases_by_client.get(client.id, []))
+                if normalize_client_name(client.name) == KIR_SURVIVOR_NAME_KEY
             }
-            if len(kir_ids) == 1:
-                candidate_ids = kir_ids
+            candidate_ids = kir_ids
+            if candidate_ids:
                 match_method = "approved_kir_survivor"
+            else:
+                match_method = None
 
         if len(candidate_ids) == 1:
             target_id = next(iter(candidate_ids))
@@ -882,18 +1009,12 @@ async def build_client_portfolio_plan(
     kir_targets = [
         client
         for client in clients
-        if "kir" in _client_labels(client, aliases_by_client.get(client.id, []))
+        if normalize_client_name(client.name) == KIR_SURVIVOR_NAME_KEY
     ]
     kir_losers = [
         client
         for client in clients
-        if client not in kir_targets
-        and (
-            normalize_client_name(client.name).startswith("krajowa izba rozlicz")
-            or normalize_client_name(client.display_name).startswith(
-                "krajowa izba rozlicz"
-            )
-        )
+        if normalize_client_name(client.name) == KIR_DUPLICATE_NAME_KEY
     ]
     kir_merge: dict[str, Any] | None = None
     if len(kir_targets) == 1 and len(kir_losers) == 1:
@@ -920,14 +1041,16 @@ async def build_client_portfolio_plan(
             "fk_impact": fk_impact,
             "jsonb_candidates": jsonb_candidates,
         }
-        if fk_impact or jsonb_candidates:
+        unsupported_impact = [
+            item for item in fk_impact if not item.get("rollback_supported")
+        ]
+        if unsupported_impact:
             blockers.append(
                 {
-                    "code": "kir_dependencies_require_row_level_rollback",
+                    "code": "kir_dependency_not_reversible",
                     "source": _public_client(source),
                     "target": _public_client(target),
-                    "fk_impact": fk_impact,
-                    "jsonb_candidates": jsonb_candidates,
+                    "fk_impact": unsupported_impact,
                 }
             )
     elif not kir_targets and not kir_losers:
@@ -962,11 +1085,27 @@ async def build_client_portfolio_plan(
     ]
 
     duplicate_report = _duplicate_candidates(clients, aliases_by_client)
+    if kir_merge:
+        known_kir_pair = {
+            kir_merge["source"]["id"],
+            kir_merge["target"]["id"],
+        }
+        duplicate_report = [
+            candidate
+            for candidate in duplicate_report
+            if set(candidate["client_ids"]) != known_kir_pair
+        ]
     for candidate in duplicate_report:
         candidate_clients = [
             client_by_id[client_id] for client_id in candidate["client_ids"]
         ]
-        candidate["clients"] = [_public_client(client) for client in candidate_clients]
+        candidate["clients"] = [
+            {
+                **_public_client(client),
+                "aliases": sorted(aliases_by_client.get(client.id, [])),
+            }
+            for client in candidate_clients
+        ]
         candidate["dependency_counts"] = {
             str(client.id): await _direct_client_fk_counts(db, client.id)
             for client in candidate_clients
@@ -1009,6 +1148,12 @@ def _msa_status(
     if start > snapshot:
         return FrameworkContractStatus.draft
     return FrameworkContractStatus.active
+
+
+def _application_date() -> date:
+    """Single, UTC-based business date used for all statuses in one apply."""
+
+    return datetime.now(timezone.utc).date()
 
 
 def _msa_name(display_name: str, row: dict[str, Any]) -> str:
@@ -1082,32 +1227,70 @@ async def _upsert_alias(
 
 async def _replace_candidate_excluded_client(
     db: AsyncSession, *, source_id: int, target_id: int
-) -> int:
-    candidates = (
-        (await db.execute(select(Candidate).where(Candidate.preferences.is_not(None))))
-        .scalars()
-        .all()
+) -> list[dict[str, Any]]:
+    """Replace JSON client references and retain exact row-level rollback data."""
+
+    dialect_name = _database_dialect_name(db)
+    query = (
+        select(Candidate)
+        .where(Candidate.preferences.is_not(None))
+        .order_by(Candidate.id)
+        .with_for_update()
     )
-    changed = 0
+    params: dict[str, Any] = {}
+    if dialect_name == "postgresql":
+        query = query.where(
+            text(
+                "(preferences @> CAST(:numeric_payload AS jsonb) "
+                "OR preferences @> CAST(:string_payload AS jsonb))"
+            )
+        )
+        params = {
+            "numeric_payload": json.dumps({"excluded_clients": [source_id]}),
+            "string_payload": json.dumps({"excluded_clients": [str(source_id)]}),
+        }
+    elif dialect_name != "sqlite":
+        raise ClientPortfolioImportError(
+            "Candidate JSON dependency merge requires PostgreSQL"
+        )
+    candidates = (await db.execute(query, params)).scalars().all()
+    ledger: list[dict[str, Any]] = []
     for candidate in candidates:
         preferences = dict(candidate.preferences or {})
         raw = preferences.get("excluded_clients")
         if not isinstance(raw, list):
             continue
         replacement: list[Any] = []
+        seen: set[str] = set()
         touched = False
         for value in raw:
             comparable = str(value)
             if comparable == str(source_id):
-                replacement.append(target_id)
+                replacement_value: Any = target_id
                 touched = True
             else:
-                replacement.append(value)
+                replacement_value = value
+            identity = json.dumps(
+                replacement_value,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )
+            if identity not in seen:
+                replacement.append(replacement_value)
+                seen.add(identity)
         if touched:
-            preferences["excluded_clients"] = list(dict.fromkeys(replacement))
+            before = list(raw)
+            preferences["excluded_clients"] = replacement
             candidate.preferences = preferences
-            changed += 1
-    return changed
+            ledger.append(
+                {
+                    "candidate_id": candidate.id,
+                    "before_excluded_clients": before,
+                    "after_excluded_clients": list(preferences["excluded_clients"]),
+                }
+            )
+    return ledger
 
 
 def _iso_datetime(value: datetime | None) -> str | None:
@@ -1231,6 +1414,14 @@ def _restore_msa_state(msa: ClientFrameworkContract, state: dict[str, Any]) -> N
     msa.notes = state["notes"]
 
 
+def _json_ledger_value(value: Any) -> Any:
+    """Convert a catalog-selected primary-key value to JSON-safe audit data."""
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 async def _merge_kir(
     db: AsyncSession,
     *,
@@ -1247,6 +1438,9 @@ async def _merge_kir(
     No child rows or client rows are deleted.
     """
 
+    if _database_dialect_name(db) != "postgresql":
+        raise ClientPortfolioImportError("KIR merge requires PostgreSQL")
+
     locked = (
         (
             await db.execute(
@@ -1259,9 +1453,27 @@ async def _merge_kir(
         .all()
     )
     by_id = {client.id: client for client in locked}
+    if source_id == target_id:
+        raise ClientPortfolioImportError("KIR source and survivor must be distinct")
     if source_id not in by_id or target_id not in by_id:
         raise ClientPortfolioImportError("KIR source/target disappeared")
     source, target = by_id[source_id], by_id[target_id]
+    if target.merged_into_client_id is not None:
+        raise ClientPortfolioImportError(
+            "KIR merge target is itself merged; resolve the chain first"
+        )
+    if source.merged_into_client_id not in (None, target_id):
+        raise ClientPortfolioImportError(
+            "KIR duplicate is already merged into a different client"
+        )
+    if normalize_client_name(source.name) != KIR_DUPLICATE_NAME_KEY:
+        raise ClientPortfolioImportError(
+            "KIR merge source is not the approved duplicate record"
+        )
+    if normalize_client_name(target.name) != KIR_SURVIVOR_NAME_KEY:
+        raise ClientPortfolioImportError(
+            "KIR merge target is not the approved survivor record"
+        )
     source_before = _client_state(source)
     target_before = _client_state(target)
     actual_source_updated_at = (
@@ -1278,20 +1490,33 @@ async def _merge_kir(
         raise ClientPortfolioImportError(
             f"KIR survivor changed after plan: {target.id}"
         )
-    if source.merged_into_client_id == target_id and source.hidden:
+    target_is_live = (
+        not target.hidden
+        and target.archived_at is None
+        and target.merged_into_client_id is None
+    )
+    if (
+        source.merged_into_client_id == target_id
+        and source.hidden
+        and source.archived_at is not None
+        and target_is_live
+    ):
         return {
             "already_merged": True,
             "moved_references": [],
+            "reference_ledger": [],
             "jsonb_candidates": 0,
+            "candidate_preferences_ledger": [],
             "alias_audits": [],
         }
-    if target.merged_into_client_id is not None:
+    if (
+        source.hidden
+        or source.archived_at is not None
+        or source.merged_into_client_id is not None
+        or not target_is_live
+    ):
         raise ClientPortfolioImportError(
-            "KIR merge target is itself merged; resolve the chain first"
-        )
-    if source.merged_into_client_id is not None:
-        raise ClientPortfolioImportError(
-            "KIR duplicate is already merged into a different client"
+            "KIR source and survivor must both be live, unarchived records"
         )
     if (
         source.external_id
@@ -1308,53 +1533,90 @@ async def _merge_kir(
         (await db.execute(select(Job.id).where(Job.client_id == source_id))).scalars()
     )
     moved: list[dict[str, Any]] = []
-    if db.get_bind().dialect.name == "postgresql":
-        fk_rows = (
-            await db.execute(
+    reference_ledger: list[dict[str, Any]] = []
+    for spec in await _direct_client_fk_specs(db):
+        table_name = spec["table"]
+        column_name = spec["column"]
+        primary_key_columns = spec["primary_key_columns"]
+        if not primary_key_columns:
+            count = await db.scalar(
                 text(
-                    """
-                    SELECT tc.table_name, kcu.column_name
-                    FROM information_schema.table_constraints tc
-                    JOIN information_schema.key_column_usage kcu
-                      ON tc.constraint_name = kcu.constraint_name
-                     AND tc.constraint_schema = kcu.constraint_schema
-                    JOIN information_schema.constraint_column_usage ccu
-                      ON ccu.constraint_name = tc.constraint_name
-                     AND ccu.constraint_schema = tc.constraint_schema
-                    WHERE tc.constraint_type = 'FOREIGN KEY'
-                      AND ccu.table_schema = current_schema()
-                      AND ccu.table_name = 'clients'
-                      AND ccu.column_name = 'id'
-                      AND tc.table_schema = current_schema()
-                    ORDER BY tc.table_name, kcu.column_name
-                    """
-                )
-            )
-        ).all()
-        for table_name, column_name in fk_rows:
-            if table_name == "clients":
-                continue
-            if not _SAFE_IDENTIFIER.fullmatch(
-                table_name
-            ) or not _SAFE_IDENTIFIER.fullmatch(column_name):
-                raise ClientPortfolioImportError("Unsafe FK identifier from catalog")
-            result = await db.execute(
-                text(
-                    f'UPDATE "{table_name}" SET "{column_name}" = :target_id '
+                    f'SELECT count(*) FROM "{table_name}" '
                     f'WHERE "{column_name}" = :source_id'
                 ),
-                {"source_id": source_id, "target_id": target_id},
+                {"source_id": source_id},
             )
-            if result.rowcount:
-                moved.append(
-                    {
-                        "table": table_name,
-                        "column": column_name,
-                        "rows": int(result.rowcount),
-                    }
+            if count:
+                raise ClientPortfolioImportError(
+                    "KIR dependency has no row-addressable primary key: "
+                    f"{table_name}.{column_name}"
                 )
+            continue
 
-    jsonb_candidates = await _replace_candidate_excluded_client(
+        select_columns = ", ".join(
+            f'"{primary_key_column}"' for primary_key_column in primary_key_columns
+        )
+        order_by = ", ".join(
+            f'"{primary_key_column}"' for primary_key_column in primary_key_columns
+        )
+        reference_rows = (
+            (
+                await db.execute(
+                    text(
+                        f'SELECT {select_columns} FROM "{table_name}" '
+                        f'WHERE "{column_name}" = :source_id '
+                        f"ORDER BY {order_by} FOR UPDATE"
+                    ),
+                    {"source_id": source_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        if not reference_rows:
+            continue
+        records = [
+            {
+                "primary_key": {
+                    primary_key_column: _json_ledger_value(
+                        reference_row[primary_key_column]
+                    )
+                    for primary_key_column in primary_key_columns
+                },
+                "before_client_id": source_id,
+                "after_client_id": target_id,
+            }
+            for reference_row in reference_rows
+        ]
+        result = await db.execute(
+            text(
+                f'UPDATE "{table_name}" SET "{column_name}" = :target_id '
+                f'WHERE "{column_name}" = :source_id'
+            ),
+            {"source_id": source_id, "target_id": target_id},
+        )
+        if result.rowcount != len(records):
+            raise ClientPortfolioImportError(
+                "KIR dependency set changed while applying merge: "
+                f"{table_name}.{column_name}"
+            )
+        moved.append(
+            {
+                "table": table_name,
+                "column": column_name,
+                "rows": len(records),
+            }
+        )
+        reference_ledger.append(
+            {
+                "table": table_name,
+                "column": column_name,
+                "primary_key_columns": primary_key_columns,
+                "records": records,
+            }
+        )
+
+    candidate_preferences_ledger = await _replace_candidate_excluded_client(
         db, source_id=source_id, target_id=target_id
     )
     if source.external_id and not target.external_id:
@@ -1395,7 +1657,9 @@ async def _merge_kir(
     return {
         "already_merged": False,
         "moved_references": moved,
-        "jsonb_candidates": jsonb_candidates,
+        "reference_ledger": reference_ledger,
+        "jsonb_candidates": len(candidate_preferences_ledger),
+        "candidate_preferences_ledger": candidate_preferences_ledger,
         "job_ids_reindexed": job_ids,
         "alias_audits": alias_audits,
         "source_before": source_before,
@@ -1468,6 +1732,19 @@ async def apply_client_portfolio_manifest(
                         "code": "normalized_manifest_digest_mismatch",
                         "expected": normalized_manifest_sha256,
                         "applied": applied_manifest_sha256,
+                    }
+                ],
+            }
+        health = await get_client_portfolio_import_health(db, manifest=manifest)
+        if health.get("status") != "applied":
+            return {
+                "status": "blocked",
+                "run_id": existing_run.id,
+                "blockers": [
+                    {
+                        "code": "applied_manifest_state_inconsistent",
+                        "health_status": health.get("status"),
+                        "counts": health.get("counts") or {},
                     }
                 ],
             }
@@ -1547,12 +1824,17 @@ async def apply_client_portfolio_manifest(
                 )
                 for alias_audit in merge_result.get("alias_audits") or []:
                     record_alias_audit(alias_audit)
-                moved_reference_rows = sum(
-                    int(item.get("rows") or 0)
+                planned_reference_counts = {
+                    (item["table"], item["column"]): int(item["rows"])
+                    for item in plan["kir_merge"].get("fk_impact") or []
+                }
+                moved_reference_counts = {
+                    (item["table"], item["column"]): int(item["rows"])
                     for item in merge_result.get("moved_references") or []
-                )
-                jsonb_candidates = int(merge_result.get("jsonb_candidates") or 0)
-                if moved_reference_rows or jsonb_candidates:
+                }
+                if planned_reference_counts != moved_reference_counts or int(
+                    plan["kir_merge"].get("jsonb_candidates") or 0
+                ) != int(merge_result.get("jsonb_candidates") or 0):
                     raise ClientPortfolioImportError(
                         "KIR dependencies changed after validation; "
                         "the merge was rolled back"
@@ -1565,6 +1847,7 @@ async def apply_client_portfolio_manifest(
             created_msa_ids: list[int] = []
             scope_ids: list[int] = []
             client_audit_by_key: dict[str, dict[str, Any]] = {}
+            superseded_nexus_only_scope_audits: list[dict[str, Any]] = []
 
             for client_key, group in groups_by_key.items():
                 rows = group["rows"]
@@ -1583,7 +1866,15 @@ async def apply_client_portfolio_manifest(
                     actual = (
                         client.updated_at.isoformat() if client.updated_at else None
                     )
-                    if expected != actual:
+                    merge_target_id = (
+                        plan["kir_merge"]["target"]["id"]
+                        if plan["kir_merge"] and merge_result is not None
+                        else None
+                    )
+                    # _merge_kir already locked and validated this exact
+                    # survivor against the plan before making importer-owned
+                    # changes that can advance updated_at.
+                    if client.id != merge_target_id and expected != actual:
                         raise ClientPortfolioImportError(
                             f"Client changed after plan: {client.id}"
                         )
@@ -1666,7 +1957,44 @@ async def apply_client_portfolio_manifest(
                             )
                         )
 
-            snapshot = date.fromisoformat(manifest["snapshot_date"])
+            manifest_client_ids = {client.id for client in clients_by_key.values()}
+            nexus_only_client_ids = {int(item["id"]) for item in plan["nexus_only"]}
+            if manifest_client_ids & nexus_only_client_ids:
+                raise ClientPortfolioImportError(
+                    "Import plan classifies one client as both workbook and NEXUS-only"
+                )
+            for client_id in sorted(manifest_client_ids):
+                nexus_only_scopes = (
+                    (
+                        await db.execute(
+                            select(ClientPortfolioScope)
+                            .where(
+                                ClientPortfolioScope.client_id == client_id,
+                                ClientPortfolioScope.source_system == SOURCE_SYSTEM,
+                                ClientPortfolioScope.source_key.startswith(
+                                    "nexus-only:"
+                                ),
+                                ClientPortfolioScope.archived_at.is_(None),
+                            )
+                            .order_by(ClientPortfolioScope.id)
+                            .with_for_update()
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for nexus_only_scope in nexus_only_scopes:
+                    before_nexus_only_scope = _scope_state(nexus_only_scope)
+                    nexus_only_scope.archived_at = datetime.now(timezone.utc)
+                    superseded_nexus_only_scope_audits.append(
+                        {
+                            "scope_id": nexus_only_scope.id,
+                            "before": before_nexus_only_scope,
+                            "after": _scope_state(nexus_only_scope),
+                        }
+                    )
+
+            apply_date = _application_date()
             for manifest_row in manifest["rows"]:
                 client = clients_by_key[manifest_row["client_key"]]
                 start = _parse_iso_date(manifest_row.get("effective_date"))
@@ -1682,7 +2010,7 @@ async def apply_client_portfolio_manifest(
                             name=_msa_name(
                                 client.display_name or client.name, manifest_row
                             ),
-                            status=_msa_status(start, end, snapshot),
+                            status=_msa_status(start, end, apply_date),
                             effective_date=start,
                             expiry_date=end,
                             signed_via=FrameworkContractSignedVia.legacy_import,
@@ -1704,7 +2032,7 @@ async def apply_client_portfolio_manifest(
                         msa.name = _msa_name(
                             client.display_name or client.name, manifest_row
                         )
-                        msa.status = _msa_status(start, end, snapshot)
+                        msa.status = _msa_status(start, end, apply_date)
                         msa.effective_date = start
                         msa.expiry_date = end
                         msa.signed_via = FrameworkContractSignedVia.legacy_import
@@ -1783,9 +2111,33 @@ async def apply_client_portfolio_manifest(
                     raise ClientPortfolioImportError(
                         f"NEXUS-only client changed after plan: {item['id']}"
                     )
-                source_key = f"nexus-only:{client.id}:{manifest['snapshot_date']}"
+                source_key = f"nexus-only:{client.id}"
                 scope = await _find_existing_scope(db, source_key)
                 before_scope: dict[str, Any] | None = None
+                legacy_nexus_only_scopes = (
+                    (
+                        await db.execute(
+                            select(ClientPortfolioScope)
+                            .where(
+                                ClientPortfolioScope.client_id == client.id,
+                                ClientPortfolioScope.source_system == SOURCE_SYSTEM,
+                                ClientPortfolioScope.source_key.startswith(
+                                    "nexus-only:"
+                                ),
+                                ClientPortfolioScope.source_key != source_key,
+                                ClientPortfolioScope.archived_at.is_(None),
+                            )
+                            .order_by(ClientPortfolioScope.id)
+                            .with_for_update()
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                if scope is None and legacy_nexus_only_scopes:
+                    scope = legacy_nexus_only_scopes.pop(0)
+                    before_scope = _scope_state(scope)
+                    scope.source_key = source_key
                 if scope is None:
                     scope = ClientPortfolioScope(
                         client_id=client.id,
@@ -1797,9 +2149,24 @@ async def apply_client_portfolio_manifest(
                     db.add(scope)
                     await db.flush()
                 else:
-                    before_scope = _scope_state(scope)
+                    if scope.client_id != client.id:
+                        raise ClientPortfolioImportError(
+                            "NEXUS-only scope identity does not match its client"
+                        )
+                    if before_scope is None:
+                        before_scope = _scope_state(scope)
                     scope.category = PortfolioCategory.inactive
                     scope.archived_at = None
+                for legacy_scope in legacy_nexus_only_scopes:
+                    before_legacy_scope = _scope_state(legacy_scope)
+                    legacy_scope.archived_at = datetime.now(timezone.utc)
+                    superseded_nexus_only_scope_audits.append(
+                        {
+                            "scope_id": legacy_scope.id,
+                            "before": before_legacy_scope,
+                            "after": _scope_state(legacy_scope),
+                        }
+                    )
                 db.add(
                     ClientImportRow(
                         import_run_id=run.id,
@@ -1857,6 +2224,10 @@ async def apply_client_portfolio_manifest(
                 ],
                 "rows_applied": len(manifest["rows"]),
                 "nexus_only_applied": len(plan["nexus_only"]),
+                "msa_status_as_of": apply_date.isoformat(),
+                "superseded_nexus_only_scope_audits": (
+                    superseded_nexus_only_scope_audits
+                ),
             }
     except Exception as exc:
         run.status = ClientImportRunStatus.failed
@@ -1917,23 +2288,16 @@ async def rollback_client_portfolio_import(
     if not rows:
         conflicts.append({"reason": "missing_import_audit_rows"})
 
-    # A generic FK merge can only be reversed safely with a row-level FK
-    # ledger.  The production KIR duplicate is expected to be empty; if that
-    # assumption was false, fail before touching any scope/MSA/client.
-    merge = (run.summary or {}).get("merge")
+    # Every dependency moved by the KIR merge must have an exact row-level
+    # ledger. Missing or inconsistent audit data blocks before any business
+    # mutation.
+    raw_merge = (run.summary or {}).get("merge")
+    merge = raw_merge if isinstance(raw_merge, dict) else None
+    if raw_merge is not None and merge is None:
+        conflicts.append({"reason": "invalid_kir_merge_audit"})
+    reference_ledger: list[dict[str, Any]] = []
+    candidate_preferences_ledger: list[dict[str, Any]] = []
     if merge and not merge.get("already_merged"):
-        moved_count = sum(
-            int(item.get("rows") or 0) for item in merge.get("moved_references") or []
-        )
-        jsonb_count = int(merge.get("jsonb_candidates") or 0)
-        if moved_count or jsonb_count:
-            conflicts.append(
-                {
-                    "reason": "kir_merge_requires_row_level_rollback",
-                    "moved_reference_rows": moved_count,
-                    "jsonb_candidates": jsonb_count,
-                }
-            )
         for key in (
             "source_before",
             "source_after",
@@ -1957,6 +2321,256 @@ async def rollback_client_portfolio_import(
                 conflicts.append(
                     {"reason": "missing_kir_rollback_audit", "snapshot": key}
                 )
+
+        source_before = merge.get("source_before")
+        target_before = merge.get("target_before")
+        source_id = source_before.get("id") if isinstance(source_before, dict) else None
+        target_id = target_before.get("id") if isinstance(target_before, dict) else None
+        if (
+            not isinstance(source_id, int)
+            or not isinstance(target_id, int)
+            or source_id == target_id
+        ):
+            conflicts.append({"reason": "invalid_kir_merge_client_ids"})
+        source_after = merge.get("source_after")
+        target_after = merge.get("target_after")
+        if (
+            not isinstance(source_before, dict)
+            or normalize_client_name(source_before.get("name"))
+            != KIR_DUPLICATE_NAME_KEY
+            or source_before.get("hidden") is not False
+            or source_before.get("archived_at") is not None
+            or source_before.get("merged_into_client_id") is not None
+            or not isinstance(target_before, dict)
+            or normalize_client_name(target_before.get("name")) != KIR_SURVIVOR_NAME_KEY
+            or target_before.get("hidden") is not False
+            or target_before.get("archived_at") is not None
+            or target_before.get("merged_into_client_id") is not None
+            or not isinstance(source_after, dict)
+            or source_after.get("id") != source_id
+            or source_after.get("hidden") is not True
+            or source_after.get("archived_at") is None
+            or source_after.get("merged_into_client_id") != target_id
+            or not isinstance(target_after, dict)
+            or target_after.get("id") != target_id
+            or target_after.get("hidden") is not False
+            or target_after.get("archived_at") is not None
+            or target_after.get("merged_into_client_id") is not None
+        ):
+            conflicts.append({"reason": "invalid_kir_merge_lifecycle_audit"})
+
+        expected_reference_counts: dict[tuple[str, str], int] = {}
+        raw_moved_references = merge.get("moved_references")
+        if not isinstance(raw_moved_references, list):
+            conflicts.append({"reason": "invalid_kir_moved_reference_summary"})
+            raw_moved_references = []
+        for index, item in enumerate(raw_moved_references):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("table"), str)
+                or not isinstance(item.get("column"), str)
+                or not isinstance(item.get("rows"), int)
+                or item["rows"] < 0
+            ):
+                conflicts.append(
+                    {
+                        "reason": "invalid_kir_moved_reference_summary",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            try:
+                table_name = _validate_identifier(item["table"])
+                column_name = _validate_identifier(item["column"])
+            except ClientPortfolioImportError:
+                conflicts.append(
+                    {
+                        "reason": "unsafe_kir_reference_ledger_identifier",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            key = (table_name, column_name)
+            if key in expected_reference_counts:
+                conflicts.append(
+                    {
+                        "reason": "duplicate_kir_moved_reference_summary",
+                        "table": table_name,
+                        "column": column_name,
+                    }
+                )
+                continue
+            expected_reference_counts[key] = item["rows"]
+
+        raw_reference_ledger = merge.get("reference_ledger")
+        expected_reference_total = sum(expected_reference_counts.values())
+        if not isinstance(raw_reference_ledger, list):
+            raw_reference_ledger = []
+            if expected_reference_total:
+                conflicts.append(
+                    {
+                        "reason": "kir_merge_requires_row_level_rollback",
+                        "detail": "missing_reference_ledger",
+                        "moved_reference_rows": expected_reference_total,
+                    }
+                )
+        actual_reference_counts: dict[tuple[str, str], int] = {}
+        seen_reference_rows: set[tuple[str, str, str]] = set()
+        for index, item in enumerate(raw_reference_ledger):
+            if not isinstance(item, dict):
+                conflicts.append(
+                    {
+                        "reason": "invalid_kir_reference_ledger",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            try:
+                table_name = _validate_identifier(str(item.get("table") or ""))
+                column_name = _validate_identifier(str(item.get("column") or ""))
+                primary_key_columns = [
+                    _validate_identifier(str(primary_key_column))
+                    for primary_key_column in item.get("primary_key_columns") or []
+                ]
+            except ClientPortfolioImportError:
+                conflicts.append(
+                    {
+                        "reason": "unsafe_kir_reference_ledger_identifier",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            records = item.get("records")
+            if (
+                not primary_key_columns
+                or len(primary_key_columns) != len(set(primary_key_columns))
+                or not isinstance(records, list)
+            ):
+                conflicts.append(
+                    {
+                        "reason": "invalid_kir_reference_ledger",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            valid_records: list[dict[str, Any]] = []
+            for record_index, record in enumerate(records):
+                primary_key = (
+                    record.get("primary_key") if isinstance(record, dict) else None
+                )
+                if (
+                    not isinstance(primary_key, dict)
+                    or set(primary_key) != set(primary_key_columns)
+                    or record.get("before_client_id") != source_id
+                    or record.get("after_client_id") != target_id
+                ):
+                    conflicts.append(
+                        {
+                            "reason": "invalid_kir_reference_ledger_record",
+                            "audit_index": index,
+                            "record_index": record_index,
+                        }
+                    )
+                    continue
+                row_identity = (
+                    table_name,
+                    column_name,
+                    json.dumps(
+                        primary_key,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    ),
+                )
+                if row_identity in seen_reference_rows:
+                    conflicts.append(
+                        {
+                            "reason": "duplicate_kir_reference_ledger_record",
+                            "table": table_name,
+                            "column": column_name,
+                            "primary_key": primary_key,
+                        }
+                    )
+                    continue
+                seen_reference_rows.add(row_identity)
+                valid_records.append(record)
+            ledger_item = {
+                "table": table_name,
+                "column": column_name,
+                "primary_key_columns": primary_key_columns,
+                "records": valid_records,
+            }
+            reference_ledger.append(ledger_item)
+            key = (table_name, column_name)
+            actual_reference_counts[key] = actual_reference_counts.get(key, 0) + len(
+                valid_records
+            )
+        if actual_reference_counts != expected_reference_counts:
+            conflicts.append(
+                {
+                    "reason": "kir_reference_ledger_count_mismatch",
+                    "expected": {
+                        f"{table}.{column}": count
+                        for (table, column), count in expected_reference_counts.items()
+                    },
+                    "actual": {
+                        f"{table}.{column}": count
+                        for (table, column), count in actual_reference_counts.items()
+                    },
+                }
+            )
+
+        raw_jsonb_count = merge.get("jsonb_candidates")
+        jsonb_count = raw_jsonb_count if isinstance(raw_jsonb_count, int) else None
+        if jsonb_count is None or jsonb_count < 0:
+            conflicts.append({"reason": "invalid_kir_jsonb_reference_summary"})
+            jsonb_count = 0
+        raw_candidate_ledger = merge.get("candidate_preferences_ledger")
+        if not isinstance(raw_candidate_ledger, list):
+            raw_candidate_ledger = []
+            if jsonb_count:
+                conflicts.append(
+                    {
+                        "reason": "kir_merge_requires_row_level_rollback",
+                        "detail": "missing_candidate_preferences_ledger",
+                        "jsonb_candidates": jsonb_count,
+                    }
+                )
+        seen_candidate_ids: set[int] = set()
+        for index, item in enumerate(raw_candidate_ledger):
+            candidate_id = item.get("candidate_id") if isinstance(item, dict) else None
+            before_values = (
+                item.get("before_excluded_clients") if isinstance(item, dict) else None
+            )
+            after_values = (
+                item.get("after_excluded_clients") if isinstance(item, dict) else None
+            )
+            if (
+                not isinstance(candidate_id, int)
+                or candidate_id in seen_candidate_ids
+                or not isinstance(before_values, list)
+                or not isinstance(after_values, list)
+                or not any(str(value) == str(source_id) for value in before_values)
+                or any(str(value) == str(source_id) for value in after_values)
+                or not any(str(value) == str(target_id) for value in after_values)
+            ):
+                conflicts.append(
+                    {
+                        "reason": "invalid_kir_candidate_preferences_ledger",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            seen_candidate_ids.add(candidate_id)
+            candidate_preferences_ledger.append(item)
+        if len(candidate_preferences_ledger) != jsonb_count:
+            conflicts.append(
+                {
+                    "reason": "kir_candidate_preferences_ledger_count_mismatch",
+                    "expected": jsonb_count,
+                    "actual": len(candidate_preferences_ledger),
+                }
+            )
 
     client_audits: dict[int, dict[str, Any]] = {}
     scope_audits: dict[int, dict[str, Any]] = {}
@@ -2087,6 +2701,35 @@ async def rollback_client_portfolio_import(
                 row_id=-(index + 1),
             )
 
+    raw_superseded_scope_audits = (run.summary or {}).get(
+        "superseded_nexus_only_scope_audits", []
+    )
+    if not isinstance(raw_superseded_scope_audits, list):
+        conflicts.append(
+            {"reason": "invalid_superseded_nexus_only_scope_audit_collection"}
+        )
+    else:
+        for index, scope_audit in enumerate(raw_superseded_scope_audits):
+            if not isinstance(scope_audit, dict) or not isinstance(
+                scope_audit.get("scope_id"), int
+            ):
+                conflicts.append(
+                    {
+                        "reason": "invalid_superseded_nexus_only_scope_audit",
+                        "audit_index": index,
+                    }
+                )
+                continue
+            register_audit(
+                entity="scope",
+                entity_id=scope_audit["scope_id"],
+                before=scope_audit.get("before"),
+                after=scope_audit.get("after"),
+                required_fields=required_scope_fields,
+                registry=scope_audits,
+                row_id=-(10_000 + index),
+            )
+
     for row in rows:
         payload = row.raw_payload or {}
         client_audit = payload.get("client")
@@ -2139,11 +2782,13 @@ async def rollback_client_portfolio_import(
     scope_ids = set(scope_audits)
     msa_ids = set(msa_audits)
     alias_ids = set(alias_audits)
+    candidate_ids = {item["candidate_id"] for item in candidate_preferences_ledger}
 
     clients: dict[int, Client] = {}
     scopes: dict[int, ClientPortfolioScope] = {}
     msas: dict[int, ClientFrameworkContract] = {}
     aliases: dict[int, ClientAlias] = {}
+    candidates: dict[int, Candidate] = {}
     if client_ids:
         loaded = (
             (
@@ -2200,6 +2845,20 @@ async def rollback_client_portfolio_import(
             .all()
         )
         aliases = {alias.id: alias for alias in loaded}
+    if candidate_ids:
+        loaded = (
+            (
+                await db.execute(
+                    select(Candidate)
+                    .where(Candidate.id.in_(candidate_ids))
+                    .order_by(Candidate.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        candidates = {candidate.id: candidate for candidate in loaded}
 
     def compare_current(
         *,
@@ -2304,6 +2963,92 @@ async def rollback_client_portfolio_import(
                         }
                     )
 
+    if reference_ledger:
+        catalog_specs = {
+            (item["table"], item["column"]): tuple(item["primary_key_columns"])
+            for item in await _direct_client_fk_specs(db)
+        }
+        for item in reference_ledger:
+            table_name = item["table"]
+            column_name = item["column"]
+            primary_key_columns = item["primary_key_columns"]
+            if catalog_specs.get((table_name, column_name)) != tuple(
+                primary_key_columns
+            ):
+                conflicts.append(
+                    {
+                        "reason": "kir_reference_schema_changed",
+                        "table": table_name,
+                        "column": column_name,
+                    }
+                )
+                continue
+            for record in item["records"]:
+                primary_key = record["primary_key"]
+                predicates: list[str] = []
+                params: dict[str, Any] = {}
+                for index, primary_key_column in enumerate(primary_key_columns):
+                    parameter_name = f"pk_{index}"
+                    predicates.append(f'"{primary_key_column}" = :{parameter_name}')
+                    params[parameter_name] = primary_key[primary_key_column]
+                current_rows = (
+                    (
+                        await db.execute(
+                            text(
+                                f'SELECT "{column_name}" AS current_client_id '
+                                f'FROM "{table_name}" WHERE '
+                                + " AND ".join(predicates)
+                                + " FOR UPDATE"
+                            ),
+                            params,
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                if len(current_rows) != 1:
+                    conflicts.append(
+                        {
+                            "reason": "kir_reference_row_missing",
+                            "table": table_name,
+                            "column": column_name,
+                            "primary_key": primary_key,
+                        }
+                    )
+                    continue
+                current_client_id = current_rows[0]["current_client_id"]
+                if current_client_id != record["after_client_id"]:
+                    conflicts.append(
+                        {
+                            "reason": "kir_reference_changed_after_import",
+                            "table": table_name,
+                            "column": column_name,
+                            "primary_key": primary_key,
+                            "expected_client_id": record["after_client_id"],
+                            "actual_client_id": current_client_id,
+                        }
+                    )
+
+    for item in candidate_preferences_ledger:
+        candidate_id = item["candidate_id"]
+        candidate = candidates.get(candidate_id)
+        if candidate is None:
+            conflicts.append(
+                {
+                    "reason": "kir_candidate_missing",
+                    "candidate_id": candidate_id,
+                }
+            )
+            continue
+        current_excluded_clients = (candidate.preferences or {}).get("excluded_clients")
+        if current_excluded_clients != item["after_excluded_clients"]:
+            conflicts.append(
+                {
+                    "reason": "kir_candidate_preferences_changed_after_import",
+                    "candidate_id": candidate_id,
+                }
+            )
+
     if conflicts:
         return {
             "status": "blocked",
@@ -2360,12 +3105,65 @@ async def rollback_client_portfolio_import(
                 await db.flush()
                 _restore_client_state(clients[source_before["id"]], source_before)
 
+            # Flush ORM-owned reversals before restoring catalog-discovered FK
+            # rows with audited primary keys.
+            await db.flush()
+            restored_job_ids: set[int] = set()
+            for item in reference_ledger:
+                table_name = item["table"]
+                column_name = item["column"]
+                primary_key_columns = item["primary_key_columns"]
+                for record in item["records"]:
+                    primary_key = record["primary_key"]
+                    predicates: list[str] = []
+                    params: dict[str, Any] = {
+                        "source_id": record["before_client_id"],
+                        "target_id": record["after_client_id"],
+                    }
+                    for index, primary_key_column in enumerate(primary_key_columns):
+                        parameter_name = f"pk_{index}"
+                        predicates.append(f'"{primary_key_column}" = :{parameter_name}')
+                        params[parameter_name] = primary_key[primary_key_column]
+                    result = await db.execute(
+                        text(
+                            f'UPDATE "{table_name}" '
+                            f'SET "{column_name}" = :source_id WHERE '
+                            + " AND ".join(predicates)
+                            + f' AND "{column_name}" = :target_id'
+                        ),
+                        params,
+                    )
+                    if result.rowcount != 1:
+                        raise ClientPortfolioImportError(
+                            "KIR dependency changed during rollback: "
+                            f"{table_name}.{column_name}"
+                        )
+                    if (
+                        table_name == Job.__tablename__
+                        and column_name == "client_id"
+                        and primary_key_columns == ["id"]
+                        and isinstance(primary_key["id"], int)
+                    ):
+                        restored_job_ids.add(primary_key["id"])
+
+            for item in candidate_preferences_ledger:
+                candidate = candidates[item["candidate_id"]]
+                preferences = dict(candidate.preferences or {})
+                preferences["excluded_clients"] = list(item["before_excluded_clients"])
+                candidate.preferences = preferences
+
+            if restored_job_ids:
+                from app.services.index_outbox_service import JOB, record_bulk_reindex
+
+                await record_bulk_reindex(db, JOB, sorted(restored_job_ids))
+
             run.status = ClientImportRunStatus.rolled_back
             run.summary = {
                 **(run.summary or {}),
                 "rollback_at": now.isoformat(),
                 "rollback_conflicts": [],
                 "rollback_actor_id": actor_id,
+                "rollback_job_ids_reindexed": sorted(restored_job_ids),
             }
     except Exception as exc:
         logger.exception("Client portfolio rollback was rolled back")
