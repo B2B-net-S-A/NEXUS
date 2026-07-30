@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 import app.models.skill  # noqa: F401  (register relationship target)
+from app.api.clients import _merged_client_redirect
+from app.api.my_clients import client_dashboard
 from app.models.client import Client, ClientStatus
 from app.services.client_identity import (
     client_display_name,
@@ -80,3 +82,45 @@ async def test_broken_or_hidden_merge_target_fails_closed() -> None:
     db = SimpleNamespace(scalar=AsyncMock(side_effect=[duplicate, hidden_target]))
 
     assert await resolve_visible_client(db, duplicate.id, follow_merge=True) is None
+
+
+def test_merged_client_api_redirect_is_temporary_for_supported_rollback() -> None:
+    duplicate = _client(
+        31,
+        "Duplicate",
+        hidden=True,
+        archived_at=datetime(2026, 7, 30, tzinfo=timezone.utc),
+        merged_into_client_id=32,
+    )
+
+    response = _merged_client_redirect(duplicate, suffix="/contacts")
+
+    assert response is not None
+    assert response.status_code == 307
+    assert response.headers["location"] == "/api/clients/32/contacts"
+    assert response.headers["X-Merged-From-Client-Id"] == "31"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_merge_redirect_is_temporary_for_supported_rollback() -> None:
+    duplicate = _client(
+        41,
+        "Duplicate",
+        hidden=True,
+        archived_at=datetime(2026, 7, 30, tzinfo=timezone.utc),
+        merged_into_client_id=42,
+    )
+    canonical = _client(42, "Canonical")
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[duplicate, duplicate, canonical])
+    )
+
+    response = await client_dashboard(
+        client_id=duplicate.id,
+        user=SimpleNamespace(),
+        db=db,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/api/my-clients/42/dashboard"
+    assert response.headers["X-Merged-From-Client-Id"] == "41"
