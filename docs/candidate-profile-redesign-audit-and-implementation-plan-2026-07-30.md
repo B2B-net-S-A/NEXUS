@@ -41,6 +41,13 @@ nie są czyszczone w tym wydaniu.
 | liczba/wiek cache | brak bezpiecznego kanału read-only do DB w bieżącej sesji; nie estymować |
 | lokalny Docker | nieużywany |
 
+W czasie implementacji `main` przesunął się najpierw do
+`137109ebfe0b5b2de9da33f67a4038fe859bec2b` (niezależny PR katalogu klientów),
+a następnie do merge SHA hotfixu
+`01853345e43bf2a00d0c509e562e1d261b5df904`. Obie zmiany włączono do feature
+brancha zwykłym merge, bez przepisywania historii i bez naruszenia lokalnego
+WIP.
+
 Globalny zielony health nie jest dowodem bezpieczeństwa cache, poprawnego
 scope, migracji, realnego flow użytkownika ani gotowości czyszczenia danych.
 
@@ -61,9 +68,13 @@ Uruchomiono przewidziany w planie wyjątek P0:
 
 - osobny, minimalny hotfix odcina odczyt legacy cache i blokuje generowanie;
 - PR bezpieczeństwa: [#1007](https://github.com/artur-t-96/Nexus/pull/1007);
-- commit źródłowy: `966aae2a9f43d69c1e968532c1f7d16d05977bc2`;
-- testy PR: backend, frontend, skany i automatyczny review — zielone;
-- merge/deploy: oczekuje na wymagane przez ochronę `main` niezależne approval.
+- końcowy head PR: `06e8894df5e1dfc9a694915f56dba7a1e07f6587`;
+- testy PR: backend (pełny pytest), frontend, Gitleaks, Trivy i automatyczny
+  review — zielone;
+- wszystkie wątki review rozwiązane, auto-merge wykonany;
+- merge SHA: `01853345e43bf2a00d0c509e562e1d261b5df904`;
+- walidacja tego samego SHA na `main` i produkcyjny deploy pozostają osobnymi
+  bramkami — merge PR nie jest jeszcze dowodem wdrożenia.
 
 Feature release nie może zostać uznany za gotowy, dopóki hotfix albo pełne
 rozwiązanie zakresowe nie działa w produkcji.
@@ -354,6 +365,21 @@ Aktualne dowody lokalne:
 | lokalny type-check | wyłącznie cztery istniejące błędy w niezmienionym `ui/chart.tsx`; rozstrzyga czyste `npm ci` w hosted CI |
 | lokalny harness wizualny | nieuzyskany: współdzielony hostowy `node_modules` nie zawierał zadeklarowanego `@tailwindcss/postcss`; nie instalowano zależności w głównym WIP |
 
+Pierwszy pełny hosted backend feature PR wykrył trzy regresje kontraktowe:
+beztekstowy primary CV nie ustawiał `cv_filename`, legacy język w kształcie
+`code+level` nie przechodził normalizacji, a ogrodzenie single-writer miało
+fałszywe trafienie na globalnym polu waluty kandydata. Poprawki znajdują się w
+commicie `d4e37565e6a4d69a1ad5f821f8bbc3df95ee91fe`.
+
+Po poprawkach:
+
+- 22 testy normalizera języków i ogrodzeń architektury — zielone;
+- 21 testów kwarantanny i parity backfillu — zielone;
+- 63 testy scope-aware podsumowania AI — zielone, 1 skip zależny od PostgreSQL;
+- Ruff i format check zmienionych plików — zielone;
+- dwa dokładne przypadki integracyjne wymagają PostgreSQL i są rozstrzygane
+  przez hosted CI; lokalnego serwera DB ani Dockera nie uruchamiano.
+
 Brak lokalnego renderu nie jest zaliczeniem kryterium wizualnego. Viewporty,
 a11y i prawdziwe role pozostają obowiązkowymi bramkami hosted/produkcyjnymi.
 
@@ -361,9 +387,9 @@ a11y i prawdziwe role pozostają obowiązkowymi bramkami hosted/produkcyjnymi.
 
 | Etap | Wymagany dowód | Status |
 |---|---|---|
-| hot containment | zielony PR, merge, dokładny prod SHA, blokada unsafe cache | oczekuje na approval do merge |
-| feature PR | jeden PR do `main`, uporządkowane commity | przygotowanie do publikacji |
-| hosted CI | wszystkie wymagane checki zielone | oczekuje |
+| hot containment | zielony PR, merge, dokładny prod SHA, blokada unsafe cache | PR #1007 zielony i zmergowany jako `01853345`; same-SHA CI/deploy w toku |
+| feature PR | jeden PR do `main`, uporządkowane commity | [#1009](https://github.com/artur-t-96/Nexus/pull/1009), draft do czasu produkcyjnego dowodu hotfixu |
+| hosted CI | wszystkie wymagane checki zielone | pierwszy przebieg wykrył 3 regresje; poprawione w `d4e37565`, ponowny przebieg wymagany |
 | migracje | jedna głowa Alembic i udany deploy | oczekuje |
 | produkcja | dokładny SHA w health/deploy | oczekuje |
 | Chrome | role, scope, fakty, kwarantanna, deep-link, stale→current | oczekuje |
