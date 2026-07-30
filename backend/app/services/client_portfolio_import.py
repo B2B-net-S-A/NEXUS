@@ -910,6 +910,22 @@ async def build_client_portfolio_plan(
             for client_id in exact_name_map.get(label, set())
         }
         match_method = "approved_manifest_alias" if candidate_ids else None
+        if approved_manifest_labels and not candidate_ids:
+            blockers.append(
+                {
+                    "code": "approved_manifest_alias_not_found",
+                    "client_key": client_key,
+                    "approved_aliases": sorted(approved_manifest_labels),
+                }
+            )
+            groups.append(
+                {
+                    "client_key": client_key,
+                    "action": "blocked",
+                    "rows": rows,
+                }
+            )
+            continue
 
         # A reviewed ClientAlias is the strongest persistent local assertion
         # and must not be diluted by a colliding historical source/display

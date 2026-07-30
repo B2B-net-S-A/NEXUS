@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from datetime import date
 from types import SimpleNamespace
@@ -192,10 +193,10 @@ async def test_fresh_database_creates_kir_without_requiring_merge(
         AsyncMock(return_value=([], {})),
     )
 
-    plan = await build_client_portfolio_plan(
-        SimpleNamespace(),
-        manifest=load_client_portfolio_manifest(),
-    )
+    manifest = copy.deepcopy(load_client_portfolio_manifest())
+    for row in manifest["rows"]:
+        row.pop("approved_match_alias", None)
+    plan = await build_client_portfolio_plan(SimpleNamespace(), manifest=manifest)
 
     kir_group = next(
         group
@@ -205,6 +206,46 @@ async def test_fresh_database_creates_kir_without_requiring_merge(
     assert kir_group["action"] == "create"
     assert plan["blockers"] == []
     assert {"code": "kir_records_not_present_create_from_manifest"} in plan["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_missing_confirmed_manifest_alias_blocks_without_fallback(
+    monkeypatch,
+) -> None:
+    manifest = copy.deepcopy(load_client_portfolio_manifest())
+    for row in manifest["rows"]:
+        row.pop("approved_match_alias", None)
+    row = next(
+        row for row in manifest["rows"] if row["source_key"] == "active:m-leasing"
+    )
+    row["aliases"].append("Reviewed target no longer present")
+    row["approved_match_alias"] = "Reviewed target no longer present"
+    fuzzy_client = Client(
+        id=23,
+        name="mLeasng",
+        status=ClientStatus.active,
+        external_source="traffit",
+        external_id="14",
+    )
+    monkeypatch.setattr(
+        "app.services.client_portfolio_import._load_directory_clients",
+        AsyncMock(return_value=([fuzzy_client], {})),
+    )
+
+    plan = await build_client_portfolio_plan(SimpleNamespace(), manifest=manifest)
+    group = next(
+        group
+        for group in plan["groups"]
+        if group["client_key"] == "mleasing-spolka-z-ograniczona-odpowiedzialnoscia"
+    )
+    blocker = next(
+        blocker
+        for blocker in plan["blockers"]
+        if blocker["client_key"] == "mleasing-spolka-z-ograniczona-odpowiedzialnoscia"
+    )
+
+    assert group["action"] == "blocked"
+    assert blocker["code"] == "approved_manifest_alias_not_found"
 
 
 @pytest.mark.asyncio
