@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.client_framework_contract import (
     FrameworkContractSignedVia,
@@ -26,6 +26,16 @@ class ClientFrameworkContractCreate(BaseModel):
     contract_terms_id: Optional[int] = None
     notes: Optional[str] = None
 
+    @model_validator(mode="after")
+    def validate_dates(self) -> "ClientFrameworkContractCreate":
+        if (
+            self.effective_date is not None
+            and self.expiry_date is not None
+            and self.expiry_date < self.effective_date
+        ):
+            raise ValueError("expiry_date cannot be earlier than effective_date")
+        return self
+
 
 class ClientFrameworkContractUpdate(BaseModel):
     """PATCH metadata — plik wymaga osobnego endpointu (`/file`) jeśli zmiana."""
@@ -39,6 +49,16 @@ class ClientFrameworkContractUpdate(BaseModel):
     parent_contract_id: Optional[int] = None
     contract_terms_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "ClientFrameworkContractUpdate":
+        if (
+            self.effective_date is not None
+            and self.expiry_date is not None
+            and self.expiry_date < self.effective_date
+        ):
+            raise ValueError("expiry_date cannot be earlier than effective_date")
+        return self
 
 
 class ClientFrameworkContractRead(BaseModel):
@@ -59,6 +79,9 @@ class ClientFrameworkContractRead(BaseModel):
     uploaded_by: Optional[int]
     uploaded_at: Optional[datetime]
     notes: Optional[str]
+    source_system: str = "manual"
+    source_key: Optional[str] = None
+    import_run_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     amendments_count: int = 0

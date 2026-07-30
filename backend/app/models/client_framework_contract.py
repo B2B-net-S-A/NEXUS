@@ -20,13 +20,16 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -61,12 +64,36 @@ class FrameworkContractSignedVia(str, enum.Enum):
 
     upload = "upload"  # Skan/PDF już podpisany poza systemem
     autenti = "autenti"  # E-podpis przez Autenti
+    legacy_import = "legacy_import"  # Zakres dat zaimportowany bez pliku PDF
 
 
 class ClientFrameworkContract(Base, TimestampMixin):
     """Umowa ramowa (MSA) per klient — PDF + okres obowiązywania."""
 
     __tablename__ = "client_framework_contracts"
+    __table_args__ = (
+        CheckConstraint(
+            "effective_date IS NULL OR expiry_date IS NULL "
+            "OR expiry_date >= effective_date",
+            name="ck_client_framework_contracts_dates",
+        ),
+        CheckConstraint(
+            "char_length(btrim(source_system)) > 0",
+            name="ck_client_framework_contracts_source_system_nonempty",
+        ),
+        CheckConstraint(
+            "source_key IS NULL OR char_length(btrim(source_key)) > 0",
+            name="ck_client_framework_contracts_source_key_nonempty",
+        ),
+        Index(
+            "ux_client_framework_contracts_source_key",
+            "source_system",
+            "source_key",
+            unique=True,
+            postgresql_where=text("source_key IS NOT NULL"),
+            sqlite_where=text("source_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
@@ -136,6 +163,18 @@ class ClientFrameworkContract(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Import provenance. ``source_key`` is stable within ``source_system`` and
+    # makes re-applying the same reviewed Excel row idempotent.
+    source_system: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="manual", server_default="manual"
+    )
+    source_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    import_run_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_import_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Relationships
     client = relationship("Client", backref="framework_contracts")
     parent_contract = relationship(
@@ -145,6 +184,10 @@ class ClientFrameworkContract(Base, TimestampMixin):
         "ClientContractTerms", foreign_keys=[contract_terms_id]
     )
     uploader = relationship("User", foreign_keys=[uploaded_by])
+    import_run = relationship("ClientImportRun", back_populates="framework_contracts")
+    portfolio_scopes = relationship(
+        "ClientPortfolioScope", back_populates="framework_contract"
+    )
     amendments = relationship(
         "ClientContractAmendment",
         back_populates="framework_contract",

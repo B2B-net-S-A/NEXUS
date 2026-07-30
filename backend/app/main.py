@@ -29,6 +29,7 @@ from app.api import (
     candidate_activity_summary,
     jobs,
     clients,
+    client_directory,
     clients_team,
     pipeline,
     notes,
@@ -70,7 +71,7 @@ from app.api import admin_index_coverage, admin_schema_drift
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
-from app.api import admin_candidates, admin_traffit
+from app.api import admin_candidates, admin_client_portfolio, admin_traffit
 from app.api import admin_talent_pools
 from app.api import required_documents
 from app.api import screenings
@@ -625,6 +626,13 @@ app.include_router(
     tags=["public-interview-confirmation"],
 )
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
+# Static `/directory` must be registered before `clients`' catch-all
+# `/{client_id}` route.
+app.include_router(
+    client_directory.router,
+    prefix="/api/clients",
+    tags=["client-directory"],
+)
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
 app.include_router(
@@ -651,6 +659,11 @@ app.include_router(
     admin_clients_overview_api.router,
     prefix="/api/admin/clients-overview",
     tags=["admin-clients-overview"],
+)
+app.include_router(
+    admin_client_portfolio.router,
+    prefix="/api/admin/client-portfolio",
+    tags=["admin-client-portfolio"],
 )
 app.include_router(
     my_relationships_api.router,
