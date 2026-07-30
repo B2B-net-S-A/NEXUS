@@ -29,16 +29,28 @@ def test_checked_in_manifest_is_complete_and_preserves_scope_identity() -> None:
         for category in ("active", "relationship", "inactive")
     } == {"active": 30, "relationship": 3, "inactive": 1}
 
-    nordea = [
-        row
-        for row in manifest["rows"]
-        if row["client_key"] == "nordea-bank-abp"
-    ]
+    nordea = [row for row in manifest["rows"] if row["client_key"] == "nordea-bank-abp"]
     assert len(nordea) == 2
     assert {row["category"] for row in nordea} == {"active", "relationship"}
-    assert next(row for row in nordea if row["category"] == "relationship")[
-        "scope_label"
-    ] == "Pentesty"
+    assert (
+        next(row for row in nordea if row["category"] == "relationship")["scope_label"]
+        == "Pentesty"
+    )
+
+    pko = next(
+        row
+        for row in manifest["rows"]
+        if row["client_key"]
+        == "powszechna-kasa-oszczednosci-bank-polski-spolka-akcyjna"
+    )
+    assert "PKO" in pko["aliases"]
+
+    pekao = next(
+        row
+        for row in manifest["rows"]
+        if row["client_key"] == "bank-polska-kasa-opieki-spolka-akcyjna"
+    )
+    assert {"Bank Pekao SA", "PEKAO S.A."}.issubset(pekao["aliases"])
 
 
 def test_manifest_captures_open_ended_missing_and_expired_active_cases() -> None:
@@ -131,9 +143,7 @@ def test_manifest_discrepancies_are_reported_but_sheet_category_wins() -> None:
     warnings = _derived_manifest_warnings(manifest)
 
     ey_codes = {
-        warning["code"]
-        for warning in warnings
-        if warning["source_key"] == "active:ey"
+        warning["code"] for warning in warnings if warning["source_key"] == "active:ey"
     }
     assert {
         "sheet_category_workbook_status_mismatch",

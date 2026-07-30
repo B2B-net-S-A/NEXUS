@@ -25,6 +25,11 @@
       "code": "legal_display_name_transition",
       "source_key": "active:santander",
       "details": "Nazwa prawna ERSTE BANK POLSKA, alias arkusza Santander; istniejąca przyjazna nazwa NEXUS zostaje zachowana."
+    },
+    {
+      "code": "production_duplicate_variants_review",
+      "source_key": "active:pekao",
+      "details": "Warianty Bank Pekao SA i PEKAO S.A. są traktowane jako kandydaci tego samego podmiotu; dwa trafienia blokują apply do czasu wyboru rekordu."
     }
   ],
   "rows": [
@@ -379,6 +384,8 @@
       "force_display_name": false,
       "aliases": [
         "PEKAO",
+        "Bank Pekao SA",
+        "PEKAO S.A.",
         "BANK POLSKA KASA OPIEKI - SPÓŁKA AKCYJNA"
       ],
       "scope_label": null,
@@ -416,6 +423,7 @@
       "display_name": "Powszechna Kasa Oszczędności S.A",
       "force_display_name": true,
       "aliases": [
+        "PKO",
         "PKO BP",
         "POWSZECHNA KASA OSZCZĘDNOŚCI BANK POLSKI SPÓŁKA AKCYJNA"
       ],
