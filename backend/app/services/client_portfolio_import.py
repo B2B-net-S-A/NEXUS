@@ -19,7 +19,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
 
-from sqlalchemy import select, text
+from sqlalchemy import cast, func, or_, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
@@ -50,6 +51,16 @@ SOURCE_SYSTEM = "client_excel"
 ADVISORY_LOCK_KEY = 0x434C49454E5453  # ASCII-ish "CLIENTS", stable across deploys
 FUZZY_BLOCK_THRESHOLD = 0.88
 SYSTEM_CLIENT_NAMES = {"__traffit_orphans"}
+
+# One-shot cutover contract for the reviewed 2026-07-30 workbook snapshot.
+# Re-cutting the source requires updating these constants and the checked-in
+# manifest together so an accidental row/category drift fails before planning.
+_EXPECTED_CUTOVER_ROWS = 34
+_EXPECTED_CUTOVER_CATEGORY_COUNTS = {
+    "active": 30,
+    "relationship": 3,
+    "inactive": 1,
+}
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 _SAFE_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -114,9 +125,12 @@ def load_client_portfolio_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]
         raise ClientPortfolioImportError("Manifest source.sha256 must be SHA-256")
 
     rows = manifest.get("rows")
-    if not isinstance(rows, list) or len(rows) != 34:
-        raise ClientPortfolioImportError("Manifest must contain exactly 34 rows")
-    expected_counts = {"active": 30, "relationship": 3, "inactive": 1}
+    if not isinstance(rows, list) or len(rows) != _EXPECTED_CUTOVER_ROWS:
+        raise ClientPortfolioImportError(
+            f"2026-07-30 cutover manifest must contain exactly "
+            f"{_EXPECTED_CUTOVER_ROWS} rows"
+        )
+    expected_counts = _EXPECTED_CUTOVER_CATEGORY_COUNTS
     expected_sheets = {
         "active": "Aktywni Klienci",
         "relationship": "Relacyjni klienci",
@@ -394,7 +408,7 @@ async def _direct_client_fk_counts(
 ) -> list[dict[str, Any]]:
     """Inventory every direct FK to clients using the Postgres catalog."""
 
-    if db.bind is None or db.bind.dialect.name != "postgresql":
+    if db.get_bind().dialect.name != "postgresql":
         return []
     rows = (
         await db.execute(
@@ -447,6 +461,30 @@ async def _direct_client_fk_counts(
 async def _candidate_excluded_client_count(db: AsyncSession, client_id: int) -> int:
     """Count non-FK JSON references used by candidate exclusion preferences."""
 
+    if db.get_bind().dialect.name == "postgresql":
+        numeric_payload = json.dumps({"excluded_clients": [client_id]})
+        string_payload = json.dumps({"excluded_clients": [str(client_id)]})
+        return int(
+            (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Candidate)
+                    .where(
+                        Candidate.preferences.is_not(None),
+                        or_(
+                            Candidate.preferences.op("@>")(
+                                cast(numeric_payload, JSONB)
+                            ),
+                            Candidate.preferences.op("@>")(cast(string_payload, JSONB)),
+                        ),
+                    )
+                )
+            )
+            or 0
+        )
+
+    # Unit tests use SQLite, whose JSON implementation has no PostgreSQL @>
+    # operator. Keep the small compatibility fallback out of production.
     count = 0
     rows = (
         await db.execute(
@@ -960,6 +998,14 @@ async def _merge_kir(
             "moved_references": [],
             "jsonb_candidates": 0,
         }
+    if target.merged_into_client_id is not None:
+        raise ClientPortfolioImportError(
+            "KIR merge target is itself merged; resolve the chain first"
+        )
+    if source.merged_into_client_id is not None:
+        raise ClientPortfolioImportError(
+            "KIR duplicate is already merged into a different client"
+        )
     if (
         source.external_id
         and target.external_id
@@ -975,7 +1021,7 @@ async def _merge_kir(
         (await db.execute(select(Job.id).where(Job.client_id == source_id))).scalars()
     )
     moved: list[dict[str, Any]] = []
-    if db.bind is not None and db.bind.dialect.name == "postgresql":
+    if db.get_bind().dialect.name == "postgresql":
         fk_rows = (
             await db.execute(
                 text(
@@ -1090,7 +1136,7 @@ async def apply_client_portfolio_manifest(
     """Fail-closed, idempotent apply in one savepoint under an advisory lock."""
 
     manifest = manifest or load_client_portfolio_manifest()
-    if db.bind is not None and db.bind.dialect.name == "postgresql":
+    if db.get_bind().dialect.name == "postgresql":
         await db.execute(
             text("SELECT pg_advisory_xact_lock(:lock_key)"),
             {"lock_key": ADVISORY_LOCK_KEY},
@@ -1119,7 +1165,6 @@ async def apply_client_portfolio_manifest(
         summary={
             "plan_sha256": plan["plan_sha256"],
             "plan_summary": plan["summary"],
-            "plan": plan,
             "warnings": plan["warnings"],
             "duplicate_candidates": plan["duplicate_candidates"],
         },
@@ -1481,7 +1526,7 @@ async def rollback_client_portfolio_import(
     are archived/superseded, never deleted.
     """
 
-    if db.bind is not None and db.bind.dialect.name == "postgresql":
+    if db.get_bind().dialect.name == "postgresql":
         await db.execute(
             text("SELECT pg_advisory_xact_lock(:lock_key)"),
             {"lock_key": ADVISORY_LOCK_KEY},
