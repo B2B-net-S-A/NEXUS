@@ -28,7 +28,6 @@ from app.api.deps import OperationalUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
-from app.models.candidate_activity_summary import CandidateActivitySummary
 
 router = APIRouter()
 
@@ -47,23 +46,6 @@ class CandidateActivitySummaryOut(BaseModel):
     # Only meaningful on the refresh endpoint: False = history unchanged,
     # cached note served without a paid LLM call.
     refreshed: Optional[bool] = None
-
-
-def _serialize(
-    candidate_id: int,
-    row: Optional[CandidateActivitySummary],
-    *,
-    refreshed: Optional[bool] = None,
-) -> CandidateActivitySummaryOut:
-    if row is None:
-        return CandidateActivitySummaryOut(candidate_id=candidate_id)
-    return CandidateActivitySummaryOut(
-        candidate_id=candidate_id,
-        summary=row.summary,
-        model=row.model,
-        generated_at=row.generated_at,
-        refreshed=refreshed,
-    )
 
 
 @router.get(

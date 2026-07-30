@@ -36,14 +36,14 @@ async def test_get_activity_summary_preserves_candidate_not_found():
     assert exc_info.value.status_code == 404
 
 
-async def test_refresh_activity_summary_is_fail_closed():
-    with pytest.raises(HTTPException) as exc_info:
-        await cas_api.refresh_activity_summary.__wrapped__(
-            request=SimpleNamespace(),
-            candidate_id=1,
-            current_user=SimpleNamespace(id=9),
-            db=SimpleNamespace(),
-        )
+async def test_refresh_activity_summary_is_fail_closed(
+    app_client,
+    app_auth_headers,
+):
+    response = await app_client.post(
+        "/api/candidates/1/activity-summary/refresh",
+        headers=app_auth_headers,
+    )
 
-    assert exc_info.value.status_code == 503
-    assert "bezpiecznej regeneracji cache" in exc_info.value.detail
+    assert response.status_code == 503
+    assert "bezpiecznej regeneracji cache" in response.json()["detail"]
