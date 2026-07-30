@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -204,10 +205,22 @@ async def list_clients(
 
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
-    data: ClientCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    data: ClientCreate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    portfolio_category: PortfolioCategory = Query(PortfolioCategory.active),
 ):
+    """Create a client and its initial local directory scope atomically."""
+
     client = Client(**data.model_dump())
     db.add(client)
+    await db.flush()
+    scope = ClientPortfolioScope(
+        client_id=client.id,
+        category=portfolio_category,
+        source_system="manual",
+    )
+    db.add(scope)
     await db.flush()
     db.add(
         Activity(
@@ -215,8 +228,13 @@ async def create_client(
             entity_id=client.id,
             action="created",
             user_id=current_user.id,
+            details={
+                "portfolio_scope_id": scope.id,
+                "portfolio_category": portfolio_category.value,
+            },
         )
     )
+    await db.flush()
     await db.refresh(client)
     return client
 

@@ -144,6 +144,7 @@ def _directory_rows_statement(
                 exists(
                     select(ClientAlias.id).where(
                         ClientAlias.client_id == Client.id,
+                        ClientAlias.archived_at.is_(None),
                         ClientAlias.alias.ilike(pattern, escape="\\"),
                     )
                 ),

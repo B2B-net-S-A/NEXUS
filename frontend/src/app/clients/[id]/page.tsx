@@ -53,6 +53,7 @@ import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
+import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -778,8 +779,10 @@ export default function ClientDetailPage() {
     queryFn: () => api.get(`/api/clients/${id}`).then((r) => r.data),
   });
 
+  useCanonicalClientRedirect(id, client?.id);
+
   useEffect(() => {
-    if (client) {
+    if (client && Number(id) === client.id) {
       openTab("client", Number(id), client.name);
     }
   }, [client, id, openTab]);

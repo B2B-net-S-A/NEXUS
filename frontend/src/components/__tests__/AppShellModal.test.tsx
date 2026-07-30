@@ -8,7 +8,7 @@ import {
   AddClientModal,
   EditCandidateModal,
 } from "@/components/AppShell";
-import api, { phase5Api } from "@/lib/api";
+import api, { phase5Api, type ClientDirectoryCategory } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -31,7 +31,13 @@ vi.mock("@/lib/api", () => ({
  */
 
 /** Trigger + warunkowo montowany modal — jak u realnych konsumentów. */
-function Harness({ onClose }: { onClose?: () => void }) {
+function Harness({
+  onClose,
+  category,
+}: {
+  onClose?: () => void;
+  category?: ClientDirectoryCategory;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -45,6 +51,7 @@ function Harness({ onClose }: { onClose?: () => void }) {
             onClose?.();
           }}
           onSuccess={() => {}}
+          category={category}
         />
       )}
     </>
@@ -170,6 +177,33 @@ describe("AppShell <Modal> — a11y", () => {
 
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("przekazuje wybrany kafelek jako kategorię początkowego zakresu klienta", async () => {
+    const user = userEvent.setup();
+    const post = vi.mocked(api.post);
+    post.mockClear();
+    post.mockResolvedValueOnce({ data: {} } as never);
+    render(<Harness category="relationship" />);
+
+    await user.click(screen.getByRole("button", { name: "Otwórz" }));
+    await user.type(
+      screen.getByPlaceholderText("Acme Sp. z o.o."),
+      "Klient relacyjny",
+    );
+    await user.click(screen.getByRole("button", { name: "Dodaj firmę" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/clients",
+        expect.objectContaining({ name: "Klient relacyjny" }),
+        {
+          params: {
+            portfolio_category: "relationship",
+          },
+        },
+      ),
+    );
   });
 });
 

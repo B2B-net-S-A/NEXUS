@@ -264,6 +264,8 @@ class ClientAlias(Base, TimestampMixin):
             name="ck_client_aliases_source_key_nonempty",
         ),
         Index("ix_client_aliases_normalized_alias", "normalized_alias"),
+        Index("ix_client_aliases_archived_at", "archived_at"),
+        Index("ix_client_aliases_import_run_id", "import_run_id"),
         Index(
             "ux_client_aliases_source_key",
             "source_system",
@@ -284,8 +286,14 @@ class ClientAlias(Base, TimestampMixin):
         String(32), nullable=False, default="manual", server_default="manual"
     )
     source_key: Mapped[Optional[str]] = mapped_column(String(255))
+    import_run_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_import_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     client = relationship("Client", back_populates="aliases")
+    import_run = relationship("ClientImportRun")
 
 
 class ClientImportRow(Base, TimestampMixin):
