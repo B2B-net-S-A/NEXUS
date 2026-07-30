@@ -70,6 +70,17 @@ _KNOWN_ENUM_DRIFT: set[tuple[str, str]] = set()
 _KNOWN_MISSING_INDEXES: set[tuple[str, tuple[str, ...]]] = set()
 
 
+def test_schema_drift_ignores_non_native_enum_columns() -> None:
+    """VARCHAR-backed SQLAlchemy enums do not require a PostgreSQL enum type."""
+    from app.api.admin_schema_drift import _expected_enums
+
+    expected = _expected_enums()
+
+    assert "clientimportrunstatus" not in expected
+    assert "clientimportrowstatus" not in expected
+    assert "clientportfoliocategory" in expected
+
+
 async def test_schema_drift_reports_only_known_drift(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:

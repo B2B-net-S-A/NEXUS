@@ -127,7 +127,10 @@ def _expected_enums() -> dict[str, set[str]]:
     for table in Base.metadata.tables.values():
         for column in table.columns:
             coltype = column.type
-            if isinstance(coltype, SAEnum) and coltype.name:
+            # ``Enum(..., native_enum=False)`` is persisted as VARCHAR plus a
+            # CHECK constraint. It deliberately has no pg_type/pg_enum row and
+            # therefore must not be reported as a missing PostgreSQL enum.
+            if isinstance(coltype, SAEnum) and coltype.native_enum and coltype.name:
                 out.setdefault(coltype.name, set()).update(coltype.enums or [])
     return out
 
