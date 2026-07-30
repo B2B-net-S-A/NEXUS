@@ -249,6 +249,15 @@ def load_client_portfolio_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]
             isinstance(alias, str) and alias.strip() for alias in aliases
         ):
             raise ClientPortfolioImportError(f"Row {source_key} has invalid aliases")
+        approved_match_alias = row.get("approved_match_alias")
+        if approved_match_alias is not None and (
+            not isinstance(approved_match_alias, str)
+            or not approved_match_alias.strip()
+            or approved_match_alias not in aliases
+        ):
+            raise ClientPortfolioImportError(
+                f"Row {source_key} has invalid approved_match_alias"
+            )
         start = _parse_iso_date(row.get("effective_date"))
         end = _parse_iso_date(row.get("expiry_date"))
         if end is not None and start is None:
@@ -886,14 +895,33 @@ async def build_client_portfolio_plan(
 
     for client_key, rows in grouped_rows.items():
         labels = _manifest_group_labels(rows)
-        # Match precedence is intentional. A reviewed ClientAlias is the
-        # strongest local assertion and must not be diluted by a colliding
-        # historical source/display name. NIP/REGON are optional in the
-        # manifest, but supported before exact normalized names.
-        candidate_ids: set[int] = {
-            client_id for label in labels for client_id in alias_map.get(label, set())
+        # Match precedence is intentional. A one-shot manifest alias records
+        # an explicit business approval for this cutover and therefore wins
+        # over every inferred signal. It must still resolve to exactly one
+        # visible client or the whole apply remains blocked.
+        approved_manifest_labels = {
+            normalized
+            for row in rows
+            if (normalized := normalize_client_name(row.get("approved_match_alias")))
         }
-        match_method = "approved_alias" if candidate_ids else None
+        candidate_ids: set[int] = {
+            client_id
+            for label in approved_manifest_labels
+            for client_id in exact_name_map.get(label, set())
+        }
+        match_method = "approved_manifest_alias" if candidate_ids else None
+
+        # A reviewed ClientAlias is the strongest persistent local assertion
+        # and must not be diluted by a colliding historical source/display
+        # name. NIP/REGON are optional in the manifest, but supported before
+        # exact normalized names.
+        if not candidate_ids:
+            candidate_ids = {
+                client_id
+                for label in labels
+                for client_id in alias_map.get(label, set())
+            }
+            match_method = "approved_alias" if candidate_ids else None
         if not candidate_ids:
             identifier_ids: set[int] = set()
             for row in rows:
