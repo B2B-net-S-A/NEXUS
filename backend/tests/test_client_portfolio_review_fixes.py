@@ -85,4 +85,5 @@ async def test_kir_merge_rejects_a_target_that_is_itself_merged() -> None:
             expected_source_updated_at=None,
             expected_target_updated_at=None,
             archived_by=None,
+            import_run_id=1,
         )

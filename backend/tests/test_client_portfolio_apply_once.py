@@ -56,11 +56,11 @@ class _AliasSession:
     [
         ("applied", 0, 1, 0),
         ("already_applied", 0, 0, 1),
-        ("blocked", 2, 0, 1),
-        ("failed", 1, 0, 1),
+        ("blocked", 2, 1, 0),
+        ("failed", 1, 1, 0),
     ],
 )
-async def test_apply_once_commits_only_a_successful_apply(
+async def test_apply_once_commits_success_or_durable_failure_audit(
     monkeypatch,
     status: str,
     expected_code: int,
