@@ -563,7 +563,12 @@ async def test_nexus_only_scope_id_is_reused_across_snapshot_hashes(
             groups=[],
             nexus_only=[snapshot],
         )
-        plan_builder = AsyncMock(side_effect=[first_plan, second_plan])
+        # PostgreSQL apply builds once before and once after acquiring the
+        # matching write-surface locks. Each apply must therefore observe the
+        # same plan twice or fail closed on plan drift.
+        plan_builder = AsyncMock(
+            side_effect=[first_plan, first_plan, second_plan, second_plan]
+        )
         monkeypatch.setattr(service, "build_client_portfolio_plan", plan_builder)
 
         async with AsyncSessionLocal() as db:
@@ -584,6 +589,8 @@ async def test_nexus_only_scope_id_is_reused_across_snapshot_hashes(
             run_ids.append(second["run_id"])
             assert second["summary"]["scope_ids"] == [first_scope_id]
             await db.commit()
+
+        assert plan_builder.await_count == 4
 
         async with AsyncSessionLocal() as db:
             scopes = (
@@ -665,7 +672,7 @@ async def test_nexus_only_scope_is_stable_then_superseded_and_rollback_safe(
             "known_anomalies": [],
             "rows": [row],
         }
-        plan_builder = AsyncMock(side_effect=[first_plan])
+        plan_builder = AsyncMock(side_effect=[first_plan, first_plan])
         monkeypatch.setattr(service, "build_client_portfolio_plan", plan_builder)
 
         async with AsyncSessionLocal() as db:
@@ -703,7 +710,7 @@ async def test_nexus_only_scope_is_stable_then_superseded_and_rollback_safe(
                 }
             ],
         )
-        plan_builder.side_effect = [second_plan]
+        plan_builder.side_effect = [second_plan, second_plan]
         async with AsyncSessionLocal() as db:
             second = await service.apply_client_portfolio_manifest(
                 db, manifest=second_manifest
@@ -714,6 +721,8 @@ async def test_nexus_only_scope_is_stable_then_superseded_and_rollback_safe(
             superseded = second["summary"]["superseded_nexus_only_scope_audits"]
             assert [audit["scope_id"] for audit in superseded] == [stable_scope_id]
             await db.commit()
+
+        assert plan_builder.await_count == 4
 
         async with AsyncSessionLocal() as db:
             scopes = (

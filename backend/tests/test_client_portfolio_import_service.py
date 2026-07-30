@@ -692,7 +692,7 @@ async def test_apply_creates_client_adds_nexus_only_scope_and_is_idempotent(
             assert second["run_id"] == run_id
             await db.rollback()
 
-        assert plan_builder.await_count == 1
+        assert plan_builder.await_count == 2
         async with AsyncSessionLocal() as db:
             created = await db.scalar(
                 select(Client).where(
@@ -805,7 +805,7 @@ async def test_rollback_then_reapply_revives_same_scope_client_and_alias(
             "warnings": 0,
         },
     }
-    plan_builder = AsyncMock(side_effect=[plan, plan])
+    plan_builder = AsyncMock(side_effect=[plan, plan, plan, plan])
     monkeypatch.setattr(
         "app.services.client_portfolio_import.build_client_portfolio_plan",
         plan_builder,
@@ -879,7 +879,7 @@ async def test_rollback_then_reapply_revives_same_scope_client_and_alias(
             assert second_run_id != first_run_id
             await db.commit()
 
-        assert plan_builder.await_count == 2
+        assert plan_builder.await_count == 4
         async with AsyncSessionLocal() as db:
             client = await db.get(Client, client_id)
             scopes = (
