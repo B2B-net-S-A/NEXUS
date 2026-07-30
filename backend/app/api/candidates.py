@@ -5052,6 +5052,12 @@ async def _ingest_candidate_cv_file(
     )
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(content)
+    # Keep the legacy download pointer in the same transaction as the primary
+    # document. Parsed text and derived facts remain identity-gated below, but
+    # a valid primary upload must not lose its filename merely because OCR
+    # returns no text. A confirmed identity mismatch clears this projection in
+    # ``_clear_quarantined_cv_projection``.
+    candidate.cv_filename = safe_filename
     document = await _store_candidate_cv_document(
         db,
         candidate_id=candidate_id,

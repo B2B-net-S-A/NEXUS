@@ -11,6 +11,7 @@ APP_ROOT = BACKEND_ROOT / "app"
 COMMAND_WRITER = APP_ROOT / "services" / "recruitment_process_commands.py"
 RAW_ADAPTER = APP_ROOT / "services" / "traffit" / "importer.py"
 RAW_METADATA_ADAPTER = APP_ROOT / "services" / "traffit" / "rejection_backfill.py"
+CANDIDATE_PROFILE_FACTS = APP_ROOT / "services" / "candidate_profile_facts.py"
 SCRIPTS_ROOT = BACKEND_ROOT / "scripts"
 ROOT_RUNTIME_WRITERS = (
     BACKEND_ROOT / "seed.py",
@@ -92,6 +93,14 @@ _CRITICAL_STAGE_FIELDS = {
     "sla_alerted_at",
 }
 
+# The candidate-wide B2B profile fact deliberately shares a legacy currency
+# attribute name with CandidateStage. This is not a stage mutation; keeping the
+# exact receiver/path allowlist lets the fence continue catching arbitrary
+# aliases without forcing runtime code to hide the assignment via setattr.
+_ALLOWED_NON_STAGE_CRITICAL_ASSIGNMENTS = {
+    (CANDIDATE_PROFILE_FACTS, "candidate", "expected_rate_currency"),
+}
+
 
 def _assignment_targets(node: ast.AST) -> list[ast.expr]:
     if isinstance(node, ast.Assign):
@@ -161,6 +170,15 @@ def test_candidate_stage_update_delete_and_critical_fields_use_command_writer() 
                     isinstance(target, ast.Attribute)
                     and target.attr in _CRITICAL_STAGE_FIELDS
                 ):
+                    receiver = (
+                        target.value.id if isinstance(target.value, ast.Name) else None
+                    )
+                    if (
+                        path,
+                        receiver,
+                        target.attr,
+                    ) in _ALLOWED_NON_STAGE_CRITICAL_ASSIGNMENTS:
+                        continue
                     violations.append(f"{_display_path(path)}:{node.lineno}")
     assert violations == [], (
         "CandidateStage lifecycle/critical metadata mutations must use "

@@ -220,6 +220,15 @@ def _raw_language_items(raw: Any) -> Iterable[tuple[str, Any, Any]]:
                     (explicit_code if not re.search(r"[,;\n]", str(named)) else None),
                 )
             return
+        explicit_code = raw.get("code")
+        if isinstance(explicit_code, str):
+            normalized_code = explicit_code.strip().casefold().replace("_", "-")
+            if re.fullmatch(r"[a-z][a-z0-9-]{1,15}", normalized_code):
+                # Legacy payloads sometimes contain only ``code`` + ``level``.
+                # Keep the source spelling as the display name; no translation
+                # or guessed language label is introduced during backfill.
+                yield explicit_code.strip(), raw.get("level"), explicit_code
+                return
         if has_named_shape:
             yield "", None, None
             return

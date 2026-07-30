@@ -143,8 +143,16 @@ async def test_non_cv_cannot_be_primary(
 
 
 async def test_first_cv_becomes_primary_and_sets_cv_filename(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # A primary document remains downloadable even when parsing cannot derive
+    # text. Enrichment is best-effort and must not own the filename pointer.
+    monkeypatch.setattr(
+        "app.services.cv_text_extractor.extract_text",
+        lambda *_args, **_kwargs: "",
+    )
     candidate_id = await _create_candidate(app_client, app_auth_headers)
 
     resp = await _upload(

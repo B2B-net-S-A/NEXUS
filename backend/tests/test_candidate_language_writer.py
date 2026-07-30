@@ -66,6 +66,24 @@ def test_normalizer_counts_malformed_source_entries():
     assert invalid == 2
 
 
+def test_normalizer_accepts_valid_code_only_legacy_entry():
+    facts, invalid = normalize_language_payload([{"code": "en", "level": "c1"}])
+
+    assert invalid == 0
+    assert len(facts) == 1
+    assert facts[0].language_code == "en"
+    assert facts[0].language_name == "en"
+    assert facts[0].cefr_level == "C1"
+
+
+@pytest.mark.parametrize("code", ["", "!", "1en", 123])
+def test_normalizer_rejects_invalid_code_only_legacy_entry(code):
+    facts, invalid = normalize_language_payload([{"code": code, "level": "C1"}])
+
+    assert facts == []
+    assert invalid == 1
+
+
 def test_normalizer_accepts_sixteen_character_language_code():
     code = "a123456789012345"
 
