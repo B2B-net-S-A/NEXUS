@@ -96,3 +96,69 @@ Sekrety (`TRAFFIT_TENANT`, `TRAFFIT_CLIENT_ID`, `TRAFFIT_CLIENT_SECRET`,
   wymaga full reconcile.
 - Day-granular filtr + 48h lookback: delta re-skanuje ~2-3 dni zmian dziennie (tanie,
   idempotentne).
+
+---
+
+## Fix 2026-08-03: bloker `candidate_activities` ReadTimeout → permanentny `degraded`
+
+### Objaw
+Od 2026-07-20 `checks.traffit=degraded`, a od ~2026-07-27 nowe notatki z Traffita
+przestały przybywać. 14 z 16 faz syncowało się poprawnie; blokowała jedna faza.
+
+### Root cause (potwierdzony)
+- Read timeout klienta = zahardkodowane **30 s** (`TraffitConfig.timeout_s`), a pętla
+  retry w `_get_raw` **nie łapała wyjątków transportowych** — `httpx.ReadTimeout`
+  z `await self._http.get(...)` leciała od razu w górę (choć proxycurl/m365 je łapią).
+- Pętla paginacji w `import_candidate_activities` była **nieopakowana** → timeout
+  wychodził z fazy → generyczny `except` orkiestratora stemplował `error` i **pomijał
+  blok kwarantanny/summary**. `promote_notes` stoi **za** pętlą → pomijana → brak notatek.
+- `since` dla delty liczone z globalnego `__daily__`. Bo watermark zamrożony, okno
+  activities rosło codziennie (~16+ dni) → fetch coraz większy → timeout się powtarzał
+  (błędne koło). Activities to największy feed (~43k wierszy).
+
+### Stage 1 — klient (rdzeń, zdejmuje `degraded`) — `backend/app/services/traffit/client.py`
+- **Split timeout**: `httpx.Timeout(timeout_s, connect=connect_timeout_s, read=read_timeout_s)`
+  — read domyślnie **180 s** (przeciska duże strony catch-upu), connect ciasny 10 s.
+  Nowe pola `TraffitConfig.connect_timeout_s`/`read_timeout_s`, czytane w `from_env()`
+  z `TRAFFIT_READ_TIMEOUT_S`/`TRAFFIT_CONNECT_TIMEOUT_S` (konwencja: NIE w `Settings`).
+- **Retry transportu**: `_get_raw` łapie `httpx.TransportError`, backoff `2**attempt`,
+  re-raise po wyczerpaniu. Automatycznie obejmuje też fazę `pipelines` i poller
+  `candidate_contact_traffit` (dzielą klienta).
+
+### Stage 2 — importer (odporność) — `backend/app/services/traffit/importer.py`
+- Pętla activities opakowana wewnętrznym generatorem łapiącym `(httpx.TransportError,
+  RuntimeError)`: częściowy batch commitowany, `promote_notes` płynie z zacommitowanych
+  wierszy, zapisywany **nieatrybuowalny** błąd (zamraża watermark → ogon re-coverowany
+  następnego biegu). Faza **zwraca** zamiast rzucać → nie omija kwarantanny.
+- Probe `total_count` już nie robi early-return przy timeoucie (nie pomija importu+notatek);
+  jego błąd jest **tylko logowany** (nie liczony jako blokujący `errors`), więc czysty bieg
+  z wolnym probe nie zamraża watermarku.
+- **Uwaga:** Stage 2 sam nie zdejmuje `degraded` (błąd nieatrybuowalny blokuje aż do
+  pełnego przejścia) — to Stage 1 pozwala biegowi się dopiąć; Stage 2 trzyma notatki
+  i utrwala częściowy postęp w trakcie przejścia.
+
+### Stage 3 — wznawialna paginacja (spike, ODŁOŻONA — gated na API)
+Discovery (desk): **brak dowodu** że Traffit `X-Request-Filter` wspiera numeryczne
+`id >` i AND wielu pól — całe użycie w repo to pojedynczy `created_at/updated_at >=`.
+Plan dwukierunkowy jedynie *aspiruje* do kursora `(timestamp, id)` (§ reconcile). Live
+probe wymaga tenant creds → **do wykonania przy aktywacji sandboxa** przed wyborem
+Opcji A (kursor `id`) vs B (checkpoint strony) + budżet per-run. NIE jest potrzebna do
+zdjęcia obecnego `degraded` (Stage 1 wystarcza: po pierwszym pełnym biegu okno wraca do 48h).
+
+### Testy
+- `tests/test_traffit_client_timeout.py` (nowy): retry-then-success, reraise-po-wyczerpaniu,
+  from_env split timeout, domyślne wartości.
+- `tests/test_traffit_activities_partial.py` (nowy): timeout mid-stream → faza zwraca
+  `PhaseProgress` (nie rzuca), `errors≥1` nieatrybuowalne, partial commit, notatki promowane;
+  timeout probe → import+notatki dalej biegną.
+- `tests/test_traffit_watermark_on_failure.py`: + przypadek „niekompletna paginacja
+  activities zamraża watermark".
+- Lokalnie (Docker `nexus-deps-test:pytest`, Python 3.13): **43 passed** na testach
+  dotyczących zmiany, ruff czysty. Testy DB-integracyjne (pipelines/cortex) wymagają Postgresa
+  (CI) — nie dotyczą zmienionych ścieżek.
+
+### Rollout / weryfikacja prod (po merge)
+1. Merge → Coolify build. Nowy `read_timeout` domyślnie 180 s (env override opcjonalny).
+2. `POST /api/admin/traffit/sync?mode=delta` (admin) → obserwuj `GET /sync/status` aż
+   `candidate_activities` ma `errors=0`.
+3. `GET /api/health.checks.traffit` → `healthy` (po pełnym biegu). `notes_promoted > 0`.
