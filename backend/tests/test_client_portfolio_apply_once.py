@@ -141,6 +141,9 @@ async def test_apply_once_stays_fail_closed_on_non_drift_blocker(monkeypatch) ->
     code = await cli._run(dry_run=False, apply_once=True, rollback_run_id=None)
 
     assert code == 2
+    # The durable ClientImportRun audit commit must still fire on the
+    # combined-blocker path, even though startup stays fail-closed.
+    assert session.commit.await_count == 1
 
 
 @pytest.mark.asyncio
