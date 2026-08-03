@@ -653,3 +653,82 @@ async def test_directory_export_hides_legal_columns_for_non_privileged_role(
     finally:
         await _cleanup_directory(seed)
         await _delete_user(user_id)
+
+
+async def test_directory_export_neutralises_formula_injection(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid.uuid4().hex[:10]
+    payload = f"=SUM(1+9)*cmd|{suffix}"
+    client_ids: list[int] = []
+    async with AsyncSessionLocal() as db:
+        evil = Client(
+            name=f"Evil {suffix}",
+            display_name=payload,
+            legal_name=f"+ATTACK {suffix}",
+            industry="@formula",
+            status=ClientStatus.active,
+        )
+        db.add(evil)
+        await db.flush()
+        db.add(
+            ClientPortfolioScope(
+                client_id=evil.id,
+                category=PortfolioCategory.active,
+                label="-danger",
+                source_system="test",
+                source_key=f"{suffix}:evil",
+            )
+        )
+        client_ids.append(evil.id)
+        await db.commit()
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": suffix},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        _, records = _read_sheet(response.content)
+        row = next(r for r in records if r["ID klienta"] == client_ids[0])
+        # Every free-text cell that would start a formula is defused with a
+        # leading apostrophe; the raw value is otherwise preserved.
+        assert row["Klient"] == "'" + payload
+        assert row["Zakres"] == "'-danger"
+        assert row["Branża"] == "'@formula"
+        assert row["Nazwa prawna"] == "'+ATTACK " + suffix
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientPortfolioScope).where(
+                    ClientPortfolioScope.client_id.in_(client_ids)
+                )
+            )
+            await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+            await db.commit()
+
+
+async def test_directory_export_flags_truncation_at_limit(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()  # 3 active scopes match the suffix
+    try:
+        capped = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"], "limit": 2},
+            headers=app_auth_headers,
+        )
+        assert capped.status_code == 200, capped.text
+        assert capped.headers.get("x-export-truncated") == "true"
+
+        full = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"], "limit": 100},
+            headers=app_auth_headers,
+        )
+        assert full.status_code == 200, full.text
+        assert "x-export-truncated" not in full.headers
+    finally:
+        await _cleanup_directory(seed)

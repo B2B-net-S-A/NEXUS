@@ -381,6 +381,8 @@ export function ClientsListV2() {
         setTimeout(() => setToast(null), 3500);
         return;
       }
+      // The backend caps the row count and flags a partial file in this header.
+      const truncated = res.headers.get("X-Export-Truncated") === "true";
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -392,6 +394,10 @@ export function ClientsListV2() {
       anchor.click();
       document.body.removeChild(anchor);
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (truncated) {
+        setToast("Wyeksportowano częściowy widok — przekroczono limit wierszy.");
+        setTimeout(() => setToast(null), 4500);
+      }
     } finally {
       setExporting(false);
     }

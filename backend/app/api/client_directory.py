@@ -312,6 +312,22 @@ def _directory_contract_end_cell(row) -> str:
     return row.expiry_date.isoformat()
 
 
+# Spreadsheet formula-injection guard. A free-text cell we write verbatim that
+# begins with =, +, -, @ (or a tab/CR that can smuggle one in) is executed as a
+# formula when the file is opened in Excel / Google Sheets. display_name /
+# scope_label / industry / legal_name are user-settable DB values, so we prefix
+# them with an apostrophe (the OWASP-standard mitigation) — the spreadsheet then
+# renders the literal text. openpyxl also treats a leading "=" string as a
+# formula, so this protects the xlsx path too. Ints and ISO dates pass through.
+_FORMULA_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _formula_safe(value):
+    if isinstance(value, str) and value[:1] in _FORMULA_INJECTION_PREFIXES:
+        return "'" + value
+    return value
+
+
 def _directory_export_row(row, *, can_view_legal: bool) -> list:
     values = [
         row.client_id,
@@ -326,7 +342,7 @@ def _directory_export_row(row, *, can_view_legal: bool) -> list:
     ]
     if can_view_legal:
         values.extend([row.legal_name or "", row.nip or "", row.regon or ""])
-    return values
+    return [_formula_safe(value) for value in values]
 
 
 @router.get("/directory/export")
@@ -352,6 +368,11 @@ async def export_client_directory(
         as_of=date.today(),
     ).limit(limit)
     rows = (await db.execute(statement)).all()
+    # Hitting ``limit`` means the file may be a partial view. Signal it in a
+    # header (rather than silently) so the caller can warn — the FE surfaces a
+    # toast. Realistic directories sit far below the 10k default, so this is a
+    # safety net, not an expected path.
+    truncated = len(rows) >= limit
 
     columns = list(_DIRECTORY_EXPORT_BASE_COLUMNS)
     if can_view_legal:
@@ -360,6 +381,12 @@ async def export_client_directory(
         _directory_export_row(row, can_view_legal=can_view_legal) for row in rows
     ]
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    def _export_headers(filename: str) -> dict:
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        if truncated:
+            headers["X-Export-Truncated"] = "true"
+        return headers
 
     if format == "xlsx":
         from openpyxl import Workbook
@@ -382,7 +409,7 @@ async def export_client_directory(
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers=_export_headers(filename),
         )
 
     # CSV (UTF-8). Prepend a BOM so Excel on Windows renders the Polish
@@ -399,7 +426,7 @@ async def export_client_directory(
     return StreamingResponse(
         iter(["\ufeff" + buf.getvalue()]),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_export_headers(filename),
     )
 
 

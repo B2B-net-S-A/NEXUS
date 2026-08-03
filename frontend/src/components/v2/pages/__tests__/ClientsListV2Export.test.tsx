@@ -81,7 +81,11 @@ describe("ClientsListV2 — eksport katalogu klientów", () => {
     mocks.list.mockResolvedValue({ data: BASE_RESPONSE });
 
     fetchMock.mockReset();
-    fetchMock.mockResolvedValue({ ok: true, blob: async () => new Blob(["x"]) });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(["x"]),
+      headers: { get: () => null },
+    });
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("URL", {
       ...URL,
@@ -150,5 +154,23 @@ describe("ClientsListV2 — eksport katalogu klientów", () => {
     fireEvent.click(screen.getByText(/excel \(\.xlsx\)/i));
 
     expect(await screen.findByText(/Eksport nie powiódł się/i)).toBeVisible();
+  });
+
+  it("ostrzega toastem, gdy backend oznaczy plik jako częściowy", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(["x"]),
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "x-export-truncated" ? "true" : null,
+      },
+    });
+    renderList();
+    await screen.findByText("Nordea ABP");
+
+    fireEvent.click(screen.getByRole("button", { name: /eksport/i }));
+    fireEvent.click(screen.getByText(/excel \(\.xlsx\)/i));
+
+    expect(await screen.findByText(/częściowy widok/i)).toBeVisible();
   });
 });
