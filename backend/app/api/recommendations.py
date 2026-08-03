@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.candidate_access import (
     CandidateWriteAccess,
     require_candidate_read,
@@ -43,6 +44,11 @@ from app.services.candidate_job_eligibility import (
     EligibilityReason,
     evaluate_eligibility,
     extract_excluded_client_ids,
+)
+from app.services.access_scope import (
+    apply_delivery_lead_client_scope,
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.recruitment_process_commands import open_process
@@ -78,6 +84,62 @@ from app.schemas.similar_job_candidates import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _score_breakdown_payload(
+    breakdown,
+    *,
+    include_finance: bool = False,
+) -> dict:
+    """Return an explainable score without leaking its salary-derived layer."""
+
+    payload = breakdown.as_dict()
+    if not include_finance:
+        # Keep the response contract stable while preventing the points/reason
+        # from becoming an oracle for a hidden job budget.
+        payload["salary"] = {
+            "points": None,
+            "max": None,
+            "reason": None,
+            "status": "redacted",
+        }
+    return payload
+
+
+def _shape_recommended_job(job: Job, *, include_finance: bool = False) -> dict:
+    """Candidate→job response projection with capability-aware budget fields."""
+
+    return {
+        "id": job.id,
+        "title": job.title,
+        "client_id": job.client_id,
+        "location": job.location,
+        "salary_min": job.salary_min if include_finance else None,
+        "salary_max": job.salary_max if include_finance else None,
+        "remote_policy": (job.remote_policy.value if job.remote_policy else None),
+        "status": job.status.value if job.status else None,
+        "priority": job.priority.value if job.priority else None,
+        "seniority": job.seniority.value if job.seniority else None,
+        "industry": job.industry,
+        "deadline": job.deadline.isoformat() if job.deadline else None,
+    }
+
+
+def _assert_salary_filter_access(
+    user: User,
+    *,
+    salary_min: int | None,
+    salary_max: int | None,
+) -> None:
+    """Reject hidden-budget probing instead of silently applying the filter."""
+
+    if (salary_min is not None or salary_max is not None) and not user_has_capability(
+        user, AnalyticsCapability.VIEW_FINANCE
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Salary filters require view_finance capability",
+        )
 
 
 # ── Job → candidates (explainable) ──────────────────────────────────────────
@@ -166,6 +228,10 @@ async def _recommend_candidates_core(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_delivery_lead_client_visible(
+        job.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
 
     # ── Location filter (post-scoring; mirrors legacy /ai-matches PR #424) ────
     # Explicit query param wins; otherwise fall back to the job's own location
@@ -325,7 +391,12 @@ async def _recommend_candidates_core(
             "total_score": round(b.total, 1),
         }
         if include_breakdown:
-            match["breakdown"] = b.as_dict()
+            match["breakdown"] = _score_breakdown_payload(
+                b,
+                include_finance=user_has_capability(
+                    current_user, AnalyticsCapability.VIEW_FINANCE
+                ),
+            )
         matches.append(match)
 
     return {
@@ -658,6 +729,10 @@ async def recommend_jobs_for_candidate(
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    include_finance = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    )
 
     # Build a short query from candidate facets
     parts: List[str] = []
@@ -684,9 +759,13 @@ async def recommend_jobs_for_candidate(
 
     # Fallback when Qdrant is empty/offline: all open jobs (draft + published).
     if not job_ids:
-        open_jobs = await db.execute(
-            select(Job.id).where(Job.status.in_(_RECOMMENDABLE_STATUSES)).limit(100)
+        open_job_query = select(Job.id).where(Job.status.in_(_RECOMMENDABLE_STATUSES))
+        open_job_query = apply_delivery_lead_client_scope(
+            open_job_query,
+            Job.client_id,
+            delivery_lead_client_ids,
         )
+        open_jobs = await db.execute(open_job_query.limit(100))
         job_ids = [j for (j,) in open_jobs.all()]
 
     if not job_ids:
@@ -697,6 +776,11 @@ async def recommend_jobs_for_candidate(
         }
 
     job_query = select(Job).where(Job.id.in_(job_ids))
+    job_query = apply_delivery_lead_client_scope(
+        job_query,
+        Job.client_id,
+        delivery_lead_client_ids,
+    )
     if only_open:
         # "Open" = draft + published (matches scan_candidate_for_top_jobs);
         # closed jobs are never recommended.
@@ -732,24 +816,14 @@ async def recommend_jobs_for_candidate(
         if not j:
             continue
         match = {
-            "job": {
-                "id": j.id,
-                "title": j.title,
-                "client_id": j.client_id,
-                "location": j.location,
-                "salary_min": j.salary_min,
-                "salary_max": j.salary_max,
-                "remote_policy": j.remote_policy.value if j.remote_policy else None,
-                "status": j.status.value if j.status else None,
-                "priority": j.priority.value if j.priority else None,
-                "seniority": j.seniority.value if j.seniority else None,
-                "industry": j.industry,
-                "deadline": j.deadline.isoformat() if j.deadline else None,
-            },
+            "job": _shape_recommended_job(j, include_finance=include_finance),
             "total_score": round(b.total, 1),
         }
         if include_breakdown:
-            match["breakdown"] = b.as_dict()
+            match["breakdown"] = _score_breakdown_payload(
+                b,
+                include_finance=include_finance,
+            )
         matches.append(match)
 
     return {
@@ -1167,14 +1241,14 @@ def _shape_seek_candidate(c: Candidate) -> dict:
     }
 
 
-def _shape_seek_job(j: Job) -> dict:
+def _shape_seek_job(j: Job, *, include_finance: bool = False) -> dict:
     return {
         "id": j.id,
         "title": j.title,
         "client_id": j.client_id,
         "location": j.location,
-        "salary_min": j.salary_min,
-        "salary_max": j.salary_max,
+        "salary_min": j.salary_min if include_finance else None,
+        "salary_max": j.salary_max if include_finance else None,
         "remote_policy": j.remote_policy.value if j.remote_policy else None,
         "seniority": j.seniority.value if j.seniority else None,
         "deadline": j.deadline.isoformat() if j.deadline else None,
@@ -1266,17 +1340,35 @@ async def seeking_contractors(
         apply_user_filters,
     )
 
+    _assert_salary_filter_access(
+        current_user,
+        salary_min=salary_min,
+        salary_max=salary_max,
+    )
+    include_finance = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    )
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+
     # 1. Build the candidate pool (union of two sources).
     horizon = date.today() + timedelta(days=horizon_days)
 
     # Source A: contractors with end_date within horizon (status active or ending)
-    ending_rows = await db.execute(
-        select(Contract.candidate_id, Contract.end_date, Contract.client_id).where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-            Contract.end_date.is_not(None),
-            Contract.end_date <= horizon,
-        )
+    ending_query = select(
+        Contract.candidate_id,
+        Contract.end_date,
+        Contract.client_id,
+    ).where(
+        Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+        Contract.end_date.is_not(None),
+        Contract.end_date <= horizon,
     )
+    ending_query = apply_delivery_lead_client_scope(
+        ending_query,
+        Contract.client_id,
+        delivery_lead_client_ids,
+    )
+    ending_rows = await db.execute(ending_query)
     ending_meta: dict[int, dict] = {}
     for cid, end_date, client_id in ending_rows.all():
         existing = ending_meta.get(cid)
@@ -1288,18 +1380,20 @@ async def seeking_contractors(
             }
 
     # Source B: candidates with availability_status in the "looking" set
-    looking_rows = await db.execute(
-        select(Candidate.id).where(
-            Candidate.availability_status.in_(
-                [
-                    AvailabilityStatus.actively_looking,
-                    AvailabilityStatus.open_to_offers,
-                ]
-            ),
-            Candidate.status != CandidateStatus.blacklisted,
+    looking_ids: set[int] = set()
+    if delivery_lead_client_ids is None:
+        looking_rows = await db.execute(
+            select(Candidate.id).where(
+                Candidate.availability_status.in_(
+                    [
+                        AvailabilityStatus.actively_looking,
+                        AvailabilityStatus.open_to_offers,
+                    ]
+                ),
+                Candidate.status != CandidateStatus.blacklisted,
+            )
         )
-    )
-    looking_ids = {row[0] for row in looking_rows.all()}
+        looking_ids = {row[0] for row in looking_rows.all()}
 
     # Pełna pula PRZED obcięciem — `total` musi opisywać ilu jest konsultantów,
     # nie ile ich zmieściło się na stronie. Wcześniej `total` liczyło już
@@ -1337,7 +1431,13 @@ async def seeking_contractors(
     candidates = cand_res.scalars().all()
 
     # 2. Prefetch all open jobs once.
-    jobs_res = await db.execute(select(Job).where(Job.status == JobStatus.published))
+    open_jobs_query = select(Job).where(Job.status == JobStatus.published)
+    open_jobs_query = apply_delivery_lead_client_scope(
+        open_jobs_query,
+        Job.client_id,
+        delivery_lead_client_ids,
+    )
+    jobs_res = await db.execute(open_jobs_query)
     all_open_jobs = list(jobs_res.scalars().all())
 
     if not all_open_jobs:
@@ -1418,9 +1518,12 @@ async def seeking_contractors(
                 continue
             top_matches.append(
                 {
-                    "job": _shape_seek_job(j),
+                    "job": _shape_seek_job(j, include_finance=include_finance),
                     "total_score": round(b.total, 1),
-                    "breakdown": b.as_dict(),
+                    "breakdown": _score_breakdown_payload(
+                        b,
+                        include_finance=include_finance,
+                    ),
                     "warning": warning_by_job.get(j.id),
                 }
             )

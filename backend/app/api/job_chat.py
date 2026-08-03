@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DeliveryLeadPlus
+from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
+from app.api.deps import DeliveryLeadPlus
 from app.api.ws import notify_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -151,7 +152,7 @@ async def _broadcast(
 @router.get("/{job_id}/chat/messages", response_model=ChatMessageList)
 async def list_messages(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     before_id: Optional[int] = Query(None, ge=1),
@@ -204,7 +205,7 @@ async def create_message(
     request: Request,
     job_id: int,
     data: ChatMessageCreate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ChatMessageResponse:
     """Tworzy wiadomość, parsuje @mentions, persystuje notyfikacje, broadcast WS."""
@@ -306,7 +307,7 @@ async def edit_message(
     job_id: int,
     msg_id: int,
     data: ChatMessageUpdate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ChatMessageResponse:
     """Tylko autor może edytować swoją wiadomość. Nie da się edytować usuniętej."""
@@ -363,7 +364,7 @@ async def edit_message(
 async def delete_message(
     job_id: int,
     msg_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Soft delete. Autor lub admin. Już-usunięta = no-op (idempotent)."""
@@ -491,7 +492,7 @@ async def unpin_message(
 @router.get("/{job_id}/chat/pinned", response_model=list[ChatMessageResponse])
 async def list_pinned(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[ChatMessageResponse]:
     """Lista przypiętych wiadomości (max 3) — w kolejności od najstarszego pin."""
@@ -519,7 +520,7 @@ async def list_pinned(
 @router.put("/{job_id}/chat/read", response_model=ChatUnreadCount)
 async def mark_read(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ChatUnreadCount:
     """Oznacza wszystkie wiadomości w projekcie jako przeczytane przez current_user."""
@@ -562,7 +563,7 @@ async def mark_read(
 @router.get("/{job_id}/chat/unread-count", response_model=ChatUnreadCount)
 async def unread_count(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ChatUnreadCount:
     """Liczba wiadomości nowszych od `last_read_message_id` (poza własnymi)."""
@@ -601,7 +602,7 @@ async def unread_count(
 @router.get("/{job_id}/chat/members", response_model=list[ChatUserMini])
 async def list_members(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[ChatUserMini]:
     """Lista członków projektu (do autocomplete @mention'a w UI)."""
@@ -628,7 +629,7 @@ async def add_reaction(
     job_id: int,
     msg_id: int,
     payload: dict,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReactionToggleResponse:
     """Dodaje reakcję emoji na wiadomość (idempotentne — duplikat = no-op)."""
@@ -688,7 +689,7 @@ async def remove_reaction(
     job_id: int,
     msg_id: int,
     emoji: str,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReactionToggleResponse:
     await _require_member(db, current_user, job_id)
@@ -733,7 +734,7 @@ async def remove_reaction(
 async def message_read_by(
     job_id: int,
     msg_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[ReadByUser]:
     """Lista użytkowników którzy przeczytali tę (lub późniejszą) wiadomość.
@@ -745,6 +746,7 @@ async def message_read_by(
     if msg is None or msg.job_id != job_id:
         raise HTTPException(status_code=404, detail="Wiadomość nie znaleziona.")
 
+    eligible_member_ids = await list_job_member_ids(db, job_id)
     rows = await db.execute(
         select(
             JobChatReadState.user_id,
@@ -755,6 +757,7 @@ async def message_read_by(
         .where(JobChatReadState.job_id == job_id)
         .where(JobChatReadState.last_read_message_id >= msg_id)
         .where(JobChatReadState.user_id != current_user.id)
+        .where(JobChatReadState.user_id.in_(eligible_member_ids))
         .order_by(JobChatReadState.last_read_at.asc())
     )
     return [

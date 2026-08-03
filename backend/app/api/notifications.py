@@ -7,11 +7,12 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, update, func
+from sqlalchemy import func, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.notification import Notification, NotificationType
+from app.models.user import User, UserRole
 from app.api.deps import CurrentUser
 
 router = APIRouter()
@@ -55,6 +56,28 @@ class MarkAllReadResponse(BaseModel):
 _MAX_LIMIT = 200
 _DEFAULT_LIMIT = 50
 
+# Only account-security notifications have a payload contract independent of
+# candidates, jobs and recruitment.  New notification types stay hidden from
+# Finance by default until they are explicitly reviewed and added here.
+_FINANCE_SAFE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
+    {
+        NotificationType.password_reset_requested,
+        NotificationType.password_changed_by_admin,
+    }
+)
+
+
+def _notification_visibility(current_user: User):
+    """Return the fail-closed notification predicate for the current persona."""
+
+    # Check Finance first so even an invalid legacy Admin+Finance combination
+    # cannot inherit candidate/recruitment notification history.
+    if current_user.has_role(UserRole.finance):
+        return Notification.notification_type.in_(_FINANCE_SAFE_NOTIFICATION_TYPES)
+    if current_user.has_role(UserRole.admin):
+        return true()
+    return Notification.notification_type != NotificationType.pending_verification
+
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
@@ -68,7 +91,10 @@ async def list_notifications(
     """List notifications for current user — unread first."""
     result = await db.execute(
         select(Notification)
-        .where(Notification.user_id == current_user.id)
+        .where(
+            Notification.user_id == current_user.id,
+            _notification_visibility(current_user),
+        )
         .order_by(Notification.is_read.asc(), Notification.created_at.desc())
         .limit(limit)
     )
@@ -77,7 +103,11 @@ async def list_notifications(
     unread_result = await db.execute(
         select(func.count())
         .select_from(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read.is_(False))
+        .where(
+            Notification.user_id == current_user.id,
+            Notification.is_read.is_(False),
+            _notification_visibility(current_user),
+        )
     )
     unread_count = unread_result.scalar() or 0
 
@@ -107,7 +137,11 @@ async def get_unread_count(
     result = await db.execute(
         select(func.count())
         .select_from(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read.is_(False))
+        .where(
+            Notification.user_id == current_user.id,
+            Notification.is_read.is_(False),
+            _notification_visibility(current_user),
+        )
     )
     count = result.scalar() or 0
     return UnreadCountResponse(count=count)
@@ -129,6 +163,7 @@ async def mark_as_read(
         select(Notification).where(
             Notification.id == notification_id,
             Notification.user_id == current_user.id,
+            _notification_visibility(current_user),
         )
     )
     notif = result.scalar_one_or_none()
@@ -160,7 +195,11 @@ async def mark_all_read(
     """Mark all notifications as read for current user (supports both PUT and PATCH)."""
     result = await db.execute(
         update(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read.is_(False))
+        .where(
+            Notification.user_id == current_user.id,
+            Notification.is_read.is_(False),
+            _notification_visibility(current_user),
+        )
         .values(is_read=True)
     )
     await db.commit()

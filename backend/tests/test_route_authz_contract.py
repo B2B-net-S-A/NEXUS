@@ -42,6 +42,7 @@ from typing import Any
 # the closures returned by factories like require_roles(...) are recognised.
 _GATE_QUALNAME_MARKERS = (
     "require_roles",
+    "require_candidate_roles",
     "require_dl_assigned_or_admin",
     "require_financial_access",
     "require_capability",
@@ -49,10 +50,19 @@ _GATE_QUALNAME_MARKERS = (
     "_snapshot_auth",
     "require_admin",
     "require_contractor_access",
+    "require_onboarding_user",
+    "require_global_contact_access",
+    "require_client_material_read_access",
+    "require_client_material_write_access",
+    "require_client_legal_read_access",
+    "require_client_legal_write_access",
+    "require_required_docs_read_access",
+    "require_required_docs_write_access",
+    "require_contract_legal_access",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
-_AUTHN_QUALNAMES = ("get_current_user",)
+_AUTHN_QUALNAMES = ("get_current_user", "get_authenticated_user")
 
 # Many handlers carry no gate in their signature but check imperatively as the
 # first statement of the body — e.g. `dynareporter_admin_master_data.py` takes
@@ -128,7 +138,9 @@ def _classify(route: Any) -> str:
         call = getattr(node, "call", None)
         if call is None:
             continue
-        qualnames.append(getattr(call, "__qualname__", "") or getattr(call, "__name__", ""))
+        qualnames.append(
+            getattr(call, "__qualname__", "") or getattr(call, "__name__", "")
+        )
 
     if any(any(m in q for m in _GATE_QUALNAME_MARKERS) for q in qualnames):
         return "gated"
@@ -176,13 +188,9 @@ def _routes() -> list[tuple[str, str, str]]:
 # most have simply never been reviewed. Removing an entry means that route
 # gained a real gate. That is the burn-down, and mutating routes come first.
 _BARE_BASELINE: set[tuple[str, str]] = {
-    ("DELETE", "/api/candidates/{candidate_id}/chat/messages/{msg_id}"),
-    ("DELETE", "/api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions/{emoji}"),
     ("DELETE", "/api/client-knowledge/{knowledge_id}"),
     ("DELETE", "/api/contacts/{contact_id}"),
     ("DELETE", "/api/interview-questions/{question_id}"),
-    ("DELETE", "/api/jobs/{job_id}/chat/messages/{msg_id}"),
-    ("DELETE", "/api/jobs/{job_id}/chat/messages/{msg_id}/reactions/{emoji}"),
     ("DELETE", "/api/jobs/{job_id}/collaborators/{user_id}"),
     ("DELETE", "/api/microsoft365/connection"),
     ("DELETE", "/api/saved-searches/{search_id}"),
@@ -190,39 +198,28 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/activities/stats"),
     ("GET", "/api/analytics/v1/me/calls"),
     ("GET", "/api/analytics/v1/me/kpis"),
-    ("GET", "/api/analytics/v1/meta/metrics"),
     ("GET", "/api/analytics/v1/recruitment/users/{user_id}"),
     ("GET", "/api/autenti/health"),
     ("GET", "/api/auth/me"),
     ("GET", "/api/calls/stats"),
-    ("GET", "/api/candidates/{candidate_id}/chat/members"),
-    ("GET", "/api/candidates/{candidate_id}/chat/messages"),
-    ("GET", "/api/candidates/{candidate_id}/chat/messages/{msg_id}/read-by"),
-    ("GET", "/api/candidates/{candidate_id}/chat/pinned"),
-    ("GET", "/api/candidates/{candidate_id}/chat/unread-count"),
     ("GET", "/api/candidates/{candidate_id}/emails"),
     ("GET", "/api/candidates/{candidate_id}/emails/thread/{conversation_id:path}"),
     ("GET", "/api/clients-lookup"),
     ("GET", "/api/clients/{client_id}/contacts"),
-    ("GET", "/api/clients/{client_id}/contract-terms"),
     ("GET", "/api/clients/{client_id}/framework-contracts"),
     ("GET", "/api/clients/{client_id}/framework-contracts/{fc_id}"),
     ("GET", "/api/clients/{client_id}/framework-contracts/{fc_id}/amendments"),
-    ("GET", "/api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/file"),
+    (
+        "GET",
+        "/api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/file",
+    ),
     ("GET", "/api/clients/{client_id}/framework-contracts/{fc_id}/file"),
     ("GET", "/api/clients/{client_id}/knowledge"),
     ("GET", "/api/clients/{client_id}/notification-overrides"),
-    ("GET", "/api/clients/{client_id}/one-pagers"),
-    ("GET", "/api/clients/{client_id}/one-pagers/{one_pager_id}/download"),
-    ("GET", "/api/clients/{client_id}/required-documents"),
     ("GET", "/api/competence-categories"),
     ("GET", "/api/competitions/my-position"),
-    ("GET", "/api/contacts"),
     ("GET", "/api/contractors"),
     ("GET", "/api/contractors/stats"),
-    ("GET", "/api/dashboard/kpis"),
-    ("GET", "/api/dashboard/pipeline-funnel"),
-    ("GET", "/api/dashboard/stats"),
     ("GET", "/api/dictionaries/{slug}/items"),
     ("GET", "/api/dynareporter/board-dashboard/monthly"),
     ("GET", "/api/dynareporter/competitions/my-notifications"),
@@ -252,11 +249,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/jobs-lookup"),
     ("GET", "/api/jobs/train-names"),
     ("GET", "/api/jobs/{job_id}"),
-    ("GET", "/api/jobs/{job_id}/chat/members"),
-    ("GET", "/api/jobs/{job_id}/chat/messages"),
-    ("GET", "/api/jobs/{job_id}/chat/messages/{msg_id}/read-by"),
-    ("GET", "/api/jobs/{job_id}/chat/pinned"),
-    ("GET", "/api/jobs/{job_id}/chat/unread-count"),
     ("GET", "/api/jobs/{job_id}/postings"),
     ("GET", "/api/jobs/{job_id}/questions"),
     ("GET", "/api/jobs/{job_id}/suggested-questions"),
@@ -274,14 +266,16 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/notifications/count"),
     ("GET", "/api/pipeline-templates"),
     ("GET", "/api/pipeline-templates/{template_id}"),
-    ("GET", "/api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules"),
+    (
+        "GET",
+        "/api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules",
+    ),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
     ("GET", "/api/pipeline/stages"),
     ("GET", "/api/postings/stats"),
     ("GET", "/api/procedures"),
     ("GET", "/api/procedures/{id_or_slug}"),
     ("GET", "/api/reports/my-delivery-lead"),
-    ("GET", "/api/required-document-templates"),
     ("GET", "/api/saved-searches"),
     ("GET", "/api/search/"),
     ("GET", "/api/search/global"),
@@ -293,23 +287,17 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/user-email-templates"),
     ("GET", "/api/user-email-templates/{template_id}"),
     ("GET", "/api/users/me/preferences"),
-    ("PATCH", "/api/candidates/{candidate_id}/chat/messages/{msg_id}"),
     ("PATCH", "/api/dynareporter/competitions/notifications/{notif_id}/read"),
-    ("PATCH", "/api/jobs/{job_id}/chat/messages/{msg_id}"),
     ("PATCH", "/api/notifications/read-all"),
     ("PATCH", "/api/notifications/{notification_id}/read"),
     ("PATCH", "/api/saved-searches/{search_id}"),
     ("PATCH", "/api/users/me/preferences"),
     ("POST", "/api/auth/change-password"),
-    ("POST", "/api/candidates/{candidate_id}/chat/messages"),
-    ("POST", "/api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions"),
     ("POST", "/api/clients/{client_id}/knowledge"),
     ("POST", "/api/contacts"),
     ("POST", "/api/email-templates/{template_id}/send"),
     ("POST", "/api/emails/send"),
     ("POST", "/api/invite-links/{token}/revoke"),
-    ("POST", "/api/jobs/{job_id}/chat/messages"),
-    ("POST", "/api/jobs/{job_id}/chat/messages/{msg_id}/reactions"),
     ("POST", "/api/jobs/{job_id}/claim"),
     ("POST", "/api/jobs/{job_id}/collaborators"),
     ("POST", "/api/microsoft365/free-busy"),
@@ -317,11 +305,8 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/saved-searches"),
     ("POST", "/api/saved-searches/{search_id}/viewed"),
     ("POST", "/api/user-email-templates"),
-    ("POST", "/api/users/me/onboarding"),
-    ("PUT", "/api/candidates/{candidate_id}/chat/read"),
     ("PUT", "/api/contacts/{contact_id}"),
     ("PUT", "/api/interview-questions/{question_id}"),
-    ("PUT", "/api/jobs/{job_id}/chat/read"),
     ("PUT", "/api/notifications/read-all"),
     ("PUT", "/api/notifications/{notification_id}/read"),
     ("PUT", "/api/user-email-templates/{template_id}"),
@@ -365,7 +350,6 @@ def test_no_new_bare_authenticated_routes() -> None:
     )
 
 
-
 def test_baseline_has_no_stale_entries() -> None:
     """A route that gained a gate must leave the baseline.
 
@@ -378,7 +362,7 @@ def test_baseline_has_no_stale_entries() -> None:
     assert not stale, (
         f"{len(stale)} baseline entry/entries no longer need to be there — the "
         "route is gated now. Delete them from _BARE_BASELINE:\n"
-        + "\n".join(f"    (\"{m}\", \"{p}\")," for m, p in sorted(stale))
+        + "\n".join(f'    ("{m}", "{p}"),' for m, p in sorted(stale))
     )
 
 

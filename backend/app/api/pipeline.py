@@ -51,7 +51,7 @@ from app.schemas.pipeline import (
     STAGE_LABELS,
 )
 from app.api.candidate_access import CandidatePIIAccess
-from app.api.deps import ApproverPlus, CurrentUser, OperationalUser, RecruiterPlus
+from app.api.deps import AdminUser, CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_membership,
     user_can_edit_rates,
@@ -200,22 +200,16 @@ async def _notify_pending_verification(
     candidate: Optional[Candidate],
     job: Job,
 ) -> None:
-    """Send `pending_verification` notification to all approver users.
+    """Send `pending_verification` notification to administrators.
 
-    Approvers = admin + delivery_lead + head_of_recruitment. Best-effort —
-    a notification failure must NOT block the stage move (the gate is the
-    DB write, not the bell).
+    Rate/budget exceptions are Admin-only. Delivery Lead and Head of
+    Recruitment must not receive the financial values or candidate identity in
+    this notification. A notification failure must not block the stage move.
     """
     approvers = (
         await db.execute(
             select(User.id).where(
-                User.role.in_(
-                    [
-                        UserRole.admin,
-                        UserRole.delivery_lead,
-                        UserRole.head_of_recruitment,
-                    ]
-                ),
+                User.role == UserRole.admin,
                 User.is_active.is_(True),
             )
         )
@@ -1591,21 +1585,23 @@ async def pipeline_overview(
     response_model=List[PendingVerificationListItem],
 )
 async def list_pending_verifications(
-    current_user: ApproverPlus,
+    current_user: AdminUser,
     job_id: Optional[int] = Query(None, description="Filter by job_id"),
     mine: bool = Query(
         False,
         description=(
-            "Limit to jobs where current user is the delivery_lead. "
-            "Used by the DL Hub widget to scope verifications to the logged-in DL."
+            "Legacy compatibility filter: limit to jobs where the current "
+            "administrator is also the assigned delivery_lead. This flag never "
+            "widens the Admin-only authorization policy."
         ),
     ),
     db: AsyncSession = Depends(get_db),
 ):
     """Lista kandydatów oczekujących akceptacji (verification_status=pending).
 
-    Dostępna tylko dla approverów (admin/delivery_lead/head_of_recruitment).
-    Recruiter dostanie 403.
+    Dostępna tylko dla administratora. Rekruter, Delivery Lead i Head of
+    Recruitment dostaną 403, ponieważ wiersze zawierają oczekiwaną stawkę oraz
+    budżet stanowiska.
     """
     query = (
         select(CandidateStage, Candidate, Job, User)
@@ -1661,7 +1657,7 @@ async def list_pending_verifications(
 )
 async def accept_verification(
     candidate_stage_id: int,
-    current_user: ApproverPlus,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Akceptacja pending verification → status = active.
@@ -1738,7 +1734,7 @@ async def accept_verification(
 async def reject_verification(
     candidate_stage_id: int,
     payload: PendingVerificationReject,
-    current_user: ApproverPlus,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Odrzucenie pending verification → kandydat wraca na poprzedni stage.

@@ -29,6 +29,9 @@ from app.schemas.client_team import (
     ClientTacAssignmentRead,
     ClientTeamResponse,
 )
+from app.services.authorization_invalidation import (
+    invalidate_delivery_lead_scope_for_client,
+)
 
 router = APIRouter()
 
@@ -180,6 +183,7 @@ async def assign_tac_to_client(
     """
     await _ensure_client_exists(db, client_id)
     await _load_user_for_tac(db, payload.user_id)
+    changed = False
 
     if payload.is_primary:
         prev_primary = (
@@ -193,6 +197,7 @@ async def assign_tac_to_client(
         ).scalar_one_or_none()
         if prev_primary is not None:
             prev_primary.is_primary = False
+            changed = True
             await db.flush()
 
     existing = (
@@ -204,7 +209,9 @@ async def assign_tac_to_client(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        existing.is_primary = payload.is_primary
+        if existing.is_primary != payload.is_primary:
+            existing.is_primary = payload.is_primary
+            changed = True
     else:
         db.add(
             ClientTacAssignment(
@@ -213,6 +220,9 @@ async def assign_tac_to_client(
                 is_primary=payload.is_primary,
             )
         )
+        changed = True
+    if changed:
+        await invalidate_delivery_lead_scope_for_client(db, client_id)
     await db.commit()
     return {"ok": True}
 
@@ -238,6 +248,7 @@ async def remove_tac_from_client(
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
     await db.delete(row)
+    await invalidate_delivery_lead_scope_for_client(db, client_id)
     await db.commit()
 
 
@@ -275,5 +286,6 @@ async def toggle_tac_primary(
             await db.flush()
 
     row.is_primary = not row.is_primary
+    await invalidate_delivery_lead_scope_for_client(db, client_id)
     await db.commit()
     return {"ok": True, "is_primary": row.is_primary}

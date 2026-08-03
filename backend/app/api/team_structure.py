@@ -46,6 +46,9 @@ from app.schemas.team_structure import (
     TeamStructureSummary,
     UserBrief,
 )
+from app.services.authorization_invalidation import (
+    invalidate_delivery_lead_scope_for_users,
+)
 
 router = APIRouter()
 
@@ -480,6 +483,8 @@ async def assign_dl_to_client(
     if dl is None or dl.role != UserRole.delivery_lead:
         raise HTTPException(400, "must reference role=delivery_lead")
 
+    changed_delivery_lead_ids: set[int] = set()
+
     # Jeśli is_head=True, zabezpieczamy przed wieloma headami na klienta.
     if payload.is_head:
         existing_head = (
@@ -494,6 +499,7 @@ async def assign_dl_to_client(
         ).scalar_one_or_none()
         if existing_head:
             existing_head.is_head = False
+            changed_delivery_lead_ids.add(existing_head.delivery_lead_user_id)
 
     existing = (
         await db.execute(
@@ -505,7 +511,9 @@ async def assign_dl_to_client(
         )
     ).scalar_one_or_none()
     if existing:
-        existing.is_head = payload.is_head
+        if existing.is_head != payload.is_head:
+            existing.is_head = payload.is_head
+            changed_delivery_lead_ids.add(existing.delivery_lead_user_id)
     else:
         db.add(
             DeliveryLeadClientAssignment(
@@ -513,6 +521,12 @@ async def assign_dl_to_client(
                 client_id=payload.client_id,
                 is_head=payload.is_head,
             )
+        )
+        changed_delivery_lead_ids.add(payload.delivery_lead_user_id)
+    if changed_delivery_lead_ids:
+        await invalidate_delivery_lead_scope_for_users(
+            db,
+            changed_delivery_lead_ids,
         )
     await db.commit()
     return {"ok": True}
@@ -545,9 +559,14 @@ async def toggle_dl_client_head(
                 )
             )
         ).scalar_one_or_none()
+        changed_delivery_lead_ids = {row.delivery_lead_user_id}
         if prev_head:
             prev_head.is_head = False
+            changed_delivery_lead_ids.add(prev_head.delivery_lead_user_id)
+    else:
+        changed_delivery_lead_ids = {row.delivery_lead_user_id}
     row.is_head = not row.is_head
+    await invalidate_delivery_lead_scope_for_users(db, changed_delivery_lead_ids)
     await db.commit()
     return {"ok": True, "is_head": row.is_head}
 
@@ -568,6 +587,10 @@ async def remove_dl_client(
     if row is None:
         raise HTTPException(404, "Assignment not found")
     await db.delete(row)
+    await invalidate_delivery_lead_scope_for_users(
+        db,
+        {row.delivery_lead_user_id},
+    )
     await db.commit()
     return {"ok": True}
 

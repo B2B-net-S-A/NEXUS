@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   Check,
   ChevronsUpDown,
-  Loader2,
   Save,
   Search,
   X,
@@ -50,6 +49,10 @@ import {
   scheduleHasBackwardsRange,
   type RateScheduleRow,
 } from "@/lib/contract-rate-schedule";
+import {
+  canManageCandidateFinance,
+  useAuthStore,
+} from "@/store/auth";
 
 type CandidateOption = {
   id: number;
@@ -75,6 +78,8 @@ function todayISO(): string {
 function NewContractForm() {
   const router = useRouter();
   const { showSuccess, showError } = useToast();
+  const user = useAuthStore((state) => state.user);
+  const canManageFinance = canManageCandidateFinance(user);
 
   // ── Strony umowy ──────────────────────────────────────────────────────────
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
@@ -169,16 +174,6 @@ function NewContractForm() {
   // ── Submit ──────────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: () => {
-      // Rows with a numeric rate become schedule steps; an empty effective_from
-      // defaults to the contract start date; effective_to is the typed date, or
-      // auto-derived (od–do) when left blank. Backend derives the current rate
-      // from effective_from.
-      const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
-      // Framework-rate schedule shares the same generic builder (etapy od–do).
-      const frameworkSchedule = buildCandidateRateSchedule(
-        frameworkRateSchedule,
-        startDate,
-      );
       const orderConsumptionVal = parseDecimalInput(orderConsumption);
       const payload: Record<string, unknown> = {
         candidate_id: candidate!.id,
@@ -188,21 +183,30 @@ function NewContractForm() {
         end_date: endDate || null,
         contract_type: contractType,
         status: statusVal,
-        currency,
-        rate_unit: rateUnit,
-        billing_hours_per_month: Number(billingHours) || 160,
-        rate_candidate: schedule.length === 0 ? null : undefined,
-        candidate_rate_schedule: schedule.length > 0 ? schedule : undefined,
-        rate_client: parseDecimalInput(rateClient),
-        // Framework schedule drives framework_rate over time; when the user left a
-        // single step the backend still derives today's framework_rate from it.
-        framework_rate: frameworkSchedule.length === 0 ? null : undefined,
-        framework_rate_schedule:
-          frameworkSchedule.length > 0 ? frameworkSchedule : undefined,
         line_manager: lineManager.trim() || null,
         order_consumption: orderConsumptionVal,
         order_consumption_unit: orderConsumptionVal !== null ? orderConsumptionUnit : null,
       };
+      if (canManageFinance) {
+        // Candidate-bearing finance fields are Admin-only. Operational callers
+        // create a draft without emitting defaults, schedules or currency.
+        const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
+        const frameworkSchedule = buildCandidateRateSchedule(
+          frameworkRateSchedule,
+          startDate,
+        );
+        Object.assign(payload, {
+          currency,
+          rate_unit: rateUnit,
+          billing_hours_per_month: Number(billingHours) || 160,
+          rate_candidate: schedule.length === 0 ? null : undefined,
+          candidate_rate_schedule: schedule.length > 0 ? schedule : undefined,
+          rate_client: parseDecimalInput(rateClient),
+          framework_rate: frameworkSchedule.length === 0 ? null : undefined,
+          framework_rate_schedule:
+            frameworkSchedule.length > 0 ? frameworkSchedule : undefined,
+        });
+      }
       return contractsApi.create(payload);
     },
     onSuccess: (res) => {
@@ -232,32 +236,33 @@ function NewContractForm() {
       setError("Podaj datę rozpoczęcia.");
       return;
     }
-    const steps = rateSchedule
-      .filter((r) => r.rate.trim() !== "")
-      .map((r) => r.effectiveFrom || startDate);
-    if (new Set(steps).size !== steps.length) {
-      setError(
-        "Każda zmiana stawki musi mieć inną datę „Obowiązuje od”.",
-      );
-      return;
-    }
-    if (scheduleHasBackwardsRange(rateSchedule, startDate)) {
-      setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
-      return;
-    }
-    // Same validation for the framework-rate schedule (stawka z umowy ramowej).
-    const frameworkSteps = frameworkRateSchedule
-      .filter((r) => r.rate.trim() !== "")
-      .map((r) => r.effectiveFrom || startDate);
-    if (new Set(frameworkSteps).size !== frameworkSteps.length) {
-      setError(
-        "Każdy etap stawki z umowy ramowej musi mieć inną datę „Obowiązuje od”.",
-      );
-      return;
-    }
-    if (scheduleHasBackwardsRange(frameworkRateSchedule, startDate)) {
-      setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
-      return;
+    if (canManageFinance) {
+      const steps = rateSchedule
+        .filter((r) => r.rate.trim() !== "")
+        .map((r) => r.effectiveFrom || startDate);
+      if (new Set(steps).size !== steps.length) {
+        setError(
+          "Każda zmiana stawki musi mieć inną datę „Obowiązuje od”.",
+        );
+        return;
+      }
+      if (scheduleHasBackwardsRange(rateSchedule, startDate)) {
+        setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
+        return;
+      }
+      const frameworkSteps = frameworkRateSchedule
+        .filter((r) => r.rate.trim() !== "")
+        .map((r) => r.effectiveFrom || startDate);
+      if (new Set(frameworkSteps).size !== frameworkSteps.length) {
+        setError(
+          "Każdy etap stawki z umowy ramowej musi mieć inną datę „Obowiązuje od”.",
+        );
+        return;
+      }
+      if (scheduleHasBackwardsRange(frameworkRateSchedule, startDate)) {
+        setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
+        return;
+      }
     }
     createMutation.mutate();
   };
@@ -558,79 +563,81 @@ function NewContractForm() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <Label className="mb-1.5 block">Jednostka stawki</Label>
-                <Select value={rateUnit} onValueChange={setRateUnit}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="monthly">Miesięcznie</SelectItem>
-                    <SelectItem value="daily">Dziennie</SelectItem>
-                    <SelectItem value="hourly">Godzinowo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="mb-1.5 block">Waluta</Label>
-                <Select value={currency} onValueChange={setCurrency}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PLN">PLN</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                    <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="GBP">GBP</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {rateUnit === "hourly" && (
-                <div>
-                  <Label className="mb-1.5 block">Godziny / miesiąc</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={billingHours}
-                    onChange={(e) => setBillingHours(e.target.value)}
-                  />
+            {canManageFinance && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <Label className="mb-1.5 block">Jednostka stawki</Label>
+                    <Select value={rateUnit} onValueChange={setRateUnit}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="monthly">Miesięcznie</SelectItem>
+                        <SelectItem value="daily">Dziennie</SelectItem>
+                        <SelectItem value="hourly">Godzinowo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block">Waluta</Label>
+                    <Select value={currency} onValueChange={setCurrency}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PLN">PLN</SelectItem>
+                        <SelectItem value="EUR">EUR</SelectItem>
+                        <SelectItem value="USD">USD</SelectItem>
+                        <SelectItem value="GBP">GBP</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {rateUnit === "hourly" && (
+                    <div>
+                      <Label className="mb-1.5 block">Godziny / miesiąc</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={billingHours}
+                        onChange={(e) => setBillingHours(e.target.value)}
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label className="mb-1.5 block">Stawka klienta</Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={rateClient}
-                  onChange={(e) =>
-                    setRateClient(sanitizeDecimalInput(e.target.value))
-                  }
-                  placeholder="np. 215,60"
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label className="mb-1.5 block">Stawka klienta</Label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={rateClient}
+                      onChange={(e) =>
+                        setRateClient(sanitizeDecimalInput(e.target.value))
+                      }
+                      placeholder="np. 215,60"
+                    />
+                  </div>
+                </div>
+
+                <CandidateRateScheduleFields
+                  rows={frameworkRateSchedule}
+                  onChange={setFrameworkRateSchedule}
+                  startDate={startDate}
+                  label="Stawka z umowy ramowej"
+                  hint="Możesz zaplanować zmianę stawki ramowej — system zastosuje aktualną od wskazanej daty."
+                  addLabel="+ Dodaj etap stawki ramowej"
                 />
-              </div>
-            </div>
 
-            {/* Stawka z umowy ramowej — progresja stawki ramowej w czasie (etapy od–do) */}
-            <CandidateRateScheduleFields
-              rows={frameworkRateSchedule}
-              onChange={setFrameworkRateSchedule}
-              startDate={startDate}
-              label="Stawka z umowy ramowej"
-              hint="Możesz zaplanować zmianę stawki ramowej — system zastosuje aktualną od wskazanej daty."
-              addLabel="+ Dodaj etap stawki ramowej"
-            />
-
-            {/* Stawka kandydata — progresja stawki w czasie (etapy od–do) */}
-            <CandidateRateScheduleFields
-              rows={rateSchedule}
-              onChange={setRateSchedule}
-              startDate={startDate}
-            />
+                <CandidateRateScheduleFields
+                  rows={rateSchedule}
+                  onChange={setRateSchedule}
+                  startDate={startDate}
+                />
+              </>
+            )}
 
             {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
             <div className="grid gap-4 sm:grid-cols-2">

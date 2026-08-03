@@ -31,13 +31,6 @@ import {
 } from"@/components/ui/popover";
 import { ContractsBulkActionsBarV2 } from"@/components/v2/modals/ContractsBulkActionsBar";
 import {
- Select,
- SelectContent,
- SelectItem,
- SelectTrigger,
- SelectValue,
-} from"@/components/ui/select";
-import {
  Table,
  TableBody,
  TableCell,
@@ -53,6 +46,11 @@ import {
  type ContractTypeValue,
 } from"@/lib/filter-options";
 import { getAccessToken } from "@/lib/session";
+import {
+ hasAnalyticsCapability,
+ hasRole,
+ useAuthStore,
+} from "@/store/auth";
 
 interface ContractRow {
  id: number;
@@ -84,9 +82,9 @@ function marginColor(margin: number | undefined, rateClient: number | undefined)
  if (margin == null) return"text-muted-foreground";
  if (rateClient == null || rateClient === 0) return"text-foreground";
  const pct = (margin / rateClient) * 100;
- if (pct < 15) return"text-primary font-bold";
- if (pct < 25) return"text-amber-600 font-semibold";
- return"text-[#1d5e31] font-semibold";
+ if (pct < 15) return"text-destructive font-bold";
+ if (pct < 25) return"text-warning-muted-foreground font-semibold";
+ return"text-success-muted-foreground font-semibold";
 }
 
 // Polish plural for "kontrakt" + matching verb (1 / 2–4 / 0,5+ forms), so the
@@ -101,6 +99,10 @@ function expiringBannerText(n: number): string {
 }
 
 export function ContractsListV2() {
+ const user = useAuthStore((state) => state.user);
+ const canSeeFinance =
+ hasRole(user, "admin") || hasAnalyticsCapability(user, "view_finance");
+ const canSeeContractAnalytics = hasRole(user, "admin");
  const [search, setSearch] = useState("");
  const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
  const [typeFilter, setTypeFilter] = useState<ContractTypeValue[]>([]);
@@ -264,12 +266,14 @@ export function ContractsListV2() {
  </p>
  </div>
  <div className="flex items-center gap-2">
+ {canSeeContractAnalytics && (
  <Link href="/contracts/analytics">
  <Button size="sm" variant="outline">
  <TrendingUp className="h-4 w-4" /> Analityka
  </Button>
  </Link>
- <Popover>
+ )}
+ {canSeeFinance && <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline" disabled={exporting}>
  <Download className="h-4 w-4" /> {exporting ? "Eksportuję…" : "Eksport"}
@@ -289,7 +293,7 @@ export function ContractsListV2() {
  CSV
  </button>
  </PopoverContent>
- </Popover>
+ </Popover>}
  {canCreateContract && (
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">
@@ -302,13 +306,13 @@ export function ContractsListV2() {
 
  {/* Expiring alert */}
  {expiringCount > 0 && (
- <Card className="bg-amber-50 border-amber-200 flex items-center gap-3 p-4!">
- <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+ <Card className="flex items-center gap-3 border-warning/25 bg-warning-muted p-4!">
+ <AlertTriangle className="h-5 w-5 shrink-0 text-warning-muted-foreground" />
  <div className="flex-1">
- <p className="text-sm font-semibold text-amber-800">
+ <p className="text-sm font-semibold text-warning-muted-foreground">
  {expiringBannerText(expiringCount)}
  </p>
- <p className="text-xs text-amber-700">
+ <p className="text-xs text-warning-muted-foreground">
  Sprawdź, czy wymagają przedłużenia albo wypowiedzenia.
  </p>
  </div>
@@ -436,21 +440,25 @@ export function ContractsListV2() {
  <TableHead>Klient · Oferta</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Typ</TableHead>
+ {canSeeFinance && (
+ <>
  <TableHead className="text-right">Stawka klient</TableHead>
  <TableHead className="text-right">Marża</TableHead>
+ </>
+ )}
  <TableHead>Status</TableHead>
  </TableRow>
  </TableHeader>
  <TableBody>
  {viewState === "loading" ? (
  <TableRow>
- <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+ <TableCell colSpan={canSeeFinance ? 8 : 6} className="text-center py-10 text-muted-foreground">
  Ładowanie…
  </TableCell>
  </TableRow>
  ) : failed ? (
  <TableRow>
- <TableCell colSpan={8} className="p-0">
+ <TableCell colSpan={canSeeFinance ? 8 : 6} className="p-0">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
@@ -465,7 +473,7 @@ export function ContractsListV2() {
  </TableRow>
  ) : viewState === "empty" ? (
  <TableRow>
- <TableCell colSpan={8} className="text-center py-10">
+ <TableCell colSpan={canSeeFinance ? 8 : 6} className="text-center py-10">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
@@ -507,7 +515,7 @@ export function ContractsListV2() {
  </div>
  )}
  {c.latest_order_end_date && c.latest_order_end_date !== c.end_date && (
- <div className="text-xs text-orange-600 mt-0.5" title="Aktualne zamówienie klienta kończy się tej daty">
+ <div className="mt-0.5 text-xs text-warning-muted-foreground" title="Aktualne zamówienie klienta kończy się tej daty">
  zamówienie do {formatDate(c.latest_order_end_date)}
  </div>
  )}
@@ -517,12 +525,16 @@ export function ContractsListV2() {
  {c.contract_type ??"—"}
  </Badge>
  </TableCell>
+ {canSeeFinance && (
+ <>
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null ? formatCurrency(c.rate_client, c.currency ??"PLN") : "—"}
  </TableCell>
  <TableCell className={cn("text-right font-mono text-sm", marginColor(c.margin, c.rate_client))}>
  {c.margin != null ? formatCurrency(c.margin, c.currency || "PLN") :"—"}
  </TableCell>
+ </>
+ )}
  <TableCell>
  {c.status ? (
  <Badge size="sm" variant={STATUS_VARIANT[c.status] ??"neutral"}>

@@ -10,8 +10,8 @@ Covers:
 - State JWT signing/verification rejects wrong purpose (mailbox state cannot
   replay on login flow).
 - ``callback`` rejects domains outside ``SSO_ALLOWED_DOMAINS``.
-- ``callback`` upserts a new user as the read-only viewer role (UserRole.user),
-  password_hash IS NULL, oauth_provider="microsoft", profile_completed=False,
+- ``callback`` bootstraps a new allowed-domain user as Recruiter behind
+  mandatory onboarding; an enabled AAD mapping remains authoritative,
   and stores an exchange-code row.
 - ``callback`` for an existing email/password user links identity but does not
   touch role / password_hash / profile_completed.
@@ -199,7 +199,7 @@ async def test_callback_rejects_domain_not_in_whitelist(
 
 
 @pytest.mark.asyncio
-async def test_callback_creates_new_sso_user_as_viewer(
+async def test_callback_creates_new_sso_user_as_onboarding_recruiter(
     app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
 ):
     unique = uuid.uuid4().hex[:8]
@@ -232,10 +232,10 @@ async def test_callback_creates_new_sso_user_as_viewer(
         u = await db.scalar(select(User).where(User.email == email))
         assert u is not None
         assert u.password_hash is None
-        # New-user contract: first-time SSO users default to the least-privileged
-        # read-only viewer role (admin promotes real recruiters afterwards).
-        assert u.role == UserRole.user
-        assert u.roles == [UserRole.user.value]
+        # New-user contract: allowlisted SSO identities become Recruiters but
+        # cannot reach domain surfaces until mandatory onboarding completes.
+        assert u.role == UserRole.recruiter
+        assert u.roles == [UserRole.recruiter.value]
         assert u.is_active is True
         assert u.profile_completed is False
         assert u.oauth_provider == "microsoft"

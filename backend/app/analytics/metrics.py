@@ -270,71 +270,91 @@ async def user_kpis(db: AsyncSession, period: Period, user_id: int) -> dict[str,
     }
 
 
-async def team_kpis(db: AsyncSession, period: Period) -> dict[str, Any]:
+async def team_kpis(
+    db: AsyncSession,
+    period: Period,
+    *,
+    user_ids: frozenset[int] | None = None,
+) -> dict[str, Any]:
     """Wiersze KPI per aktywny user operacyjny — te same definicje co user_kpis.
 
     Jedno przejście SQL zamiast N × user_kpis. suma wierszy == totals
-    (wymóg parity: team totals = suma wierszy, plan §8).
+    (wymóg parity: team totals = suma wierszy, plan §8). ``user_ids=None``
+    oznacza jawny scope organizacyjny. Przekazany (również pusty) zbiór jest
+    twardym zakresem menedżerskim i filtruje każde źródło przed agregacją.
     """
-    users_rows = (
-        await db.execute(
-            select(User.id, User.name).where(
-                User.is_active.is_(True),
-                User.role.in_(
-                    [
-                        "admin",
-                        "head_of_recruitment",
-                        "delivery_lead",
-                        "tac",
-                        "recruiter",
-                        "sourcer",
-                    ]
-                ),
-            )
-        )
-    ).all()
+    scoped_user_ids = sorted(user_ids) if user_ids is not None else None
+    users_stmt = select(User.id, User.name).where(
+        User.is_active.is_(True),
+        User.role.in_(
+            [
+                "admin",
+                "head_of_recruitment",
+                "delivery_lead",
+                "tac",
+                "recruiter",
+                "sourcer",
+            ]
+        ),
+    )
+    if scoped_user_ids is not None:
+        users_stmt = users_stmt.where(User.id.in_(scoped_user_ids or [-1]))
+    users_rows = (await db.execute(users_stmt)).all()
 
-    calls_rows = (
-        await db.execute(
-            select(Call.user_id, func.count(Call.id))
-            .where(
-                Call.status == CallStatus.completed,
-                _CALL_EFFECTIVE_AT >= period.start,
-                _CALL_EFFECTIVE_AT < period.end,
-                Call.user_id.isnot(None),
-            )
-            .group_by(Call.user_id)
+    calls_stmt = (
+        select(Call.user_id, func.count(Call.id))
+        .where(
+            Call.status == CallStatus.completed,
+            _CALL_EFFECTIVE_AT >= period.start,
+            _CALL_EFFECTIVE_AT < period.end,
+            Call.user_id.isnot(None),
         )
-    ).all()
+        .group_by(Call.user_id)
+    )
+    if scoped_user_ids is not None:
+        calls_stmt = calls_stmt.where(Call.user_id.in_(scoped_user_ids or [-1]))
+    calls_rows = (await db.execute(calls_stmt)).all()
     calls_by_user = {r[0]: r[1] for r in calls_rows}
 
+    milestone_scope = ""
+    milestone_params: dict[str, Any] = {
+        "start": period.start,
+        "end": period.end,
+    }
+    if scoped_user_ids is not None:
+        milestone_scope = (
+            "AND first_moved_by = ANY(CAST(:scoped_user_ids AS integer[])) "
+        )
+        milestone_params["scoped_user_ids"] = scoped_user_ids or [-1]
     milestones_rows = (
         await db.execute(
             text(
                 "SELECT first_moved_by AS uid, stage, COUNT(*) AS cnt "
                 "FROM analytics_first_milestones "
                 "WHERE first_moved_by IS NOT NULL "
+                f"{milestone_scope}"
                 "AND first_reached_at >= :start AND first_reached_at < :end "
                 "GROUP BY first_moved_by, stage"
             ),
-            {"start": period.start, "end": period.end},
+            milestone_params,
         )
     ).all()
     milestones_by_user: dict[int, dict[str, int]] = {}
     for r in milestones_rows:
         milestones_by_user.setdefault(r.uid, {})[r.stage] = r.cnt
 
-    added_rows = (
-        await db.execute(
-            select(Candidate.created_by, func.count(Candidate.id))
-            .where(
-                Candidate.created_by.isnot(None),
-                Candidate.created_at >= period.start,
-                Candidate.created_at < period.end,
-            )
-            .group_by(Candidate.created_by)
+    added_stmt = (
+        select(Candidate.created_by, func.count(Candidate.id))
+        .where(
+            Candidate.created_by.isnot(None),
+            Candidate.created_at >= period.start,
+            Candidate.created_at < period.end,
         )
-    ).all()
+        .group_by(Candidate.created_by)
+    )
+    if scoped_user_ids is not None:
+        added_stmt = added_stmt.where(Candidate.created_by.in_(scoped_user_ids or [-1]))
+    added_rows = (await db.execute(added_stmt)).all()
     added_by_user = {r[0]: r[1] for r in added_rows}
 
     rows = []

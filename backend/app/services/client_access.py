@@ -9,12 +9,11 @@ zamiast utrzymywać lokalne warunki.
 Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
 
 - ``admin`` / ``head_of_recruitment`` — pełny dostęp.
-- ``delivery_lead`` / ``tac`` (rola globalna, multi-role aware) — zarządzanie
-  kontaktami/wiedzą klienta + wgląd w dane prawne. Świadomie NIE wymagamy
-  w PR1 wpisu w ``DeliveryLeadClientAssignment``/``ClientTacAssignment``:
-  tworzenie Joba (TacPlus) nie ma bramki per klient, więc twardy wymóg
-  przypisania zepsułby quick-add hiring managera z formularza stanowiska.
-  Zacieśnienie do przypisań = PR2 (ClientRelationValidator).
+- ``delivery_lead`` — zarządzanie kontaktami/wiedzą i wgląd w dokumenty
+  prawne wyłącznie klienta z jawnym ``DeliveryLeadClientAssignment``.
+- ``tac`` — ten sam zakres wyłącznie klienta z jawnym
+  ``ClientTacAssignment``. Brak przypisań jest prawdziwym deny-all, nigdy
+  fallbackiem do całej organizacji.
 - ``recruiter`` / ``sourcer`` — tylko odczyt bezpiecznej projekcji i tylko
   w kontekście stanowiska tego klienta (przypisanie do Joba: recruiter_id /
   delivery_lead_id / tac_id / created_by / JobCollaborator).
@@ -25,8 +24,9 @@ Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
   sam przepisać ownera.
 - Zmiana ownera relacji — wyłącznie admin/HoR; wyjątek: użytkownik z prawem
   edycji może "zaklaimować" pustego ownera na siebie (None → self).
-- Finanse — istniejący helper ``app.api.financial_access`` (admin + DL);
-  nie duplikujemy zasad.
+- Finanse — istniejący helper capability z ``app.api.financial_access``;
+  wydzielona persona Finance korzysta z person-free API i nie otwiera przez
+  samą capability mieszanych powierzchni klienta.
 """
 
 from __future__ import annotations
@@ -45,6 +45,10 @@ from app.models.client import Client
 from app.models.contact import Contact
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
+from app.models.team_structure import (
+    ClientTacAssignment,
+    DeliveryLeadClientAssignment,
+)
 from app.models.user import User, UserRole
 
 # Role "administracyjne" — pełny dostęp do modułu klienta.
@@ -75,7 +79,9 @@ class ClientAccess:
     can_view_knowledge: bool
     can_edit_knowledge: bool
     can_view_materials: bool
+    can_edit_materials: bool
     can_view_legal_documents: bool
+    can_edit_legal_documents: bool
     can_view_financials: bool
     can_manage_client: bool
 
@@ -138,12 +144,108 @@ async def _user_assigned_to_client_job(
     return bool(result.scalar())
 
 
+async def _job_assigned_client_ids(
+    db: AsyncSession,
+    user_id: int,
+) -> frozenset[int]:
+    """Clients reachable through the user's exact Job/JobCollaborator graph."""
+
+    direct_ids = (
+        await db.scalars(
+            select(Job.client_id)
+            .where(
+                or_(
+                    Job.recruiter_id == user_id,
+                    Job.delivery_lead_id == user_id,
+                    Job.tac_id == user_id,
+                    Job.created_by == user_id,
+                )
+            )
+            .distinct()
+        )
+    ).all()
+    collaborator_ids = (
+        await db.scalars(
+            select(Job.client_id)
+            .join(JobCollaborator, JobCollaborator.job_id == Job.id)
+            .where(JobCollaborator.user_id == user_id)
+            .distinct()
+        )
+    ).all()
+    return frozenset(int(client_id) for client_id in (*direct_ids, *collaborator_ids))
+
+
+async def resolve_client_team_client_ids(
+    db: AsyncSession,
+    user: User,
+) -> frozenset[int] | None:
+    """Resolve the explicit client graph for DL/TAC client-team capabilities.
+
+    ``None`` means unrestricted Admin/Head of Recruitment oversight. Every
+    other caller receives a concrete set: a Delivery Lead contributes only
+    ``DeliveryLeadClientAssignment`` rows, a TAC only ``ClientTacAssignment``
+    rows, and a valid hybrid receives the union of its two explicit graphs.
+    An empty set is authoritative deny-all.
+    """
+
+    if user.has_any_role(*ADMIN_LIKE_ROLES):
+        return None
+
+    client_ids: set[int] = set()
+    if user.has_role(UserRole.delivery_lead):
+        client_ids.update(
+            (
+                await db.scalars(
+                    select(DeliveryLeadClientAssignment.client_id).where(
+                        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+                    )
+                )
+            ).all()
+        )
+    if user.has_role(UserRole.tac):
+        client_ids.update(
+            (
+                await db.scalars(
+                    select(ClientTacAssignment.client_id).where(
+                        ClientTacAssignment.tac_user_id == user.id
+                    )
+                )
+            ).all()
+        )
+    return frozenset(int(client_id) for client_id in client_ids)
+
+
+async def resolve_client_visible_client_ids(
+    db: AsyncSession,
+    user: User,
+) -> frozenset[int] | None:
+    """Resolve all clients whose operational surface the user may read.
+
+    Admin/HoR remain unrestricted. DL/TAC contribute only explicit relationship
+    assignments. Recruiter/Sourcer contribute only clients reached through
+    their exact Job or JobCollaborator membership. Empty is authoritative
+    deny-all and never means organization-wide fallback.
+    """
+
+    client_ids = await resolve_client_team_client_ids(db, user)
+    if client_ids is None:
+        return None
+
+    visible = set(client_ids)
+    if user.has_any_role(*DELIVERY_ROLES):
+        visible.update(await _job_assigned_client_ids(db, user.id))
+    return frozenset(visible)
+
+
 async def resolve_client_access(
     db: AsyncSession, user: User, client_id: int
 ) -> ClientAccess:
     """Zbuduj decyzję dostępu. Zakłada, że klient istnieje (404 wcześniej)."""
     is_admin_like = user.has_any_role(*ADMIN_LIKE_ROLES)
-    is_client_team = user.has_any_role(*CLIENT_TEAM_ROLES)
+    client_team_client_ids = await resolve_client_team_client_ids(db, user)
+    is_client_team = (
+        client_team_client_ids is None or client_id in client_team_client_ids
+    )
     is_delivery = user.has_any_role(*DELIVERY_ROLES)
 
     # Query o przypisanie do Joba tylko gdy może zmienić decyzję.
@@ -165,12 +267,15 @@ async def resolve_client_access(
         can_reassign_relationship_owner=is_admin_like,
         can_view_knowledge=can_view_team_surfaces,
         can_edit_knowledge=can_edit,
-        # One-pagery to materiały sprzedażowe — czytają wszystkie role
-        # operacyjne (recruiter/sourcer też, bez wymogu przypisania);
-        # viewer (rola `user`) nie.
-        can_view_materials=is_admin_like or is_client_team or is_delivery,
+        # Materiały klienta są częścią jego powierzchni operacyjnej. Recruiter
+        # i sourcer widzą je wyłącznie przez przypisany Job tego klienta.
+        can_view_materials=can_view_team_surfaces,
+        can_edit_materials=can_edit,
         can_view_legal_documents=is_admin_like or is_client_team,
-        can_view_financials=has_financial_access(user),
+        can_edit_legal_documents=can_edit,
+        # Finance korzysta z person-free finance APIs. Sam VIEW_FINANCE nie
+        # może otworzyć mieszanej, kandydackiej powierzchni klienta.
+        can_view_financials=can_view_team_surfaces and has_financial_access(user),
         can_manage_client=is_admin_like,
     )
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DeliveryLeadPlus
+from app.api.financial_access import FinanceManageUser, FinanceReadUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.rate_card import RateCard
@@ -33,7 +33,7 @@ def _midpoint(lo: Optional[int], hi: Optional[int]) -> Optional[int]:
 
 @router.get("", response_model=List[RateCardResponse])
 async def list_rate_cards(
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     client_id: Optional[int] = Query(None),
     role: Optional[str] = Query(None),
@@ -63,7 +63,7 @@ async def list_rate_cards(
 @router.post("", response_model=RateCardResponse, status_code=status.HTTP_201_CREATED)
 async def create_rate_card(
     data: RateCardCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     client = await db.scalar(select(Client).where(Client.id == data.client_id))
@@ -78,7 +78,7 @@ async def create_rate_card(
 
 @router.get("/suggest", response_model=RateCardSuggestion)
 async def suggest_rate(
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(...),
     role: str = Query(...),
@@ -121,7 +121,7 @@ async def suggest_rate(
 
 @router.get("/{card_id}", response_model=RateCardResponse)
 async def get_rate_card(
-    card_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    card_id: int, current_user: FinanceReadUser, db: AsyncSession = Depends(get_db)
 ):
     card = await db.scalar(select(RateCard).where(RateCard.id == card_id))
     if not card:
@@ -133,7 +133,7 @@ async def get_rate_card(
 async def update_rate_card(
     card_id: int,
     data: RateCardUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     card = await db.scalar(select(RateCard).where(RateCard.id == card_id))
@@ -149,7 +149,7 @@ async def update_rate_card(
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rate_card(
     card_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     card = await db.scalar(select(RateCard).where(RateCard.id == card_id))

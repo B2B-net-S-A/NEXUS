@@ -20,7 +20,8 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, PlainSerializer
 
-from app.api.deps import DeliveryLeadPlus
+from app.api.deps import AdminUser
+from app.api.financial_access import FinanceReadUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -133,7 +134,9 @@ class RevenueForecast(BaseModel):
 
 @router.get("/margin-by-contractor", response_model=List[MarginByContractor])
 async def margin_by_contractor(
-    current_user: DeliveryLeadPlus,
+    # Contains candidate identity next to rate/margin values. Finance is
+    # intentionally excluded from this PII-bearing projection.
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -203,7 +206,7 @@ async def margin_by_contractor(
 
 @router.get("/margin-by-client", response_model=List[MarginByClient])
 async def margin_by_client(
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -269,7 +272,7 @@ async def margin_by_client(
 
 @router.get("/utilization", response_model=UtilizationStats)
 async def utilization(
-    current_user: DeliveryLeadPlus,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     total_candidates = (
@@ -324,7 +327,7 @@ async def utilization(
 
 @router.get("/revenue-forecast", response_model=RevenueForecast)
 async def revenue_forecast(
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     horizon_months: int = Query(12, ge=1, le=24),
     convert_currency: bool = Query(
@@ -459,7 +462,7 @@ class RoleClientMix(BaseModel):
 
 @router.get("/role-client-mix", response_model=RoleClientMix)
 async def role_client_mix(
-    current_user: DeliveryLeadPlus,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Count active contracts bucketed by role × client.
@@ -530,7 +533,7 @@ class LocationDistribution(BaseModel):
 
 @router.get("/location-distribution", response_model=LocationDistribution)
 async def location_distribution(
-    current_user: DeliveryLeadPlus,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     active_only: bool = Query(
         True, description="If true, only count candidates with an active contract"
@@ -591,7 +594,7 @@ class TerminationAnalysis(BaseModel):
 
 @router.get("/termination-analysis", response_model=TerminationAnalysis)
 async def termination_analysis(
-    current_user: DeliveryLeadPlus,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     window_months: int = Query(
         12, ge=1, le=36, description="Look-back window in months"

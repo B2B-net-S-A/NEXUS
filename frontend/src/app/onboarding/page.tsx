@@ -3,7 +3,11 @@
 import { useEffect } from"react"
 import { useRouter } from"next/navigation"
 
-import { requiresOnboarding, useAuthStore } from"@/store/auth"
+import {
+ onboardingPersona,
+ requiresOnboarding,
+ useAuthStore,
+} from"@/store/auth"
 import { OnboardingDLV2 } from"@/components/v2/forms/OnboardingDLV2"
 import { OnboardingRecruiterV2 } from"@/components/v2/forms/OnboardingRecruiterV2"
 
@@ -39,7 +43,8 @@ export default function OnboardingPage() {
  if (!hydrated) return <FullScreenLoader />
  if (!user || !requiresOnboarding(user)) return <FullScreenLoader />
 
- if (user.role === "delivery_lead") return <OnboardingDLV2 />
- if (user.role === "recruiter") return <OnboardingRecruiterV2 />
+ const persona = onboardingPersona(user)
+ if (persona === "delivery_lead") return <OnboardingDLV2 />
+ if (persona === "recruiter") return <OnboardingRecruiterV2 />
  return <FullScreenLoader />
 }

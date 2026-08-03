@@ -168,7 +168,7 @@ async def create_screening_note(
     await db.flush()  # need note.id
 
     # @mentions — parsuj concat'owaną treść 3 pól tekstowych. Scope:
-    # job_id obecny (z filtru members), inaczej global (każdy aktywny user).
+    # job_id obecny (z filtru members), inaczej global w candidate-domain.
     combined = _concat_screening_text(data)
     if data.job_id:
         mentioned_ids = await parse_mentions(db, combined, data.job_id)

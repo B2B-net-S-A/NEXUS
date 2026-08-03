@@ -58,17 +58,29 @@ def test_viewer_role_may_not_subscribe():
     assert presence_subscribe_allowed(viewer) is False
 
 
-def test_secondary_role_grants_subscribe():
-    """Hybrid persona: primary viewer, secondary recruiter → allowed via the
-    multi-role union (never a bare ``role ==`` comparison)."""
+def test_valid_operational_secondary_role_grants_subscribe():
+    """A valid operational hybrid is authorized through the multi-role union."""
     user = User(
         id=3,
         name="Hybrid",
         email="h@example.com",
+        role=UserRole.sourcer,
+        roles=[UserRole.sourcer.value, UserRole.recruiter.value],
+    )
+    assert presence_subscribe_allowed(user) is True
+
+
+def test_viewer_operational_hybrid_fails_closed():
+    """The retired viewer role is exclusive and cannot be elevated by a
+    secondary operational role."""
+    user = User(
+        id=4,
+        name="Invalid hybrid",
+        email="invalid@example.com",
         role=UserRole.user,
         roles=[UserRole.user.value, UserRole.recruiter.value],
     )
-    assert presence_subscribe_allowed(user) is True
+    assert presence_subscribe_allowed(user) is False
 
 
 @pytest.mark.asyncio

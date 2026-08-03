@@ -29,6 +29,7 @@ import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt"
 
 type UserRole =
   | "admin"
+  | "finance"
   | "head_of_recruitment"
   | "delivery_lead"
   | "tac"

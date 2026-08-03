@@ -42,6 +42,7 @@ ROLES = [
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
@@ -69,7 +70,7 @@ EXPORT_ROLES = {
     UserRole.delivery_lead,
     UserRole.tac,
 }
-FINANCE_ROLES = {UserRole.admin, UserRole.delivery_lead, UserRole.tac}
+FINANCE_ROLES = {UserRole.admin}
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -450,7 +451,7 @@ async def test_write_surface_role_matrix(
 async def test_client_rate_requires_finance_capability(
     m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """„Stawka do klienta” is a finance mutation — recruiter/sourcer/viewer 403."""
+    """Candidate-specific client rate is Admin-only; Finance gets no PII."""
     for role in ROLES:
         resp = await m2_client.patch(
             "/api/candidates/999999/recruitments/999999/client-rate",

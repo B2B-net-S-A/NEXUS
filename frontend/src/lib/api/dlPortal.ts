@@ -160,8 +160,8 @@ export interface NewContractorOrderRequest {
   title: string;
   order_start_date: string;
   order_end_date?: string | null;
-  rate_client: number;
-  rate_candidate: number;
+  rate_client?: number;
+  rate_candidate?: number;
   rate_unit?: "monthly" | "daily" | "hourly";
   billing_hours_per_month?: number;
   currency?: string;
@@ -173,7 +173,7 @@ export interface NewContractorOrderResponse {
   contract_id: number;
   order_id: number;
   candidate_name: string;
-  monthly_margin: number;
+  monthly_margin: number | null;
 }
 
 export interface MyClientRow {
@@ -182,8 +182,10 @@ export interface MyClientRow {
   industry: string | null;
   is_head_dl: boolean;
   active_orders_count: number;
-  total_revenue_all_time: string | number | null;
-  active_revenue: string | number | null;
+  /** Present only when the caller has the finance capability. */
+  total_revenue_all_time?: string | number | null;
+  /** Present only when the caller has the finance capability. */
+  active_revenue?: string | number | null;
   expiring_soon_count: number;
   framework_contract_status: string | null;
   framework_expiry_date: string | null;
@@ -201,12 +203,13 @@ export interface ExpiringAlert {
 export interface ClientDashboardResponse {
   client_id: number;
   client_name: string;
-  total_revenue_all_time: string | number | null;
-  active_revenue: string | number | null;
-  completed_revenue: string | number | null;
-  currency_breakdown: Record<string, string | number>;
-  monthly_margin_total: number | null;
-  monthly_margin_pct: number | null;
+  /** Finance-only fields are structurally omitted for operational callers. */
+  total_revenue_all_time?: string | number | null;
+  active_revenue?: string | number | null;
+  completed_revenue?: string | number | null;
+  currency_breakdown?: Record<string, string | number>;
+  monthly_margin_total?: number | null;
+  monthly_margin_pct?: number | null;
   active_consultants: number;
   completed_consultants: number;
   avg_days_to_fill: number | null;

@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
-from fastapi import HTTPException, status
+from fastapi import Depends, HTTPException, status
 
-from app.models.user import UserRole
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_capability,
+    user_has_capability,
+)
+from app.models.user import User
 from app.services.candidate_audit import CLIENT_RATE_CHANGED
 
 
 class _RoleAwareUser(Protocol):
-    def has_any_role(self, *roles: UserRole) -> bool: ...
+    def get_all_roles(self) -> list[Any]: ...
 
-
-_FINANCE_ROLES = (UserRole.admin, UserRole.delivery_lead)
 
 # Activity actions whose ``details`` carry raw candidate pricing (rate) amounts.
 # Mirrors the candidate timeline's ``_HIDDEN_TIMELINE_ACTIONS``: these audit rows
@@ -26,9 +29,9 @@ _RATE_AUDIT_ACTIONS = frozenset({CLIENT_RATE_CHANGED})
 
 
 def has_financial_access(user: _RoleAwareUser) -> bool:
-    """Return whether any primary or secondary role grants finance access."""
+    """Return whether the effective policy grants financial read access."""
 
-    return user.has_any_role(*_FINANCE_ROLES)
+    return user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
 
 
 def require_financial_access(user: _RoleAwareUser) -> None:
@@ -37,17 +40,37 @@ def require_financial_access(user: _RoleAwareUser) -> None:
     if not has_financial_access(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Financial contract data requires admin or delivery_lead role",
+            detail="Financial contract data requires view_finance capability",
         )
+
+
+FinanceReadUser = Annotated[
+    User,
+    Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+]
+FinanceManageUser = Annotated[
+    User,
+    Depends(require_capability(AnalyticsCapability.MANAGE_FINANCE)),
+]
+FinanceApproveUser = Annotated[
+    User,
+    Depends(require_capability(AnalyticsCapability.APPROVE_FINANCE)),
+]
+ExecutiveUser = Annotated[
+    User,
+    Depends(require_capability(AnalyticsCapability.VIEW_EXECUTIVE)),
+]
 
 
 def _is_financial_key(key: str) -> bool:
     normalized = key.lower()
     return (
         normalized == "rate"
+        or normalized == "amount"
         or "rate_candidate" in normalized
         or "rate_client" in normalized
         or normalized.startswith(("rate_", "client_rate", "expected_rate"))
+        or normalized.startswith(("salary", "budget"))
         or "rate_schedule" in normalized
         or "margin" in normalized
         or normalized

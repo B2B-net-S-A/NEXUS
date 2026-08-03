@@ -13,6 +13,7 @@ import type { UserRole } from "@/store/auth"
 // właśnie jego brak przepuszczał bramki, których backend mu nie daje (F-19).
 const ALL_ROLES: UserRole[] = [
   "admin",
+  "finance",
   "head_of_recruitment",
   "delivery_lead",
   "tac",
@@ -30,7 +31,10 @@ const mkUser = (role: UserRole) => ({ role })
  *
  * `true` = akcja widoczna i klikalna, `false` = ukryta.
  */
-const EXPECTED: Record<Capability, Record<UserRole, boolean>> = {
+const EXPECTED: Record<
+  Capability,
+  Record<Exclude<UserRole, "finance">, boolean>
+> = {
   // POST /api/candidates → RecruiterPlus (bez HoR!)
   "candidate.create": {
     admin: true,
@@ -221,7 +225,10 @@ describe("rejestr capability — kompletność", () => {
 describe("hasCapability — pełna macierz rola × capability", () => {
   for (const capability of ALL_CAPABILITIES) {
     for (const role of ALL_ROLES) {
-      const expected = EXPECTED[capability][role]
+      // Finance jest rolą ekskluzywną. Istniejący rejestr opisuje wyłącznie
+      // capability operacyjne, więc wszystkie są dla niej fail-closed.
+      const expected =
+        role === "finance" ? false : EXPECTED[capability][role]
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected)
       })
@@ -258,6 +265,12 @@ describe("hasCapability — przypadki brzegowe", () => {
   it("rola `user` (read-only viewer) nie ma NICZEGO", () => {
     for (const capability of ALL_CAPABILITIES) {
       expect(hasCapability(mkUser("user"), capability)).toBe(false)
+    }
+  })
+
+  it("rola `finance` nie dziedziczy żadnej capability operacyjnej", () => {
+    for (const capability of ALL_CAPABILITIES) {
+      expect(hasCapability(mkUser("finance"), capability)).toBe(false)
     }
   })
 })

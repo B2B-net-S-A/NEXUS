@@ -15,8 +15,9 @@ mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
   prywatnych — tylko nazwy pól).
 """
 
-from typing import Optional, Union
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Annotated, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, or_
@@ -30,12 +31,13 @@ from app.models.user import User
 from app.api.deps import CurrentUser, get_current_user
 from app.services.client_access import (
     ADMIN_LIKE_ROLES,
-    CLIENT_TEAM_ROLES,
     ClientAccess,
     assert_client_exists,
     deny,
     record_client_audit,
     resolve_client_access,
+    resolve_client_team_client_ids,
+    resolve_client_visible_client_ids,
 )
 
 router = APIRouter()
@@ -151,30 +153,62 @@ async def _load_contact(db: AsyncSession, contact_id: int) -> Contact:
     return contact
 
 
+@dataclass(frozen=True)
+class GlobalContactScope:
+    user: User
+    visible_client_ids: frozenset[int] | None
+    client_team_ids: frozenset[int] | None
+
+
+async def require_global_contact_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobalContactScope:
+    """Resolve global-contact visibility before the endpoint query executes."""
+
+    visible_client_ids = await resolve_client_visible_client_ids(db, current_user)
+    if visible_client_ids is not None and not visible_client_ids:
+        raise deny("lista kontaktów wymaga jawnego przypisania klienta lub Joba")
+    return GlobalContactScope(
+        user=current_user,
+        visible_client_ids=visible_client_ids,
+        client_team_ids=await resolve_client_team_client_ids(db, current_user),
+    )
+
+
+GlobalContactAccess = Annotated[
+    GlobalContactScope,
+    Depends(require_global_contact_access),
+]
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
 @router.get("/contacts", response_model=list[AnyContactWithClientResponse])
 async def list_all_contacts(
-    current_user: CurrentUser,
+    scope: GlobalContactAccess,
     db: AsyncSession = Depends(get_db),
     search: Optional[str] = Query(None, alias="search"),
 ):
     """Kontakty cross-client (globalna wyszukiwarka) — role zarządzające.
 
-    Widok obejmuje wszystkich klientów naraz, więc nie da się go zawęzić do
-    przypisanego stanowiska — dostęp mają tylko admin/HoR/DL/TAC.
+    Admin/HoR widzą organizację. DL/TAC widzą wyłącznie jawnie przypisanych
+    klientów, a recruiter/sourcer wyłącznie klientów osiągalnych przez Job.
+    Pusty graf relacji jest deny-all.
     """
-    if not current_user.has_any_role(*ADMIN_LIKE_ROLES, *CLIENT_TEAM_ROLES):
-        raise deny("lista kontaktów cross-client wymaga roli admin/HoR/DL/TAC")
-
+    current_user = scope.user
+    visible_client_ids = scope.visible_client_ids
     is_admin_like = current_user.has_any_role(*ADMIN_LIKE_ROLES)
+    client_team_ids = scope.client_team_ids
 
     query = (
         select(Contact, Client.name.label("client_name"))
         .join(Client, Contact.client_id == Client.id)
         .order_by(Contact.is_decision_maker.desc(), Contact.name)
     )
+    if visible_client_ids is not None:
+        query = query.where(Contact.client_id.in_(sorted(visible_client_ids)))
     if search:
         query = query.where(
             or_(
@@ -188,11 +222,14 @@ async def list_all_contacts(
     for contact, client_name in rows:
         # Ta sama reguła co ClientAccess.can_view_contact_private_notes:
         # admin/HoR wszystko; owner swoje; nie-zaklaimowane (owner=None)
-        # widzą role edytujące — a tu są wyłącznie takie (admin/HoR/DL/TAC).
+        # widzą wyłącznie role edytujące przypisane do tego klienta.
+        can_edit_client = (
+            client_team_ids is None or contact.client_id in client_team_ids
+        )
         can_see_notes = (
             is_admin_like
             or contact.key_relationship_owner_id == current_user.id
-            or contact.key_relationship_owner_id is None
+            or (contact.key_relationship_owner_id is None and can_edit_client)
         )
         model = (
             ContactWithClientResponse

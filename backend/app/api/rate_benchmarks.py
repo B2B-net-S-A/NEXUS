@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, DeliveryLeadPlus
+from app.api.deps import AdminUser
+from app.api.financial_access import FinanceReadUser
 from app.core.database import get_db
 from app.models.contract import RateUnit
 from app.models.rate_benchmark import RateBenchmark, SeniorityLevel
@@ -31,7 +32,7 @@ router = APIRouter()
 
 @router.get("", response_model=List[RateBenchmarkResponse])
 async def list_benchmarks(
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     role: Optional[str] = Query(None, description="Case-insensitive prefix match"),
     seniority: Optional[SeniorityLevel] = Query(None),

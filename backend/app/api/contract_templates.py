@@ -16,7 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.contract_access import ContractLegalAccess
+from app.api.contract_access import (
+    ContractLegalAccess,
+    assert_contract_legal_client_access,
+)
 from app.api.deps import AdminUser
 from app.core.database import get_db
 from app.models.contract import Contract
@@ -336,6 +339,11 @@ async def render_template_for_contract(
     )
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await assert_contract_legal_client_access(
+        db,
+        current_user,
+        contract.client_id,
+    )
     try:
         rendered = _jinja_env.from_string(tpl.content_jinja).render(
             **_contract_vars(contract)

@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import api, { extractErrorMsg } from "@/lib/api";
-import { requiresOnboarding, useAuthStore } from "@/store/auth";
+import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle } from "lucide-react";
 
 /**
@@ -55,11 +55,7 @@ function CallbackBody() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         setAuth(me.data, accessToken);
-        if (requiresOnboarding(me.data)) {
-          router.replace("/onboarding");
-        } else {
-          router.replace("/");
-        }
+        router.replace(postLoginDestination(me.data));
       } catch (err: unknown) {
         // extractErrorMsg, nie surowe `e.message`: 429 z limitera (ciało
         // slowapi bez klucza `detail`) trafiał na /login jako techniczne

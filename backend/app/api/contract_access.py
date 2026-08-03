@@ -19,24 +19,20 @@ delivery ``recruiter``/``sourcer`` personas — do things they must not:
   any logged-in user.
 - ``contract_templates`` ``GET .../render`` rendered any template + Contract.
 
-**Fix:** replace bare ``CurrentUser`` on these surfaces with a role gate limited
-to the legal team. The set mirrors ``client_access.can_view_legal_documents``
-(``is_admin_like OR is_client_team`` = admin + head_of_recruitment +
-delivery_lead + tac) — the same personas already trusted with client legal
-documents in ``client_framework_contracts`` (the audit's "positive pattern to
-keep"). Recruiter/sourcer (delivery) and the ``user`` viewer are excluded.
+**Fix:** legal surfaces use the same authoritative client relationship graph as
+``client_access.can_view_legal_documents``. Admin/Head of Recruitment keep
+organization oversight. Delivery Lead and TAC require an explicit assignment
+for the concrete client; an empty graph is deny-all. Recruiter/Sourcer,
+Finance, and the legacy viewer are excluded from legal PII.
 
 Owner/admin checks that already gate mutating ``generated`` rows
 (PATCH/DELETE) stay in place as a second layer; this guard only ensures the
 caller is legal-team at all.
 
-Per-contract client scope (restricting a TAC to their assigned clients) is
-deliberately NOT added here: legal-document access is intentionally global for
-the legal team in NEXUS today (delivery_lead/tac see legal docs of every client
-— ``CLIENT_TEAM_ROLES`` is a global role check, not per-assignment). Narrowing
-that is a separate policy decision for the command-service wave (plan fala C+),
-tracked in section 21. Do NOT add a feature flag that reverts these guards to
-plain ``CurrentUser``.
+Global catalogs (role names, templates, numbering helpers) require at least one
+explicit client assignment for DL/TAC. Entity routes additionally resolve the
+exact client before reading, rendering, mutating, or downloading a document.
+Rows without an authoritative ``client_id`` are visible only to Admin/HoR.
 """
 
 from __future__ import annotations
@@ -44,9 +40,17 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_roles
+from app.api.deps import get_current_user
+from app.core.database import get_db
 from app.models.user import User, UserRole
+from app.services.client_access import (
+    ADMIN_LIKE_ROLES,
+    deny,
+    resolve_client_access,
+    resolve_client_team_client_ids,
+)
 
 # Legal-team personas trusted with contract legal documents. Mirrors
 # ``client_access.can_view_legal_documents`` (admin_like ∪ client_team).
@@ -59,10 +63,60 @@ CONTRACT_LEGAL_ROLES: tuple[UserRole, ...] = (
 
 
 def user_is_contract_legal_team(user: User) -> bool:
-    """Non-raising check for in-endpoint branching (multi-role aware)."""
+    """Role-only preflight; entity authorization still requires DB scope."""
     return user.has_any_role(*CONTRACT_LEGAL_ROLES)
 
 
+async def require_contract_legal_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Gate global legal tools; empty DL/TAC assignment graphs fail closed."""
+
+    client_ids = await resolve_client_team_client_ids(db, current_user)
+    if client_ids is None or client_ids:
+        return current_user
+    raise deny("dostęp prawny wymaga jawnego przypisania klienta")
+
+
+async def assert_contract_legal_client_access(
+    db: AsyncSession,
+    user: User,
+    client_id: int | None,
+    *,
+    write: bool = False,
+) -> None:
+    """Authorize one legal entity against its authoritative client relation."""
+
+    if client_id is None:
+        if user.has_any_role(*ADMIN_LIKE_ROLES):
+            return
+        raise deny("dokument prawny bez klienta jest dostępny tylko Admin/HoR")
+
+    access = await resolve_client_access(db, user, client_id)
+    allowed = (
+        access.can_edit_legal_documents if write else access.can_view_legal_documents
+    )
+    if not allowed:
+        operation = "edycja" if write else "odczyt"
+        raise deny(f"{operation} dokumentu wymaga jawnego przypisania klienta")
+
+
+async def apply_contract_legal_client_scope(
+    statement,
+    client_column,
+    db: AsyncSession,
+    user: User,
+):
+    """Scope legal list queries before sorting/limiting."""
+
+    client_ids = await resolve_client_team_client_ids(db, user)
+    if client_ids is None:
+        return statement
+    return statement.where(client_column.in_(sorted(client_ids) or [-1]))
+
+
 # Read + generate + render + download of B2B contracts, contract templates and
-# their legal numbers. Excludes the ``user`` viewer and recruiter/sourcer.
-ContractLegalAccess = Annotated[User, Depends(require_roles(*CONTRACT_LEGAL_ROLES))]
+# their legal numbers. Excludes Finance/viewer/recruiter/sourcer and an
+# unassigned DL/TAC before the endpoint body runs.
+ContractLegalAccess = Annotated[User, Depends(require_contract_legal_access)]

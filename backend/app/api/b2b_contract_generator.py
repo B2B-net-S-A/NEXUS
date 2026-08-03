@@ -20,7 +20,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.contract_access import ContractLegalAccess
+from app.api.contract_access import (
+    ContractLegalAccess,
+    apply_contract_legal_client_scope,
+    assert_contract_legal_client_access,
+)
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
 from app.api.deps import AdminUser, TacPlus
@@ -121,6 +125,27 @@ def _has_signature_role(user: User) -> bool:
 
 async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -> None:
     await ensure_job_membership(db, user, job.id)
+
+
+async def _load_legal_scoped_job(
+    db: AsyncSession,
+    user: User,
+    job_id: int,
+    *,
+    write: bool,
+) -> Job:
+    """Load a Job and authorize its client before touching candidate/legal PII."""
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
+    await assert_contract_legal_client_access(
+        db,
+        user,
+        job.client_id,
+        write=write,
+    )
+    return job
 
 
 async def _validate_candidate_job_link(
@@ -456,6 +481,12 @@ async def generate(
         )
         if not contract:
             raise HTTPException(status_code=404, detail="Umowa nie znaleziona")
+        await assert_contract_legal_client_access(
+            db,
+            current_user,
+            contract.client_id,
+            write=True,
+        )
         if contract.contract_type != ContractType.b2b:
             raise HTTPException(status_code=409, detail="To nie jest umowa B2B")
         if contract.status != ContractStatus.draft:
@@ -531,11 +562,18 @@ async def generate(
         # client_id można wyprowadzić z wybranej rekrutacji (job → klient).
         client_id = payload.client_id
         job: Job | None = None
-        if payload.job_id and payload.candidate_id:
+        if payload.job_id:
+            job = await _load_legal_scoped_job(
+                db,
+                current_user,
+                payload.job_id,
+                write=True,
+            )
+        if job is not None and payload.candidate_id:
             _, job = await _validate_candidate_job_link(
                 db,
                 candidate_id=payload.candidate_id,
-                job_id=payload.job_id,
+                job_id=job.id,
             )
             if client_id is not None and client_id != job.client_id:
                 raise HTTPException(
@@ -543,14 +581,19 @@ async def generate(
                     detail="client_id nie odpowiada klientowi wybranej rekrutacji",
                 )
             client_id = job.client_id
-        elif payload.job_id:
-            job = await db.get(Job, payload.job_id)
-            client_id = job.client_id if job else None
+        elif job is not None:
+            client_id = job.client_id
         if not payload.candidate_id or not client_id:
             raise HTTPException(
                 status_code=422,
                 detail="Wymagany candidate_id oraz client_id lub job_id z klientem",
             )
+        await assert_contract_legal_client_access(
+            db,
+            current_user,
+            client_id,
+            write=True,
+        )
         if job is not None:
             ensured = await ensure_b2b_employment_draft(
                 db,
@@ -660,6 +703,11 @@ async def get_detail(
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _load_contract_with_relations(db, contract_id)
+    await assert_contract_legal_client_access(
+        db,
+        current_user,
+        contract.client_id,
+    )
     d = contract.b2b_detail
     return B2BContractDetailResponse(
         contract_id=contract.id,
@@ -689,6 +737,11 @@ async def download_docx(
     language: str | None = Query(None),
 ):
     contract = await _load_contract_with_relations(db, contract_id)
+    await assert_contract_legal_client_access(
+        db,
+        current_user,
+        contract.client_id,
+    )
     detail_lang = contract.b2b_detail.language if contract.b2b_detail else "pl"
     lang = normalize_language(language or detail_lang)
     data = await run_in_threadpool(render_contract_docx, contract, language=lang)
@@ -802,11 +855,23 @@ async def render_standalone(
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     linked_job: Job | None = None
     if payload.candidate_id is not None and payload.job_id is not None:
+        linked_job = await _load_legal_scoped_job(
+            db,
+            current_user,
+            payload.job_id,
+            write=True,
+        )
         _, linked_job = await _validate_candidate_job_link(
             db,
             candidate_id=payload.candidate_id,
-            job_id=payload.job_id,
+            job_id=linked_job.id,
         )
+    await assert_contract_legal_client_access(
+        db,
+        current_user,
+        linked_job.client_id if linked_job else None,
+        write=True,
+    )
     context = build_render_context(payload, role)
 
     if fmt == "html":
@@ -924,7 +989,12 @@ async def list_generated_contracts(
 
     ``can_delete`` mówi UI, czy bieżący użytkownik może usunąć dany wpis (autor
     wpisu lub admin)."""
-    query = select(B2BGeneratedContract)
+    query = await apply_contract_legal_client_scope(
+        select(B2BGeneratedContract),
+        B2BGeneratedContract.client_id,
+        db,
+        current_user,
+    )
 
     needle = (q or "").strip()
     if needle:
@@ -978,6 +1048,11 @@ async def download_generated_contract(
     row = await db.get(B2BGeneratedContract, generated_id)
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    await assert_contract_legal_client_access(
+        db,
+        current_user,
+        row.client_id,
+    )
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -1016,6 +1091,27 @@ async def confirm_generated_contract_fully_signed(
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+        if row.client_id is not None:
+            await assert_contract_legal_client_access(
+                db,
+                current_user,
+                row.client_id,
+                write=True,
+            )
+        elif payload.job_id is None:
+            await assert_contract_legal_client_access(
+                db,
+                current_user,
+                None,
+                write=True,
+            )
+        if payload.job_id is not None:
+            await _load_legal_scoped_job(
+                db,
+                current_user,
+                payload.job_id,
+                write=True,
+            )
 
         # Idempotent replay: do not recreate an order/stage after the original
         # workflow has completed (the order may legitimately be completed or
@@ -1220,6 +1316,12 @@ async def update_generated_contract(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    await assert_contract_legal_client_access(
+        db,
+        current_user,
+        row.client_id,
+        write=True,
+    )
     # Autoryzacja PRZED walidacją treści i regułami biznesowymi: inaczej kody
     # odpowiedzi (422 „brak zmian" / 409 „podpisana") odpowiadałyby na pytania
     # o cudzy wiersz, zanim ustalimy, że pytający ma do niego prawo.
@@ -1333,6 +1435,12 @@ async def delete_generated_contract(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    await assert_contract_legal_client_access(
+        db,
+        current_user,
+        row.client_id,
+        write=True,
+    )
     if row.signature_status == "signed_both":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

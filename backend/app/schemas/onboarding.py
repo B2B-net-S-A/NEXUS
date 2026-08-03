@@ -10,7 +10,24 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
+from app.models.job import JobStatus, Seniority
 from app.schemas.user import UserResponse
+
+
+class OnboardingJobOption(BaseModel):
+    """Minimal, non-financial job projection shown before onboarding."""
+
+    id: int
+    title: str
+    client_name: str | None = None
+    location: str | None = None
+    status: JobStatus
+    seniority: Seniority | None = None
+
+
+class OnboardingJobsResponse(BaseModel):
+    items: list[OnboardingJobOption]
+    total: int
 
 
 class OnboardingPayloadDL(BaseModel):

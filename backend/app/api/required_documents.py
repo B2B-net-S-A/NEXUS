@@ -9,7 +9,7 @@ Templates (admin only):
   PATCH  /required-document-templates/{id}
   DELETE /required-document-templates/{id}
 
-Per-klient instancje (TacPlus do edycji, reader do view):
+Per-klient instancje (jawny scope klienta/Joba do view, jawny DL/TAC do edycji):
   GET    /clients/{client_id}/required-documents
   POST   /clients/{client_id}/required-documents              (ad-hoc, bez pliku)
   POST   /clients/{client_id}/required-documents/apply-templates  (bulk z szablonów)
@@ -20,14 +20,14 @@ Per-klient instancje (TacPlus do edycji, reader do view):
 """
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import OperationalUser, get_current_user, require_roles
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -47,10 +47,10 @@ from app.schemas.required_documents import (
     RequiredDocumentTemplateResponse,
 )
 from app.services import storage_service
+from app.services.client_access import deny, resolve_client_access
 
 
 _admin_only = require_roles(UserRole.admin)
-_tac_plus = require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)
 
 router = APIRouter()
 
@@ -65,6 +65,60 @@ async def _assert_client(db: AsyncSession, client_id: int) -> None:
     result = await db.execute(select(Client).where(Client.id == client_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Client not found")
+
+
+async def _require_required_docs_access(
+    db: AsyncSession,
+    current_user: User,
+    client_id: int,
+    *,
+    write: bool,
+) -> None:
+    access = await resolve_client_access(db, current_user, client_id)
+    allowed = access.can_edit_materials if write else access.can_view_materials
+    if not allowed:
+        operation = "edycja" if write else "odczyt"
+        raise deny(f"{operation} wymaganych dokumentów wymaga jawnego zakresu klienta")
+
+
+async def require_required_docs_read_access(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    await _assert_client(db, client_id)
+    await _require_required_docs_access(
+        db,
+        current_user,
+        client_id,
+        write=False,
+    )
+    return current_user
+
+
+async def require_required_docs_write_access(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    await _assert_client(db, client_id)
+    await _require_required_docs_access(
+        db,
+        current_user,
+        client_id,
+        write=True,
+    )
+    return current_user
+
+
+RequiredDocsReadUser = Annotated[
+    User,
+    Depends(require_required_docs_read_access),
+]
+RequiredDocsWriteUser = Annotated[
+    User,
+    Depends(require_required_docs_write_access),
+]
 
 
 async def _resolve_user_email(
@@ -107,8 +161,8 @@ async def _doc_to_response(
     response_model=List[RequiredDocumentTemplateResponse],
 )
 async def list_templates(
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
         select(RequiredDocumentTemplate).order_by(
@@ -196,10 +250,9 @@ async def delete_template(
 )
 async def list_required_docs(
     client_id: int,
+    current_user: RequiredDocsReadUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    await _assert_client(db, client_id)
     result = await db.execute(
         select(ClientRequiredDocument)
         .where(ClientRequiredDocument.client_id == client_id)
@@ -217,11 +270,9 @@ async def list_required_docs(
 async def create_required_doc(
     client_id: int,
     payload: ClientRequiredDocumentCreate,
+    current_user: RequiredDocsWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
 ):
-    await _assert_client(db, client_id)
-
     # Optional template lookup — only verify template exists if template_id provided
     if payload.template_id is not None:
         tmpl = await db.scalar(
@@ -263,12 +314,10 @@ async def create_required_doc(
 async def apply_templates(
     client_id: int,
     payload: ApplyTemplatesRequest,
+    current_user: RequiredDocsWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
 ):
     """Bulk-utwórz instancje z szablonów. None = wszystkie is_default=true."""
-    await _assert_client(db, client_id)
-
     # Pick templates
     if payload.template_ids is None:
         result = await db.execute(
@@ -333,10 +382,9 @@ async def patch_required_doc(
     client_id: int,
     doc_id: int,
     payload: ClientRequiredDocumentPatch,
+    current_user: RequiredDocsWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
 ):
-    await _assert_client(db, client_id)
     result = await db.execute(
         select(ClientRequiredDocument).where(
             ClientRequiredDocument.id == doc_id,
@@ -361,10 +409,9 @@ async def patch_required_doc(
 async def delete_required_doc(
     client_id: int,
     doc_id: int,
+    current_user: RequiredDocsWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
 ):
-    await _assert_client(db, client_id)
     result = await db.execute(
         select(ClientRequiredDocument).where(
             ClientRequiredDocument.id == doc_id,
@@ -398,11 +445,10 @@ async def delete_required_doc(
 async def upload_required_doc_file(
     client_id: int,
     doc_id: int,
+    current_user: RequiredDocsWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
     file: UploadFile = File(...),
 ):
-    await _assert_client(db, client_id)
     result = await db.execute(
         select(ClientRequiredDocument).where(
             ClientRequiredDocument.id == doc_id,
@@ -463,10 +509,9 @@ async def upload_required_doc_file(
 async def download_required_doc(
     client_id: int,
     doc_id: int,
+    current_user: RequiredDocsReadUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
 ):
-    await _assert_client(db, client_id)
     result = await db.execute(
         select(ClientRequiredDocument).where(
             ClientRequiredDocument.id == doc_id,

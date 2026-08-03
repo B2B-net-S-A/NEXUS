@@ -237,6 +237,9 @@ VIEWER_SAFE_ENDPOINTS = [
     "/api/analytics/v1/recruitment/funnel",
     "/api/analytics/v1/sources",
     "/api/analytics/v1/calls/aggregate",
+]
+
+LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS = [
     "/api/dashboard/stats",
     "/api/dashboard/kpis",
     "/api/dashboard/pipeline-funnel",
@@ -253,6 +256,16 @@ async def test_viewer_safe_responses_have_no_finance_fields(gates_client, monkey
         assert resp.status_code == 200, f"{path}: {resp.status_code} {resp.text}"
         bad = _forbidden_keys(resp.json())
         assert not bad, f"{path} niesie pola finansowe dla viewera: {bad}"
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_bypass_role_presets_through_legacy_dashboard(
+    gates_client,
+):
+    headers = await _viewer_headers(gates_client)
+    for path in LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS:
+        resp = await gates_client.get(path, headers=headers)
+        assert resp.status_code == 403, f"{path}: {resp.status_code} {resp.text}"
 
 
 # ── Gate 4: kontrakt OpenAPI /api/analytics/v1 ───────────────────────────────

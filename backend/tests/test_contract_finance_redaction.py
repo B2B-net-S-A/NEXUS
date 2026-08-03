@@ -2,10 +2,11 @@
 
 Lista kontraktów, detal, lista kontraktorów i eksport ujawniały
 ``rate_candidate``/``rate_client``/``margin`` (+ harmonogramy) każdej roli z
-``TacPlus`` — więc TAC (bez VIEW_FINANCE) widział finanse niezgodnie z
-kanoniczną polityką NEXUS. Po zmianie kwoty widzą tylko admin + delivery_lead;
-pozostali zachowują widok operacyjny (rekordy są, kwoty = None), a eksport
-(kolumny kwotowe) jest tylko dla finansów.
+``TacPlus`` — więc role bez VIEW_FINANCE widziały finanse niezgodnie z
+kanoniczną polityką NEXUS. Na candidate-bearing kontraktach kwoty widzi Admin;
+Finance używa bezosobowych endpointów. Pozostali, w tym Delivery Lead,
+zachowują widok operacyjny (rekordy są, kwoty = None), a eksport zawierający
+tożsamość kandydata jest Admin-only.
 """
 
 from __future__ import annotations
@@ -15,27 +16,47 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
+from sqlalchemy import select
 
 _TODAY = date.today()
 
 
-async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, str]:
+async def _headers_for(
+    app_client: AsyncClient,
+    role_value: str,
+    *,
+    assigned_contract_id: int | None = None,
+) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
+    from app.models.contract import Contract
+    from app.models.team_structure import DeliveryLeadClientAssignment
     from app.models.user import User, UserRole
 
     email = f"fin-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
     password = f"P4ss_{uuid.uuid4().hex[:6]}!"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Fin {role_value}",
-                role=UserRole(role_value),
-                is_active=True,
-            )
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Fin {role_value}",
+            role=UserRole(role_value),
+            is_active=True,
+            profile_completed=True,
         )
+        db.add(user)
+        await db.flush()
+        if role_value == "delivery_lead" and assigned_contract_id is not None:
+            client_id = await db.scalar(
+                select(Contract.client_id).where(Contract.id == assigned_contract_id)
+            )
+            assert client_id is not None
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=client_id,
+                )
+            )
         await db.commit()
     login = await app_client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -96,7 +117,7 @@ async def _seed_contract() -> int:
         return contract.id
 
 
-async def test_finance_sees_rates_in_detail(
+async def test_admin_sees_rates_in_detail(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     # app_auth_headers = admin (ma VIEW_FINANCE)
@@ -122,6 +143,38 @@ async def test_tac_gets_redacted_detail(app_client: AsyncClient):
     assert body["rate_client"] is None
     assert body["margin"] is None
     assert body["candidate_rate_schedule"] == []
+    assert body["currency"] is None
+    assert body["rate_unit"] is None
+    assert body["billing_hours_per_month"] is None
+
+
+async def test_delivery_lead_gets_redacted_detail(app_client: AsyncClient):
+    cid = await _seed_contract()
+    headers = await _headers_for(
+        app_client,
+        "delivery_lead",
+        assigned_contract_id=cid,
+    )
+    response = await app_client.get(f"/api/contracts/{cid}", headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["rate_candidate"] is None
+    assert body["rate_client"] is None
+    assert body["margin"] is None
+    assert body["currency"] is None
+    assert body["rate_unit"] is None
+    assert body["billing_hours_per_month"] is None
+
+
+async def test_delivery_lead_cannot_read_unassigned_client_contract(
+    app_client: AsyncClient,
+):
+    cid = await _seed_contract()
+    headers = await _headers_for(app_client, "delivery_lead")
+
+    response = await app_client.get(f"/api/contracts/{cid}", headers=headers)
+
+    assert response.status_code == 403, response.text
 
 
 async def test_export_requires_finance(app_client: AsyncClient, app_auth_headers: dict):
@@ -144,17 +197,14 @@ async def test_tac_gets_redacted_contractor_list(app_client: AsyncClient):
     assert row is not None, "seeded contractor not in list"
     assert row["rate_candidate"] is None
     assert row["margin"] is None
+    assert row["currency"] is None
+    assert row["rate_unit"] is None
 
 
-async def test_tac_create_returns_redacted_but_persists_rate(
-    app_client: AsyncClient, app_auth_headers: dict
+async def test_tac_cannot_create_contract_with_finance_fields(
+    app_client: AsyncClient,
 ):
-    """POST redacts finance in the RESPONSE for TAC, yet the write persists.
-
-    Guards against a regression of #874: TAC keeps the client-rate WRITE
-    allowance; only what comes back is stripped. Admin re-fetch proves the value
-    was genuinely stored.
-    """
+    """Redaction is not authorization: hidden rates must never be persisted."""
     cand_id, client_id = await _seed_candidate_client()
     tac = await _headers_for(app_client, "tac")
     body = {
@@ -167,17 +217,8 @@ async def test_tac_create_returns_redacted_but_persists_rate(
         "status": "active",
     }
     r = await app_client.post("/api/contracts", json=body, headers=tac)
-    assert r.status_code == 201, r.text
-    created = r.json()
-    assert created["rate_candidate"] is None
-    assert created["rate_client"] is None
-    assert created["margin"] is None
-    # The write itself was NOT reversed — admin (VIEW_FINANCE) sees the stored rate.
-    r_admin = await app_client.get(
-        f"/api/contracts/{created['id']}", headers=app_auth_headers
-    )
-    assert r_admin.status_code == 200, r_admin.text
-    assert r_admin.json()["rate_client"] == 222.0
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "finance_fields_forbidden"
 
 
 async def test_tac_expiring_list_redacted(app_client: AsyncClient):
@@ -192,7 +233,7 @@ async def test_tac_expiring_list_redacted(app_client: AsyncClient):
     assert row["margin"] is None
 
 
-async def test_finance_expiring_list_shows_rates(
+async def test_admin_expiring_list_shows_rates(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cid = await _seed_contract()
@@ -205,14 +246,36 @@ async def test_finance_expiring_list_shows_rates(
     assert row["rate_client"] is not None
 
 
-async def test_tac_patch_returns_redacted(app_client: AsyncClient):
+async def test_tac_cannot_patch_finance_fields(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+):
     cid = await _seed_contract()
     tac = await _headers_for(app_client, "tac")
     r = await app_client.patch(
         f"/api/contracts/{cid}", json={"rate_client": 321.0}, headers=tac
     )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["rate_candidate"] is None
-    assert body["rate_client"] is None
-    assert body["margin"] is None
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "finance_fields_forbidden"
+
+    unchanged = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["rate_client"] == 150.0
+
+
+async def test_delivery_lead_cannot_patch_finance_fields(
+    app_client: AsyncClient,
+):
+    cid = await _seed_contract()
+    delivery_lead = await _headers_for(
+        app_client,
+        "delivery_lead",
+        assigned_contract_id=cid,
+    )
+    response = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"rate_candidate": 1, "candidate_rate_schedule": []},
+        headers=delivery_lead,
+    )
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "finance_fields_forbidden"

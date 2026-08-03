@@ -22,6 +22,11 @@ from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity
 from app.api.deps import AdminUser
 from app.schemas.user import UserResponse
+from app.services.aad_role_policy import (
+    InvalidAadRoleMapping,
+    fail_closed_invalid_aad_mapping,
+    validate_aad_mapped_roles,
+)
 from app.services.email import (
     send_password_changed_notification,
     send_password_reset_email,
@@ -30,12 +35,12 @@ from app.services.password_reset import (
     RESET_TOKEN_TTL_MINUTES,
     create_reset_token,
 )
+from app.services.onboarding_access import (
+    onboarding_persona_changed,
+    onboarding_persona_for_roles,
+)
 
 router = APIRouter()
-
-# Roles that must complete first-login onboarding before the frontend unlocks
-# the shell. Keep in sync with backend/app/api/onboarding.py.
-_ONBOARDING_REQUIRED_ROLES = {UserRole.delivery_lead, UserRole.recruiter}
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +83,41 @@ class AdminUserUpdate(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     new_password: str
+
+
+def _normalized_role_values(
+    primary: UserRole,
+    roles: list[UserRole] | list[str] | None,
+) -> list[str]:
+    values = [
+        role.value if isinstance(role, UserRole) else role
+        for role in (roles or [primary])
+    ]
+    values = list(dict.fromkeys(values))
+    if primary.value not in values:
+        values.insert(0, primary.value)
+    exclusive = {
+        UserRole.finance.value,
+        UserRole.user.value,
+    }.intersection(values)
+    if exclusive and len(values) != 1:
+        role_name = (
+            UserRole.finance.value
+            if UserRole.finance.value in exclusive
+            else UserRole.user.value
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{role_name} role is exclusive and cannot be combined with other roles",
+        )
+    return values
+
+
+def _acquires_onboarding_role(
+    previous_roles: list[str],
+    next_roles: list[str],
+) -> bool:
+    return onboarding_persona_changed(previous_roles, next_roles)
 
 
 # ── Startup time (for uptime calculation) ────────────────────────────────────
@@ -137,15 +177,10 @@ async def create_user(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    preexempt = data.role not in _ONBOARDING_REQUIRED_ROLES
     # Build the multi-role list (migracja 0110). When ``roles`` is omitted
     # default to ``[role]``; when supplied ensure primary is present.
-    if data.roles is None:
-        roles_list = [data.role.value]
-    else:
-        roles_list = [r.value for r in data.roles]
-        if data.role.value not in roles_list:
-            roles_list.insert(0, data.role.value)
+    roles_list = _normalized_role_values(data.role, data.roles)
+    preexempt = onboarding_persona_for_roles(roles_list) is None
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
@@ -183,25 +218,55 @@ async def update_user(
     # Capture pre-change state for audit log
     original_role = user.role
     original_roles = list(user.roles or [])
+    original_effective_roles = [role.value for role in user.get_all_roles()]
     original_active = user.is_active
     original_name = user.name
+    original_allowed_sections = list(user.allowed_sections or [])
 
     if data.name is not None:
         user.name = data.name
-    if data.role is not None:
-        user.role = data.role
+    final_primary = data.role if data.role is not None else user.role
     if data.roles is not None:
-        new_roles = [r.value for r in data.roles]
-        # Ensure primary (current or just-assigned) is always inside roles.
-        primary_val = data.role.value if data.role is not None else user.role.value
-        if primary_val not in new_roles:
-            new_roles.insert(0, primary_val)
-        user.roles = new_roles
+        final_roles = _normalized_role_values(final_primary, data.roles)
     elif data.role is not None:
-        # Only role changed; keep ``roles`` in sync so the invariant holds.
-        user.ensure_roles_invariant()
+        if (
+            final_primary in {UserRole.finance, UserRole.user}
+            or UserRole.finance.value in original_roles
+            or UserRole.user.value in original_roles
+        ):
+            final_roles = [final_primary.value]
+        else:
+            final_roles = _normalized_role_values(final_primary, original_roles)
+    else:
+        final_roles = _normalized_role_values(final_primary, original_roles)
+
+    user.role = final_primary
+    user.roles = final_roles
+    if final_primary in {UserRole.finance, UserRole.user}:
+        # Exclusive non-recruitment personas must not retain legacy
+        # DynaReporter grants from their previous operational role.
+        user.allowed_sections = []
+    if _acquires_onboarding_role(
+        original_effective_roles,
+        final_roles,
+    ):
+        # A viewer promoted at runtime must not inherit its historical
+        # `profile_completed=True` exemption. The new persona stays behind the
+        # backend onboarding gate until it completes the role-specific flow.
+        user.profile_completed = False
+        user.profile_completed_at = None
     if data.is_active is not None:
         user.is_active = data.is_active
+
+    authorization_changed = (
+        user.role != original_role
+        or list(user.roles or []) != original_roles
+        or user.is_active != original_active
+        or list(user.allowed_sections or []) != original_allowed_sections
+    )
+    if authorization_changed:
+        user.authorization_version += 1
+        user.tokens_valid_after = datetime.now(timezone.utc)
 
     # Audit: write one Activity per attribute that actually changed
     if data.role is not None and data.role != original_role:
@@ -292,6 +357,9 @@ async def deactivate_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if user.is_active:
+        user.authorization_version += 1
+        user.tokens_valid_after = datetime.now(timezone.utc)
     user.is_active = False
     db.add(
         Activity(
@@ -611,6 +679,14 @@ async def resync_aad_groups(
     try:
         mapping = settings.aad_group_role_map
     except ValueError as exc:
+        await fail_closed_invalid_aad_mapping(
+            db,
+            user,
+            actor_user_id=_admin.id,
+            action="admin_aad_role_mapping_invalid",
+            reason=str(exc),
+            details={"aad_group_count": len(stored_groups)},
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AAD_GROUP_ROLE_MAP_JSON invalid: {exc}",
@@ -624,10 +700,14 @@ async def resync_aad_groups(
 
     previous_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     previous_roles = list(user.roles or [])
+    previous_effective_roles = [role.value for role in user.get_all_roles()]
 
     if not role_strs:
         # No group matches → deny. Same fail-closed behaviour as the SSO
         # callback so the resync endpoint cannot accidentally grant access.
+        if user.is_active:
+            user.authorization_version += 1
+            user.tokens_valid_after = datetime.now(timezone.utc)
         user.is_active = False
         db.add(
             Activity(
@@ -656,9 +736,33 @@ async def resync_aad_groups(
             is_active=False,
         )
 
-    new_role = UserRole(role_strs[0])
+    try:
+        role_strs, mapped_roles = validate_aad_mapped_roles(role_strs)
+    except InvalidAadRoleMapping as exc:
+        await fail_closed_invalid_aad_mapping(
+            db,
+            user,
+            actor_user_id=_admin.id,
+            action="admin_aad_role_mapping_invalid",
+            reason=str(exc),
+            mapped_roles=role_strs,
+            details={"aad_group_count": len(stored_groups)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    new_role = mapped_roles[0]
     role_changed = user.role != new_role
     roles_changed = previous_roles != role_strs
+    active_changed = not user.is_active
+    legacy_sections_reset = new_role in {UserRole.finance, UserRole.user} and bool(
+        user.allowed_sections
+    )
+    onboarding_reset = onboarding_persona_changed(
+        previous_effective_roles,
+        role_strs,
+    )
     if role_changed:
         db.add(
             Activity(
@@ -691,7 +795,15 @@ async def resync_aad_groups(
                 )
             )
         user.roles = role_strs
+    if onboarding_reset:
+        user.profile_completed = False
+        user.profile_completed_at = None
+    if new_role in {UserRole.finance, UserRole.user}:
+        user.allowed_sections = []
     user.is_active = True
+    if role_changed or roles_changed or active_changed or legacy_sections_reset:
+        user.authorization_version += 1
+        user.tokens_valid_after = datetime.now(timezone.utc)
     await db.flush()
 
     return ResyncAadGroupsResponse(

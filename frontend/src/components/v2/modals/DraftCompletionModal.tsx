@@ -23,6 +23,10 @@ import {
  SelectValue,
 } from"@/components/ui/select";
 import { contractsApi, type ContractorListItem } from"@/lib/api";
+import {
+ canManageCandidateFinance,
+ useAuthStore,
+} from"@/store/auth";
 
 interface Props {
  contractor: ContractorListItem;
@@ -51,14 +55,16 @@ function toFormState(c: ContractorListItem): FormState {
  };
 }
 
-function formDirtyOrValid(form: FormState): boolean {
+function formDirtyOrValid(
+ form: FormState,
+ canManageFinance: boolean
+): boolean {
  return Boolean(
  form.start_date &&
  form.end_date &&
- form.rate_candidate &&
- form.rate_client &&
  form.contract_type &&
- form.work_mode
+ form.work_mode &&
+ (!canManageFinance || (form.rate_candidate && form.rate_client))
  );
 }
 
@@ -76,6 +82,13 @@ export function DraftCompletionModal({
  onOpenChange,
  onActivated,
 }: Props) {
+ const user = useAuthStore((state) => state.user);
+ const canManageFinance = canManageCandidateFinance(user);
+ const needsAdminFinance =
+ !canManageFinance &&
+ contractor.missing_fields.some((field) =>
+ ["rate_candidate","rate_client"].includes(field)
+ );
  const [form, setForm] = React.useState<FormState>(() =>
  toFormState(contractor)
  );
@@ -88,15 +101,18 @@ export function DraftCompletionModal({
 
  const saveAndActivate = useMutation({
  mutationFn: async () => {
- const payload = {
+ const payload: Record<string, unknown> = {
  start_date: form.start_date,
  end_date: form.end_date,
- rate_candidate: Number(form.rate_candidate),
- rate_client: Number(form.rate_client),
  contract_type: form.contract_type,
  work_mode: form.work_mode,
  };
+ if (canManageFinance) {
+ payload.rate_candidate = Number(form.rate_candidate);
+ payload.rate_client = Number(form.rate_client);
+ }
  await contractsApi.update(contractor.contract_id, payload);
+ if (needsAdminFinance) return;
  await contractsApi.activate(contractor.contract_id);
  },
  onSuccess: () => {
@@ -121,10 +137,11 @@ export function DraftCompletionModal({
  });
 
  const margin =
- form.rate_candidate && form.rate_client
+ canManageFinance && form.rate_candidate && form.rate_client
  ? Number(form.rate_client) - Number(form.rate_candidate)
  : null;
- const canSubmit = formDirtyOrValid(form) && !saveAndActivate.isPending;
+ const canSubmit =
+ formDirtyOrValid(form, canManageFinance) && !saveAndActivate.isPending;
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,8 +152,9 @@ export function DraftCompletionModal({
  {contractor.candidate.lastname}
  </DialogTitle>
  <DialogDescription>
- Wypełnij wymagane pola, żeby aktywować kontrakt i przenieść
- kontraktora do zakładki „Aktywni".
+ {needsAdminFinance
+ ? "Uzupełnij dane operacyjne. Administrator dokończy aktywację kontraktu."
+ : "Wypełnij wymagane pola, żeby aktywować kontrakt i przenieść kontraktora do zakładki „Aktywni”."}
  </DialogDescription>
  </DialogHeader>
 
@@ -164,6 +182,8 @@ export function DraftCompletionModal({
  }
  />
  </div>
+ {canManageFinance && (
+ <>
  <div>
  <Label htmlFor="rate_candidate">Stawka kandydat (PLN) *</Label>
  <Input
@@ -190,6 +210,8 @@ export function DraftCompletionModal({
  }
  />
  </div>
+ </>
+ )}
  <div>
  <Label htmlFor="contract_type">Typ umowy *</Label>
  <Select
@@ -264,7 +286,8 @@ export function DraftCompletionModal({
  loading={saveAndActivate.isPending}
  onClick={() => saveAndActivate.mutate()}
  >
- <CheckCircle2 className="h-4 w-4" /> Aktywuj kontrakt
+ <CheckCircle2 className="h-4 w-4" />{""}
+ {needsAdminFinance ? "Zapisz dane operacyjne" : "Aktywuj kontrakt"}
  </Button>
  </DialogFooter>
  </DialogContent>

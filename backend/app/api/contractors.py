@@ -190,9 +190,8 @@ async def list_contractors(
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
     items = [_to_item(c) for c in contracts]
-    # P0.12: stawki/marża tylko dla VIEW_FINANCE (admin + delivery_lead) —
-    # kanoniczna polityka NEXUS. recruiter/sourcer/tac zachowują listę
-    # kontraktorów (operacyjnie), ale bez kwot.
+    # Stawki, marża i parametry interpretacji kwoty tylko dla VIEW_FINANCE.
+    # Pozostali zachowują listę operacyjną bez finansów.
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
     if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
@@ -200,6 +199,8 @@ async def list_contractors(
             item.rate_candidate = None
             item.rate_client = None
             item.margin = None
+            item.rate_unit = None
+            item.currency = None
     return ContractorList(items=items, total=total, page=page, page_size=page_size)
 
 

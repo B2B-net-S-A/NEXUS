@@ -49,6 +49,7 @@ from app.api import (
 from app.api import activities
 from app.api import admin
 from app.api import analytics_v1 as analytics_v1_api
+from app.api import dashboard_v2 as dashboard_v2_api
 from app.api import financial_adjustments as financial_adjustments_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
@@ -995,6 +996,10 @@ app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
 app.include_router(
     analytics_v1_api.router, prefix="/api/analytics/v1", tags=["analytics-v1"]
+)
+# Canonical role dashboards; v1/legacy routes remain available during rollout.
+app.include_router(
+    dashboard_v2_api.router, prefix="/api/dashboard/v2", tags=["dashboard-v2"]
 )
 # Korekty finansowe (plan analytics PR 6) — immutable audit trail.
 app.include_router(

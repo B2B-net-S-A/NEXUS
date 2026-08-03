@@ -3445,9 +3445,8 @@ async def set_recruitment_client_rate(
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
     # Zapis „stawki do klienta" jest bramkowany zależnością `CandidateFinanceAccess`
-    # (admin + delivery_lead + tac) — świadomy kontrakt: `tac` operacyjnie ustawia
-    # stawki wysyłki do klienta (patrz test_client_rate_requires_finance_capability),
-    # nawet jeśli `/history` redaguje samą WARTOŚĆ dla ról spoza `has_financial_access`.
+    # (Admin-only). Finance nie wchodzi na ścieżki z candidate PII, a role
+    # delivery/recruitment zachowują operacyjny `/history` z usuniętymi kwotami.
     # Zmiana jest audytowana old→new poniżej (`CLIENT_RATE_CHANGED`).
     #
     # Resource scope: rola mówi tylko „wolno ci ustawiać stawki do klienta",

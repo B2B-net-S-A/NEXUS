@@ -37,6 +37,7 @@ import { useUiStore } from "@/store/ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import { dashboardHref } from "@/lib/dashboard-presets";
 
 type BadgeCounts = {
   candidates?: number;
@@ -70,7 +71,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Sourcing",
     icon: Users,
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       // Moduł kandydatów (audyt M2 PR1): rola `user` (viewer/klient) nie ma
       // dostępu — backend 403 + middleware /403; chowamy linki żeby nie
       // prowadzić w ślepy zaułek.
@@ -248,6 +249,24 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+const FINANCE_NAV_SECTIONS: NavSection[] = [
+  {
+    title: "Finanse",
+    icon: BarChart3,
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    ],
+  },
+  {
+    title: "System",
+    icon: Settings,
+    items: [
+      { href: "/help", label: "Pomoc", icon: HelpCircle },
+      { href: "/settings", label: "Ustawienia", icon: Settings },
+    ],
+  },
+];
+
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
@@ -349,6 +368,9 @@ export function SidebarV2({
 }) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
+  const defaultDashboardHref = dashboardHref(user);
+  const isFinanceOnly = hasRole(user, "finance") && !hasRole(user, "admin");
+  const navSections = isFinanceOnly ? FINANCE_NAV_SECTIONS : NAV_SECTIONS;
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const canUseContactQueue = hasRole(user, "tac", "recruiter", "sourcer");
   const contactFeature = useCandidateContactFeature({
@@ -394,13 +416,13 @@ export function SidebarV2({
     userRoleForBadge === "head_of_recruitment";
 
   const { data: stats } = useQuery({
-    queryKey: ["sidebar-badges-v2", isApproverForBadge],
+    queryKey: ["sidebar-badges-v2", isApproverForBadge, isFinanceOnly],
     // Wait until auth is resolved before firing. `isApproverForBadge` derives
     // from `user.role`, which flips from `false` (user null) to its real value
     // once the auth store hydrates — without this gate the query key changes
     // mid-load and the badge counts (/candidates, /jobs) are fetched twice on
     // every page load.
-    enabled: !!user,
+    enabled: !!user && !isFinanceOnly,
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -464,15 +486,14 @@ export function SidebarV2({
 
   const badgeCounts = stats ?? {};
   const isActive = (href: string) => {
+    const hrefPath = href.split("?")[0];
     if (
       pathname.startsWith("/candidates/contact-queue") &&
-      href === "/candidates"
+      hrefPath === "/candidates"
     ) {
       return false;
     }
-    return href === "/"
-      ? pathname === "/"
-      : pathname === href || pathname.startsWith(href + "/");
+    return pathname === hrefPath || pathname.startsWith(hrefPath + "/");
   };
   const initials = user?.name
     ? user.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
@@ -498,7 +519,7 @@ export function SidebarV2({
         )}
       >
         <Link
-          href="/"
+          href={defaultDashboardHref}
           aria-label="Nexus — strona główna"
           className="flex items-center gap-2 flex-1 min-w-0 rounded-md focus:outline-hidden"
         >
@@ -547,7 +568,7 @@ export function SidebarV2({
           collapsed && !mobileOpen ? "px-2 space-y-1" : "px-2 space-y-0.5"
         )}
       >
-        {NAV_SECTIONS.map((section) => {
+        {navSections.map((section) => {
           const visibleItems = section.items.filter(
             (item) =>
               (!item.roles || hasRole(user, ...item.roles)) &&
@@ -564,19 +585,23 @@ export function SidebarV2({
               )}
               {collapsed && !mobileOpen && <div className="my-2 border-t border-sidebar-border mx-2" />}
               <div className={cn(collapsed && !mobileOpen ? "space-y-1" : "space-y-0.5")}>
-                {visibleItems.map(({ href, label, icon, badgeKey, external }) => (
-                  <NavLink
-                    key={href}
-                    href={href}
-                    label={label}
-                    icon={icon}
-                    active={isActive(href)}
-                    collapsed={collapsed && !mobileOpen}
-                    badgeCount={badgeKey ? badgeCounts[badgeKey] : undefined}
-                    onClick={onClose}
-                    external={external}
-                  />
-                ))}
+                {visibleItems.map(({ href, label, icon, badgeKey, external }) => {
+                  const resolvedHref =
+                    href === "/dashboard" ? defaultDashboardHref : href;
+                  return (
+                    <NavLink
+                      key={href}
+                      href={resolvedHref}
+                      label={label}
+                      icon={icon}
+                      active={isActive(resolvedHref)}
+                      collapsed={collapsed && !mobileOpen}
+                      badgeCount={badgeKey ? badgeCounts[badgeKey] : undefined}
+                      onClick={onClose}
+                      external={external}
+                    />
+                  );
+                })}
               </div>
             </div>
           );

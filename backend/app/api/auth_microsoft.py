@@ -42,7 +42,13 @@ from app.core.security import create_access_token, create_refresh_token
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
+from app.services.aad_role_policy import (
+    InvalidAadRoleMapping,
+    fail_closed_invalid_aad_mapping,
+    validate_aad_mapped_roles,
+)
 from app.services.m365 import oauth as m365_oauth
+from app.services.onboarding_access import onboarding_persona_changed
 
 logger = logging.getLogger(__name__)
 
@@ -380,22 +386,16 @@ async def callback(
     result = await db.execute(select(User).where(User.email == email_lower))
     user = result.scalar_one_or_none()
     if user is None:
-        # First-time SSO users self-provision as the least-privileged
-        # read-only viewer (``UserRole.user``), NOT an active recruiter.
-        # The domain whitelist only proves the email belongs to the corp
-        # tenant — it says nothing about whether that person should have
-        # candidate/RODO write access. AAD group RBAC (the authoritative
-        # role source) is deliberately hard-disabled, so a recruiter default
-        # would grant full write access gated by domain alone. An admin
-        # promotes real recruiters via Settings → Admin → Users. The account
-        # is still ``is_active=True`` so the viewer CAN log in (read-only),
-        # they are simply not blocked.
+        # First-time users from the verified corporate-domain allowlist enter
+        # the Recruiter persona. They remain behind mandatory onboarding, and
+        # an enabled AAD role mapping below stays authoritative and may replace
+        # this bootstrap role before the first session is issued.
         user = User(
             email=email_lower,
             name=name,
             password_hash=None,  # SSO-only — no bcrypt hash.
-            role=UserRole.user,
-            roles=[UserRole.user.value],
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
             is_active=True,
             profile_completed=False,
             oauth_provider="microsoft",
@@ -412,10 +412,11 @@ async def callback(
         # placeholder user_id=0 (system action — no admin actor).
         await db.flush()  # populate user.id for the Activity FK
         logger.info(
-            "sso new-user provisioned as read-only viewer: email=%s domain=%s role=%s",
+            "sso new-user provisioned behind recruiter onboarding: "
+            "email=%s domain=%s role=%s",
             email_lower,
             domain,
-            UserRole.user.value,
+            UserRole.recruiter.value,
         )
         db.add(
             Activity(
@@ -428,7 +429,7 @@ async def callback(
                     "domain": domain,
                     "provider": "microsoft",
                     "azure_oid": azure_oid,
-                    "default_role": UserRole.user.value,
+                    "default_role": UserRole.recruiter.value,
                 },
             )
         )
@@ -486,10 +487,22 @@ async def callback(
                 status_code=302,
             )
 
+        # Keep the authoritative membership snapshot even when the role map is
+        # malformed. The invalid-mapping branch commits it together with the
+        # deactivation and audit record.
+        user.aad_group_ids = groups
         try:
             mapping = settings.aad_group_role_map
-        except ValueError:
+        except ValueError as exc:
             logger.exception("sso callback: AAD_GROUP_ROLE_MAP_JSON invalid")
+            await fail_closed_invalid_aad_mapping(
+                db,
+                user,
+                actor_user_id=user.id,
+                action="sso_aad_role_mapping_invalid",
+                reason=str(exc),
+                details={"aad_group_count": len(groups)},
+            )
             return RedirectResponse(
                 _frontend_login_error_url(
                     "AAD role mapping misconfigured. Contact administrator."
@@ -498,15 +511,14 @@ async def callback(
             )
 
         role_strs = map_groups_to_roles([g["id"] for g in groups], mapping)
-        # Snapshot ALL group memberships (not just the matched one) — used
-        # later by admin audit and the resync endpoint, which only needs to
-        # re-evaluate the mapping against already-stored ids.
-        user.aad_group_ids = groups
 
         if not role_strs:
             # No NEXUS role granted by any AAD group → block login.
             # We also flip is_active=false so subsequent password-based
             # login attempts (if any password_hash still exists) also fail.
+            if user.is_active:
+                user.authorization_version += 1
+                user.tokens_valid_after = datetime.now(timezone.utc)
             user.is_active = False
             await db.flush()
             db.add(
@@ -531,11 +543,49 @@ async def callback(
                 status_code=302,
             )
 
+        try:
+            unique_role_strs, mapped_roles = validate_aad_mapped_roles(role_strs)
+        except InvalidAadRoleMapping as exc:
+            logger.error(
+                "sso callback: invalid matched AAD roles=%s: %s",
+                role_strs,
+                exc,
+            )
+            await fail_closed_invalid_aad_mapping(
+                db,
+                user,
+                actor_user_id=user.id,
+                action="sso_aad_role_mapping_invalid",
+                reason=str(exc),
+                mapped_roles=role_strs,
+                details={"aad_group_count": len(groups)},
+            )
+            return RedirectResponse(
+                _frontend_login_error_url(
+                    "AAD role mapping is invalid. Contact administrator."
+                ),
+                status_code=302,
+            )
+
         # Multi-role assignment (migracja 0110): first match is primary
         # (writes ``users.role`` for legacy code), full ordered list is
         # written to ``users.roles``. Only audit primary-role transitions.
-        new_role = UserRole(role_strs[0])
+        role_strs = unique_role_strs
+        new_role = mapped_roles[0]
         prior_roles = list(user.roles or [])
+        onboarding_reset = onboarding_persona_changed(
+            [role.value for role in user.get_all_roles()],
+            role_strs,
+        )
+        legacy_sections_reset = new_role in {UserRole.finance, UserRole.user} and bool(
+            user.allowed_sections
+        )
+        authorization_changed = (
+            user.role != new_role
+            or prior_roles != role_strs
+            or not user.is_active
+            or legacy_sections_reset
+        )
         if user.role != new_role:
             db.add(
                 Activity(
@@ -569,7 +619,15 @@ async def callback(
                 )
             )
             user.roles = role_strs
+        if onboarding_reset:
+            user.profile_completed = False
+            user.profile_completed_at = None
+        if new_role in {UserRole.finance, UserRole.user}:
+            user.allowed_sections = []
         user.is_active = True
+        if authorization_changed:
+            user.authorization_version += 1
+            user.tokens_valid_after = datetime.now(timezone.utc)
 
     # ``force_password_change`` is a PASSWORD-login concept: it gates the app to
     # make a user rotate an admin-set temporary password. A Microsoft SSO login
@@ -594,8 +652,11 @@ async def callback(
         user.role.value,
         force_password_change=user.force_password_change,
         roles=[r.value for r in user.get_all_roles()],
+        authorization_version=user.authorization_version,
     )
-    refresh = create_refresh_token(user.id)
+    refresh = create_refresh_token(
+        user.id, authorization_version=user.authorization_version
+    )
 
     # Stash behind a short-lived UUID (frontend will POST it back).
     exchange_code = secrets.token_urlsafe(40)

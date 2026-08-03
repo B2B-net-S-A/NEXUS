@@ -30,12 +30,17 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.user_email_template import UserEmailTemplate
+from app.services.access_scope import (
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
+)
 
 router = APIRouter()
 
@@ -151,7 +156,7 @@ def _candidate_ctx(c: Optional[Candidate]) -> dict:
     }
 
 
-def _job_ctx(j: Optional[Job]) -> dict:
+def _job_ctx(j: Optional[Job], *, include_finance: bool = False) -> dict:
     if j is None:
         return {}
     client = getattr(j, "client", None)
@@ -161,8 +166,8 @@ def _job_ctx(j: Optional[Job]) -> dict:
         "role_name": j.title,
         "location": j.location,
         "client_name": client.name if client else None,
-        "salary_min": j.salary_min,
-        "salary_max": j.salary_max,
+        "salary_min": j.salary_min if include_finance else None,
+        "salary_max": j.salary_max if include_finance else None,
     }
 
 
@@ -179,6 +184,8 @@ def _build_render_context(
     current_user,
     candidate: Optional[Candidate],
     job: Optional[Job],
+    *,
+    include_finance: bool = False,
 ) -> dict:
     """Assemble the dict exposed to Jinja2 templates.
 
@@ -186,7 +193,7 @@ def _build_render_context(
     variables template authors can use. New keys = additive; renames or
     removals will break existing templates in the wild.
     """
-    job_ctx = _job_ctx(job)
+    job_ctx = _job_ctx(job, include_finance=include_finance)
     return {
         "candidate": _candidate_ctx(candidate),
         "request": job_ctx,
@@ -376,8 +383,21 @@ async def render_template(
         job = await db.scalar(
             select(Job).where(Job.id == job_id).options(selectinload(Job.client))
         )
+        if job is not None:
+            assert_delivery_lead_client_visible(
+                job.client_id,
+                await resolve_delivery_lead_client_ids(current_user, db),
+            )
 
-    ctx = _build_render_context(t, current_user, candidate, job)
+    ctx = _build_render_context(
+        t,
+        current_user,
+        candidate,
+        job,
+        include_finance=user_has_capability(
+            current_user, AnalyticsCapability.VIEW_FINANCE
+        ),
+    )
 
     try:
         body_tmpl = _jinja_env.from_string(t.body_html)

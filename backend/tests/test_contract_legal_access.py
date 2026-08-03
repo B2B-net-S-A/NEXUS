@@ -4,7 +4,9 @@ P0.11 containment: B2B generator + contract-template render używały bare
 ``CurrentUser``, więc read-only viewer (`user`) oraz recruiter/sourcer mogli
 generować/mutować/pobierać umowy prawne. Po zmianie chroni je ``ContractLegalAccess``
 (admin / head_of_recruitment / delivery_lead / tac — grono legal-team, spójne z
-``client_access.can_view_legal_documents``).
+``client_access.can_view_legal_documents``). Delivery Lead/TAC additionally
+require at least one explicit client assignment for global tools and the exact
+client assignment for entity routes.
 
 Ten test dowodzi: denied roles → 403, legal-team → NIE 403 (auth przechodzi),
 na reprezentatywnych endpointach każdego typu (GET bez body, GET z listą,
@@ -27,26 +29,57 @@ GENERATE_URL = "/api/b2b-generator/generate"
 # Legal-team — auth must pass (may still 404/422 from business logic, never 403).
 ALLOWED_ROLES = ["admin", "head_of_recruitment", "delivery_lead", "tac"]
 # Delivery + viewer — must be 403 on every legal-document surface.
-DENIED_ROLES = ["recruiter", "sourcer", "user"]
+DENIED_ROLES = ["recruiter", "sourcer", "finance", "user"]
 
 
-async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, str]:
+async def _headers_for(
+    app_client: AsyncClient,
+    role_value: str,
+    *,
+    assign_client: bool = True,
+) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
+    from app.models.client import Client
+    from app.models.team_structure import (
+        ClientTacAssignment,
+        DeliveryLeadClientAssignment,
+    )
     from app.models.user import User, UserRole
 
     email = f"legal-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
     password = f"P4ss_{uuid.uuid4().hex[:6]}!"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Legal {role_value}",
-                role=UserRole(role_value),
-                is_active=True,
-            )
+        role = UserRole(role_value)
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Legal {role_value}",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+            profile_completed=True,
         )
+        db.add(user)
+        await db.flush()
+        if assign_client and role in (UserRole.delivery_lead, UserRole.tac):
+            client = Client(name=f"Legal scope {uuid.uuid4().hex[:8]}")
+            db.add(client)
+            await db.flush()
+            if role is UserRole.delivery_lead:
+                db.add(
+                    DeliveryLeadClientAssignment(
+                        delivery_lead_user_id=user.id,
+                        client_id=client.id,
+                    )
+                )
+            else:
+                db.add(
+                    ClientTacAssignment(
+                        tac_user_id=user.id,
+                        client_id=client.id,
+                    )
+                )
         await db.commit()
 
     login = await app_client.post(
@@ -94,6 +127,23 @@ async def test_legal_team_roles_pass_auth(app_client: AsyncClient, role_value: s
     assert r.status_code == 404, (
         f"{role_value} POST generate → {r.status_code}: {r.text}"
     )
+
+
+@pytest.mark.parametrize("role_value", ["delivery_lead", "tac"])
+async def test_unassigned_client_team_role_fails_closed(
+    app_client: AsyncClient,
+    role_value: str,
+):
+    headers = await _headers_for(
+        app_client,
+        role_value,
+        assign_client=False,
+    )
+    for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
+        response = await app_client.get(url, headers=headers)
+        assert response.status_code == 403, (
+            f"unassigned {role_value} GET {url} → {response.status_code}"
+        )
 
 
 async def test_unauthenticated_is_rejected(app_client: AsyncClient):

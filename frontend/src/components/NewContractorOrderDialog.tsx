@@ -12,6 +12,10 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import {
+  canManageCandidateFinance,
+  useAuthStore,
+} from "@/store/auth";
 
 interface NewContractorOrderDialogProps {
   clientId: number;
@@ -58,6 +62,8 @@ export function NewContractorOrderDialog({
   onCreated,
 }: NewContractorOrderDialogProps) {
   const { showToast, showError } = useToast();
+  const user = useAuthStore((state) => state.user);
+  const canManageFinance = canManageCandidateFinance(user);
 
   // Candidate typeahead state
   const [candidateQuery, setCandidateQuery] = useState("");
@@ -142,7 +148,9 @@ export function NewContractorOrderDialog({
       if (!selectedCandidate) {
         throw new Error("Wybierz kandydata");
       }
-      return dlPortalApi.createContractWithOrder(clientId, {
+      const payload: Parameters<
+        typeof dlPortalApi.createContractWithOrder
+      >[1] = {
         candidate_id: selectedCandidate.id,
         job_id: jobId ? Number(jobId) : null,
         title,
@@ -150,17 +158,24 @@ export function NewContractorOrderDialog({
         contract_end_date: contractEnd || null,
         order_start_date: orderStart || contractStart,
         order_end_date: orderEnd || null,
-        rate_client: rateClientNum ?? 0,
-        rate_candidate: rateCandidateNum ?? 0,
-        rate_unit: rateUnit,
-        billing_hours_per_month: Number(billingHours),
-        currency,
         notes: notes || null,
-      });
+      };
+      if (canManageFinance) {
+        payload.rate_client = rateClientNum ?? undefined;
+        payload.rate_candidate = rateCandidateNum ?? undefined;
+        payload.rate_unit = rateUnit;
+        payload.billing_hours_per_month = Number(billingHours);
+        payload.currency = currency;
+      }
+      return dlPortalApi.createContractWithOrder(clientId, payload);
     },
     onSuccess: (res) => {
+      const marginSuffix =
+        res.data.monthly_margin == null
+          ? ""
+          : ` (marża ${res.data.monthly_margin}/mc)`;
       showToast(
-        `Kontrakt #${res.data.contract_id} + Order #${res.data.order_id} utworzone (marża ${res.data.monthly_margin}/mc)`,
+        `Kontrakt #${res.data.contract_id} + Order #${res.data.order_id} utworzone${marginSuffix}`,
         "success",
       );
       onCreated();
@@ -179,10 +194,14 @@ export function NewContractorOrderDialog({
             !selectedCandidate ||
             !title ||
             !contractStart ||
-            rateClientNum === null ||
-            rateCandidateNum === null
+            (canManageFinance &&
+              (rateClientNum === null || rateCandidateNum === null))
           ) {
-            showError("Wypełnij wymagane pola (kandydat, tytuł, daty, stawki)");
+            showError(
+              canManageFinance
+                ? "Wypełnij wymagane pola (kandydat, tytuł, daty, stawki)"
+                : "Wypełnij wymagane pola (kandydat, tytuł, data rozpoczęcia)",
+            );
             return;
           }
           mutation.mutate();
@@ -375,78 +394,87 @@ export function NewContractorOrderDialog({
           </label>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">Klient płaci /mc *</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={rateClient}
-              onChange={(e) => setRateClient(sanitizeDecimalInput(e.target.value))}
-              required
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="np. 215,60"
-            />
-          </label>
-          <label>
-            <span className="text-sm">My płacimy kontraktorowi *</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={rateCandidate}
-              onChange={(e) => setRateCandidate(sanitizeDecimalInput(e.target.value))}
-              required
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="np. 150,40"
-            />
-          </label>
-        </div>
+        {canManageFinance && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <label>
+                <span className="text-sm">Klient płaci /mc *</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={rateClient}
+                  onChange={(e) =>
+                    setRateClient(sanitizeDecimalInput(e.target.value))
+                  }
+                  required
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                  placeholder="np. 215,60"
+                />
+              </label>
+              <label>
+                <span className="text-sm">My płacimy kontraktorowi *</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={rateCandidate}
+                  onChange={(e) =>
+                    setRateCandidate(sanitizeDecimalInput(e.target.value))
+                  }
+                  required
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                  placeholder="np. 150,40"
+                />
+              </label>
+            </div>
 
-        {margin !== null && (
-          <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded">
-            Marża /mc (przybl.): <strong>{margin.toLocaleString("pl-PL")}</strong> {currency}
-            {rateClientNum !== null && rateClientNum > 0 && (
-              <> ({((margin / rateClientNum) * 100).toFixed(1)}%)</>
+            {margin !== null && (
+              <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded">
+                Marża /mc (przybl.):{" "}
+                <strong>{margin.toLocaleString("pl-PL")}</strong> {currency}
+                {rateClientNum !== null && rateClientNum > 0 && (
+                  <> ({((margin / rateClientNum) * 100).toFixed(1)}%)</>
+                )}
+              </div>
             )}
-          </div>
-        )}
 
-        <div className="grid grid-cols-3 gap-3">
-          <label>
-            <span className="text-sm">Jednostka stawki</span>
-            <select
-              value={rateUnit}
-              onChange={(e) =>
-                setRateUnit(e.target.value as "monthly" | "daily" | "hourly")
-              }
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            >
-              <option value="monthly">Miesięcznie</option>
-              <option value="daily">Dziennie</option>
-              <option value="hourly">Godzinowo</option>
-            </select>
-          </label>
-          <label>
-            <span className="text-sm">Godziny / mc</span>
-            <input
-              type="number"
-              min="1"
-              value={billingHours}
-              onChange={(e) => setBillingHours(e.target.value)}
-              disabled={rateUnit !== "hourly"}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background disabled:opacity-50"
-            />
-          </label>
-          <label>
-            <span className="text-sm">Waluta</span>
-            <input
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              maxLength={3}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            />
-          </label>
-        </div>
+            <div className="grid grid-cols-3 gap-3">
+              <label>
+                <span className="text-sm">Jednostka stawki</span>
+                <select
+                  value={rateUnit}
+                  onChange={(e) =>
+                    setRateUnit(e.target.value as "monthly" | "daily" | "hourly")
+                  }
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                >
+                  <option value="monthly">Miesięcznie</option>
+                  <option value="daily">Dziennie</option>
+                  <option value="hourly">Godzinowo</option>
+                </select>
+              </label>
+              <label>
+                <span className="text-sm">Godziny / mc</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={billingHours}
+                  onChange={(e) => setBillingHours(e.target.value)}
+                  disabled={rateUnit !== "hourly"}
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background disabled:opacity-50"
+                />
+              </label>
+              <label>
+                <span className="text-sm">Waluta</span>
+                <input
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  maxLength={3}
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                />
+              </label>
+            </div>
+          </>
+        )}
 
         <label className="block">
           <span className="text-sm">Notatki</span>

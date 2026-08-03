@@ -193,9 +193,9 @@ class ContractResponse(BaseModel):
     framework_rate: Optional[float] = None
     target_rate_min: Optional[float] = None
     target_rate_max: Optional[float] = None
-    currency: str
-    rate_unit: RateUnit
-    billing_hours_per_month: int
+    currency: Optional[str] = None
+    rate_unit: Optional[RateUnit] = None
+    billing_hours_per_month: Optional[int] = None
     margin: Optional[float]
     # Effective-dated candidate-rate schedule (oldest → newest). Empty for
     # contracts created before the schedule feature.
@@ -326,10 +326,9 @@ class ContractActivityEntry(BaseModel):
 
 class ContractRateHistoryEntry(BaseModel):
     id: int
-    # ``None`` when redacted for non-VIEW_FINANCE readers (P0.12) — the amount is
-    # the sensitive field; ``currency`` stays as metadata.
+    # ``None`` when redacted for non-VIEW_FINANCE readers (P0.12).
     rate: Optional[float] = None
-    currency: str
+    currency: Optional[str] = None
     contract_type: str
     start_date: date
     end_date: Optional[date] = None
@@ -441,8 +440,8 @@ class ContractorListItem(BaseModel):
     end_date: Optional[date] = None
     rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
-    rate_unit: RateUnit
-    currency: str = "PLN"
+    rate_unit: Optional[RateUnit] = None
+    currency: Optional[str] = None
     margin: Optional[float] = None
     contract_type: ContractType
     work_mode: Optional[ContractWorkMode] = None

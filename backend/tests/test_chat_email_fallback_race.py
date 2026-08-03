@@ -36,8 +36,10 @@ async def _seed_offline_chat_notification() -> tuple[int, int]:
             email=f"chatfb-{uuid.uuid4().hex[:8]}@example.com",
             password_hash=hash_password("T3st_pass_xxxxxxx!"),
             name="Chat Fallback",
-            role=UserRole.user,
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
             is_active=True,
+            profile_completed=True,
             last_seen_at=None,  # never online → qualifies
         )
         db.add(u)

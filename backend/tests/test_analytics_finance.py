@@ -3,7 +3,7 @@
 Pokrywa: konwersję FX (PLN + kurs raportowy; brak kursu = unavailable,
 NIGDY 1:1), prawdziwą arytmetykę miesięcy (28/29/30/31), bench/utilization,
 filled_at ustawiane RAZ, financial_adjustments (draft→approved, immutable,
-RBAC: write admin, read DL+).
+RBAC: Finance/Admin, bez Delivery Lead).
 """
 
 from __future__ import annotations
@@ -153,9 +153,11 @@ async def _login(client: AsyncClient, email: str, password: str) -> dict[str, st
 
 async def test_adjustments_rbac_and_immutability(fin_client: AsyncClient):
     email_admin, pass_admin = await _seed_user(UserRole.admin)
+    email_finance, pass_finance = await _seed_user(UserRole.finance)
     email_dl, pass_dl = await _seed_user(UserRole.delivery_lead)
     email_tac, pass_tac = await _seed_user(UserRole.tac)
     h_admin = await _login(fin_client, email_admin, pass_admin)
+    h_finance = await _login(fin_client, email_finance, pass_finance)
     h_dl = await _login(fin_client, email_dl, pass_dl)
     h_tac = await _login(fin_client, email_tac, pass_tac)
 
@@ -167,13 +169,13 @@ async def test_adjustments_rbac_and_immutability(fin_client: AsyncClient):
         "description": "Rabat testowy dla klienta X",
     }
 
-    # write: DL nie może, admin może
+    # write: DL nie może, Finance może
     denied = await fin_client.post(
         "/api/financial-adjustments", json=payload, headers=h_dl
     )
     assert denied.status_code == 403
     created = await fin_client.post(
-        "/api/financial-adjustments", json=payload, headers=h_admin
+        "/api/financial-adjustments", json=payload, headers=h_finance
     )
     assert created.status_code == 201, created.text
     body = created.json()
@@ -182,24 +184,35 @@ async def test_adjustments_rbac_and_immutability(fin_client: AsyncClient):
     assert body["currency"] == "PLN"
     adj_id = body["id"]
 
-    # read: DL tak, TAC nie
+    # read: Finance/Admin tak, DL i TAC nie
+    assert (
+        await fin_client.get("/api/financial-adjustments", headers=h_finance)
+    ).status_code == 200
+    assert (
+        await fin_client.get("/api/financial-adjustments", headers=h_admin)
+    ).status_code == 200
     assert (
         await fin_client.get("/api/financial-adjustments", headers=h_dl)
-    ).status_code == 200
+    ).status_code == 403
     assert (
         await fin_client.get("/api/financial-adjustments", headers=h_tac)
     ).status_code == 403
 
-    # approve: tylko admin; drugi approve = 409 (immutable)
+    # Finance przygotowuje korektę, ale zatwierdza ją wyłącznie Admin.
     deny_approve = await fin_client.post(
         f"/api/financial-adjustments/{adj_id}/approve", headers=h_dl
     )
     assert deny_approve.status_code == 403
+    deny_finance_approve = await fin_client.post(
+        f"/api/financial-adjustments/{adj_id}/approve", headers=h_finance
+    )
+    assert deny_finance_approve.status_code == 403
     approved = await fin_client.post(
         f"/api/financial-adjustments/{adj_id}/approve", headers=h_admin
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
+    assert approved.json()["approved_by"] != approved.json()["created_by"]
     again = await fin_client.post(
         f"/api/financial-adjustments/{adj_id}/approve", headers=h_admin
     )

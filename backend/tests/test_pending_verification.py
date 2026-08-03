@@ -4,11 +4,12 @@ Cover scenariuszy:
 - ruch na 'verified' z rate'm w widełkach → status=active, brak notyfikacji
 - ruch na 'verified' z rate'm > Job.salary_max → status=pending + notyfikacje
 - ruch na 'verified' bez expected_rate_value → 422
-- accept-verification przez delivery_lead → status=active + audit
+- accept/reject-verification przez admina → decyzja + audit
+- Delivery Lead / HoR → 403 na liście i decyzjach
 - accept-verification przez recruitera → 403
 - reject-verification → tworzy nowy CandidateStage z poprzednim stage'em
-- list pending-verifications dla approverów / 403 dla recruitera
-- notification helper wysyła do wszystkich approverów (admin+DL+HoR)
+- list pending-verifications tylko dla admina
+- notification helper wysyła tylko do adminów
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ from sqlalchemy import delete, select
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
-from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import (
@@ -61,6 +61,7 @@ async def _seed_user(role: UserRole, label: str = "pv") -> tuple[int, str, str]:
             name=f"PV {role.value} {label}",
             role=role,
             is_active=True,
+            profile_completed=True,
         )
         db.add(u)
         await db.commit()
@@ -127,9 +128,7 @@ async def _cleanup(*, candidate_ids: list[int], job_ids: list[int]) -> None:
                 )
             )
         if candidate_ids:
-            await db.execute(
-                delete(Candidate).where(Candidate.id.in_(candidate_ids))
-            )
+            await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
         if job_ids:
             await db.execute(delete(Job).where(Job.id.in_(job_ids)))
         await db.commit()
@@ -169,8 +168,8 @@ async def test_move_to_verified_within_budget_active(pv_client: AsyncClient):
 async def test_move_to_verified_above_budget_pending(pv_client: AsyncClient):
     _, email, pw = await _seed_user(UserRole.recruiter, "above")
     headers = await _login(pv_client, email, pw)
-    # Approverzy potrzebni żeby helper notyfikacyjny miał kogo powiadomić.
-    await _seed_user(UserRole.delivery_lead, "approver-dl")
+    # Admin potrzebny, żeby helper notyfikacyjny miał kogo powiadomić.
+    await _seed_user(UserRole.admin, "approver-admin")
     cand_id = await _seed_candidate()
     job_id = await _seed_job(salary_max=20000)
     try:
@@ -226,11 +225,11 @@ async def test_move_to_verified_missing_rate_returns_422(pv_client: AsyncClient)
 
 
 @pytest.mark.asyncio
-async def test_accept_verification_by_delivery_lead(pv_client: AsyncClient):
+async def test_accept_verification_by_admin(pv_client: AsyncClient):
     _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "ack-r")
-    _, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead, "ack-dl")
+    _, admin_email, admin_pw = await _seed_user(UserRole.admin, "ack-admin")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
-    dl_headers = await _login(pv_client, dl_email, dl_pw)
+    admin_headers = await _login(pv_client, admin_email, admin_pw)
     cand_id = await _seed_candidate()
     job_id = await _seed_job(salary_max=20000)
     try:
@@ -251,7 +250,7 @@ async def test_accept_verification_by_delivery_lead(pv_client: AsyncClient):
 
         accept = await pv_client.post(
             f"/api/pipeline/{stage_id}/accept-verification",
-            headers=dl_headers,
+            headers=admin_headers,
         )
         assert accept.status_code == 200, accept.text
         body = accept.json()
@@ -296,11 +295,43 @@ async def test_accept_verification_forbidden_for_recruiter(pv_client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "rej-r")
-    _, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead, "rej-dl")
+async def test_accept_verification_forbidden_for_delivery_lead(
+    pv_client: AsyncClient,
+):
+    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "forb-dl-r")
+    _, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead, "forb-dl")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     dl_headers = await _login(pv_client, dl_email, dl_pw)
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job(salary_max=20000)
+    try:
+        move = await pv_client.post(
+            "/api/pipeline/move",
+            headers=recr_headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+                "expected_rate_value": "30000",
+                "expected_rate_unit": "monthly",
+            },
+        )
+        stage_id = move.json()["id"]
+        denied = await pv_client.post(
+            f"/api/pipeline/{stage_id}/accept-verification",
+            headers=dl_headers,
+        )
+        assert denied.status_code == 403, denied.text
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
+    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "rej-r")
+    _, admin_email, admin_pw = await _seed_user(UserRole.admin, "rej-admin")
+    recr_headers = await _login(pv_client, recr_email, recr_pw)
+    admin_headers = await _login(pv_client, admin_email, admin_pw)
     cand_id = await _seed_candidate()
     job_id = await _seed_job(salary_max=20000)
     try:
@@ -331,10 +362,10 @@ async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
         assert ver.status_code == 200, ver.text
         ver_id = ver.json()["id"]
 
-        # Reject przez DL
+        # Reject przez admina
         rej = await pv_client.post(
             f"/api/pipeline/{ver_id}/reject-verification",
-            headers=dl_headers,
+            headers=admin_headers,
             json={"note": "Rate za wysoki, max 22000"},
         )
         assert rej.status_code == 200, rej.text
@@ -364,8 +395,12 @@ async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
 async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
     _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "list-r")
     _, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead, "list-dl")
+    _, hor_email, hor_pw = await _seed_user(UserRole.head_of_recruitment, "list-hor")
+    _, admin_email, admin_pw = await _seed_user(UserRole.admin, "list-admin")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     dl_headers = await _login(pv_client, dl_email, dl_pw)
+    hor_headers = await _login(pv_client, hor_email, hor_pw)
+    admin_headers = await _login(pv_client, admin_email, admin_pw)
     cand_id = await _seed_candidate()
     job_id = await _seed_job(salary_max=20000)
     try:
@@ -381,14 +416,15 @@ async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
             },
         )
 
-        forbidden = await pv_client.get(
-            "/api/pipeline/pending-verifications", headers=recr_headers
-        )
-        assert forbidden.status_code == 403
+        for denied_headers in (recr_headers, dl_headers, hor_headers):
+            forbidden = await pv_client.get(
+                "/api/pipeline/pending-verifications", headers=denied_headers
+            )
+            assert forbidden.status_code == 403
 
         ok = await pv_client.get(
             "/api/pipeline/pending-verifications",
-            headers=dl_headers,
+            headers=admin_headers,
             params={"job_id": job_id},
         )
         assert ok.status_code == 200, ok.text
@@ -400,27 +436,19 @@ async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_pending_verifications_mine_filters_by_delivery_lead(
+async def test_pending_verifications_mine_does_not_widen_delivery_lead_access(
     pv_client: AsyncClient,
 ):
-    """DL z `?mine=true` widzi tylko swoje Joby (delivery_lead_id == self.id).
-
-    Setup: 2 DL, każdy z osobnym Job + pending verification. Filtr `mine`
-    musi zwrócić tylko Job własnego DL — drugi Job (innego DL) odrzucony.
-    """
+    """`?mine=true` nie omija Admin-only nawet dla DL przypisanego do Joba."""
     _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-r")
     dl_uid_a, dl_a_email, dl_a_pw = await _seed_user(
         UserRole.delivery_lead, "mine-dl-a"
     )
-    dl_uid_b, _, _ = await _seed_user(UserRole.delivery_lead, "mine-dl-b")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     dl_a_headers = await _login(pv_client, dl_a_email, dl_a_pw)
     cand_a = await _seed_candidate()
-    cand_b = await _seed_candidate()
     job_a = await _seed_job(salary_max=20000, delivery_lead_id=dl_uid_a)
-    job_b = await _seed_job(salary_max=20000, delivery_lead_id=dl_uid_b)
     try:
-        # Pending verification dla Joba DL_A
         a = await pv_client.post(
             "/api/pipeline/move",
             headers=recr_headers,
@@ -433,52 +461,21 @@ async def test_pending_verifications_mine_filters_by_delivery_lead(
             },
         )
         assert a.status_code == 200, a.text
-        # Pending verification dla Joba DL_B
-        b = await pv_client.post(
-            "/api/pipeline/move",
-            headers=recr_headers,
-            json={
-                "candidate_id": cand_b,
-                "job_id": job_b,
-                "stage": "verified",
-                "expected_rate_value": "30000",
-                "expected_rate_unit": "monthly",
-            },
-        )
-        assert b.status_code == 200, b.text
-
-        # DL_A bez `mine` widzi WSZYSTKIE pending (backwards-compat)
-        all_resp = await pv_client.get(
-            "/api/pipeline/pending-verifications", headers=dl_a_headers
-        )
-        assert all_resp.status_code == 200
-        all_cand_ids = {item["candidate_id"] for item in all_resp.json()}
-        assert cand_a in all_cand_ids
-        assert cand_b in all_cand_ids
-
-        # DL_A z `mine=true` widzi TYLKO swojego kandydata
         mine_resp = await pv_client.get(
             "/api/pipeline/pending-verifications",
             headers=dl_a_headers,
             params={"mine": "true"},
         )
-        assert mine_resp.status_code == 200, mine_resp.text
-        mine_cand_ids = {item["candidate_id"] for item in mine_resp.json()}
-        assert cand_a in mine_cand_ids
-        assert cand_b not in mine_cand_ids
+        assert mine_resp.status_code == 403, mine_resp.text
     finally:
-        await _cleanup(candidate_ids=[cand_a, cand_b], job_ids=[job_a, job_b])
+        await _cleanup(candidate_ids=[cand_a], job_ids=[job_a])
 
 
 @pytest.mark.asyncio
-async def test_pending_verifications_mine_empty_when_no_assigned_jobs(
+async def test_pending_verifications_mine_does_not_widen_hor_access(
     pv_client: AsyncClient,
 ):
-    """HoR z `?mine=true` dostaje pustą listę gdy nie jest DL żadnego Joba.
-
-    HoR ma uprawnienia ApproverPlus, więc 200 OK + [] (nie 403).
-    Sprawdza graceful empty state dla nie-DL approverów.
-    """
+    """`?mine=true` nie omija Admin-only dla Head of Recruitment."""
     _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-empty-r")
     dl_uid, _, _ = await _seed_user(UserRole.delivery_lead, "mine-empty-dl")
     _, hor_email, hor_pw = await _seed_user(
@@ -502,30 +499,26 @@ async def test_pending_verifications_mine_empty_when_no_assigned_jobs(
             },
         )
 
-        # HoR widzi to bez `mine`
         all_resp = await pv_client.get(
             "/api/pipeline/pending-verifications", headers=hor_headers
         )
-        assert all_resp.status_code == 200
-        assert any(item["candidate_id"] == cand_id for item in all_resp.json())
+        assert all_resp.status_code == 403
 
-        # HoR z `mine=true` dostaje pustą listę (HoR nie jest DL żadnego Joba)
         mine_resp = await pv_client.get(
             "/api/pipeline/pending-verifications",
             headers=hor_headers,
             params={"mine": "true"},
         )
-        assert mine_resp.status_code == 200, mine_resp.text
-        mine_body = mine_resp.json()
-        assert isinstance(mine_body, list)
-        assert all(item["candidate_id"] != cand_id for item in mine_body)
+        assert mine_resp.status_code == 403, mine_resp.text
     finally:
         await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
 
 
 @pytest.mark.asyncio
-async def test_notification_sent_to_all_approvers(pv_client: AsyncClient):
-    # 3 approverzy w trzech rolach + 1 zwykły recruiter (nie powinien dostać).
+async def test_pending_verification_notification_sent_only_to_admin(
+    pv_client: AsyncClient,
+):
+    # Tylko admin; DL, HoR i recruiter nie mogą dostać PII ani kwot.
     _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "notif-r")
     admin_uid, _, _ = await _seed_user(UserRole.admin, "notif-admin")
     dl_uid, _, _ = await _seed_user(UserRole.delivery_lead, "notif-dl")
@@ -565,8 +558,8 @@ async def test_notification_sent_to_all_approvers(pv_client: AsyncClient):
             )
             recipients = {n.user_id for n in notifs}
             assert admin_uid in recipients
-            assert dl_uid in recipients
-            assert hor_uid in recipients
+            assert dl_uid not in recipients
+            assert hor_uid not in recipients
             assert other_uid not in recipients
     finally:
         await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])

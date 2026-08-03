@@ -8,16 +8,39 @@ period → 422, quality=unavailable przy wyłączonym CloudTalk.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from app.analytics.cache import build_cache_key
+from app.analytics.capabilities import AnalyticsCapability
+from app.analytics.periods import resolve_period
+from app.analytics.scope import (
+    Scope,
+    ScopeKind,
+    ensure_recruitment_user_scope,
+    ensure_team_scope,
+)
+from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.client import Client
+from app.models.team_structure import (
+    ClientTacAssignment,
+    DeliveryLeadClientAssignment,
+)
 from app.models.user import User, UserRole
+from app.services.access_scope import (
+    DashboardScope,
+    ScopeKind as DashboardScopeKind,
+)
 
 
 async def _seed_user(role: UserRole) -> tuple[str, str]:
@@ -73,6 +96,48 @@ async def _login(client: AsyncClient, email: str, password: str) -> dict[str, st
 async def _headers(client: AsyncClient, role: UserRole) -> dict[str, str]:
     email, password = await _seed_user(role)
     return await _login(client, email, password)
+
+
+async def _seed_client() -> int:
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Analytics V1 {uuid.uuid4().hex[:10]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+        return client.id
+
+
+async def _seed_delivery_scope() -> tuple[str, str, int, int, int]:
+    """Create one exact DL→client→TAC relationship and an unrelated TAC."""
+
+    dl_email, dl_password = await _seed_user(UserRole.delivery_lead)
+    tac_email, _ = await _seed_user(UserRole.tac)
+    other_email, _ = await _seed_user(UserRole.tac)
+    async with AsyncSessionLocal() as db:
+        dl = await db.scalar(select(User).where(User.email == dl_email))
+        tac = await db.scalar(select(User).where(User.email == tac_email))
+        other = await db.scalar(select(User).where(User.email == other_email))
+        assert dl is not None and tac is not None and other is not None
+
+        client = Client(name=f"Analytics DL Scope {uuid.uuid4().hex[:10]}")
+        db.add(client)
+        await db.flush()
+        db.add_all(
+            [
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=dl.id,
+                    client_id=client.id,
+                    is_head=False,
+                ),
+                ClientTacAssignment(
+                    tac_user_id=tac.id,
+                    client_id=client.id,
+                    is_primary=False,
+                ),
+            ]
+        )
+        await db.commit()
+        return dl_email, dl_password, client.id, tac.id, other.id
 
 
 # ── Gating trybu ─────────────────────────────────────────────────────────────
@@ -136,14 +201,13 @@ async def test_invalid_period_422(v1_client: AsyncClient, analytics_shadow):
 
 
 @pytest.mark.asyncio
-async def test_viewer_gets_aggregates_not_finance(
+async def test_retired_viewer_without_capability_gets_403(
     v1_client: AsyncClient, analytics_shadow
 ):
     headers = await _headers(v1_client, UserRole.user)
-    ok = await v1_client.get("/api/analytics/v1/overview", headers=headers)
-    assert ok.status_code == 200, ok.text
-
     for path in (
+        "/overview",
+        "/me/kpis",
         "/team/kpis",
         "/team/calls",
         "/finance/summary",
@@ -151,14 +215,17 @@ async def test_viewer_gets_aggregates_not_finance(
         "/commercial/tenders",
         "/clients/1/operations",
         "/clients/1/finance",
+        "/meta/metrics",
     ):
         resp = await v1_client.get(f"/api/analytics/v1{path}", headers=headers)
         assert resp.status_code == 403, f"{path}: {resp.status_code}"
 
 
 @pytest.mark.asyncio
-async def test_me_kpis_available_to_everyone(v1_client: AsyncClient, analytics_shadow):
-    for role in (UserRole.user, UserRole.recruiter, UserRole.delivery_lead):
+async def test_me_kpis_available_to_active_operational_personas(
+    v1_client: AsyncClient, analytics_shadow
+):
+    for role in (UserRole.recruiter, UserRole.delivery_lead):
         headers = await _headers(v1_client, role)
         resp = await v1_client.get("/api/analytics/v1/me/kpis", headers=headers)
         assert resp.status_code == 200, f"[{role.value}] {resp.text}"
@@ -198,10 +265,146 @@ async def test_user_recruitment_scope(v1_client: AsyncClient, analytics_shadow):
 
 
 @pytest.mark.asyncio
+async def test_delivery_lead_team_and_user_scope_follow_exact_client_tac_relation(
+    v1_client: AsyncClient, analytics_shadow
+):
+    (
+        dl_email,
+        dl_password,
+        client_id,
+        tac_id,
+        unrelated_tac_id,
+    ) = await _seed_delivery_scope()
+    headers = await _login(v1_client, dl_email, dl_password)
+
+    team = await v1_client.get("/api/analytics/v1/team/kpis", headers=headers)
+    assert team.status_code == 200, team.text
+    team_body = team.json()
+    assert team_body["scope"] == {
+        "kind": "delivery_clients",
+        "user_id": team_body["scope"]["user_id"],
+        "allowed_user_ids": [tac_id],
+        "client_tac_pairs": [
+            {"client_id": client_id, "tac_user_id": tac_id},
+        ],
+    }
+    assert {row["user_id"] for row in team_body["data"]["rows"]} == {tac_id}
+
+    calls = await v1_client.get("/api/analytics/v1/team/calls", headers=headers)
+    assert calls.status_code == 200, calls.text
+    assert calls.json()["scope"]["client_tac_pairs"] == [
+        {"client_id": client_id, "tac_user_id": tac_id},
+    ]
+    assert {row["user_id"] for row in calls.json()["data"]["rows"]} == {tac_id}
+
+    allowed = await v1_client.get(
+        f"/api/analytics/v1/recruitment/users/{tac_id}", headers=headers
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["scope"]["client_tac_pairs"] == [
+        {"client_id": client_id, "tac_user_id": tac_id},
+    ]
+
+    denied = await v1_client.get(
+        f"/api/analytics/v1/recruitment/users/{unrelated_tac_id}",
+        headers=headers,
+    )
+    assert denied.status_code == 403
+
+
+def test_delivery_lead_cache_key_contains_exact_relationship_pairs():
+    period = resolve_period(
+        "month",
+        now=datetime(2026, 7, 31, 12, tzinfo=ZoneInfo("Europe/Warsaw")),
+    )
+    capabilities = frozenset({AnalyticsCapability.VIEW_TEAM_KPI})
+    diagonal = Scope(
+        kind=ScopeKind.delivery_clients,
+        user_id=7,
+        allowed_user_ids=frozenset({101, 202}),
+        client_tac_pairs=frozenset({(10, 101), (20, 202)}),
+    )
+    crossed = Scope(
+        kind=ScopeKind.delivery_clients,
+        user_id=7,
+        allowed_user_ids=frozenset({101, 202}),
+        client_tac_pairs=frozenset({(10, 202), (20, 101)}),
+    )
+
+    assert diagonal.cache_token() != crossed.cache_token()
+    assert build_cache_key(
+        "team-kpis",
+        capabilities=capabilities,
+        scope=diagonal,
+        period=period,
+    ) != build_cache_key(
+        "team-kpis",
+        capabilities=capabilities,
+        scope=crossed,
+        period=period,
+    )
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_scope_resolver_preserves_pairs_and_denies_arbitrary_id(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    delivery_lead = User(
+        id=7,
+        email="scope-dl@example.com",
+        name="Scoped DL",
+        role=UserRole.delivery_lead,
+        roles=[UserRole.delivery_lead.value],
+        is_active=True,
+    )
+    resolved = DashboardScope(
+        kind=DashboardScopeKind.delivery_clients,
+        user_id=delivery_lead.id,
+        allowed_client_ids=frozenset({10, 20}),
+        allowed_tac_user_ids=frozenset({101, 202}),
+        allowed_operator_user_ids=frozenset({101, 202}),
+        allowed_client_tac_pairs=frozenset({(10, 101), (20, 202)}),
+    )
+    monkeypatch.setattr(
+        "app.analytics.scope.resolve_dashboard_scope",
+        AsyncMock(return_value=resolved),
+    )
+
+    team_scope = await ensure_team_scope(AsyncMock(), delivery_lead)
+    assert team_scope.kind is ScopeKind.delivery_clients
+    assert team_scope.allowed_user_ids == frozenset({101, 202})
+    assert team_scope.client_tac_pairs == frozenset({(10, 101), (20, 202)})
+
+    user_scope = await ensure_recruitment_user_scope(AsyncMock(), delivery_lead, 101)
+    assert user_scope.client_tac_pairs == frozenset({(10, 101)})
+
+    with pytest.raises(HTTPException) as exc:
+        await ensure_recruitment_user_scope(AsyncMock(), delivery_lead, 999)
+    assert exc.value.status_code == 403
+
+    monkeypatch.setattr(
+        "app.analytics.scope.resolve_dashboard_scope",
+        AsyncMock(
+            return_value=DashboardScope(
+                kind=DashboardScopeKind.delivery_clients,
+                user_id=delivery_lead.id,
+            )
+        ),
+    )
+    empty_scope = await ensure_team_scope(AsyncMock(), delivery_lead)
+    assert empty_scope.as_payload() == {
+        "kind": "delivery_clients",
+        "user_id": delivery_lead.id,
+        "allowed_user_ids": [],
+        "client_tac_pairs": [],
+    }
+
+
+@pytest.mark.asyncio
 async def test_tenders_values_only_with_finance(
     v1_client: AsyncClient, analytics_shadow
 ):
-    """TAC widzi przetargi BEZ kwot; DL z kwotami (viewer-safe denylist)."""
+    """TAC i DL widzą przetargi bez kwot; tylko Admin może dostać wartości."""
     headers_tac = await _headers(v1_client, UserRole.tac)
     tac_resp = await v1_client.get(
         "/api/analytics/v1/commercial/tenders", headers=headers_tac
@@ -215,6 +418,14 @@ async def test_tenders_values_only_with_finance(
         "/api/analytics/v1/commercial/tenders", headers=headers_dl
     )
     assert dl_resp.status_code == 200
+    for outcome in dl_resp.json()["data"]["outcomes"]:
+        assert "salary_max_sum" not in outcome
+
+    headers_admin = await _headers(v1_client, UserRole.admin)
+    admin_resp = await v1_client.get(
+        "/api/analytics/v1/commercial/tenders", headers=headers_admin
+    )
+    assert admin_resp.status_code == 200
     # recruiter w ogóle bez przetargów
     headers_rec = await _headers(v1_client, UserRole.recruiter)
     rec_resp = await v1_client.get(
@@ -227,14 +438,67 @@ async def test_tenders_values_only_with_finance(
 async def test_finance_summary_decimal_strings(
     v1_client: AsyncClient, analytics_shadow
 ):
-    headers = await _headers(v1_client, UserRole.delivery_lead)
-    resp = await v1_client.get("/api/analytics/v1/finance/summary", headers=headers)
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
-    assert data["currency"] == "PLN"
-    # kwoty jako decimal-string (plan §4.5), nie float
-    assert data["mrr"] is None or isinstance(data["mrr"], str)
-    assert data["monthly_margin"] is None or isinstance(data["monthly_margin"], str)
+    dl_headers = await _headers(v1_client, UserRole.delivery_lead)
+    denied = await v1_client.get(
+        "/api/analytics/v1/finance/summary", headers=dl_headers
+    )
+    assert denied.status_code == 403
+
+    from app.main import app
+
+    finance = User(
+        id=9_000_001,
+        email="analytics-finance@example.com",
+        name="Analytics Finance",
+        role=UserRole.finance,
+        roles=[UserRole.finance.value],
+        is_active=True,
+    )
+    app.dependency_overrides[get_current_user] = lambda: finance
+    try:
+        resp = await v1_client.get("/api/analytics/v1/finance/summary")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["currency"] == "PLN"
+        # kwoty jako decimal-string (plan §4.5), nie float
+        assert data["mrr"] is None or isinstance(data["mrr"], str)
+        assert data["monthly_margin"] is None or isinstance(data["monthly_margin"], str)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.asyncio
+async def test_finance_persona_has_org_wide_client_finance_without_dl_assignment(
+    v1_client: AsyncClient, analytics_shadow
+):
+    from app.main import app
+
+    client_id = await _seed_client()
+    finance = User(
+        id=9_000_002,
+        email="analytics-client-finance@example.com",
+        name="Analytics Client Finance",
+        role=UserRole.finance,
+        roles=[UserRole.finance.value],
+        is_active=True,
+    )
+    app.dependency_overrides[get_current_user] = lambda: finance
+    try:
+        finance_resp = await v1_client.get(
+            f"/api/analytics/v1/clients/{client_id}/finance"
+        )
+        assert finance_resp.status_code == 200, finance_resp.text
+        assert finance_resp.json()["scope"] == {
+            "kind": "client",
+            "client_id": client_id,
+        }
+
+        operations_resp = await v1_client.get(
+            f"/api/analytics/v1/clients/{client_id}/operations"
+        )
+        assert operations_resp.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.mark.asyncio
@@ -252,7 +516,7 @@ async def test_calls_quality_unavailable_when_cloudtalk_off(
 
 @pytest.mark.asyncio
 async def test_meta_metrics(v1_client: AsyncClient, analytics_shadow):
-    headers = await _headers(v1_client, UserRole.user)
+    headers = await _headers(v1_client, UserRole.recruiter)
     resp = await v1_client.get("/api/analytics/v1/meta/metrics", headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()

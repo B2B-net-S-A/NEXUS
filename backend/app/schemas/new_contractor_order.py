@@ -36,21 +36,24 @@ class NewContractorOrderRequest(BaseModel):
     """Nullable — kolumna "Zamówienie od" bywa pusta."""
     order_end_date: Optional[date] = None
 
-    # Finansowe (oba wymagane dla auto-marżowego Contractu). NUMERIC(12,3) —
-    # do 3 miejsc po przecinku (np. Alior 164.375 zł/h).
-    rate_client: Decimal = Field(..., ge=0, max_digits=12, decimal_places=3)
+    # Finansowe. Opcjonalne na poziomie schematu, aby Delivery Lead mógł
+    # utworzyć część operacyjną bez kwot. Endpoint wymaga obu stawek od Admina
+    # i odrzuca każdy jawny klucz finansowy od pozostałych ról.
+    rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=3)
     """Stawka jaką klient nam płaci (z PDF zamówienia) — dziesiętna (np. 164.375)."""
 
-    rate_candidate: Decimal = Field(..., ge=0, max_digits=12, decimal_places=3)
+    rate_candidate: Optional[Decimal] = Field(
+        None, ge=0, max_digits=12, decimal_places=3
+    )
     """Stawka jaką my płacimy kontraktorowi (z naszego B2B) — dziesiętna (np. 157.5)."""
 
-    rate_unit: str = "monthly"
-    """``monthly`` / ``daily`` / ``hourly`` (default monthly)."""
+    rate_unit: Optional[str] = None
+    """``monthly`` / ``daily`` / ``hourly``; Admin defaultuje do monthly."""
 
-    billing_hours_per_month: int = Field(160, ge=1)
-    """Dla rate_unit=hourly."""
+    billing_hours_per_month: Optional[int] = Field(None, ge=1)
+    """Dla rate_unit=hourly; Admin defaultuje do 160."""
 
-    currency: str = Field("PLN", max_length=3)
+    currency: Optional[str] = Field(None, max_length=3)
 
     total_value: Optional[float] = None
     """Total value pierwszego Orderu (rate_client × długość okresu) — opcjonalne."""
@@ -63,5 +66,5 @@ class NewContractorOrderResponse(BaseModel):
     contract_id: int
     order_id: int
     candidate_name: str
-    monthly_margin: Decimal
+    monthly_margin: Optional[Decimal] = None
     """rate_client - rate_candidate przeliczone na miesięczną stawkę."""

@@ -87,7 +87,10 @@ def test_map_groups_to_roles_returns_all_matches_in_mapping_order():
         "g-tac": "tac",
         "g-dl": "delivery_lead",
     }
-    assert map_groups_to_roles(["g-tac", "g-dl"], mapping_rev) == ["tac", "delivery_lead"]
+    assert map_groups_to_roles(["g-tac", "g-dl"], mapping_rev) == [
+        "tac",
+        "delivery_lead",
+    ]
 
 
 def test_map_groups_to_roles_empty_when_no_match():
@@ -377,6 +380,72 @@ async def test_sso_callback_blocks_user_with_no_matching_group(
         assert denial is not None
 
 
+@pytest.mark.asyncio
+async def test_sso_invalid_role_map_revokes_existing_admin_state(
+    app_client_no_redirect, monkeypatch, cleanup_users
+):
+    """A malformed authoritative map must not leave old Admin sessions alive."""
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"aad-invalid-map-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    group_id = f"grp-admin-{unique}"
+
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=None,
+            name="Former AAD Admin",
+            role=UserRole.admin,
+            roles=[UserRole.admin.value],
+            is_active=True,
+            profile_completed=True,
+            authorization_version=4,
+        )
+        db.add(user)
+        await db.commit()
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps({group_id: "unknown-role"}),
+    )
+    _patch_token_exchange_with_access(
+        monkeypatch,
+        {
+            "preferred_username": email,
+            "oid": f"oid-{unique}",
+            "name": "Former AAD Admin",
+        },
+    )
+    _patch_fetch_groups(
+        monkeypatch,
+        [{"id": group_id, "displayName": "NEXUS-Admins"}],
+    )
+
+    state = auth_ms_module._sign_login_state("v" * 64)
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": state},
+    )
+
+    assert resp.status_code == 302
+    assert "/login?" in resp.headers["location"]
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.email == email))
+        assert user is not None
+        assert user.is_active is False
+        assert user.authorization_version == 5
+        assert user.tokens_valid_after is not None
+        audit = await db.scalar(
+            select(Activity)
+            .where(Activity.entity_id == user.id)
+            .where(Activity.action == "sso_aad_role_mapping_invalid")
+        )
+        assert audit is not None
+
+
 # ── Admin endpoint: /resync-aad-groups ──────────────────────────────────────
 
 
@@ -507,6 +576,73 @@ async def test_resync_endpoint_422_when_user_has_no_stored_groups(
     )
     assert resp.status_code == 422
     assert "log in via" in resp.text or "log in" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_resync_exclusive_mapping_revokes_existing_admin_state(
+    app_client_no_redirect, monkeypatch, admin_token, cleanup_users
+):
+    """An invalid Finance hybrid commits deactivation before returning 422."""
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"resync-invalid-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    finance_group = f"grp-finance-{unique}"
+    recruiter_group = f"grp-recruiter-{unique}"
+
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=None,
+            name="Invalid AAD Hybrid",
+            role=UserRole.admin,
+            roles=[UserRole.admin.value],
+            is_active=True,
+            profile_completed=True,
+            authorization_version=6,
+            aad_group_ids=[
+                {"id": finance_group, "displayName": "NEXUS-Finance"},
+                {"id": recruiter_group, "displayName": "NEXUS-Recruiters"},
+            ],
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        target_id = user.id
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps(
+            {
+                finance_group: "finance",
+                recruiter_group: "recruiter",
+            }
+        ),
+    )
+
+    admin_id, token = admin_token
+    resp = await app_client_no_redirect.post(
+        f"/api/admin/users/{target_id}/resync-aad-groups",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 422
+    assert "finance role must be exclusive" in resp.text
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, target_id)
+        assert user is not None
+        assert user.is_active is False
+        assert user.authorization_version == 7
+        assert user.tokens_valid_after is not None
+        audit = await db.scalar(
+            select(Activity)
+            .where(Activity.entity_id == target_id)
+            .where(Activity.user_id == admin_id)
+            .where(Activity.action == "admin_aad_role_mapping_invalid")
+        )
+        assert audit is not None
 
 
 # ── Config validator ────────────────────────────────────────────────────────

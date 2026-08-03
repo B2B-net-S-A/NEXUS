@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
+import { useAuthStore } from "@/store/auth";
 
 const getMock = vi.fn();
 vi.mock("@/lib/api", () => ({
@@ -42,6 +43,22 @@ describe("ContractsListV2 — eksport dzieli frazę z listą", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
+    useAuthStore.setState({
+      user: {
+        id: 1,
+        email: "admin@example.com",
+        name: "Admin",
+        role: "admin",
+        roles: ["admin"],
+        profile_completed: true,
+        profile_completed_at: null,
+        force_password_change: false,
+        force_password_change_at: null,
+        capabilities: ["view_finance"],
+        analytics_capabilities: ["view_finance"],
+      },
+      hydrated: true,
+    });
     getMock.mockReset();
     getMock.mockImplementation((url: string) => {
       if (url === "/api/contracts") {
@@ -65,6 +82,7 @@ describe("ContractsListV2 — eksport dzieli frazę z listą", () => {
   });
 
   afterEach(() => {
+    useAuthStore.setState({ user: null, hydrated: true });
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

@@ -23,6 +23,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contract_templates import _contract_vars, _jinja_env
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -47,7 +48,7 @@ from app.models.job import Job
 from app.models.note import Note
 from app.models.rate_benchmark import RateBenchmark
 from app.models.rate_history import RateHistory
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.contract import (
     ContractActivateRequest,
     ContractActivityEntry,
@@ -99,7 +100,16 @@ from app.services.contract_lifecycle import (
 from app.services.contract_service import validate_ready_for_activation
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
-from app.api.financial_access import redact_feed_activity
+from app.api.financial_access import (
+    FinanceReadUser,
+    redact_feed_activity,
+    redact_financial_fields,
+)
+from app.services.access_scope import (
+    apply_delivery_lead_client_scope,
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -382,10 +392,10 @@ async def _latest_order_end_dates(
     return {row[0]: row[1] for row in rows.all()}
 
 
-# P0.12: pola kwotowe kontraktu widzą tylko role z VIEW_FINANCE (admin +
-# delivery_lead) — kanoniczna polityka NEXUS (analytics R0). TAC zachowuje
-# operacyjny widok listy/detalu, ale bez stawek, marży i harmonogramów kwot
-# (wzorzec redakcji z clients.py). `rate_unit`/`currency` to metadane, nie kwoty.
+# P0.12: pola kwotowe kontraktu widzą tylko role z VIEW_FINANCE
+# (Admin/Finance). TAC i Delivery Lead zachowują
+# operacyjny widok listy/detalu, ale bez stawek, marży, harmonogramów oraz
+# parametrów interpretacji kwoty.
 _CONTRACT_FINANCE_SCALARS = (
     "rate_candidate",
     "rate_client",
@@ -396,12 +406,61 @@ _CONTRACT_FINANCE_SCALARS = (
     "monthly_rate_candidate",
     "monthly_rate_client",
     "monthly_margin",
+    "currency",
+    "rate_unit",
+    "billing_hours_per_month",
 )
 _CONTRACT_FINANCE_LISTS = (
     "candidate_rate_schedule",
     "client_rate_schedule",
     "framework_rate_schedule",
 )
+
+# Fields that can change a stored amount or its monetary interpretation. A
+# non-finance caller may still create/edit the operational part of a contract,
+# but an explicitly supplied key from this set is rejected before any write.
+_CONTRACT_FINANCE_WRITE_FIELDS = frozenset(
+    {
+        "rate_candidate",
+        "rate_client",
+        "candidate_rate_schedule",
+        "client_rate_schedule",
+        "framework_rate_schedule",
+        "framework_rate",
+        "target_rate_min",
+        "target_rate_max",
+        "margin",
+        "currency",
+        "rate_unit",
+        "billing_hours_per_month",
+        "new_rate_candidate",
+        "new_rate_client",
+        "new_rate_unit",
+        "new_billing_hours_per_month",
+        "rate_change",
+    }
+)
+
+
+def _assert_contract_finance_write_allowed(
+    current_user: User,
+    supplied_fields,
+) -> None:
+    """Reject hidden finance writes instead of merely redacting the response."""
+
+    forbidden = sorted(
+        set(supplied_fields).intersection(_CONTRACT_FINANCE_WRITE_FIELDS)
+    )
+    # Contract write routes carry candidate identity. Even the Finance persona
+    # is excluded here; it operates through person-free finance endpoints.
+    if forbidden and not current_user.has_role(UserRole.admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "finance_fields_forbidden",
+                "fields": forbidden,
+            },
+        )
 
 
 def _redact_contract_finance(item):
@@ -413,6 +472,17 @@ def _redact_contract_finance(item):
         if hasattr(item, field):
             setattr(item, field, [])
     return item
+
+
+async def _ensure_delivery_lead_contract_visible(
+    contract: Contract,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    assert_delivery_lead_client_visible(
+        contract.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
 
 
 @router.get("", response_model=ContractList)
@@ -471,6 +541,11 @@ async def list_contracts(
         selectinload(Contract.candidate_rate_schedule),
         selectinload(Contract.client_rate_schedule),
         selectinload(Contract.framework_rate_schedule),
+    )
+    query = apply_delivery_lead_client_scope(
+        query,
+        Contract.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
     )
     query = _apply_contract_list_filters(
         query,
@@ -654,7 +729,7 @@ def _contract_export_row(
 
 @router.get("/export")
 async def export_contracts(
-    current_user: TacPlus,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     format: str = Query("xlsx", regex="^(csv|xlsx)$"),
     q: Optional[str] = Query(None),
@@ -677,18 +752,8 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
-    # P0.12: eksport zawiera kolumny kwotowe (stawki, marża) i trafia do
-    # finance/delivery — dostęp tylko dla VIEW_FINANCE (admin + delivery_lead).
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
-        # NB: `status` to nazwa parametru query tego endpointu (przesłania
-        # moduł fastapi.status), więc kod HTTP musi być literałem, nie
-        # status.HTTP_403_FORBIDDEN.
-        raise HTTPException(
-            status_code=403,
-            detail="Eksport kontraktów wymaga uprawnienia finansowego (admin/DL)",
-        )
+    # Eksport zawiera dane kandydata razem ze stawkami i marżą, więc jest
+    # Admin-only. Finance korzysta z bezosobowych raportów finansowych.
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -770,6 +835,11 @@ async def export_contracts(
 async def create_contract(
     data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
+    _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
+    assert_delivery_lead_client_visible(
+        data.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
     payload = data.model_dump()
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
@@ -836,8 +906,8 @@ async def create_contract(
     detail = _to_detail(result.scalar_one())
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
-    # P0.12: writing a contract does not grant sight of its finances — TAC can
-    # create/PATCH (see #874) but the RESPONSE stays redacted for non-VIEW_FINANCE.
+    # Operacyjny create bez pól finansowych nie grantuje ich odczytu; odpowiedź
+    # pozostaje redagowana dla ról bez VIEW_FINANCE.
     if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
         _redact_contract_finance(detail)
     return detail
@@ -868,6 +938,8 @@ async def bulk_extend_contracts(
         raise HTTPException(status_code=422, detail="No contract ids provided")
     result = await db.execute(select(Contract).where(Contract.id.in_(contract_ids)))
     contracts = list(result.scalars().all())
+    for contract in contracts:
+        await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     extended = 0
     skipped: list[int] = []
     for c in contracts:
@@ -920,6 +992,8 @@ async def bulk_mark_ended(
         raise HTTPException(status_code=422, detail="No contract ids provided")
     result = await db.execute(select(Contract).where(Contract.id.in_(contract_ids)))
     contracts = list(result.scalars().all())
+    for contract in contracts:
+        await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     changed = 0
     today = date.today()
     for c in contracts:
@@ -954,7 +1028,7 @@ async def expiring_contracts(
     This matches the active+ending set the Slack expiry summary already uses.
     """
     cutoff = date.today() + timedelta(days=days)
-    result = await db.execute(
+    expiring_query = (
         select(Contract)
         .where(
             Contract.end_date <= cutoff,
@@ -969,6 +1043,12 @@ async def expiring_contracts(
             selectinload(Contract.framework_rate_schedule),
         )
     )
+    expiring_query = apply_delivery_lead_client_scope(
+        expiring_query,
+        Contract.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
+    result = await db.execute(expiring_query)
     today = date.today()
     items = [
         ContractResponse.model_validate(
@@ -1014,6 +1094,7 @@ async def get_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     detail = _to_detail(contract)
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
@@ -1030,11 +1111,10 @@ async def contract_activities(
     limit: int = Query(50, ge=1, le=200),
 ):
     """Return activity log entries for a contract, newest first."""
-    contract_exists = await db.execute(
-        select(Contract.id).where(Contract.id == contract_id)
-    )
-    if contract_exists.scalar_one_or_none() is None:
+    contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
+    if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     # P0.12: a contract ``updated`` audit row carries the changed rate fields
     # (rate_candidate/rate_client/margin) in ``details`` — strip them for
@@ -1085,6 +1165,7 @@ async def contract_rate_history(
     contract = contract_result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     history_query = select(RateHistory).where(
         RateHistory.candidate_id == contract.candidate_id
@@ -1106,7 +1187,7 @@ async def contract_rate_history(
         ContractRateHistoryEntry(
             id=r.id,
             rate=(r.rate if finance_ok else None),
-            currency=r.currency,
+            currency=(r.currency if finance_ok else None),
             contract_type=r.contract_type.value
             if hasattr(r.contract_type, "value")
             else str(r.contract_type),
@@ -1126,6 +1207,7 @@ async def update_contract(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -1141,6 +1223,7 @@ async def update_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     updates = data.model_dump(exclude_unset=True)
     # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
     # scalar column — pull it out of the setattr loop and replace it explicitly.
@@ -1244,8 +1327,8 @@ async def update_contract(
         detail = _to_detail(contract)
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
-    # P0.12: TAC may PATCH (incl. client rate, #874) but the response stays
-    # redacted for non-VIEW_FINANCE — the write allowance is not sight of finances.
+    # Operacyjny PATCH bez pól finansowych pozostaje dostępny, a odpowiedź jest
+    # redagowana dla ról bez VIEW_FINANCE.
     if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
         _redact_contract_finance(detail)
     return detail
@@ -1280,6 +1363,7 @@ async def activate_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     if contract.status not in (
         ContractStatus.draft,
@@ -1332,7 +1416,11 @@ async def activate_contract(
 # ── Editable draft (migracja 0058) ───────────────────────────────────────────
 
 
-async def _load_contract_with_relations(db: AsyncSession, contract_id: int) -> Contract:
+async def _load_contract_with_relations(
+    db: AsyncSession,
+    contract_id: int,
+    current_user: User,
+) -> Contract:
     contract = await db.scalar(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -1348,6 +1436,7 @@ async def _load_contract_with_relations(db: AsyncSession, contract_id: int) -> C
     )
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     return contract
 
 
@@ -1447,7 +1536,7 @@ async def get_contract_draft(
     the response carries an empty body and the FE prompts for template
     selection from `available_templates`.
     """
-    contract = await _load_contract_with_relations(db, contract_id)
+    contract = await _load_contract_with_relations(db, contract_id, current_user)
     contract_type_value = (
         contract.contract_type.value
         if hasattr(contract.contract_type, "value")
@@ -1510,7 +1599,7 @@ async def update_contract_draft(
             ),
         )
 
-    contract = await _load_contract_with_relations(db, contract_id)
+    contract = await _load_contract_with_relations(db, contract_id, current_user)
 
     if payload.template_id is not None:
         tpl = await db.scalar(
@@ -1565,7 +1654,7 @@ async def render_draft_for_print(
     fires the OS print dialog where the user picks "Save as PDF". No
     server-side PDF dependency required.
     """
-    contract = await _load_contract_with_relations(db, contract_id)
+    contract = await _load_contract_with_relations(db, contract_id, current_user)
     body = contract.draft_content_html
     if not body:
         raise HTTPException(
@@ -1602,7 +1691,7 @@ async def finalize_contract_draft(
     missing-field list. No `contract_signed` side effect fires here — the
     contract is not signed yet.
     """
-    contract = await _load_contract_with_relations(db, contract_id)
+    contract = await _load_contract_with_relations(db, contract_id, current_user)
 
     if contract.status != ContractStatus.draft:
         raise HTTPException(
@@ -1707,6 +1796,7 @@ async def reopen_contract_endpoint(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     await revert_contract(db, contract, actor_id=current_user.id, reason=data.reason)
     await db.flush()
@@ -1745,6 +1835,7 @@ async def void_contract_endpoint(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     await void_contract(db, contract, actor_id=current_user.id, reason=data.reason)
     await db.flush()
@@ -1765,6 +1856,7 @@ async def delete_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     # Only a non-executed `draft` with no completed signature may be hard-deleted.
     # Everything else must be voided (soft-delete) so a DELETE can never cascade
@@ -1797,10 +1889,15 @@ async def delete_contract(
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────
 
 
-async def _assert_contract(db: AsyncSession, contract_id: int) -> None:
-    exists = await db.execute(select(Contract.id).where(Contract.id == contract_id))
-    if exists.scalar_one_or_none() is None:
+async def _assert_contract(
+    db: AsyncSession,
+    contract_id: int,
+    current_user: User,
+) -> None:
+    contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
+    if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
 
 async def _document_to_response(
@@ -1832,7 +1929,7 @@ async def _document_to_response(
 async def list_contract_documents(
     contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
         select(ContractDocument)
         .where(ContractDocument.contract_id == contract_id)
@@ -1855,7 +1952,7 @@ async def upload_contract_document(
     doc_type: ContractDocumentType = Form(ContractDocumentType.other),
     expiry_date: Optional[date] = Form(None),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
 
     # Rudimentary size guard — FastAPI's UploadFile is a SpooledTemporaryFile,
     # so we only know the true size after reading. We read via storage_service
@@ -1914,7 +2011,7 @@ async def update_contract_document(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
         select(ContractDocument).where(
             ContractDocument.id == document_id,
@@ -1939,7 +2036,7 @@ async def download_contract_document(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
         select(ContractDocument).where(
             ContractDocument.id == document_id,
@@ -1970,7 +2067,7 @@ async def delete_contract_document(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
         select(ContractDocument).where(
             ContractDocument.id == document_id,
@@ -1997,7 +2094,10 @@ async def delete_contract_document(
 
 
 async def _amendment_to_response(
-    db: AsyncSession, amendment: ContractAmendment
+    db: AsyncSession,
+    amendment: ContractAmendment,
+    *,
+    finance_ok: bool,
 ) -> ContractAmendmentResponse:
     user_email: Optional[str] = None
     if amendment.created_by:
@@ -2008,8 +2108,16 @@ async def _amendment_to_response(
         id=amendment.id,
         contract_id=amendment.contract_id,
         amendment_type=amendment.amendment_type,
-        old_values=amendment.old_values,
-        new_values=amendment.new_values,
+        old_values=(
+            amendment.old_values
+            if finance_ok
+            else redact_financial_fields(amendment.old_values)
+        ),
+        new_values=(
+            amendment.new_values
+            if finance_ok
+            else redact_financial_fields(amendment.new_values)
+        ),
         effective_date=amendment.effective_date,
         reason=amendment.reason,
         document_id=amendment.document_id,
@@ -2026,14 +2134,17 @@ async def _amendment_to_response(
 async def list_contract_amendments(
     contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
         select(ContractAmendment)
         .where(ContractAmendment.contract_id == contract_id)
         .order_by(ContractAmendment.created_at.desc())
     )
     amendments = list(result.scalars().all())
-    return [await _amendment_to_response(db, a) for a in amendments]
+    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    return [
+        await _amendment_to_response(db, a, finance_ok=finance_ok) for a in amendments
+    ]
 
 
 @router.post(
@@ -2047,6 +2158,11 @@ async def create_contract_amendment(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    supplied_fields = set(data.model_fields_set)
+    if data.amendment_type == ContractAmendmentType.rate_change:
+        supplied_fields.add("rate_change")
+    _assert_contract_finance_write_allowed(current_user, supplied_fields)
+
     contract_res = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -2058,6 +2174,7 @@ async def create_contract_amendment(
     contract = contract_res.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     # Snapshot only the fields that might change, for audit.
     old_values: dict = {
@@ -2229,7 +2346,11 @@ async def create_contract_amendment(
     )
     await db.flush()
     await db.refresh(amendment)
-    return await _amendment_to_response(db, amendment)
+    return await _amendment_to_response(
+        db,
+        amendment,
+        finance_ok=user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE),
+    )
 
 
 # ── Onboarding checklist (Phase 9 B6) ────────────────────────────────────────
@@ -2242,7 +2363,7 @@ async def create_contract_amendment(
 async def list_onboarding_items(
     contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     res = await db.execute(
         select(ContractOnboardingItem)
         .where(ContractOnboardingItem.contract_id == contract_id)
@@ -2262,7 +2383,7 @@ async def create_onboarding_item(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     item = ContractOnboardingItem(contract_id=contract_id, **data.model_dump())
     db.add(item)
     await db.flush()
@@ -2281,7 +2402,7 @@ async def update_onboarding_item(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,
@@ -2307,7 +2428,7 @@ async def delete_onboarding_item(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,
@@ -2329,7 +2450,7 @@ async def delete_onboarding_item(
 async def list_contract_equipment(
     contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
         select(ContractEquipment)
         .where(ContractEquipment.contract_id == contract_id)
@@ -2353,6 +2474,7 @@ async def create_contract_equipment(
     contract = contract_res.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     payload = data.model_dump()
     # If the caller didn't supply a return_due_date, default to the contract's
@@ -2395,7 +2517,7 @@ async def update_contract_equipment(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     item = await db.scalar(
         select(ContractEquipment).where(
             ContractEquipment.id == equipment_id,
@@ -2440,7 +2562,7 @@ async def delete_contract_equipment(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
     item = await db.scalar(
         select(ContractEquipment).where(
             ContractEquipment.id == equipment_id,
@@ -2494,6 +2616,7 @@ async def terminate_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     when = data.terminated_at or date.today()
     previous_end_date = contract.end_date
@@ -2573,7 +2696,7 @@ async def contract_timeline(
     limit: int = Query(100, ge=1, le=500),
 ):
     """Chronological merge of notes + calls attached to this contract."""
-    await _assert_contract(db, contract_id)
+    await _assert_contract(db, contract_id, current_user)
 
     notes_res = await db.execute(
         select(Note, User.email)
@@ -2670,7 +2793,7 @@ async def _resolve_role_for_contract(
 )
 async def contract_benchmark(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(

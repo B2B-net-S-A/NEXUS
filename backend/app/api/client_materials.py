@@ -5,33 +5,33 @@ Routes are declared without a prefix so the router can be registered with
 
 One-pagers
   GET    /clients/{client_id}/one-pagers           (ClientAccess.can_view_materials)
-  POST   /clients/{client_id}/one-pagers           (multipart, TacPlus)
+  POST   /clients/{client_id}/one-pagers           (can_edit_materials)
   GET    /clients/{client_id}/one-pagers/{id}/download (can_view_materials)
-  DELETE /clients/{client_id}/one-pagers/{id}      (TacPlus)
+  DELETE /clients/{client_id}/one-pagers/{id}      (can_edit_materials)
 
 Contract terms (singleton per client, upsert)
   GET    /clients/{client_id}/contract-terms       (can_view_legal_documents)
-  PUT    /clients/{client_id}/contract-terms       (TacPlus)
+  PUT    /clients/{client_id}/contract-terms       (can_edit_legal_documents)
 
 PR 1/7 (containment RBAC): ready przestały być dostępne dla każdego
 zalogowanego — one-pagery czytają role operacyjne (bez viewera `user`),
 warunki umów (kary, płatności, off-limits) tylko admin/HoR/DL/TAC.
 """
 
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_one_pager import ClientOnePager
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.client_materials import (
     ClientContractTermsResponse,
     ClientContractTermsUpsert,
@@ -43,8 +43,6 @@ from app.services.client_access import (
     resolve_client_access,
 )
 
-
-_tac_plus = require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)
 
 router = APIRouter()
 
@@ -65,6 +63,81 @@ async def _assert_client(db: AsyncSession, client_id: int) -> None:
     result = await db.execute(select(Client).where(Client.id == client_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Client not found")
+
+
+async def _require_material_write(
+    db: AsyncSession,
+    current_user: User,
+    client_id: int,
+    *,
+    legal: bool = False,
+) -> None:
+    access = await resolve_client_access(db, current_user, client_id)
+    allowed = access.can_edit_legal_documents if legal else access.can_edit_materials
+    if not allowed:
+        raise deny("zapis materiałów wymaga jawnego przypisania DL/TAC")
+
+
+async def require_client_material_read_access(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    await _assert_client(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_materials:
+        raise deny("brak dostępu do materiałów tego klienta")
+    return current_user
+
+
+async def require_client_material_write_access(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    await _assert_client(db, client_id)
+    await _require_material_write(db, current_user, client_id)
+    return current_user
+
+
+async def require_client_legal_read_access(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    await _assert_client(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_legal_documents:
+        raise deny("warunki umów wymagają jawnego przypisania klienta")
+    return current_user
+
+
+async def require_client_legal_write_access(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    await _assert_client(db, client_id)
+    await _require_material_write(db, current_user, client_id, legal=True)
+    return current_user
+
+
+ClientMaterialReadUser = Annotated[
+    User,
+    Depends(require_client_material_read_access),
+]
+ClientMaterialWriteUser = Annotated[
+    User,
+    Depends(require_client_material_write_access),
+]
+ClientLegalReadUser = Annotated[
+    User,
+    Depends(require_client_legal_read_access),
+]
+ClientLegalWriteUser = Annotated[
+    User,
+    Depends(require_client_legal_write_access),
+]
 
 
 async def _resolve_user_email(
@@ -133,13 +206,9 @@ async def _terms_to_response(
 )
 async def list_one_pagers(
     client_id: int,
+    current_user: ClientMaterialReadUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    await _assert_client(db, client_id)
-    access = await resolve_client_access(db, current_user, client_id)
-    if not access.can_view_materials:
-        raise deny("brak dostępu do materiałów tego klienta")
     result = await db.execute(
         select(ClientOnePager)
         .where(ClientOnePager.client_id == client_id)
@@ -156,15 +225,13 @@ async def list_one_pagers(
 )
 async def upload_one_pager(
     client_id: int,
+    current_user: ClientMaterialWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
     file: UploadFile = File(...),
     title: str = Form(...),
     description: Optional[str] = Form(None),
     version: Optional[str] = Form(None),
 ):
-    await _assert_client(db, client_id)
-
     # MIME + extension allowlist (extension is the fallback — browsers mislabel)
     filename = file.filename or "file"
     mime = (file.content_type or "").lower()
@@ -228,13 +295,9 @@ async def upload_one_pager(
 async def download_one_pager(
     client_id: int,
     one_pager_id: int,
+    current_user: ClientMaterialReadUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    await _assert_client(db, client_id)
-    access = await resolve_client_access(db, current_user, client_id)
-    if not access.can_view_materials:
-        raise deny("brak dostępu do materiałów tego klienta")
     result = await db.execute(
         select(ClientOnePager).where(
             ClientOnePager.id == one_pager_id,
@@ -264,10 +327,9 @@ async def download_one_pager(
 async def delete_one_pager(
     client_id: int,
     one_pager_id: int,
+    current_user: ClientMaterialWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
 ):
-    await _assert_client(db, client_id)
     result = await db.execute(
         select(ClientOnePager).where(
             ClientOnePager.id == one_pager_id,
@@ -302,13 +364,9 @@ async def delete_one_pager(
 )
 async def get_contract_terms(
     client_id: int,
+    current_user: ClientLegalReadUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> ClientContractTermsResponse | None:
-    await _assert_client(db, client_id)
-    access = await resolve_client_access(db, current_user, client_id)
-    if not access.can_view_legal_documents:
-        raise deny("warunki umów klienta wymagają roli admin/HoR/DL/TAC")
     result = await db.execute(
         select(ClientContractTerms).where(ClientContractTerms.client_id == client_id)
     )
@@ -325,11 +383,9 @@ async def get_contract_terms(
 async def upsert_contract_terms(
     client_id: int,
     data: ClientContractTermsUpsert,
+    current_user: ClientLegalWriteUser,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(_tac_plus),
 ):
-    await _assert_client(db, client_id)
-
     result = await db.execute(
         select(ClientContractTerms).where(ClientContractTerms.client_id == client_id)
     )

@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select, text
@@ -8,33 +9,55 @@ from app.analytics.capabilities import (
     AnalyticsCapability,
     user_has_capability,
 )
-from app.core.database import get_db
+from app.api.deps import OperationalUser, require_roles
+from app.api.financial_access import has_financial_access, redact_feed_activity
 from app.core.cache import cache_get, cache_set
+from app.core.database import get_db
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
-from app.models.activity import Activity
-from app.api.deps import CurrentUser, OperationalUser
-from app.api.financial_access import has_financial_access, redact_feed_activity
+from app.models.user import User, UserRole
+from app.services.access_scope import apply_activity_feed_scope
 from app.services.dashboard_metrics import compute_kpi_snapshot
 
 router = APIRouter()
 
+_legacy_organization_dashboard_guard = require_roles(
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+)
+LegacyOrganizationDashboardUser = Annotated[
+    User,
+    Depends(_legacy_organization_dashboard_guard),
+]
+
 
 @router.get("/stats")
-async def get_stats(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
-    """Main KPI dashboard stats. Shared SQL aggregation with /api/admin/snapshot."""
+async def get_stats(
+    current_user: LegacyOrganizationDashboardUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Frozen organization-wide KPI snapshot for Admin/HoR only.
+
+    Role dashboards use ``/api/dashboard/v2/*``. Keeping this legacy aggregate
+    behind an explicit organization-level gate prevents a viewer, Finance, or
+    a client-scoped Delivery Lead from bypassing the five dashboard presets.
+    """
     return await compute_kpi_snapshot(db)
 
 
 @router.get("/kpis")
-async def get_kpis(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
-    """ATS KPI counts + (dla uprawnionych) miesięczny ranking rekruterów.
+async def get_kpis(
+    current_user: LegacyOrganizationDashboardUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Frozen ATS aggregate and recruiter ranking for Admin/HoR only.
 
     R0 (plan 2026-07-16): InfraReporter wycięty — zewnętrzny serwis z
     hardcoded API key nie jest źródłem statystyk NEXUS-a. Imienny ranking
-    ``top_recruiters`` widzą tylko role z VIEW_RECRUITMENT_RANKING; rola
-    ``user`` dostaje wyłącznie agregaty. Cache jest rozdzielony per wariant
-    odpowiedzi, żeby viewer nigdy nie dostał wersji z rankingiem.
+    ``top_recruiters`` widzą tylko role z VIEW_RECRUITMENT_RANKING. Cały
+    legacy endpoint jest dodatkowo zamknięty do Admin/HoR, ponieważ zawiera
+    organization-wide agregaty niezgodne ze scope Delivery Leada.
     GET /api/dashboard/kpis
     """
     include_ranking = user_has_capability(
@@ -137,9 +160,12 @@ async def recent_activity(
     e-maile) — to nie są „bezpieczne agregaty", więc rola ``user`` (read-only
     viewer) nie ma tu wstępu. Guard = OperationalUser.
     """
-    result = await db.execute(
-        select(Activity).order_by(Activity.created_at.desc()).limit(limit)
+    query = await apply_activity_feed_scope(
+        select(Activity),
+        current_user,
+        db,
     )
+    result = await db.execute(query.order_by(Activity.created_at.desc()).limit(limit))
     activities = result.scalars().all()
     # Finance protection (P1): raw ``details`` can carry rate amounts. Non-finance
     # readers get rate-change audit rows omitted + finance keys stripped, mirroring
@@ -166,9 +192,10 @@ async def recent_activity(
 
 @router.get("/pipeline-funnel")
 async def pipeline_funnel(
-    current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    current_user: LegacyOrganizationDashboardUser,
+    db: AsyncSession = Depends(get_db),
 ):
-    """Aggregate pipeline counts per stage across all jobs.
+    """Frozen organization-wide pipeline counts for Admin/HoR only.
 
     PR 4 (plan analytics): aktualny pipeline = OSTATNI stage per
     kandydat × job (view analytics_current_pipeline), nie suma
