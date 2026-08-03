@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 
 import pytest
 from httpx import AsyncClient
+from openpyxl import load_workbook
 from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
+from app.core.security import create_access_token, hash_password
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client, ClientStatus
@@ -23,6 +26,7 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.contract import Contract, ContractStatus
+from app.models.user import User, UserRole
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -478,5 +482,253 @@ async def test_scope_crud_rejects_null_category_foreign_and_occupied_msa(
             headers=app_auth_headers,
         )
         assert null_category.status_code == 422, null_category.text
+    finally:
+        await _cleanup_directory(seed)
+
+
+# ── Directory export (CSV / XLSX) ─────────────────────────────────────────────
+
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+async def _seed_role_user(role: UserRole) -> tuple[int, dict[str, str]]:
+    """Seed a user with ``role`` and return (id, bearer headers)."""
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"dir-export-{role.value}-{unique}@example.com",
+            password_hash=hash_password(f"T3st_{unique}!Export"),
+            name=f"DirExport {role.value}",
+            role=role,
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        user_id = user.id
+    token = create_access_token(user_id, role.value)
+    return user_id, {"Authorization": f"Bearer {token}"}
+
+
+async def _delete_user(user_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(User).where(User.id == user_id))
+        await db.commit()
+
+
+def _read_sheet(content: bytes) -> tuple[list[str], list[dict]]:
+    """Return (header, records) from the first worksheet of an xlsx payload."""
+    workbook = load_workbook(BytesIO(content))
+    worksheet = workbook.active
+    rows = list(worksheet.iter_rows(values_only=True))
+    header = [str(cell) if cell is not None else "" for cell in rows[0]]
+    records = [dict(zip(header, row)) for row in rows[1:]]
+    return header, records
+
+
+async def test_directory_export_requires_auth(app_client: AsyncClient) -> None:
+    response = await app_client.get("/api/clients/directory/export")
+    assert response.status_code == 401
+
+
+async def test_directory_export_xlsx_mirrors_list_and_includes_legal(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()
+    alpha_id = seed["client_ids"][0]
+    try:
+        # NIP/REGON round-trip through the export for a privileged role.
+        async with AsyncSessionLocal() as db:
+            alpha = await db.get(Client, alpha_id)
+            alpha.nip = "1234567890"
+            alpha.regon = "998877665"
+            await db.commit()
+
+        response = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"]},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith(_XLSX_MEDIA_TYPE)
+        assert "attachment" in response.headers["content-disposition"]
+        assert ".xlsx" in response.headers["content-disposition"]
+
+        header, records = _read_sheet(response.content)
+        # Admin (legal-privileged) sees the base + legal columns.
+        assert header[:9] == [
+            "ID klienta",
+            "Klient",
+            "Zakres",
+            "Kategoria",
+            "Branża",
+            "Status klienta",
+            "Aktywni konsultanci",
+            "Start umowy ramowej",
+            "Koniec umowy ramowej",
+        ]
+        assert header[9:] == ["Nazwa prawna", "NIP", "REGON"]
+
+        # "Export what I see": same three active scopes the list returns.
+        assert len(records) == 3
+
+        alpha_row = next(r for r in records if r["ID klienta"] == alpha_id)
+        assert alpha_row["Klient"].startswith("Alpha")
+        assert alpha_row["Kategoria"] == "Aktywny"
+        assert alpha_row["Status klienta"] == "Aktywny"
+        assert alpha_row["Branża"] == "Banking"
+        assert alpha_row["Nazwa prawna"].startswith("Alpha Legal")
+        assert alpha_row["NIP"] == "1234567890"
+        assert alpha_row["REGON"] == "998877665"
+
+        # The Zulu "B scope" carries an MSA with no expiry → open-ended.
+        b_scope = next(
+            r
+            for r in records
+            if r["Klient"].startswith("Zulu") and r["Zakres"] == "B scope"
+        )
+        assert b_scope["Status klienta"] == "Prospekt"
+        assert b_scope["Koniec umowy ramowej"] == "Bezterminowa"
+        assert b_scope["Start umowy ramowej"]  # non-empty ISO date
+        assert b_scope["Aktywni konsultanci"] == 2
+    finally:
+        await _cleanup_directory(seed)
+
+
+async def test_directory_export_csv_has_bom_and_header(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"], "format": "csv"},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith("text/csv")
+        assert ".csv" in response.headers["content-disposition"]
+        text = response.content.decode("utf-8-sig")
+        assert response.content.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM for Excel
+        lines = [line for line in text.splitlines() if line]
+        assert lines[0].split(",")[0] == "ID klienta"
+        assert "Nazwa prawna" in lines[0]
+        # header + three active scopes
+        assert len(lines) == 4
+    finally:
+        await _cleanup_directory(seed)
+
+
+async def test_directory_export_hides_legal_columns_for_non_privileged_role(
+    app_client: AsyncClient,
+) -> None:
+    seed = await _seed_directory()
+    user_id, headers = await _seed_role_user(UserRole.recruiter)
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"]},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        header, records = _read_sheet(response.content)
+        assert header == [
+            "ID klienta",
+            "Klient",
+            "Zakres",
+            "Kategoria",
+            "Branża",
+            "Status klienta",
+            "Aktywni konsultanci",
+            "Start umowy ramowej",
+            "Koniec umowy ramowej",
+        ]
+        assert "Nazwa prawna" not in header
+        assert "NIP" not in header
+        assert "REGON" not in header
+        # The rows themselves are still visible — only legal columns are gated.
+        assert len(records) == 3
+    finally:
+        await _cleanup_directory(seed)
+        await _delete_user(user_id)
+
+
+async def test_directory_export_neutralises_formula_injection(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid.uuid4().hex[:10]
+    payload = f"=SUM(1+9)*cmd|{suffix}"
+    client_ids: list[int] = []
+    async with AsyncSessionLocal() as db:
+        evil = Client(
+            name=f"Evil {suffix}",
+            display_name=payload,
+            legal_name=f"+ATTACK {suffix}",
+            industry="@formula",
+            status=ClientStatus.active,
+        )
+        db.add(evil)
+        await db.flush()
+        db.add(
+            ClientPortfolioScope(
+                client_id=evil.id,
+                category=PortfolioCategory.active,
+                label="-danger",
+                source_system="test",
+                source_key=f"{suffix}:evil",
+            )
+        )
+        client_ids.append(evil.id)
+        await db.commit()
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": suffix},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        _, records = _read_sheet(response.content)
+        row = next(r for r in records if r["ID klienta"] == client_ids[0])
+        # Every free-text cell that would start a formula is defused with a
+        # leading apostrophe; the raw value is otherwise preserved.
+        assert row["Klient"] == "'" + payload
+        assert row["Zakres"] == "'-danger"
+        assert row["Branża"] == "'@formula"
+        assert row["Nazwa prawna"] == "'+ATTACK " + suffix
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientPortfolioScope).where(
+                    ClientPortfolioScope.client_id.in_(client_ids)
+                )
+            )
+            await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+            await db.commit()
+
+
+async def test_directory_export_flags_truncation_at_limit(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()  # 3 active scopes match the suffix
+    try:
+        capped = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"], "limit": 2},
+            headers=app_auth_headers,
+        )
+        assert capped.status_code == 200, capped.text
+        assert capped.headers.get("x-export-truncated") == "true"
+
+        full = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"], "limit": 100},
+            headers=app_auth_headers,
+        )
+        assert full.status_code == 200, full.text
+        assert "x-export-truncated" not in full.headers
     finally:
         await _cleanup_directory(seed)

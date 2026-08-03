@@ -9,9 +9,11 @@ number.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, distinct, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,6 +101,8 @@ def _directory_rows_statement(
             Client.id.label("client_id"),
             canonical_name.label("display_name"),
             Client.legal_name.label("legal_name"),
+            Client.nip.label("nip"),
+            Client.regon.label("regon"),
             Client.industry.label("industry"),
             ClientPortfolioScope.category.label("category"),
             scope_label.label("scope_label"),
@@ -255,6 +259,174 @@ async def list_client_directory(
         page_size=page_size,
         category_counts=category_counts,
         as_of=as_of,
+    )
+
+
+# ── Export (CSV / XLSX) ───────────────────────────────────────────────────────
+# Business-facing Polish labels for the enum columns — the directory export
+# lands in delivery / finance spreadsheets, so we render labels instead of the
+# raw enum values.
+_CATEGORY_LABELS = {
+    "active": "Aktywny",
+    "relationship": "Relacyjny",
+    "inactive": "Nieaktywny",
+}
+_CLIENT_STATUS_LABELS = {
+    "active": "Aktywny",
+    "inactive": "Nieaktywny",
+    "prospect": "Prospekt",
+}
+
+# Columns every operational user may export — mirror the on-screen directory.
+_DIRECTORY_EXPORT_BASE_COLUMNS = [
+    "ID klienta",
+    "Klient",
+    "Zakres",
+    "Kategoria",
+    "Branża",
+    "Status klienta",
+    "Aktywni konsultanci",
+    "Start umowy ramowej",
+    "Koniec umowy ramowej",
+]
+# Legal columns — only for roles that already see legal data in the directory
+# (admin / HoR / delivery_lead / tac). The export never widens that access.
+_DIRECTORY_EXPORT_LEGAL_COLUMNS = ["Nazwa prawna", "NIP", "REGON"]
+
+
+def _directory_enum_label(value, labels: dict) -> str:
+    """Polish label for an enum value; falls back to the raw value, "" for None."""
+    if value is None:
+        return ""
+    raw = value.value if hasattr(value, "value") else str(value)
+    return labels.get(raw, raw)
+
+
+def _directory_contract_end_cell(row) -> str:
+    """Mirror the UI's "Koniec umowy" column: a scope without an MSA has no
+    contract end, an MSA with no expiry date is open-ended."""
+    if row.msa_id is None:
+        return ""
+    if row.expiry_date is None:
+        return "Bezterminowa"
+    return row.expiry_date.isoformat()
+
+
+# Spreadsheet formula-injection guard. A free-text cell we write verbatim that
+# begins with =, +, -, @ (or a tab/CR that can smuggle one in) is executed as a
+# formula when the file is opened in Excel / Google Sheets. display_name /
+# scope_label / industry / legal_name are user-settable DB values, so we prefix
+# them with an apostrophe (the OWASP-standard mitigation) — the spreadsheet then
+# renders the literal text. openpyxl also treats a leading "=" string as a
+# formula, so this protects the xlsx path too. Ints and ISO dates pass through.
+_FORMULA_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _formula_safe(value):
+    if isinstance(value, str) and value[:1] in _FORMULA_INJECTION_PREFIXES:
+        return "'" + value
+    return value
+
+
+def _directory_export_row(row, *, can_view_legal: bool) -> list:
+    values = [
+        row.client_id,
+        row.display_name or "",
+        row.scope_label or "",
+        _directory_enum_label(row.category, _CATEGORY_LABELS),
+        row.industry or "",
+        _directory_enum_label(row.client_status, _CLIENT_STATUS_LABELS),
+        int(row.active_consultants_count or 0),
+        row.effective_date.isoformat() if row.effective_date else "",
+        _directory_contract_end_cell(row),
+    ]
+    if can_view_legal:
+        values.extend([row.legal_name or "", row.nip or "", row.regon or ""])
+    return [_formula_safe(value) for value in values]
+
+
+@router.get("/directory/export")
+async def export_client_directory(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+    format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
+    category: PortfolioCategory = Query(PortfolioCategory.active),
+    q: Optional[str] = Query(None, max_length=200),
+    limit: int = Query(10000, ge=1, le=50000),
+):
+    """Export the client directory to CSV or Excel — one row per portfolio scope.
+
+    Honours the same ``category`` + ``q`` filters as the list endpoint (so
+    "eksportuj to, co widzę" holds) but ignores pagination — every matching row
+    up to ``limit``. Legal columns (Nazwa prawna / NIP / REGON) appear only for
+    roles that already see them in the directory; the export never widens access.
+    """
+    can_view_legal = current_user.has_any_role(*ADMIN_LIKE_ROLES, *CLIENT_TEAM_ROLES)
+    statement = _directory_rows_statement(
+        category=category,
+        q=q,
+        as_of=date.today(),
+    ).limit(limit)
+    rows = (await db.execute(statement)).all()
+    # Hitting ``limit`` means the file may be a partial view. Signal it in a
+    # header (rather than silently) so the caller can warn — the FE surfaces a
+    # toast. Realistic directories sit far below the 10k default, so this is a
+    # safety net, not an expected path.
+    truncated = len(rows) >= limit
+
+    columns = list(_DIRECTORY_EXPORT_BASE_COLUMNS)
+    if can_view_legal:
+        columns += _DIRECTORY_EXPORT_LEGAL_COLUMNS
+    data_rows = [
+        _directory_export_row(row, can_view_legal=can_view_legal) for row in rows
+    ]
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    def _export_headers(filename: str) -> dict:
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        if truncated:
+            headers["X-Export-Truncated"] = "true"
+        return headers
+
+    if format == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Klienci"
+        ws.append(columns)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        ws.freeze_panes = "A2"  # keep the header row visible while scrolling
+        for data_row in data_rows:
+            ws.append(data_row)
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f"klienci_{ts}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=_export_headers(filename),
+        )
+
+    # CSV (UTF-8). Prepend a BOM so Excel on Windows renders the Polish
+    # diacritics correctly instead of mojibake.
+    import csv
+    from io import StringIO
+
+    buf = StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(columns)
+    for data_row in data_rows:
+        writer.writerow(data_row)
+    filename = f"klienci_{ts}.csv"
+    return StreamingResponse(
+        iter(["\ufeff" + buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers=_export_headers(filename),
     )
 
 

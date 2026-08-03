@@ -14,6 +14,7 @@ import {
   Archive,
   Building2,
   CheckCircle2,
+  Download,
   Handshake,
   Info,
   Plus,
@@ -29,6 +30,7 @@ import {
   type ClientDirectoryItem,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { getAccessToken } from "@/lib/session";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   httpStatusFromError,
@@ -42,6 +44,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -178,6 +185,7 @@ export function ClientsListV2() {
   const [counts, setCounts] =
     useState<ClientDirectoryCategoryCounts>(EMPTY_COUNTS);
   const [showAdd, setShowAdd] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const didCanonicalizeUrl = useRef(false);
   const searchSyncTarget = useRef<string | null>(null);
@@ -349,6 +357,52 @@ export function ClientsListV2() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  // Export the currently-visible directory (same category + committed search as
+  // the list) to Excel/CSV, so "eksportuj to, co widzę" holds. Uses `querySearch`
+  // — the debounced value that drives the list — not the raw input, so the file
+  // matches the screen within the 300 ms search window. Pagination is dropped;
+  // the endpoint returns every matching scope up to its cap.
+  const doExport = async (format: "xlsx" | "csv") => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("category", category);
+      if (querySearch) params.set("q", querySearch);
+      params.set("format", format);
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+      const token = getAccessToken();
+      const res = await fetch(
+        `${apiBase}/api/clients/directory/export?${params}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!res.ok) {
+        setToast("Eksport nie powiódł się.");
+        setTimeout(() => setToast(null), 3500);
+        return;
+      }
+      // The backend caps the row count and flags a partial file in this header.
+      const truncated = res.headers.get("X-Export-Truncated") === "true";
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `klienci-${new Date().toISOString().slice(0, 10)}.${format}`;
+      // Anchor must be in the DOM for click() to fire across browsers; the
+      // object URL is revoked lazily so large downloads finish first.
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (truncated) {
+        setToast("Wyeksportowano częściowy widok — przekroczono limit wierszy.");
+        setTimeout(() => setToast(null), 4500);
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -380,16 +434,42 @@ export function ClientsListV2() {
                   )}`}
           </p>
         </div>
-        {canCreateClient ? (
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => setShowAdd(true)}
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Nowy klient
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="outline" disabled={exporting}>
+                <Download className="h-4 w-4" aria-hidden="true" />
+                {exporting ? "Eksportuję…" : "Eksport"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-44 p-1">
+              <button
+                type="button"
+                onClick={() => void doExport("xlsx")}
+                className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
+              >
+                Excel (.xlsx)
+              </button>
+              <button
+                type="button"
+                onClick={() => void doExport("csv")}
+                className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
+              >
+                CSV
+              </button>
+            </PopoverContent>
+          </Popover>
+          {canCreateClient ? (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => setShowAdd(true)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Nowy klient
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="max-w-lg">
