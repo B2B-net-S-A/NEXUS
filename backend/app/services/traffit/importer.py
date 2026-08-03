@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import httpx
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2363,9 +2364,14 @@ class TraffitImporter:
                 "/employees/activities"
             )
         except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+            # Log and continue rather than returning early: a slow/timed-out
+            # probe must not skip the import loop AND note promotion below.
+            # total_source is informational only (progress %), so a probe
+            # failure must NOT be recorded as a blocking error — otherwise an
+            # otherwise-complete run would freeze the watermark and stay
+            # `degraded`. The pagination loop below has its own failure path.
+            logger.warning("Activities total_count probe failed: %r", e)
+            progress.total_source = 0
 
         cand_map = await self._build_candidate_external_id_map()
         user_map = await self.build_user_id_map()
@@ -2378,11 +2384,27 @@ class TraffitImporter:
         commit_every = 500
         since_commit = 0
 
-        async for raw in self.traffit.get_paginated(
-            "/employees/activities",
-            page_size=self.batch_size,
-            filter_=self._delta_filter("created_at", since),
-        ):
+        # Wrap the paginated fetch so a terminal transport failure mid-stream
+        # (httpx.ReadTimeout on a large catch-up page, or a non-200 page raised
+        # as RuntimeError) stops iteration gracefully instead of aborting the
+        # phase. Rows already committed survive; promote_notes below still runs;
+        # the recorded (unattributable) error keeps the watermark frozen so the
+        # un-fetched tail is re-covered on the next run — never silently lost.
+        pagination_error: Optional[Exception] = None
+
+        async def _activities_stream():
+            nonlocal pagination_error
+            try:
+                async for item in self.traffit.get_paginated(
+                    "/employees/activities",
+                    page_size=self.batch_size,
+                    filter_=self._delta_filter("created_at", since),
+                ):
+                    yield item
+            except (httpx.TransportError, RuntimeError) as exc:
+                pagination_error = exc
+
+        async for raw in _activities_stream():
             progress.processed += 1
             try:
                 payload = traffit_activity_to_activity(raw, cand_map, user_map)
@@ -2452,6 +2474,18 @@ class TraffitImporter:
 
         if not self.dry_run and since_commit > 0:
             await self.db.commit()
+
+        if pagination_error is not None:
+            logger.warning(
+                "Activities pagination aborted after %d processed: %r — "
+                "committed partial batch, notes still promoted, watermark "
+                "frozen for next-run re-cover",
+                progress.processed,
+                pagination_error,
+            )
+            progress.add_error(
+                f"activities pagination incomplete: {pagination_error!r}"
+            )
 
         # Promote candidate notes (Notatka/Email/Reply/Rozmowa/Spotkanie) from
         # `activities` into the dedicated `notes` table so the candidate
