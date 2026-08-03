@@ -123,13 +123,17 @@ describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
       target: { value: "Python" },
     });
 
-    await waitFor(() =>
-      expect(mocks.apiGet).toHaveBeenCalledWith(
-        "/api/jobs",
-        expect.objectContaining({
-          params: expect.objectContaining({ q: "Python" }),
-        }),
-      ),
+    // timeout > debounce (300 ms) z zapasem — deterministyczne nawet gdyby
+    // ktoś kiedyś podniósł useDebouncedValue i na wolnym runnerze CI.
+    await waitFor(
+      () =>
+        expect(mocks.apiGet).toHaveBeenCalledWith(
+          "/api/jobs",
+          expect.objectContaining({
+            params: expect.objectContaining({ q: "Python" }),
+          }),
+        ),
+      { timeout: 2500 },
     );
   });
 
@@ -142,7 +146,10 @@ describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
       target: { value: "DevOps" },
     });
 
-    await waitFor(() => expect(detailsFor("Zamknięte projekty").open).toBe(true));
+    await waitFor(
+      () => expect(detailsFor("Zamknięte projekty").open).toBe(true),
+      { timeout: 2500 },
+    );
   });
 
   it("rozróżnia pustkę po wyszukaniu od braku projektów", async () => {
@@ -154,10 +161,13 @@ describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
     });
 
     // Obie sekcje: komunikat "pasujących do wyszukiwania", nie "Brak aktywnych".
-    await waitFor(() =>
-      expect(
-        screen.getAllByText("Brak projektów pasujących do wyszukiwania.").length,
-      ).toBeGreaterThanOrEqual(1),
+    await waitFor(
+      () =>
+        expect(
+          screen.getAllByText("Brak projektów pasujących do wyszukiwania.")
+            .length,
+        ).toBeGreaterThanOrEqual(1),
+      { timeout: 2500 },
     );
     expect(screen.queryByText("Brak aktywnych projektów.")).not.toBeInTheDocument();
   });

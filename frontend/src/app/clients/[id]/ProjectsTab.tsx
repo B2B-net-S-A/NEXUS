@@ -146,9 +146,11 @@ function ProjectsSection({
         <span>{title}</span>
         <span
           className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
-          aria-label={`Liczba: ${total}`}
+          aria-label={isLoading ? "Ładowanie liczby projektów" : `Liczba: ${total}`}
         >
-          {total}
+          {/* "…" w trakcie ładowania — inaczej licznik mignąłby "0" zanim
+              dojdą dane. */}
+          {isLoading ? "…" : total}
         </span>
         <span className="ml-auto text-xs text-muted-foreground group-open:hidden">
           rozwiń
