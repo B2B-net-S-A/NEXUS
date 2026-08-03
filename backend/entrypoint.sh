@@ -3393,11 +3393,18 @@ echo "Running seed data..."
 python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
 
 # Apply the checked-in client-portfolio manifest exactly once per source hash.
-# This command is intentionally fail-closed and has no ``|| ... continuing``:
-# the importer validates the complete plan under a transaction-scoped advisory
-# lock, commits only a successful all-or-nothing apply, and exits non-zero after
-# rolling back on every blocker or exception.  A previously applied hash is a
+# This command is intentionally fail-closed on first apply and has no
+# ``|| ... continuing``: the importer validates the complete plan under a
+# transaction-scoped advisory lock, commits only a successful all-or-nothing
+# apply, and exits non-zero after rolling back on any first-apply blocker,
+# manifest digest mismatch, or exception.  A previously applied hash is a
 # read-only no-op, so ordinary container restarts remain safe.
+#
+# One deliberate exception keeps a healthy import from taking prod down: when
+# the manifest is already applied and the ONLY blocker is post-apply live drift
+# (a scope archived/edited in the app after import), the command exits 0 and
+# startup continues.  That drift is reported by /api/health/deep as degraded
+# instead of crash-looping the whole backend on every restart.
 echo "Applying client portfolio manifest (transactional apply-once)..."
 python -m app.cli.client_portfolio_import --apply-once
 

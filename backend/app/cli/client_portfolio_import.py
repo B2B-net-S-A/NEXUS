@@ -62,6 +62,26 @@ async def _run(*, dry_run: bool, apply_once: bool, rollback_run_id: int | None) 
                 await db.commit()
                 _print(result)
                 if result["status"] == "blocked":
+                    blocker_codes = {
+                        blocker.get("code") for blocker in result.get("blockers", [])
+                    }
+                    # An already-applied manifest whose *only* blocker is
+                    # post-apply live drift (a portfolio scope archived or
+                    # edited in the app after the import) must not fail the
+                    # command and crash-loop the backend on every restart. The
+                    # manifest itself is intact and idempotent; the drift is
+                    # surfaced by /api/health/deep as degraded, which is the
+                    # correct place to flag it. First-apply plan blockers and a
+                    # manifest digest mismatch stay fail-closed — those mean the
+                    # import is not safely applied yet.
+                    if blocker_codes == {"applied_manifest_state_inconsistent"}:
+                        logger.warning(
+                            "client portfolio manifest already applied but live "
+                            "state drifted post-apply; continuing startup (see "
+                            "/api/health/deep). blockers=%s",
+                            result.get("blockers"),
+                        )
+                        return 0
                     return 2
                 return 1
 

@@ -88,6 +88,65 @@ async def test_apply_once_commits_success_or_durable_failure_audit(
 
 
 @pytest.mark.asyncio
+async def test_apply_once_tolerates_post_apply_live_drift(monkeypatch) -> None:
+    """An already-applied manifest whose only blocker is post-apply live drift
+    must not crash-loop the backend. The command exits 0 so startup continues;
+    the drift is surfaced by /api/health/deep as degraded instead. The audit
+    commit stays durable."""
+    session = _Session()
+    monkeypatch.setattr(cli, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(
+        cli,
+        "apply_client_portfolio_manifest",
+        AsyncMock(
+            return_value={
+                "status": "blocked",
+                "run_id": 1,
+                "blockers": [{"code": "applied_manifest_state_inconsistent"}],
+            }
+        ),
+    )
+    monkeypatch.setattr(cli, "_print", lambda payload: None)
+
+    code = await cli._run(dry_run=False, apply_once=True, rollback_run_id=None)
+
+    assert code == 0
+    assert session.commit.await_count == 1
+    assert session.rollback.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_apply_once_stays_fail_closed_on_non_drift_blocker(monkeypatch) -> None:
+    """Any blocker other than pure post-apply drift (e.g. a manifest digest
+    mismatch, or drift combined with another blocker) keeps the command
+    fail-closed so a genuinely unsafe import cannot serve traffic."""
+    session = _Session()
+    monkeypatch.setattr(cli, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(
+        cli,
+        "apply_client_portfolio_manifest",
+        AsyncMock(
+            return_value={
+                "status": "blocked",
+                "run_id": 1,
+                "blockers": [
+                    {"code": "applied_manifest_state_inconsistent"},
+                    {"code": "normalized_manifest_digest_mismatch"},
+                ],
+            }
+        ),
+    )
+    monkeypatch.setattr(cli, "_print", lambda payload: None)
+
+    code = await cli._run(dry_run=False, apply_once=True, rollback_run_id=None)
+
+    assert code == 2
+    # The durable ClientImportRun audit commit must still fire on the
+    # combined-blocker path, even though startup stays fail-closed.
+    assert session.commit.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_import_health_reports_exact_hash_and_count_consistency() -> None:
     manifest = {
         "source": {"sha256": "a" * 64},
