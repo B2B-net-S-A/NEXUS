@@ -217,6 +217,26 @@ function smartDescription(role: B2BRole, lang: Lang, clientName: string): string
     : lead;
 }
 
+/**
+ * Gotowy opis §1 do smart-prefillu z wybranego OBSZARU (roli), albo `null`, gdy
+ * pola nie należy nadpisywać. Reguła: nadpisujemy tylko dopóki opis nie został
+ * „dotknięty" — tzn. ani nie pochodzi z wybranej oferty, ani nie edytowano go
+ * ręcznie (`descTouched`). Wybór oferty sam w sobie NIE blokuje
+ * autouzupełnienia: gdy oferta nie miała opisu, wybór obszaru i tak wypełnia
+ * pole gotowym opisem. Wcześniej warunek na wybranej ofercie zostawiał pole
+ * puste (bug: „po wybraniu obszaru usług opis się nie uzupełnia").
+ */
+export function areaPrefillDescription(params: {
+  role: B2BRole | null;
+  language: Lang;
+  clientName: string;
+  descTouched: boolean;
+}): string | null {
+  const { role, language, clientName, descTouched } = params;
+  if (!role || descTouched) return null;
+  return smartDescription(role, language, clientName);
+}
+
 /** Klienci z niestandardowymi zapisami umowy — zwraca true gdy wybrany klient
  * wymaga modyfikacji. Musi być zgodne z backendem
  * (clause_override_content.CLIENT_OVERRIDES). PL i EN. */
@@ -1705,12 +1725,21 @@ function GeneratorForm() {
     if (j.client_name) setClientName(j.client_name);
   }, [jobQuery.data, selectedRecruitment]);
 
-  // Smart-prefill opisu projektu z roli, dopóki użytkownik nie wskaże oferty
-  // lub nie edytuje opisu ręcznie.
+  // Smart-prefill opisu projektu z wybranego OBSZARU (roli). Opis z oferty ma
+  // priorytet, a ręcznych zmian nie nadpisujemy — jedno i drugie ustawia
+  // `descTouched` (efekt oferty jest zadeklarowany wyżej, więc wykona się jako
+  // pierwszy w tym samym commit i zdąży ustawić flagę, zanim ten efekt ją
+  // sprawdzi). Nie bramkujemy już na samej wybranej ofercie: gdy oferta nie
+  // miała opisu, wybór obszaru i tak wypełnia pole (wcześniej zostawało puste).
   useEffect(() => {
-    if (!selectedRole || selectedRecruitment || descTouched.current) return;
-    setProjectDescription(smartDescription(selectedRole, language, clientName));
-  }, [selectedRole, language, clientName, selectedRecruitment]);
+    const next = areaPrefillDescription({
+      role: selectedRole,
+      language,
+      clientName,
+      descTouched: descTouched.current,
+    });
+    if (next !== null) setProjectDescription(next);
+  }, [selectedRole, language, clientName]);
 
   // Auto-odmiana imienia i nazwiska do narzędnika (komparycja), dopóki user
   // nie poprawi ręcznie.
