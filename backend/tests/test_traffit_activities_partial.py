@@ -154,7 +154,10 @@ async def test_activities_total_count_timeout_does_not_skip_import(monkeypatch) 
 
     progress = await imp.import_candidate_activities(since=None)
 
-    # Probe failure recorded but the loop still ran and notes still promoted.
+    # Probe failure is logged, not recorded as a blocking error: the loop still
+    # ran and promoted notes, and errors==0 means an otherwise-clean run is NOT
+    # frozen by an informational probe timeout.
     assert progress.total_source == 0
     assert progress.processed == 3
+    assert progress.errors == 0
     promote.assert_awaited_once()

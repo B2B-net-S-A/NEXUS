@@ -130,7 +130,9 @@ przestały przybywać. 14 z 16 faz syncowało się poprawnie; blokowała jedna f
   RuntimeError)`: częściowy batch commitowany, `promote_notes` płynie z zacommitowanych
   wierszy, zapisywany **nieatrybuowalny** błąd (zamraża watermark → ogon re-coverowany
   następnego biegu). Faza **zwraca** zamiast rzucać → nie omija kwarantanny.
-- Probe `total_count` już nie robi early-return przy timeoucie (nie pomija importu+notatek).
+- Probe `total_count` już nie robi early-return przy timeoucie (nie pomija importu+notatek);
+  jego błąd jest **tylko logowany** (nie liczony jako blokujący `errors`), więc czysty bieg
+  z wolnym probe nie zamraża watermarku.
 - **Uwaga:** Stage 2 sam nie zdejmuje `degraded` (błąd nieatrybuowalny blokuje aż do
   pełnego przejścia) — to Stage 1 pozwala biegowi się dopiąć; Stage 2 trzyma notatki
   i utrwala częściowy postęp w trakcie przejścia.

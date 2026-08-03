@@ -2364,10 +2364,13 @@ class TraffitImporter:
                 "/employees/activities"
             )
         except Exception as e:  # noqa: BLE001
-            # Record and continue rather than returning early: a slow/timed-out
+            # Log and continue rather than returning early: a slow/timed-out
             # probe must not skip the import loop AND note promotion below.
-            # total_source is informational only (progress %).
-            progress.add_error(f"total_count failed: {e!r}")
+            # total_source is informational only (progress %), so a probe
+            # failure must NOT be recorded as a blocking error — otherwise an
+            # otherwise-complete run would freeze the watermark and stay
+            # `degraded`. The pagination loop below has its own failure path.
+            logger.warning("Activities total_count probe failed: %r", e)
             progress.total_source = 0
 
         cand_map = await self._build_candidate_external_id_map()

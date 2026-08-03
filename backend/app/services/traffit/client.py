@@ -103,9 +103,10 @@ class TraffitClient:
         # into a permanent `degraded`.
         self._http = httpx.AsyncClient(
             timeout=httpx.Timeout(
-                self.config.timeout_s,
                 connect=self.config.connect_timeout_s,
                 read=self.config.read_timeout_s,
+                write=self.config.timeout_s,
+                pool=self.config.timeout_s,
             ),
             follow_redirects=True,
         )
