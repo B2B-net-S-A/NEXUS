@@ -764,11 +764,11 @@ export default function ClientDetailPage() {
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
-    { key: "kontakty", label: "Kontakty", icon: <UserSquare2 className="w-4 h-4" /> },
-    { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
+    { key: "zespol", label: "Delivery Lead", icon: <Users className="w-4 h-4" /> },
+    { key: "kontakty", label: "Kontakty klienta", icon: <UserSquare2 className="w-4 h-4" /> },
+    { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
     { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
-    { key: "zespol", label: "Zespół", icon: <Users className="w-4 h-4" /> },
   ];
 
   return (
