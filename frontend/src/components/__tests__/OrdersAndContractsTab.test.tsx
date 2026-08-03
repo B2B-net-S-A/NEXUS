@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -293,5 +293,36 @@ describe("OrdersAndContractsTab card", () => {
         title: "3321",
       }),
     );
+  });
+
+  it("saves an edited okres (start + end) via updateOrder", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText("Contract 529");
+
+    await user.click(screen.getByLabelText("Edytuj: okres zamówienia"));
+    const endInput = screen.getByLabelText("Data do (puste = bezterminowo)");
+    await user.clear(endInput);
+    await user.type(endInput, "2027-03-31");
+    await user.click(screen.getByLabelText("Zapisz"));
+
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, ACTIVE.id, {
+        start_date: ACTIVE.start_date,
+        end_date: "2027-03-31",
+      }),
+    );
+  });
+
+  it("shows a placeholder (not —/mc) when a rate is null", async () => {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [{ ...structuredClone(CONTRACTOR), rate_candidate: null }],
+        total_contractors: 1,
+      },
+    } as never);
+    renderTab();
+    await screen.findByText("Contract 529");
+    expect(screen.getByText("ustaw stawkę")).toBeInTheDocument();
   });
 });

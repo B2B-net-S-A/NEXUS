@@ -468,7 +468,16 @@ function InlinePeriod({ startDate, endDate, onSave, onError }: InlinePeriodProps
   }
 
   return (
-    <span className="inline-flex items-center gap-1 flex-wrap">
+    <span
+      className="inline-flex items-center gap-1 flex-wrap"
+      onBlur={(e) => {
+        // Match InlineText's save-on-blur: commit when focus leaves the whole
+        // widget (outside click / tab-away), but stay put when moving between
+        // the two date inputs or to the save/cancel buttons (they keep focus
+        // via onMouseDown preventDefault, so they don't count as "leaving").
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit();
+      }}
+    >
       <span className="text-muted-foreground">okres zamówienia:</span>
       <input
         autoFocus
@@ -630,9 +639,13 @@ function ContractorCard({
                 <InlineText
                   value={contractor.rate_candidate != null ? String(contractor.rate_candidate) : ""}
                   display={
-                    <strong className="text-foreground">
-                      {fmtMoney(contractor.rate_candidate)}/mc
-                    </strong>
+                    contractor.rate_candidate != null ? (
+                      <strong className="text-foreground">
+                        {fmtMoney(contractor.rate_candidate)}/mc
+                      </strong>
+                    ) : (
+                      <em className="text-muted-foreground">ustaw stawkę</em>
+                    )
                   }
                   ariaLabel="Stawka kosztowa"
                   inputMode="decimal"
@@ -655,9 +668,13 @@ function ContractorCard({
                 <InlineText
                   value={activeOrder.rate_client != null ? String(activeOrder.rate_client) : ""}
                   display={
-                    <strong className="text-foreground">
-                      {fmtMoney(activeOrder.rate_client)}/mc
-                    </strong>
+                    activeOrder.rate_client != null ? (
+                      <strong className="text-foreground">
+                        {fmtMoney(activeOrder.rate_client)}/mc
+                      </strong>
+                    ) : (
+                      <em className="text-muted-foreground">ustaw stawkę</em>
+                    )
                   }
                   ariaLabel="Stawka przychodowa"
                   inputMode="decimal"
@@ -831,6 +848,7 @@ function FutureOrderRow({
         )}
       </div>
       <button
+        type="button"
         onClick={() => {
           if (confirm(`Anulować zamówienie "${order.title}"?`)) deleteMutation.mutate();
         }}
@@ -925,6 +943,7 @@ function HistoryOrderRow({
         </div>
       </div>
       <button
+        type="button"
         onClick={() => {
           if (confirm(`Anulować zamówienie "${order.title}"?`)) deleteMutation.mutate();
         }}
