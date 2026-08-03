@@ -47,60 +47,60 @@ import { useAuthStore } from "@/store/auth"
 const KPI_CONFIG: Record<
   DashboardPreset,
   Array<{
-    key: string
+    metric: string
     label: string
     icon: typeof Target
   }>
 > = {
   "admin-ops": [
-    { key: "critical_readiness", label: "Readiness", icon: HeartPulse },
-    { key: "critical_schema_drift", label: "Krytyczny drift", icon: ShieldAlert },
-    { key: "background_workers", label: "Workery", icon: Gauge },
-    { key: "failed_dead_events", label: "Failed / dead", icon: AlertTriangle },
+    { metric: "critical_readiness", label: "Readiness", icon: HeartPulse },
+    { metric: "critical_schema_drift", label: "Krytyczny drift", icon: ShieldAlert },
+    { metric: "background_workers", label: "Workery", icon: Gauge },
+    { metric: "failed_dead_events", label: "Failed / dead", icon: AlertTriangle },
   ],
   "delivery-lead": [
-    { key: "open_requests", label: "Otwarte requesty", icon: ListChecks },
-    { key: "open_vacancies", label: "Otwarte wakaty", icon: BriefcaseBusiness },
+    { metric: "open_requests", label: "Otwarte requesty", icon: ListChecks },
+    { metric: "open_vacancies", label: "Otwarte wakaty", icon: BriefcaseBusiness },
     {
-      key: "first_recommendation_sla_pct",
+      metric: "first_recommendation_sla_pct",
       label: "Pierwsza rekomendacja w SLA",
       icon: Clock3,
     },
-    { key: "placements", label: "Placementy", icon: Target },
+    { metric: "placements", label: "Placementy", icon: Target },
   ],
   "head-of-recruitment": [
-    { key: "priority_vacancies", label: "Priorytetowe wakaty", icon: Target },
-    { key: "unassigned_work", label: "Nieprzypisana praca", icon: ListChecks },
+    { metric: "priority_vacancies", label: "Priorytetowe wakaty", icon: Target },
+    { metric: "unassigned_work", label: "Nieprzypisana praca", icon: ListChecks },
     {
-      key: "capacity_utilization_pct",
+      metric: "capacity_utilization_pct",
       label: "Wykorzystanie capacity",
       icon: Gauge,
     },
-    { key: "placements", label: "Placementy", icon: Users },
+    { metric: "placements", label: "Placementy", icon: Users },
   ],
   "my-work": [
-    { key: "plan_completion_pct", label: "Realizacja planu", icon: Gauge },
-    { key: "overdue_actions", label: "Zaległe działania", icon: Clock3 },
-    { key: "completed_calls", label: "Rozmowy", icon: ListChecks },
-    { key: "first_verifications", label: "Weryfikacje", icon: Target },
+    { metric: "plan_completion_pct", label: "Realizacja planu", icon: Gauge },
+    { metric: "overdue_actions", label: "Zaległe działania", icon: Clock3 },
+    { metric: "completed_calls", label: "Rozmowy", icon: ListChecks },
+    { metric: "first_verifications", label: "Weryfikacje", icon: Target },
   ],
   finance: [
-    { key: "mrr_pln", label: "MRR", icon: CircleDollarSign },
-    { key: "monthly_margin_pln", label: "Marża / mies.", icon: Gauge },
-    { key: "outstanding_pln", label: "Należności", icon: Building2 },
-    { key: "overdue_pln", label: "Po terminie", icon: AlertTriangle },
+    { metric: "mrr_pln", label: "MRR", icon: CircleDollarSign },
+    { metric: "monthly_margin_pln", label: "Marża / mies.", icon: Gauge },
+    { metric: "outstanding_pln", label: "Należności", icon: Building2 },
+    { metric: "overdue_pln", label: "Po terminie", icon: AlertTriangle },
   ],
 }
 
 const EXECUTIVE_FINANCE_KPIS = [
-  { key: "mrr_pln", label: "MRR", icon: CircleDollarSign },
-  { key: "monthly_margin_pln", label: "Marża / mies.", icon: Gauge },
+  { metric: "mrr_pln", label: "MRR", icon: CircleDollarSign },
+  { metric: "monthly_margin_pln", label: "Marża / mies.", icon: Gauge },
   {
-    key: "revenue_forecast_3m_pln",
+    metric: "revenue_forecast_3m_pln",
     label: "Prognoza 3M",
     icon: Target,
   },
-  { key: "mrr_at_risk_90d_pln", label: "MRR at risk", icon: AlertTriangle },
+  { metric: "mrr_at_risk_90d_pln", label: "MRR at risk", icon: AlertTriangle },
 ]
 
 function formatKpi(kpi: DashboardKpi | undefined): string | number {
@@ -443,11 +443,11 @@ export function DashboardV2Preset({
           </div>
 
           <StatCardGrid>
-            {kpiConfig.map(({ key, label, icon }) => {
-              const kpi = kpis?.[key]
+            {kpiConfig.map(({ metric, label, icon }) => {
+              const kpi = kpis?.[metric]
               return (
                 <StatCard
-                  key={key}
+                  key={metric}
                   label={label}
                   value={formatKpi(kpi)}
                   icon={icon}
