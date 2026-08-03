@@ -721,20 +721,20 @@ export function CandidateQuickView({
                   aria-label="Akcje kandydata"
                 >
                   <Button
-                    className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                    className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                     onClick={() => setAssignOpen(true)}
                     disabled={!quickView.capabilities.can_assign}
                   >
-                    <UserPlus className="h-5 w-5 shrink-0" />
+                    <UserPlus className="h-4 w-4 shrink-0" />
                     Przypisz do rekrutacji
                   </Button>
                   {canOwnContact && fullContactCaseQuery.data ? (
                     <Button
                       variant="outline"
-                      className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                       onClick={() => setContactOutcomeOpen(true)}
                     >
-                      <Phone className="h-5 w-5 shrink-0" />
+                      <Phone className="h-4 w-4 shrink-0" />
                       Zaloguj wynik telefonu
                     </Button>
                   ) : null}
@@ -742,9 +742,9 @@ export function CandidateQuickView({
                     <Button
                       variant="outline"
                       disabled
-                      className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                     >
-                      <BriefcaseBusiness className="h-5 w-5 shrink-0" />
+                      <BriefcaseBusiness className="h-4 w-4 shrink-0" />
                       Oznaczono jako zatrudnionego
                     </Button>
                   ) : quickView.capabilities.can_mark_employed ? (
@@ -752,36 +752,35 @@ export function CandidateQuickView({
                       candidateId={candidateId}
                       employment={candidate.employment}
                       variant="outline"
-                      className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                     />
                   ) : (
                     <Button
                       variant="outline"
                       disabled
-                      className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                     >
                       Oznacz jako zatrudnionego
                     </Button>
                   )}
                   <Button
                     variant="outline"
-                    className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                    className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                     onClick={() =>
                       primaryCv && setPreviewDocumentId(primaryCv.id)
                     }
                     disabled={!canOpenCv}
                     title={cvButtonTitle}
                   >
-                    <FileText className="h-5 w-5 shrink-0" />
+                    <FileText className="h-4 w-4 shrink-0" />
                     Otwórz CV
                   </Button>
                   <Button
-                    variant="outline"
-                    className="h-auto min-h-20 justify-start whitespace-normal px-4 py-3 text-left"
+                    className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                     onClick={() => openFullProfile("summary")}
                     disabled={!quickView.capabilities.can_open_full_profile}
                   >
-                    <Maximize2 className="h-5 w-5 shrink-0" />
+                    <Maximize2 className="h-4 w-4 shrink-0" />
                     Pełny profil
                   </Button>
                 </div>
