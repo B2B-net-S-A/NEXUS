@@ -321,6 +321,53 @@ async def test_callback_with_invalid_state_redirects_to_login(
     assert "error=" in resp.headers["location"]
 
 
+@pytest.mark.asyncio
+async def test_callback_provider_error_does_not_leak_details(
+    app_client_no_redirect: AsyncClient,
+):
+    sensitive_details = "alice@b2bnetwork.pl tenant=secret-tenant"
+
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"error": "access_denied", "error_description": sensitive_details},
+    )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    error = parse_qs(urlparse(location).query)["error"]
+    assert error == [auth_ms_module._MICROSOFT_SIGN_IN_ERROR]
+    assert sensitive_details not in location
+    assert "alice%40b2bnetwork.pl" not in location
+
+
+@pytest.mark.asyncio
+async def test_callback_token_exchange_error_does_not_leak_exception(
+    app_client_no_redirect: AsyncClient, monkeypatch
+):
+    sensitive_details = "alice@b2bnetwork.pl oauth_response=secret"
+
+    async def _failing_exchange(_code: str, _verifier: str) -> dict:
+        raise RuntimeError(sensitive_details)
+
+    monkeypatch.setattr(
+        auth_ms_module,
+        "_exchange_code_for_id_token",
+        _failing_exchange,
+    )
+
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    error = parse_qs(urlparse(location).query)["error"]
+    assert error == [auth_ms_module._MICROSOFT_SIGN_IN_ERROR]
+    assert sensitive_details not in location
+    assert "alice%40b2bnetwork.pl" not in location
+
+
 # ── /exchange ───────────────────────────────────────────────────────────────
 
 

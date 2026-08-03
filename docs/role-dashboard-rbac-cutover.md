@@ -58,6 +58,14 @@ Downgrade jest wyłącznie strukturalny. Nie odtwarza usuniętych relacji Financ
 ani sesji; rollback danych wymaga restore albo kontrolowanego forward-fix na
 podstawie tabel audytowych.
 
+Restore kopii bazy sprzed 0210 również odtwarza stan bez markera cutoveru. Przy
+starcie bieżącej wersji aplikacji migracja wykona więc 0210 ponownie i celowo,
+w trybie fail-closed, unieważni wszystkie access/refresh JWT, sesje WebSocket
+oraz oczekujące kody wymiany Microsoft SSO. Dotyczy to także tokenów wydanych po
+utworzeniu przywracanej kopii: użytkownicy muszą zalogować się ponownie. Runbook
+restore powinien zapowiadać to pełne wylogowanie; nie należy próbować zachowywać
+sesji przez ręczne odtwarzanie markera ani wartości `authorization_version`.
+
 ## Relacje po cutoverze
 
 ### Klient–TAC i właściciel requestu

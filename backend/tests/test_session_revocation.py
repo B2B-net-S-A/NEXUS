@@ -43,7 +43,13 @@ from app.models.user import User, UserRole
 pytestmark = pytest.mark.asyncio
 
 
-def _mint_access_token(user_id: int, role: str, iat: datetime) -> str:
+def _mint_access_token(
+    user_id: int,
+    role: str,
+    iat: datetime,
+    *,
+    authorization_version: int,
+) -> str:
     """Wybij access token z KONTROLOWANYM ``iat`` (unixowe sekundy).
 
     ``create_access_token`` ustawia ``iat`` na "teraz", co przy porównaniu z
@@ -56,16 +62,23 @@ def _mint_access_token(user_id: int, role: str, iat: datetime) -> str:
         "type": "access",
         "iat": iat,
         "exp": iat + timedelta(hours=1),
+        "av": authorization_version,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def _mint_refresh_token(user_id: int, iat: datetime) -> str:
+def _mint_refresh_token(
+    user_id: int,
+    iat: datetime,
+    *,
+    authorization_version: int,
+) -> str:
     payload = {
         "sub": str(user_id),
         "type": "refresh",
         "iat": iat,
         "exp": iat + timedelta(days=1),
+        "av": authorization_version,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
@@ -90,8 +103,19 @@ async def fresh_user() -> AsyncIterator[dict]:
         await db.commit()
         await db.refresh(user)
         user_id = user.id
+        authorization_version = user.authorization_version
 
-    yield {"id": user_id, "email": email, "password": password}
+    # The model and 0210 schema both initialize new accounts at version 1.
+    # Keep using the value loaded from the row below so these tests isolate the
+    # tokens_valid_after floor instead of accidentally exercising a stale AV.
+    assert authorization_version == 1
+
+    yield {
+        "id": user_id,
+        "email": email,
+        "password": password,
+        "authorization_version": authorization_version,
+    }
 
     async with AsyncSessionLocal() as db:
         await db.execute(delete(Notification).where(Notification.user_id == user_id))
@@ -134,7 +158,12 @@ async def test_token_before_self_change_is_rejected_after(
 ):
     """Self-service change-password unieważnia wcześniej wybity token."""
     old_iat = datetime.now(timezone.utc) - timedelta(seconds=10)
-    token = _mint_access_token(fresh_user["id"], UserRole.recruiter.value, old_iat)
+    token = _mint_access_token(
+        fresh_user["id"],
+        UserRole.recruiter.value,
+        old_iat,
+        authorization_version=fresh_user["authorization_version"],
+    )
     headers = {"Authorization": f"Bearer {token}"}
 
     # Zanim zmienimy hasło — token działa (floor = NULL).
@@ -176,7 +205,10 @@ async def test_new_token_after_change_still_works(
         await db.commit()
 
     fresh_token = _mint_access_token(
-        fresh_user["id"], UserRole.recruiter.value, floor + timedelta(seconds=10)
+        fresh_user["id"],
+        UserRole.recruiter.value,
+        floor + timedelta(seconds=10),
+        authorization_version=fresh_user["authorization_version"],
     )
     resp = await app_client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {fresh_token}"}
@@ -193,7 +225,12 @@ async def test_null_floor_user_is_unaffected(app_client: AsyncClient, fresh_user
 
     # iat w przeszłości, ale token nadal niewygasły (exp = iat + 1h).
     old_iat = datetime.now(timezone.utc) - timedelta(seconds=30)
-    token = _mint_access_token(fresh_user["id"], UserRole.recruiter.value, old_iat)
+    token = _mint_access_token(
+        fresh_user["id"],
+        UserRole.recruiter.value,
+        old_iat,
+        authorization_version=fresh_user["authorization_version"],
+    )
     resp = await app_client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
     )
@@ -211,7 +248,12 @@ async def test_admin_reset_revokes_existing_token(
 ):
     """POST /api/admin/users/{id}/reset-password unieważnia tokeny usera."""
     old_iat = datetime.now(timezone.utc) - timedelta(seconds=10)
-    token = _mint_access_token(fresh_user["id"], UserRole.recruiter.value, old_iat)
+    token = _mint_access_token(
+        fresh_user["id"],
+        UserRole.recruiter.value,
+        old_iat,
+        authorization_version=fresh_user["authorization_version"],
+    )
     headers = {"Authorization": f"Bearer {token}"}
 
     before = await app_client.get("/api/auth/me", headers=headers)
@@ -244,7 +286,11 @@ async def test_refresh_token_before_floor_rejected(
         u.tokens_valid_after = floor
         await db.commit()
 
-    stale_refresh = _mint_refresh_token(fresh_user["id"], floor - timedelta(seconds=10))
+    stale_refresh = _mint_refresh_token(
+        fresh_user["id"],
+        floor - timedelta(seconds=10),
+        authorization_version=fresh_user["authorization_version"],
+    )
     resp = await app_client.post(
         "/api/auth/refresh", params={"refresh_token": stale_refresh}
     )
@@ -254,7 +300,11 @@ async def test_refresh_token_before_floor_rejected(
     )
 
     # Świeży refresh token (iat po floorze) — działa normalnie.
-    fresh_refresh = _mint_refresh_token(fresh_user["id"], floor + timedelta(seconds=10))
+    fresh_refresh = _mint_refresh_token(
+        fresh_user["id"],
+        floor + timedelta(seconds=10),
+        authorization_version=fresh_user["authorization_version"],
+    )
     ok = await app_client.post(
         "/api/auth/refresh", params={"refresh_token": fresh_refresh}
     )

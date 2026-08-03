@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import uuid
 from typing import AsyncIterator
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -378,6 +379,101 @@ async def test_sso_callback_blocks_user_with_no_matching_group(
             .where(Activity.action == "sso_aad_role_denied")
         )
         assert denial is not None
+
+
+@pytest.mark.asyncio
+async def test_sso_callback_group_lookup_error_does_not_leak_exception(
+    app_client_no_redirect, monkeypatch, cleanup_users
+):
+    unique = uuid.uuid4().hex[:8]
+    email = f"aad-lookup-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    group_id = f"grp-recruiter-{unique}"
+    sensitive_details = f"{email} tenant=secret-tenant"
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps({group_id: "recruiter"}),
+    )
+    _patch_token_exchange_with_access(
+        monkeypatch,
+        {
+            "preferred_username": email,
+            "oid": f"oid-{unique}",
+            "name": "AAD Lookup Failure",
+        },
+    )
+
+    async def _failing_fetch(_access_token: str) -> list[dict]:
+        raise RuntimeError(sensitive_details)
+
+    monkeypatch.setattr(aad_groups_module, "fetch_user_groups", _failing_fetch)
+
+    state = auth_ms_module._sign_login_state("v" * 64)
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": state},
+    )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    error = parse_qs(urlparse(location).query)["error"]
+    assert error == [auth_ms_module._AAD_GROUP_LOOKUP_ERROR]
+    assert sensitive_details not in location
+    assert email.replace("@", "%40") not in location
+
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.email == email))
+        assert user is None, (
+            "Authoritative AAD lookup failure must roll back the provisional "
+            "Recruiter instead of committing it through get_db()."
+        )
+
+
+@pytest.mark.asyncio
+async def test_sso_callback_missing_graph_token_rolls_back_provisional_user(
+    app_client_no_redirect, monkeypatch, cleanup_users
+):
+    unique = uuid.uuid4().hex[:8]
+    email = f"aad-no-token-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    group_id = f"grp-recruiter-{unique}"
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps({group_id: "recruiter"}),
+    )
+    _patch_token_exchange_with_access(
+        monkeypatch,
+        {
+            "preferred_username": email,
+            "oid": f"oid-{unique}",
+            "name": "AAD Missing Token",
+        },
+        access_token="",
+    )
+
+    state = auth_ms_module._sign_login_state("v" * 64)
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": state},
+    )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    error = parse_qs(urlparse(location).query)["error"]
+    assert error == ["AAD RBAC misconfigured (no Graph token). Contact administrator."]
+
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.email == email))
+        assert user is None, (
+            "Missing authoritative Graph token must roll back the provisional "
+            "Recruiter instead of committing it through get_db()."
+        )
 
 
 @pytest.mark.asyncio

@@ -325,6 +325,10 @@ def _frontend_login_error_url(reason: str) -> str:
     return f"{base}/login?{urlencode({'error': reason[:120]})}"
 
 
+_MICROSOFT_SIGN_IN_ERROR = "Microsoft sign-in failed. Try again."
+_AAD_GROUP_LOOKUP_ERROR = "Microsoft role lookup failed. Contact administrator."
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
@@ -362,9 +366,9 @@ async def callback(
     POSTs that uuid to ``/exchange``). On error: redirect to ``/login?error=...``.
     """
     if error:
-        logger.info("sso callback error: %s — %s", error, error_description)
+        logger.info("sso callback returned provider error (details redacted)")
         return RedirectResponse(
-            _frontend_login_error_url(error_description or error), status_code=302
+            _frontend_login_error_url(_MICROSOFT_SIGN_IN_ERROR), status_code=302
         )
     if not code or not state:
         return RedirectResponse(
@@ -381,10 +385,10 @@ async def callback(
 
     try:
         token_payload = await _exchange_code_for_id_token(code, pkce_verifier)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("sso code exchange failed")
+    except Exception:  # noqa: BLE001
+        logger.error("sso code exchange failed (details redacted)")
         return RedirectResponse(
-            _frontend_login_error_url(f"Token exchange failed: {exc!r}"),
+            _frontend_login_error_url(_MICROSOFT_SIGN_IN_ERROR),
             status_code=302,
         )
 
@@ -506,6 +510,10 @@ async def callback(
                 "sso callback: AAD RBAC enabled but Microsoft returned no "
                 "access_token — check GroupMember.Read.All consent in Azure app."
             )
+            # ``get_db`` commits after a normal route return. Roll back the
+            # provisional user/identity link so an unavailable authoritative
+            # AAD source can never persist the bootstrap Recruiter role.
+            await db.rollback()
             return RedirectResponse(
                 _frontend_login_error_url(
                     "AAD RBAC misconfigured (no Graph token). Contact administrator."
@@ -514,10 +522,11 @@ async def callback(
             )
         try:
             groups = await fetch_user_groups(graph_access_token)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("sso callback: AAD memberOf fetch failed")
+        except Exception:  # noqa: BLE001
+            logger.error("sso callback: AAD memberOf fetch failed (details redacted)")
+            await db.rollback()
             return RedirectResponse(
-                _frontend_login_error_url(f"AAD group lookup failed: {exc!r}"[:120]),
+                _frontend_login_error_url(_AAD_GROUP_LOOKUP_ERROR),
                 status_code=302,
             )
 
