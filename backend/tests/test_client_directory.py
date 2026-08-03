@@ -488,9 +488,7 @@ async def test_scope_crud_rejects_null_category_foreign_and_occupied_msa(
 
 # ── Directory export (CSV / XLSX) ─────────────────────────────────────────────
 
-_XLSX_MEDIA_TYPE = (
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 async def _seed_role_user(role: UserRole) -> tuple[int, dict[str, str]]:
@@ -586,8 +584,9 @@ async def test_directory_export_xlsx_mirrors_list_and_includes_legal(
 
         # The Zulu "B scope" carries an MSA with no expiry → open-ended.
         b_scope = next(
-            r for r in records if r["Klient"].startswith("Zulu")
-            and r["Zakres"] == "B scope"
+            r
+            for r in records
+            if r["Klient"].startswith("Zulu") and r["Zakres"] == "B scope"
         )
         assert b_scope["Status klienta"] == "Prospekt"
         assert b_scope["Koniec umowy ramowej"] == "Bezterminowa"

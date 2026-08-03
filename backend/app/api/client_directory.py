@@ -325,9 +325,7 @@ def _directory_export_row(row, *, can_view_legal: bool) -> list:
         _directory_contract_end_cell(row),
     ]
     if can_view_legal:
-        values.extend(
-            [row.legal_name or "", row.nip or "", row.regon or ""]
-        )
+        values.extend([row.legal_name or "", row.nip or "", row.regon or ""])
     return values
 
 
