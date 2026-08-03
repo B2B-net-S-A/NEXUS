@@ -25,7 +25,8 @@ def test_validate_aad_roles_deduplicates_and_preserves_precedence() -> None:
     [
         (["admin", "unknown-role"], "unknown NEXUS role"),
         (["finance", "recruiter"], "finance role must be exclusive"),
-        (["user", "recruiter"], "user role must be exclusive"),
+        (["user"], "legacy viewer role can no longer be assigned"),
+        (["user", "recruiter"], "legacy viewer role can no longer be assigned"),
     ],
 )
 def test_validate_aad_roles_rejects_unknown_and_exclusive_hybrids(

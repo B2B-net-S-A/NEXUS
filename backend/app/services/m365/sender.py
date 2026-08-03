@@ -38,6 +38,7 @@ from app.models.m365 import (
 from app.services.m365.actionable_messages import (
     build_interview_confirmation_card,
 )
+from app.services.m365.access import require_eligible_connection_owner
 from app.services.m365.graph_client import GraphClient
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
 from app.services.m365.signature_cache import get_outlook_signature
@@ -107,6 +108,7 @@ async def send_new(
     calls with the same (user, recipients, subject) within the same minute
     return the previously-sent row without issuing a duplicate Graph POST.
     """
+    await require_eligible_connection_owner(db, connection)
     cc = cc or []
     body_html = sanitize_html(body_html)
     body_text = html_to_text(body_html)
@@ -220,6 +222,7 @@ async def send_interview_invitation(
     double-click within the same minute returns the previously persisted row
     instead of issuing a second Graph POST and a second JWT token.
     """
+    await require_eligible_connection_owner(db, connection)
     cc = cc or []
 
     # Sanitize the recruiter-authored body first (XSS hardening for whatever
@@ -317,6 +320,7 @@ async def reply(
     Graph id is resolved from the draft flow (the /reply endpoint returns 202
     without a body, so we use /createReply → /send for the id).
     """
+    await require_eligible_connection_owner(db, connection)
     body_html = sanitize_html(body_html)
     body_text = html_to_text(body_html)
 

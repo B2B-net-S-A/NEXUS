@@ -266,7 +266,7 @@ function JobsTable({
  <TableHead>Oferta</TableHead>
  <TableHead>Klient</TableHead>
  <TableHead>Status</TableHead>
- <TableHead>Odpowiedzialny</TableHead>
+ <TableHead>Rekruter prowadzący</TableHead>
  <TableHead>Lokalizacja</TableHead>
  <TableHead className="w-[150px]">Kandydaci</TableHead>
  <TableHead>Dodano</TableHead>
@@ -314,9 +314,11 @@ function JobsTable({
  {statusLabel}
  </Badge>
  {job.tac_id == null && (
+ <span title="Request nie ma jawnie wybranego ownera TAC">
  <Badge size="sm" variant="warning">
- Brak TAC
+ Brak ownera requestu
  </Badge>
+ </span>
  )}
  <JobPriorityWorkBadges job={job} />
  </div>
@@ -838,9 +840,9 @@ export function JobsListV2() {
  {statusLabel}
  </Badge>
  {job.tac_id == null && (
- <span title="Klient nie ma przypisanego primary TAC">
+ <span title="Request nie ma jawnie wybranego ownera TAC">
  <Badge size="sm" variant="warning">
- Brak TAC
+ Brak ownera requestu
  </Badge>
  </span>
  )}

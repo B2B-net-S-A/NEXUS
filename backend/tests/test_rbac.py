@@ -734,16 +734,18 @@ async def test_me_returns_analytics_capabilities(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
 ):
-    """Każda rola dostaje analytics_capabilities; viewer tylko agregaty."""
+    """Każda sesja dostaje listę capability; legacy viewer ma deny-all."""
     role, headers = role_headers
     resp = await rbac_client.get("/api/auth/me", headers=headers)
     assert resp.status_code == 200, resp.text
     caps = resp.json().get("analytics_capabilities")
-    assert isinstance(caps, list) and caps, (
-        f"[{role.value}] analytics_capabilities missing/empty: {caps}"
+    assert isinstance(caps, list), (
+        f"[{role.value}] analytics_capabilities missing: {caps}"
     )
     if role is UserRole.user:
-        assert caps == ["view_operational_aggregates"]
+        assert caps == []
+    else:
+        assert caps, f"[{role.value}] expected at least one capability"
     if role is UserRole.admin:
         assert "view_finance" in caps and "admin_analytics" in caps
     if role is UserRole.tac:

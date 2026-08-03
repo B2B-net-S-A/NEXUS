@@ -192,9 +192,9 @@ class Job(Base, TimestampMixin):
         ForeignKey("users.id"), nullable=True, index=True
     )
     # TAC (Talent Acquisition Consultant) — osoba opiekująca się relacją z
-    # klientem. Auto-ustawiane przy POST /jobs z
-    # `client_tac_assignments.is_primary=true` (migracja 0060). Override:
-    # jawnie podany `tac_id` w request wygrywa.
+    # klientem. Przy POST /jobs auto-ustawiany tylko gdy klient ma dokładnie
+    # jedno aktywne przypisanie TAC. Przy wielu równych TAC-ach caller musi
+    # podać jawny `tac_id`, należący do zespołu tego klienta.
     tac_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )

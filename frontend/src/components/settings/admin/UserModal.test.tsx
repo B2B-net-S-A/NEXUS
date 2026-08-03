@@ -76,6 +76,9 @@ describe("UserModal — exclusive personas", () => {
     expect(
       screen.queryByRole("checkbox", { name: /Viewer/ }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /Viewer/ }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({

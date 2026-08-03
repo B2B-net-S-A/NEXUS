@@ -5,13 +5,16 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 from app.api.clients_team import (
     assign_tac_to_client,
     remove_tac_from_client,
     toggle_tac_primary,
+    update_tac_first_priority,
 )
+from app.api.jobs import _validate_tac_client_assignment
 from app.api.team_structure import (
     assign_dl_to_client,
     remove_dl_client,
@@ -23,11 +26,18 @@ from app.models.team_structure import (
     DeliveryLeadClientAssignment,
 )
 from app.models.user import User, UserRole
-from app.schemas.client_team import ClientTacAssignmentCreate
+from app.schemas.client_team import (
+    ClientTacAssignmentCreate,
+    ClientTacFirstPriorityUpdate,
+)
 from app.schemas.team_structure import AssignDlClientPayload
 from app.services.authorization_invalidation import (
     invalidate_delivery_lead_scope_for_client,
     invalidate_delivery_lead_scope_for_users,
+)
+from app.services.client_tac_assignments import (
+    ClientTacRemovalResult,
+    ClientTacUpsertResult,
 )
 
 
@@ -44,13 +54,15 @@ class _Database:
     def __init__(self, *results):
         self.results = list(results)
         self.statements = []
+        self.parameters = []
         self.added = []
         self.deleted = []
         self.commits = 0
         self.flushes = 0
 
-    async def execute(self, statement):
+    async def execute(self, statement, parameters=None):
         self.statements.append(statement)
+        self.parameters.append(parameters)
         return self.results.pop(0) if self.results else _ScalarResult(rowcount=0)
 
     def add(self, value):
@@ -241,7 +253,25 @@ async def test_tac_client_upsert_revokes_client_dls_only_on_change(
         tac_user_id=22,
         is_primary=False,
     )
-    no_op_db = _Database(_ScalarResult(existing))
+    upsert = AsyncMock(
+        side_effect=[
+            ClientTacUpsertResult(
+                assignment=existing,
+                membership_changed=False,
+                legacy_primary_changed=False,
+                first_priority_changed=False,
+            ),
+            ClientTacUpsertResult(
+                assignment=existing,
+                membership_changed=False,
+                legacy_primary_changed=True,
+                first_priority_changed=False,
+            ),
+        ]
+    )
+    monkeypatch.setattr("app.api.clients_team.upsert_client_tac_assignment", upsert)
+
+    no_op_db = _Database()
     await assign_tac_to_client(
         44,
         ClientTacAssignmentCreate(user_id=22, is_primary=False),
@@ -250,7 +280,8 @@ async def test_tac_client_upsert_revokes_client_dls_only_on_change(
     )
     invalidator.assert_not_awaited()
 
-    changed_db = _Database(_ScalarResult(None), _ScalarResult(existing))
+    existing.is_primary = True
+    changed_db = _Database()
     await assign_tac_to_client(
         44,
         ClientTacAssignmentCreate(user_id=22, is_primary=True),
@@ -259,6 +290,54 @@ async def test_tac_client_upsert_revokes_client_dls_only_on_change(
     )
     assert existing.is_primary is True
     invalidator.assert_awaited_once_with(changed_db, 44)
+
+
+@pytest.mark.asyncio
+async def test_explicit_post_priority_closes_reconciliation(monkeypatch) -> None:
+    assignment = ClientTacAssignment(
+        id=70,
+        client_id=44,
+        tac_user_id=22,
+        is_primary=False,
+        is_first_priority_for_tac=True,
+    )
+    monkeypatch.setattr(
+        "app.api.clients_team._ensure_client_exists",
+        AsyncMock(return_value=Client(id=44, name="Client")),
+    )
+    monkeypatch.setattr(
+        "app.api.clients_team._load_user_for_tac",
+        AsyncMock(return_value=_user(22, UserRole.tac)),
+    )
+    monkeypatch.setattr(
+        "app.api.clients_team.upsert_client_tac_assignment",
+        AsyncMock(
+            return_value=ClientTacUpsertResult(
+                assignment=assignment,
+                membership_changed=False,
+                legacy_primary_changed=False,
+                first_priority_changed=True,
+            )
+        ),
+    )
+    db = _Database()
+
+    await assign_tac_to_client(
+        44,
+        ClientTacAssignmentCreate(
+            user_id=22,
+            is_first_priority_for_tac=True,
+        ),
+        _user(1, UserRole.admin),
+        db,  # type: ignore[arg-type]
+    )
+
+    assert db.parameters[0] == {
+        "tac_user_id": 22,
+        "selected_client_id": 44,
+        "resolved_by": 1,
+    }
+    assert db.commits == 1
 
 
 @pytest.mark.asyncio
@@ -275,23 +354,102 @@ async def test_tac_client_toggle_and_delete_revoke_client_dls(monkeypatch) -> No
         is_primary=True,
     )
 
-    toggle_db = _Database(_ScalarResult(assignment))
+    toggle = AsyncMock(return_value=assignment)
+    remove = AsyncMock(
+        return_value=ClientTacRemovalResult(
+            assignment=assignment,
+            first_priority_changed=False,
+        )
+    )
+    monkeypatch.setattr("app.api.clients_team.toggle_legacy_primary_tac", toggle)
+    monkeypatch.setattr("app.api.clients_team.remove_client_tac_assignment", remove)
+
+    assignment.is_primary = False
+    toggle_db = _Database()
     await toggle_tac_primary(
         44,
         22,
         _user(1, UserRole.admin),
         toggle_db,  # type: ignore[arg-type]
     )
-    assert assignment.is_primary is False
     invalidator.assert_awaited_once_with(toggle_db, 44)
 
     invalidator.reset_mock()
-    delete_db = _Database(_ScalarResult(assignment))
+    delete_db = _Database()
     await remove_tac_from_client(
         44,
         22,
         _user(1, UserRole.admin),
+        None,
         delete_db,  # type: ignore[arg-type]
     )
-    assert delete_db.deleted == [assignment]
+    remove.assert_awaited_once_with(
+        delete_db,
+        client_id=44,
+        tac_user_id=22,
+        successor_client_id=None,
+    )
     invalidator.assert_awaited_once_with(delete_db, 44)
+
+
+@pytest.mark.asyncio
+async def test_tac_first_priority_change_does_not_revoke_scope(monkeypatch) -> None:
+    assignment = ClientTacAssignment(
+        id=70,
+        client_id=44,
+        tac_user_id=22,
+        is_primary=True,
+        is_first_priority_for_tac=True,
+    )
+    changer = AsyncMock(return_value=assignment)
+    invalidator = AsyncMock()
+    monkeypatch.setattr("app.api.clients_team.set_first_priority_for_tac", changer)
+    monkeypatch.setattr(
+        "app.api.clients_team.invalidate_delivery_lead_scope_for_client",
+        invalidator,
+    )
+    db = _Database()
+
+    result = await update_tac_first_priority(
+        44,
+        22,
+        ClientTacFirstPriorityUpdate(enabled=True),
+        _user(1, UserRole.admin),
+        db,  # type: ignore[arg-type]
+    )
+
+    assert result.is_first_priority_for_tac is True
+    invalidator.assert_not_awaited()
+    assert db.commits == 1
+    reconciliation_sql = str(db.statements[0])
+    assert "UPDATE rbac_relationship_reconciliation" in reconciliation_sql
+    assert "resolved_at = now()" in reconciliation_sql
+    assert db.parameters[0] == {
+        "tac_user_id": 22,
+        "selected_client_id": 44,
+        "resolved_by": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_explicit_job_tac_must_match_client_relationship() -> None:
+    valid_db = _Database(_ScalarResult(70))
+    await _validate_tac_client_assignment(
+        valid_db,  # type: ignore[arg-type]
+        user_id=22,
+        client_id=44,
+    )
+
+    sql = str(valid_db.statements[0].compile(dialect=postgresql.dialect()))
+    assert "client_tac_assignments.tac_user_id =" in sql
+    assert "client_tac_assignments.client_id =" in sql
+
+    invalid_db = _Database(_ScalarResult(None))
+    with pytest.raises(HTTPException) as exc_info:
+        await _validate_tac_client_assignment(
+            invalid_db,  # type: ignore[arg-type]
+            user_id=23,
+            client_id=44,
+        )
+    assert exc_info.value.status_code == 400
+    assert "assigned to the selected client_id" in exc_info.value.detail

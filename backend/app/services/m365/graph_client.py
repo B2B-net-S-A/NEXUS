@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.encryption import get_token_cipher
 from app.models.m365 import M365Connection, M365SyncStatus
 from app.services.m365 import oauth as m365_oauth
+from app.services.m365.access import require_eligible_connection_owner
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,14 @@ class GraphClient:
         await self._client.aclose()
 
     async def __aenter__(self) -> "GraphClient":
+        try:
+            # Tokens/subscriptions can outlive a role change.  Re-read the
+            # owner immediately before any Graph request instead of treating
+            # ``connection.is_active`` as authorization.
+            await require_eligible_connection_owner(self._db, self._conn)
+        except Exception:
+            await self.close()
+            raise
         return self
 
     async def __aexit__(self, *exc_info) -> None:
@@ -87,6 +96,10 @@ class GraphClient:
         headers: Optional[dict] = None,
         expect_json: bool = True,
     ) -> Any:
+        # A long delta/backfill context can stay open while an administrator
+        # changes the owner's role. Revalidate before every outbound request,
+        # not only when entering the context, so the next page/request stops.
+        await require_eligible_connection_owner(self._db, self._conn)
         if not url.startswith("http"):
             url = f"{GRAPH_BASE}{url}"
         hdrs = {"Authorization": f"Bearer {self._access_token}"}

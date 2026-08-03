@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -65,10 +65,14 @@ async def list_users(
 ):
     """Directory listing for owner/collaborator pickers."""
     target_roles = roles if roles else _DEFAULT_ROLES
+    effective_role_filter = or_(
+        User.role.in_(target_roles),
+        *(User.roles.contains([role.value]) for role in target_roles),
+    )
     query = (
         select(User)
         .where(User.is_active.is_(True))
-        .where(User.role.in_(target_roles))
+        .where(effective_role_filter)
         .order_by(User.name)
     )
     if q:
@@ -146,7 +150,12 @@ async def list_mentionable_users(
         rows = await db.execute(q_stmt.order_by(User.name))
         users = list(rows.scalars().all())
     else:
-        q_stmt = select(User).where(User.role.in_(_DEFAULT_ROLES))
+        q_stmt = select(User).where(
+            or_(
+                User.role.in_(_DEFAULT_ROLES),
+                *(User.roles.contains([role.value]) for role in _DEFAULT_ROLES),
+            )
+        )
         if not include_inactive:
             q_stmt = q_stmt.where(active_clause)
         rows = await db.execute(q_stmt.order_by(User.name))

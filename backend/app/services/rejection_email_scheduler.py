@@ -36,6 +36,7 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.email_template import EmailCategory, EmailTemplate
@@ -48,6 +49,7 @@ from app.models.rejection_email import (
     ScheduledRejectionEmail,
 )
 from app.models.user import User
+from app.services.m365.access import M365OwnerIneligible, eligible_m365_owner
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +113,7 @@ async def maybe_schedule(
         return None
 
     recruiter = await db.get(User, recruiter_id)
-    if recruiter is None:
+    if recruiter is None or not user_can_access_candidate_domain(recruiter):
         return None
 
     other_processes = await _load_other_active_processes(
@@ -199,6 +201,20 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
     if row.status != RejectionEmailStatus.pending:
         logger.info(
             "rejection_email_dispatch: row %s skipped (status=%s)", row_id, row.status
+        )
+        return
+
+    # Queued work can outlive a role cutover.  Treat current RBAC as the
+    # authorization source and terminate the queue row without retrying or
+    # notifying the now-Finance/viewer account with candidate PII.
+    if await eligible_m365_owner(db, row.recruiter_id) is None:
+        row.status = RejectionEmailStatus.skipped
+        row.last_error = "m365_owner_outside_candidate_domain"
+        await db.flush()
+        await db.commit()
+        logger.warning(
+            "rejection_email_dispatch: row %s skipped — owner outside candidate domain",
+            row_id,
         )
         return
 
@@ -301,6 +317,19 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
             body_html=row.body_html,
             candidate_id=row.candidate_id,
         )
+    except M365OwnerIneligible:
+        # Close the narrow TOCTOU gap between the explicit role check above
+        # and the sender/Graph execution boundary. This is terminal, not a
+        # provider failure, so never enqueue retries or candidate notifications.
+        row.status = RejectionEmailStatus.skipped
+        row.last_error = "m365_owner_outside_candidate_domain"
+        await db.flush()
+        await db.commit()
+        logger.warning(
+            "rejection_email_dispatch: row %s skipped — owner changed before send",
+            row_id,
+        )
+        return
     except Exception as exc:  # noqa: BLE001 — Graph raises a menagerie
         send_error = exc
         email = None

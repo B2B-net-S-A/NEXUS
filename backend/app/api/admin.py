@@ -31,6 +31,7 @@ from app.services.email import (
     send_password_changed_notification,
     send_password_reset_email,
 )
+from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
 from app.services.password_reset import (
     RESET_TOKEN_TTL_MINUTES,
     create_reset_token,
@@ -96,6 +97,11 @@ def _normalized_role_values(
     values = list(dict.fromkeys(values))
     if primary.value not in values:
         values.insert(0, primary.value)
+    if primary == UserRole.user or UserRole.user.value in values:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Legacy viewer role can no longer be assigned; use recruiter",
+        )
     exclusive = {
         UserRole.finance.value,
         UserRole.user.value,
@@ -181,12 +187,15 @@ async def create_user(
     # default to ``[role]``; when supplied ensure primary is present.
     roles_list = _normalized_role_values(data.role, data.roles)
     preexempt = onboarding_persona_for_roles(roles_list) is None
+    is_finance = data.role == UserRole.finance
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
         name=data.name,
         role=data.role,
         roles=roles_list,
+        allowed_sections=[],
+        kpi_coach_enabled=not is_finance,
         profile_completed=preexempt,
         profile_completed_at=func.now() if preexempt else None,
     )
@@ -242,10 +251,20 @@ async def update_user(
 
     user.role = final_primary
     user.roles = final_roles
-    if final_primary in {UserRole.finance, UserRole.user}:
+    entering_finance = (
+        final_primary == UserRole.finance
+        and UserRole.finance.value not in original_effective_roles
+    )
+    if final_primary == UserRole.finance:
         # Exclusive non-recruitment personas must not retain legacy
         # DynaReporter grants from their previous operational role.
         user.allowed_sections = []
+        user.kpi_coach_enabled = False
+        user.cloudtalk_agent_id = None
+        user.profile_completed = True
+        user.profile_completed_at = user.profile_completed_at or datetime.now(
+            timezone.utc
+        )
     if _acquires_onboarding_role(
         original_effective_roles,
         final_roles,
@@ -267,6 +286,21 @@ async def update_user(
     if authorization_changed:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
+
+    if entering_finance:
+        cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="finance_recruitment_access_cleared",
+                user_id=_admin.id,
+                details={
+                    "target_email": user.email,
+                    "counts": cleanup_counts,
+                },
+            )
+        )
 
     # Audit: write one Activity per attribute that actually changed
     if data.role is not None and data.role != original_role:
@@ -756,9 +790,7 @@ async def resync_aad_groups(
     role_changed = user.role != new_role
     roles_changed = previous_roles != role_strs
     active_changed = not user.is_active
-    legacy_sections_reset = new_role in {UserRole.finance, UserRole.user} and bool(
-        user.allowed_sections
-    )
+    legacy_sections_reset = new_role == UserRole.finance and bool(user.allowed_sections)
     onboarding_reset = onboarding_persona_changed(
         previous_effective_roles,
         role_strs,
@@ -798,12 +830,36 @@ async def resync_aad_groups(
     if onboarding_reset:
         user.profile_completed = False
         user.profile_completed_at = None
-    if new_role in {UserRole.finance, UserRole.user}:
+    if new_role == UserRole.finance:
         user.allowed_sections = []
+        user.kpi_coach_enabled = False
+        user.cloudtalk_agent_id = None
+        user.profile_completed = True
+        user.profile_completed_at = user.profile_completed_at or datetime.now(
+            timezone.utc
+        )
     user.is_active = True
     if role_changed or roles_changed or active_changed or legacy_sections_reset:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
+    if (
+        new_role == UserRole.finance
+        and UserRole.finance.value not in previous_effective_roles
+    ):
+        cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="finance_recruitment_access_cleared",
+                user_id=_admin.id,
+                details={
+                    "target_email": user.email,
+                    "source": "aad_resync",
+                    "counts": cleanup_counts,
+                },
+            )
+        )
     await db.flush()
 
     return ResyncAadGroupsResponse(

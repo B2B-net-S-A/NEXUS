@@ -1,8 +1,8 @@
 """Auto-add JobCollaborators from a Competence Category assignment.
 
 Given a job + resolved CC, inserts rows into `job_collaborators` with
-`source='auto_cc'` for users whose `user_competence_categories.priority=1`
-(1st priority sourcerzy) OR `is_primary=true` (główna CC usera — DL/TAC).
+`source='auto_cc'` for users whose canonical
+`user_competence_categories.priority=1`.
 
 Idempotent: existing rows with same (job_id, user_id) are skipped silently
 via ON CONFLICT (unique constraint `uq_job_collaborators_job_user`).
@@ -31,18 +31,18 @@ async def auto_add_cc_collaborators(
     added_by: int | None = None,
 ) -> list[int]:
     """Insert auto_cc collaborators for the given CC. Returns inserted user ids."""
-    # Resolve users: priority=1 OR is_primary=true for this CC
+    # `priority` is canonical since migration 0210.  Keeping an `is_primary`
+    # fallback would let a drifted legacy bit bypass the unique-primary policy.
     result = await db.execute(
         select(UserCompetenceCategory.user_id).where(
             UserCompetenceCategory.competence_category_id == competence_category_id,
-            (UserCompetenceCategory.priority == 1)
-            | (UserCompetenceCategory.is_primary.is_(True)),
+            UserCompetenceCategory.priority == 1,
         )
     )
     candidate_user_ids = sorted({row[0] for row in result.all()})
     if not candidate_user_ids:
         logger.info(
-            "[auto_cc] CC %s has no priority=1 / primary users — nothing to add.",
+            "[auto_cc] CC %s has no priority=1 users — nothing to add.",
             competence_category_id,
         )
         return []

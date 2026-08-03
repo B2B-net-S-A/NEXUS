@@ -36,7 +36,10 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user
+from app.api.candidate_access import (
+    CandidatePIIAccess,
+    user_can_access_candidate_domain,
+)
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
@@ -125,7 +128,7 @@ def _frontend_callback_url(status_param: str, message: Optional[str] = None) -> 
 @limiter.limit("10/minute")
 async def authorize(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: CandidatePIIAccess,
 ) -> AuthorizeResponse:
     """Return the Microsoft login URL. Frontend does `window.location = url`."""
     if not settings.M365_INTEGRATION_ENABLED:
@@ -179,6 +182,21 @@ async def callback(
     except JWTError:
         return RedirectResponse(
             _frontend_callback_url("error", "State expired or invalid — try again"),
+            status_code=302,
+        )
+
+    # The callback is intentionally unauthenticated because Microsoft redirects
+    # the browser here.  The signed state proves which Nexus account initiated
+    # OAuth, but it does not prove that the account is still allowed to enter
+    # the candidate domain.  Re-check the current persisted role before
+    # exchanging the authorization code: a user may have been moved to Finance
+    # (or the legacy viewer role) after opening the Microsoft consent page.
+    user = await db.get(User, user_id)
+    if user is None or not user_can_access_candidate_domain(user):
+        return RedirectResponse(
+            _frontend_callback_url(
+                "error", "Microsoft 365 is unavailable for this account"
+            ),
             status_code=302,
         )
 
@@ -246,7 +264,7 @@ async def callback(
 
 @router.get("/connection", response_model=ConnectionStatus)
 async def get_connection(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionStatus:
@@ -286,7 +304,7 @@ async def get_connection(
 
 @router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     conn = await _get_connection_for_user(db, current_user.id)
@@ -316,7 +334,7 @@ async def disconnect(
 @limiter.limit("10/minute")
 async def trigger_sync(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     conn = await _get_connection_for_user(db, current_user.id)
@@ -342,13 +360,13 @@ async def trigger_sync(
 @limiter.limit("30/minute")
 async def free_busy(
     request: Request,
+    current_user: CandidatePIIAccess,
     # Explicit Body(...) avoids a FastAPI 0.115 + slowapi 0.1.9 quirk that
     # was mis-classifying this Pydantic body param as a query parameter on
     # production (smoke 2026-05-14 returned 422 loc=query.payload). Locally
     # on newer FastAPI it round-trips fine without the marker, but the
     # explicit form is documented as the safe pattern and costs nothing.
     payload: FreeBusyRequest = Body(...),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> FreeBusyResponse:
     """Return Graph `getSchedule` results for the requested attendees.
@@ -568,6 +586,13 @@ async def _webhook_dispatch_sync(connection_id: int) -> None:
     async with AsyncSessionLocal() as db:
         conn = await db.get(M365Connection, connection_id)
         if conn is None or not conn.is_active:
+            return
+        owner = await db.get(User, conn.user_id)
+        if owner is None or not user_can_access_candidate_domain(owner):
+            logger.warning(
+                "webhook-dispatched sync refused for ineligible connection_id=%s",
+                connection_id,
+            )
             return
         try:
             await sync_connection(db, conn)

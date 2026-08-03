@@ -1,17 +1,18 @@
-"""Resolve default owners (primary TAC + head Delivery Lead) for a Job.
+"""Resolve safe default owners (sole TAC + head Delivery Lead) for a Job.
 
 Pure resolver — no DB writes. Called from `POST /jobs` to pre-fill `tac_id`
 and `delivery_lead_id` when the caller didn't supply them explicitly.
 
 Source of truth:
-- `client_tac_assignments.is_primary = TRUE` (guarded by partial unique
-  index `uq_client_primary_tac` in migracja 0060 — max 1 per client).
+- all active Client ↔ TAC assignments. A TAC is inferred only when there is
+  exactly one; multiple equal TACs require an explicit owner on the new Job.
 - `delivery_lead_client_assignments.is_head = TRUE` (app-level guard only;
   resolver uses `.limit(1)` with deterministic ordering for safety).
 
-Active user filter: `User.is_active = TRUE` — a deactivated primary TAC
-should fall back to NULL, not be auto-assigned. The UI surfaces this via
-the "Brak TAC" alert, prompting admin to pick a new opiekun.
+Active user filter: `User.is_active = TRUE` — deactivated TACs are never
+auto-assigned. Legacy ``ClientTacAssignment.is_primary`` remains available to
+the notification resolver, but no longer decides ownership of newly created
+Jobs.
 """
 
 import logging
@@ -35,16 +36,17 @@ class ResolvedOwners:
 
     tac_id: int | None
     delivery_lead_id: int | None
+    tac_selection_required: bool = False
 
 
 async def resolve_default_owners(
     db: AsyncSession, client_id: int | None
 ) -> ResolvedOwners:
-    """Look up primary TAC and head DL for the given client.
+    """Look up the sole active TAC and head DL for the given client.
 
     Returns `ResolvedOwners(None, None)` when:
     - `client_id` is None (new job without a client yet), or
-    - the client has no primary TAC / head DL (either field can be None),
+    - the client has zero or multiple active TACs / no head DL,
     - the assigned user was deactivated (filtered out).
 
     Never raises; callers fall back to NULL silently.
@@ -52,18 +54,20 @@ async def resolve_default_owners(
     if client_id is None:
         return ResolvedOwners(tac_id=None, delivery_lead_id=None)
 
-    # Primary TAC — partial unique index guarantees at most one row.
+    # TAC relationships are equal.  Inferring only the sole active assignment
+    # prevents a legacy `is_primary` bit (or row order) from becoming an
+    # arbitrary owner when several TACs serve the same client.
     tac_stmt = (
         select(ClientTacAssignment.tac_user_id)
         .join(User, User.id == ClientTacAssignment.tac_user_id)
         .where(
             ClientTacAssignment.client_id == client_id,
-            ClientTacAssignment.is_primary.is_(True),
             User.is_active.is_(True),
         )
-        .limit(1)
+        .order_by(ClientTacAssignment.id.asc())
     )
-    tac_row = (await db.execute(tac_stmt)).scalar_one_or_none()
+    tac_rows = list((await db.execute(tac_stmt)).scalars().all())
+    tac_id = tac_rows[0] if len(tac_rows) == 1 else None
 
     # Head Delivery Lead — no DB-level max-1 guarantee, so `.limit(1)` with
     # deterministic ordering (by assignment id) to avoid flip-flopping.
@@ -83,10 +87,16 @@ async def resolve_default_owners(
     )
     dl_row = (await db.execute(dl_stmt)).scalar_one_or_none()
 
-    if tac_row is None:
+    if not tac_rows:
         logger.info(
-            "auto_assign: client=%s has no primary TAC (UI alert expected)",
+            "auto_assign: client=%s has no active TAC (explicit owner needed)",
             client_id,
+        )
+    elif len(tac_rows) > 1:
+        logger.info(
+            "auto_assign: client=%s has %s active TACs; refusing arbitrary owner",
+            client_id,
+            len(tac_rows),
         )
     if dl_row is None:
         logger.info(
@@ -94,4 +104,8 @@ async def resolve_default_owners(
             client_id,
         )
 
-    return ResolvedOwners(tac_id=tac_row, delivery_lead_id=dl_row)
+    return ResolvedOwners(
+        tac_id=tac_id,
+        delivery_lead_id=dl_row,
+        tac_selection_required=len(tac_rows) > 1,
+    )

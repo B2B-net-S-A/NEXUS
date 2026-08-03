@@ -2,7 +2,15 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Integer, String
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    Integer,
+    String,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +52,26 @@ class User(Base, TimestampMixin):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "authorization_version > 0",
+            name="ck_users_authorization_version_positive",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(roles) = 'array'",
+            name="ck_users_roles_array",
+        ),
+        CheckConstraint(
+            """
+            CASE
+                WHEN role::text IN ('finance', 'user')
+                    THEN roles = jsonb_build_array(role::text)
+                ELSE NOT (roles ?| ARRAY['finance', 'user']::text[])
+            END
+            """,
+            name="ck_users_exclusive_finance_viewer_roles",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(

@@ -306,13 +306,17 @@ async def test_collaborator_add_duplicate_is_idempotent(
         from app.models.job_collaborator import JobCollaborator
 
         rows = (
-            await db.execute(
-                select(JobCollaborator).where(
-                    JobCollaborator.job_id == job_id,
-                    JobCollaborator.user_id == collab_id,
+            (
+                await db.execute(
+                    select(JobCollaborator).where(
+                        JobCollaborator.job_id == job_id,
+                        JobCollaborator.user_id == collab_id,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(rows) == 1
 
 
@@ -359,10 +363,50 @@ async def test_users_directory_respects_roles_filter(ownership_client: AsyncClie
     sourcer_id, _, _ = await _seed_user(UserRole.sourcer)
 
     headers = await _login(ownership_client, rec_email, rec_pass)
-    resp = await ownership_client.get(
-        "/api/users?roles=recruiter", headers=headers
-    )
+    resp = await ownership_client.get("/api/users?roles=recruiter", headers=headers)
     assert resp.status_code == 200
     ids = [u["id"] for u in resp.json()]
     assert rec_id in ids
     assert sourcer_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_users_directory_and_mentions_include_secondary_roles(
+    ownership_client: AsyncClient,
+):
+    _, requester_email, requester_password = await _seed_user(UserRole.recruiter)
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        hybrid = User(
+            email=f"hybrid-recruiter-tac-{unique}@example.com",
+            password_hash=hash_password(f"T3st_{unique}!HYBRID"),
+            name=f"Hybrid TAC {unique}",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value, UserRole.tac.value],
+            is_active=True,
+        )
+        db.add(hybrid)
+        await db.commit()
+        await db.refresh(hybrid)
+        hybrid_id = hybrid.id
+
+    headers = await _login(
+        ownership_client,
+        requester_email,
+        requester_password,
+    )
+    directory = await ownership_client.get(
+        "/api/users?roles=tac",
+        headers=headers,
+    )
+    mentionable = await ownership_client.get(
+        "/api/users/mentionable",
+        headers=headers,
+    )
+
+    assert directory.status_code == 200, directory.text
+    assert mentionable.status_code == 200, mentionable.text
+    directory_row = next(user for user in directory.json() if user["id"] == hybrid_id)
+    assert directory_row["role"] == UserRole.recruiter.value
+    assert UserRole.tac.value in directory_row["roles"]
+    assert hybrid_id in {user["id"] for user in mentionable.json()}

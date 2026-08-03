@@ -89,6 +89,8 @@ _ENUM_STATEMENTS = [
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
+    # Role dashboards/RBAC cutover (0210): exclusive Finance persona.
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'finance'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
@@ -233,6 +235,7 @@ _ENUM_STATEMENTS = [
             REFERENCES users(id) ON DELETE CASCADE,
         client_id INTEGER NOT NULL
             REFERENCES clients(id) ON DELETE CASCADE,
+        is_first_priority_for_tac BOOLEAN NULL,
         is_primary BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT uq_client_tac UNIQUE (tac_user_id, client_id)
@@ -244,6 +247,9 @@ _ENUM_STATEMENTS = [
     "ON client_tac_assignments (tac_user_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_primary_tac "
     "ON client_tac_assignments (client_id) WHERE is_primary = TRUE",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_tac_one_first_priority_client "
+    "ON client_tac_assignments (tac_user_id) "
+    "WHERE is_first_priority_for_tac IS TRUE",
     # Targ kandydatów (migracja 0054_marketplace_notification_type): nowy typ
     # powiadomień dla dopasowań z puli marketplace. Bez tego insert
     # Notification(notification_type='marketplace_match') crashuje z
@@ -531,6 +537,33 @@ _PROFILE_RATE_ALTER_SQL = (
 )
 
 _COLUMN_STATEMENTS = [
+    # Role dashboards/RBAC cutover (0210).  These tables keep the pre-cutover
+    # role snapshot and explicit work queue for ambiguous relationship data.
+    """CREATE TABLE IF NOT EXISTS role_session_migration_audit (
+           id BIGSERIAL PRIMARY KEY,
+           migration_key VARCHAR(80) NOT NULL,
+           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           original_state JSONB NOT NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+           CONSTRAINT uq_role_session_migration_audit
+               UNIQUE (migration_key, user_id)
+       )""",
+    """CREATE TABLE IF NOT EXISTS rbac_relationship_reconciliation (
+           id BIGSERIAL PRIMARY KEY,
+           migration_key VARCHAR(80) NOT NULL,
+           issue_kind VARCHAR(80) NOT NULL,
+           user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           details JSONB NOT NULL DEFAULT '{}'::jsonb,
+           resolved_at TIMESTAMPTZ NULL,
+           resolved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+       )""",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+    "authorization_version BIGINT NOT NULL DEFAULT 1",
+    "ALTER TABLE auth_exchange_codes ADD COLUMN IF NOT EXISTS "
+    "issued_authorization_version BIGINT NOT NULL DEFAULT 1",
+    "ALTER TABLE client_tac_assignments ADD COLUMN IF NOT EXISTS "
+    "is_first_priority_for_tac BOOLEAN NULL",
     # Recruitment Priority Lock (0200) — provenance/eligibility is added to the
     # existing canonical aggregate. New priority-work tables are created by the
     # metadata safety net below; post-create FKs are installed after it.
@@ -1124,9 +1157,8 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS kpi_coach_enabled BOOLEAN NOT NULL DEFAULT TRUE",
     # Sourcer priority per CC (introduced by team_structure model for Head of
     # Recruitment matrix). Legacy deployments may be missing it.
-    "ALTER TABLE user_competence_categories ADD COLUMN IF NOT EXISTS priority SMALLINT",
-    "ALTER TABLE user_competence_categories DROP CONSTRAINT IF EXISTS ck_user_cc_priority",
-    "ALTER TABLE user_competence_categories ADD CONSTRAINT ck_user_cc_priority CHECK (priority IS NULL OR priority IN (1, 2))",
+    "ALTER TABLE user_competence_categories ADD COLUMN IF NOT EXISTS "
+    "priority SMALLINT DEFAULT 2",
     # Phase 14 (migration 0043_interview_feedback) needs_attention flag
     "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS needs_attention BOOLEAN NOT NULL DEFAULT false",
     "CREATE INDEX IF NOT EXISTS ix_calendar_events_needs_attention ON calendar_events (needs_attention) WHERE needs_attention = true",
@@ -2682,6 +2714,284 @@ _COLUMN_STATEMENTS = [
     "WHERE generation_lease_expires_at IS NOT NULL",
 ]
 
+_ROLE_DASHBOARD_CUTOVER_SQL = r"""
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM app_settings
+        WHERE key = '0210_role_dashboard_rbac_cutover'
+    ) THEN
+        INSERT INTO role_session_migration_audit (
+            migration_key, user_id, original_state
+        )
+        SELECT
+            '0210_role_dashboard_rbac_cutover',
+            id,
+            jsonb_build_object(
+                'role', role::text,
+                'roles', roles,
+                'profile_completed', profile_completed,
+                'profile_completed_at', profile_completed_at,
+                'allowed_sections', allowed_sections,
+                'kpi_coach_enabled', kpi_coach_enabled,
+                'cloudtalk_agent_id', cloudtalk_agent_id,
+                'authorization_version', authorization_version,
+                'tokens_valid_after', tokens_valid_after,
+                'finance_requested',
+                    role::text = 'finance'
+                    OR (jsonb_typeof(roles) = 'array' AND roles ? 'finance')
+            )
+        FROM users
+        ON CONFLICT (migration_key, user_id) DO NOTHING;
+
+        UPDATE users
+        SET roles = jsonb_build_array(role::text)
+        WHERE roles IS NULL OR jsonb_typeof(roles) <> 'array';
+
+        UPDATE users
+        SET role = 'finance'::userrole,
+            roles = '["finance"]'::jsonb,
+            allowed_sections = '[]'::jsonb,
+            profile_completed = TRUE,
+            profile_completed_at = COALESCE(profile_completed_at, clock_timestamp()),
+            kpi_coach_enabled = FALSE,
+            cloudtalk_agent_id = NULL
+        WHERE role::text = 'finance' OR roles ? 'finance';
+
+        UPDATE users
+        SET role = 'recruiter'::userrole,
+            roles = '["recruiter"]'::jsonb,
+            allowed_sections = '[]'::jsonb,
+            profile_completed = FALSE,
+            profile_completed_at = NULL
+        WHERE role::text = 'user';
+
+        WITH cleaned AS (
+            SELECT
+                u.id,
+                COALESCE(
+                    jsonb_agg(e.value ORDER BY e.ordinality)
+                        FILTER (
+                            WHERE e.value IN (
+                                'admin', 'head_of_recruitment', 'delivery_lead',
+                                'tac', 'recruiter', 'sourcer'
+                            )
+                        ),
+                    '[]'::jsonb
+                ) AS roles
+            FROM users AS u
+            LEFT JOIN LATERAL jsonb_array_elements_text(u.roles)
+                WITH ORDINALITY AS e(value, ordinality) ON TRUE
+            WHERE u.role::text <> 'finance'
+            GROUP BY u.id
+        )
+        UPDATE users AS u SET roles = cleaned.roles
+        FROM cleaned WHERE u.id = cleaned.id;
+
+        UPDATE users
+        SET roles = jsonb_build_array(role::text) || roles
+        WHERE role::text <> 'finance' AND NOT (roles ? role::text);
+
+        INSERT INTO rbac_relationship_reconciliation (
+            migration_key, issue_kind, user_id, details
+        )
+        SELECT
+            '0210_role_dashboard_rbac_cutover',
+            'finance_relationships_sanitised',
+            u.id,
+            jsonb_build_object(
+                'delivery_lead_client_assignment_ids', COALESCE((
+                    SELECT jsonb_agg(a.id ORDER BY a.id)
+                    FROM delivery_lead_client_assignments a
+                    WHERE a.delivery_lead_user_id = u.id
+                ), '[]'::jsonb),
+                'client_tac_assignment_ids', COALESCE((
+                    SELECT jsonb_agg(a.id ORDER BY a.id)
+                    FROM client_tac_assignments a
+                    WHERE a.tac_user_id = u.id
+                ), '[]'::jsonb),
+                'tac_delivery_lead_assignment_ids', COALESCE((
+                    SELECT jsonb_agg(a.id ORDER BY a.id)
+                    FROM tac_delivery_lead_assignments a
+                    WHERE a.tac_user_id = u.id OR a.delivery_lead_user_id = u.id
+                ), '[]'::jsonb),
+                'competence_assignment_ids', COALESCE((
+                    SELECT jsonb_agg(a.id ORDER BY a.id)
+                    FROM user_competence_categories a
+                    WHERE a.user_id = u.id
+                ), '[]'::jsonb)
+            )
+        FROM users u
+        WHERE u.role::text = 'finance'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM rbac_relationship_reconciliation r
+              WHERE r.migration_key = '0210_role_dashboard_rbac_cutover'
+                AND r.issue_kind = 'finance_relationships_sanitised'
+                AND r.user_id = u.id
+          );
+
+        DELETE FROM delivery_lead_client_assignments a USING users u
+        WHERE a.delivery_lead_user_id = u.id AND u.role::text = 'finance';
+        DELETE FROM client_tac_assignments a USING users u
+        WHERE a.tac_user_id = u.id AND u.role::text = 'finance';
+        DELETE FROM tac_delivery_lead_assignments a USING users u
+        WHERE u.role::text = 'finance'
+          AND (a.tac_user_id = u.id OR a.delivery_lead_user_id = u.id);
+        DELETE FROM tac_linkedin_farming a USING users u
+        WHERE a.tac_user_id = u.id AND u.role::text = 'finance';
+        DELETE FROM user_competence_categories a USING users u
+        WHERE a.user_id = u.id AND u.role::text = 'finance';
+        DELETE FROM job_collaborators a USING users u
+        WHERE a.user_id = u.id AND u.role::text = 'finance';
+
+        IF to_regclass('public.dr_tac_delivery_lead_assignments') IS NOT NULL THEN
+            DELETE FROM dr_tac_delivery_lead_assignments a USING users u
+            WHERE u.role::text = 'finance'
+              AND (a.tac_user_id = u.id OR a.delivery_lead_user_id = u.id);
+        END IF;
+        IF to_regclass('public.dr_sourcer_category_assignments') IS NOT NULL THEN
+            DELETE FROM dr_sourcer_category_assignments a USING users u
+            WHERE a.user_id = u.id AND u.role::text = 'finance';
+        END IF;
+
+        UPDATE jobs j SET recruiter_id = NULL
+        FROM users u WHERE j.recruiter_id = u.id AND u.role::text = 'finance';
+        UPDATE jobs j SET delivery_lead_id = NULL
+        FROM users u WHERE j.delivery_lead_id = u.id AND u.role::text = 'finance';
+        UPDATE jobs j SET tac_id = NULL
+        FROM users u WHERE j.tac_id = u.id AND u.role::text = 'finance';
+        UPDATE contacts c SET key_relationship_owner_id = NULL
+        FROM users u
+        WHERE c.key_relationship_owner_id = u.id AND u.role::text = 'finance';
+        UPDATE saved_searches s
+        SET notify_new_matches = FALSE, unseen_count = 0
+        FROM users u
+        WHERE s.user_id = u.id AND u.role::text = 'finance';
+        DELETE FROM notifications n USING users u
+        WHERE n.user_id = u.id
+          AND u.role::text = 'finance'
+          AND n.notification_type::text NOT IN (
+              'password_reset_requested', 'password_changed_by_admin'
+          );
+        UPDATE notifications n
+        SET link = NULL,
+            related_entity_type = NULL,
+            related_entity_id = NULL,
+            email_send_started_at = NULL
+        FROM users u
+        WHERE n.user_id = u.id AND u.role::text = 'finance';
+
+        INSERT INTO rbac_relationship_reconciliation (
+            migration_key, issue_kind, user_id, details
+        )
+        SELECT
+            '0210_role_dashboard_rbac_cutover',
+            'client_tac_first_priority_required',
+            tac_user_id,
+            jsonb_build_object(
+                'assignment_count', count(*),
+                'client_ids', jsonb_agg(client_id ORDER BY client_id),
+                'legacy_primary_client_ids',
+                    COALESCE(
+                        jsonb_agg(client_id ORDER BY client_id)
+                            FILTER (WHERE is_primary IS TRUE),
+                        '[]'::jsonb
+                    )
+            )
+        FROM client_tac_assignments AS assignment
+        GROUP BY assignment.tac_user_id
+        HAVING count(*) > 1
+           AND count(*) FILTER (
+                   WHERE assignment.is_first_priority_for_tac IS TRUE
+               ) <> 1
+           AND NOT EXISTS (
+               SELECT 1
+               FROM rbac_relationship_reconciliation AS existing
+               WHERE existing.migration_key = '0210_role_dashboard_rbac_cutover'
+                 AND existing.issue_kind = 'client_tac_first_priority_required'
+                 AND existing.user_id = assignment.tac_user_id
+           );
+
+        WITH single_client_tacs AS (
+            SELECT tac_user_id FROM client_tac_assignments
+            GROUP BY tac_user_id HAVING count(*) = 1
+        )
+        UPDATE client_tac_assignments a
+        SET is_first_priority_for_tac = TRUE
+        FROM single_client_tacs s
+        WHERE a.tac_user_id = s.tac_user_id
+          AND a.is_first_priority_for_tac IS NULL;
+
+        INSERT INTO rbac_relationship_reconciliation (
+            migration_key, issue_kind, user_id, details
+        )
+        SELECT
+            '0210_role_dashboard_rbac_cutover',
+            'competence_primary_required',
+            user_id,
+            jsonb_build_object(
+                'signalled_assignment_ids',
+                    jsonb_agg(id ORDER BY id)
+                        FILTER (WHERE is_primary IS TRUE OR priority = 1),
+                'all_assignment_ids', jsonb_agg(id ORDER BY id)
+            )
+        FROM user_competence_categories AS assignment
+        GROUP BY assignment.user_id
+        HAVING count(*) FILTER (
+                   WHERE assignment.is_primary IS TRUE OR assignment.priority = 1
+               ) > 1
+           AND NOT EXISTS (
+               SELECT 1
+               FROM rbac_relationship_reconciliation AS existing
+               WHERE existing.migration_key = '0210_role_dashboard_rbac_cutover'
+                 AND existing.issue_kind = 'competence_primary_required'
+                 AND existing.user_id = assignment.user_id
+           );
+
+        WITH ambiguous AS (
+            SELECT user_id FROM user_competence_categories
+            GROUP BY user_id
+            HAVING count(*) FILTER (WHERE is_primary IS TRUE OR priority = 1) > 1
+        )
+        UPDATE user_competence_categories a
+        SET priority = 2, is_primary = FALSE
+        FROM ambiguous x WHERE a.user_id = x.user_id;
+
+        WITH signal AS (
+            SELECT user_id, min(id) AS assignment_id
+            FROM user_competence_categories
+            WHERE is_primary IS TRUE OR priority = 1
+            GROUP BY user_id HAVING count(*) = 1
+        )
+        UPDATE user_competence_categories a
+        SET priority = CASE WHEN a.id = signal.assignment_id THEN 1 ELSE 2 END,
+            is_primary = (a.id = signal.assignment_id)
+        FROM signal WHERE a.user_id = signal.user_id;
+
+        UPDATE user_competence_categories
+        SET priority = COALESCE(priority, 2),
+            is_primary = (COALESCE(priority, 2) = 1);
+
+        UPDATE users
+        SET authorization_version = GREATEST(authorization_version, 1) + 1,
+            tokens_valid_after = clock_timestamp();
+        DELETE FROM auth_exchange_codes;
+
+        INSERT INTO app_settings (key, value)
+        VALUES (
+            '0210_role_dashboard_rbac_cutover',
+            jsonb_build_object(
+                'revision', '0210_role_dashboard_rbac_cutover',
+                'completed_at', clock_timestamp(),
+                'source', 'entrypoint_safety_net'
+            )
+        );
+    END IF;
+END $$
+"""
+
+
 _DATA_STATEMENTS = [
     # 0204: seed zarezerwowanego feature'a AI `candidate_summary` (widoczność
     # + licznik w Ustawieniach → AI). Idempotentny: WHERE NOT EXISTS.
@@ -2779,6 +3089,9 @@ _DATA_STATEMENTS = [
               profile_completed_at = COALESCE(profile_completed_at, NOW())
         WHERE profile_completed = FALSE
           AND role::text NOT IN ('delivery_lead', 'recruiter')""",
+    # Must run after the legacy onboarding preflag above so viewer→Recruiter
+    # remains profile_completed=false.  The marker makes it one-shot.
+    _ROLE_DASHBOARD_CUTOVER_SQL,
     # Seed 5 Competence Categories (migration 0033_cc_entities). Idempotent:
     # ON CONFLICT (slug) pomija duplikaty. Nie re-update'uje, bo Head of
     # Recruitment mógł zmodyfikować opis/keywords w UI.
@@ -2900,6 +3213,46 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    "ALTER TABLE user_competence_categories ALTER COLUMN priority SET DEFAULT 2",
+    "ALTER TABLE user_competence_categories ALTER COLUMN priority SET NOT NULL",
+    "ALTER TABLE user_competence_categories DROP CONSTRAINT IF EXISTS ck_user_cc_priority",
+    "ALTER TABLE user_competence_categories DROP CONSTRAINT IF EXISTS ck_user_cc_primary_priority",
+    """DO $$ BEGIN
+        ALTER TABLE user_competence_categories
+            ADD CONSTRAINT ck_user_cc_priority
+            CHECK (priority IN (1, 2)) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE user_competence_categories
+            ADD CONSTRAINT ck_user_cc_primary_priority
+            CHECK (is_primary = (priority = 1)) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE users
+            ADD CONSTRAINT ck_users_authorization_version_positive
+            CHECK (authorization_version > 0) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE users
+            ADD CONSTRAINT ck_users_roles_array
+            CHECK (jsonb_typeof(roles) = 'array') NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE users
+            ADD CONSTRAINT ck_users_exclusive_finance_viewer_roles
+            CHECK (
+                CASE
+                    WHEN role::text IN ('finance', 'user')
+                        THEN roles = jsonb_build_array(role::text)
+                    ELSE NOT (roles ?| ARRAY['finance', 'user']::text[])
+                END
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE user_competence_categories VALIDATE CONSTRAINT ck_user_cc_priority",
+    "ALTER TABLE user_competence_categories VALIDATE CONSTRAINT ck_user_cc_primary_priority",
+    "ALTER TABLE users VALIDATE CONSTRAINT ck_users_authorization_version_positive",
+    "ALTER TABLE users VALIDATE CONSTRAINT ck_users_roles_array",
+    "ALTER TABLE users VALIDATE CONSTRAINT ck_users_exclusive_finance_viewer_roles",
     """DO $$ BEGIN
         ALTER TABLE candidates
             ADD CONSTRAINT fk_candidates_competence_category
@@ -3017,6 +3370,15 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_rbac_reconciliation_open "
+    "ON rbac_relationship_reconciliation (issue_kind, created_at) "
+    "WHERE resolved_at IS NULL",
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ux_client_tac_one_first_priority_client "
+    "ON client_tac_assignments (tac_user_id) "
+    "WHERE is_first_priority_for_tac IS TRUE",
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_user_cc_one_primary "
+    "ON user_competence_categories (user_id) WHERE priority = 1",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_activities_external_id ON activities (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_analytics_metric_snapshots_module ON analytics_metric_snapshots (module)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_analytics_metric_snapshots_period_label ON analytics_metric_snapshots (period_label)",

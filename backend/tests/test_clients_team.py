@@ -131,6 +131,7 @@ async def test_get_client_team_returns_tacs_and_dls(
         assert len(body["tacs"]) == 1
         assert body["tacs"][0]["user_id"] == tac_id
         assert body["tacs"][0]["is_primary"] is True
+        assert body["tacs"][0]["is_first_priority_for_tac"] is None
         assert len(body["delivery_leads"]) == 1
         assert body["delivery_leads"][0]["user_id"] == dl_id
         assert body["delivery_leads"][0]["is_head"] is True
@@ -176,6 +177,7 @@ async def test_post_primary_tac_unsets_previous_primary(
             json={"user_id": tac_a, "is_primary": True},
         )
         assert r1.status_code == 201, r1.text
+        assert r1.json()["is_first_priority_for_tac"] is True
 
         # Make B primary
         r2 = await app_client.post(
@@ -202,9 +204,7 @@ async def test_post_primary_tac_unsets_previous_primary(
 
 
 @pytest.mark.integration
-async def test_delete_tac_assignment(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_delete_tac_assignment(app_client: AsyncClient, app_auth_headers: dict):
     tac_id, _, _ = await _new_user(UserRole.tac)
     client_id = await _new_client()
 
@@ -222,21 +222,23 @@ async def test_delete_tac_assignment(
 
         async with AsyncSessionLocal() as db:
             count = (
-                await db.execute(
-                    select(ClientTacAssignment).where(
-                        ClientTacAssignment.client_id == client_id
+                (
+                    await db.execute(
+                        select(ClientTacAssignment).where(
+                            ClientTacAssignment.client_id == client_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         assert count == []
     finally:
         await _cleanup(client_id, [tac_id])
 
 
 @pytest.mark.integration
-async def test_toggle_primary_flips(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_toggle_primary_flips(app_client: AsyncClient, app_auth_headers: dict):
     tac_a, _, _ = await _new_user(UserRole.tac)
     tac_b, _, _ = await _new_user(UserRole.tac)
     client_id = await _new_client()

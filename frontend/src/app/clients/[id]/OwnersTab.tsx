@@ -2,32 +2,11 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Crown, Plus, Trash2, UserCircle2 } from "lucide-react";
-import api from "@/lib/api";
+import { Crown, Plus, Target, Trash2, UserCircle2 } from "lucide-react";
+import api, { clientTeamApi } from "@/lib/api";
+import type { ClientTeamResponse, ClientTeamTacAssignment } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useAuthStore } from "@/store/auth";
-
-interface AssignmentUser {
-  id: number;
-  user_id: number;
-  name: string;
-  email: string;
-  role?: string | null;
-  created_at: string;
-}
-
-interface TacAssignment extends AssignmentUser {
-  is_primary: boolean;
-}
-
-interface DlAssignment extends AssignmentUser {
-  is_head: boolean;
-}
-
-interface ClientTeamResponse {
-  tacs: TacAssignment[];
-  delivery_leads: DlAssignment[];
-}
 
 interface AppUser {
   id: number;
@@ -50,7 +29,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
 
   const { data: team, isLoading } = useQuery<ClientTeamResponse>({
     queryKey: ["client-team", clientId],
-    queryFn: () => api.get(`/api/clients/${clientId}/team`).then((r) => r.data),
+    queryFn: () => clientTeamApi.get(clientId).then((r) => r.data),
   });
 
   const { data: allUsers } = useQuery<AppUser[]>({
@@ -62,7 +41,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
   const [addingTac, setAddingTac] = useState(false);
   const [addingDl, setAddingDl] = useState(false);
   const [tacUserId, setTacUserId] = useState("");
-  const [tacIsPrimary, setTacIsPrimary] = useState(false);
+  const [tacIsFirstPriority, setTacIsFirstPriority] = useState(false);
   const [dlUserId, setDlUserId] = useState("");
   const [dlIsHead, setDlIsHead] = useState(false);
 
@@ -70,13 +49,15 @@ export function OwnersTab({ clientId }: { clientId: number }) {
     qc.invalidateQueries({ queryKey: ["client-team", clientId] });
 
   const addTac = useMutation({
-    mutationFn: (body: { user_id: number; is_primary: boolean }) =>
-      api.post(`/api/clients/${clientId}/tacs`, body),
+    mutationFn: (body: {
+      user_id: number;
+      is_first_priority_for_tac?: true;
+    }) => clientTeamApi.addTac(clientId, body),
     onSuccess: () => {
       toast.showSuccess("TAC dodany");
       setAddingTac(false);
       setTacUserId("");
-      setTacIsPrimary(false);
+      setTacIsFirstPriority(false);
       invalidate();
     },
     onError: (e: any) =>
@@ -85,20 +66,32 @@ export function OwnersTab({ clientId }: { clientId: number }) {
 
   const removeTac = useMutation({
     mutationFn: (userId: number) =>
-      api.delete(`/api/clients/${clientId}/tacs/${userId}`),
+      clientTeamApi.removeTac(clientId, userId),
+    retry: false,
     onSuccess: () => {
       toast.showSuccess("TAC usunięty");
       invalidate();
     },
+    onError: (e: any) =>
+      toast.showError(
+        e?.response?.data?.detail ||
+          "Nie można usunąć TAC-a z jego klienta priorytetowego. Najpierw ustaw innego klienta jako priorytet #1 z jego karty.",
+      ),
   });
 
-  const togglePrimaryTac = useMutation({
-    mutationFn: (userId: number) =>
-      api.put(`/api/clients/${clientId}/tacs/${userId}/toggle-primary`),
+  const setFirstPriorityTac = useMutation({
+    mutationFn: (tac: ClientTeamTacAssignment) =>
+      clientTeamApi.setTacFirstPriority(clientId, tac.user_id, {
+        enabled: true,
+      }),
     onSuccess: () => {
-      toast.showSuccess("Primary TAC zmieniony");
+      toast.showSuccess("Pierwszy priorytet TAC-a zmieniony");
       invalidate();
     },
+    onError: (e: any) =>
+      toast.showError(
+        e?.response?.data?.detail || "Błąd zmiany pierwszego priorytetu TAC-a",
+      ),
   });
 
   const addDl = useMutation({
@@ -206,19 +199,23 @@ export function OwnersTab({ clientId }: { clientId: number }) {
             <label className="flex items-center gap-2 text-xs">
               <input
                 type="checkbox"
-                checked={tacIsPrimary}
-                onChange={(e) => setTacIsPrimary(e.target.checked)}
+                checked={tacIsFirstPriority}
+                onChange={(e) => setTacIsFirstPriority(e.target.checked)}
               />
-              Ustaw jako primary (główny opiekun klienta)
+              Ustaw tego klienta jako pierwszy priorytet tego TAC-a
             </label>
             <div className="flex gap-2">
               <button
                 disabled={!tacUserId || addTac.isPending}
                 onClick={() =>
-                  addTac.mutate({
-                    user_id: Number(tacUserId),
-                    is_primary: tacIsPrimary,
-                  })
+                  addTac.mutate(
+                    tacIsFirstPriority
+                      ? {
+                          user_id: Number(tacUserId),
+                          is_first_priority_for_tac: true,
+                        }
+                      : { user_id: Number(tacUserId) },
+                  )
                 }
                 className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
               >
@@ -228,7 +225,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                 onClick={() => {
                   setAddingTac(false);
                   setTacUserId("");
-                  setTacIsPrimary(false);
+                  setTacIsFirstPriority(false);
                 }}
                 className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground"
               >
@@ -254,9 +251,9 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                   <div>
                     <div className="text-sm font-medium flex items-center gap-2">
                       {t.name}
-                      {t.is_primary && (
-                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                          <Crown className="w-3 h-3" /> Primary
+                      {t.is_first_priority_for_tac && (
+                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300">
+                          <Target className="w-3 h-3" /> 1. priorytet tego TAC-a
                         </span>
                       )}
                     </div>
@@ -267,13 +264,23 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                 </div>
                 {canEdit && (
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => togglePrimaryTac.mutate(t.user_id)}
-                      className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
-                      title={t.is_primary ? "Odznacz primary" : "Ustaw jako primary"}
-                    >
-                      {t.is_primary ? "Usuń primary" : "Ustaw primary"}
-                    </button>
+                    {t.is_first_priority_for_tac ? (
+                      <span
+                        className="text-[11px] text-muted-foreground max-w-48 text-right"
+                        title="Pierwszy priorytet musi mieć następcę"
+                      >
+                        Ustaw innego klienta jako priorytet #1 z jego karty
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setFirstPriorityTac.mutate(t)}
+                        disabled={setFirstPriorityTac.isPending}
+                        className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
+                        title="Ustaw klienta jako pierwszy priorytet tego TAC-a"
+                      >
+                        Ustaw 1. priorytet
+                      </button>
+                    )}
                     <button
                       onClick={() => removeTac.mutate(t.user_id)}
                       className="text-muted-foreground hover:text-destructive"
@@ -408,10 +415,12 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       </section>
 
       <div className="text-xs text-muted-foreground bg-muted dark:bg-card/40 rounded-lg px-3 py-2">
-        <strong>Jak to działa:</strong> przy tworzeniu nowego projektu dla tego
-        klienta system automatycznie przypisze <strong>primary TAC</strong> oraz{" "}
-        <strong>head Delivery Lead</strong>. Operator może jawnie nadpisać
-        wybór — override jest logowany.
+        <strong>Jak to działa:</strong> wszyscy przypisani TAC-owie są
+        równorzędni. „1. priorytet” opisuje osobistą kolejność pracy konkretnego
+        TAC-a — nie robi z niego głównego opiekuna klienta. Przy jednym TAC-u
+        nowy request może dostać go jako prefill; przy kilku trzeba jawnie
+        wybrać ownera requestu. <strong>Head Delivery Lead</strong> nadal może
+        zostać uzupełniony automatycznie.
       </div>
     </div>
   );

@@ -41,6 +41,7 @@ from app.models.recruitment_priority import (
     RecruitmentPriorityPlanMember,
 )
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+from app.models.team_structure import ClientTacAssignment
 from app.models.user import User, UserRole
 from app.schemas.champion import (
     ChampionBriefingRequest,
@@ -261,6 +262,29 @@ async def _validate_owner_override(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=f"{field} must reference a user with role {allowed}",
+        )
+
+
+async def _validate_tac_client_assignment(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    client_id: int,
+) -> None:
+    """Require an explicit Job TAC to belong to the selected client team."""
+
+    assignment_id = (
+        await db.execute(
+            select(ClientTacAssignment.id).where(
+                ClientTacAssignment.tac_user_id == user_id,
+                ClientTacAssignment.client_id == client_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if assignment_id is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=("tac_id must reference a TAC assigned to the selected client_id"),
         )
 
 
@@ -861,6 +885,11 @@ async def create_job(
             allowed_roles=TAC_ASSIGNABLE_ROLES,
             field="tac_id",
         )
+        await _validate_tac_client_assignment(
+            db,
+            user_id=data.tac_id,
+            client_id=payload["client_id"],
+        )
     if data.delivery_lead_id is not None:
         await _validate_owner_override(
             db,
@@ -879,6 +908,17 @@ async def create_job(
     if payload.get("tac_id") is None or payload.get("delivery_lead_id") is None:
         resolved = await resolve_default_owners(db, payload.get("client_id"))
         if payload.get("tac_id") is None:
+            if resolved.tac_selection_required:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "TAC_OWNER_REQUIRED",
+                        "message": (
+                            "Client has multiple assigned TACs; choose the "
+                            "request owner explicitly"
+                        ),
+                    },
+                )
             payload["tac_id"] = resolved.tac_id
         if payload.get("delivery_lead_id") is None:
             payload["delivery_lead_id"] = resolved.delivery_lead_id
@@ -1222,6 +1262,23 @@ async def update_job(
             allowed_roles=TAC_ASSIGNABLE_ROLES,
             field="tac_id",
         )
+
+    # Changing either half of the relationship must leave a valid pair.  We
+    # intentionally do not re-validate untouched historical Jobs during the
+    # expand phase; only explicit owner/client mutations cross this gate.
+    if {"tac_id", "client_id"} & data.model_fields_set:
+        effective_tac_id = (
+            data.tac_id if "tac_id" in data.model_fields_set else job.tac_id
+        )
+        effective_client_id = (
+            data.client_id if "client_id" in data.model_fields_set else job.client_id
+        )
+        if effective_tac_id is not None and effective_client_id is not None:
+            await _validate_tac_client_assignment(
+                db,
+                user_id=effective_tac_id,
+                client_id=effective_client_id,
+            )
     if (
         "delivery_lead_id" in data.model_fields_set
         and data.delivery_lead_id is not None

@@ -10,9 +10,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -53,11 +51,15 @@ async def _new_client() -> int:
         return c.id
 
 
-async def _assign_primary_tac(client_id: int, user_id: int) -> None:
+async def _assign_tac(
+    client_id: int, user_id: int, *, is_primary: bool = False
+) -> None:
     async with AsyncSessionLocal() as db:
         db.add(
             ClientTacAssignment(
-                client_id=client_id, tac_user_id=user_id, is_primary=True
+                client_id=client_id,
+                tac_user_id=user_id,
+                is_primary=is_primary,
             )
         )
         await db.commit()
@@ -122,11 +124,11 @@ async def _cleanup(client_id: int, user_ids: list[int]) -> None:
 async def test_create_job_auto_assigns_from_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Klient z primary TAC + head DL → POST /jobs auto-fill obu."""
+    """Klient z jednym aktywnym TAC + head DL → POST /jobs auto-fill obu."""
     tac_id = await _new_user(UserRole.tac)
     dl_id = await _new_user(UserRole.delivery_lead)
     client_id = await _new_client()
-    await _assign_primary_tac(client_id, tac_id)
+    await _assign_tac(client_id, tac_id, is_primary=True)
     await _assign_head_dl(client_id, dl_id)
 
     try:
@@ -161,11 +163,12 @@ async def test_create_job_auto_assigns_from_client(
 async def test_create_job_explicit_override_wins(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Jawny tac_id w POST wygrywa nad primary TAC klienta."""
+    """Jawny, przypisany tac_id wygrywa nad inferencją właściciela."""
     primary_tac = await _new_user(UserRole.tac)
     other_tac = await _new_user(UserRole.tac)
     client_id = await _new_client()
-    await _assign_primary_tac(client_id, primary_tac)
+    await _assign_tac(client_id, primary_tac, is_primary=True)
+    await _assign_tac(client_id, other_tac)
 
     try:
         resp = await app_client.post(
@@ -227,17 +230,69 @@ async def test_create_job_no_client_team_leaves_null(
 
 
 @pytest.mark.integration
+async def test_create_job_with_multiple_tacs_requires_explicit_owner(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Wielu równych TAC-ów nie może wybrać właściciela przez kolejność."""
+    tac_a = await _new_user(UserRole.tac)
+    tac_b = await _new_user(UserRole.tac)
+    client_id = await _new_client()
+    await _assign_tac(client_id, tac_a, is_primary=True)
+    await _assign_tac(client_id, tac_b)
+
+    try:
+        resp = await app_client.post(
+            "/api/jobs",
+            headers=app_auth_headers,
+            json={
+                "title": "Multiple TACs require choice",
+                "client_id": client_id,
+                "auto_suggest_cc": False,
+            },
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "TAC_OWNER_REQUIRED"
+    finally:
+        await _cleanup(client_id, [tac_a, tac_b])
+
+
+@pytest.mark.integration
+async def test_create_job_rejects_tac_not_assigned_to_client(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    tac_id = await _new_user(UserRole.tac)
+    client_id = await _new_client()
+    try:
+        resp = await app_client.post(
+            "/api/jobs",
+            headers=app_auth_headers,
+            json={
+                "title": "Invalid client TAC pair",
+                "client_id": client_id,
+                "tac_id": tac_id,
+                "auto_suggest_cc": False,
+            },
+        )
+        assert resp.status_code == 400, resp.text
+        assert "assigned to the selected client_id" in resp.text
+    finally:
+        await _cleanup(client_id, [tac_id])
+
+
+@pytest.mark.integration
 async def test_create_job_invalid_tac_role_returns_400(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """tac_id wskazujący na sourcera (poza dopuszczalnymi rolami) → 400."""
     sourcer_id = await _new_user(UserRole.sourcer)
+    client_id = await _new_client()
     try:
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
             json={
                 "title": "Invalid role",
+                "client_id": client_id,
                 "tac_id": sourcer_id,
                 "auto_suggest_cc": False,
             },
@@ -245,7 +300,7 @@ async def test_create_job_invalid_tac_role_returns_400(
         assert resp.status_code == 400, resp.text
         assert "tac_id" in resp.text
     finally:
-        await _cleanup(0, [sourcer_id])
+        await _cleanup(client_id, [sourcer_id])
 
 
 @pytest.mark.integration
@@ -256,6 +311,8 @@ async def test_patch_job_updates_tac_id(
     tac_id = await _new_user(UserRole.tac)
     other_tac = await _new_user(UserRole.tac)
     client_id = await _new_client()
+    await _assign_tac(client_id, tac_id, is_primary=True)
+    await _assign_tac(client_id, other_tac)
 
     try:
         # Create job with tac_id=tac_id (explicit)
@@ -282,9 +339,7 @@ async def test_patch_job_updates_tac_id(
         assert patch.status_code == 200, patch.text
 
         # Verify via GET
-        get = await app_client.get(
-            f"/api/jobs/{job_id}", headers=app_auth_headers
-        )
+        get = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
         assert get.status_code == 200
         assert get.json()["tac_id"] == other_tac
 

@@ -150,7 +150,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
               onChange={(e) => setPrimaryRole(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
-              {ROLES.map((r) => (
+              {ROLES.filter((r) => r !== "user").map((r) => (
                 <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
               ))}
             </select>

@@ -38,7 +38,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    token_authorization_version_matches,
+    token_is_revoked,
+)
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
@@ -47,6 +53,7 @@ from app.services.aad_role_policy import (
     fail_closed_invalid_aad_mapping,
     validate_aad_mapped_roles,
 )
+from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
 from app.services.m365 import oauth as m365_oauth
 from app.services.onboarding_access import onboarding_persona_changed
 
@@ -93,6 +100,33 @@ _STATE_PURPOSE = "sso_login"
 _STATE_TTL_SECONDS = 600  # 10 minutes — same as mailbox flow.
 
 _EXCHANGE_TTL_SECONDS = 60
+
+
+def _exchange_tokens_are_current(
+    access_token: str,
+    refresh_token: str,
+    *,
+    user_id: int,
+    authorization_version: int,
+    tokens_valid_after: Optional[datetime],
+) -> bool:
+    """Validate both bearer tokens before an SSO handoff leaves the backend."""
+
+    try:
+        access_payload = decode_token(access_token)
+        refresh_payload = decode_token(refresh_token)
+    except JWTError:
+        return False
+    return bool(
+        access_payload.get("sub") == str(user_id)
+        and access_payload.get("type") == "access"
+        and token_authorization_version_matches(access_payload, authorization_version)
+        and not token_is_revoked(access_payload, tokens_valid_after)
+        and refresh_payload.get("sub") == str(user_id)
+        and refresh_payload.get("type") == "refresh"
+        and token_authorization_version_matches(refresh_payload, authorization_version)
+        and not token_is_revoked(refresh_payload, tokens_valid_after)
+    )
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
@@ -573,11 +607,16 @@ async def callback(
         role_strs = unique_role_strs
         new_role = mapped_roles[0]
         prior_roles = list(user.roles or [])
+        prior_effective_roles = [role.value for role in user.get_all_roles()]
         onboarding_reset = onboarding_persona_changed(
-            [role.value for role in user.get_all_roles()],
+            prior_effective_roles,
             role_strs,
         )
-        legacy_sections_reset = new_role in {UserRole.finance, UserRole.user} and bool(
+        entering_finance = (
+            new_role == UserRole.finance
+            and UserRole.finance.value not in prior_effective_roles
+        )
+        legacy_sections_reset = new_role == UserRole.finance and bool(
             user.allowed_sections
         )
         authorization_changed = (
@@ -622,12 +661,33 @@ async def callback(
         if onboarding_reset:
             user.profile_completed = False
             user.profile_completed_at = None
-        if new_role in {UserRole.finance, UserRole.user}:
+        if new_role == UserRole.finance:
             user.allowed_sections = []
+            user.kpi_coach_enabled = False
+            user.cloudtalk_agent_id = None
+            user.profile_completed = True
+            user.profile_completed_at = user.profile_completed_at or datetime.now(
+                timezone.utc
+            )
         user.is_active = True
         if authorization_changed:
             user.authorization_version += 1
             user.tokens_valid_after = datetime.now(timezone.utc)
+        if entering_finance:
+            cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="finance_recruitment_access_cleared",
+                    user_id=user.id,
+                    details={
+                        "target_email": user.email,
+                        "source": "aad_login",
+                        "counts": cleanup_counts,
+                    },
+                )
+            )
 
     # ``force_password_change`` is a PASSWORD-login concept: it gates the app to
     # make a user rotate an admin-set temporary password. A Microsoft SSO login
@@ -666,6 +726,7 @@ async def callback(
             user_id=user_id,
             access_token=access,
             refresh_token=refresh,
+            issued_authorization_version=user.authorization_version,
             expires_at=datetime.now(timezone.utc)
             + timedelta(seconds=_EXCHANGE_TTL_SECONDS),
             consumed_at=None,
@@ -689,14 +750,19 @@ async def exchange(
 ) -> ExchangeResponse:
     """Trade the one-time UUID code for the real Nexus JWTs."""
     now = datetime.now(timezone.utc)
-    # Atomic consume: DELETE the row and take its contents in one statement.
-    # Two wins over the previous read-then-stamp:
+    # Atomic consume: DELETE the row only while its issuing authorization
+    # version still matches an active user, and take its contents in the same
+    # statement. Referencing ``users`` makes SQLAlchemy emit PostgreSQL
+    # ``DELETE ... USING users``; there is no read/check/delete race.
+    # Three wins over the previous read-then-stamp:
     #  1. `WHERE consumed_at IS NULL` makes consumption single-flight — two
     #     concurrent exchanges cannot both succeed (the loser deletes zero rows).
     #  2. DELETE (not stamp consumed_at) removes the plaintext access/refresh
     #     JWTs from the table the instant they are handed over. They were only
     #     ever needed for the ~60s handoff; keeping consumed rows around left a
     #     growing pile of live bearer tokens in cleartext at rest.
+    #  3. A role/status change between callback and exchange invalidates the
+    #     handoff before either bearer token can leave the backend.
     consumed = (
         await db.execute(
             delete(AuthExchangeCode)
@@ -704,28 +770,63 @@ async def exchange(
                 AuthExchangeCode.code == payload.code,
                 AuthExchangeCode.consumed_at.is_(None),
                 AuthExchangeCode.expires_at > now,
+                AuthExchangeCode.user_id == User.id,
+                User.is_active.is_(True),
+                AuthExchangeCode.issued_authorization_version
+                == User.authorization_version,
             )
             .returning(
                 AuthExchangeCode.user_id,
                 AuthExchangeCode.access_token,
                 AuthExchangeCode.refresh_token,
+                AuthExchangeCode.issued_authorization_version,
             )
+            .execution_options(synchronize_session=False)
         )
     ).first()
     if consumed is None:
+        # A stale/inactive/expired handoff is no longer useful and still stores
+        # plaintext JWTs. Purge it without revealing which condition failed.
+        await db.execute(
+            delete(AuthExchangeCode).where(AuthExchangeCode.code == payload.code)
+        )
+        await db.commit()
         raise HTTPException(
             status.HTTP_410_GONE,
             detail="Exchange code unknown, expired or already consumed",
         )
-    user_id, access, refresh = consumed
+    user_id, access, refresh, issued_authorization_version = consumed
 
     # Opportunistic cleanup: drop any codes that expired without being consumed,
     # so abandoned handoffs do not accumulate plaintext JWTs indefinitely.
     await db.execute(delete(AuthExchangeCode).where(AuthExchangeCode.expires_at <= now))
 
     user = await db.scalar(select(User).where(User.id == user_id))
-    if user is None or not user.is_active:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="User no longer active")
+    still_current = (
+        user is not None
+        and user.is_active
+        and user.authorization_version == issued_authorization_version
+    )
+    if still_current:
+        assert user is not None
+        tokens_current = _exchange_tokens_are_current(
+            access,
+            refresh,
+            user_id=user_id,
+            authorization_version=issued_authorization_version,
+            tokens_valid_after=user.tokens_valid_after,
+        )
+    else:
+        tokens_current = False
+    if not tokens_current:
+        # Commit the atomic DELETE before returning an error; otherwise the DB
+        # dependency rollback would resurrect a malformed/stale bearer handoff.
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code unknown, expired or already consumed",
+        )
+    assert user is not None  # narrowed by ``still_current`` above
     summary = SsoUserSummary(
         id=user.id,
         email=user.email,

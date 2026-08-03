@@ -20,12 +20,14 @@ import {
 import api, {
   aiWriterApi,
   candidateProfileApi,
+  clientTeamApi,
   phase5Api,
   pipelineTemplatesApi,
   requestHistoryApi,
 } from "@/lib/api";
 import type {
   ClientDirectoryCategory,
+  ClientTeamResponse,
   RequestHistoryResponse,
 } from "@/lib/api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -882,8 +884,8 @@ interface JobFormData {
   priority: string;
   deadline: string;
   recruiter_id: string;
-  // TAC + Delivery Lead — auto-fill z primary TAC / head DL klienta po wyborze
-  // klienta (endpoint /api/clients/{id}/team). Jawna zmiana = override.
+  // Owner requestu (TAC) + Delivery Lead. Jedyny TAC klienta może być
+  // podpowiedziany; przy kilku równorzędnych TAC-ach wybór musi być jawny.
   tac_id: string;
   delivery_lead_id: string;
   // Hiring manager po stronie klienta — Contact w firmie klienta odpowiedzialny
@@ -939,6 +941,8 @@ function JobFormFields({
   templates,
   autoCollaboratorIds,
   onAutoCollaboratorsChange,
+  onClientTacCountChange,
+  enforceExplicitTacOwner = false,
 }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
@@ -947,6 +951,8 @@ function JobFormFields({
   templates: { id: number; name: string; is_default?: boolean; archived?: boolean }[];
   autoCollaboratorIds?: number[];
   onAutoCollaboratorsChange?: (ids: number[]) => void;
+  onClientTacCountChange?: (count: number | null) => void;
+  enforceExplicitTacOwner?: boolean;
 }) {
   const ccId = form.competence_category_id ? Number(form.competence_category_id) : null;
   // Phase 15 / Phase D: podpowiedzi `train_name` zawężone do klienta.
@@ -966,24 +972,33 @@ function JobFormFields({
   });
   const trainNameSuggestions = trainNamesData?.items ?? [];
 
-  // Auto-assign TAC + Delivery Lead wg client_tac_assignments + delivery_lead_client_assignments.
-  // Endpoint zwraca cały team klienta; primary TAC / head DL są highlightowane
-  // w dropdownie (zielony badge) a pola TAC/DL są auto-pre-fillowane gdy puste.
-  const { data: clientTeam } = useQuery<{
-    tacs: Array<{ id: number; user_id: number; name: string; email: string; role?: string; is_primary: boolean }>;
-    delivery_leads: Array<{ id: number; user_id: number; name: string; email: string; role?: string; is_head: boolean }>;
-  }>({
+  // Team klienta: TAC-y są równorzędni. Flaga pierwszego priorytetu opisuje
+  // kolejność pracy konkretnego TAC-a i celowo nie bierze udziału w wyborze
+  // ownera requestu.
+  const { data: clientTeam } = useQuery<ClientTeamResponse>({
     queryKey: ["client-team", clientIdNum],
     queryFn: async () => {
       if (clientIdNum === null) return { tacs: [], delivery_leads: [] };
-      const res = await api.get(`/api/clients/${clientIdNum}/team`);
+      const res = await clientTeamApi.get(clientIdNum);
       return res.data;
     },
     enabled: clientIdNum !== null,
     staleTime: 30_000,
   });
-  const primaryTac = clientTeam?.tacs.find(t => t.is_primary);
+  const clientTacs = clientTeam?.tacs ?? [];
+  const soleClientTac = clientTacs.length === 1 ? clientTacs[0] : null;
+  const requiresExplicitTacOwner =
+    enforceExplicitTacOwner && clientTacs.length > 1;
   const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
+
+  useEffect(() => {
+    if (!onClientTacCountChange) return;
+    if (clientIdNum === null) {
+      onClientTacCountChange(0);
+      return;
+    }
+    onClientTacCountChange(clientTeam ? clientTacs.length : null);
+  }, [clientIdNum, clientTeam, clientTacs.length, onClientTacCountChange]);
 
   // Hiring manager autocomplete — fetch Contacts klienta (2026-05-11).
   // Key relationships first (gwiazdka), potem alfabetycznie.
@@ -1012,11 +1027,12 @@ function JobFormFields({
     return a.name.localeCompare(b.name);
   });
 
-  // Auto-fill — tylko gdy pole jest puste (użytkownik nie nadpisał).
+  // Auto-fill tylko dla jednoznacznej relacji. Pierwszy priorytet TAC-a nie
+  // rozstrzyga remisu, więc przy kilku TAC-ach pole pozostaje puste.
   useEffect(() => {
     if (!clientTeam) return;
-    if (!form.tac_id && primaryTac) {
-      onChange("tac_id", String(primaryTac.user_id));
+    if (!form.tac_id && soleClientTac) {
+      onChange("tac_id", String(soleClientTac.user_id));
     }
     if (!form.delivery_lead_id && headDl) {
       onChange("delivery_lead_id", String(headDl.user_id));
@@ -1024,9 +1040,6 @@ function JobFormFields({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientTeam?.tacs.length, clientTeam?.delivery_leads.length, clientIdNum]);
 
-  const tacAssignableUsers = users.filter((u: any) =>
-    ["tac", "delivery_lead", "admin", "head_of_recruitment"].includes(u.role ?? "")
-  );
   const dlAssignableUsers = users.filter((u: any) =>
     ["delivery_lead", "admin", "head_of_recruitment"].includes(u.role ?? "")
   );
@@ -1116,7 +1129,7 @@ function JobFormFields({
           <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
         </FieldGroup>
       </div>
-      <FieldGroup label="Rekruter (primary owner)">
+      <FieldGroup label="Rekruter prowadzący">
         <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
           <option value="">— nieprzypisany —</option>
           {users.map((u: any) => (
@@ -1127,29 +1140,60 @@ function JobFormFields({
           ))}
         </Select>
       </FieldGroup>
-      {clientIdNum !== null && clientTeam && !primaryTac && (
+      {clientIdNum !== null && clientTeam && clientTacs.length === 0 && (
         <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg px-3 py-2">
-          ⚠️ Klient nie ma przypisanego primary TAC. Projekt zostanie zapisany bez TAC — head_of_recruitment może uzupełnić w zakładce „Opiekunowie" klienta.
+          ⚠️ Klient nie ma przypisanego TAC-a. Uzupełnij relację w
+          zakładce „Opiekunowie”; bez niej request zostanie zapisany bez ownera
+          TAC.
         </div>
       )}
-      <FieldGroup label="TAC (opiekun klienta)">
-        <Select value={form.tac_id} onChange={e => onChange("tac_id", e.target.value)}>
-          <option value="">— brak TAC —</option>
-          {tacAssignableUsers.map((u: any) => (
-            <option key={u.id} value={u.id}>
-              {u.name || u.full_name || u.email}
-              {u.role ? ` (${u.role})` : ""}
-            </option>
-          ))}
+      {requiresExplicitTacOwner && !form.tac_id && (
+        <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg px-3 py-2">
+          Klient ma {clientTacs.length} równorzędnych TAC-ów. Wybierz jawnie
+          ownera requestu — osobisty pierwszy priorytet TAC-a nie rozstrzyga
+          tego wyboru.
+        </div>
+      )}
+      <FieldGroup label="Owner requestu (TAC)" required={requiresExplicitTacOwner}>
+        <Select
+          value={form.tac_id}
+          onChange={e => onChange("tac_id", e.target.value)}
+          required={requiresExplicitTacOwner}
+          aria-label="Owner requestu (TAC)"
+          disabled={clientIdNum === null}
+        >
+          <option value="">
+            {requiresExplicitTacOwner
+              ? "— wybierz ownera requestu —"
+              : "— bez ownera requestu —"}
+          </option>
+          {clientTacs.length > 0 && (
+            <optgroup label="TAC-y przypisani do klienta">
+              {clientTacs.map((t) => (
+                <option key={`client-tac-${t.user_id}`} value={t.user_id}>
+                  {t.name}
+                  {t.role ? ` (${t.role})` : ""}
+                  {t.is_first_priority_for_tac
+                    ? " · osobisty 1. priorytet"
+                    : ""}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </Select>
-        {form.tac_id && primaryTac && Number(form.tac_id) === primaryTac.user_id && (
+        {form.tac_id && soleClientTac && Number(form.tac_id) === soleClientTac.user_id && (
           <p className="text-[11px] text-emerald-600 mt-1">
-            ✓ Domyślny TAC klienta
+            ✓ Prefill: jedyny TAC przypisany do klienta
           </p>
         )}
-        {form.tac_id && primaryTac && Number(form.tac_id) !== primaryTac.user_id && (
-          <p className="text-[11px] text-primary mt-1">
-            Nadpisane (primary TAC klienta: {primaryTac.name})
+        {form.tac_id && requiresExplicitTacOwner && (
+          <p className="text-[11px] text-emerald-600 mt-1">
+            ✓ Owner requestu wybrany jawnie
+          </p>
+        )}
+        {clientIdNum === null && (
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Najpierw wybierz klienta, aby zobaczyć jego TAC-ów.
           </p>
         )}
       </FieldGroup>
@@ -1263,6 +1307,7 @@ export function AddJobModal({
   const [error, setError] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [clientTacCount, setClientTacCount] = useState<number | null>(0);
   // auto_cc collaborators: undefined = not initialised (all auto-add), otherwise
   // the explicit set user chose (may exclude some backend would add).
   const [autoCollaboratorIds, setAutoCollaboratorIds] = useState<number[] | null>(null);
@@ -1341,7 +1386,22 @@ export function AddJobModal({
   const users = usersData ?? [];
   const templates = templatesData ?? [];
 
-  const onChange = (k: keyof JobFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof JobFormData, v: string) => {
+    if (k === "client_id") {
+      setClientTacCount(v ? null : 0);
+    }
+    setForm((current) => {
+      if (k === "client_id" && current.client_id !== v) {
+        return {
+          ...current,
+          client_id: v,
+          tac_id: "",
+          delivery_lead_id: "",
+        };
+      }
+      return { ...current, [k]: v };
+    });
+  };
 
   const handleGenerateAI = async () => {
     if (!form.title.trim()) { setAiError("Wpisz najpierw tytuł stanowiska"); return; }
@@ -1375,6 +1435,14 @@ export function AddJobModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title) { setError("Tytuł jest wymagany"); return; }
+    if (form.client_id && clientTacCount === null) {
+      setError("Poczekaj, aż wczytamy TAC-ów przypisanych do klienta");
+      return;
+    }
+    if ((clientTacCount ?? 0) > 1 && !form.tac_id) {
+      setError("Wybierz ownera requestu spośród równorzędnych TAC-ów klienta");
+      return;
+    }
     setSaving(true); setError("");
     try {
       const { data: newJob } = await api.post<{ id: number; competence_category_id?: number }>("/api/jobs", {
@@ -1515,6 +1583,8 @@ export function AddJobModal({
           templates={templates}
           autoCollaboratorIds={autoCollaboratorIds ?? []}
           onAutoCollaboratorsChange={setAutoCollaboratorIds}
+          onClientTacCountChange={setClientTacCount}
+          enforceExplicitTacOwner
         />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
@@ -1546,7 +1616,18 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
   const users = usersData ?? [];
   const templates = templatesData ?? [];
 
-  const onChange = (k: keyof JobFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof JobFormData, v: string) =>
+    setForm((current) => {
+      if (k === "client_id" && current.client_id !== v) {
+        return {
+          ...current,
+          client_id: v,
+          tac_id: "",
+          delivery_lead_id: "",
+        };
+      }
+      return { ...current, [k]: v };
+    });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -806,9 +806,7 @@ async def build_head_of_recruitment_dashboard(
         else None
     )
     unassigned = (
-        int(team.get("unowned_carry_over_count") or 0)
-        if team_shape_complete
-        else None
+        int(team.get("unowned_carry_over_count") or 0) if team_shape_complete else None
     )
 
     alerts: list[DashboardAlert] = []
@@ -1014,9 +1012,8 @@ async def build_my_work_dashboard(
     contact_status = await _capture(
         quality, "contact_status", lambda: sources.load_contact_feature_status(user)
     )
-    contact_status_shape_complete = (
-        isinstance(contact_status, dict)
-        and isinstance(contact_status.get("enabled"), bool)
+    contact_status_shape_complete = isinstance(contact_status, dict) and isinstance(
+        contact_status.get("enabled"), bool
     )
     if contact_status is not None and not contact_status_shape_complete:
         _mark_partial(

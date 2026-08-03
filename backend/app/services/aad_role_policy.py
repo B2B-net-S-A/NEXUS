@@ -36,9 +36,13 @@ def validate_aad_mapped_roles(
         )
     mapped_roles = [UserRole(value) for value in unique_values]
 
+    if UserRole.user in mapped_roles:
+        raise InvalidAadRoleMapping(
+            "AAD legacy viewer role can no longer be assigned; map the group to recruiter"
+        )
+
     exclusive = {
         UserRole.finance,
-        UserRole.user,
     }.intersection(mapped_roles)
     if exclusive and len(mapped_roles) != 1:
         role_name = (

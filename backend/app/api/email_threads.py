@@ -22,11 +22,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess
-from app.api.deps import CurrentUser, get_current_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
-from app.models.user import User
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -182,7 +180,7 @@ def _to_email_out(email: Email) -> EmailOut:
 @router.get("/candidates/{candidate_id}/emails", response_model=list[ThreadPreview])
 async def list_candidate_emails(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     include_archived: bool = Query(False),
@@ -244,7 +242,7 @@ async def list_candidate_emails(
 async def list_thread_messages(
     candidate_id: int,
     conversation_id: str,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[EmailOut]:
     """Return every message in a candidate's conversation, oldest first.
@@ -275,7 +273,7 @@ async def list_thread_messages(
 @router.get("/emails/{email_id}", response_model=EmailOut)
 async def get_email(
     email_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> EmailOut:
     email = await db.get(Email, email_id)
@@ -299,7 +297,7 @@ async def get_email(
 async def download_attachment(
     email_id: int,
     attachment_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     email = await db.get(Email, email_id)
@@ -352,10 +350,10 @@ async def compose_email(
 @limiter.limit("60/minute")
 async def search_emails(
     request: Request,
+    current_user: CandidatePIIAccess,
     q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmailSearchResponse:
     """Full-text search over the caller's own emails (Phase 4.4).

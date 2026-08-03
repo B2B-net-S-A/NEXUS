@@ -242,12 +242,15 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
 
 Rejestracja bez logowania przez Microsoft, ograniczona do domen z whitelisty
 `SSO_ALLOWED_DOMAINS` (te same co SSO, np. `b2bnetwork.pl`). Nowe konta są
-**read-only viewer** (`UserRole.user`), niezweryfikowane do kliknięcia linku
-aktywacyjnego; admin podnosi rolę w panelu (Settings → Admin → Users — flow
-istniał wcześniej). PR 2026-06-23. Pełny opis: `docs/self-registration-completion-report.md`.
+**Recruiterem za obowiązkowym onboardingiem** (`UserRole.recruiter`,
+`profile_completed=false`) i pozostają niezweryfikowane do kliknięcia linku
+aktywacyjnego. Legacy `UserRole.user` jest wycofywany przez migrację 0210 i nie
+może być już nadawany. Pełny opis pierwotnego mechanizmu:
+`docs/self-registration-completion-report.md`; aktualny cutover:
+`docs/role-dashboard-rbac-cutover.md`.
 
 - **Kill-switch:** `SELF_REGISTRATION_ENABLED` (default `false`). Off → `POST /api/auth/register` zwraca 503, strona `/register` pokazuje "rejestracja wyłączona".
-- **Endpoint `POST /api/auth/register`** (`app/api/auth.py`): gate → domain whitelist (fail-closed, pusta lista = reject-all) → rola **wymuszona `user`** server-side (`SelfRegisterRequest` NIE ma pola `role` — zamyka starą dziurę gdzie `role` był z body i każdy mógł zrobić sobie `admin`) → `email_verified=False` → token + mail. **Anti-enumeration:** zawsze generyczne `201` (nigdy `409`), bcrypt liczony na obu ścieżkach (no timing leak); duplikat na niezweryfikowanym koncie re-wysyła link, na zweryfikowanym — cicho no-op.
+- **Endpoint `POST /api/auth/register`** (`app/api/auth.py`): gate → domain whitelist (fail-closed, pusta lista = reject-all) → rola **wymuszona `recruiter`** server-side (`SelfRegisterRequest` NIE ma pola `role`) i `profile_completed=false` → `email_verified=False` → token + mail. **Anti-enumeration:** zawsze generyczne `201` (nigdy `409`), bcrypt liczony na obu ścieżkach (no timing leak); duplikat na niezweryfikowanym koncie re-wysyła link, na zweryfikowanym — cicho no-op.
 - **`POST /api/auth/verify-email`** — jednorazowy 64-hex token (SHA-256 hash, TTL 24 h) → `email_verified=True`. **`POST /api/auth/resend-verification`** — anti-enum (zawsze 200).
 - **Login gate:** `login` blokuje konta z `email_verified=False` (czytelny komunikat PL). Istniejący userzy email/hasło + SSO mają `email_verified=True` (backfill migracji + SSO ustawia), więc **nie są dotknięci**.
 - **Frontend:** `/register` (formularz) + `/register/verify` (auto-verify on mount) + link na `/login`; `/register` w `PUBLIC_PATHS` (`middleware.ts`).

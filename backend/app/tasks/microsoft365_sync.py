@@ -28,6 +28,10 @@ from app.models.m365 import (
     M365Connection,
     M365SyncStatus,
 )
+from app.services.m365.access import (
+    connection_owner_is_eligible,
+    eligible_m365_owner,
+)
 from app.services.m365 import sync_connection
 from app.services.m365 import matcher as matcher_mod
 from app.services.m365 import webhooks as m365_webhooks
@@ -114,6 +118,14 @@ async def _tick(interval: int) -> None:
                 c.last_error and any(m in c.last_error for m in _FATAL_ERROR_MARKERS)
             )
         ]
+        # ``is_active`` describes the token, not the owner's current RBAC.
+        # Filter here for clean scheduling metrics, then re-check in the fresh
+        # execution session below to close the role-change race.
+        eligible_connections: list[M365Connection] = []
+        for connection in connections:
+            if await connection_owner_is_eligible(db, connection):
+                eligible_connections.append(connection)
+        connections = eligible_connections
 
     if not connections:
         return
@@ -125,6 +137,12 @@ async def _tick(interval: int) -> None:
             async with AsyncSessionLocal() as db:
                 fresh = await db.get(M365Connection, conn_id)
                 if fresh is None or not fresh.is_active:
+                    continue
+                if not await connection_owner_is_eligible(db, fresh):
+                    logger.warning(
+                        "m365 scheduled sync refused for ineligible connection_id=%s",
+                        conn_id,
+                    )
                     continue
                 await sync_connection(db, fresh)
         except asyncio.CancelledError:
@@ -239,7 +257,14 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
 
     processed = 0
     matched = 0
+    owner_eligibility: dict[int, bool] = {}
     for email in candidates_to_try:
+        if email.user_id not in owner_eligibility:
+            owner_eligibility[email.user_id] = (
+                await eligible_m365_owner(db, email.user_id) is not None
+            )
+        if not owner_eligibility[email.user_id]:
+            continue
         processed += 1
         dto = IncomingMessage(
             from_address=email.from_address or "",
@@ -373,6 +398,12 @@ async def _renewal_tick(db: AsyncSession) -> None:
                 await db.delete(sub)
             await db.commit()
             continue
+        if not await connection_owner_is_eligible(db, conn):
+            logger.warning(
+                "subscription renewal refused for ineligible connection_id=%s",
+                conn_id,
+            )
+            continue
 
         try:
             async with GraphClient(conn, db) as gc:
@@ -414,6 +445,8 @@ async def _backfill_missing_subscriptions(db: AsyncSession) -> None:
         return
 
     for conn in connections:
+        if not await connection_owner_is_eligible(db, conn):
+            continue
         existing_result = await db.execute(
             select(GraphSubscription.resource).where(
                 GraphSubscription.m365_connection_id == conn.id
@@ -608,8 +641,11 @@ async def _active_connection_for_user(
     """Return the user's active M365 connection, or None if reconnect needed.
 
     Mirrors the safety net in microsoft365_sync_loop — we don't even try
-    Graph if the cipher key rotated or the user disconnected via UI.
+    Graph if the cipher key rotated, the user disconnected via UI, or their
+    current effective roles no longer allow candidate-domain access.
     """
+    if await eligible_m365_owner(db, user_id) is None:
+        return None
     stmt = (
         select(M365Connection)
         .where(

@@ -12,7 +12,7 @@ GET dostępne dla `CurrentUser` (wszyscy zalogowani).
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, CurrentUser, HeadOfRecruitmentPlus
@@ -40,6 +40,7 @@ from app.schemas.team_structure import (
     DlClientsRow,
     DlWithTacsRow,
     MyTeamRow,
+    OperatorCompetencesUpdate,
     SourcerCategoryRow,
     SourcerInCategory,
     TacOfDl,
@@ -51,6 +52,21 @@ from app.services.authorization_invalidation import (
 )
 
 router = APIRouter()
+
+_COMPETENCE_OPERATOR_ROLES = {
+    UserRole.sourcer,
+    UserRole.tac,
+    UserRole.recruiter,
+}
+
+
+def _has_any_role_clause(*roles: UserRole):
+    """SQL equivalent of ``User.has_any_role`` for hybrid-role listings."""
+
+    return or_(
+        User.role.in_(roles),
+        *(User.roles.contains([role.value]) for role in roles),
+    )
 
 
 def _user_brief(u: User) -> UserBrief:
@@ -92,7 +108,7 @@ async def list_sourcer_categories(
         .join(User, UserCompetenceCategory.user_id == User.id)
         .where(
             User.is_active == True,  # noqa: E712
-            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
+            _has_any_role_clause(*_COMPETENCE_OPERATOR_ROLES),
         )
     )
     rows = (await db.execute(rows_q)).all()
@@ -113,8 +129,6 @@ async def list_sourcer_categories(
             bucket["first"].append(entry)
         elif r.priority == 2:
             bucket["second"].append(entry)
-        elif r.is_primary:
-            bucket["first"].append(entry)  # backfill bez priority
 
     return [
         SourcerCategoryRow(
@@ -140,6 +154,11 @@ async def assign_sourcer_to_category(
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(404, "User not found")
+    if not user.is_active or not user.has_any_role(*_COMPETENCE_OPERATOR_ROLES):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "User must be an active Sourcer, TAC or Recruiter",
+        )
     cat = (
         await db.execute(
             select(CompetenceCategory).where(
@@ -149,15 +168,58 @@ async def assign_sourcer_to_category(
     ).scalar_one_or_none()
     if cat is None:
         raise HTTPException(404, "Category not found")
+    if not cat.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Category is inactive")
+
+    assignments = list(
+        (
+            await db.execute(
+                select(UserCompetenceCategory)
+                .where(UserCompetenceCategory.user_id == payload.user_id)
+                .order_by(UserCompetenceCategory.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     # Upsert na (user_id, competence_category_id).
-    existing_q = select(UserCompetenceCategory).where(
-        UserCompetenceCategory.user_id == payload.user_id,
-        UserCompetenceCategory.competence_category_id == payload.competence_category_id,
+    existing = next(
+        (
+            row
+            for row in assignments
+            if row.competence_category_id == payload.competence_category_id
+        ),
+        None,
     )
-    existing = (await db.execute(existing_q)).scalar_one_or_none()
+
+    if payload.priority == 1:
+        for row in assignments:
+            if row is not existing and row.priority == 1:
+                row.priority = 2
+                row.is_primary = False
+        # Flush demotion before promotion to satisfy the partial unique index.
+        await db.flush()
+    elif existing is not None and existing.priority == 1:
+        if any(row is not existing for row in assignments):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Promote another competence atomically before demoting the primary",
+            )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "An active operator must retain one primary competence",
+        )
+    elif not any(row.priority == 1 for row in assignments):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Select a primary competence before adding secondary competences",
+        )
+
     if existing:
         existing.priority = payload.priority
+        existing.is_primary = payload.priority == 1
     else:
         db.add(
             UserCompetenceCategory(
@@ -169,6 +231,115 @@ async def assign_sourcer_to_category(
         )
     await db.commit()
     return {"ok": True}
+
+
+@router.put("/operators/{user_id}/competences")
+async def replace_operator_competences(
+    user_id: int,
+    payload: OperatorCompetencesUpdate,
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace primary and secondary slots in one locked transaction."""
+
+    secondary_ids = list(dict.fromkeys(payload.secondary_competence_category_ids))
+    primary_id = payload.primary_competence_category_id
+    if primary_id in secondary_ids:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Primary competence cannot also be secondary",
+        )
+
+    user = (
+        await db.execute(select(User).where(User.id == user_id).with_for_update())
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if not user.is_active or not user.has_any_role(*_COMPETENCE_OPERATOR_ROLES):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "User must be an active Sourcer, TAC or Recruiter",
+        )
+
+    requested_ids = [primary_id, *secondary_ids]
+    categories = list(
+        (
+            await db.execute(
+                select(CompetenceCategory).where(
+                    CompetenceCategory.id.in_(requested_ids),
+                    CompetenceCategory.is_active.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if {category.id for category in categories} != set(requested_ids):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Every selected competence must exist and be active",
+        )
+
+    existing_rows = list(
+        (
+            await db.execute(
+                select(UserCompetenceCategory)
+                .where(UserCompetenceCategory.user_id == user_id)
+                .order_by(UserCompetenceCategory.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_category = {row.competence_category_id: row for row in existing_rows}
+
+    # Demote first so the partial unique index is never transiently violated.
+    for row in existing_rows:
+        row.priority = 2
+        row.is_primary = False
+    await db.flush()
+
+    wanted = set(requested_ids)
+    for row in existing_rows:
+        if row.competence_category_id not in wanted:
+            await db.delete(row)
+
+    primary_row = by_category.get(primary_id)
+    if primary_row is None:
+        primary_row = UserCompetenceCategory(
+            user_id=user_id,
+            competence_category_id=primary_id,
+            priority=1,
+            is_primary=True,
+        )
+        db.add(primary_row)
+    else:
+        primary_row.priority = 1
+        primary_row.is_primary = True
+
+    for category_id in secondary_ids:
+        row = by_category.get(category_id)
+        if row is None:
+            db.add(
+                UserCompetenceCategory(
+                    user_id=user_id,
+                    competence_category_id=category_id,
+                    priority=2,
+                    is_primary=False,
+                )
+            )
+        else:
+            row.priority = 2
+            row.is_primary = False
+
+    await db.commit()
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "primary_competence_category_id": primary_id,
+        "secondary_competence_category_ids": secondary_ids,
+    }
 
 
 @router.delete("/sourcer-categories/{assignment_id}")
@@ -186,6 +357,18 @@ async def remove_sourcer_from_category(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(404, "Assignment not found")
+    if row.priority == 1:
+        other = await db.scalar(
+            select(UserCompetenceCategory.id).where(
+                UserCompetenceCategory.user_id == row.user_id,
+                UserCompetenceCategory.id != row.id,
+            )
+        )
+        if other is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Promote another competence before removing the primary",
+            )
     await db.delete(row)
     await db.commit()
     return {"ok": True}
@@ -207,7 +390,7 @@ async def list_tac_delivery_leads(
             await db.execute(
                 select(User)
                 .where(
-                    User.role == UserRole.delivery_lead,
+                    _has_any_role_clause(UserRole.delivery_lead),
                     User.is_active == True,  # noqa: E712
                 )
                 .order_by(User.name)
@@ -278,12 +461,12 @@ async def assign_tac_to_dl(
     tac = (
         await db.execute(select(User).where(User.id == payload.tac_user_id))
     ).scalar_one_or_none()
-    if tac is None or tac.role != UserRole.tac:
+    if tac is None or not tac.has_role(UserRole.tac):
         raise HTTPException(400, "tac_user_id must reference a user with role=tac")
     dl = (
         await db.execute(select(User).where(User.id == payload.delivery_lead_user_id))
     ).scalar_one_or_none()
-    if dl is None or dl.role != UserRole.delivery_lead:
+    if dl is None or not dl.has_role(UserRole.delivery_lead):
         raise HTTPException(
             400,
             "delivery_lead_user_id must reference a user with role=delivery_lead",
@@ -397,7 +580,7 @@ async def list_dl_clients(
             await db.execute(
                 select(User)
                 .where(
-                    User.role == UserRole.delivery_lead,
+                    _has_any_role_clause(UserRole.delivery_lead),
                     User.is_active == True,  # noqa: E712
                 )
                 .order_by(User.name)
@@ -480,7 +663,7 @@ async def assign_dl_to_client(
     dl = (
         await db.execute(select(User).where(User.id == payload.delivery_lead_user_id))
     ).scalar_one_or_none()
-    if dl is None or dl.role != UserRole.delivery_lead:
+    if dl is None or not dl.has_role(UserRole.delivery_lead):
         raise HTTPException(400, "must reference role=delivery_lead")
 
     changed_delivery_lead_ids: set[int] = set()
@@ -612,7 +795,7 @@ async def team_structure_summary(
     async def _count(role: Optional[UserRole] = None) -> int:
         q = select(func.count(User.id)).where(User.is_active == True)  # noqa: E712
         if role is not None:
-            q = q.where(User.role == role)
+            q = q.where(_has_any_role_clause(role))
         return (await db.execute(q)).scalar() or 0
 
     totals = {
