@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
@@ -52,7 +51,7 @@ async def seeded_cc_and_users():
                     user_id=u.id,
                     competence_category_id=cc.id,
                     priority=priority,
-                    is_primary=False,
+                    is_primary=priority == 1,
                 )
             )
             users.append(u)
@@ -100,10 +99,14 @@ async def test_auto_add_picks_only_priority_one(seeded_cc_and_users):
         assert data["users"][2] not in added
 
         collabs = (
-            await db.execute(
-                select(JobCollaborator).where(JobCollaborator.job_id == job_id)
+            (
+                await db.execute(
+                    select(JobCollaborator).where(JobCollaborator.job_id == job_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         actual_ids = {c.user_id for c in collabs}
         assert data["users"][0] in actual_ids
         assert data["users"][1] in actual_ids
@@ -114,9 +117,7 @@ async def test_auto_add_picks_only_priority_one(seeded_cc_and_users):
 
         # Cleanup
         await db.execute(
-            JobCollaborator.__table__.delete().where(
-                JobCollaborator.job_id == job_id
-            )
+            JobCollaborator.__table__.delete().where(JobCollaborator.job_id == job_id)
         )
         await db.delete(job)
         await db.commit()
@@ -160,9 +161,7 @@ async def test_auto_add_is_idempotent(seeded_cc_and_users):
 
         # Cleanup
         await db.execute(
-            JobCollaborator.__table__.delete().where(
-                JobCollaborator.job_id == job_id
-            )
+            JobCollaborator.__table__.delete().where(JobCollaborator.job_id == job_id)
         )
         await db.delete(job)
         await db.commit()

@@ -126,6 +126,7 @@ LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS = [
 
 RECRUITMENT_RANKING_ENDPOINTS = [
     ("GET", "/api/reports/recruitment"),
+    ("GET", "/api/activities/leaderboard"),
 ]
 
 # R0: odczyty operacyjne (wszyscy POZA read-only viewerem `user`):
@@ -135,7 +136,6 @@ OPERATIONAL_ENDPOINTS = [
     ("GET", "/api/candidates"),
     ("GET", "/api/clients"),
     ("GET", "/api/activities/feed"),
-    ("GET", "/api/activities/leaderboard"),
     ("GET", "/api/dashboard/recent-activity"),
 ]
 
@@ -163,13 +163,15 @@ RECRUITER_PLUS_ENDPOINTS = [
 DELIVERY_LEAD_PLUS_ENDPOINTS = [
     ("POST", "/api/pipeline-templates"),
     ("POST", "/api/embed-init"),
-    ("DELETE", "/api/clients/99999"),  # PR #17 — DELETE client wymaga DL+
 ]
 
 # Endpointy admin-only:
 ADMIN_ONLY_ENDPOINTS = [
     ("GET", "/api/admin/users"),
     ("GET", "/api/admin/system"),
+    # Client deletion is an organization-wide destructive operation. Delivery
+    # Lead is scoped to assigned clients and may update them, but cannot delete.
+    ("DELETE", "/api/clients/99999"),
     # Candidate-specific rate data carries recruitment PII; Finance uses
     # person-free financial endpoints and Delivery Lead stays operational-only.
     ("POST", "/api/candidates/99999/rate-history"),
@@ -792,8 +794,8 @@ async def test_rekrutacja_dashboard_requires_ranking_capability(
 ):
     """P0.2: imienny dashboard rekrutacji → VIEW_RECRUITMENT_RANKING (bez sekcji).
 
-    Wszyscy poza `user` (viewer) przechodzą; viewer dostaje 403 także przez
-    direct API (wcześniej goły CurrentUser = każdy zalogowany).
+    My Work, HoR i Admin przechodzą; Delivery Lead, Finance i legacy viewer
+    dostają 403 także przez direct API. Sekcja nie poszerza capability.
     """
     role, headers = role_headers
     # available-weeks: prosty SELECT (pusta lista na testowej DB) — ten sam
@@ -801,7 +803,7 @@ async def test_rekrutacja_dashboard_requires_ranking_capability(
     resp = await rbac_client.get(
         "/api/dynareporter/rekrutacja/available-weeks", headers=headers
     )
-    if role in ROLE_SETS["operational"]:  # wszyscy poza `user`
+    if role in ROLE_SETS["recruitment_ranking"]:
         assert resp.status_code != 403, (
             f"[{role.value}] rekrutacja got 403 but should be allowed"
         )

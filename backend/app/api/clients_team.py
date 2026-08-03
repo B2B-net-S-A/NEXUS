@@ -116,7 +116,7 @@ async def _resolve_first_priority_reconciliation(
                 resolved_by = :resolved_by,
                 details = COALESCE(details, '{}'::jsonb)
                     || jsonb_build_object(
-                        'selected_client_id', :selected_client_id
+                        'selected_client_id', CAST(:selected_client_id AS INTEGER)
                     )
             WHERE migration_key = '0210_role_dashboard_rbac_cutover'
               AND issue_kind = 'client_tac_first_priority_required'

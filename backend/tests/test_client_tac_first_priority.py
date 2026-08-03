@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.api.clients_team import _resolve_first_priority_reconciliation
 from app.models.team_structure import ClientTacAssignment
 from app.services.auto_assign_owners import resolve_default_owners
 from app.services.client_tac_assignments import (
@@ -18,6 +19,27 @@ from app.services.client_tac_assignments import (
 
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_reconciliation_json_value_has_an_explicit_postgres_type() -> None:
+    """asyncpg cannot infer a bind type inside jsonb_build_object()."""
+
+    db = AsyncMock()
+
+    await _resolve_first_priority_reconciliation(
+        db,
+        tac_user_id=7,
+        selected_client_id=10,
+        resolved_by=3,
+    )
+
+    statement, parameters = db.execute.await_args.args
+    assert "CAST(:selected_client_id AS INTEGER)" in str(statement)
+    assert parameters == {
+        "tac_user_id": 7,
+        "selected_client_id": 10,
+        "resolved_by": 3,
+    }
 
 
 class _Database:

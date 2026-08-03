@@ -16,6 +16,8 @@ dependency, więc reprezentatywna próbka pokrywa kontrakt.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import uuid
 
 import pytest
@@ -30,6 +32,28 @@ GENERATE_URL = "/api/b2b-generator/generate"
 ALLOWED_ROLES = ["admin", "head_of_recruitment", "delivery_lead", "tac"]
 # Delivery + viewer — must be 403 on every legal-document surface.
 DENIED_ROLES = ["recruiter", "sourcer", "finance", "user"]
+
+
+@pytest.mark.parametrize("handler_name", ["generate", "get_detail", "download_docx"])
+def test_b2b_contract_loader_always_receives_current_actor(handler_name: str) -> None:
+    """Every shared contract load must retain its relationship-aware RBAC check."""
+
+    from app.api import b2b_contract_generator
+
+    handler = getattr(b2b_contract_generator, handler_name)
+    tree = ast.parse(inspect.getsource(handler))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_load_contract_with_relations"
+    ]
+    assert calls, f"{handler_name} must load its contract through the scoped helper"
+    for call in calls:
+        assert len(call.args) >= 3
+        actor = call.args[2]
+        assert isinstance(actor, ast.Name) and actor.id == "current_user"
 
 
 async def _headers_for(

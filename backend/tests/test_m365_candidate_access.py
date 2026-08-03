@@ -52,6 +52,32 @@ def test_all_user_facing_m365_and_mailbox_routes_use_candidate_pii_guard() -> No
         assert annotation == CandidatePIIAccess, handler.__name__
 
 
+def test_email_search_openapi_keeps_current_user_as_dependency() -> None:
+    """slowapi must not turn the candidate guard into a public query field."""
+
+    from app.main import app
+
+    route = next(
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/microsoft365/emails/search"
+    )
+    assert all(param.name != "current_user" for param in route.dependant.query_params)
+    assert any(
+        dependency.name == "current_user" for dependency in route.dependant.dependencies
+    )
+
+    # This used to raise PydanticUserError because the unresolved dependency
+    # was registered as Annotated[ForwardRef(...), Query(...)].
+    app.openapi_schema = None
+    operation = app.openapi()["paths"]["/api/microsoft365/emails/search"]["get"]
+    assert {param["name"] for param in operation["parameters"]} == {
+        "q",
+        "limit",
+        "offset",
+    }
+
+
 @pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
 @pytest.mark.asyncio
 async def test_oauth_callback_rechecks_role_before_token_exchange(

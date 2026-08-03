@@ -673,7 +673,7 @@ async def generate(
     await db.flush()
 
     # 4. Render draftu HTML z szablonu B2B (eager-load relacji incl. b2b_detail).
-    contract = await _load_contract_with_relations(db, contract.id)
+    contract = await _load_contract_with_relations(db, contract.id, current_user)
     contract.draft_content_html = await run_in_threadpool(
         _render_draft_body, tpl, contract
     )
@@ -702,7 +702,7 @@ async def get_detail(
     current_user: ContractLegalAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    contract = await _load_contract_with_relations(db, contract_id)
+    contract = await _load_contract_with_relations(db, contract_id, current_user)
     await assert_contract_legal_client_access(
         db,
         current_user,
@@ -736,7 +736,7 @@ async def download_docx(
     db: AsyncSession = Depends(get_db),
     language: str | None = Query(None),
 ):
-    contract = await _load_contract_with_relations(db, contract_id)
+    contract = await _load_contract_with_relations(db, contract_id, current_user)
     await assert_contract_legal_client_access(
         db,
         current_user,

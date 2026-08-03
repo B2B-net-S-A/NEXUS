@@ -27,6 +27,41 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 
+# ── Legacy user-fixture compatibility after the role cutover ────────────────
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _normalise_legacy_user_fixtures():
+    """Treat omitted rollout fields as an established test account.
+
+    Production account creators explicitly set both ``roles`` and
+    ``profile_completed``.  Older test factories predate those fields and
+    intentionally model users who are already operating in NEXUS, so an
+    omitted value must not silently turn every endpoint assertion into an
+    onboarding assertion.
+
+    Keep this compatibility at the test boundary: explicit ``False`` still
+    exercises the fail-closed onboarding gate, and explicit role arrays still
+    exercise malformed/exclusive-role cases.  The listener also mirrors the
+    primary-role invariant for omitted arrays, including the retained legacy
+    viewer used only by deny-path regression tests; it does not re-enable any
+    production provisioning path for that role.
+    """
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    from tests._user_fixture_compat import normalise_omitted_user_rollout_fields
+
+    def _fill_omitted_rollout_fields(session, _flush_context, _instances) -> None:
+        normalise_omitted_user_rollout_fields(session.new)
+
+    event.listen(Session, "before_flush", _fill_omitted_rollout_fields)
+    try:
+        yield
+    finally:
+        event.remove(Session, "before_flush", _fill_omitted_rollout_fields)
+
+
 # Share one event loop across the whole session so asyncpg connection pools
 # don't see the loop closing between tests.
 @pytest.fixture(scope="session")
@@ -34,6 +69,7 @@ def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
+
 
 BASE_URL = "http://localhost:8000"
 TEST_EMAIL = "artur@b2bnet.pl"

@@ -9,7 +9,12 @@ POST /api/candidates/{id}/emails/reply    → reply to an existing email
 POST /api/microsoft365/emails/bulk        → bulk action on selected emails (Phase 5.1)
 """
 
-from __future__ import annotations
+# NOTE: keep annotations eager in this module. ``search_emails`` is wrapped by
+# slowapi's limiter and FastAPI resolves the wrapper signature from slowapi's
+# globals. With postponed annotations, ``CandidatePIIAccess`` remains an
+# unresolved ForwardRef there, is misclassified as a query parameter and both
+# ``/openapi.json`` and authenticated email search fail. Python 3.12 supports
+# every annotation used below without the future import.
 
 import logging
 from datetime import datetime, timezone

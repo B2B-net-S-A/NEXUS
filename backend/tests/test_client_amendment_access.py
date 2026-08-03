@@ -4,8 +4,8 @@ P0.6a containment: ``GET .../amendments`` (list) i ``.../amendments/{id}/file``
 (download) używały bare ``CurrentUser`` + tylko check istnienia client/framework,
 więc read-only viewer (``user``) oraz recruiter/sourcer mogli iterować i pobierać
 dokumenty prawne (aneksy) dowolnego klienta. Po zmianie chroni je scope
-``resolve_client_access.can_view_legal_documents`` (admin/HoR/DL/TAC) — wzorzec
-z ``client_framework_contracts``.
+``resolve_client_access.can_view_legal_documents``. Admin/HoR mają nadzór
+organizacyjny, a DL/TAC dostęp wyłącznie przez jawną relację z klientem.
 """
 
 from __future__ import annotations
@@ -15,29 +15,54 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-# Legal-team — can_view_legal_documents=True (is_admin_like ∪ is_client_team).
+# Legal-team — can_view_legal_documents=True (oversight or explicit client team).
 ALLOWED_ROLES = ["admin", "head_of_recruitment", "delivery_lead", "tac"]
 # Delivery + viewer — no legal-doc access.
 DENIED_ROLES = ["recruiter", "sourcer", "user"]
 
 
-async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, str]:
+async def _headers_for(
+    app_client: AsyncClient,
+    role_value: str,
+    *,
+    client_id: int | None = None,
+) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
+    from app.models.team_structure import (
+        ClientTacAssignment,
+        DeliveryLeadClientAssignment,
+    )
     from app.models.user import User, UserRole
 
     email = f"amd-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
     password = f"P4ss_{uuid.uuid4().hex[:6]}!"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Amd {role_value}",
-                role=UserRole(role_value),
-                is_active=True,
-            )
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Amd {role_value}",
+            role=UserRole(role_value),
+            is_active=True,
         )
+        db.add(user)
+        await db.flush()
+        if client_id is not None and role_value == UserRole.delivery_lead.value:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=client_id,
+                )
+            )
+        if client_id is not None and role_value == UserRole.tac.value:
+            db.add(
+                ClientTacAssignment(
+                    tac_user_id=user.id,
+                    client_id=client_id,
+                    is_primary=False,
+                    is_first_priority_for_tac=True,
+                )
+            )
         await db.commit()
 
     login = await app_client.post(
@@ -85,7 +110,7 @@ async def test_denied_roles_cannot_list_amendments(
 @pytest.mark.parametrize("role_value", ALLOWED_ROLES)
 async def test_legal_team_can_list_amendments(app_client: AsyncClient, role_value: str):
     client_id, fc_id = await _seed_client_and_framework()
-    headers = await _headers_for(app_client, role_value)
+    headers = await _headers_for(app_client, role_value, client_id=client_id)
     r = await app_client.get(_list_url(client_id, fc_id), headers=headers)
     assert r.status_code == 200, f"{role_value} → {r.status_code}: {r.text}"
     assert r.json() == []  # brak aneksów, ale dostęp jest
