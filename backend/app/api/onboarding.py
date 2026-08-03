@@ -44,16 +44,16 @@ _ONBOARDING_JOB_LIMIT = 200
 
 def _require_incomplete_onboarding_persona(user: User) -> UserRole:
     ensure_exclusive_role_configuration(user)
-    if user.profile_completed:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Onboarding already completed",
-        )
     persona = onboarding_persona_for_user(user)
     if persona is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Role '{user.role.value}' does not require onboarding",
+        )
+    if user.profile_completed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Onboarding already completed",
         )
     return persona
 

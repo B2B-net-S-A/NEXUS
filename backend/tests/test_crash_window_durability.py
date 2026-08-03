@@ -71,8 +71,14 @@ async def _seed_offline_chat_notification() -> tuple[int, int]:
             email=f"crashwin-{uuid.uuid4().hex[:8]}@example.com",
             password_hash=hash_password("T3st_pass_xxxxxxx!"),
             name="Crash Window",
-            role=UserRole.user,
+            # Chat fallback is candidate-domain processing.  Exercise its
+            # durability window with a valid operational recipient; the
+            # retired ``user`` viewer is intentionally filtered out before
+            # SMTP so it cannot receive recruitment PII.
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
             is_active=True,
+            profile_completed=True,
             last_seen_at=None,  # never online → qualifies
         )
         db.add(u)

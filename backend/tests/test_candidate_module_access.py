@@ -769,13 +769,19 @@ async def test_seeking_contractors_rejects_viewer(
 
 
 async def test_secondary_role_grants_candidate_access(m2_client: AsyncClient):
-    """A user whose PRIMARY role is `user` but who holds a secondary
-    `recruiter` role passes the capability check (union semantics)."""
-    email, password = await _seed_user(UserRole.user, secondary=["user", "recruiter"])
+    """A valid Recruiter+TAC hybrid gets export through its secondary TAC role.
+
+    Recruiter alone cannot export candidates, so the successful response pins
+    union semantics without constructing the forbidden legacy-viewer hybrid.
+    """
+    email, password = await _seed_user(
+        UserRole.recruiter,
+        secondary=[UserRole.recruiter.value, UserRole.tac.value],
+    )
     headers = await _login(m2_client, email, password)
 
-    resp = await m2_client.get("/api/candidates?page_size=1", headers=headers)
-    assert resp.status_code != 403, resp.text
+    resp = await m2_client.get("/api/candidates/export?limit=1", headers=headers)
+    assert resp.status_code == 200, resp.text
 
 
 # ── Global search projection ────────────────────────────────────────────────
