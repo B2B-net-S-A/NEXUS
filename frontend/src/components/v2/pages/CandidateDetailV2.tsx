@@ -1199,7 +1199,6 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
 
  <div className="p-4 sm:p-5">
  <TabsContent value="summary" className="mt-0 space-y-5">
- <CandidateActivitySummaryCard candidateId={Number(id)} />
  <ProfilTab candidate={candidate} onOpenTab={setActiveTab} />
  <section aria-labelledby="candidate-commercial-data">
  <h2
@@ -2527,6 +2526,46 @@ function ProfilTab({
  return (
  <>
  <div className="space-y-6">
+ {/* 0. CV — pinned to the very top of the summary tab, above everything
+ else, so the recruiter sees the candidate's document first. */}
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+ CV
+ </h3>
+ <div className="flex items-center gap-3 rounded-lg bg-background/40 border border-border p-3">
+ <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+ <div className="flex-1 min-w-0">
+ {candidate.cv_filename ? (
+ <>
+ <div className="text-sm font-medium text-foreground truncate">
+ {candidate.cv_filename}
+ </div>
+ {candidate.cv_parsed_at && (
+ <div className="text-[11px] text-muted-foreground">
+ Sparsowane {formatRelativeTime(candidate.cv_parsed_at)}
+ </div>
+ )}
+ </>
+ ) : (
+ <span className="text-sm text-muted-foreground">Brak CV w profilu</span>
+ )}
+ </div>
+ {candidate.cv_filename ? (
+ <Button size="sm" variant="outline" onClick={openCv}>
+ <FileText className="h-3.5 w-3.5" />
+ Otwórz
+ </Button>
+ ) : (
+ <Button size="sm" variant="ghost" onClick={() => onOpenTab?.("pliki")}>
+ Pliki →
+ </Button>
+ )}
+ </div>
+ </section>
+
+ {/* 0.5 Podsumowanie AI — directly under the CV, per profile layout. */}
+ <CandidateActivitySummaryCard candidateId={candidate.id} />
+
  {/* 1. Key facts — scannable grid (only tiles with data) */}
  {facts.length > 0 && (
  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -2583,42 +2622,6 @@ function ProfilTab({
  </div>
  </section>
  )}
-
- {/* 3. CV — quick access card */}
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- CV
- </h3>
- <div className="flex items-center gap-3 rounded-lg bg-background/40 border border-border p-3">
- <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
- <div className="flex-1 min-w-0">
- {candidate.cv_filename ? (
- <>
- <div className="text-sm font-medium text-foreground truncate">
- {candidate.cv_filename}
- </div>
- {candidate.cv_parsed_at && (
- <div className="text-[11px] text-muted-foreground">
- Sparsowane {formatRelativeTime(candidate.cv_parsed_at)}
- </div>
- )}
- </>
- ) : (
- <span className="text-sm text-muted-foreground">Brak CV w profilu</span>
- )}
- </div>
- {candidate.cv_filename ? (
- <Button size="sm" variant="outline" onClick={openCv}>
- <FileText className="h-3.5 w-3.5" />
- Otwórz
- </Button>
- ) : (
- <Button size="sm" variant="ghost" onClick={() => onOpenTab?.("pliki")}>
- Pliki →
- </Button>
- )}
- </div>
- </section>
 
  {/* 4. Podsumowanie AI — truncated */}
  {aiSummary && (
