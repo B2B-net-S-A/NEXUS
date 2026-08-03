@@ -30,7 +30,6 @@ import {
   Pencil,
   Briefcase,
   FileText,
-  ExternalLink,
   DollarSign,
   FolderOpen,
   LayoutDashboard,
@@ -43,6 +42,7 @@ import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
+import { ProjectsTab } from "./ProjectsTab";
 // NotificationsTab — usunięty po konsolidacji 12→6 tabów (2026-05-11).
 // Powiadomienia per-klient zostały zlikwidowane jako tab — globalny bell w
 // topbarze (NotificationsDropdown) wystarcza.
@@ -682,64 +682,8 @@ function ContactsTab({ clientId }: { clientId: number }) {
   );
 }
 
-// ── Projects Tab ──────────────────────────────────────────────────────────────
-
-function ProjectsTab({ clientId }: { clientId: number }) {
-  const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ["client-jobs", clientId],
-    queryFn: () =>
-      api.get("/api/jobs", { params: { client_id: clientId, limit: 50 } }).then((r) =>
-        Array.isArray(r.data) ? r.data : r.data?.items ?? []
-      ),
-  });
-
-  if (isLoading)
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center">
-        <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-        Ładowanie projektów...
-      </div>
-    );
-
-  if (!jobs.length)
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <Briefcase className="w-10 h-10 mb-3 opacity-40" />
-        <p className="text-sm">Brak powiązanych ofert pracy</p>
-      </div>
-    );
-
-  return (
-    <div className="space-y-2">
-      {jobs.map((job: any) => (
-        <a
-          key={job.id}
-          href={`/jobs/${job.id}`}
-          className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group"
-        >
-          <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center shrink-0">
-            <Briefcase className="w-4 h-4 text-purple-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-foreground dark:text-muted-foreground truncate">{job.title}</p>
-            {job.location && (
-              <p className="text-xs text-muted-foreground truncate">{job.location}</p>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              job.status === "published" ? "bg-green-100 text-green-700" :
-              job.status === "draft" ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
-            }`}>
-              {job.status === "published" ? "Aktywna" : job.status === "draft" ? "Szkic" : "Zamknięta"}
-            </span>
-            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
-          </div>
-        </a>
-      ))}
-    </div>
-  );
-}
+// Projects Tab — wyodrębniony do ./ProjectsTab.tsx (podział aktywne/zamknięte +
+// wyszukiwarka). Sibling-tab pattern jak ProfileTab/MaterialsTab/OwnersTab.
 
 // Kontrakty Tab — usunięty w refaktorze DL portal Order:Contract M:N → 1:N
 // (2026-05-11). Wszystkie kontrakty kandydackie są teraz wyświetlane w tabie
