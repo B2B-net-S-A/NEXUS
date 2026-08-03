@@ -33,6 +33,8 @@ class TraffitConfig:
     client_secret: str
     throttle_rps: float = 5.0
     timeout_s: float = 30.0
+    connect_timeout_s: float = 10.0
+    read_timeout_s: float = 180.0
     max_retries: int = 3
 
     @property
@@ -58,11 +60,15 @@ class TraffitConfig:
                 "must be set in environment"
             )
         throttle = float(os.environ.get("TRAFFIT_THROTTLE_RPS", "5"))
+        read_timeout = float(os.environ.get("TRAFFIT_READ_TIMEOUT_S", "180"))
+        connect_timeout = float(os.environ.get("TRAFFIT_CONNECT_TIMEOUT_S", "10"))
         return cls(
             tenant=tenant,
             client_id=client_id,
             client_secret=client_secret,
             throttle_rps=throttle,
+            connect_timeout_s=connect_timeout,
+            read_timeout_s=read_timeout,
         )
 
 
@@ -90,8 +96,18 @@ class TraffitClient:
         self._call_lock = asyncio.Lock()
 
     async def __aenter__(self) -> "TraffitClient":
+        # Split timeout: a generous read cap (default 180s) lets a large
+        # catch-up page of /employees/activities return without a ReadTimeout,
+        # while connect stays tight (10s) so a genuinely dead endpoint still
+        # fails fast. Was a bare 30s total, which throttled the activities feed
+        # into a permanent `degraded`.
         self._http = httpx.AsyncClient(
-            timeout=self.config.timeout_s,
+            timeout=httpx.Timeout(
+                connect=self.config.connect_timeout_s,
+                read=self.config.read_timeout_s,
+                write=self.config.timeout_s,
+                pool=self.config.timeout_s,
+            ),
             follow_redirects=True,
         )
         return self
@@ -185,7 +201,27 @@ class TraffitClient:
 
         for attempt in range(self.config.max_retries + 1):
             await self._throttle()
-            resp = await self._http.get(url, headers=headers)
+            try:
+                resp = await self._http.get(url, headers=headers)
+            except httpx.TransportError as exc:
+                # Transport-level failure (ReadTimeout / ConnectTimeout /
+                # network / protocol) — never surfaced as a `resp`, so it
+                # bypassed the status-based retry below and aborted the whole
+                # phase. Retry with the same backoff, then re-raise. Mirrors
+                # proxycurl/client.py and m365/graph_client.py.
+                if attempt < self.config.max_retries:
+                    wait = 2**attempt
+                    logger.warning(
+                        "Traffit %s transport error %r, backoff %ds (attempt %d/%d)",
+                        path,
+                        exc,
+                        wait,
+                        attempt + 1,
+                        self.config.max_retries,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
             if resp.status_code == 401 and attempt == 0:
                 # Token may have been invalidated mid-flight — force refresh.
                 self._token = None

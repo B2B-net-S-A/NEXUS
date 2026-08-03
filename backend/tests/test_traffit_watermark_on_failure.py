@@ -172,6 +172,22 @@ async def test_delta_watermark_frozen_on_row_level_errors(monkeypatch):
     assert daily.kwargs["last_status"] == "errors"
 
 
+async def test_delta_watermark_frozen_on_incomplete_activities_pagination(monkeypatch):
+    """Stage 2: a mid-stream fetch timeout makes ``import_candidate_activities``
+    RETURN a phase result with a single unattributable error (not raise). That
+    shape must freeze the daily watermark and surface as ``degraded``, so the
+    un-fetched tail is re-covered on the next run rather than silently skipped."""
+    upserts = await _run(
+        monkeypatch,
+        mode="delta",
+        phases=[("candidate_activities", _row_error_phase(1))],
+    )
+    daily = _marker_call(upserts, DAILY_MARKER)
+    assert daily is not None
+    assert daily.kwargs["last_synced_at"] is None
+    assert daily.kwargs["last_status"] == "errors"
+
+
 async def test_delta_watermark_advances_on_clean_run(monkeypatch):
     upserts = await _run(
         monkeypatch, mode="delta", phases=[("candidates", _ok_phase())]
