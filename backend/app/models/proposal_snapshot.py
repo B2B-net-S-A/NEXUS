@@ -72,6 +72,14 @@ class ProposalSnapshot(Base):
     degraded: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
+    # P0-B: freshness + traceability. `run_id` correlates this ranking with match
+    # telemetry (impressions/outcomes). `input_fingerprint` records which brief +
+    # Champion revision produced it. `stale` is set when a matching input
+    # (brief/Champion) changes after the snapshot, so the UI can prompt a re-run
+    # instead of presenting an outdated ranking as current.
+    run_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    input_fingerprint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stale: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_by: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("users.id"),

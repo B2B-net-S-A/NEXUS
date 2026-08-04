@@ -133,6 +133,8 @@ async def get_latest_proposal(
         created_at=snap.created_at,
         error_message=snap.error_message,
         degraded=snap.degraded,
+        stale=snap.stale,
+        run_id=snap.run_id,
         candidates=items,
     )
 
@@ -173,6 +175,7 @@ async def list_proposals(
             candidate_count=len(r.candidate_ids or []),
             error_message=r.error_message,
             degraded=r.degraded,
+            stale=r.stale,
         )
         for r in rows
     ]
@@ -239,5 +242,7 @@ async def regenerate_proposals(
         created_at=snap.created_at,
         error_message=snap.error_message,
         degraded=snap.degraded,
+        stale=snap.stale,
+        run_id=snap.run_id,
         candidates=[],
     )

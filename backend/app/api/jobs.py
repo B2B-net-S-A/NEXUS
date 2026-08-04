@@ -1364,6 +1364,13 @@ async def update_job(
         await mark_stale_for_job(db, job_id)
         await db.commit()
 
+        # P0-B: a brief edit changed a matching input — flag the latest proposal
+        # snapshot stale so the recruiter is prompted to re-run instead of seeing
+        # an outdated ranking as current.
+        from app.services.job_matching_refresh import mark_latest_snapshot_stale
+
+        await mark_latest_snapshot_stale(job_id, db)
+
     # Targ kandydatów: rescan tylko gdy zmieniły się pola wpływające na scoring
     # (_SIGNIFICANT_FIELDS z marketplace_service). Ignoruje zwykłe edycje opisu.
     if settings.MARKETPLACE_ENABLED:

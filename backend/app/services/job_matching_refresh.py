@@ -28,11 +28,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 
+async def _flag_latest_snapshot_stale(job_id: int, db: AsyncSession) -> None:
+    """Flag the job's most recent proposal snapshot stale (no commit).
+
+    The recruiter reads ``/proposals/latest``; marking the newest snapshot stale
+    is enough for the UI to prompt a re-run. Older snapshots are historical.
+    """
+    from sqlalchemy import select, update
+
+    from app.models.proposal_snapshot import ProposalSnapshot
+
+    latest_id = await db.scalar(
+        select(ProposalSnapshot.id)
+        .where(ProposalSnapshot.job_id == job_id)
+        .order_by(ProposalSnapshot.created_at.desc())
+        .limit(1)
+    )
+    if latest_id is not None:
+        await db.execute(
+            update(ProposalSnapshot)
+            .where(ProposalSnapshot.id == latest_id)
+            .values(stale=True)
+        )
+
+
 async def refresh_job_matching(job_id: int, db: AsyncSession) -> None:
-    """Re-embed ``job_id`` and mark its cached match scores stale, then commit.
+    """Re-embed ``job_id``, invalidate cached scores, and stale the latest
+    snapshot, then commit.
 
     Best-effort on the embedding (never blocks the caller's write); the cache
-    invalidation always runs so the next recommendation/snapshot recomputes.
+    invalidation and snapshot-stale always run so the recruiter is prompted to
+    re-run instead of seeing an outdated ranking as current.
     """
     from app.services.index_outbox_service import schedule_or_embed_job
     from app.services.match_score_cache import mark_stale_for_job
@@ -43,4 +69,16 @@ async def refresh_job_matching(job_id: int, db: AsyncSession) -> None:
         logger.warning("[matching-refresh] re-embed failed for job %s: %s", job_id, e)
 
     await mark_stale_for_job(db, job_id)
+    await _flag_latest_snapshot_stale(job_id, db)
+    await db.commit()
+
+
+async def mark_latest_snapshot_stale(job_id: int, db: AsyncSession) -> None:
+    """Flag the job's latest proposal snapshot stale + commit (P0-B).
+
+    Standalone entry point for callers that change a matching input without
+    going through :func:`refresh_job_matching` (e.g. a brief edit in update_job,
+    which already re-embeds + invalidates the score cache inline).
+    """
+    await _flag_latest_snapshot_stale(job_id, db)
     await db.commit()

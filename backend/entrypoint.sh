@@ -2725,6 +2725,14 @@ _COLUMN_STATEMENTS = [
     "DROP CONSTRAINT IF EXISTS ck_proposal_snapshots_source",
     "ALTER TABLE proposal_snapshots ADD CONSTRAINT ck_proposal_snapshots_source "
     "CHECK (source IN ('create', 'manual_regenerate', 'job_updated', 'handoff'))",
+    # P0-B (migration 0213_proposal_snapshot_freshness): run_id / fingerprint /
+    # stale — ORM je czyta, brak => UndefinedColumnError na /proposals/latest.
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS run_id TEXT NULL",
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS input_fingerprint TEXT NULL",
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS stale BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -3187,6 +3187,11 @@ export interface ProposalSnapshot {
   /** True when the ranking used a degraded semantic leg (Qdrant/Voyage down or
    *  the job unindexed) — the UI flags it instead of presenting it as healthy. */
   degraded: boolean;
+  /** True when a brief/Champion edit changed a matching input after this ranking
+   *  was produced — the UI prompts a re-run instead of showing it as current. */
+  stale: boolean;
+  /** Correlates this ranking with match telemetry (impressions/outcomes). */
+  run_id: string | null;
   candidates: ProposalCandidateItem[];
 }
 

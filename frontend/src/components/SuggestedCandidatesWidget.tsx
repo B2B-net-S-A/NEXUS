@@ -415,6 +415,28 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         </div>
       )}
 
+      {mode === "snapshot" && snapshot?.stale && (
+        <div
+          role="status"
+          data-testid="stale-ranking-notice"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground"
+        >
+          <span>
+            Brief lub Profil Championa zmienił się po wygenerowaniu tego rankingu
+            — jest nieaktualny.
+          </span>
+          <button
+            type="button"
+            onClick={regenerate}
+            disabled={regenerating || isSnapPending}
+            data-testid="stale-rerun-btn"
+            className="rounded-md bg-primary px-2 py-0.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            Uruchom ponownie
+          </button>
+        </div>
+      )}
+
       {isDegraded && (
         <div
           role="status"

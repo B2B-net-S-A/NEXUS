@@ -159,6 +159,31 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     ).toBeInTheDocument();
   });
 
+  it("prompts a re-run when the snapshot is stale", async () => {
+    mocks.latest.mockResolvedValue({
+      data: {
+        id: 2,
+        job_id: 7,
+        status: "ready",
+        source: "handoff",
+        top_k: 20,
+        profile_id: 0,
+        created_at: "2026-08-04T00:00:00Z",
+        error_message: null,
+        degraded: false,
+        stale: true,
+        run_id: "r1",
+        candidates: [candidateMatch(70, BREAKDOWN)],
+      },
+    });
+
+    renderWidget();
+
+    expect(
+      await screen.findByTestId("stale-ranking-notice"),
+    ).toBeInTheDocument();
+  });
+
   it("primary action adds the candidate to the shortlist, not the pipeline", async () => {
     mocks.forJob.mockResolvedValue({
       data: {

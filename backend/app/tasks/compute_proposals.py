@@ -10,7 +10,9 @@ The task opens its own DB session via `AsyncSessionLocal` because
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -52,6 +54,7 @@ async def create_pending_snapshot(
             top_k=top_k,
             profile_id=profile_id,
             created_by=created_by,
+            run_id=uuid.uuid4().hex,
         )
         session.add(snap)
         await session.commit()
@@ -130,6 +133,10 @@ async def compute_proposal_for_job(
                 )
 
             query_text = _build_job_text(job)
+            # P0-B: fingerprint the matching inputs (brief + Champion narrative,
+            # folded into _build_job_text) so a later brief/Champion edit that
+            # changes them can be detected and this snapshot marked stale.
+            input_fingerprint = hashlib.sha256(query_text.encode("utf-8")).hexdigest()
 
             # Mirror recommendations.py: pull a wider pool, then re-rank.
             pool_size = min(top_k * 4, 200)
@@ -216,6 +223,10 @@ async def compute_proposal_for_job(
             # fallback instead of a healthy one. Previously computed only to gate
             # cache writes, then discarded.
             snap.degraded = semantic_degraded
+            # P0-B: a fresh compute is current by definition; record the revision
+            # it was scored against and clear any stale flag.
+            snap.input_fingerprint = input_fingerprint
+            snap.stale = False
             snap.error_message = None
             await session.commit()
             logger.info(
