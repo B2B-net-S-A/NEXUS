@@ -2720,6 +2720,27 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_lease_expires_at "
     "ON candidate_activity_summaries (generation_lease_expires_at) "
     "WHERE generation_lease_expires_at IS NOT NULL",
+    # P0-A (migration 0211_proposal_snapshot_degraded): flag na snapshotach
+    # rankingu, że semantyka leciała w trybie awaryjnym (Qdrant/Voyage down lub
+    # job niezaindeksowany). ORM (`ProposalSnapshot.degraded`) + proposals API to
+    # czytają — brak kolumny => UndefinedColumnError na GET /proposals/latest.
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS degraded BOOLEAN NOT NULL DEFAULT FALSE",
+    # P0-A (migration 0212_proposal_snapshot_source_handoff): ranking powstaje
+    # teraz przez handoff „Przekaż do searchu", nie przy create. Poszerz CHECK na
+    # `source`, bo INSERT z source='handoff' inaczej rzuca CheckViolationError.
+    "ALTER TABLE proposal_snapshots "
+    "DROP CONSTRAINT IF EXISTS ck_proposal_snapshots_source",
+    "ALTER TABLE proposal_snapshots ADD CONSTRAINT ck_proposal_snapshots_source "
+    "CHECK (source IN ('create', 'manual_regenerate', 'job_updated', 'handoff'))",
+    # P0-B (migration 0213_proposal_snapshot_freshness): run_id / fingerprint /
+    # stale — ORM je czyta, brak => UndefinedColumnError na /proposals/latest.
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS run_id TEXT NULL",
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS input_fingerprint TEXT NULL",
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS stale BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

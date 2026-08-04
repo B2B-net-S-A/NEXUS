@@ -10,7 +10,10 @@ The task opens its own DB session via `AsyncSessionLocal` because
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -51,6 +54,7 @@ async def create_pending_snapshot(
             top_k=top_k,
             profile_id=profile_id,
             created_by=created_by,
+            run_id=uuid.uuid4().hex,
         )
         session.add(snap)
         await session.commit()
@@ -129,6 +133,10 @@ async def compute_proposal_for_job(
                 )
 
             query_text = _build_job_text(job)
+            # P0-B: fingerprint the matching inputs (brief + Champion narrative,
+            # folded into _build_job_text) so a later brief/Champion edit that
+            # changes them can be detected and this snapshot marked stale.
+            input_fingerprint = hashlib.sha256(query_text.encode("utf-8")).hexdigest()
 
             # Mirror recommendations.py: pull a wider pool, then re-rank.
             pool_size = min(top_k * 4, 200)
@@ -170,27 +178,55 @@ async def compute_proposal_for_job(
                     select(Candidate).where(Candidate.id.in_(candidate_ids))
                 )
                 candidates = list(cand_res.scalars().all())
-                breakdowns = await bulk_get_or_compute(
-                    job,
-                    candidates,
-                    session,
-                    similarity_map=similarity_map,
-                    profile=profile,
-                    allow_cache_write=not semantic_degraded,
+
+                # P0-A: hard eligibility prefilter — the handoff snapshot IS the
+                # recruiter's operational ranking, so a blacklisted /
+                # hard-conflict / hiring-manager-vetoed candidate must never land
+                # in it. Mirrors the live /recommendations path exactly; soft
+                # warnings (current employment, candidate-excluded) stay.
+                from app.services.pipeline_eligibility import (
+                    filter_eligible_candidates,
                 )
-                # Persist ALL candidates that fit (score >= threshold), ranked
-                # best-first — not a fixed top-K. `top_k` is now just a payload
-                # safety cap. Mirrors the live /recommendations endpoint so the
-                # snapshot and fallback paths agree on "who matches".
-                breakdowns = [
-                    b
-                    for b in breakdowns
-                    if b.total >= settings.RECOMMENDATION_MIN_SCORE
-                ][:top_k]
+
+                candidates = await filter_eligible_candidates(
+                    session,
+                    job=job,
+                    candidates=candidates,
+                    now=datetime.now(timezone.utc),
+                )
+
+                if candidates:
+                    breakdowns = await bulk_get_or_compute(
+                        job,
+                        candidates,
+                        session,
+                        similarity_map=similarity_map,
+                        profile=profile,
+                        allow_cache_write=not semantic_degraded,
+                    )
+                    # Persist ALL candidates that fit (score >= threshold),
+                    # ranked best-first — not a fixed top-K. `top_k` is now just
+                    # a payload safety cap. Mirrors the live /recommendations
+                    # endpoint so the snapshot and fallback paths agree on
+                    # "who matches".
+                    breakdowns = [
+                        b
+                        for b in breakdowns
+                        if b.total >= settings.RECOMMENDATION_MIN_SCORE
+                    ][:top_k]
 
             snap.status = STATUS_READY
             snap.candidate_ids = [b.candidate_id for b in breakdowns]
             snap.breakdowns = [b.as_dict() for b in breakdowns]
+            # P0-A: record whether the semantic leg was degraded (Qdrant/Voyage
+            # down or the job unindexed) so the UI can flag this ranking as a
+            # fallback instead of a healthy one. Previously computed only to gate
+            # cache writes, then discarded.
+            snap.degraded = semantic_degraded
+            # P0-B: a fresh compute is current by definition; record the revision
+            # it was scored against and clear any stale flag.
+            snap.input_fingerprint = input_fingerprint
+            snap.stale = False
             snap.error_message = None
             await session.commit()
             logger.info(

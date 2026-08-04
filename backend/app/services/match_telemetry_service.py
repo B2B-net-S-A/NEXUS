@@ -221,3 +221,46 @@ async def record_outcome(
     except Exception as exc:  # noqa: BLE001
         logger.warning("[telemetry] outcome write failed: %s", exc)
         return False
+
+
+async def emit_match_outcome(
+    db: AsyncSession,
+    *,
+    event_type: str,
+    candidate_id: int,
+    job_id: int,
+    reason_code: Optional[str] = None,
+) -> None:
+    """Best-effort: record a downstream match outcome for a (candidate, job),
+    correlated with the job's latest ranking ``run_id`` (P0-B).
+
+    No-op when telemetry is off. Idempotent per ``(event_type, job, candidate)``
+    so a repeated click records once. Never raises — telemetry must never break
+    the user action. ``db`` is used only to look up the run_id; the write itself
+    happens in ``record_outcome``'s own session.
+    """
+    if not telemetry_enabled():
+        return
+    run_id: Optional[str] = None
+    try:
+        from sqlalchemy import select
+
+        from app.models.proposal_snapshot import ProposalSnapshot
+
+        run_id = await db.scalar(
+            select(ProposalSnapshot.run_id)
+            .where(ProposalSnapshot.job_id == job_id)
+            .order_by(ProposalSnapshot.created_at.desc())
+            .limit(1)
+        )
+    except Exception:  # pragma: no cover — never break the action for telemetry
+        run_id = None
+    await record_outcome(
+        db,
+        event_id=f"{event_type}:{job_id}:{candidate_id}",
+        event_type=event_type,
+        run_id=run_id,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        reason_code=reason_code,
+    )

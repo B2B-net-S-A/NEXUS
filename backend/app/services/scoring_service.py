@@ -800,7 +800,10 @@ def _score_salary(
     The global candidate fact is always B2B PLN net/hour, while the legacy
     ``Job.salary_min/max`` budget is PLN/month. There is no automatic
     conversion policy for this profile fact. A known cross-unit pair is
-    therefore explicitly ``not_comparable`` and cannot reduce the score.
+    therefore explicitly ``not_comparable`` and scored NEUTRALLY (the same
+    fraction as missing data) — it must neither penalise nor over-credit the
+    composite. P0-A: previously it returned full points, so an unverifiable
+    salary silently inflated the total by the whole salary budget.
     """
     max_pts = profile.salary
     cand_rate = getattr(candidate, "expected_rate_hourly", None)
@@ -814,7 +817,7 @@ def _score_salary(
 
     if cand_rate is not None and not is_canonical_profile_rate_currency(cand_currency):
         return LayerResult(
-            points=max_pts,
+            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
             max_points=max_pts,
             reason=(
                 "not_comparable: historyczna stawka ma niekanoniczną walutę "
@@ -832,7 +835,7 @@ def _score_salary(
         )
 
     return LayerResult(
-        points=max_pts,
+        points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
         max_points=max_pts,
         reason="not_comparable: kandydat PLN netto/h, budżet joba PLN/mies.",
         status="not_comparable",

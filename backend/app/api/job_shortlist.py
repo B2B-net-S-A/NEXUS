@@ -136,6 +136,16 @@ async def add_to_shortlist(
         added.append(cid)
 
     await db.commit()
+
+    # P0-B: record the shortlist outcome for match telemetry (no-op unless
+    # AI_MATCH_TELEMETRY_ENABLED). Correlated with the job's latest ranking run.
+    from app.services.match_telemetry_service import emit_match_outcome
+
+    for cid in added:
+        await emit_match_outcome(
+            db, event_type="shortlist", candidate_id=cid, job_id=job_id
+        )
+
     return ShortlistAddResponse(
         added=added,
         skipped=skipped,
@@ -426,6 +436,15 @@ async def promote_shortlist_entry(
     )
     await db.commit()
     await db.refresh(stage)
+
+    # P0-B: promoting a shortlist entry is a pipeline-entry outcome — record it
+    # for match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED).
+    from app.services.match_telemetry_service import emit_match_outcome
+
+    await emit_match_outcome(
+        db, event_type="add_to_pipeline", candidate_id=candidate.id, job_id=job.id
+    )
+
     return ShortlistPromoteResponse(
         entry_id=entry.id,
         candidate_id=candidate.id,

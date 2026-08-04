@@ -45,6 +45,7 @@ from app.services.candidate_job_eligibility import (
     evaluate_eligibility,
     extract_excluded_client_ids,
 )
+from app.services.pipeline_eligibility import filter_eligible_candidates
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
@@ -208,6 +209,29 @@ async def recommend_candidates_for_job(
     )
 
 
+def _apply_historical_boost(breakdowns: list, boost_map: dict[int, int]) -> None:
+    """Apply the historical-boost bonus in place, then re-sort by total.
+
+    P0-A: a hard-penalized breakdown (total zeroed by blacklist / client-excluded
+    / active conflict) is NEVER boosted — the additive boost is a tie-breaker
+    among eligible candidates, not an override of a penalty. Without this guard a
+    zeroed candidate could be lifted back above the recommendation threshold.
+    """
+    if not boost_map:
+        return
+    for b in breakdowns:
+        if b.penalties:
+            continue
+        count = boost_map.get(b.candidate_id, 0)
+        if count <= 0:
+            continue
+        bonus = boost_points_for_sources(count)
+        b.historical_boost = bonus
+        b.historical_sources_count = count
+        b.total = round(b.total + bonus, 2)
+    breakdowns.sort(key=lambda r: -r.total)
+
+
 async def _recommend_candidates_core(
     job_id: int,
     *,
@@ -276,6 +300,19 @@ async def _recommend_candidates_core(
     # disabled for this request.
     semantic_degraded = not candidate_ids
 
+    def _meta() -> dict:
+        # P0-A: tell the UI when the semantic leg fell back (Qdrant/Voyage down
+        # or the job not indexed yet). The widget already renders a degraded
+        # notice off meta.degraded — the backend just never populated it, so a
+        # fallback looked identical to a healthy AI ranking. Mode is deliberately
+        # NOT "bm25": the fallback still yields numeric composites (neutral
+        # semantic layer); it just isn't cache-written or logged to history.
+        return {
+            "mode": "degraded_semantic" if semantic_degraded else "dense",
+            "degraded": semantic_degraded,
+            "reason": "semantic_unavailable" if semantic_degraded else None,
+        }
+
     # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
     if not candidate_ids:
         fallback = await db.execute(
@@ -304,6 +341,7 @@ async def _recommend_candidates_core(
             "search_type": "hybrid",
             "location_filter": requested_location if location_active else None,
             "matches": [],
+            "meta": _meta(),
         }
 
     cand_res = await db.execute(
@@ -326,7 +364,28 @@ async def _recommend_candidates_core(
                 "search_type": "hybrid",
                 "location_filter": requested_location,
                 "matches": [],
+                "meta": _meta(),
             }
+
+    # P0-A: hard eligibility prefilter BEFORE scoring — a candidate the recruiter
+    # could not assign (global blacklist / active client blacklist·NDA·competitor
+    # / a standing hiring-manager veto) must never surface as a recommendation.
+    # Soft signals (current employment, candidate-excluded client) stay as
+    # warnings, exactly as on the assign ingress, so "recommended ⟹ assignable".
+    from datetime import datetime, timezone
+
+    candidates = await filter_eligible_candidates(
+        db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
+    )
+    if not candidates:
+        return {
+            "job_id": job_id,
+            "job_title": job.title,
+            "search_type": "hybrid",
+            "location_filter": requested_location if location_active else None,
+            "matches": [],
+            "meta": _meta(),
+        }
 
     # Phase C1 + D1: cache-first scoring keyed by active profile.
     breakdowns = await bulk_get_or_compute(
@@ -346,16 +405,7 @@ async def _recommend_candidates_core(
     except Exception as e:  # pragma: no cover — best-effort
         logger.warning("historical_boost lookup failed for job=%s: %s", job_id, e)
         boost_map = {}
-    if boost_map:
-        for b in breakdowns:
-            count = boost_map.get(b.candidate_id, 0)
-            if count <= 0:
-                continue
-            bonus = boost_points_for_sources(count)
-            b.historical_boost = bonus
-            b.historical_sources_count = count
-            b.total = round(b.total + bonus, 2)
-        breakdowns.sort(key=lambda r: -r.total)
+    _apply_historical_boost(breakdowns, boost_map)
 
     # Show ALL candidates that fit (score >= threshold), not a fixed top-K.
     # `top_k` now acts purely as a payload safety cap. The hybrid composite is a
@@ -407,6 +457,7 @@ async def _recommend_candidates_core(
         "profile": {"id": profile.id, "name": profile.name},
         "location_filter": requested_location if location_active else None,
         "matches": matches,
+        "meta": _meta(),
     }
 
 
@@ -1065,10 +1116,20 @@ async def assign_candidate_to_job(
     from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
     from app.models.recruitment_pipeline import PipelineStage
 
+    from app.api.recruitment_access import ensure_job_membership
+
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not candidate or not job:
         raise HTTPException(status_code=404, detail="Candidate or Job not found")
+
+    # P0-A: resource scope — assigning a candidate into a job's pipeline is a
+    # pipeline write, so the caller must belong to the job (owner / delivery lead
+    # / TAC / active collaborator / priority assignment), exactly like the
+    # shortlist and pipeline-move ingresses. Without this a recruiter could push
+    # a candidate straight into a recruitment they are not a member of. Raises a
+    # uniform 403 for non-members (admin / head_of_recruitment bypass).
+    await ensure_job_membership(db, current_user, job_id)
 
     # Skip if already in pipeline
     existing = await db.scalar(
@@ -1174,6 +1235,14 @@ async def assign_candidate_to_job(
     )
     await db.commit()
     await db.refresh(stage)
+
+    # P0-B: record the pipeline-entry outcome for match telemetry (no-op unless
+    # AI_MATCH_TELEMETRY_ENABLED), correlated with the job's latest ranking run.
+    from app.services.match_telemetry_service import emit_match_outcome
+
+    await emit_match_outcome(
+        db, event_type="add_to_pipeline", candidate_id=candidate_id, job_id=job_id
+    )
 
     return {
         "status": "assigned",

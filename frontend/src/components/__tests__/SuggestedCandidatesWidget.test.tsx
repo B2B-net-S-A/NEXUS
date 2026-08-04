@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   forJob: vi.fn(),
   assignToJob: vi.fn(),
   logHistory: vi.fn(),
+  shortlistAdd: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -27,6 +28,12 @@ vi.mock("@/lib/api", () => ({
   },
   matchHistoryApi: {
     log: (...args: unknown[]) => mocks.logHistory(...args),
+  },
+}));
+
+vi.mock("@/lib/candidate-search-api", () => ({
+  shortlistApi: {
+    add: (...args: unknown[]) => mocks.shortlistAdd(...args),
   },
 }));
 
@@ -92,6 +99,12 @@ beforeEach(() => {
   mocks.latest.mockRejectedValue({ response: { status: 404 } });
   mocks.regenerate.mockResolvedValue({ data: {} });
   mocks.assignToJob.mockResolvedValue({ data: {} });
+  mocks.shortlistAdd.mockResolvedValue({
+    added: [42],
+    skipped: [],
+    total_added: 1,
+    total_skipped: 0,
+  });
 });
 
 describe("SuggestedCandidatesWidget degraded recommendations", () => {
@@ -121,6 +134,76 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     );
     expect(screen.queryByText("0/100")).not.toBeInTheDocument();
     await waitFor(() => expect(mocks.logHistory).not.toHaveBeenCalled());
+  });
+
+  it("flags a degraded snapshot ranking as a fallback", async () => {
+    mocks.latest.mockResolvedValue({
+      data: {
+        id: 1,
+        job_id: 7,
+        status: "ready",
+        source: "create",
+        top_k: 20,
+        profile_id: 0,
+        created_at: "2026-08-04T00:00:00Z",
+        error_message: null,
+        degraded: true,
+        candidates: [candidateMatch(70, BREAKDOWN)],
+      },
+    });
+
+    renderWidget();
+
+    expect(
+      await screen.findByTestId("degraded-recommendations-notice"),
+    ).toBeInTheDocument();
+  });
+
+  it("prompts a re-run when the snapshot is stale", async () => {
+    mocks.latest.mockResolvedValue({
+      data: {
+        id: 2,
+        job_id: 7,
+        status: "ready",
+        source: "handoff",
+        top_k: 20,
+        profile_id: 0,
+        created_at: "2026-08-04T00:00:00Z",
+        error_message: null,
+        degraded: false,
+        stale: true,
+        run_id: "r1",
+        candidates: [candidateMatch(70, BREAKDOWN)],
+      },
+    });
+
+    renderWidget();
+
+    expect(
+      await screen.findByTestId("stale-ranking-notice"),
+    ).toBeInTheDocument();
+  });
+
+  it("primary action adds the candidate to the shortlist, not the pipeline", async () => {
+    mocks.forJob.mockResolvedValue({
+      data: {
+        job_id: 7,
+        job_title: "Backend Developer",
+        search_type: "hybrid",
+        matches: [candidateMatch(82, BREAKDOWN)],
+        meta: { mode: "dense", degraded: false, reason: null },
+      },
+    });
+
+    renderWidget();
+    fireEvent.click(await screen.findByTestId("suggest-candidates-btn"));
+
+    fireEvent.click(await screen.findByText("Do shortlisty"));
+
+    await waitFor(() => expect(mocks.shortlistAdd).toHaveBeenCalledWith(7, [42]));
+    // The default action stages for evaluation — it must NOT open the pipeline.
+    expect(mocks.assignToJob).not.toHaveBeenCalled();
+    expect(await screen.findByText("✓ Na shortliście")).toBeInTheDocument();
   });
 
   it("filters unscored and explicitly degraded results out of match history", () => {

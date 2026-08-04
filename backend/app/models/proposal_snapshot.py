@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +26,15 @@ ALL_STATUSES = (STATUS_PENDING, STATUS_READY, STATUS_FAILED)
 SOURCE_CREATE = "create"
 SOURCE_MANUAL_REGENERATE = "manual_regenerate"
 SOURCE_JOB_UPDATED = "job_updated"
-ALL_SOURCES = (SOURCE_CREATE, SOURCE_MANUAL_REGENERATE, SOURCE_JOB_UPDATED)
+# P0-A: the ranking is now produced by the explicit "Przekaż do searchu" handoff
+# (after the Champion is ready), not at job-create time.
+SOURCE_HANDOFF = "handoff"
+ALL_SOURCES = (
+    SOURCE_CREATE,
+    SOURCE_MANUAL_REGENERATE,
+    SOURCE_JOB_UPDATED,
+    SOURCE_HANDOFF,
+)
 
 
 class ProposalSnapshot(Base):
@@ -56,6 +64,22 @@ class ProposalSnapshot(Base):
     candidate_ids: Mapped[Optional[list[int]]] = mapped_column(JSONB, nullable=True)
     breakdowns: Mapped[Optional[list[dict]]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # P0-A: True when this ranking was produced with a degraded semantic leg
+    # (Qdrant/Voyage down or the job not yet indexed → neutral-semantic
+    # fallback). Persisted so the UI can flag a fallback ranking instead of
+    # presenting it as a healthy AI result; `semantic_degraded` was previously
+    # computed at scoring time and thrown away.
+    degraded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    # P0-B: freshness + traceability. `run_id` correlates this ranking with match
+    # telemetry (impressions/outcomes). `input_fingerprint` records which brief +
+    # Champion revision produced it. `stale` is set when a matching input
+    # (brief/Champion) changes after the snapshot, so the UI can prompt a re-run
+    # instead of presenting an outdated ranking as current.
+    run_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    input_fingerprint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stale: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_by: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("users.id"),

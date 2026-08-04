@@ -55,6 +55,7 @@ from app.schemas.job import (
     JobCloseRequest,
     JobCollaboratorAdd,
     JobCreate,
+    JobHandoffRequest,
     JobOwnerAssignment,
     JobResponse,
     JobUpdate,
@@ -92,6 +93,7 @@ from app.tasks.compute_proposals import (
     compute_proposal_for_job,
     create_pending_snapshot,
 )
+from app.models.proposal_snapshot import SOURCE_HANDOFF
 
 logger = logging.getLogger(__name__)
 
@@ -1077,26 +1079,15 @@ async def create_job(
     except Exception as e:  # pragma: no cover — never block job creation
         logger.warning("[Job] CC auto-assignment failed for job %s: %s", job.id, e)
 
-    # Phase 13: kick off AI candidate proposals for the freshly-created job.
-    # Snapshot is created synchronously (so the UI can start polling), and the
-    # expensive scoring pass runs in the background.
-    try:
-        snapshot_id = await create_pending_snapshot(
-            job.id,
-            top_k=settings.MATCH_MAX_RESULTS,
-            source="create",
-            created_by=current_user.id,
-        )
-        background_tasks.add_task(
-            compute_proposal_for_job,
-            snapshot_id,
-            job.id,
-            top_k=settings.MATCH_MAX_RESULTS,
-        )
-    except Exception as e:  # pragma: no cover — never block job creation
-        logger.warning(
-            "[Job] proposal snapshot dispatch failed for job %s: %s", job.id, e
-        )
+    # P0-A: the operational ranking is NO LONGER produced at create time. A
+    # freshly-created job normally has no Champion yet, so a create-time snapshot
+    # was a pre-Champion ranking that then persisted as "the" ranking even after
+    # the Delivery Lead filled the Champion. The ranking is now produced by the
+    # explicit "Przekaż do searchu" handoff (POST /jobs/{id}/handoff), after the
+    # readiness gate (Champion required) passes. The job is still embedded above
+    # (_maybe_embed_job) so reverse matching (candidate → jobs) keeps working,
+    # and the widget falls back to the live recommendation path until the first
+    # handoff snapshot exists.
 
     # Targ kandydatów (migracja 0052-0054): jeśli enabled, rescan puli marketplace
     # z tym nowym jobem i wygeneruj notyfikacje ≥ MARKETPLACE_SCORE_THRESHOLD.
@@ -1372,6 +1363,13 @@ async def update_job(
 
         await mark_stale_for_job(db, job_id)
         await db.commit()
+
+        # P0-B: a brief edit changed a matching input — flag the latest proposal
+        # snapshot stale so the recruiter is prompted to re-run instead of seeing
+        # an outdated ranking as current.
+        from app.services.job_matching_refresh import mark_latest_snapshot_stale
+
+        await mark_latest_snapshot_stale(job_id, db)
 
     # Targ kandydatów: rescan tylko gdy zmieniły się pola wpływające na scoring
     # (_SIGNIFICANT_FIELDS z marketplace_service). Ignoruje zwykłe edycje opisu.
@@ -1689,6 +1687,14 @@ async def update_champion_profile(
     await db.commit()
     await db.refresh(job)
 
+    # P0-A: a Champion edit changes both the embedding (semantic query) and the
+    # top-weighted scoring inputs — re-embed the job and invalidate cached match
+    # scores so the Delivery Lead's work actually reaches the recruiter's ranking
+    # (previously this write bypassed the refresh update_job does).
+    from app.services.job_matching_refresh import refresh_job_matching
+
+    await refresh_job_matching(job.id, db)
+
     now_iso = datetime.now(timezone.utc).isoformat()
     bell_event = {
         "type": "notification",
@@ -1725,6 +1731,128 @@ async def update_champion_profile(
             )
 
     return {"job_id": job.id, "champion_profile": job.champion_profile}
+
+
+# ── "Przekaż do searchu" — DL handoff that starts matching (P0-A) ────────────
+
+
+def _compute_job_readiness(job: Job) -> list[str]:
+    """Blockers that prevent handing a recruitment off to search (P0-A).
+
+    The Champion is required: it is the Delivery Lead's ideal-candidate spec and
+    the strongest matching signal, so a handoff without it would produce a weak,
+    JD-only ranking — exactly the "ranking before the Champion" problem the
+    handoff exists to prevent. Requires project context + at least two screening
+    questions, plus the basics (title, client) that anchor the search.
+    """
+    blockers: list[str] = []
+    if not (job.title or "").strip():
+        blockers.append("Uzupełnij tytuł rekrutacji.")
+    if job.client_id is None:
+        blockers.append("Przypisz klienta do rekrutacji.")
+
+    cp = job.champion_profile if isinstance(job.champion_profile, dict) else {}
+    pc = cp.get("project_context")
+    pc = pc if isinstance(pc, dict) else {}
+    has_context = bool((pc.get("about") or "").strip()) or bool(
+        pc.get("responsibilities")
+    )
+    if not has_context:
+        blockers.append(
+            "Uzupełnij kontekst projektu (o projekcie / obowiązki) w Profilu Championa."
+        )
+
+    questions = cp.get("screening_questions")
+    questions = questions if isinstance(questions, list) else []
+    valid_questions = [
+        q
+        for q in questions
+        if isinstance(q, dict) and (q.get("question") or "").strip()
+    ]
+    if len(valid_questions) < 2:
+        blockers.append("Dodaj co najmniej 2 pytania screeningowe w Profilu Championa.")
+
+    return blockers
+
+
+_HANDOFF_RECRUITER_ROLES = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.recruiter,
+    UserRole.sourcer,
+)
+
+
+@router.post("/{job_id}/handoff", status_code=202)
+async def handoff_job_to_search(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    background_tasks: BackgroundTasks,
+    payload: JobHandoffRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """ "Przekaż do searchu" — the explicit DL handoff that starts matching.
+
+    Replaces the create-time auto-ranking (P0-A): the ranking is produced only
+    once the recruitment is ready (Champion filled) and a recruiter is assigned,
+    so the recruiter never lands on a stale pre-Champion snapshot. Binds the
+    recruiter via ``recruiter_id`` (job owner → job member); the Priority Work
+    roster is a later enhancement. A retry produces a fresh snapshot, mirroring
+    ``regenerate``.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+
+    blockers = _compute_job_readiness(job)
+    if blockers:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Rekrutacja nie jest gotowa do przekazania do searchu.",
+                "blockers": blockers,
+            },
+        )
+
+    recruiter = await db.scalar(select(User).where(User.id == payload.recruiter_id))
+    if recruiter is None or not recruiter.is_active:
+        raise HTTPException(
+            status_code=422,
+            detail="Wybrany rekruter nie istnieje lub jest nieaktywny.",
+        )
+    if not recruiter.has_any_role(*_HANDOFF_RECRUITER_ROLES):
+        raise HTTPException(
+            status_code=422,
+            detail="Wybrany użytkownik nie może prowadzić rekrutacji.",
+        )
+
+    job.recruiter_id = recruiter.id
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="handed_off_to_search",
+            user_id=current_user.id,
+        )
+    )
+    await db.commit()
+
+    top_k = payload.top_k or settings.MATCH_MAX_RESULTS
+    snapshot_id = await create_pending_snapshot(
+        job.id, top_k=top_k, source=SOURCE_HANDOFF, created_by=current_user.id
+    )
+    background_tasks.add_task(
+        compute_proposal_for_job, snapshot_id, job.id, top_k=top_k
+    )
+
+    return {
+        "status": "handed_off",
+        "job_id": job.id,
+        "recruiter_id": recruiter.id,
+        "snapshot_id": snapshot_id,
+    }
 
 
 # ── Champion Profile two-sided verification ─────────────────────────────────

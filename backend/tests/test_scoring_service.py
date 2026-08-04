@@ -283,11 +283,15 @@ def test_score_skills_raw_cv_fallback(alias_map_loaded):
 # ── _score_salary ────────────────────────────────────────────────────────────
 
 
-def test_cross_unit_rate_is_not_comparable_and_does_not_reduce_score():
+def test_cross_unit_rate_is_not_comparable_and_scored_neutrally():
+    # P0-A: an incomparable PLN/h-vs-PLN/month pair is scored with the neutral
+    # fraction (same as missing data), NOT full — a rate we cannot compare must
+    # not inflate the composite by the whole salary budget.
     job = make_job(salary_min=15000, salary_max=25000)
     cand = make_candidate(expected_rate_hourly=150)
     r = ss._score_salary(cand, job)
-    assert r.points == pytest.approx(ss.SALARY_MAX)
+    assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert r.points < ss.SALARY_MAX
     assert r.status == "not_comparable"
     assert "not_comparable" in r.reason
 
@@ -299,7 +303,7 @@ def test_zero_hourly_rate_is_still_a_known_cross_unit_value():
     result = ss._score_salary(candidate, job)
 
     assert result.status == "not_comparable"
-    assert result.points == pytest.approx(ss.SALARY_MAX)
+    assert result.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
 
 
 def test_salary_missing_data_gets_neutral():
@@ -320,15 +324,21 @@ def test_salary_missing_job_range_gets_neutral():
     assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
 
 
-def test_not_comparable_beats_unknown_without_penalty():
+def test_not_comparable_and_unknown_are_both_neutral():
+    # P0-A: an incomparable rate and missing data are now scored with the SAME
+    # neutral fraction — neither penalises nor over-credits. They differ only in
+    # the transparency label (status), not in points.
     job = make_job(salary_min=50000, salary_max=60000)
     not_comparable = ss._score_salary(make_candidate(expected_rate_hourly=200), job)
     unknown = ss._score_salary(
         make_candidate(expected_rate_hourly=None),
         make_job(salary_min=None, salary_max=None),
     )
-    assert not_comparable.points == pytest.approx(ss.SALARY_MAX)
-    assert not_comparable.points > unknown.points
+    neutral = ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION
+    assert not_comparable.points == pytest.approx(neutral)
+    assert unknown.points == pytest.approx(neutral)
+    assert not_comparable.status == "not_comparable"
+    assert unknown.status == "unknown"
 
 
 # ── _score_location ──────────────────────────────────────────────────────────

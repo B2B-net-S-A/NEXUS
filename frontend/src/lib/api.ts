@@ -1036,6 +1036,14 @@ export const jobsApi = {
   create: (data: Record<string, unknown>) => api.post("/api/jobs", data),
   update: (id: number, data: Record<string, unknown>) => api.patch(`/api/jobs/${id}`, data),
   delete: (id: number) => api.delete(`/api/jobs/${id}`),
+  /** "Przekaż do searchu" — DL assigns a recruiter and starts the ranking.
+   *  422 body carries `{ message, blockers: string[] }` when the recruitment
+   *  is not ready (Champion required). */
+  handoff: (id: number, recruiterId: number, topK?: number) =>
+    api.post(`/api/jobs/${id}/handoff`, {
+      recruiter_id: recruiterId,
+      ...(topK ? { top_k: topK } : {}),
+    }),
 };
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
@@ -3176,6 +3184,14 @@ export interface ProposalSnapshot {
   profile_id: number;
   created_at: string;
   error_message: string | null;
+  /** True when the ranking used a degraded semantic leg (Qdrant/Voyage down or
+   *  the job unindexed) — the UI flags it instead of presenting it as healthy. */
+  degraded: boolean;
+  /** True when a brief/Champion edit changed a matching input after this ranking
+   *  was produced — the UI prompts a re-run instead of showing it as current. */
+  stale: boolean;
+  /** Correlates this ranking with match telemetry (impressions/outcomes). */
+  run_id: string | null;
   candidates: ProposalCandidateItem[];
 }
 

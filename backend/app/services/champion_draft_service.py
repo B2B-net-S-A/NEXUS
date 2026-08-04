@@ -899,6 +899,14 @@ async def apply_suggestion(
     )
     await db.commit()
     await db.refresh(suggestion)
+
+    # P0-A: applied champion sections change the embedding + scoring inputs —
+    # re-embed the job and invalidate cached match scores (mirrors
+    # update_champion_profile) so the recruiter's ranking reflects the change.
+    from app.services.job_matching_refresh import refresh_job_matching
+
+    await refresh_job_matching(job.id, db)
+
     return suggestion
 
 
