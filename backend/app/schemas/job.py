@@ -254,3 +254,16 @@ class JobCloseRequest(BaseModel):
 
     reason: JobCloseReason
     notes: Optional[str] = None
+
+
+class JobHandoffRequest(BaseModel):
+    """Payload for POST /jobs/{id}/handoff ("Przekaż do searchu").
+
+    The Delivery Lead assigns the recruiter who will work the recruitment and
+    starts the (Champion-aware) ranking. ``recruiter_id`` binds the recruiter as
+    the job's owner for the pilot; the Priority Work roster is a later
+    enhancement.
+    """
+
+    recruiter_id: int = Field(..., gt=0)
+    top_k: Optional[int] = Field(default=None, gt=0)

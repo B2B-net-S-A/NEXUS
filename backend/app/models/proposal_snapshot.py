@@ -26,7 +26,15 @@ ALL_STATUSES = (STATUS_PENDING, STATUS_READY, STATUS_FAILED)
 SOURCE_CREATE = "create"
 SOURCE_MANUAL_REGENERATE = "manual_regenerate"
 SOURCE_JOB_UPDATED = "job_updated"
-ALL_SOURCES = (SOURCE_CREATE, SOURCE_MANUAL_REGENERATE, SOURCE_JOB_UPDATED)
+# P0-A: the ranking is now produced by the explicit "Przekaż do searchu" handoff
+# (after the Champion is ready), not at job-create time.
+SOURCE_HANDOFF = "handoff"
+ALL_SOURCES = (
+    SOURCE_CREATE,
+    SOURCE_MANUAL_REGENERATE,
+    SOURCE_JOB_UPDATED,
+    SOURCE_HANDOFF,
+)
 
 
 class ProposalSnapshot(Base):

@@ -2718,6 +2718,13 @@ _COLUMN_STATEMENTS = [
     # czytają — brak kolumny => UndefinedColumnError na GET /proposals/latest.
     "ALTER TABLE proposal_snapshots "
     "ADD COLUMN IF NOT EXISTS degraded BOOLEAN NOT NULL DEFAULT FALSE",
+    # P0-A (migration 0212_proposal_snapshot_source_handoff): ranking powstaje
+    # teraz przez handoff „Przekaż do searchu", nie przy create. Poszerz CHECK na
+    # `source`, bo INSERT z source='handoff' inaczej rzuca CheckViolationError.
+    "ALTER TABLE proposal_snapshots "
+    "DROP CONSTRAINT IF EXISTS ck_proposal_snapshots_source",
+    "ALTER TABLE proposal_snapshots ADD CONSTRAINT ck_proposal_snapshots_source "
+    "CHECK (source IN ('create', 'manual_regenerate', 'job_updated', 'handoff'))",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

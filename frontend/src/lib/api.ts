@@ -1036,6 +1036,14 @@ export const jobsApi = {
   create: (data: Record<string, unknown>) => api.post("/api/jobs", data),
   update: (id: number, data: Record<string, unknown>) => api.patch(`/api/jobs/${id}`, data),
   delete: (id: number) => api.delete(`/api/jobs/${id}`),
+  /** "Przekaż do searchu" — DL assigns a recruiter and starts the ranking.
+   *  422 body carries `{ message, blockers: string[] }` when the recruitment
+   *  is not ready (Champion required). */
+  handoff: (id: number, recruiterId: number, topK?: number) =>
+    api.post(`/api/jobs/${id}/handoff`, {
+      recruiter_id: recruiterId,
+      ...(topK ? { top_k: topK } : {}),
+    }),
 };
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
