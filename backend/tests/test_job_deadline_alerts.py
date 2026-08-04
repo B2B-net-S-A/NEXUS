@@ -170,3 +170,78 @@ async def test_dedup_no_duplicate_on_second_run():
         assert cnt == len(first)  # bez duplikatów po drugim przebiegu
     finally:
         await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
+
+
+async def test_email_dispatch_marks_sent_on_success(monkeypatch):
+    """SMTP on + send_email→True → email_sent_at stemplowany na deadline-notyfikacjach."""
+    import app.tasks.job_deadline_alerts as jda
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SMTP_ENABLED", True)
+    sent_to: list[str] = []
+
+    def _fake_send(to, subject, text_body, html_body=None):
+        sent_to.append(to)
+        return True
+
+    monkeypatch.setattr(jda, "send_email", _fake_send)
+
+    deadline = date.today() + timedelta(days=7)
+    job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
+    try:
+        summary = await run_once()
+        assert summary["emails_sent"] >= 2  # recruiter + collaborator
+        assert set(sent_to)  # email realnie próbowany
+
+        async with AsyncSessionLocal() as db:
+            rows = list(
+                (
+                    await db.execute(
+                        select(Notification).where(
+                            Notification.related_entity_type == "job",
+                            Notification.related_entity_id == job_id,
+                            Notification.notification_type
+                            == NotificationType.job_deadline_7d,
+                        )
+                    )
+                ).scalars()
+            )
+        assert rows
+        assert all(n.email_sent_at is not None for n in rows)
+    finally:
+        await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
+
+
+async def test_email_dispatch_releases_claim_on_failure(monkeypatch):
+    """SMTP on + send_email→False → email_sent_at NULL i rezerwacja zwolniona (retryable)."""
+    import app.tasks.job_deadline_alerts as jda
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SMTP_ENABLED", True)
+    monkeypatch.setattr(jda, "send_email", lambda *a, **k: False)
+
+    deadline = date.today() + timedelta(days=1)
+    job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
+    try:
+        summary = await run_once()
+        assert summary["emails_sent"] == 0
+
+        async with AsyncSessionLocal() as db:
+            rows = list(
+                (
+                    await db.execute(
+                        select(Notification).where(
+                            Notification.related_entity_type == "job",
+                            Notification.related_entity_id == job_id,
+                            Notification.notification_type
+                            == NotificationType.job_deadline_1d,
+                        )
+                    )
+                ).scalars()
+            )
+        assert rows
+        # Nie wysłane + claim zwolniony → kolejny przebieg spróbuje ponownie.
+        assert all(n.email_sent_at is None for n in rows)
+        assert all(n.email_send_started_at is None for n in rows)
+    finally:
+        await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])

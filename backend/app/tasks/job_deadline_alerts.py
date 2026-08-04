@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,27 +110,31 @@ async def _assigned_user_ids(db: AsyncSession, job: Job) -> list[int]:
     )
 
 
-async def _already_notified(
-    db: AsyncSession,
-    *,
-    user_id: int,
-    job_id: int,
-    ntype: NotificationType,
-) -> bool:
-    res = await db.execute(
-        select(Notification.id).where(
-            Notification.user_id == user_id,
+async def _existing_pairs(
+    db: AsyncSession, job_ids: list[int], ntype: NotificationType
+) -> set[tuple[int, int]]:
+    """Zbiór (user_id, job_id) już powiadomionych dla danego typu — jednym SELECT-em.
+
+    Zastępuje per-odbiorcę ``_already_notified`` (N+1) jednym zapytaniem na
+    (próg × partia jobów), więc liczba roundtripów nie rośnie z liczbą
+    odbiorców ani jobów w danym progu.
+    """
+    if not job_ids:
+        return set()
+    rows = await db.execute(
+        select(Notification.user_id, Notification.related_entity_id).where(
             Notification.related_entity_type == _ENTITY_TYPE,
-            Notification.related_entity_id == job_id,
+            Notification.related_entity_id.in_(job_ids),
             Notification.notification_type == ntype,
         )
     )
-    return res.scalar_one_or_none() is not None
+    return {(r.user_id, r.related_entity_id) for r in rows.all()}
 
 
 async def _scan_and_create(db: AsyncSession) -> int:
     """Utwórz in-app notyfikacje dla nadchodzących deadline'ów. Zwraca # nowych."""
-    today = date.today()
+    # UTC-anchored (host bywa nie-UTC) — zgodnie z resztą kodu.
+    today = datetime.now(timezone.utc).date()
     created = 0
     for days in _active_thresholds():
         target = today + timedelta(days=days)
@@ -145,13 +149,14 @@ async def _scan_and_create(db: AsyncSession) -> int:
                 )
             ).scalars()
         )
+        already = await _existing_pairs(db, [j.id for j in jobs], ntype)
         for job in jobs:
             recipients = await _assigned_user_ids(db, job)
             for user_id in recipients:
-                if await _already_notified(
-                    db, user_id=user_id, job_id=job.id, ntype=ntype
-                ):
+                if (user_id, job.id) in already:
                     continue
+                # Guard przeciw ewentualnym duplikatom w obrębie jednego przebiegu.
+                already.add((user_id, job.id))
                 day_word = "dzień" if days == 1 else "dni"
                 db.add(
                     Notification(
