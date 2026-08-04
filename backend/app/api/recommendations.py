@@ -1236,6 +1236,14 @@ async def assign_candidate_to_job(
     await db.commit()
     await db.refresh(stage)
 
+    # P0-B: record the pipeline-entry outcome for match telemetry (no-op unless
+    # AI_MATCH_TELEMETRY_ENABLED), correlated with the job's latest ranking run.
+    from app.services.match_telemetry_service import emit_match_outcome
+
+    await emit_match_outcome(
+        db, event_type="add_to_pipeline", candidate_id=candidate_id, job_id=job_id
+    )
+
     return {
         "status": "assigned",
         "candidate_id": candidate_id,
