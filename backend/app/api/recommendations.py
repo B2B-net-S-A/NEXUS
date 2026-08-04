@@ -45,6 +45,7 @@ from app.services.candidate_job_eligibility import (
     evaluate_eligibility,
     extract_excluded_client_ids,
 )
+from app.services.pipeline_eligibility import filter_eligible_candidates
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
@@ -208,6 +209,29 @@ async def recommend_candidates_for_job(
     )
 
 
+def _apply_historical_boost(breakdowns: list, boost_map: dict[int, int]) -> None:
+    """Apply the historical-boost bonus in place, then re-sort by total.
+
+    P0-A: a hard-penalized breakdown (total zeroed by blacklist / client-excluded
+    / active conflict) is NEVER boosted — the additive boost is a tie-breaker
+    among eligible candidates, not an override of a penalty. Without this guard a
+    zeroed candidate could be lifted back above the recommendation threshold.
+    """
+    if not boost_map:
+        return
+    for b in breakdowns:
+        if b.penalties:
+            continue
+        count = boost_map.get(b.candidate_id, 0)
+        if count <= 0:
+            continue
+        bonus = boost_points_for_sources(count)
+        b.historical_boost = bonus
+        b.historical_sources_count = count
+        b.total = round(b.total + bonus, 2)
+    breakdowns.sort(key=lambda r: -r.total)
+
+
 async def _recommend_candidates_core(
     job_id: int,
     *,
@@ -328,6 +352,25 @@ async def _recommend_candidates_core(
                 "matches": [],
             }
 
+    # P0-A: hard eligibility prefilter BEFORE scoring — a candidate the recruiter
+    # could not assign (global blacklist / active client blacklist·NDA·competitor
+    # / a standing hiring-manager veto) must never surface as a recommendation.
+    # Soft signals (current employment, candidate-excluded client) stay as
+    # warnings, exactly as on the assign ingress, so "recommended ⟹ assignable".
+    from datetime import datetime, timezone
+
+    candidates = await filter_eligible_candidates(
+        db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
+    )
+    if not candidates:
+        return {
+            "job_id": job_id,
+            "job_title": job.title,
+            "search_type": "hybrid",
+            "location_filter": requested_location if location_active else None,
+            "matches": [],
+        }
+
     # Phase C1 + D1: cache-first scoring keyed by active profile.
     breakdowns = await bulk_get_or_compute(
         job,
@@ -346,16 +389,7 @@ async def _recommend_candidates_core(
     except Exception as e:  # pragma: no cover — best-effort
         logger.warning("historical_boost lookup failed for job=%s: %s", job_id, e)
         boost_map = {}
-    if boost_map:
-        for b in breakdowns:
-            count = boost_map.get(b.candidate_id, 0)
-            if count <= 0:
-                continue
-            bonus = boost_points_for_sources(count)
-            b.historical_boost = bonus
-            b.historical_sources_count = count
-            b.total = round(b.total + bonus, 2)
-        breakdowns.sort(key=lambda r: -r.total)
+    _apply_historical_boost(breakdowns, boost_map)
 
     # Show ALL candidates that fit (score >= threshold), not a fixed top-K.
     # `top_k` now acts purely as a payload safety cap. The hybrid composite is a

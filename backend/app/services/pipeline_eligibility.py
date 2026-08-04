@@ -163,6 +163,45 @@ async def evaluate_candidates_for_job_with_verdicts(
     return decisions, verdicts
 
 
+async def filter_eligible_candidates(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidates: Sequence[Candidate],
+    now: datetime,
+    enforce_manager_verdict: bool = True,
+) -> list[Candidate]:
+    """Drop hard-blocked candidates from a ranking / recommendation pool (P0-A).
+
+    A candidate the recruiter could not assign — ``assignment_allowed is False``:
+    global blacklist, active client blacklist / NDA / competitor conflict, or a
+    standing hiring-manager veto — must never be surfaced as a recommendation.
+    Soft signals (current employment at the client, candidate-excluded client)
+    keep ``assignment_allowed=True`` and stay in the pool as warnings, exactly as
+    on the assign ingress, so "recommended ⟹ assignable" holds.
+
+    A candidate absent from the decision map (e.g. deleted mid-request) is kept:
+    a lookup miss must not silently hide a real row, and the scorer's penalty
+    layer plus the assign-time gate still guard any downstream write.
+    ``already_in_job`` is left ``False`` — callers exclude in-pipeline candidates
+    separately, and this gate is about *contra-indications*, not dedup.
+    """
+    if not candidates:
+        return list(candidates)
+    decisions = await evaluate_candidates_for_job(
+        db,
+        job=job,
+        candidate_ids=[c.id for c in candidates],
+        now=now,
+        enforce_manager_verdict=enforce_manager_verdict,
+    )
+    return [
+        c
+        for c in candidates
+        if (decisions.get(c.id) is None or decisions[c.id].assignment_allowed)
+    ]
+
+
 def _detail_for(
     decision: EligibilityDecision, verdict: Optional[ManagerVerdict]
 ) -> str:

@@ -11,6 +11,7 @@ The task opens its own DB session via `AsyncSessionLocal` because
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -170,23 +171,42 @@ async def compute_proposal_for_job(
                     select(Candidate).where(Candidate.id.in_(candidate_ids))
                 )
                 candidates = list(cand_res.scalars().all())
-                breakdowns = await bulk_get_or_compute(
-                    job,
-                    candidates,
-                    session,
-                    similarity_map=similarity_map,
-                    profile=profile,
-                    allow_cache_write=not semantic_degraded,
+
+                # P0-A: hard eligibility prefilter — the handoff snapshot IS the
+                # recruiter's operational ranking, so a blacklisted /
+                # hard-conflict / hiring-manager-vetoed candidate must never land
+                # in it. Mirrors the live /recommendations path exactly; soft
+                # warnings (current employment, candidate-excluded) stay.
+                from app.services.pipeline_eligibility import (
+                    filter_eligible_candidates,
                 )
-                # Persist ALL candidates that fit (score >= threshold), ranked
-                # best-first — not a fixed top-K. `top_k` is now just a payload
-                # safety cap. Mirrors the live /recommendations endpoint so the
-                # snapshot and fallback paths agree on "who matches".
-                breakdowns = [
-                    b
-                    for b in breakdowns
-                    if b.total >= settings.RECOMMENDATION_MIN_SCORE
-                ][:top_k]
+
+                candidates = await filter_eligible_candidates(
+                    session,
+                    job=job,
+                    candidates=candidates,
+                    now=datetime.now(timezone.utc),
+                )
+
+                if candidates:
+                    breakdowns = await bulk_get_or_compute(
+                        job,
+                        candidates,
+                        session,
+                        similarity_map=similarity_map,
+                        profile=profile,
+                        allow_cache_write=not semantic_degraded,
+                    )
+                    # Persist ALL candidates that fit (score >= threshold),
+                    # ranked best-first — not a fixed top-K. `top_k` is now just
+                    # a payload safety cap. Mirrors the live /recommendations
+                    # endpoint so the snapshot and fallback paths agree on
+                    # "who matches".
+                    breakdowns = [
+                        b
+                        for b in breakdowns
+                        if b.total >= settings.RECOMMENDATION_MIN_SCORE
+                    ][:top_k]
 
             snap.status = STATUS_READY
             snap.candidate_ids = [b.candidate_id for b in breakdowns]
