@@ -109,6 +109,15 @@ class NotificationType(str, enum.Enum):
     # `services/similar_job_notify.py` po POST /jobs (background task).
     # DB enum value: safety-net ALTER w entrypoint.sh (wzorzec kpi_coach).
     similar_job_candidates = "similar_job_candidates"
+    # Deadline rekrutacji zbliża się (Job.deadline). Daily scanner
+    # `app/tasks/job_deadline_alerts.py` emituje 7/3/1 dni przed deadline'em
+    # do przypisanych/delegowanych osób projektu (owner recruiter + DL + TAC +
+    # aktywni collaboratorzy). In-app + email (SMTP). Dedup przez
+    # (type, related_entity=(job, id)) — jeden alert per próg per user na zawsze.
+    # DB enum value: migracja 0211 + safety-net ALTER w entrypoint.sh.
+    job_deadline_7d = "job_deadline_7d"
+    job_deadline_3d = "job_deadline_3d"
+    job_deadline_1d = "job_deadline_1d"
 
 
 class Notification(Base, TimestampMixin):

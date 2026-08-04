@@ -532,6 +532,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
+    from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
@@ -569,6 +570,7 @@ async def lifespan(app: FastAPI):
         "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+        "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
