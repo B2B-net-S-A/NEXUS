@@ -20,7 +20,8 @@ from fastapi import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import OperationalUser, TacPlus
+from app.api.deps import OperationalUser, RecruiterPlus
+from app.api.recruitment_access import ensure_job_membership
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -189,7 +190,7 @@ async def list_proposals(
 async def regenerate_proposals(
     request: Request,
     job_id: int,
-    current_user: TacPlus,
+    current_user: RecruiterPlus,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     top_k: int = Query(
@@ -200,8 +201,15 @@ async def regenerate_proposals(
     ),
     profile_id: Optional[int] = Query(None),
 ):
-    """Trigger a new proposal snapshot. Returns the pending row (poll until ready)."""
-    await _ensure_job_exists(db, job_id)
+    """Trigger a new proposal snapshot. Returns the pending row (poll until ready).
+
+    P0-A: guarded by RecruiterPlus + ensure_job_membership so the ASSIGNED
+    recruiter can refresh their own recruitment (previously TacPlus → the button
+    always 403'd for recruiters), while a non-member (incl. a Delivery Lead whose
+    client is out of scope) is blocked — closing the "regenerate is less scoped
+    than read" hole.
+    """
+    await ensure_job_membership(db, current_user, job_id)
 
     snapshot_id = await create_pending_snapshot(
         job_id,
