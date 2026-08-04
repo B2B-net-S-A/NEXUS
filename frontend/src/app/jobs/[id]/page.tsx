@@ -15,6 +15,7 @@ import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidge
 import { HistoricalCandidatesSection } from "@/components/HistoricalCandidatesSection";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
+import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
@@ -1488,10 +1489,15 @@ export default function JobDetailPage() {
       )}
 
       {activeTab === "champion" && (
-        <ChampionProfileEditor
-          jobId={Number(id)}
-          clientId={job?.client_id ?? null}
-        />
+        <>
+          <ChampionProfileEditor
+            jobId={Number(id)}
+            clientId={job?.client_id ?? null}
+          />
+          {(isAdmin || hasRole(authUser, "delivery_lead")) && (
+            <JobHandoffButton jobId={Number(id)} />
+          )}
+        </>
       )}
 
       {activeTab === "questions" && (
