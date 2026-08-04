@@ -20,7 +20,7 @@ from app.services.candidate_profile_rate import (
 )
 from app.services import candidate_profile_facts as profile_facts
 from app.services.match_score_cache import _breakdown_from_row
-from app.services.scoring_service import _score_salary
+from app.services.scoring_service import UNKNOWN_NEUTRAL_FRACTION, _score_salary
 
 
 def _error_type(model, payload: dict) -> str:  # type: ignore[no-untyped-def]
@@ -337,7 +337,7 @@ def test_v3_rejects_monthly_alias_and_unit_with_domain_code():
     )
 
 
-def test_foreign_legacy_rate_is_not_comparable_and_does_not_reduce_score():
+def test_foreign_legacy_rate_is_not_comparable_and_scored_neutrally():
     candidate = SimpleNamespace(
         expected_rate_hourly=Decimal("50.00"),
         expected_rate_currency="EUR",
@@ -345,7 +345,12 @@ def test_foreign_legacy_rate_is_not_comparable_and_does_not_reduce_score():
     job = SimpleNamespace(salary_min=20_000, salary_max=30_000)
     result = _score_salary(candidate, job)
     assert result.status == "not_comparable"
-    assert result.points == result.max_points
+    # P0-A: a non-canonical currency is scored with the neutral fraction (not
+    # full) — an unverifiable rate must not inflate the composite.
+    assert result.points == pytest.approx(
+        result.max_points * UNKNOWN_NEUTRAL_FRACTION
+    )
+    assert result.points < result.max_points
     assert "50" not in result.reason
     assert "EUR" not in result.reason
 
