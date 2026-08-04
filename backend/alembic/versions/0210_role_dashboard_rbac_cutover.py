@@ -1,7 +1,7 @@
 """Role dashboards, session cutover and relationship reconciliation.
 
 Revision ID: 0210_role_dashboard_rbac_cutover
-Revises: 0209_client_alias_lifecycle
+Revises: 0210_fix_nordea_display_name
 Create Date: 2026-08-03
 
 This is the expand/reconcile half of the relationship migration.  The legacy
@@ -24,7 +24,7 @@ from alembic import op
 
 
 revision = "0210_role_dashboard_rbac_cutover"
-down_revision = "0209_client_alias_lifecycle"
+down_revision = "0210_fix_nordea_display_name"
 branch_labels = None
 depends_on = None
 

@@ -49,7 +49,7 @@ def test_0210_extends_the_single_current_head() -> None:
     tree = ast.parse(source)
 
     assert _literal_assignment(tree, "revision") == MIGRATION_KEY
-    assert _literal_assignment(tree, "down_revision") == ("0209_client_alias_lifecycle")
+    assert _literal_assignment(tree, "down_revision") == "0210_fix_nordea_display_name"
 
 
 def test_schema_is_mirrored_by_models_and_entrypoint() -> None:
