@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { assignErrorMessage } from "@/lib/assign-error";
+import { shortlistApi } from "@/lib/candidate-search-api";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
@@ -160,6 +161,8 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
 
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assigned, setAssigned] = useState<Set<number>>(new Set());
+  const [shortlisting, setShortlisting] = useState<number | null>(null);
+  const [shortlisted, setShortlisted] = useState<Set<number>>(new Set());
 
   const loadLive = async () => {
     setLiveLoading(true);
@@ -227,6 +230,23 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
       alert(`Nie przypisano: ${assignErrorMessage(e)}`);
     } finally {
       setAssigning(null);
+    }
+  };
+
+  // ── Add to shortlist (default action — staged evaluation before pipeline) ──
+  const handleShortlist = async (candidateId: number) => {
+    setShortlisting(candidateId);
+    try {
+      await shortlistApi.add(jobId, [candidateId]);
+      setShortlisted((prev) => {
+        const next = new Set(prev);
+        next.add(candidateId);
+        return next;
+      });
+    } catch (e: unknown) {
+      alert(`Nie dodano do shortlisty: ${assignErrorMessage(e)}`);
+    } finally {
+      setShortlisting(null);
     }
   };
 
@@ -472,6 +492,7 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
           {matches.map((m, idx) => {
             const cand = m.candidate;
             const isAssigned = assigned.has(cand.id);
+            const isShortlisted = shortlisted.has(cand.id);
             return (
               <li
                 key={cand.id}
@@ -544,20 +565,43 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
                   </div>
                   {isAssigned ? (
                     <span className="text-[11px] text-emerald-600 font-medium">✓ Przypisany</span>
+                  ) : isShortlisted ? (
+                    <span className="text-[11px] text-emerald-600 font-medium">
+                      ✓ Na shortliście
+                    </span>
                   ) : (
-                    <button
-                      onClick={() => handleAssign(cand.id)}
-                      disabled={assigning === cand.id}
-                      className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary disabled:opacity-50"
-                      title="Dodaj do procesu rekrutacji"
-                    >
-                      {assigning === cand.id ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <UserPlus className="w-3 h-3" />
-                      )}
-                      Przypisz
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {/* Primary action: stage on the shortlist for evaluation
+                          before touching the pipeline (add_to_shortlist enforces
+                          job membership). "Przypisz" (direct pipeline entry) is
+                          the secondary, heavier action. */}
+                      <button
+                        onClick={() => handleShortlist(cand.id)}
+                        disabled={shortlisting === cand.id}
+                        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary disabled:opacity-50"
+                        title="Dodaj do shortlisty do oceny"
+                      >
+                        {shortlisting === cand.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Star className="w-3 h-3" />
+                        )}
+                        Do shortlisty
+                      </button>
+                      <button
+                        onClick={() => handleAssign(cand.id)}
+                        disabled={assigning === cand.id}
+                        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
+                        title="Dodaj bezpośrednio do procesu rekrutacji"
+                      >
+                        {assigning === cand.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <UserPlus className="w-3 h-3" />
+                        )}
+                        Przypisz
+                      </button>
+                    </div>
                   )}
                 </div>
               </li>

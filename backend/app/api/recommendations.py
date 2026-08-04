@@ -1099,10 +1099,20 @@ async def assign_candidate_to_job(
     from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
     from app.models.recruitment_pipeline import PipelineStage
 
+    from app.api.recruitment_access import ensure_job_membership
+
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not candidate or not job:
         raise HTTPException(status_code=404, detail="Candidate or Job not found")
+
+    # P0-A: resource scope — assigning a candidate into a job's pipeline is a
+    # pipeline write, so the caller must belong to the job (owner / delivery lead
+    # / TAC / active collaborator / priority assignment), exactly like the
+    # shortlist and pipeline-move ingresses. Without this a recruiter could push
+    # a candidate straight into a recruitment they are not a member of. Raises a
+    # uniform 403 for non-members (admin / head_of_recruitment bypass).
+    await ensure_job_membership(db, current_user, job_id)
 
     # Skip if already in pipeline
     existing = await db.scalar(
