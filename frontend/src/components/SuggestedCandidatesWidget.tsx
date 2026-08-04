@@ -283,7 +283,13 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
     ? (locationQuery.data?.meta ?? null)
     : mode === "fallback-live"
       ? liveMeta
-      : null;
+      : mode === "snapshot" && snapshot?.degraded
+        ? {
+            mode: "degraded_semantic",
+            degraded: true,
+            reason: "semantic_unavailable",
+          }
+        : null;
   const isDegraded = activeRecommendationMeta?.degraded === true;
   const showLiveEmptyState =
     !locationActive && mode === "fallback-live" && !liveLoaded && !liveLoading;

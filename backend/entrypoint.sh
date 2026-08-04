@@ -2712,6 +2712,12 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_candidate_activity_summaries_lease_expires_at "
     "ON candidate_activity_summaries (generation_lease_expires_at) "
     "WHERE generation_lease_expires_at IS NOT NULL",
+    # P0-A (migration 0211_proposal_snapshot_degraded): flag na snapshotach
+    # rankingu, że semantyka leciała w trybie awaryjnym (Qdrant/Voyage down lub
+    # job niezaindeksowany). ORM (`ProposalSnapshot.degraded`) + proposals API to
+    # czytają — brak kolumny => UndefinedColumnError na GET /proposals/latest.
+    "ALTER TABLE proposal_snapshots "
+    "ADD COLUMN IF NOT EXISTS degraded BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -3176,6 +3176,9 @@ export interface ProposalSnapshot {
   profile_id: number;
   created_at: string;
   error_message: string | null;
+  /** True when the ranking used a degraded semantic leg (Qdrant/Voyage down or
+   *  the job unindexed) — the UI flags it instead of presenting it as healthy. */
+  degraded: boolean;
   candidates: ProposalCandidateItem[];
 }
 

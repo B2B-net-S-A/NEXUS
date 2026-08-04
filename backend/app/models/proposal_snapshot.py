@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,6 +56,14 @@ class ProposalSnapshot(Base):
     candidate_ids: Mapped[Optional[list[int]]] = mapped_column(JSONB, nullable=True)
     breakdowns: Mapped[Optional[list[dict]]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # P0-A: True when this ranking was produced with a degraded semantic leg
+    # (Qdrant/Voyage down or the job not yet indexed → neutral-semantic
+    # fallback). Persisted so the UI can flag a fallback ranking instead of
+    # presenting it as a healthy AI result; `semantic_degraded` was previously
+    # computed at scoring time and thrown away.
+    degraded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     created_by: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("users.id"),

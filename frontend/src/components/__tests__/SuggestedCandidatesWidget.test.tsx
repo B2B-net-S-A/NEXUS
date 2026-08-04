@@ -136,6 +136,29 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     await waitFor(() => expect(mocks.logHistory).not.toHaveBeenCalled());
   });
 
+  it("flags a degraded snapshot ranking as a fallback", async () => {
+    mocks.latest.mockResolvedValue({
+      data: {
+        id: 1,
+        job_id: 7,
+        status: "ready",
+        source: "create",
+        top_k: 20,
+        profile_id: 0,
+        created_at: "2026-08-04T00:00:00Z",
+        error_message: null,
+        degraded: true,
+        candidates: [candidateMatch(70, BREAKDOWN)],
+      },
+    });
+
+    renderWidget();
+
+    expect(
+      await screen.findByTestId("degraded-recommendations-notice"),
+    ).toBeInTheDocument();
+  });
+
   it("primary action adds the candidate to the shortlist, not the pipeline", async () => {
     mocks.forJob.mockResolvedValue({
       data: {

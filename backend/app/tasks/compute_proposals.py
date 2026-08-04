@@ -211,6 +211,11 @@ async def compute_proposal_for_job(
             snap.status = STATUS_READY
             snap.candidate_ids = [b.candidate_id for b in breakdowns]
             snap.breakdowns = [b.as_dict() for b in breakdowns]
+            # P0-A: record whether the semantic leg was degraded (Qdrant/Voyage
+            # down or the job unindexed) so the UI can flag this ranking as a
+            # fallback instead of a healthy one. Previously computed only to gate
+            # cache writes, then discarded.
+            snap.degraded = semantic_degraded
             snap.error_message = None
             await session.commit()
             logger.info(

@@ -300,6 +300,19 @@ async def _recommend_candidates_core(
     # disabled for this request.
     semantic_degraded = not candidate_ids
 
+    def _meta() -> dict:
+        # P0-A: tell the UI when the semantic leg fell back (Qdrant/Voyage down
+        # or the job not indexed yet). The widget already renders a degraded
+        # notice off meta.degraded — the backend just never populated it, so a
+        # fallback looked identical to a healthy AI ranking. Mode is deliberately
+        # NOT "bm25": the fallback still yields numeric composites (neutral
+        # semantic layer); it just isn't cache-written or logged to history.
+        return {
+            "mode": "degraded_semantic" if semantic_degraded else "dense",
+            "degraded": semantic_degraded,
+            "reason": "semantic_unavailable" if semantic_degraded else None,
+        }
+
     # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
     if not candidate_ids:
         fallback = await db.execute(
@@ -328,6 +341,7 @@ async def _recommend_candidates_core(
             "search_type": "hybrid",
             "location_filter": requested_location if location_active else None,
             "matches": [],
+            "meta": _meta(),
         }
 
     cand_res = await db.execute(
@@ -350,6 +364,7 @@ async def _recommend_candidates_core(
                 "search_type": "hybrid",
                 "location_filter": requested_location,
                 "matches": [],
+                "meta": _meta(),
             }
 
     # P0-A: hard eligibility prefilter BEFORE scoring — a candidate the recruiter
@@ -369,6 +384,7 @@ async def _recommend_candidates_core(
             "search_type": "hybrid",
             "location_filter": requested_location if location_active else None,
             "matches": [],
+            "meta": _meta(),
         }
 
     # Phase C1 + D1: cache-first scoring keyed by active profile.
@@ -441,6 +457,7 @@ async def _recommend_candidates_core(
         "profile": {"id": profile.id, "name": profile.name},
         "location_filter": requested_location if location_active else None,
         "matches": matches,
+        "meta": _meta(),
     }
 
 

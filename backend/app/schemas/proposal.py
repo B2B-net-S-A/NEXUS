@@ -47,6 +47,7 @@ class ProposalSnapshotResponse(BaseModel):
     profile_id: int
     created_at: datetime
     error_message: Optional[str] = None
+    degraded: bool = False
     candidates: List[ProposalCandidateItem] = []
 
     model_config = {"from_attributes": True}
@@ -63,6 +64,7 @@ class ProposalSnapshotSummary(BaseModel):
     created_at: datetime
     candidate_count: int
     error_message: Optional[str] = None
+    degraded: bool = False
 
     model_config = {"from_attributes": True}
 
