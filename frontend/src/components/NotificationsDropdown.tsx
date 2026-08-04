@@ -130,6 +130,23 @@ const TYPE_CONFIG: Record<
     color: "text-indigo-600",
     bgColor: "bg-indigo-100",
   },
+  // Deadline rekrutacji zbliża się (Job.deadline) — 7/3/1 dni. Link → /jobs/{id}.
+  // Eskalacja pilności: neutralny → amber → destructive.
+  job_deadline_7d: {
+    icon: <Hourglass className="w-3.5 h-3.5" />,
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
+  },
+  job_deadline_3d: {
+    icon: <Hourglass className="w-3.5 h-3.5" />,
+    color: "text-amber-600",
+    bgColor: "bg-amber-100",
+  },
+  job_deadline_1d: {
+    icon: <AlertTriangle className="w-3.5 h-3.5" />,
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
+  },
 };
 
 const POST_INTERVIEW_TYPES = new Set([

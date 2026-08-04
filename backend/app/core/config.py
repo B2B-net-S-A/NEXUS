@@ -260,6 +260,15 @@ class Settings(BaseSettings):
     SIMILAR_JOB_NOTIFY_ENABLED: bool = True
     SIMILAR_JOB_NOTIFY_MIN_CANDIDATES: int = 1
 
+    # ── Deadline rekrutacji (job deadline alerts) ────────────────────────────
+    # Daily scanner `app/tasks/job_deadline_alerts.py`: 7/3/1 dni przed
+    # Job.deadline (status=published) → notyfikacja in-app + email do
+    # przypisanych/delegowanych osób projektu (recruiter owner + DL + TAC +
+    # aktywni collaboratorzy). Kill-switch bez redeploya; email dodatkowo
+    # bramkowany przez SMTP_ENABLED. Progi jako dni.
+    JOB_DEADLINE_ALERTS_ENABLED: bool = True
+    JOB_DEADLINE_ALERT_THRESHOLDS_DAYS: tuple[int, ...] = (7, 3, 1)
+
     # ── Phase 14: post-interview feedback reminders ──────────────────────────
     # 3-stopniowy ping rekruterowi/DL po zakończonym interview.
     POST_INTERVIEW_T15_MINUTES: int = 15
