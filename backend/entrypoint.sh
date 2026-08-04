@@ -427,6 +427,14 @@ _ENUM_STATEMENTS = [
     # wartości w DB enum insert crashuje (InvalidTextRepresentationError),
     # ten sam failure mode co kpi_coach incident.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'saved_search_match'",
+    # Job deadline alerts (migracja 0211_job_deadline_alerts). Daily scanner
+    # app/tasks/job_deadline_alerts.py wstawia Notification z tymi typami dla
+    # progów 7/3/1 dni przed Job.deadline. Bez tych wartości w DB enum insert
+    # crashuje (InvalidTextRepresentationError), gdyby alembic upgrade nie
+    # wszedł na prod — ten sam failure mode co kpi_coach/saved_search incident.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_deadline_7d'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_deadline_3d'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_deadline_1d'",
     # Nowy typ dokumentu „Zamówienie" na kontrakcie (migracja
     # 0160_contract_document_type_order). Bez tej wartości upload dokumentu
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
