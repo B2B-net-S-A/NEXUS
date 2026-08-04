@@ -16,7 +16,13 @@ class ClientTacAssignmentCreate(BaseModel):
     """POST /api/clients/{id}/tacs body."""
 
     user_id: int
-    is_primary: bool = False
+    # Omitted means "preserve" for an existing row and ``False`` for a new
+    # row. This prevents callers using only the new priority field from
+    # rewriting the legacy notification marker.
+    is_primary: Optional[bool] = None
+    # ``None`` means "keep/default according to expand policy": the first
+    # client of a TAC becomes priority #1, subsequent clients do not.
+    is_first_priority_for_tac: Optional[bool] = None
 
 
 class ClientTacAssignmentRead(BaseModel):
@@ -27,6 +33,7 @@ class ClientTacAssignmentRead(BaseModel):
     name: str
     email: str
     role: Optional[str] = None
+    is_first_priority_for_tac: Optional[bool] = None
     is_primary: bool
     created_at: datetime
 
@@ -55,3 +62,18 @@ class ClientTeamResponse(BaseModel):
 
     tacs: list[ClientTacAssignmentRead]
     delivery_leads: list[ClientDlAssignmentRead]
+
+
+class ClientTacFirstPriorityRead(BaseModel):
+    """Result of an atomic TAC-centric first-priority change."""
+
+    tac_user_id: int
+    client_id: int
+    is_first_priority_for_tac: bool
+
+
+class ClientTacFirstPriorityUpdate(BaseModel):
+    """PUT body for a TAC-centric first-priority change."""
+
+    enabled: bool
+    successor_client_id: Optional[int] = None

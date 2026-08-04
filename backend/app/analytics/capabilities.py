@@ -44,6 +44,12 @@ class AnalyticsCapability(str, Enum):
     VIEW_CLIENT_OPERATIONS = "view_client_operations"
     # Stawki, MRR, marża, P&L.
     VIEW_FINANCE = "view_finance"
+    # Mutacje księgi, stawek, faktur i korekt finansowych.
+    MANAGE_FINANCE = "manage_finance"
+    # Zatwierdzanie korekt i innych finansowych wyjątków.
+    APPROVE_FINANCE = "approve_finance"
+    # Zarządczy, przekrojowy widok biznesu.
+    VIEW_EXECUTIVE = "view_executive"
     # Przetargi bez wartości (wartości wymagają VIEW_FINANCE).
     VIEW_TENDERS_OPERATIONAL = "view_tenders_operational"
     # Administracja analytics (korekty, backfill, cutover).
@@ -54,7 +60,9 @@ _ALL: frozenset[AnalyticsCapability] = frozenset(AnalyticsCapability)
 
 # Macierz rola → capabilities (plan §4.3). Multi-role = unia.
 ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
-    UserRole.user: frozenset({AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES}),
+    # Expand/contract compatibility only. Existing viewers are migrated to
+    # recruiter; until then this persona receives no dashboard capability.
+    UserRole.user: frozenset(),
     UserRole.recruiter: frozenset(
         {
             AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
@@ -82,10 +90,8 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
         {
             AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
             AnalyticsCapability.VIEW_OWN_DELIVERY_KPI,
-            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
             AnalyticsCapability.VIEW_TEAM_KPI,
             AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
-            AnalyticsCapability.VIEW_FINANCE,
             AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
         }
     ),
@@ -95,6 +101,15 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
             AnalyticsCapability.VIEW_TEAM_KPI,
             AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
+        }
+    ),
+    UserRole.finance: frozenset(
+        {
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+            AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
+            AnalyticsCapability.VIEW_FINANCE,
+            AnalyticsCapability.MANAGE_FINANCE,
+            AnalyticsCapability.VIEW_EXECUTIVE,
         }
     ),
     UserRole.admin: _ALL,

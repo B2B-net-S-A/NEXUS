@@ -34,7 +34,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.notification import Notification, NotificationType
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.api.candidate_access import (
+    CANDIDATE_READ_ROLES,
+    user_can_access_candidate_domain,
+)
 from app.services.email import send_chat_fallback_email
 
 logger = logging.getLogger(__name__)
@@ -56,6 +60,12 @@ _CHAT_NOTIF_TYPES = {
     NotificationType.job_chat_message,
     NotificationType.job_chat_mention,
 }
+
+
+def _eligible_chat_email_recipient(user: User) -> bool:
+    """Re-check current candidate-domain authorization before PII fan-out."""
+
+    return user_can_access_candidate_domain(user)
 
 
 async def _send_chat_email(user: User, notif: Notification) -> bool:
@@ -168,6 +178,13 @@ async def _process_one_pass(db: AsyncSession) -> int:
         select(Notification, User)
         .join(User, User.id == Notification.user_id)
         .where(Notification.notification_type.in_(_CHAT_NOTIF_TYPES))
+        .where(User.is_active.is_(True))
+        .where(User.role.in_(CANDIDATE_READ_ROLES))
+        # Primary-role SQL keeps the batch from being starved by ordinary
+        # Finance/viewer rows. JSONB exclusions also remove malformed hybrids;
+        # the Python full-role guard below remains authoritative.
+        .where(~User.roles.contains([UserRole.finance.value]))
+        .where(~User.roles.contains([UserRole.user.value]))
         .where(Notification.created_at <= threshold)
         .where(Notification.is_read.is_(False))
         .where(Notification.email_sent_at.is_(None))
@@ -187,9 +204,22 @@ async def _process_one_pass(db: AsyncSession) -> int:
 
     sent = 0
     for notif, user in pairs:
+        # Role changes can race with the SELECT. Re-evaluate the complete,
+        # current role union before even claiming the notification; a stale
+        # unread chat row must never email candidate/recruitment PII to Finance.
+        if not _eligible_chat_email_recipient(user):
+            continue
         # Reserve the row atomically BEFORE sending so an overlapping pass can't
         # send the same email twice. The reservation is NOT the "sent" stamp.
         if not await _claim_notification(db, notif.id):
+            continue
+        # The role/account state may have changed after the batch SELECT but
+        # before this row was claimed. Force a current DB read before SMTP so a
+        # transition to Finance/viewer (or deactivation) cannot leak the stale
+        # notification body.
+        await db.refresh(user, attribute_names=["role", "roles", "is_active"])
+        if not _eligible_chat_email_recipient(user):
+            await _release_claim(db, notif.id)
             continue
         ok = False
         try:

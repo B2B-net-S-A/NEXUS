@@ -903,7 +903,9 @@ class Settings(BaseSettings):
         # at login → user blocked with confusing 403.
         from app.models.user import UserRole
 
-        valid_roles = {r.value for r in UserRole}
+        # ``user`` is retained in the Python/PG enum only for rolling-deploy
+        # compatibility.  It is no longer a provisionable persona.
+        valid_roles = {r.value for r in UserRole if r is not UserRole.user}
         out: dict[str, str] = {}
         for group_id, role in parsed.items():
             if role not in valid_roles:

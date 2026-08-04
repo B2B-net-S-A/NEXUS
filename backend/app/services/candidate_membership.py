@@ -15,6 +15,7 @@ from typing import Iterable
 from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
@@ -26,6 +27,11 @@ async def is_member_of_candidate_chat(
     db: AsyncSession, user: User, candidate_id: int
 ) -> bool:
     """True if user can read/post in chat for this candidate."""
+    # Membership rows are historical data, not an authorization grant.
+    # Finance/viewer (and deactivated accounts) stay excluded even if their id
+    # still appears as creator, owner or collaborator.
+    if not user_can_access_candidate_domain(user):
+        return False
     if user.has_role(UserRole.admin):
         return True
 
@@ -119,7 +125,21 @@ async def list_candidate_chat_member_ids(
         for (uid,) in collab_rows.all():
             member_ids.add(uid)
 
-    return sorted(member_ids)
+    if not member_ids:
+        return []
+
+    # Fail closed at the fan-out source too: notifications, mentions and WS
+    # broadcasts all consume this list, so stale ownership/collaboration must
+    # never re-enrol a Finance/viewer account into candidate chat.
+    eligible_rows = await db.execute(
+        select(User).where(User.id.in_(member_ids)).where(User.is_active.is_(True))
+    )
+    eligible_ids = {
+        user.id
+        for user in eligible_rows.scalars().all()
+        if user_can_access_candidate_domain(user)
+    }
+    return sorted(eligible_ids)
 
 
 async def list_candidate_chat_members(

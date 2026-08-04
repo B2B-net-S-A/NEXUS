@@ -6,7 +6,7 @@ CI musi blokować (plan §PR8):
    (0179 łączy 0177+0178); ryzykowna wydawała się tylko dlatego, że
    regexowy licznik headów raportował 26 zamiast 2,
 2. mutacje w analytics/DynaReporter chronione tylko CurrentUser,
-3. viewer-safe odpowiedzi z zakazanym polem finansowym,
+3. odpowiedzi dla person operacyjnych z zakazanym polem finansowym,
 4. dryf kontraktu OpenAPI /api/analytics/v1 bez świadomej aktualizacji.
 
 RBAC matrix + zakaz 500-jako-odmowy egzekwuje test_rbac.py (też blocking).
@@ -208,9 +208,9 @@ async def gates_client():
         yield c
 
 
-async def _viewer_headers(client: AsyncClient) -> dict[str, str]:
+async def _role_headers(client: AsyncClient, role: UserRole) -> dict[str, str]:
     unique = uuid.uuid4().hex[:8]
-    email = f"gate-viewer-{unique}@example.com"
+    email = f"gate-{role.value}-{unique}@example.com"
     password = f"T3st_{unique}!G"
     async with AsyncSessionLocal() as db:
         existing = await db.scalar(select(User).where(User.email == email))
@@ -219,9 +219,11 @@ async def _viewer_headers(client: AsyncClient) -> dict[str, str]:
                 User(
                     email=email,
                     password_hash=hash_password(password),
-                    name="Gate Viewer",
-                    role=UserRole.user,
+                    name=f"Gate {role.value}",
+                    role=role,
+                    roles=[role.value],
                     is_active=True,
+                    profile_completed=True,
                 )
             )
             await db.commit()
@@ -231,12 +233,15 @@ async def _viewer_headers(client: AsyncClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-VIEWER_SAFE_ENDPOINTS = [
+OPERATIONAL_AGGREGATE_ENDPOINTS = [
     "/api/analytics/v1/overview",
     "/api/analytics/v1/pipeline/snapshot",
     "/api/analytics/v1/recruitment/funnel",
     "/api/analytics/v1/sources",
     "/api/analytics/v1/calls/aggregate",
+]
+
+LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS = [
     "/api/dashboard/stats",
     "/api/dashboard/kpis",
     "/api/dashboard/pipeline-funnel",
@@ -244,15 +249,25 @@ VIEWER_SAFE_ENDPOINTS = [
 
 
 @pytest.mark.asyncio
-async def test_viewer_safe_responses_have_no_finance_fields(gates_client, monkeypatch):
-    """Fizyczny denylist: odpowiedzi viewer-safe nie mogą nieść finansów."""
+async def test_operational_responses_have_no_finance_fields(gates_client, monkeypatch):
+    """Fizyczny denylist: odpowiedzi operacyjne nie mogą nieść finansów."""
     monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "shadow")
-    headers = await _viewer_headers(gates_client)
-    for path in VIEWER_SAFE_ENDPOINTS:
+    headers = await _role_headers(gates_client, UserRole.recruiter)
+    for path in OPERATIONAL_AGGREGATE_ENDPOINTS:
         resp = await gates_client.get(path, headers=headers)
         assert resp.status_code == 200, f"{path}: {resp.status_code} {resp.text}"
         bad = _forbidden_keys(resp.json())
-        assert not bad, f"{path} niesie pola finansowe dla viewera: {bad}"
+        assert not bad, f"{path} niesie pola finansowe dla rekrutera: {bad}"
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_bypass_role_presets_through_legacy_dashboard(
+    gates_client,
+):
+    headers = await _role_headers(gates_client, UserRole.user)
+    for path in LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS:
+        resp = await gates_client.get(path, headers=headers)
+        assert resp.status_code == 403, f"{path}: {resp.status_code} {resp.text}"
 
 
 # ── Gate 4: kontrakt OpenAPI /api/analytics/v1 ───────────────────────────────

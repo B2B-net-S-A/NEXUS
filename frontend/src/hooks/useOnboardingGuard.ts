@@ -4,7 +4,7 @@ import { useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 
 import {
-  requiresOnboarding,
+  shouldRouteToOnboarding,
   useAuthStore,
 } from "@/store/auth"
 
@@ -36,7 +36,10 @@ export function useOnboardingGuard(): { needsOnboarding: boolean } {
   const user = useAuthStore((s) => s.user)
   const hydrated = useAuthStore((s) => s.hydrated)
 
-  const needs = hydrated && requiresOnboarding(user)
+  // Forced password rotation wins over onboarding. On /profile this keeps the
+  // shell mounted so the user can actually clear `force_password_change`;
+  // onboarding resumes on the next authenticated navigation.
+  const needs = hydrated && shouldRouteToOnboarding(user)
 
   useEffect(() => {
     if (!hydrated) return

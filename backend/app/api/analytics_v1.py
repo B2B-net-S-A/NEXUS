@@ -47,7 +47,11 @@ from app.analytics.schemas import (
 )
 from app.analytics.scope import (
     Scope,
+    ScopeKind,
     ensure_client_scope,
+    ensure_finance_client_scope,
+    ensure_recruitment_user_scope,
+    ensure_team_scope,
     ensure_user_scope,
     organization_scope,
 )
@@ -100,6 +104,20 @@ def _calls_quality() -> QualityPayload:
             ],
         )
     return QualityPayload()
+
+
+def _require_personal_kpis(user: User) -> None:
+    """Reject retired Viewer/Finance personas from personal recruitment data."""
+
+    if not (
+        user_has_capability(user, AnalyticsCapability.VIEW_OWN_RECRUITMENT_KPI)
+        or user_has_capability(user, AnalyticsCapability.VIEW_OWN_DELIVERY_KPI)
+        or user_has_capability(user, AnalyticsCapability.ADMIN_ANALYTICS)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Brak uprawnień do osobistych KPI",
+        )
 
 
 async def _cached_envelope(
@@ -250,7 +268,8 @@ async def get_my_kpis(
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
 ):
-    """Własne KPI — dostępne dla każdego zalogowanego (zakres = self)."""
+    """Własne KPI aktywnej persony operacyjnej (zakres = self)."""
+    _require_personal_kpis(current_user)
     scope = ensure_user_scope(current_user, current_user.id)
     return await _cached_envelope(
         endpoint="me-kpis",
@@ -269,6 +288,7 @@ async def get_my_calls(
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
 ):
+    _require_personal_kpis(current_user)
     scope = ensure_user_scope(current_user, current_user.id)
     return await _cached_envelope(
         endpoint="me-calls",
@@ -290,12 +310,20 @@ async def get_team_kpis(
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
 ):
+    scope = await ensure_team_scope(db, current_user)
+    scoped_user_ids = (
+        scope.allowed_user_ids if scope.kind is ScopeKind.delivery_clients else None
+    )
     return await _cached_envelope(
         endpoint="team-kpis",
         user=current_user,
-        scope=organization_scope(),
+        scope=scope,
         period=period,
-        compute=lambda: metrics.team_kpis(db, period),
+        compute=lambda: metrics.team_kpis(
+            db,
+            period,
+            user_ids=scoped_user_ids,
+        ),
         quality=_calls_quality(),
     )
 
@@ -307,8 +335,17 @@ async def get_team_calls(
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
 ):
+    scope = await ensure_team_scope(db, current_user)
+    scoped_user_ids = (
+        scope.allowed_user_ids if scope.kind is ScopeKind.delivery_clients else None
+    )
+
     async def _compute():
-        team = await metrics.team_kpis(db, period)
+        team = await metrics.team_kpis(
+            db,
+            period,
+            user_ids=scoped_user_ids,
+        )
         return {
             "rows": [
                 {
@@ -324,7 +361,7 @@ async def get_team_calls(
     return await _cached_envelope(
         endpoint="team-calls",
         user=current_user,
-        scope=organization_scope(),
+        scope=scope,
         period=period,
         compute=_compute,
         quality=_calls_quality(),
@@ -339,8 +376,8 @@ async def get_user_recruitment(
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
 ):
-    """KPI wskazanego usera: self zawsze; cudze — VIEW_TEAM_KPI (scope.py)."""
-    scope = ensure_user_scope(current_user, user_id)
+    """KPI wskazanego usera z relacyjnym zakresem managerskim."""
+    scope = await ensure_recruitment_user_scope(db, current_user, user_id)
     return await _cached_envelope(
         endpoint="user-recruitment",
         user=current_user,
@@ -382,7 +419,7 @@ async def get_client_finance(
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
 ):
-    scope = await ensure_client_scope(db, current_user, client_id)
+    scope = ensure_finance_client_scope(current_user, client_id)
 
     async def _compute():
         data, warnings, flag = await metrics.client_finance(
@@ -608,7 +645,9 @@ async def admin_set_cutover(
 
 @router.get("/meta/metrics")
 async def get_meta_metrics(
-    current_user: CurrentUser,
+    current_user: User = Depends(
+        require_capability(AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES)
+    ),
     _: None = Depends(_analytics_enabled),
 ):
     """Rejestr definicji metryk — definicja, jednostka, źródło, wersja."""

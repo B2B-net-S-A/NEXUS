@@ -12,13 +12,20 @@ import type { ClientOrderRead } from "@/lib/api/dlPortal";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const authState = vi.hoisted(() => ({ role: "admin" as string }));
+const authState = vi.hoisted(() => ({
+  role: "admin" as string,
+  capabilities: ["manage_finance"] as string[],
+}));
 
 vi.mock("@/store/auth", () => ({
-  useAuthStore: (selector: (s: { user: { role: string } }) => unknown) =>
-    selector({ user: { role: authState.role } }),
-  hasRole: (user: { role?: string } | null, ...roles: string[]) =>
-    !!user?.role && roles.includes(user.role),
+  useAuthStore: (
+    selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
+  ) => selector({ user: authState }),
+  canManageCandidateFinance: (
+    user: { role?: string; capabilities?: string[] } | null,
+  ) =>
+    user?.role === "admin" &&
+    (user.capabilities ?? []).includes("manage_finance"),
 }));
 
 vi.mock("@/lib/api/dlPortal", () => ({
@@ -139,6 +146,7 @@ function renderTab() {
 beforeEach(() => {
   vi.clearAllMocks();
   authState.role = "admin";
+  authState.capabilities = ["manage_finance"];
   vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
     data: { contractors: [structuredClone(CONTRACTOR)], total_contractors: 1 },
   } as never);
@@ -213,17 +221,20 @@ describe("OrdersAndContractsTab card", () => {
     expect(screen.getByText("3320")).toBeInTheDocument();
   });
 
-  it("hides finance rows from users without VIEW_FINANCE", async () => {
-    authState.role = "tac";
-    renderTab();
-    await screen.findByText("Contract 529");
-    expect(screen.queryByText(/stawka kosztowa/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/stawka przychodowa/)).not.toBeInTheDocument();
-    // Period is not finance-gated — it stays visible.
-    expect(screen.getByText(/okres zamówienia:/)).toBeInTheDocument();
-  });
+  it.each(["tac", "delivery_lead", "finance"])(
+    "hides candidate finance rows from %s",
+    async (role) => {
+      authState.role = role;
+      renderTab();
+      await screen.findByText("Contract 529");
+      expect(screen.queryByText(/stawka kosztowa/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/stawka przychodowa/)).not.toBeInTheDocument();
+      // Period is not finance-gated — it stays visible.
+      expect(screen.getByText(/okres zamówienia:/)).toBeInTheDocument();
+    },
+  );
 
-  it("shows finance rows to admin/delivery_lead", async () => {
+  it("shows candidate finance rows to admin with manage_finance", async () => {
     renderTab();
     await screen.findByText("Contract 529");
     expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();

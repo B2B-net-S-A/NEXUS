@@ -33,8 +33,9 @@ class JobCreate(BaseModel):
     # na listę /jobs (patrz QA sweep PR fix/qa-jobs-orphan-cleanup).
     client_id: int = Field(..., gt=0)
     recruiter_id: Optional[int] = None
-    # TAC + Delivery Lead — jeśli podane jawnie, wygrywa nad auto-assignem
-    # z `client_tac_assignments`/`delivery_lead_client_assignments`.
+    # TAC + Delivery Lead — jeśli podane jawnie, wygrywa nad auto-assignem.
+    # Jawny TAC musi być przypisany do klienta; auto-assign TAC działa tylko
+    # dla dokładnie jednego aktywnego przypisania klienta.
     tac_id: Optional[int] = None
     delivery_lead_id: Optional[int] = None
     # Hiring manager — Contact w firmie klienta odpowiedzialny za rekrutację
@@ -159,6 +160,7 @@ class UserBrief(BaseModel):
     email: str
     name: str
     role: Optional[str] = None
+    roles: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

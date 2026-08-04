@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -16,11 +16,10 @@ class UserCreate(BaseModel):
 class SelfRegisterRequest(BaseModel):
     """Public self-service registration body (POST /api/auth/register).
 
-    Deliberately has NO ``role`` field — self-registered accounts are ALWAYS
-    created as the read-only ``user`` (viewer) role server-side. An admin
-    elevates the role afterwards in the panel. This closes the prior hole where
-    the endpoint accepted an arbitrary ``role`` and anyone could self-provision
-    an ``admin``.
+    Deliberately has NO ``role`` field — self-registered accounts remain
+    least-privileged legacy viewers until the provisioning policy is explicitly
+    migrated. This closes the prior hole where callers could self-provision an
+    ``admin``.
     """
 
     email: EmailStr
@@ -32,6 +31,29 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
+
+
+DashboardPreset = Literal[
+    "admin-ops",
+    "delivery-lead",
+    "head-of-recruitment",
+    "my-work",
+    "finance",
+]
+
+
+class DashboardClientTacPair(BaseModel):
+    client_id: int
+    tac_user_id: int
+
+
+class DashboardDataScope(BaseModel):
+    kind: Literal["organization", "recruitment_org", "delivery_clients", "self"]
+    user_id: int | None = None
+    allowed_client_ids: list[int] = Field(default_factory=list)
+    allowed_tac_user_ids: list[int] = Field(default_factory=list)
+    allowed_operator_user_ids: list[int] = Field(default_factory=list)
+    allowed_client_tac_pairs: list[DashboardClientTacPair] = Field(default_factory=list)
 
 
 class UserResponse(BaseModel):
@@ -49,6 +71,7 @@ class UserResponse(BaseModel):
     email_verified: bool = True
     profile_completed: bool = False
     profile_completed_at: Optional[datetime] = None
+    authorization_version: int = 1
     # Force-change-password gate (migracja 0078). Po admin-resecie hasła
     # ustawiamy True; frontend redirectuje do /profile dopóki nie zmieni.
     force_password_change: bool = False
@@ -60,7 +83,12 @@ class UserResponse(BaseModel):
     # Analytics v1 (plan 2026-07-16, R0): unia capabilities ze wszystkich ról.
     # Wypełniane w GET /api/auth/me; frontend używa WYŁĄCZNIE do routingu
     # i gate'owania zapytań — twarde guardy siedzą na backendzie.
-    analytics_capabilities: list[str] = []
+    capabilities: list[str] = Field(default_factory=list)
+    # Deprecated compatibility alias. New clients use ``capabilities``.
+    analytics_capabilities: list[str] = Field(default_factory=list)
+    available_dashboard_presets: list[DashboardPreset] = Field(default_factory=list)
+    default_dashboard_preset: DashboardPreset | None = None
+    data_scope: DashboardDataScope | None = None
     # Tryb rolloutu Analytics v1 (off|shadow|live) — frontend NIE wykonuje
     # requestów do /api/analytics/v1 dopóki tryb != live (fail-closed;
     # w shadow legacy UI pozostaje nietknięte — plan §8).

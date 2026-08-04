@@ -10,8 +10,8 @@ these sibling feeds did not. This locks the same behaviour on:
 - ``GET /api/contracts/{id}/activities``  (P2) — raw ``Activity.details``.
 - ``GET /api/contracts/{id}/rate-history``(P1) — raw ``rate`` amounts.
 
-Finance roles (admin / delivery_lead) still see the values; non-finance
-operational roles (recruiter / tac) get the rate-change rows omitted and any
+Admin still sees the values; non-finance operational roles (including Delivery
+Lead, recruiter and TAC) get the rate-change rows omitted and any
 residual finance keys stripped, and rate-history amounts redacted to ``None``.
 
 Pattern mirrors ``test_rbac.py`` / ``test_candidate_module_access.py``: in-process
@@ -162,10 +162,9 @@ def _find(items: list[dict], _id: int) -> dict | None:
 async def test_activities_feed_hides_rate_change_from_non_finance(
     leak_client: AsyncClient, seeded: dict
 ):
-    """recruiter: CLIENT_RATE_CHANGED row omitted; contract rate keys stripped.
-    delivery_lead: both rows present with rate values."""
+    """recruiter: rows redacted; admin: finance values retained."""
     rec_headers = await _login(leak_client, *await _seed_user(UserRole.recruiter))
-    fin_headers = await _login(leak_client, *await _seed_user(UserRole.delivery_lead))
+    fin_headers = await _login(leak_client, *await _seed_user(UserRole.admin))
 
     rec = await leak_client.get("/api/activities/feed?limit=100", headers=rec_headers)
     assert rec.status_code == 200, rec.text
@@ -196,7 +195,7 @@ async def test_recent_activity_hides_rate_change_from_non_finance(
     leak_client: AsyncClient, seeded: dict
 ):
     rec_headers = await _login(leak_client, *await _seed_user(UserRole.recruiter))
-    fin_headers = await _login(leak_client, *await _seed_user(UserRole.delivery_lead))
+    fin_headers = await _login(leak_client, *await _seed_user(UserRole.admin))
 
     rec = await leak_client.get(
         "/api/dashboard/recent-activity?limit=100", headers=rec_headers
@@ -224,10 +223,9 @@ async def test_recent_activity_hides_rate_change_from_non_finance(
 async def test_contract_activities_strip_rate_for_non_finance(
     leak_client: AsyncClient, seeded: dict
 ):
-    """tac (non-finance, but TacPlus): rate keys stripped from details.
-    delivery_lead (finance): rate keys present."""
+    """TAC has rate keys stripped; admin retains them."""
     tac_headers = await _login(leak_client, *await _seed_user(UserRole.tac))
-    fin_headers = await _login(leak_client, *await _seed_user(UserRole.delivery_lead))
+    fin_headers = await _login(leak_client, *await _seed_user(UserRole.admin))
     cid = seeded["contract_id"]
 
     tac = await leak_client.get(f"/api/contracts/{cid}/activities", headers=tac_headers)
@@ -252,9 +250,9 @@ async def test_contract_activities_strip_rate_for_non_finance(
 async def test_contract_rate_history_redacts_amount_for_non_finance(
     leak_client: AsyncClient, seeded: dict
 ):
-    """tac: rate is None (redacted), currency kept. delivery_lead: raw amount."""
+    """TAC gets a redacted rate; admin gets the raw amount."""
     tac_headers = await _login(leak_client, *await _seed_user(UserRole.tac))
-    fin_headers = await _login(leak_client, *await _seed_user(UserRole.delivery_lead))
+    fin_headers = await _login(leak_client, *await _seed_user(UserRole.admin))
     cid = seeded["contract_id"]
 
     tac = await leak_client.get(
@@ -264,7 +262,7 @@ async def test_contract_rate_history_redacts_amount_for_non_finance(
     tac_entry = _find(tac.json(), seeded["rate_history_id"])
     assert tac_entry is not None
     assert tac_entry["rate"] is None
-    assert tac_entry["currency"] == "PLN"
+    assert tac_entry["currency"] is None
 
     fin = await leak_client.get(
         f"/api/contracts/{cid}/rate-history", headers=fin_headers

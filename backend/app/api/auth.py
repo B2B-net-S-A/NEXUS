@@ -14,11 +14,14 @@ from app.core.security import (
     hash_password,
     verify_password,
     decode_token,
+    token_authorization_version_matches,
     token_is_revoked,
 )
 from app.models.activity import Activity
 from app.models.user import User, UserRole
 from app.schemas.user import (
+    DashboardDataScope,
+    DashboardPreset,
     LoginRequest,
     SelfRegisterRequest,
     TokenResponse,
@@ -40,8 +43,9 @@ from app.services.email_verification import (
     create_verification_token,
     verify_and_consume_token as verify_and_consume_verification_token,
 )
-from app.api.deps import CurrentUser
+from app.api.deps import AuthenticatedUser, ensure_exclusive_role_configuration
 from app.api.auth_microsoft import is_sso_configured
+from app.services.access_scope import resolve_dashboard_scope
 
 # Roles that must complete first-login onboarding before the frontend unlocks
 # the shell. Keep in sync with backend/app/api/onboarding.py.
@@ -86,6 +90,29 @@ _PASSWORD_LOGIN_DISABLED_DETAIL = (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
+    roles = set(user.get_all_roles())
+    if UserRole.admin in roles:
+        return [
+            "admin-ops",
+            "delivery-lead",
+            "head-of-recruitment",
+            "my-work",
+            "finance",
+        ]
+
+    presets: list[DashboardPreset] = []
+    if UserRole.finance in roles:
+        presets.append("finance")
+    if UserRole.head_of_recruitment in roles:
+        presets.append("head-of-recruitment")
+    if UserRole.delivery_lead in roles:
+        presets.append("delivery-lead")
+    if roles.intersection({UserRole.sourcer, UserRole.tac, UserRole.recruiter}):
+        presets.append("my-work")
+    return presets
 
 
 def _password_login_break_glass(email: str | None) -> bool:
@@ -245,8 +272,11 @@ async def login(
             user.role.value,
             force_password_change=user.force_password_change,
             roles=[r.value for r in user.get_all_roles()],
+            authorization_version=user.authorization_version,
         ),
-        refresh_token=create_refresh_token(user.id),
+        refresh_token=create_refresh_token(
+            user.id, authorization_version=user.authorization_version
+        ),
     )
 
 
@@ -331,15 +361,17 @@ async def register(
             await db.flush()
         return MessageResponse(detail=_REGISTER_GENERIC_DETAIL)
 
-    # New account. Viewer (``user``) is not in _ONBOARDING_REQUIRED_ROLES, so it
-    # is exempt from the first-login onboarding gate.
-    preexempt = UserRole.user not in _ONBOARDING_REQUIRED_ROLES
+    # A verified corporate-domain identity enters the operational Recruiter
+    # persona, but remains locked behind both email verification and mandatory
+    # role onboarding before any candidate/RODO surface is reachable.
+    default_role = UserRole.recruiter
+    preexempt = default_role not in _ONBOARDING_REQUIRED_ROLES
     user = User(
         email=email,
         password_hash=password_hash,
         name=data.name,
-        role=UserRole.user,
-        roles=[UserRole.user.value],
+        role=default_role,
+        roles=[default_role.value],
         is_active=True,
         email_verified=False,
         profile_completed=preexempt,
@@ -367,7 +399,7 @@ async def register(
             details={
                 "email": email,
                 "domain": domain,
-                "default_role": UserRole.user.value,
+                "default_role": default_role.value,
                 "ip": requester_ip,
             },
         )
@@ -483,25 +515,44 @@ async def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
         )
+    if not token_authorization_version_matches(payload, user.authorization_version):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
     return TokenResponse(
         access_token=create_access_token(
             user.id,
             user.role.value,
             force_password_change=user.force_password_change,
             roles=[r.value for r in user.get_all_roles()],
+            authorization_version=user.authorization_version,
         ),
-        refresh_token=create_refresh_token(user.id),
+        refresh_token=create_refresh_token(
+            user.id, authorization_version=user.authorization_version
+        ),
     )
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(current_user: CurrentUser):
+async def me(
+    current_user: AuthenticatedUser,
+    db: AsyncSession = Depends(get_db),
+):
     from app.analytics.capabilities import capabilities_for
 
+    # `/auth/me` intentionally stays reachable before onboarding, but an
+    # impossible Finance/viewer hybrid must not receive unioned capabilities
+    # or superadmin presets while an administrator repairs the account.
+    ensure_exclusive_role_configuration(current_user)
     response = UserResponse.model_validate(current_user)
-    response.analytics_capabilities = sorted(
-        cap.value for cap in capabilities_for(current_user)
-    )
+    capabilities = sorted(cap.value for cap in capabilities_for(current_user))
+    response.capabilities = capabilities
+    response.analytics_capabilities = capabilities
+    presets = _dashboard_presets_for(current_user)
+    response.available_dashboard_presets = presets
+    response.default_dashboard_preset = presets[0] if presets else None
+    scope = await resolve_dashboard_scope(current_user, db)
+    response.data_scope = DashboardDataScope(**scope.as_payload())
     response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
     return response
 
@@ -511,7 +562,7 @@ async def me(current_user: CurrentUser):
 async def change_password(
     request: Request,
     data: ChangePasswordRequest,
-    current_user: CurrentUser,
+    current_user: AuthenticatedUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Self-service password change.

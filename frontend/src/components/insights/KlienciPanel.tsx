@@ -40,7 +40,7 @@ export function KlienciPanel() {
   // zachowuje dostęp, spójnie z middleware /settings/hiring-managers.
   const canSeeHiringManagers = hasRole(user, "admin", "head_of_recruitment");
   // R0: SalesOverview pokazuje revenue/margin/MRR — TAC bez finansów.
-  const canSeeSales = hasRole(user, "admin", "delivery_lead");
+  const canSeeSales = hasRole(user, "admin");
   const canSeeHitRatio = hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac");
 
   return (

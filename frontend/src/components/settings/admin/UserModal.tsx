@@ -21,17 +21,29 @@ interface UserModalProps {
 
 export function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
   const isEdit = !!initial?.id;
-  const initialRoles =
+  const initialPrimary = initial?.role ?? "recruiter";
+  const rawInitialRoles =
     initial?.roles && initial.roles.length > 0
       ? initial.roles
       : initial?.role
         ? [initial.role]
         : ["recruiter"];
+  const initialRoles =
+    initialPrimary === "finance" || initialPrimary === "user"
+      ? [initialPrimary]
+      : Array.from(
+          new Set([
+            initialPrimary,
+            ...rawInitialRoles.filter(
+              (role) => role !== "finance" && role !== "user",
+            ),
+          ]),
+        );
   const [form, setForm] = useState<UserFormData>({
     name: initial?.name ?? "",
     email: initial?.email ?? "",
     password: "",
-    role: initial?.role ?? "recruiter",
+    role: initialPrimary,
     roles: initialRoles,
     recruiter_role: initial?.recruiter_role ?? "",
   });
@@ -39,8 +51,34 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
   const set = <K extends keyof UserFormData>(field: K, value: UserFormData[K]) =>
     setForm((f) => ({ ...f, [field]: value }));
 
+  const setPrimaryRole = (role: string) => {
+    setForm((f) => {
+      if (role === "finance" || role === "user") {
+        return { ...f, role, roles: [role], recruiter_role: "" };
+      }
+      const withoutExclusive = f.roles.filter(
+        (value) => value !== "finance" && value !== "user",
+      );
+      return {
+        ...f,
+        role,
+        roles: withoutExclusive.includes(role)
+          ? withoutExclusive
+          : [role, ...withoutExclusive],
+      };
+    });
+  };
+
   const toggleSecondaryRole = (role: string) => {
     setForm((f) => {
+      if (
+        f.role === "finance" ||
+        f.role === "user" ||
+        role === "finance" ||
+        role === "user"
+      ) {
+        return f;
+      }
       const has = f.roles.includes(role);
       const next = has ? f.roles.filter((r) => r !== role) : [...f.roles, role];
       if (!next.includes(f.role)) next.unshift(f.role);
@@ -109,10 +147,10 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
             <label className="block text-sm font-medium text-foreground mb-1">Rola podstawowa (primary)</label>
             <select
               value={form.role}
-              onChange={(e) => set("role", e.target.value)}
+              onChange={(e) => setPrimaryRole(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
-              {ROLES.map((r) => (
+              {ROLES.filter((r) => r !== "user").map((r) => (
                 <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
               ))}
             </select>
@@ -124,9 +162,15 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Dodatkowe role</label>
             <div className="space-y-1.5 border border-border rounded-lg px-3 py-2 max-h-44 overflow-y-auto">
-              {ROLES.map((r) => {
+              {ROLES.filter((r) => r !== "user" || r === form.role).map((r) => {
                 const isPrimary = r === form.role;
                 const checked = form.roles.includes(r);
+                const primaryIsExclusive =
+                  form.role === "finance" || form.role === "user";
+                const roleIsExclusive = r === "finance" || r === "user";
+                const exclusiveConflict =
+                  (primaryIsExclusive && r !== form.role) ||
+                  (!primaryIsExclusive && roleIsExclusive);
                 return (
                   <label
                     key={r}
@@ -138,7 +182,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
                     <input
                       type="checkbox"
                       checked={checked || isPrimary}
-                      disabled={isPrimary}
+                      disabled={isPrimary || exclusiveConflict}
                       onChange={() => toggleSecondaryRole(r)}
                       className="rounded border-border"
                     />
@@ -150,7 +194,9 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Hybrid usery (np. DL+TAC) zaznacz obie role. Primary jest zawsze
-              wybrana.
+              wybrana. Finanse i Viewer (legacy) są rolami wyłącznymi i nie
+              mogą być łączone z innymi; Viewer nie jest dostępny jako rola
+              dodatkowa.
             </p>
           </div>
 

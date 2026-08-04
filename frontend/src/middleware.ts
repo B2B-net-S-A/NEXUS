@@ -29,6 +29,7 @@ import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt"
 
 type UserRole =
   | "admin"
+  | "finance"
   | "head_of_recruitment"
   | "delivery_lead"
   | "tac"
@@ -48,10 +49,13 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
   // middleware nie ma dostępu do user object, tylko JWT payload).
   { prefix: "/dynareporter", roles: null },
-  // Granular admin-only podstrony settings (defense in depth) — kolejność nie ma
+  // Granularne podstrony settings (defense in depth) — kolejność nie ma
   // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
   { prefix: "/settings/chats", roles: ["admin"] },
-  { prefix: "/settings/team-structure", roles: ["admin"] },
+  {
+    prefix: "/settings/team-structure",
+    roles: ["admin", "head_of_recruitment"],
+  },
   { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
   // Audyt M7 PR-01 (P0.1): clients-overview pokazuje lifetime/active revenue —
   // dane finansowe (VIEW_FINANCE). HoR nie ma tej capability → admin-only,

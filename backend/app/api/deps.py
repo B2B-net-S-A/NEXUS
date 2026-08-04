@@ -7,8 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.security import decode_token, token_is_revoked
+from app.core.security import (
+    decode_token,
+    token_authorization_version_matches,
+    token_is_revoked,
+)
 from app.models.user import User, UserRole
+from app.services.onboarding_access import onboarding_persona_for_user
 
 # ``auto_error=False`` — świadomie, NIE domyślne zachowanie.
 #
@@ -96,16 +101,21 @@ async def _resolve_impersonation(
     return target
 
 
-async def get_current_user(
+async def get_authenticated_user(
     request: Request,
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Validate JWT token and return current user.
+    """Validate JWT token and return the authenticated user.
 
     Gdy admin wysyła nagłówek ``X-Impersonate-User-Id`` zwracamy usera
     podglądanego (read-only) zamiast właściciela tokenu — patrz sekcja
     „podgląd jako użytkownik" powyżej.
+
+    This raw dependency is deliberately limited to recovery/profile surfaces
+    that must remain reachable before first-login onboarding: ``/auth/me``,
+    ``/auth/change-password`` and the scoped onboarding read/write endpoints.
+    Domain routers must use ``get_current_user``/``CurrentUser`` below.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -137,11 +147,69 @@ async def get_current_user(
     # brak unieważnienia (istniejący userzy nie są dotknięci).
     if token_is_revoked(payload, user.tokens_valid_after):
         raise credentials_exception
+    # Tokens minted before the authorization-version cutover had no ``av`` and
+    # are invalid by construction. The migration starts every account at 1.
+    if not token_authorization_version_matches(payload, user.authorization_version):
+        raise credentials_exception
 
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
     if impersonate_raw:
         return await _resolve_impersonation(request, user, impersonate_raw, db)
     return user
+
+
+def ensure_exclusive_role_configuration(current_user: User) -> User:
+    """Reject impossible Finance/viewer hybrids before any domain access."""
+    try:
+        current_user.ensure_exclusive_roles()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="invalid_exclusive_role_configuration",
+        ) from exc
+    return current_user
+
+
+def ensure_onboarding_complete(current_user: User) -> User:
+    """Fail closed for recruiter/DL domain access until onboarding completes."""
+
+    ensure_exclusive_role_configuration(current_user)
+    if (
+        onboarding_persona_for_user(current_user) is not None
+        and not current_user.profile_completed
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="onboarding_required",
+        )
+    return current_user
+
+
+async def get_current_user(
+    request: Request,
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Authenticate and enforce the global first-login domain boundary.
+
+    Keeping this public dependency name preserves existing FastAPI dependency
+    overrides and manual callers while making every legacy ``CurrentUser`` and
+    direct ``Depends(get_current_user)`` route onboarding-aware.
+    """
+
+    current_user = await get_authenticated_user(request, credentials, db)
+    return ensure_onboarding_complete(current_user)
+
+
+async def require_onboarded_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Backwards-compatible named guard built on the global boundary."""
+
+    return ensure_onboarding_complete(current_user)
+
+
+OnboardedUser = Annotated[User, Depends(require_onboarded_user)]
 
 
 def require_roles(*roles: UserRole):
@@ -153,8 +221,14 @@ def require_roles(*roles: UserRole):
     delivery_lead+TAC user passes both ``DeliveryLeadPlus`` and ``TacPlus``.
     """
 
-    async def _check_role(current_user: User = Depends(get_current_user)) -> User:
-        if not current_user.has_any_role(*roles):
+    async def _check_role(
+        current_user: User = Depends(require_onboarded_user),
+    ) -> User:
+        # Admin jest rzeczywistym superadminem także dla guardów, które historycznie
+        # omijały go przez ręczne listy ról.
+        if not current_user.has_role(UserRole.admin) and not current_user.has_any_role(
+            *roles
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires one of roles: {[r.value for r in roles]}",
@@ -172,8 +246,9 @@ def require_roles(*roles: UserRole):
 #   tac            (3) — CRUD ofert/kontraktów, reject/offer, prep kit
 #   recruiter      (2) — dodawanie kandydatów, ruchy w pipeline
 #   sourcer        (2) — dodawanie kandydatów z ATS/ogłoszeń
-#   user           (1) — read-only viewer (QC, klient)
+#   finance        — wydzielona persona finansowa
 
+AuthenticatedUser = Annotated[User, Depends(get_authenticated_user)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 AdminUser = Annotated[User, Depends(require_roles(UserRole.admin))]
@@ -236,10 +311,11 @@ RecruiterPlus = Annotated[
     ),
 ]
 
-# R0 (plan analytics 2026-07-16): każdy operacyjny — czyli wszyscy POZA
-# read-only viewerem `user` (QC/klient). W odróżnieniu od RecruiterPlus
-# zawiera head_of_recruitment. Do feedów/danych z PII kandydatów, które nie
-# są „bezpiecznymi agregatami", ale też nie wymagają konkretnej roli.
+# R0 (plan analytics 2026-07-16): każdy operacyjny — czyli wszyscy poza
+# wycofywanym viewerem `user` oraz ekskluzywną personą Finance. W odróżnieniu
+# od RecruiterPlus zawiera head_of_recruitment. Do feedów/danych z PII
+# kandydatów, które nie są „bezpiecznymi agregatami", ale też nie wymagają
+# konkretnej roli.
 OperationalUser = Annotated[
     User,
     Depends(

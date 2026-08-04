@@ -27,6 +27,7 @@ def create_access_token(
     expires_delta: Optional[timedelta] = None,
     force_password_change: bool = False,
     roles: Optional[list[str]] = None,
+    authorization_version: int = 1,
 ) -> str:
     """Create a JWT access token.
 
@@ -50,6 +51,7 @@ def create_access_token(
         "type": "access",
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "av": authorization_version,
     }
     if roles:
         payload["roles"] = roles
@@ -58,7 +60,9 @@ def create_access_token(
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(subject: Union[str, int]) -> str:
+def create_refresh_token(
+    subject: Union[str, int], authorization_version: int = 1
+) -> str:
     """Create a JWT refresh token (longer-lived, no role)."""
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
@@ -68,8 +72,19 @@ def create_refresh_token(subject: Union[str, int]) -> str:
         "type": "refresh",
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "av": authorization_version,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
+
+
+def token_authorization_version_matches(
+    payload: dict,
+    current_version: int,
+) -> bool:
+    """Require the signed JWT to carry the exact current integer version."""
+
+    raw = payload.get("av")
+    return type(raw) is int and raw == current_version
 
 
 def decode_token(token: str) -> dict:

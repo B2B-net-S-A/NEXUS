@@ -9,7 +9,7 @@ in-process surface):
 - **F-07** — ``GET /api/pipeline/overview`` is gated to ``OperationalUser``:
   the read-only ``user`` viewer gets 403; operational roles get 200.
 - **F-13** — the ``client_orders`` GET endpoints redact rate/margin fields for
-  callers without ``VIEW_FINANCE`` (admin + delivery_lead), and
+  callers without ``VIEW_FINANCE`` (only Finance/Admin have it), and
   ``list_contracts`` ignores rate/margin FILTERS for non-finance callers so the
   filter cannot be used as an oracle to binary-search a hidden rate.
 
@@ -33,23 +33,49 @@ _TODAY = date.today()
 # ── Shared helpers ───────────────────────────────────────────────────────────
 
 
-async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, str]:
+async def _headers_for(
+    app_client: AsyncClient,
+    role_value: str,
+    *,
+    assigned_client_id: int | None = None,
+) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
+    from app.models.team_structure import (
+        ClientTacAssignment,
+        DeliveryLeadClientAssignment,
+    )
     from app.models.user import User, UserRole
 
     email = f"guard-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
     password = f"P4ss_{uuid.uuid4().hex[:6]}!"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Guard {role_value}",
-                role=UserRole(role_value),
-                is_active=True,
-            )
+        role = UserRole(role_value)
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Guard {role_value}",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+            profile_completed=True,
         )
+        db.add(user)
+        await db.flush()
+        if assigned_client_id is not None and role is UserRole.delivery_lead:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=assigned_client_id,
+                )
+            )
+        elif assigned_client_id is not None and role is UserRole.tac:
+            db.add(
+                ClientTacAssignment(
+                    tac_user_id=user.id,
+                    client_id=assigned_client_id,
+                )
+            )
         await db.commit()
     login = await app_client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -194,7 +220,11 @@ async def test_client_orders_list_redacted_for_non_finance(
     app_client: AsyncClient,
 ) -> None:
     client_id, _order_id, contract_id = await _seed_client_order()
-    tac = await _headers_for(app_client, "tac")
+    tac = await _headers_for(
+        app_client,
+        "tac",
+        assigned_client_id=client_id,
+    )
 
     resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=tac)
     assert resp.status_code == 200, resp.text
@@ -210,13 +240,18 @@ async def test_client_orders_list_redacted_for_non_finance(
     assert order_row["rate_client"] is None
     assert order_row["total_value"] is None
     assert order_row["monthly_margin"] is None
+    assert order_row["currency"] is None
 
 
-async def test_client_orders_list_shows_finance_to_delivery_lead(
+async def test_client_orders_list_redacts_finance_from_delivery_lead(
     app_client: AsyncClient,
 ) -> None:
     client_id, _order_id, contract_id = await _seed_client_order()
-    dl = await _headers_for(app_client, "delivery_lead")
+    dl = await _headers_for(
+        app_client,
+        "delivery_lead",
+        assigned_client_id=client_id,
+    )
 
     resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=dl)
     assert resp.status_code == 200, resp.text
@@ -225,14 +260,18 @@ async def test_client_orders_list_shows_finance_to_delivery_lead(
         None,
     )
     assert row is not None
-    assert row["rate_candidate"] is not None
-    assert row["latest_order_rate_client"] is not None
-    assert row["latest_order_monthly_margin"] is not None
+    assert row["rate_candidate"] is None
+    assert row["latest_order_rate_client"] is None
+    assert row["latest_order_monthly_margin"] is None
 
 
 async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> None:
     client_id, order_id, _contract_id = await _seed_client_order()
-    tac = await _headers_for(app_client, "tac")
+    tac = await _headers_for(
+        app_client,
+        "tac",
+        assigned_client_id=client_id,
+    )
 
     resp = await app_client.get(
         f"/api/clients/{client_id}/orders/{order_id}", headers=tac
@@ -243,22 +282,68 @@ async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> No
     assert body["rate_client"] is None
     assert body["total_value"] is None
     assert body["monthly_margin"] is None
+    assert body["currency"] is None
 
 
-async def test_get_order_shows_finance_to_delivery_lead(
+async def test_get_order_redacts_finance_from_delivery_lead(
     app_client: AsyncClient,
 ) -> None:
     client_id, order_id, _contract_id = await _seed_client_order()
-    dl = await _headers_for(app_client, "delivery_lead")
+    dl = await _headers_for(
+        app_client,
+        "delivery_lead",
+        assigned_client_id=client_id,
+    )
 
     resp = await app_client.get(
         f"/api/clients/{client_id}/orders/{order_id}", headers=dl
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["rate_client"] is not None
-    assert body["total_value"] is not None
-    assert body["monthly_margin"] is not None
+    assert body["rate_client"] is None
+    assert body["total_value"] is None
+    assert body["monthly_margin"] is None
+    assert body["currency"] is None
+
+
+async def test_client_order_reads_require_explicit_dl_or_tac_assignment(
+    app_client: AsyncClient,
+) -> None:
+    client_id, order_id, _contract_id = await _seed_client_order()
+
+    for role in ("delivery_lead", "tac"):
+        unassigned = await _headers_for(app_client, role)
+        for path in (
+            f"/api/clients/{client_id}/orders",
+            f"/api/clients/{client_id}/orders/{order_id}",
+            f"/api/clients/{client_id}/orders/{order_id}/file",
+        ):
+            denied = await app_client.get(path, headers=unassigned)
+            assert denied.status_code == 403, (
+                f"{role} without explicit client assignment read {path}: "
+                f"{denied.status_code} {denied.text}"
+            )
+
+        assigned = await _headers_for(
+            app_client,
+            role,
+            assigned_client_id=client_id,
+        )
+        allowed_list = await app_client.get(
+            f"/api/clients/{client_id}/orders",
+            headers=assigned,
+        )
+        assert allowed_list.status_code == 200, allowed_list.text
+        allowed_detail = await app_client.get(
+            f"/api/clients/{client_id}/orders/{order_id}",
+            headers=assigned,
+        )
+        assert allowed_detail.status_code == 200, allowed_detail.text
+        missing_file = await app_client.get(
+            f"/api/clients/{client_id}/orders/{order_id}/file",
+            headers=assigned,
+        )
+        assert missing_file.status_code == 404, missing_file.text
 
 
 # ── F-13: list_contracts filters ignored for non-finance (no oracle) ─────────
@@ -330,20 +415,22 @@ async def test_list_contracts_rate_filter_ignored_for_non_finance(
 async def test_list_contracts_rate_filter_applies_for_finance(
     app_client: AsyncClient,
 ) -> None:
-    """For delivery_lead (VIEW_FINANCE) the rate filter is honoured."""
+    """For admin (VIEW_FINANCE) the rate filter is honoured."""
     client_id, contract_id = await _seed_contract_for_client()
-    dl = await _headers_for(app_client, "delivery_lead")
+    admin = await _headers_for(app_client, "admin")
 
     # Above the real rate → excluded.
     excluded = await app_client.get(
         f"/api/contracts?client_id={client_id}&rate_client_min=999999",
-        headers=dl,
+        headers=admin,
     )
     assert excluded.status_code == 200, excluded.text
     assert contract_id not in {c["id"] for c in excluded.json()["items"]}
 
     # No rate filter → present, with rates visible.
-    present = await app_client.get(f"/api/contracts?client_id={client_id}", headers=dl)
+    present = await app_client.get(
+        f"/api/contracts?client_id={client_id}", headers=admin
+    )
     assert present.status_code == 200, present.text
     row = next((c for c in present.json()["items"] if c["id"] == contract_id), None)
     assert row is not None

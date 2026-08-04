@@ -20,12 +20,14 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -83,8 +85,15 @@ class UserCompetenceCategory(Base):
     __tablename__ = "user_competence_categories"
     __table_args__ = (
         UniqueConstraint("user_id", "competence_category_id", name="uq_user_cc"),
+        CheckConstraint("priority IN (1, 2)", name="ck_user_cc_priority"),
         CheckConstraint(
-            "priority IS NULL OR priority IN (1, 2)", name="ck_user_cc_priority"
+            "is_primary = (priority = 1)", name="ck_user_cc_primary_priority"
+        ),
+        Index(
+            "ux_user_cc_one_primary",
+            "user_id",
+            unique=True,
+            postgresql_where=text("priority = 1"),
         ),
     )
 
@@ -98,10 +107,15 @@ class UserCompetenceCategory(Base):
         index=True,
     )
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # Sourcer priority w kategorii: 1 = 1st priority, 2 = 2nd priority,
-    # NULL = nieokreślony (backward-compat). Używane w macierzy
-    # "Sourcerzy × Kategoria" na panelu Head of Recruitment.
-    priority: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    # 1 = primary competence for this operator; 2 = secondary competence.
+    # Migration 0210 reconciles legacy NULL/inconsistent rows and enforces one
+    # priority=1 row per user with a partial unique index.
+    priority: Mapped[int] = mapped_column(
+        SmallInteger,
+        default=2,
+        server_default="2",
+        nullable=False,
+    )
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

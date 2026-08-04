@@ -38,11 +38,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    token_authorization_version_matches,
+    token_is_revoked,
+)
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
+from app.services.aad_role_policy import (
+    InvalidAadRoleMapping,
+    fail_closed_invalid_aad_mapping,
+    validate_aad_mapped_roles,
+)
+from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
 from app.services.m365 import oauth as m365_oauth
+from app.services.onboarding_access import onboarding_persona_changed
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +100,33 @@ _STATE_PURPOSE = "sso_login"
 _STATE_TTL_SECONDS = 600  # 10 minutes — same as mailbox flow.
 
 _EXCHANGE_TTL_SECONDS = 60
+
+
+def _exchange_tokens_are_current(
+    access_token: str,
+    refresh_token: str,
+    *,
+    user_id: int,
+    authorization_version: int,
+    tokens_valid_after: Optional[datetime],
+) -> bool:
+    """Validate both bearer tokens before an SSO handoff leaves the backend."""
+
+    try:
+        access_payload = decode_token(access_token)
+        refresh_payload = decode_token(refresh_token)
+    except JWTError:
+        return False
+    return bool(
+        access_payload.get("sub") == str(user_id)
+        and access_payload.get("type") == "access"
+        and token_authorization_version_matches(access_payload, authorization_version)
+        and not token_is_revoked(access_payload, tokens_valid_after)
+        and refresh_payload.get("sub") == str(user_id)
+        and refresh_payload.get("type") == "refresh"
+        and token_authorization_version_matches(refresh_payload, authorization_version)
+        and not token_is_revoked(refresh_payload, tokens_valid_after)
+    )
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
@@ -285,6 +325,10 @@ def _frontend_login_error_url(reason: str) -> str:
     return f"{base}/login?{urlencode({'error': reason[:120]})}"
 
 
+_MICROSOFT_SIGN_IN_ERROR = "Microsoft sign-in failed. Try again."
+_AAD_GROUP_LOOKUP_ERROR = "Microsoft role lookup failed. Contact administrator."
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
@@ -322,9 +366,9 @@ async def callback(
     POSTs that uuid to ``/exchange``). On error: redirect to ``/login?error=...``.
     """
     if error:
-        logger.info("sso callback error: %s — %s", error, error_description)
+        logger.info("sso callback returned provider error (details redacted)")
         return RedirectResponse(
-            _frontend_login_error_url(error_description or error), status_code=302
+            _frontend_login_error_url(_MICROSOFT_SIGN_IN_ERROR), status_code=302
         )
     if not code or not state:
         return RedirectResponse(
@@ -341,10 +385,10 @@ async def callback(
 
     try:
         token_payload = await _exchange_code_for_id_token(code, pkce_verifier)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("sso code exchange failed")
+    except Exception:  # noqa: BLE001
+        logger.error("sso code exchange failed (details redacted)")
         return RedirectResponse(
-            _frontend_login_error_url(f"Token exchange failed: {exc!r}"),
+            _frontend_login_error_url(_MICROSOFT_SIGN_IN_ERROR),
             status_code=302,
         )
 
@@ -380,22 +424,16 @@ async def callback(
     result = await db.execute(select(User).where(User.email == email_lower))
     user = result.scalar_one_or_none()
     if user is None:
-        # First-time SSO users self-provision as the least-privileged
-        # read-only viewer (``UserRole.user``), NOT an active recruiter.
-        # The domain whitelist only proves the email belongs to the corp
-        # tenant — it says nothing about whether that person should have
-        # candidate/RODO write access. AAD group RBAC (the authoritative
-        # role source) is deliberately hard-disabled, so a recruiter default
-        # would grant full write access gated by domain alone. An admin
-        # promotes real recruiters via Settings → Admin → Users. The account
-        # is still ``is_active=True`` so the viewer CAN log in (read-only),
-        # they are simply not blocked.
+        # First-time users from the verified corporate-domain allowlist enter
+        # the Recruiter persona. They remain behind mandatory onboarding, and
+        # an enabled AAD role mapping below stays authoritative and may replace
+        # this bootstrap role before the first session is issued.
         user = User(
             email=email_lower,
             name=name,
             password_hash=None,  # SSO-only — no bcrypt hash.
-            role=UserRole.user,
-            roles=[UserRole.user.value],
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
             is_active=True,
             profile_completed=False,
             oauth_provider="microsoft",
@@ -412,10 +450,11 @@ async def callback(
         # placeholder user_id=0 (system action — no admin actor).
         await db.flush()  # populate user.id for the Activity FK
         logger.info(
-            "sso new-user provisioned as read-only viewer: email=%s domain=%s role=%s",
+            "sso new-user provisioned behind recruiter onboarding: "
+            "email=%s domain=%s role=%s",
             email_lower,
             domain,
-            UserRole.user.value,
+            UserRole.recruiter.value,
         )
         db.add(
             Activity(
@@ -428,7 +467,7 @@ async def callback(
                     "domain": domain,
                     "provider": "microsoft",
                     "azure_oid": azure_oid,
-                    "default_role": UserRole.user.value,
+                    "default_role": UserRole.recruiter.value,
                 },
             )
         )
@@ -471,6 +510,10 @@ async def callback(
                 "sso callback: AAD RBAC enabled but Microsoft returned no "
                 "access_token — check GroupMember.Read.All consent in Azure app."
             )
+            # ``get_db`` commits after a normal route return. Roll back the
+            # provisional user/identity link so an unavailable authoritative
+            # AAD source can never persist the bootstrap Recruiter role.
+            await db.rollback()
             return RedirectResponse(
                 _frontend_login_error_url(
                     "AAD RBAC misconfigured (no Graph token). Contact administrator."
@@ -479,17 +522,30 @@ async def callback(
             )
         try:
             groups = await fetch_user_groups(graph_access_token)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("sso callback: AAD memberOf fetch failed")
+        except Exception:  # noqa: BLE001
+            logger.error("sso callback: AAD memberOf fetch failed (details redacted)")
+            await db.rollback()
             return RedirectResponse(
-                _frontend_login_error_url(f"AAD group lookup failed: {exc!r}"[:120]),
+                _frontend_login_error_url(_AAD_GROUP_LOOKUP_ERROR),
                 status_code=302,
             )
 
+        # Keep the authoritative membership snapshot even when the role map is
+        # malformed. The invalid-mapping branch commits it together with the
+        # deactivation and audit record.
+        user.aad_group_ids = groups
         try:
             mapping = settings.aad_group_role_map
-        except ValueError:
+        except ValueError as exc:
             logger.exception("sso callback: AAD_GROUP_ROLE_MAP_JSON invalid")
+            await fail_closed_invalid_aad_mapping(
+                db,
+                user,
+                actor_user_id=user.id,
+                action="sso_aad_role_mapping_invalid",
+                reason=str(exc),
+                details={"aad_group_count": len(groups)},
+            )
             return RedirectResponse(
                 _frontend_login_error_url(
                     "AAD role mapping misconfigured. Contact administrator."
@@ -498,15 +554,14 @@ async def callback(
             )
 
         role_strs = map_groups_to_roles([g["id"] for g in groups], mapping)
-        # Snapshot ALL group memberships (not just the matched one) — used
-        # later by admin audit and the resync endpoint, which only needs to
-        # re-evaluate the mapping against already-stored ids.
-        user.aad_group_ids = groups
 
         if not role_strs:
             # No NEXUS role granted by any AAD group → block login.
             # We also flip is_active=false so subsequent password-based
             # login attempts (if any password_hash still exists) also fail.
+            if user.is_active:
+                user.authorization_version += 1
+                user.tokens_valid_after = datetime.now(timezone.utc)
             user.is_active = False
             await db.flush()
             db.add(
@@ -531,11 +586,54 @@ async def callback(
                 status_code=302,
             )
 
+        try:
+            unique_role_strs, mapped_roles = validate_aad_mapped_roles(role_strs)
+        except InvalidAadRoleMapping as exc:
+            logger.error(
+                "sso callback: invalid matched AAD roles=%s: %s",
+                role_strs,
+                exc,
+            )
+            await fail_closed_invalid_aad_mapping(
+                db,
+                user,
+                actor_user_id=user.id,
+                action="sso_aad_role_mapping_invalid",
+                reason=str(exc),
+                mapped_roles=role_strs,
+                details={"aad_group_count": len(groups)},
+            )
+            return RedirectResponse(
+                _frontend_login_error_url(
+                    "AAD role mapping is invalid. Contact administrator."
+                ),
+                status_code=302,
+            )
+
         # Multi-role assignment (migracja 0110): first match is primary
         # (writes ``users.role`` for legacy code), full ordered list is
         # written to ``users.roles``. Only audit primary-role transitions.
-        new_role = UserRole(role_strs[0])
+        role_strs = unique_role_strs
+        new_role = mapped_roles[0]
         prior_roles = list(user.roles or [])
+        prior_effective_roles = [role.value for role in user.get_all_roles()]
+        onboarding_reset = onboarding_persona_changed(
+            prior_effective_roles,
+            role_strs,
+        )
+        entering_finance = (
+            new_role == UserRole.finance
+            and UserRole.finance.value not in prior_effective_roles
+        )
+        legacy_sections_reset = new_role == UserRole.finance and bool(
+            user.allowed_sections
+        )
+        authorization_changed = (
+            user.role != new_role
+            or prior_roles != role_strs
+            or not user.is_active
+            or legacy_sections_reset
+        )
         if user.role != new_role:
             db.add(
                 Activity(
@@ -569,7 +667,36 @@ async def callback(
                 )
             )
             user.roles = role_strs
+        if onboarding_reset:
+            user.profile_completed = False
+            user.profile_completed_at = None
+        if new_role == UserRole.finance:
+            user.allowed_sections = []
+            user.kpi_coach_enabled = False
+            user.cloudtalk_agent_id = None
+            user.profile_completed = True
+            user.profile_completed_at = user.profile_completed_at or datetime.now(
+                timezone.utc
+            )
         user.is_active = True
+        if authorization_changed:
+            user.authorization_version += 1
+            user.tokens_valid_after = datetime.now(timezone.utc)
+        if entering_finance:
+            cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="finance_recruitment_access_cleared",
+                    user_id=user.id,
+                    details={
+                        "target_email": user.email,
+                        "source": "aad_login",
+                        "counts": cleanup_counts,
+                    },
+                )
+            )
 
     # ``force_password_change`` is a PASSWORD-login concept: it gates the app to
     # make a user rotate an admin-set temporary password. A Microsoft SSO login
@@ -594,8 +721,11 @@ async def callback(
         user.role.value,
         force_password_change=user.force_password_change,
         roles=[r.value for r in user.get_all_roles()],
+        authorization_version=user.authorization_version,
     )
-    refresh = create_refresh_token(user.id)
+    refresh = create_refresh_token(
+        user.id, authorization_version=user.authorization_version
+    )
 
     # Stash behind a short-lived UUID (frontend will POST it back).
     exchange_code = secrets.token_urlsafe(40)
@@ -605,6 +735,7 @@ async def callback(
             user_id=user_id,
             access_token=access,
             refresh_token=refresh,
+            issued_authorization_version=user.authorization_version,
             expires_at=datetime.now(timezone.utc)
             + timedelta(seconds=_EXCHANGE_TTL_SECONDS),
             consumed_at=None,
@@ -628,14 +759,19 @@ async def exchange(
 ) -> ExchangeResponse:
     """Trade the one-time UUID code for the real Nexus JWTs."""
     now = datetime.now(timezone.utc)
-    # Atomic consume: DELETE the row and take its contents in one statement.
-    # Two wins over the previous read-then-stamp:
+    # Atomic consume: DELETE the row only while its issuing authorization
+    # version still matches an active user, and take its contents in the same
+    # statement. Referencing ``users`` makes SQLAlchemy emit PostgreSQL
+    # ``DELETE ... USING users``; there is no read/check/delete race.
+    # Three wins over the previous read-then-stamp:
     #  1. `WHERE consumed_at IS NULL` makes consumption single-flight — two
     #     concurrent exchanges cannot both succeed (the loser deletes zero rows).
     #  2. DELETE (not stamp consumed_at) removes the plaintext access/refresh
     #     JWTs from the table the instant they are handed over. They were only
     #     ever needed for the ~60s handoff; keeping consumed rows around left a
     #     growing pile of live bearer tokens in cleartext at rest.
+    #  3. A role/status change between callback and exchange invalidates the
+    #     handoff before either bearer token can leave the backend.
     consumed = (
         await db.execute(
             delete(AuthExchangeCode)
@@ -643,28 +779,63 @@ async def exchange(
                 AuthExchangeCode.code == payload.code,
                 AuthExchangeCode.consumed_at.is_(None),
                 AuthExchangeCode.expires_at > now,
+                AuthExchangeCode.user_id == User.id,
+                User.is_active.is_(True),
+                AuthExchangeCode.issued_authorization_version
+                == User.authorization_version,
             )
             .returning(
                 AuthExchangeCode.user_id,
                 AuthExchangeCode.access_token,
                 AuthExchangeCode.refresh_token,
+                AuthExchangeCode.issued_authorization_version,
             )
+            .execution_options(synchronize_session=False)
         )
     ).first()
     if consumed is None:
+        # A stale/inactive/expired handoff is no longer useful and still stores
+        # plaintext JWTs. Purge it without revealing which condition failed.
+        await db.execute(
+            delete(AuthExchangeCode).where(AuthExchangeCode.code == payload.code)
+        )
+        await db.commit()
         raise HTTPException(
             status.HTTP_410_GONE,
             detail="Exchange code unknown, expired or already consumed",
         )
-    user_id, access, refresh = consumed
+    user_id, access, refresh, issued_authorization_version = consumed
 
     # Opportunistic cleanup: drop any codes that expired without being consumed,
     # so abandoned handoffs do not accumulate plaintext JWTs indefinitely.
     await db.execute(delete(AuthExchangeCode).where(AuthExchangeCode.expires_at <= now))
 
     user = await db.scalar(select(User).where(User.id == user_id))
-    if user is None or not user.is_active:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="User no longer active")
+    still_current = (
+        user is not None
+        and user.is_active
+        and user.authorization_version == issued_authorization_version
+    )
+    if still_current:
+        assert user is not None
+        tokens_current = _exchange_tokens_are_current(
+            access,
+            refresh,
+            user_id=user_id,
+            authorization_version=issued_authorization_version,
+            tokens_valid_after=user.tokens_valid_after,
+        )
+    else:
+        tokens_current = False
+    if not tokens_current:
+        # Commit the atomic DELETE before returning an error; otherwise the DB
+        # dependency rollback would resurrect a malformed/stale bearer handoff.
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code unknown, expired or already consumed",
+        )
+    assert user is not None  # narrowed by ``still_current`` above
     summary = SsoUserSummary(
         id=user.id,
         email=user.email,

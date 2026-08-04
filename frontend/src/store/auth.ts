@@ -9,6 +9,7 @@ import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
 
 export type UserRole =
   | "admin"
+  | "finance"
   | "head_of_recruitment"
   | "delivery_lead"
   | "tac"
@@ -22,6 +23,10 @@ export type UserRole =
 // admina — wg backend/app/models/user.py).
 export const ROLE_RANK: Record<UserRole, number> = {
   admin: 5,
+  // Finance jest rolą rozłączną od hierarchii operacyjnej. Wartość służy
+  // wyłącznie kompatybilności ze starym helperem hasMinRole; nowe bramki
+  // finansowe zawsze używają capabilities / exact-role.
+  finance: 0,
   head_of_recruitment: 4.5,
   delivery_lead: 4,
   tac: 3,
@@ -32,6 +37,7 @@ export const ROLE_RANK: Record<UserRole, number> = {
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Admin",
+  finance: "Finanse",
   head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
   tac: "TAC",
@@ -56,7 +62,30 @@ export type DynaReporterSection =
   | "mindy"
   | "admin"
 
-interface User {
+export type DashboardPreset =
+  | "admin-ops"
+  | "delivery-lead"
+  | "head-of-recruitment"
+  | "my-work"
+  | "finance"
+
+export interface DataScope {
+  kind: "organization" | "recruitment_org" | "delivery_clients" | "self"
+  user_id: number | null
+  allowed_client_ids: number[]
+  allowed_tac_user_ids: number[]
+  allowed_operator_user_ids: number[]
+  /**
+   * Authoritative Delivery Lead relationships. Optional only for hydration
+   * from pre-cutover localStorage; a missing value must be treated as empty.
+   */
+  allowed_client_tac_pairs?: Array<{
+    client_id: number
+    tac_user_id: number
+  }>
+}
+
+export interface User {
   id: number
   email: string
   name: string
@@ -90,6 +119,15 @@ interface User {
    *  do routingu i gate'owania zapytań (fail-closed przy braku pola) —
    *  twarde guardy siedzą na backendzie. */
   analytics_capabilities?: string[]
+  /** Autorytatywne capabilities z GET /api/auth/me. */
+  capabilities?: string[]
+  /** Kanoniczna lista presetów i preset domyślny z GET /api/auth/me. */
+  available_dashboard_presets?: DashboardPreset[]
+  default_dashboard_preset?: DashboardPreset | null
+  /** Wersja polityki autoryzacji, przydatna do invalidacji cache. */
+  authorization_version?: number
+  /** Jawny zakres danych; frontend używa go tylko do UX i query keys. */
+  data_scope?: DataScope
   /** Tryb rolloutu Analytics v1 (off|shadow|live) z GET /api/auth/me.
    *  Frontend pyta /api/analytics/v1 tylko przy "live" (fail-closed). */
   analytics_v1_mode?: string
@@ -102,13 +140,48 @@ export const ONBOARDING_REQUIRED_ROLES: ReadonlySet<UserRole> = new Set([
   "recruiter",
 ])
 
+export type OnboardingPersona = "delivery_lead" | "recruiter"
+
+/** Canonical onboarding persona from the complete multi-role set.
+ *  DL wins over Recruiter for a hybrid; Admin is exempt. */
+export function onboardingPersona(
+  user: Pick<User, "role" | "roles"> | null | undefined
+): OnboardingPersona | null {
+  const roles = new Set(getUserRoles(user))
+  if (roles.has("admin")) return null
+  if (roles.has("delivery_lead")) return "delivery_lead"
+  if (roles.has("recruiter")) return "recruiter"
+  return null
+}
+
 export function requiresOnboarding(
-  user: Pick<User, "role" | "profile_completed"> | null | undefined
+  user: Pick<User, "role" | "roles" | "profile_completed"> | null | undefined
 ): boolean {
   if (!user) return false
-  return (
-    ONBOARDING_REQUIRED_ROLES.has(user.role) && !user.profile_completed
-  )
+  return onboardingPersona(user) !== null && !user.profile_completed
+}
+
+type PostLoginUser = Pick<
+  User,
+  "role" | "roles" | "profile_completed" | "force_password_change"
+>
+
+/** Password rotation is the first recovery gate; onboarding resumes afterwards. */
+export function shouldRouteToOnboarding(
+  user: PostLoginUser | null | undefined,
+): boolean {
+  return user?.force_password_change !== true && requiresOnboarding(user)
+}
+
+export function postLoginDestination(
+  user: PostLoginUser | null | undefined,
+  fallback = "/",
+): string {
+  if (user?.force_password_change === true) {
+    return "/profile?force_password_change=1"
+  }
+  if (shouldRouteToOnboarding(user)) return "/onboarding"
+  return fallback
 }
 
 // ── Role helpers ────────────────────────────────────────────────────────────
@@ -179,11 +252,32 @@ export function hasSection(
  * admin_analytics.
  */
 export function hasAnalyticsCapability(
-  user: Pick<User, "analytics_capabilities"> | null | undefined,
+  user: Pick<User, "analytics_capabilities" | "capabilities"> | null | undefined,
   capability: string
 ): boolean {
   if (!user) return false
-  return (user.analytics_capabilities ?? []).includes(capability)
+  return (
+    (user.capabilities ?? []).includes(capability) ||
+    (user.analytics_capabilities ?? []).includes(capability)
+  )
+}
+
+/**
+ * Candidate-bearing contract/order resources combine recruitment PII with
+ * rates. Finance works through person-free finance APIs, so even a finance
+ * capability is insufficient here: only an Admin with the backend-issued
+ * manage_finance capability may see or submit these fields.
+ */
+export function canManageCandidateFinance(
+  user:
+    | Pick<User, "role" | "roles" | "analytics_capabilities" | "capabilities">
+    | null
+    | undefined
+): boolean {
+  return (
+    hasRole(user, "admin") &&
+    hasAnalyticsCapability(user, "manage_finance")
+  )
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────

@@ -72,7 +72,7 @@ export function StatsBoundary({
   if (state === "refreshing" || state === "stale") {
     return (
       <div className={cn("relative", className)}>
-        <div className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md bg-[hsl(var(--muted))] px-2 py-0.5 text-[10px] text-muted-foreground">
+        <div className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
           <RefreshCw className="h-3 w-3 animate-spin" />
           {state === "stale" ? "dane mogą być nieaktualne" : "odświeżanie…"}
         </div>
@@ -84,7 +84,7 @@ export function StatsBoundary({
   if (state === "partial") {
     return (
       <div className={className}>
-        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-[#7a4c0d]">
+        <div className="mb-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div>
             <p className="font-semibold">Dane częściowe</p>
@@ -106,7 +106,7 @@ export function StatsBoundary({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[hsl(var(--border))] px-4 py-8 text-center",
+        "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-8 text-center",
         className
       )}
     >
@@ -126,7 +126,7 @@ export function StatsBoundary({
         <button
           type="button"
           onClick={onRetry}
-          className="mt-1 inline-flex items-center gap-1 rounded-md border border-[hsl(var(--border))] px-2.5 py-1 text-xs font-medium text-foreground hover:bg-[hsl(var(--muted))]"
+          className="mt-1 inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
         >
           <RefreshCw className="h-3 w-3" /> Spróbuj ponownie
         </button>

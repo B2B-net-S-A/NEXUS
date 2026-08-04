@@ -6,6 +6,10 @@ import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDate } from "@/lib/utils";
 import {
+  canManageCandidateFinance,
+  useAuthStore,
+} from "@/store/auth";
+import {
   CalendarPlus,
   Banknote,
   LayoutGrid,
@@ -70,6 +74,8 @@ const EMPTY: FormState = {
 
 export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
   const queryClient = useQueryClient();
+  const user = useAuthStore((state) => state.user);
+  const canManageFinance = canManageCandidateFinance(user);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [error, setError] = useState("");
@@ -101,6 +107,12 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.amendment_type === "rate_change" && !canManageFinance) {
+      setShowForm(false);
+      setForm(EMPTY);
+      setError("");
+      return;
+    }
     const payload: Record<string, unknown> = {
       amendment_type: form.amendment_type,
       effective_date: form.effective_date,
@@ -109,7 +121,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
     if (form.amendment_type === "extension" && form.new_end_date) {
       payload.new_end_date = form.new_end_date;
     }
-    if (form.amendment_type === "rate_change") {
+    if (form.amendment_type === "rate_change" && canManageFinance) {
       if (form.new_rate_candidate) payload.new_rate_candidate = Number(form.new_rate_candidate);
       if (form.new_rate_client) payload.new_rate_client = Number(form.new_rate_client);
     }
@@ -123,7 +135,10 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
     createMutation.mutate(payload);
   };
 
-  const amendments = data ?? [];
+  const amendments = (data ?? []).filter(
+    (amendment) =>
+      canManageFinance || amendment.amendment_type !== "rate_change",
+  );
 
   return (
     <div className="space-y-4">
@@ -139,15 +154,17 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
             >
               <CalendarPlus className="w-4 h-4" /> Przedłuż
             </button>
-            <button
-              onClick={() => {
-                setForm({ ...EMPTY, amendment_type: "rate_change" });
-                setShowForm(true);
-              }}
-              className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
-            >
-              <Banknote className="w-4 h-4" /> Zmień stawkę
-            </button>
+            {canManageFinance && (
+              <button
+                onClick={() => {
+                  setForm({ ...EMPTY, amendment_type: "rate_change" });
+                  setShowForm(true);
+                }}
+                className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
+              >
+                <Banknote className="w-4 h-4" /> Zmień stawkę
+              </button>
+            )}
             <button
               onClick={() => {
                 setForm({ ...EMPTY, amendment_type: "scope_change" });
@@ -217,7 +234,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
             )}
           </div>
 
-          {form.amendment_type === "rate_change" && (
+          {form.amendment_type === "rate_change" && canManageFinance && (
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
@@ -322,8 +339,9 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
         </div>
       ) : amendments.length === 0 ? (
         <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-xs">
-          Brak aneksów — użyj przycisków powyżej, żeby przedłużyć, zmienić stawkę,
-          zakres lub zakończyć kontrakt wcześniej.
+          Brak aneksów — użyj przycisków powyżej, żeby przedłużyć,
+          {canManageFinance ? " zmienić stawkę," : ""} zmienić zakres lub
+          zakończyć kontrakt wcześniej.
         </div>
       ) : (
         <ol className="space-y-3">

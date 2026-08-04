@@ -10,7 +10,10 @@ from pydantic import BaseModel
 
 
 class MyClientRow(BaseModel):
-    """Pojedynczy wpis na liście "Moi klienci"."""
+    """Pojedynczy wpis na liście "Moi klienci".
+
+    Pola revenue są ``None`` bez ``VIEW_FINANCE`` (w szczególności dla DL/HoR).
+    """
 
     client_id: int
     name: str
@@ -38,7 +41,10 @@ class ExpiringAlert(BaseModel):
 
 
 class ClientDashboardResponse(BaseModel):
-    """GET `/api/my-clients/{client_id}/dashboard` — pełna analityka."""
+    """GET `/api/my-clients/{client_id}/dashboard` — analityka klienta.
+
+    Revenue/margin są ``None`` bez ``VIEW_FINANCE`` i router pomija je w JSON.
+    """
 
     client_id: int
     client_name: str
@@ -47,7 +53,7 @@ class ClientDashboardResponse(BaseModel):
     total_revenue_all_time: Decimal | int | None = None
     active_revenue: Decimal | int | None = None
     completed_revenue: Decimal | int | None = None
-    currency_breakdown: dict[str, Decimal | int] = {}
+    currency_breakdown: Optional[dict[str, Decimal | int]] = None
 
     # Margin (auto z linkowanych Contract)
     monthly_margin_total: Optional[int] = None

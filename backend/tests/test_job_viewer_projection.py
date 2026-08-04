@@ -99,13 +99,17 @@ def test_operational_role_sees_everything() -> None:
     assert result == full
 
 
-def test_secondary_operational_role_is_not_treated_as_viewer() -> None:
-    """A user whose PRIMARY role is `user` but who also holds a secondary
-    operational role must see the full projection — the multi-role trap that
-    bit seven authorisation sites in this codebase must not reappear here."""
+def test_legacy_viewer_hybrid_stays_redacted() -> None:
+    """A malformed legacy-viewer hybrid must fail closed.
+
+    ``user`` is an exclusive, retired persona and may not be elevated by a
+    secondary operational role.  The database rejects this shape; this unit
+    guard also protects rows loaded during repair or before the constraint.
+    """
     hybrid = _StubUser(UserRole.user, [UserRole.user.value, UserRole.recruiter.value])
     result = redact_job_for_viewer(_make_job_dict(), hybrid)
-    assert result["salary_min"] == 20000, "secondary recruiter role must lift redaction"
+    assert result["salary_min"] is None
+    assert result["primary_owner"] is None
 
 
 def test_redaction_list_covers_known_sensitive_schema_fields() -> None:
@@ -117,10 +121,17 @@ def test_redaction_list_covers_known_sensitive_schema_fields() -> None:
     # Substrings that mark a field as something a client viewer should not see.
     # Whole-token markers, not substrings: an earlier "rate" matched
     # criteria_generated_at ("crite-RATE-d"), which is a timestamp, not money.
-    sensitive_markers = ("salary", "margin", "rate_", "_rate", "_cost", "champion", "close_", "custom_")
-    should_be_redacted = {
-        f for f in fields if any(m in f for m in sensitive_markers)
-    }
+    sensitive_markers = (
+        "salary",
+        "margin",
+        "rate_",
+        "_rate",
+        "_cost",
+        "champion",
+        "close_",
+        "custom_",
+    )
+    should_be_redacted = {f for f in fields if any(m in f for m in sensitive_markers)}
     missing = should_be_redacted - set(_VIEWER_REDACTED_JOB_FIELDS)
     assert not missing, (
         f"JobResponse gained sensitive field(s) not in the viewer redaction list: "

@@ -17,6 +17,10 @@ import {
  type ContractorStatus,
 } from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import {
+ canManageCandidateFinance,
+ useAuthStore,
+} from"@/store/auth";
 import { Badge } from"@/components/ui/badge";
 import { Button, buttonVariants } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -48,6 +52,7 @@ const FIELD_LABELS: Record<string, string> = {
  contract_type: "Typ umowy",
  work_mode: "Tryb pracy",
 };
+const FINANCE_COMPLETION_FIELDS = new Set(["rate_candidate","rate_client"]);
 
 function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
  if (unit === "hourly") return"/h";
@@ -56,6 +61,8 @@ function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
 }
 
 export function ContractorsListV2() {
+ const user = useAuthStore((state) => state.user);
+ const canManageFinance = canManageCandidateFinance(user);
  const searchParams = useSearchParams();
  const initialTab = (searchParams.get("tab") as Tab) ||"active";
  const [tab, setTab] = useState<Tab>(
@@ -110,6 +117,13 @@ export function ContractorsListV2() {
  const incompleteCount = stats?.drafts_incomplete ?? 0;
  const activeCount = stats?.active ?? 0;
  const endingCount = stats?.ending ?? 0;
+ const visibleFieldLabels = Object.entries(FIELD_LABELS)
+ .filter(
+ ([field]) =>
+ canManageFinance || !["rate_candidate","rate_client"].includes(field)
+ )
+ .map(([, label]) => label);
+ const visibleColumnCount = canManageFinance ? 8 : 6;
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4 p-6">
@@ -136,8 +150,7 @@ export function ContractorsListV2() {
  uzupełnienie
  </p>
  <p className="text-xs text-warning-muted-foreground">
- Bez stawek, dat, typu umowy i trybu pracy nie możemy aktywować
- kontraktu.
+ Bez wymaganych danych operacyjnych kontraktu nie możemy go aktywować.
  </p>
  </div>
  <Button
@@ -187,8 +200,12 @@ export function ContractorsListV2() {
  <TableHead>Klient · Oferta</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Tryb</TableHead>
+ {canManageFinance && (
+ <>
  <TableHead className="text-right">Stawka klient</TableHead>
  <TableHead className="text-right">Marża</TableHead>
+ </>
+ )}
  <TableHead>Status</TableHead>
  <TableHead className="text-right">Akcje</TableHead>
  </TableRow>
@@ -197,7 +214,7 @@ export function ContractorsListV2() {
  {isLoading ? (
  <TableRow>
  <TableCell
- colSpan={8}
+ colSpan={visibleColumnCount}
  className="text-center py-10 text-muted-foreground"
  >
  Ładowanie…
@@ -205,7 +222,7 @@ export function ContractorsListV2() {
  </TableRow>
  ) : items.length === 0 ? (
  <TableRow>
- <TableCell colSpan={8} className="text-center py-10">
+ <TableCell colSpan={visibleColumnCount} className="text-center py-10">
  <UserCog className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  {tab === "draft"
@@ -221,6 +238,13 @@ export function ContractorsListV2() {
  const isDraft = c.status === "draft";
  const isReadyForSignature = c.status === "ready_for_signature";
  const readyToActivate = isDraft && c.missing_fields.length === 0;
+ const visibleMissingFields = c.missing_fields.filter(
+ (field) => canManageFinance || !FINANCE_COMPLETION_FIELDS.has(field)
+ );
+ const waitsForAdmin =
+ isDraft &&
+ !canManageFinance &&
+ c.missing_fields.some((field) => FINANCE_COMPLETION_FIELDS.has(field));
  return (
  <TableRow key={c.contract_id} interactive>
  <TableCell>
@@ -256,6 +280,8 @@ export function ContractorsListV2() {
  {c.work_mode ??"—"}
  </Badge>
  </TableCell>
+ {canManageFinance && (
+ <>
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null
  ? `${formatCurrency(c.rate_client, c.currency ?? "PLN")}${rateUnitLabel(c.rate_unit)}`
@@ -265,11 +291,17 @@ export function ContractorsListV2() {
  {c.margin != null
  ? formatCurrency(c.margin, c.currency ?? "PLN") : "—"}
  </TableCell>
+ </>
+ )}
  <TableCell>
- {isDraft && c.missing_fields.length > 0 ? (
+ {isDraft && visibleMissingFields.length > 0 ? (
  <Badge size="sm" variant="warning">
- {c.missing_fields.length} brak
- {c.missing_fields.length === 1 ?"" :"ów"}
+ {visibleMissingFields.length} brak
+ {visibleMissingFields.length === 1 ?"" :"ów"}
+ </Badge>
+ ) : waitsForAdmin ? (
+ <Badge size="sm" variant="warning">
+ Wymaga uzupełnienia przez Admina
  </Badge>
  ) : isReadyForSignature ? (
  <Badge size="sm" variant="soft">
@@ -290,7 +322,7 @@ export function ContractorsListV2() {
  </TableCell>
  <TableCell className="text-right">
  <div className="flex items-center justify-end gap-1">
- {isDraft ? (
+ {isDraft && (!waitsForAdmin || visibleMissingFields.length > 0) ? (
  <Button
  size="sm"
  variant={readyToActivate ?"primary" :"outline"}
@@ -322,7 +354,7 @@ export function ContractorsListV2() {
  <div className="text-xs text-muted-foreground pt-2">
  {total} wynik{total === 1 ?"" : total < 5 ?"i" :"ów"} ·{""}
  {tab === "draft" && incompleteCount > 0 && (
- <>braki: {Object.keys(FIELD_LABELS).join(" /")}</>
+ <>braki: {visibleFieldLabels.join(" /")}</>
  )}
  </div>
 

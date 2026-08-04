@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.candidate_access import CandidatePIIAccess
 from app.api.deps import get_db
 from app.models.job import Job
@@ -21,6 +22,10 @@ from app.services.client_access import (
     assert_client_exists,
     deny,
     resolve_client_access,
+)
+from app.services.access_scope import (
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
 )
 from app.services.question_suggestions import suggest_questions_for_prep
 
@@ -58,6 +63,22 @@ def _parse_list_content(content: str) -> list[str]:
     return items if items else [content.strip()]
 
 
+def _salary_info_for_overview(job: Job, *, include_finance: bool = False) -> str:
+    """Format job budget only for callers with the explicit finance capability."""
+
+    if not include_finance:
+        return ""
+    if job.salary_min and job.salary_max:
+        return (
+            f" Widełki wynagrodzenia: {job.salary_min:,}–{job.salary_max:,} PLN/mies."
+        )
+    if job.salary_min:
+        return f" Wynagrodzenie od {job.salary_min:,} PLN/mies."
+    if job.salary_max:
+        return f" Wynagrodzenie do {job.salary_max:,} PLN/mies."
+    return ""
+
+
 @router.post("/prep-kit/generate", response_model=PrepKitResponse)
 async def generate_prep_kit(
     request: PrepKitRequest,
@@ -69,6 +90,15 @@ async def generate_prep_kit(
     job: Optional[Job] = job_result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Nie znaleziono oferty pracy")
+
+    # The legacy client-access resolver deliberately grants every Delivery Lead
+    # organization-wide access. Dashboard/RBAC v2 uses the authoritative
+    # DeliveryLeadClientAssignment boundary instead, including jobs without a
+    # client (which are outside a plain DL's scope).
+    assert_delivery_lead_client_visible(
+        job.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
 
     # ── Fetch Candidate ──────────────────────────────────────────────────────
     cand_result = await db.execute(
@@ -136,15 +166,12 @@ async def generate_prep_kit(
         "remote": "praca zdalna",
     }.get(job.remote_policy.value if job.remote_policy else "hybrid", "tryb hybrydowy")
 
-    salary_info = ""
-    if job.salary_min and job.salary_max:
-        salary_info = (
-            f" Widełki wynagrodzenia: {job.salary_min:,}–{job.salary_max:,} PLN/mies."
-        )
-    elif job.salary_min:
-        salary_info = f" Wynagrodzenie od {job.salary_min:,} PLN/mies."
-    elif job.salary_max:
-        salary_info = f" Wynagrodzenie do {job.salary_max:,} PLN/mies."
+    salary_info = _salary_info_for_overview(
+        job,
+        include_finance=user_has_capability(
+            current_user, AnalyticsCapability.VIEW_FINANCE
+        ),
+    )
 
     tech_parts = []
     culture_parts = []

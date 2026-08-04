@@ -25,6 +25,10 @@ import {
 import { celebrate } from "@/lib/celebrate";
 import { getAccessToken } from "@/lib/session";
 import {
+  canManageCandidateFinance,
+  useAuthStore,
+} from "@/store/auth";
+import {
   ArrowLeft,
   Pencil,
   Trash2,
@@ -43,7 +47,6 @@ import {
   Calendar,
   Banknote,
   TrendingUp,
-  Printer,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -404,6 +407,8 @@ export default function ContractDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const user = useAuthStore((state) => state.user);
+  const canManageFinance = canManageCandidateFinance(user);
   const id = Number(params.id);
 
   const [activeTab, setActiveTab] = useState<TabKey>("details");
@@ -429,7 +434,10 @@ export default function ContractDetailPage() {
   const { data: rateHistory } = useQuery<RateHistoryEntry[]>({
     queryKey: ["contract-rate-history", id],
     queryFn: () => contractsApi.rateHistory(id).then((r) => r.data),
-    enabled: !Number.isNaN(id) && activeTab === "rateHistory",
+    enabled:
+      canManageFinance &&
+      !Number.isNaN(id) &&
+      activeTab === "rateHistory",
   });
 
   // Compliance risk — eagerly fetch documents so the badge works on all tabs.
@@ -576,14 +584,6 @@ export default function ContractDetailPage() {
       start_date: form.start_date || null,
       end_date: form.end_date || null,
       client_order_end_date: form.client_order_end_date || null,
-      // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
-      rate_client: parseDecimalInput(form.rate_client),
-      // framework_rate / framework_rate_schedule set conditionally below.
-      target_rate_min: parseDecimalInput(form.target_rate_min),
-      target_rate_max: parseDecimalInput(form.target_rate_max),
-      currency: form.currency,
-      rate_unit: form.rate_unit,
-      billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
       contract_type: form.contract_type,
       status: form.status,
       client_pm_name: form.client_pm_name || null,
@@ -600,37 +600,40 @@ export default function ContractDetailPage() {
           ? form.order_consumption_unit
           : null,
     };
-    if ((isProgressive || hadSchedule) && scheduleSteps.length > 0) {
-      // Progressive schedule drives the rate — backend derives rate_candidate.
-      payload.candidate_rate_schedule = scheduleSteps;
-    } else if (hadSchedule && scheduleSteps.length === 0) {
-      // A former schedule was fully cleared → drop it, keep the plain rate.
-      payload.candidate_rate_schedule = [];
-      payload.rate_candidate = parseDecimalInput(form.rate_candidate);
-    } else {
-      // Plain single rate, no schedule involved (omit the key entirely).
-      payload.rate_candidate =
-        scheduleSteps.length > 0
-          ? scheduleSteps[0].rate
-          : parseDecimalInput(form.rate_candidate);
-    }
-    // ── Framework rate payload (mirror of the candidate logic above) ────────
-    if (
-      (isFrameworkProgressive || hadFrameworkSchedule) &&
-      frameworkSteps.length > 0
-    ) {
-      // Schedule drives the framework rate — backend derives framework_rate.
-      payload.framework_rate_schedule = frameworkSteps;
-    } else if (hadFrameworkSchedule && frameworkSteps.length === 0) {
-      // A former schedule was fully cleared → drop it, keep the plain rate.
-      payload.framework_rate_schedule = [];
-      payload.framework_rate = parseDecimalInput(form.framework_rate);
-    } else {
-      // Plain single framework rate, no schedule (omit the schedule key).
-      payload.framework_rate =
+    if (canManageFinance) {
+      Object.assign(payload, {
+        rate_client: parseDecimalInput(form.rate_client),
+        target_rate_min: parseDecimalInput(form.target_rate_min),
+        target_rate_max: parseDecimalInput(form.target_rate_max),
+        currency: form.currency,
+        rate_unit: form.rate_unit,
+        billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
+      });
+      if ((isProgressive || hadSchedule) && scheduleSteps.length > 0) {
+        payload.candidate_rate_schedule = scheduleSteps;
+      } else if (hadSchedule && scheduleSteps.length === 0) {
+        payload.candidate_rate_schedule = [];
+        payload.rate_candidate = parseDecimalInput(form.rate_candidate);
+      } else {
+        payload.rate_candidate =
+          scheduleSteps.length > 0
+            ? scheduleSteps[0].rate
+            : parseDecimalInput(form.rate_candidate);
+      }
+      if (
+        (isFrameworkProgressive || hadFrameworkSchedule) &&
         frameworkSteps.length > 0
-          ? frameworkSteps[0].rate
-          : parseDecimalInput(form.framework_rate);
+      ) {
+        payload.framework_rate_schedule = frameworkSteps;
+      } else if (hadFrameworkSchedule && frameworkSteps.length === 0) {
+        payload.framework_rate_schedule = [];
+        payload.framework_rate = parseDecimalInput(form.framework_rate);
+      } else {
+        payload.framework_rate =
+          frameworkSteps.length > 0
+            ? frameworkSteps[0].rate
+            : parseDecimalInput(form.framework_rate);
+      }
     }
     updateMutation.mutate(payload);
   };
@@ -690,6 +693,11 @@ export default function ContractDetailPage() {
     contract.framework_rate != null &&
     contract.rate_client != null &&
     contract.rate_client > contract.framework_rate;
+  const visibleTabs = TABS.filter(
+    (tab) =>
+      canManageFinance ||
+      (tab.key !== "invoices" && tab.key !== "rateHistory"),
+  );
 
   return (
     <div className="space-y-6">
@@ -773,7 +781,7 @@ export default function ContractDetailPage() {
 
       {/* Tabs */}
       <div className="border-b border-border dark:border-border flex gap-1 overflow-x-auto">
-        {TABS.map((t) => {
+        {visibleTabs.map((t) => {
           const active = t.key === activeTab;
           const Icon = t.icon;
           return (
@@ -853,7 +861,8 @@ export default function ContractDetailPage() {
                 <InfoRow icon={FileEdit} label="Typ kontraktu">
                   {TYPE_LABELS[contract.contract_type] ?? contract.contract_type}
                 </InfoRow>
-                {(contract.target_rate_min || contract.target_rate_max) && (
+                {canManageFinance &&
+                  (contract.target_rate_min || contract.target_rate_max) && (
                   <InfoRow icon={TrendingUp} label="Widełki docelowe stawki">
                     {contract.target_rate_min != null
                       ? formatCurrency(contract.target_rate_min, contract.currency)
@@ -868,7 +877,7 @@ export default function ContractDetailPage() {
             )}
 
             {/* Rate benchmark card — compare vs internal avg + market */}
-            {!editing && (
+            {!editing && canManageFinance && (
               <ContractRateBenchmarkCard
                 contractId={id}
                 currency={contract.currency}
@@ -1047,6 +1056,8 @@ export default function ContractDetailPage() {
                   </div>
                 </div>
 
+                {canManageFinance && (
+                  <>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
@@ -1525,6 +1536,8 @@ export default function ContractDetailPage() {
                     </div>
                   )}
                 </div>
+                  </>
+                )}
 
                 {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
                 <div className="grid grid-cols-2 gap-3">
@@ -1720,7 +1733,8 @@ export default function ContractDetailPage() {
 
           {/* Right sidebar: rates & margin */}
           <div className="space-y-4">
-            <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
+            {canManageFinance && (
+              <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
               <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground flex items-center gap-2">
                 <Banknote className="w-4 h-4" /> Stawki finansowe
               </h2>
@@ -1861,7 +1875,8 @@ export default function ContractDetailPage() {
                   </div>
                 )}
               </div>
-            </div>
+              </div>
+            )}
 
             <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-xs text-muted-foreground dark:text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>
@@ -1895,10 +1910,12 @@ export default function ContractDetailPage() {
       )}
 
       {/* Tab: Faktury */}
-      {activeTab === "invoices" && <ContractInvoicesTab contractId={id} />}
+      {canManageFinance && activeTab === "invoices" && (
+        <ContractInvoicesTab contractId={id} />
+      )}
 
       {/* Tab: Rate history */}
-      {activeTab === "rateHistory" && (
+      {canManageFinance && activeTab === "rateHistory" && (
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
           {!rateHistory || rateHistory.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">

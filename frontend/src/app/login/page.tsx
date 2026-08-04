@@ -7,7 +7,7 @@ import { isAxiosError } from "axios";
 import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/session";
-import { requiresOnboarding, useAuthStore } from "@/store/auth";
+import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -231,11 +231,7 @@ function LoginForm() {
         headers: { Authorization: `Bearer ${data.access_token}` },
       });
       setAuth(me.data, data.access_token);
-      if (requiresOnboarding(me.data)) {
-        router.push("/onboarding");
-      } else {
-        router.push(nextPath);
-      }
+      router.push(postLoginDestination(me.data, nextPath));
     } catch (err: unknown) {
       setError(extractErrorMsg(err) || "Błąd logowania");
     } finally {

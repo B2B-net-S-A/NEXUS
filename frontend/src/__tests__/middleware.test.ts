@@ -39,6 +39,16 @@ const validRecruiter = makeToken({
   roles: ["recruiter"],
   exp: now() + HOUR,
 })
+const validHeadOfRecruitment = makeToken({
+  role: "head_of_recruitment",
+  roles: ["head_of_recruitment"],
+  exp: now() + HOUR,
+})
+const validHybridHeadOfRecruitment = makeToken({
+  role: "recruiter",
+  roles: ["recruiter", "head_of_recruitment"],
+  exp: now() + HOUR,
+})
 const expiredAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() - HOUR })
 
 function request(pathname: string, token?: string): NextRequest {
@@ -217,6 +227,18 @@ describe("zawężenia ról nadal obowiązują", () => {
   it("najdłuższy pasujący prefix wygrywa (settings/chats → admin-only)", () => {
     expect(destination("/settings/chats", validViewer)).toBe("/403")
     expect(destination("/settings/chats", validAdmin)).toBe("pass")
+  })
+
+  it("Head of Recruitment zarządza strukturą także jako rola dodatkowa", () => {
+    expect(
+      destination("/settings/team-structure", validHeadOfRecruitment),
+    ).toBe("pass")
+    expect(
+      destination("/settings/team-structure", validHybridHeadOfRecruitment),
+    ).toBe("pass")
+    expect(destination("/settings/team-structure", validRecruiter)).toBe(
+      "/403",
+    )
   })
 })
 

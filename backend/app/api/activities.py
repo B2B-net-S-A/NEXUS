@@ -22,6 +22,7 @@ from app.analytics.capabilities import (
     require_capability,
     user_has_capability,
 )
+from app.services.access_scope import apply_activity_feed_scope
 
 router = APIRouter()
 
@@ -236,12 +237,12 @@ async def get_activity_feed(
     i surowe ``details`` — nie dla roli ``user`` (guard OperationalUser).
     """
     # Load activities with user join
-    query = (
-        select(Activity, User.name.label("user_name"))
-        .outerjoin(User, Activity.user_id == User.id)
-        .order_by(desc(Activity.created_at))
-        .limit(limit)
+    query = select(Activity, User.name.label("user_name")).outerjoin(
+        User,
+        Activity.user_id == User.id,
     )
+    query = await apply_activity_feed_scope(query, current_user, db)
+    query = query.order_by(desc(Activity.created_at)).limit(limit)
     result = await db.execute(query)
     rows = result.all()
 

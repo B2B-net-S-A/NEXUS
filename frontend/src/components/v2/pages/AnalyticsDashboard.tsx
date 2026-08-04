@@ -122,7 +122,7 @@ function BarsRow({ label, value, max }: { label: string; value: number; max: num
   return (
     <div className="flex items-center gap-3 text-xs">
       <span className="w-32 truncate text-foreground">{label}</span>
-      <div className="flex-1 rounded-full bg-[hsl(var(--border))]/60 h-1.5 overflow-hidden">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-border/60">
         <div
           className="h-full rounded-full bg-primary"
           style={{ width: `${max ? Math.min(100, (value / max) * 100) : 0}%` }}
@@ -139,8 +139,42 @@ function useEnvelopeQuery<T>(
   fetcher: () => Promise<import("@/lib/stats-api").AnalyticsEnvelope<T>>
 ) {
   const allowed = canQueryAnalytics(capability);
+  const user = useAuthStore((state) => state.user);
+  const scopeCacheKey = user?.data_scope
+    ? JSON.stringify({
+        kind: user.data_scope.kind,
+        userId: user.data_scope.user_id,
+        clientIds: [...user.data_scope.allowed_client_ids].sort((a, b) => a - b),
+        tacUserIds: [...user.data_scope.allowed_tac_user_ids].sort(
+          (a, b) => a - b,
+        ),
+        operatorUserIds: [...user.data_scope.allowed_operator_user_ids].sort(
+          (a, b) => a - b,
+        ),
+        clientTacPairs: [
+          ...(user.data_scope.allowed_client_tac_pairs ?? []),
+        ].sort(
+          (a, b) =>
+            a.client_id - b.client_id || a.tac_user_id - b.tac_user_id,
+        ),
+      })
+    : null;
+  const capabilityCacheKey = Array.from(
+    new Set([
+      ...(user?.capabilities ?? []),
+      ...(user?.analytics_capabilities ?? []),
+    ]),
+  )
+    .sort()
+    .join(",");
   const q = useQuery({
-    queryKey: key,
+    queryKey: [
+      ...key,
+      user?.id ?? null,
+      user?.authorization_version ?? null,
+      scopeCacheKey,
+      capabilityCacheKey,
+    ],
     queryFn: fetcher,
     enabled: allowed,
     staleTime: 60_000,
@@ -559,7 +593,7 @@ export function AnalyticsDashboard() {
         <div className="flex items-center gap-2 flex-wrap">
           {/* Przełącznik widoków — tylko gdy user ma >1 widok */}
           {available.length > 1 && (
-            <div className="inline-flex rounded-lg border border-[hsl(var(--border))] p-0.5">
+            <div className="inline-flex rounded-lg border border-border p-0.5">
               {available.map((v) => (
                 <button
                   key={v}
@@ -577,7 +611,7 @@ export function AnalyticsDashboard() {
               ))}
             </div>
           )}
-          <div className="inline-flex rounded-lg border border-[hsl(var(--border))] p-0.5">
+          <div className="inline-flex rounded-lg border border-border p-0.5">
             {PERIODS.map((p) => (
               <button
                 key={p.value}

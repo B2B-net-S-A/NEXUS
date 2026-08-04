@@ -9,8 +9,8 @@ Trzy warianty scope filtrowania:
   notatki przy projekcie)
 - `parse_mentions_candidate(db, content, candidate_id)` — tylko members chatu
   kandydata (candidate chat)
-- `parse_mentions_global(db, content)` — każdy aktywny user firmy z rolą
-  inną niż `user` (notatki przy kandydacie / kontrakcie bez projektu)
+- `parse_mentions_global(db, content)` — każdy aktywny user z bieżącym
+  candidate-domain read access (notatki kandydata bez projektu)
 
 Wszystkie wracają posortowaną deduplikowaną listę user_id.
 """
@@ -20,7 +20,8 @@ import re
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User, UserRole
+from app.api.candidate_access import user_can_access_candidate_domain
+from app.models.user import User
 from app.services.candidate_membership import filter_to_candidate_members
 from app.services.job_membership import filter_to_members
 
@@ -28,12 +29,6 @@ from app.services.job_membership import filter_to_members
 # w korporacyjnych adresach (kropka, plus, myślnik).
 _EMAIL_RE = re.compile(r"@([A-Za-z0-9._+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
 _USERID_RE = re.compile(r"@(\d+)\b")
-
-# Role które mogą być oznaczone w global scope (kandydaci roli `user` to nie
-# jest realny pracownik — nie pojawia się w autocomplete).
-_MENTIONABLE_ROLES: frozenset[UserRole] = frozenset(
-    r for r in UserRole if r != UserRole.user
-)
 
 
 async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int]:
@@ -92,21 +87,28 @@ async def parse_mentions_candidate(
 
 
 async def parse_mentions_global(db: AsyncSession, content: str) -> list[int]:
-    """Mentions bez scope projektu/kandydata — np. notatka candidate-only
-    przy kandydacie bez przypisanego jobu. Filtruje do aktywnych userów
-    z rolą inną niż `user`.
+    """Mentions bez scope projektu/kandydata — np. notatka candidate-only.
+
+    Resolve full User objects and apply the canonical candidate-domain guard:
+    primary-role SQL alone misses malformed/historical Finance hybrids and can
+    fan candidate snippets out through notification/email/Teams.
     """
     candidate_ids = await _extract_candidate_user_ids(db, content)
     if not candidate_ids:
         return []
     rows = await db.execute(
-        select(User.id).where(
+        select(User).where(
             User.id.in_(candidate_ids),
             User.is_active.is_(True),
-            User.role.in_(_MENTIONABLE_ROLES),
         )
     )
-    return sorted({uid for (uid,) in rows.all()})
+    return sorted(
+        {
+            user.id
+            for user in rows.scalars().all()
+            if user_can_access_candidate_domain(user)
+        }
+    )
 
 
 __all__ = [

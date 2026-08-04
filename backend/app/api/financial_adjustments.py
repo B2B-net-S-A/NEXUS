@@ -1,8 +1,8 @@
 """Korekty finansowe — API (plan PR 6).
 
-- POST ""            — utworzenie draftu (admin only),
-- POST /{id}/approve — zatwierdzenie (admin only; jedyna dozwolona zmiana),
-- GET  ""            — lista (admin + delivery_lead).
+- POST ""            — utworzenie draftu (finance/admin),
+- POST /{id}/approve — zatwierdzenie (admin; jedyna dozwolona zmiana),
+- GET  ""            — lista (finance/admin).
 
 Brak PATCH/DELETE z założenia: rejestr jest niemutowalnym audit trailem.
 Pomyłkę koryguje się KOLEJNĄ korektą (storno), nie edycją historii.
@@ -19,7 +19,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, DeliveryLeadPlus
+from app.api.financial_access import (
+    FinanceApproveUser,
+    FinanceManageUser,
+    FinanceReadUser,
+)
 from app.core.database import get_db
 from app.models.financial_adjustment import AdjustmentStatus, FinancialAdjustment
 
@@ -70,7 +74,7 @@ def _to_read(a: FinancialAdjustment) -> AdjustmentRead:
 
 @router.get("", response_model=list[AdjustmentRead])
 async def list_adjustments(
-    current_user: DeliveryLeadPlus,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[AdjustmentStatus] = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=500),
@@ -87,7 +91,7 @@ async def list_adjustments(
 @router.post("", response_model=AdjustmentRead, status_code=status.HTTP_201_CREATED)
 async def create_adjustment(
     payload: AdjustmentCreate,
-    current_user: AdminUser,
+    current_user: FinanceManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     adjustment = FinancialAdjustment(
@@ -109,9 +113,12 @@ async def create_adjustment(
 @router.post("/{adjustment_id}/approve", response_model=AdjustmentRead)
 async def approve_adjustment(
     adjustment_id: int,
-    current_user: AdminUser,
+    current_user: FinanceApproveUser,
     db: AsyncSession = Depends(get_db),
 ):
+    # Approval is deliberately separated from Finance preparation. Only Admin
+    # carries APPROVE_FINANCE, while immutable audit fields preserve the full
+    # decision trail.
     adjustment = await db.get(FinancialAdjustment, adjustment_id)
     if adjustment is None:
         raise HTTPException(404, detail="Adjustment not found")

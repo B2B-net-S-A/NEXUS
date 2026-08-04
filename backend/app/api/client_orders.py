@@ -40,6 +40,7 @@ from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.job import Job
+from app.models.user import UserRole
 from app.schemas.client_order import (
     ClientOrderRead,
     ClientOrdersGroupedResponse,
@@ -51,6 +52,7 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderResponse,
 )
 from app.services import storage_service
+from app.services.client_access import deny, resolve_client_access
 
 router = APIRouter()
 
@@ -65,6 +67,19 @@ _ALLOWED_EXT = (".pdf", ".docx", ".doc")
 async def _assert_client(db: AsyncSession, client_id: int) -> None:
     if not await db.scalar(select(Client.id).where(Client.id == client_id)):
         raise HTTPException(404, detail="Client not found")
+
+
+async def _require_client_order_read(
+    db: AsyncSession,
+    user,
+    client_id: int,
+) -> None:
+    """Require an explicit DL/TAC relationship for candidate-bearing orders."""
+
+    await _assert_client(db, client_id)
+    access = await resolve_client_access(db, user, client_id)
+    if not access.can_view_legal_documents:
+        raise deny("zamówienia klienta wymagają jawnego przypisania DL/TAC")
 
 
 def _days_to(target: Optional[date]) -> Optional[int]:
@@ -108,15 +123,88 @@ def _compute_monthly_margin(
 
 
 # F-13 / P0.12: kwoty (stawki, marża, wartość zamówienia) widzą tylko role z
-# VIEW_FINANCE (admin + delivery_lead). TAC zachowuje operacyjny widok zamówień
-# i kontraktorów, ale bez kwot — spójne z redakcją w contracts.py
-# (`_redact_contract_finance`) i clients.py. `currency`/daty to metadane, nie kwoty.
-_ORDER_FINANCE_FIELDS = ("rate_client", "total_value", "monthly_margin")
+# VIEW_FINANCE. TAC i Delivery Lead zachowują operacyjny widok zamówień i
+# kontraktorów, ale bez kwot — spójne z redakcją w contracts.py
+# (`_redact_contract_finance`) i clients.py. Waluta również znika, żeby nie
+# zdradzać sposobu rozliczenia ukrytej kwoty.
+_ORDER_FINANCE_FIELDS = ("rate_client", "total_value", "monthly_margin", "currency")
 _CONTRACTOR_FINANCE_FIELDS = (
     "rate_candidate",
     "latest_order_rate_client",
     "latest_order_monthly_margin",
 )
+_ORDER_FINANCE_WRITE_FIELDS = frozenset(
+    {
+        "rate_client",
+        "rate_candidate",
+        "total_value",
+        "currency",
+        "rate_unit",
+        "billing_hours_per_month",
+    }
+)
+
+
+def _assert_order_finance_write_allowed(user, supplied_fields) -> None:
+    """Reject amount writes from operational-only roles before touching the DB."""
+
+    forbidden = sorted(set(supplied_fields).intersection(_ORDER_FINANCE_WRITE_FIELDS))
+    # Orders are candidate-bearing. Finance works through person-free finance
+    # APIs; only Admin may mutate amounts on this mixed operational resource.
+    if forbidden and not user.has_role(UserRole.admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "finance_fields_forbidden",
+                "fields": forbidden,
+            },
+        )
+
+
+def _flow_b_finance_kwargs(
+    payload: NewContractorOrderRequest,
+    user,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Build finance kwargs only for Admin; operational roles get empty dicts."""
+
+    _assert_order_finance_write_allowed(user, payload.model_fields_set)
+    if not user.has_role(UserRole.admin):
+        return {}, {}
+
+    missing = [
+        field
+        for field in ("rate_client", "rate_candidate")
+        if getattr(payload, field) is None
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "admin_finance_fields_required",
+                "fields": missing,
+            },
+        )
+
+    try:
+        rate_unit = RateUnit(payload.rate_unit or RateUnit.monthly.value)
+    except ValueError:
+        raise HTTPException(400, detail="Invalid rate_unit") from None
+
+    currency = payload.currency or "PLN"
+    billing_hours = payload.billing_hours_per_month or 160
+    contract_kwargs: dict[str, object] = {
+        "rate_client": payload.rate_client,
+        "rate_candidate": payload.rate_candidate,
+        "currency": currency,
+        "rate_unit": rate_unit,
+        "billing_hours_per_month": billing_hours,
+    }
+    order_kwargs: dict[str, object] = {
+        "rate_client": payload.rate_client,
+        "total_value": payload.total_value,
+        "currency": currency,
+    }
+    return contract_kwargs, order_kwargs
 
 
 def _redact_order_finance(order: ClientOrderRead) -> ClientOrderRead:
@@ -131,6 +219,15 @@ def _redact_contractor_finance(item: ContractWithOrdersRead) -> ContractWithOrde
     for order in item.orders:
         _redact_order_finance(order)
     return item
+
+
+def _order_response_for_user(
+    order: ClientOrderRead,
+    user,
+) -> ClientOrderRead:
+    if not user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
+        _redact_order_finance(order)
+    return order
 
 
 async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRead:
@@ -194,7 +291,7 @@ async def list_contractors_with_orders(
 
     UI: tab "Zamówienia & Kontrakty" pokazuje listę kart (1 karta = 1 kontraktor).
     """
-    await _assert_client(db, client_id)
+    await _require_client_order_read(db, user, client_id)
 
     contracts = list(
         (
@@ -294,7 +391,7 @@ async def get_order(
     user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_client(db, client_id)
+    await _require_client_order_read(db, user, client_id)
     order = await db.scalar(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract))
@@ -336,6 +433,17 @@ async def create_order_extension(
 ):
     """Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract."""
     from decimal import InvalidOperation
+
+    supplied_finance_fields = {
+        field
+        for field, value in {
+            "rate_client": rate_client,
+            "total_value": total_value,
+            "currency": currency,
+        }.items()
+        if value is not None
+    }
+    _assert_order_finance_write_allowed(user, supplied_finance_fields)
 
     await _assert_client(db, client_id)
 
@@ -426,7 +534,7 @@ async def create_order_extension(
     await db.flush()
     await db.refresh(order)
     await db.commit()
-    return await _order_to_read(db, order)
+    return _order_response_for_user(await _order_to_read(db, order), user)
 
 
 @router.patch("/{client_id}/orders/{order_id}", response_model=ClientOrderRead)
@@ -437,6 +545,7 @@ async def update_order(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
+    _assert_order_finance_write_allowed(user, payload.model_fields_set)
     await _assert_client(db, client_id)
     order = await db.scalar(
         select(ClientOrder).where(
@@ -470,7 +579,7 @@ async def update_order(
     )
     await db.commit()
     await db.refresh(order)
-    return await _order_to_read(db, order)
+    return _order_response_for_user(await _order_to_read(db, order), user)
 
 
 @router.delete("/{client_id}/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -516,10 +625,10 @@ async def delete_order(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    _user: TacPlus,
+    user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_client(db, client_id)
+    await _require_client_order_read(db, user, client_id)
     order = await db.scalar(
         select(ClientOrder).where(
             ClientOrder.id == order_id, ClientOrder.client_id == client_id
@@ -550,6 +659,9 @@ async def create_contract_with_order(
     db: AsyncSession = Depends(get_db),
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
+    contract_finance_kwargs, order_finance_kwargs = _flow_b_finance_kwargs(
+        payload, user
+    )
     await _assert_client(db, client_id)
 
     cand = await db.scalar(
@@ -577,28 +689,20 @@ async def create_contract_with_order(
         if fc is None:
             raise HTTPException(400, detail="Invalid framework_contract_id")
 
-    # Parse rate_unit
-    rate_unit_enum = RateUnit.monthly
-    try:
-        rate_unit_enum = RateUnit(payload.rate_unit)
-    except ValueError:
-        raise HTTPException(400, detail="Invalid rate_unit") from None
-
-    # Contract.rate_client i rate_candidate to NUMERIC(12,3) — trzymamy pełną
-    # stawkę dziesiętną bez zaokrąglania (np. Alior 164,375 zł/h, Erste 157,5).
     contract = Contract(
         candidate_id=payload.candidate_id,
         client_id=client_id,
         job_id=payload.job_id,
         start_date=payload.contract_start_date,
         end_date=payload.contract_end_date,
-        rate_client=payload.rate_client,
-        rate_candidate=payload.rate_candidate,
-        currency=payload.currency,
-        rate_unit=rate_unit_enum,
-        billing_hours_per_month=payload.billing_hours_per_month,
-        status=ContractStatus.active,
+        # Flow B collects only a subset of activation fields (it has no
+        # contract_type/work_mode at all), so neither Admin nor an operational
+        # role may bypass the canonical contract lifecycle. Activation belongs
+        # exclusively to contract_lifecycle.activate_contract(), which validates
+        # the complete draft and signed evidence when required.
+        status=ContractStatus.draft,
         handover_notes=payload.notes,
+        **contract_finance_kwargs,
     )
     db.add(contract)
     await db.flush()  # Get contract.id
@@ -609,15 +713,15 @@ async def create_contract_with_order(
         job_id=payload.job_id,
         framework_contract_id=payload.framework_contract_id,
         title=payload.title,
-        status=ClientOrderStatus.active,
-        filled_at=datetime.now(timezone.utc),  # PR 6: fakt pierwszej aktywacji
+        status=ClientOrderStatus.draft,
+        # PR 6: the activation fact is stamped only by the explicit order
+        # status transition, never by an incomplete atomic create.
+        filled_at=None,
         start_date=payload.order_start_date,
         end_date=payload.order_end_date,
-        rate_client=payload.rate_client,
-        total_value=payload.total_value,
-        currency=payload.currency,
         created_by_user_id=user.id,
         notes=payload.notes,
+        **order_finance_kwargs,
     )
     db.add(order)
 
@@ -639,8 +743,12 @@ async def create_contract_with_order(
     await db.refresh(order)
     await db.commit()
 
-    # Compute marża (po refresh)
-    monthly_margin = _compute_monthly_margin(order, contract) or 0
+    # Non-Admin never receives a computed/inferred financial value.
+    monthly_margin = (
+        _compute_monthly_margin(order, contract)
+        if user.has_role(UserRole.admin)
+        else None
+    )
 
     return NewContractorOrderResponse(
         contract_id=contract.id,
@@ -690,4 +798,4 @@ async def replace_order_po(
 
     await db.commit()
     await db.refresh(order)
-    return await _order_to_read(db, order)
+    return _order_response_for_user(await _order_to_read(db, order), user)

@@ -7,18 +7,38 @@ import {
   ArrowRight,
   Building2,
   Crown,
-  TrendingUp,
 } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { MyClientRow } from "@/lib/api/dlPortal";
+import { useAuthStore } from "@/store/auth";
 
 export default function MyClientsPage() {
+  const user = useAuthStore((state) => state.user);
+  const scopeCacheKey = user?.data_scope
+    ? JSON.stringify({
+        kind: user.data_scope.kind,
+        userId: user.data_scope.user_id,
+        clientIds: [...user.data_scope.allowed_client_ids].sort((a, b) => a - b),
+        tacUserIds: [...user.data_scope.allowed_tac_user_ids].sort(
+          (a, b) => a - b,
+        ),
+        operatorUserIds: [...user.data_scope.allowed_operator_user_ids].sort(
+          (a, b) => a - b,
+        ),
+      })
+    : null;
   const { data, isLoading, error } = useQuery({
-    queryKey: ["my-clients"],
+    queryKey: [
+      "my-clients",
+      user?.id ?? null,
+      user?.authorization_version ?? null,
+      scopeCacheKey,
+    ],
     queryFn: async () => {
       const res = await dlPortalApi.listMyClients();
       return res.data;
     },
+    enabled: Boolean(user),
   });
 
   if (isLoading) {
@@ -40,7 +60,7 @@ export default function MyClientsPage() {
     <div className="p-6 max-w-6xl mx-auto space-y-4">
       <header>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Building2 className="w-6 h-6 text-violet-600" />
+          <Building2 className="w-6 h-6 text-primary" />
           Moi klienci
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -82,7 +102,7 @@ function ClientCard({ client }: ClientCardProps) {
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold">{client.name}</h3>
               {client.is_head_dl && (
-                <span className="text-xs flex items-center gap-1 bg-violet-100 text-violet-700 px-2 py-0.5 rounded">
+                <span className="flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
                   <Crown className="w-3 h-3" />
                   Head DL
                 </span>
@@ -100,15 +120,6 @@ function ClientCard({ client }: ClientCardProps) {
             <span className="text-muted-foreground">Aktywne ordery:</span>
             <span className="font-medium">{client.active_orders_count}</span>
           </div>
-          {client.active_revenue !== null && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" />
-                Active revenue:
-              </span>
-              <span className="font-medium">{fmt(client.active_revenue)}</span>
-            </div>
-          )}
           {client.framework_contract_status && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">MSA:</span>
@@ -120,7 +131,7 @@ function ClientCard({ client }: ClientCardProps) {
             </div>
           )}
           {client.expiring_soon_count > 0 && (
-            <div className="text-xs flex items-center gap-1 text-orange-700 bg-orange-50 px-2 py-1 rounded">
+            <div className="flex items-center gap-1 rounded bg-warning-muted px-2 py-1 text-xs text-warning-muted-foreground">
               <AlertTriangle className="w-3 h-3" />
               {client.expiring_soon_count} dokumentów wygasa w 30 dni
             </div>
@@ -129,11 +140,4 @@ function ClientCard({ client }: ClientCardProps) {
       </Link>
     </li>
   );
-}
-
-function fmt(v: string | number | null): string {
-  if (v === null || v === undefined) return "—";
-  const num = typeof v === "string" ? parseFloat(v) : v;
-  if (Number.isNaN(num)) return "—";
-  return num.toLocaleString("pl-PL");
 }

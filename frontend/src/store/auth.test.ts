@@ -2,13 +2,24 @@ import { describe, it, expect } from "vitest"
 
 import { hasCapability } from "@/lib/capabilities"
 
-import { hasRole, hasMinRole, ROLE_RANK, UserRole } from "./auth"
+import {
+  canManageCandidateFinance,
+  hasRole,
+  hasMinRole,
+  onboardingPersona,
+  postLoginDestination,
+  requiresOnboarding,
+  ROLE_RANK,
+  shouldRouteToOnboarding,
+  UserRole,
+} from "./auth"
 
 // Komplet ról z backendu (backend/app/models/user.py). `head_of_recruitment`
 // był tu wcześniej pominięty — czyli jedyna rola, której hierarchia rang
 // NIE odwzorowuje poprawnie, nie była w ogóle przemiatana testami (audyt F-19).
 const ALL_ROLES: UserRole[] = [
   "admin",
+  "finance",
   "head_of_recruitment",
   "delivery_lead",
   "tac",
@@ -18,6 +29,72 @@ const ALL_ROLES: UserRole[] = [
 ]
 
 const mkUser = (role: UserRole) => ({ role })
+
+describe("onboarding persona", () => {
+  it("czyta pełną unię ról i preferuje Delivery Lead", () => {
+    expect(
+      onboardingPersona({
+        role: "tac",
+        roles: ["tac", "recruiter"],
+      }),
+    ).toBe("recruiter")
+    expect(
+      onboardingPersona({
+        role: "recruiter",
+        roles: ["recruiter", "delivery_lead"],
+      }),
+    ).toBe("delivery_lead")
+  })
+
+  it("Admin jest zwolniony, a secondary recruiter nadal wymaga onboardingu", () => {
+    expect(
+      requiresOnboarding({
+        role: "admin",
+        roles: ["admin", "delivery_lead"],
+        profile_completed: false,
+      }),
+    ).toBe(false)
+    expect(
+      requiresOnboarding({
+        role: "tac",
+        roles: ["tac", "recruiter"],
+        profile_completed: false,
+      }),
+    ).toBe(true)
+  })
+
+  it("wymuszona zmiana hasła ma pierwszeństwo przed onboardingiem", () => {
+    const blockedByBoth = {
+      role: "recruiter" as const,
+      roles: ["recruiter" as const],
+      profile_completed: false,
+      force_password_change: true,
+    }
+
+    expect(requiresOnboarding(blockedByBoth)).toBe(true)
+    expect(shouldRouteToOnboarding(blockedByBoth)).toBe(false)
+    expect(postLoginDestination(blockedByBoth, "/jobs")).toBe(
+      "/profile?force_password_change=1",
+    )
+
+    expect(
+      postLoginDestination(
+        { ...blockedByBoth, force_password_change: false },
+        "/jobs",
+      ),
+    ).toBe("/onboarding")
+    expect(
+      postLoginDestination(
+        {
+          ...blockedByBoth,
+          profile_completed: true,
+          force_password_change: false,
+        },
+        "/jobs",
+      ),
+    ).toBe("/jobs")
+  })
+})
 
 describe("hasRole", () => {
   it("returns false for null/undefined user", () => {
@@ -42,6 +119,42 @@ describe("hasRole", () => {
   })
 })
 
+describe("canManageCandidateFinance", () => {
+  it("wymaga jednocześnie roli Admin i capability manage_finance", () => {
+    expect(
+      canManageCandidateFinance({
+        role: "admin",
+        capabilities: ["manage_finance"],
+      })
+    ).toBe(true)
+    expect(
+      canManageCandidateFinance({
+        role: "admin",
+        capabilities: [],
+      })
+    ).toBe(false)
+    expect(
+      canManageCandidateFinance({
+        role: "finance",
+        capabilities: ["manage_finance"],
+      })
+    ).toBe(false)
+    expect(
+      canManageCandidateFinance({
+        role: "delivery_lead",
+        roles: ["delivery_lead", "finance"],
+        capabilities: ["manage_finance"],
+      })
+    ).toBe(false)
+  })
+
+  it("fail-closed dla braku użytkownika i starego cache bez capabilities", () => {
+    expect(canManageCandidateFinance(null)).toBe(false)
+    expect(canManageCandidateFinance(undefined)).toBe(false)
+    expect(canManageCandidateFinance({ role: "admin" })).toBe(false)
+  })
+})
+
 describe("hasMinRole", () => {
   it("returns false for null user", () => {
     expect(hasMinRole(null, "user")).toBe(false)
@@ -53,11 +166,15 @@ describe("hasMinRole", () => {
     }
   })
 
-  it("user spełnia tylko minRole=user", () => {
+  it("user spełnia tylko operacyjne minRole=user", () => {
     const user = mkUser("user")
-    for (const minRole of ALL_ROLES) {
+    for (const minRole of ALL_ROLES.filter((role) => role !== "finance")) {
       expect(hasMinRole(user, minRole)).toBe(minRole === "user")
     }
+  })
+
+  it("finance nie przechodzi nawet legacy minRole=user", () => {
+    expect(hasMinRole(mkUser("finance"), "user")).toBe(false)
   })
 
   it("recruiter i sourcer są na tej samej randze", () => {
@@ -138,9 +255,10 @@ describe("ROLE_RANK invariants", () => {
     expect(ROLE_RANK.admin).toBe(maxRank)
   })
 
-  it("user jest najniższy", () => {
+  it("finance jest celowo poniżej legacy user (fail-closed dla rank gates)", () => {
     const minRank = Math.min(...ALL_ROLES.map((r) => ROLE_RANK[r]))
-    expect(ROLE_RANK.user).toBe(minRank)
+    expect(ROLE_RANK.finance).toBe(minRank)
+    expect(ROLE_RANK.finance).toBeLessThan(ROLE_RANK.user)
   })
 
   it("hierarchia: admin > delivery_lead > tac > recruiter = sourcer > user", () => {

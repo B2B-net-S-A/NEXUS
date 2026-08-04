@@ -13,15 +13,9 @@ interface MyClientRow {
   industry: string | null
   is_head_dl: boolean
   active_orders_count: number
-  total_revenue_all_time: number
-  active_revenue: number
   expiring_soon_count: number
   framework_contract_status: string | null
   framework_expiry_date: string | null
-}
-
-function formatPln(value: number): string {
-  return new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 0 }).format(value)
 }
 
 export function MyClientsTab() {
@@ -38,7 +32,7 @@ export function MyClientsTab() {
   }
   if (isError) {
     return (
-      <Card className="p-4! text-sm text-rose-700 bg-rose-50 border border-rose-200">
+      <Card className="border-destructive/20 bg-destructive/10 p-4! text-sm text-destructive">
         Nie udało się pobrać listy klientów.
       </Card>
     )
@@ -61,7 +55,6 @@ export function MyClientsTab() {
             <th className="text-left px-3 py-2 font-medium">Klient</th>
             <th className="text-left px-3 py-2 font-medium">Branża</th>
             <th className="text-right px-3 py-2 font-medium">Aktywne ordery</th>
-            <th className="text-right px-3 py-2 font-medium">Active revenue</th>
             <th className="text-left px-3 py-2 font-medium">Framework</th>
           </tr>
         </thead>
@@ -74,7 +67,7 @@ export function MyClientsTab() {
                   className="font-medium text-primary hover:underline inline-flex items-center gap-1.5"
                 >
                   {row.is_head_dl && (
-                    <span title="Head DL" className="text-amber-500">
+                    <span title="Head DL" className="text-warning">
                       ⭐
                     </span>
                   )}
@@ -88,12 +81,9 @@ export function MyClientsTab() {
               <td className="px-3 py-2 text-right tabular-nums">
                 {row.active_orders_count}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums font-mono text-xs">
-                {formatPln(row.active_revenue)} PLN
-              </td>
               <td className="px-3 py-2">
                 {row.framework_contract_status ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-900">
+                  <span className="inline-flex items-center gap-1 rounded bg-success-muted px-2 py-0.5 text-xs text-success-muted-foreground">
                     {row.framework_contract_status}
                     {row.framework_expiry_date && (
                       <span className="opacity-60">

@@ -9,13 +9,14 @@ tokens back as a JSON body — never in any URL.
 
 Lifecycle:
 - Created in callback (``app/api/auth_microsoft.py``).
-- TTL 60 seconds (``expires_at = now + 60s``); ``consumed_at`` set to now()
-  on first POST.
+- TTL 60 seconds (``expires_at = now + 60s``); atomically deleted on the first
+  valid POST whose authorization version still matches the active user.
 - Replay (POST with same code twice) returns 410 Gone.
-- Cleanup of expired/consumed rows is opportunistic — no janitor needed at
+- Cleanup of expired/legacy-consumed rows is opportunistic — no janitor needed at
   this volume; rows are tiny (~300 bytes each).
 
-Schema lives in migration ``0081_user_oauth_fields``.
+Base schema lives in migration ``0081_user_oauth_fields``; authorization-version
+binding is added by ``0210_role_dashboard_rbac_cutover``.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -38,6 +39,12 @@ class AuthExchangeCode(Base):
     )
     access_token: Mapped[str] = mapped_column(Text, nullable=False)
     refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    issued_authorization_version: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

@@ -307,6 +307,77 @@ export const clientsDirectoryApi = {
     }),
 };
 
+// ── Client team / request ownership ───────────────────────────────────────
+
+export interface ClientTeamTacAssignment {
+  id: number;
+  user_id: number;
+  name: string;
+  email: string;
+  role?: string | null;
+  created_at: string;
+  /**
+   * Personal work preference of this TAC. Several TACs assigned to the same
+   * client may all mark that client as their first priority; it is not a
+   * client-level leader flag and must never choose a request owner implicitly.
+   * Optional during the one-release expand window.
+   */
+  is_first_priority_for_tac?: boolean | null;
+}
+
+export interface ClientTeamDeliveryLeadAssignment {
+  id: number;
+  user_id: number;
+  name: string;
+  email: string;
+  role?: string | null;
+  created_at: string;
+  is_head: boolean;
+}
+
+export interface ClientTeamResponse {
+  tacs: ClientTeamTacAssignment[];
+  delivery_leads: ClientTeamDeliveryLeadAssignment[];
+}
+
+export interface ClientTacAssignmentInput {
+  user_id: number;
+  /** Nullable/optional while old and new application revisions overlap. */
+  is_first_priority_for_tac?: boolean | null;
+}
+
+export interface ClientTacFirstPriorityInput {
+  enabled: boolean;
+  successor_client_id?: number;
+}
+
+export const clientTeamApi = {
+  get: (clientId: number) =>
+    api.get<ClientTeamResponse>(`/api/clients/${clientId}/team`),
+  addTac: (clientId: number, payload: ClientTacAssignmentInput) =>
+    api.post(`/api/clients/${clientId}/tacs`, payload),
+  removeTac: (
+    clientId: number,
+    userId: number,
+    successorClientId?: number,
+  ) =>
+    api.delete(`/api/clients/${clientId}/tacs/${userId}`, {
+      params:
+        successorClientId === undefined
+          ? undefined
+          : { successor_client_id: successorClientId },
+    }),
+  setTacFirstPriority: (
+    clientId: number,
+    userId: number,
+    payload: ClientTacFirstPriorityInput,
+  ) =>
+    api.put(
+      `/api/clients/${clientId}/tacs/${userId}/first-priority`,
+      payload,
+    ),
+};
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 export const authApi = {
   /** Self-service password change for the logged-in user. */

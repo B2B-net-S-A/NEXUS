@@ -20,13 +20,19 @@ from app.core.security import hash_password
 from app.models.client import Client
 from app.models.job import Job, JobPriority, JobStatus
 from app.models.job_collaborator import JobCollaborator
+from app.models.team_structure import (
+    ClientTacAssignment,
+    DeliveryLeadClientAssignment,
+)
 from app.models.user import User, UserRole
 
 
 # ── Local helpers ────────────────────────────────────────────────────────────
 
 
-async def _seed_user(role: UserRole, profile_completed: bool = False) -> tuple[User, str]:
+async def _seed_user(
+    role: UserRole, profile_completed: bool = False
+) -> tuple[User, str]:
     unique = uuid.uuid4().hex[:8]
     email = f"pytest-{role.value}-{unique}@example.com"
     password = f"T3st_{unique}!PassX"
@@ -36,6 +42,7 @@ async def _seed_user(role: UserRole, profile_completed: bool = False) -> tuple[U
             password_hash=hash_password(password),
             name=f"Pytest {role.value} {unique}",
             role=role,
+            roles=[role.value],
             is_active=True,
             profile_completed=profile_completed,
         )
@@ -45,13 +52,43 @@ async def _seed_user(role: UserRole, profile_completed: bool = False) -> tuple[U
         return user, password
 
 
-async def _seed_client_and_jobs(count: int) -> list[int]:
+async def _seed_client_and_jobs(
+    count: int,
+    *,
+    recruiter_id: int | None = None,
+    delivery_lead_id: int | None = None,
+) -> list[int]:
     unique = uuid.uuid4().hex[:6]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Pytest Client {unique}")
         db.add(client)
-        await db.commit()
-        await db.refresh(client)
+        await db.flush()
+
+        tac_id: int | None = None
+        if delivery_lead_id is not None:
+            tac = User(
+                email=f"pytest-tac-{unique}@example.com",
+                name=f"Pytest TAC {unique}",
+                role=UserRole.tac,
+                roles=[UserRole.tac.value],
+                is_active=True,
+                profile_completed=True,
+            )
+            db.add(tac)
+            await db.flush()
+            tac_id = tac.id
+            db.add_all(
+                [
+                    DeliveryLeadClientAssignment(
+                        delivery_lead_user_id=delivery_lead_id,
+                        client_id=client.id,
+                    ),
+                    ClientTacAssignment(
+                        tac_user_id=tac.id,
+                        client_id=client.id,
+                    ),
+                ]
+            )
 
         ids: list[int] = []
         for i in range(count):
@@ -61,11 +98,13 @@ async def _seed_client_and_jobs(count: int) -> list[int]:
                 priority=JobPriority.medium,
                 needs_sourcing=False,
                 client_id=client.id,
+                recruiter_id=recruiter_id,
+                tac_id=tac_id,
             )
             db.add(job)
-            await db.commit()
-            await db.refresh(job)
+            await db.flush()
             ids.append(job.id)
+        await db.commit()
         return ids
 
 
@@ -81,7 +120,9 @@ async def _login(app_client: AsyncClient, email: str, password: str) -> dict[str
 
 
 @pytest_asyncio.fixture
-async def dl_auth(app_client: AsyncClient) -> AsyncIterator[tuple[User, dict[str, str]]]:
+async def dl_auth(
+    app_client: AsyncClient,
+) -> AsyncIterator[tuple[User, dict[str, str]]]:
     user, password = await _seed_user(UserRole.delivery_lead)
     headers = await _login(app_client, user.email, password)
     yield user, headers
@@ -116,6 +157,8 @@ async def test_get_me_returns_profile_completed(
 async def test_onboarding_unauthenticated(app_client: AsyncClient):
     resp = await app_client.post("/api/users/me/onboarding", json={})
     assert resp.status_code in (401, 403)
+    jobs_resp = await app_client.get("/api/users/me/onboarding/jobs")
+    assert jobs_resp.status_code in (401, 403)
 
 
 @pytest.mark.asyncio
@@ -135,7 +178,7 @@ async def test_dl_happy_path(
     app_client: AsyncClient, dl_auth: tuple[User, dict[str, str]]
 ):
     user, headers = dl_auth
-    job_ids = await _seed_client_and_jobs(count=3)
+    job_ids = await _seed_client_and_jobs(count=3, delivery_lead_id=user.id)
     priority_ids = job_ids[:2]
     sourcing_ids = job_ids[2:]
 
@@ -154,8 +197,8 @@ async def test_dl_happy_path(
 
     async with AsyncSessionLocal() as db:
         rows = (
-            await db.execute(select(Job).where(Job.id.in_(job_ids)))
-        ).scalars().all()
+            (await db.execute(select(Job).where(Job.id.in_(job_ids)))).scalars().all()
+        )
         by_id = {j.id: j for j in rows}
         for jid in priority_ids:
             assert by_id[jid].priority == JobPriority.high
@@ -172,7 +215,7 @@ async def test_recruiter_happy_path(
     app_client: AsyncClient, recruiter_auth: tuple[User, dict[str, str]]
 ):
     user, headers = recruiter_auth
-    job_ids = await _seed_client_and_jobs(count=3)
+    job_ids = await _seed_client_and_jobs(count=3, recruiter_id=user.id)
 
     resp = await app_client.post(
         "/api/users/me/onboarding",
@@ -184,13 +227,17 @@ async def test_recruiter_happy_path(
 
     async with AsyncSessionLocal() as db:
         rows = (
-            await db.execute(
-                select(JobCollaborator).where(
-                    JobCollaborator.user_id == user.id,
-                    JobCollaborator.job_id.in_(job_ids),
+            (
+                await db.execute(
+                    select(JobCollaborator).where(
+                        JobCollaborator.user_id == user.id,
+                        JobCollaborator.job_id.in_(job_ids),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert {r.job_id for r in rows} == set(job_ids)
 
 
@@ -212,6 +259,8 @@ async def test_onboarding_already_completed_conflict(
         json={"priority_job_ids": [], "needs_sourcing_job_ids": []},
     )
     assert second.status_code == 409
+    jobs = await app_client.get("/api/users/me/onboarding/jobs", headers=headers)
+    assert jobs.status_code == 409
 
 
 @pytest.mark.asyncio
@@ -224,8 +273,50 @@ async def test_onboarding_invalid_job_ids(
         headers=headers,
         json={"priority_job_ids": [999_999_999], "needs_sourcing_job_ids": []},
     )
-    assert resp.status_code == 400
-    assert "Unknown job ids" in resp.json()["detail"]
+    assert resp.status_code == 403
+    assert "outside onboarding scope" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_dl_onboarding_jobs_are_exactly_relationship_scoped_and_minimal(
+    app_client: AsyncClient, dl_auth: tuple[User, dict[str, str]]
+):
+    user, headers = dl_auth
+    allowed = await _seed_client_and_jobs(count=2, delivery_lead_id=user.id)
+    foreign = await _seed_client_and_jobs(count=1)
+
+    resp = await app_client.get("/api/users/me/onboarding/jobs", headers=headers)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    returned_ids = {item["id"] for item in body["items"]}
+    assert set(allowed).issubset(returned_ids)
+    assert returned_ids.isdisjoint(foreign)
+    assert body["total"] >= len(allowed)
+    assert set(body["items"][0]) == {
+        "id",
+        "title",
+        "client_name",
+        "location",
+        "status",
+        "seniority",
+    }
+
+
+@pytest.mark.asyncio
+async def test_recruiter_onboarding_jobs_reuse_membership_scope(
+    app_client: AsyncClient, recruiter_auth: tuple[User, dict[str, str]]
+):
+    user, headers = recruiter_auth
+    allowed = await _seed_client_and_jobs(count=2, recruiter_id=user.id)
+    foreign = await _seed_client_and_jobs(count=1)
+
+    resp = await app_client.get("/api/users/me/onboarding/jobs", headers=headers)
+
+    assert resp.status_code == 200, resp.text
+    returned_ids = {item["id"] for item in resp.json()["items"]}
+    assert set(allowed).issubset(returned_ids)
+    assert returned_ids.isdisjoint(foreign)
 
 
 @pytest.mark.asyncio
@@ -243,8 +334,12 @@ async def test_onboarding_empty_lists_allowed(
 
     async with AsyncSessionLocal() as db:
         count = (
-            await db.execute(
-                select(JobCollaborator).where(JobCollaborator.user_id == user.id)
+            (
+                await db.execute(
+                    select(JobCollaborator).where(JobCollaborator.user_id == user.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert count == []

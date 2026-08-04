@@ -2,7 +2,15 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    Integer,
+    String,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,20 +25,21 @@ class UserRole(str, enum.Enum):
     - admin               — zarządzanie systemem i userami
     - head_of_recruitment — Olaf-type manager; odbiorca HR-owych agregatów
                             (PowerCalling, daily rollup) z notification_triggers
-    - delivery_lead       — kierownik procesu, rate cards, konflikty,
-                            pipeline templates
+    - delivery_lead       — kierownik operacyjnego procesu delivery
+    - finance             — operacje finansowe i widok executive
     - tac                 — Talent Acquisition Consultant (hybryda ATS + LinkedIn)
     - recruiter           — 100% LinkedIn, dodaje kandydatów
     - sourcer             — 100% ATS + ogłoszenia
-    - user                — read-only viewer (także Quality Control / klient)
+    - user                — deprecated legacy viewer; no new provisioning
 
-    Enum value `head_of_recruitment` is added at the DB level by migration
-    `0029_notifications_triggers`; the Python enum must stay in sync.
+    ``user`` remains during the expand/contract window so legacy guards keep
+    failing closed while accounts are migrated to ``recruiter``.
     """
 
     admin = "admin"
     head_of_recruitment = "head_of_recruitment"
     delivery_lead = "delivery_lead"
+    finance = "finance"
     tac = "tac"
     recruiter = "recruiter"
     sourcer = "sourcer"
@@ -43,6 +52,26 @@ class User(Base, TimestampMixin):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "authorization_version > 0",
+            name="ck_users_authorization_version_positive",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(roles) = 'array'",
+            name="ck_users_roles_array",
+        ),
+        CheckConstraint(
+            """
+            CASE
+                WHEN role::text IN ('finance', 'user')
+                    THEN roles = jsonb_build_array(role::text)
+                ELSE NOT (roles ?| ARRAY['finance', 'user']::text[])
+            END
+            """,
+            name="ck_users_exclusive_finance_viewer_roles",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(
@@ -123,6 +152,12 @@ class User(Base, TimestampMixin):
     # zalogować ponownie) — to zamierzone przy „invalidate existing sessions".
     tokens_valid_after: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # Monotoniczny numer polityki dostępu osadzany w access i refresh JWT.
+    # Zmiana ról zwiększa wartość, więc stary token nie może po cichu odziedziczyć
+    # nowych praw po ponownym wczytaniu usera z DB.
+    authorization_version: Mapped[int] = mapped_column(
+        BigInteger, default=1, server_default="1", nullable=False
     )
 
     # Last time this user had an active WS connection. Updated by
@@ -243,3 +278,19 @@ class User(Base, TimestampMixin):
         current = list(self.roles or [])
         if primary_str not in current:
             self.roles = [primary_str] + current
+
+    def ensure_exclusive_roles(self) -> None:
+        """Finance and legacy viewer are exclusive personas."""
+
+        role_values = {role.value for role in self.get_all_roles()}
+        exclusive = {
+            UserRole.finance.value,
+            UserRole.user.value,
+        }.intersection(role_values)
+        if exclusive and len(role_values) != 1:
+            role_name = (
+                UserRole.finance.value
+                if UserRole.finance.value in exclusive
+                else UserRole.user.value
+            )
+            raise ValueError(f"{role_name} role cannot be combined with other roles")

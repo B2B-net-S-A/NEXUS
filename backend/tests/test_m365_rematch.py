@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.m365 import EmailMatchMethod
+from app.models.user import User, UserRole
 from app.services.m365.provider import MatchResult
 from app.tasks import microsoft365_sync as rematch_mod
 from app.tasks.microsoft365_sync import RematchStats, _addresses, _rematch_pass
@@ -59,10 +60,21 @@ def _make_email(
     conversation_id: str = "AAAA",
     to_addresses: list[dict[str, Any]] | None = None,
     cc_addresses: list[dict[str, Any]] | None = None,
+    owner_role: UserRole = UserRole.recruiter,
 ) -> SimpleNamespace:
     """Minimal stand-in for the Email model — only fields _rematch_pass touches."""
+    owner = User(
+        id=1000 + eid,
+        email=f"rematch-{eid}-{owner_role.value}@example.com",
+        name="Rematch owner",
+        role=owner_role,
+        roles=[owner_role.value],
+        is_active=True,
+    )
     return SimpleNamespace(
         id=eid,
+        user_id=owner.id,
+        user=owner,
         from_address=from_address,
         subject=subject,
         m365_conversation_id=conversation_id,
@@ -76,14 +88,44 @@ def _make_email(
     )
 
 
+@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+async def test_rematch_pass_skips_ineligible_mailbox_owner(
+    role: UserRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    email = _make_email(eid=77, owner_role=role)
+    db = _make_db([email])
+    matcher = AsyncMock()
+    monkeypatch.setattr(rematch_mod.matcher_mod, "match", matcher)
+
+    stats = await _rematch_pass(db)
+
+    assert stats == RematchStats(processed=0, matched=0)
+    matcher.assert_not_awaited()
+    db.commit.assert_not_awaited()
+
+
 def _make_db(emails: list[SimpleNamespace]) -> SimpleNamespace:
     """Build a fake AsyncSession whose execute() returns the given emails."""
     scalars_obj = SimpleNamespace(all=lambda: emails)
     result_obj = SimpleNamespace(scalars=lambda: scalars_obj)
-    return SimpleNamespace(execute=AsyncMock(return_value=result_obj), commit=AsyncMock())
+    owners = {email.user_id: email.user for email in emails}
+
+    async def _get(model: Any, row_id: int, **_kwargs: Any) -> Any:
+        if model is User:
+            return owners.get(row_id)
+        return None
+
+    return SimpleNamespace(
+        execute=AsyncMock(return_value=result_obj),
+        get=AsyncMock(side_effect=_get),
+        commit=AsyncMock(),
+    )
 
 
-async def test_rematch_pass_links_matched_email(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rematch_pass_links_matched_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A matcher hit must update candidate_id + method + confidence + matched_at."""
     email = _make_email(eid=1, from_address="jan@b2bnet.pl")
     db = _make_db([email])
@@ -277,7 +319,9 @@ async def test_rematch_pass_uses_email_address_jsonb_shape(
         seen["cc_addresses"] = list(msg.cc_addresses)
         return MatchResult(candidate_id=None, method="unmatched", confidence=None)
 
-    monkeypatch.setattr(rematch_mod.matcher_mod, "match", AsyncMock(side_effect=capture))
+    monkeypatch.setattr(
+        rematch_mod.matcher_mod, "match", AsyncMock(side_effect=capture)
+    )
 
     await _rematch_pass(db)
 

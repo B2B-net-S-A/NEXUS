@@ -37,6 +37,10 @@ from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.document_signature import DocumentSignature
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.team_structure import (
+    ClientTacAssignment,
+    DeliveryLeadClientAssignment,
+)
 from app.models.user import User, UserRole
 
 
@@ -59,7 +63,10 @@ async def _current_admin_id(app_client: AsyncClient) -> int:
     return user_id
 
 
-async def _headers_for_role(app_client: AsyncClient, role: UserRole) -> dict[str, str]:
+async def _headers_for_role(
+    app_client: AsyncClient,
+    role: UserRole,
+) -> dict[str, str]:
     """Create and authenticate one role-specific user."""
     unique = uuid.uuid4().hex[:8]
     email = f"signature-{role.value}-{unique}@example.com"
@@ -75,6 +82,7 @@ async def _headers_for_role(app_client: AsyncClient, role: UserRole) -> dict[str
             roles=[role.value],
             is_active=True,
             email_verified=True,
+            profile_completed=True,
         )
         db.add(user)
         await db.commit()
@@ -1068,20 +1076,19 @@ async def test_confirm_rejects_candidate_job_without_recruitment_and_rolls_back(
 
 
 @pytest.mark.asyncio
-async def test_confirm_rbac_allows_tac_plus_and_rejects_other_legal_roles(
+async def test_confirm_rbac_allows_admin_and_fails_closed_without_client_scope(
     app_client: AsyncClient,
 ):
     generated_id = await _seed_legacy_generated()
 
-    for role in (UserRole.admin, UserRole.delivery_lead, UserRole.tac):
-        headers = await _headers_for_role(app_client, role)
-        response = await _confirm(app_client, headers, generated_id)
-        # 422 proves authentication/authorization passed and business validation ran.
-        assert response.status_code == 422, (
-            f"{role.value} unexpectedly stopped at auth: {response.text}"
-        )
+    admin_headers = await _headers_for_role(app_client, UserRole.admin)
+    admin_response = await _confirm(app_client, admin_headers, generated_id)
+    # 422 proves authentication/authorization passed and business validation ran.
+    assert admin_response.status_code == 422, admin_response.text
 
     for role in (
+        UserRole.delivery_lead,
+        UserRole.tac,
         UserRole.head_of_recruitment,
         UserRole.recruiter,
         UserRole.sourcer,
@@ -1125,6 +1132,29 @@ async def test_delivery_lead_and_tac_require_job_scope_then_can_confirm_when_ass
             assert generated is not None
             assert generated.signature_status == "unsigned"
             setattr(job, assignment_field, user_id)
+            await db.commit()
+
+        job_only = await _confirm(app_client, headers, scenario["generated_id"])
+        assert job_only.status_code == 403, (
+            f"{role.value} without explicit client assignment got "
+            f"{job_only.status_code}: {job_only.text}"
+        )
+
+        async with AsyncSessionLocal() as db:
+            if role is UserRole.delivery_lead:
+                db.add(
+                    DeliveryLeadClientAssignment(
+                        delivery_lead_user_id=user_id,
+                        client_id=scenario["client_id"],
+                    )
+                )
+            else:
+                db.add(
+                    ClientTacAssignment(
+                        tac_user_id=user_id,
+                        client_id=scenario["client_id"],
+                    )
+                )
             await db.commit()
 
         allowed = await _confirm(app_client, headers, scenario["generated_id"])

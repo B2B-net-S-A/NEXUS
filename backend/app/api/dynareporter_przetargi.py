@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.api.deps import AdminUser
 from app.analytics.capabilities import (
     AnalyticsCapability,
     require_dynareporter_section,
@@ -88,9 +89,7 @@ async def list_projects(
 
 @router.get("/consultants", response_model=list[ConsultantResponse])
 async def list_consultants(
-    current_user: User = Depends(
-        require_dynareporter_section("przetargi", AnalyticsCapability.VIEW_FINANCE)
-    ),
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     only_active: bool = Query(default=True),
 ) -> list[ConsultantResponse]:
@@ -103,9 +102,7 @@ async def list_consultants(
 
 @router.get("/allocations", response_model=list[AllocationRow])
 async def list_allocations(
-    current_user: User = Depends(
-        require_dynareporter_section("przetargi", AnalyticsCapability.VIEW_FINANCE)
-    ),
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     project_id: Optional[int] = Query(default=None),
     consultant_id: Optional[int] = Query(default=None),

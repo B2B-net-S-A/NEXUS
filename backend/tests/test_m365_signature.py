@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
+from app.models.user import User, UserRole
 from app.services.m365 import sender as sender_mod
 from app.services.m365 import signature_cache
 from app.services.m365.graph_client import GraphRequestError
@@ -411,11 +412,24 @@ class _FakeAsyncSession:
     def __init__(self) -> None:
         self.added: list[Any] = []
         self.scalar = AsyncMock(return_value=None)
+        self.owner = User(
+            id=99,
+            email="m365-signature-owner@example.com",
+            name="Signature owner",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=True,
+        )
 
     def add(self, obj: Any) -> None:
         self.added.append(obj)
 
     async def flush(self) -> None:  # noqa: D401 — fake
+        return None
+
+    async def get(self, model: Any, row_id: int, **_kwargs: Any) -> Any:
+        if model is User and row_id == self.owner.id:
+            return self.owner
         return None
 
 
@@ -470,7 +484,7 @@ class _FakeGraphClient:
 
 def _fake_connection() -> SimpleNamespace:
     """Minimal stand-in for M365Connection — only fields sender touches."""
-    return SimpleNamespace(user_id=99, mailbox_upn="me@b2bnet.pl")
+    return SimpleNamespace(id=199, user_id=99, mailbox_upn="me@b2bnet.pl")
 
 
 async def test_send_new_appends_signature_to_body(

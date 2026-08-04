@@ -6,7 +6,7 @@ import { useMutation, useQuery } from"@tanstack/react-query"
 import { ArrowLeft, ArrowRight, Building2, Check, MapPin, Search, Sparkles } from"lucide-react"
 
 import api from"@/lib/api"
-import { useAuthStore } from"@/store/auth"
+import { type User, useAuthStore } from"@/store/auth"
 import { cn } from"@/lib/utils"
 import { Button } from"@/components/ui/button"
 import { Checkbox } from"@/components/ui/checkbox"
@@ -25,17 +25,6 @@ interface JobListItem {
 interface JobsResponse {
  items: JobListItem[]
  total: number
-}
-
-interface OnboardingResponsePayload {
- user: {
- id: number
- email: string
- name: string
- role: string
- profile_completed: boolean
- profile_completed_at: string | null
- }
 }
 
 function matchesQuery(job: JobListItem, q: string): boolean {
@@ -62,51 +51,38 @@ export function OnboardingDLV2() {
  const [sourcingSelected, setSourcingSelected] = useState<Set<number>>(new Set())
 
  const { data, isLoading } = useQuery<JobsResponse>({
- queryKey: ["onboarding-jobs"],
+ queryKey: ["onboarding-jobs", "delivery-lead"],
  queryFn: () =>
  api
- .get<JobsResponse>("/api/jobs", {
- params: { status: "published", page: 1, page_size: 100 },
- })
+ .get<JobsResponse>("/api/users/me/onboarding/jobs")
  .then((r) => r.data),
  staleTime: 60_000,
  })
 
- const mutation = useMutation<OnboardingResponsePayload, unknown, void>({
+ const mutation = useMutation<User, unknown, void>({
  mutationFn: async () => {
- const { data: payload } = await api.post<OnboardingResponsePayload>("/api/users/me/onboarding",
+ await api.post("/api/users/me/onboarding",
  {
  priority_job_ids: Array.from(prioritySelected),
  needs_sourcing_job_ids: Array.from(sourcingSelected),
  },
  )
- return payload
+ // `/auth/me` is the canonical, capability-enriched auth contract. Using the
+ // smaller onboarding response here would drop hybrid roles, presets, scope
+ // and authorization_version from the persisted Zustand session.
+ const { data: refreshedUser } = await api.get<User>("/api/auth/me")
+ return refreshedUser
  },
- onSuccess: (payload) => {
+ onSuccess: (refreshedUser) => {
  if (!token) return
- // Cached User shape omits server-only fields; spread with the fresh one.
- setAuth(
- {
- id: payload.user.id,
- email: payload.user.email,
- name: payload.user.name,
- role: payload.user.role as never,
- profile_completed: payload.user.profile_completed,
- profile_completed_at: payload.user.profile_completed_at,
- // Onboarding endpoint nie zwraca tych pól — backfill default false
- // (user dopiero przeszedł onboarding, na pewno nie ma admin-resetu).
- force_password_change: false,
- force_password_change_at: null,
- },
- token,
- )
+ setAuth(refreshedUser, token)
  // Auto-dismiss the old tutorial walkthrough so it does not pile on top.
  markOnboardingCompleted()
  router.replace("/")
  },
  })
 
- const allJobs = data?.items ?? []
+ const allJobs = useMemo(() => data?.items ?? [], [data?.items])
  const filtered = useMemo(
  () => allJobs.filter((j) => matchesQuery(j, search)),
  [allJobs, search],

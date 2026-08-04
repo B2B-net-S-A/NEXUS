@@ -40,6 +40,7 @@ ROLES = [
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
@@ -56,8 +57,8 @@ OPERATIONAL_ROLES = {
     UserRole.sourcer,
 }
 
-# CandidateFinanceAccess — admin + delivery_lead + tac (mirror of list_rate_history).
-FINANCE_ROLES = {UserRole.admin, UserRole.delivery_lead, UserRole.tac}
+# CandidateFinanceAccess is Admin-only: Finance must not receive candidate PII.
+FINANCE_ROLES = {UserRole.admin}
 
 
 async def _seed_user(role: UserRole) -> tuple[str, str]:

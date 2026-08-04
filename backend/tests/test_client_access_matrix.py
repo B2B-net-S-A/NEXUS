@@ -29,6 +29,10 @@ from app.models.activity import Activity
 from app.models.client import Client
 from app.models.contact import Contact
 from app.models.job import Job
+from app.models.team_structure import (
+    ClientTacAssignment,
+    DeliveryLeadClientAssignment,
+)
 from app.models.user import User, UserRole
 
 
@@ -49,6 +53,7 @@ async def _seed_user(
             role=role,
             roles=secondary_roles or [role.value],
             is_active=True,
+            profile_completed=True,
         )
         db.add(u)
         await db.commit()
@@ -108,6 +113,31 @@ async def _seed_job(client_id: int, recruiter_id: int) -> int:
         return job.id
 
 
+async def _assign_client(
+    user_id: int,
+    client_id: int,
+    role: UserRole,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        if role is UserRole.delivery_lead:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user_id,
+                    client_id=client_id,
+                )
+            )
+        elif role is UserRole.tac:
+            db.add(
+                ClientTacAssignment(
+                    tac_user_id=user_id,
+                    client_id=client_id,
+                )
+            )
+        else:
+            raise AssertionError(f"Unsupported client assignment role: {role}")
+        await db.commit()
+
+
 async def _login(client: AsyncClient, email: str, password: str) -> dict[str, str]:
     resp = await client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -133,7 +163,7 @@ async def cam_client() -> AsyncClient:
 #
 # Profile:
 #   admin / hor          — role administracyjne (pełny dostęp)
-#   dl / tac             — role zespołu klienta (bez wymogu przypisania w PR1)
+#   dl / tac             — role zespołu klienta z jawnym przypisaniem
 #   recruiter_assigned   — recruiter z Jobem u tego klienta (odczyt operacyjny)
 #   recruiter            — recruiter bez przypisania
 #   sourcer              — sourcer bez przypisania
@@ -146,49 +176,103 @@ async def cam_client() -> AsyncClient:
 MATRIX: dict[str, dict[str, bool]] = {
     # profile:             contacts  create  knowledge_r  knowledge_w  materials  terms  framework
     "admin": dict(
-        contacts_read=True, contact_write=True, knowledge_read=True,
-        knowledge_write=True, materials_read=True, terms_read=True,
-        framework_read=True, legal_fields=True, financials=True,
+        contacts_read=True,
+        contact_write=True,
+        knowledge_read=True,
+        knowledge_write=True,
+        materials_read=True,
+        terms_read=True,
+        framework_read=True,
+        legal_fields=True,
+        financials=True,
     ),
     "hor": dict(
-        contacts_read=True, contact_write=True, knowledge_read=True,
-        knowledge_write=True, materials_read=True, terms_read=True,
-        framework_read=True, legal_fields=True, financials=False,
+        contacts_read=True,
+        contact_write=True,
+        knowledge_read=True,
+        knowledge_write=True,
+        materials_read=True,
+        terms_read=True,
+        framework_read=True,
+        legal_fields=True,
+        financials=False,
     ),
     "dl": dict(
-        contacts_read=True, contact_write=True, knowledge_read=True,
-        knowledge_write=True, materials_read=True, terms_read=True,
-        framework_read=True, legal_fields=True, financials=True,
+        contacts_read=True,
+        contact_write=True,
+        knowledge_read=True,
+        knowledge_write=True,
+        materials_read=True,
+        terms_read=True,
+        framework_read=True,
+        legal_fields=True,
+        financials=False,
     ),
     "tac": dict(
-        contacts_read=True, contact_write=True, knowledge_read=True,
-        knowledge_write=True, materials_read=True, terms_read=True,
-        framework_read=True, legal_fields=True, financials=False,
+        contacts_read=True,
+        contact_write=True,
+        knowledge_read=True,
+        knowledge_write=True,
+        materials_read=True,
+        terms_read=True,
+        framework_read=True,
+        legal_fields=True,
+        financials=False,
     ),
     "recruiter_assigned": dict(
-        contacts_read=True, contact_write=False, knowledge_read=True,
-        knowledge_write=False, materials_read=True, terms_read=False,
-        framework_read=False, legal_fields=False, financials=False,
+        contacts_read=True,
+        contact_write=False,
+        knowledge_read=True,
+        knowledge_write=False,
+        materials_read=True,
+        terms_read=False,
+        framework_read=False,
+        legal_fields=False,
+        financials=False,
     ),
     "recruiter": dict(
-        contacts_read=False, contact_write=False, knowledge_read=False,
-        knowledge_write=False, materials_read=True, terms_read=False,
-        framework_read=False, legal_fields=False, financials=False,
+        contacts_read=False,
+        contact_write=False,
+        knowledge_read=False,
+        knowledge_write=False,
+        materials_read=False,
+        terms_read=False,
+        framework_read=False,
+        legal_fields=False,
+        financials=False,
     ),
     "sourcer": dict(
-        contacts_read=False, contact_write=False, knowledge_read=False,
-        knowledge_write=False, materials_read=True, terms_read=False,
-        framework_read=False, legal_fields=False, financials=False,
+        contacts_read=False,
+        contact_write=False,
+        knowledge_read=False,
+        knowledge_write=False,
+        materials_read=False,
+        terms_read=False,
+        framework_read=False,
+        legal_fields=False,
+        financials=False,
     ),
     "viewer": dict(
-        contacts_read=False, contact_write=False, knowledge_read=False,
-        knowledge_write=False, materials_read=False, terms_read=False,
-        framework_read=False, legal_fields=False, financials=False,
+        contacts_read=False,
+        contact_write=False,
+        knowledge_read=False,
+        knowledge_write=False,
+        materials_read=False,
+        terms_read=False,
+        framework_read=False,
+        legal_fields=False,
+        financials=False,
     ),
     "multi_dl": dict(
-        contacts_read=True, contact_write=True, knowledge_read=True,
-        knowledge_write=True, materials_read=True, terms_read=True,
-        framework_read=True, legal_fields=True, financials=True,
+        contacts_read=True,
+        contact_write=True,
+        knowledge_read=True,
+        knowledge_write=True,
+        materials_read=True,
+        terms_read=True,
+        framework_read=True,
+        legal_fields=True,
+        financials=False,
     ),
 }
 
@@ -212,6 +296,10 @@ async def _profile_headers(
     user_id, email, password = await _seed_user(role, secondary)
     if profile == "recruiter_assigned":
         await _seed_job(client_id, user_id)
+    elif profile in {"dl", "multi_dl"}:
+        await _assign_client(user_id, client_id, UserRole.delivery_lead)
+    elif profile == "tac":
+        await _assign_client(user_id, client_id, UserRole.tac)
     return await _login(cam_client, email, password)
 
 
@@ -234,9 +322,7 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
     headers = await _profile_headers(cam_client, profile, client_id)
 
     # Odczyt kontaktów klienta
-    resp = await cam_client.get(
-        f"/api/clients/{client_id}/contacts", headers=headers
-    )
+    resp = await cam_client.get(f"/api/clients/{client_id}/contacts", headers=headers)
     _expect(resp.status_code, expected["contacts_read"], "contacts read", profile)
 
     # Zapis kontaktu
@@ -248,9 +334,7 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
     _expect(resp.status_code, expected["contact_write"], "contact create", profile)
 
     # Wiedza — odczyt i zapis
-    resp = await cam_client.get(
-        f"/api/clients/{client_id}/knowledge", headers=headers
-    )
+    resp = await cam_client.get(f"/api/clients/{client_id}/knowledge", headers=headers)
     _expect(resp.status_code, expected["knowledge_read"], "knowledge read", profile)
 
     resp = await cam_client.post(
@@ -261,9 +345,7 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
     _expect(resp.status_code, expected["knowledge_write"], "knowledge write", profile)
 
     # Materiały (one-pagery)
-    resp = await cam_client.get(
-        f"/api/clients/{client_id}/one-pagers", headers=headers
-    )
+    resp = await cam_client.get(f"/api/clients/{client_id}/one-pagers", headers=headers)
     _expect(resp.status_code, expected["materials_read"], "materials read", profile)
 
     # Warunki umów (dane prawne)
@@ -296,10 +378,8 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
 
     # Finanse w profilu klienta. Endpoint jest OperationalUser (R0) —
     # viewer 403; redakcja finansów przez capability VIEW_FINANCE
-    # (admin/DL, unia multi-role).
-    resp = await cam_client.get(
-        f"/api/clients/{client_id}/profile", headers=headers
-    )
+    # (Admin; wydzielona Finance nie korzysta z mieszanej powierzchni klienta).
+    resp = await cam_client.get(f"/api/clients/{client_id}/profile", headers=headers)
     if profile == "viewer":
         assert resp.status_code == 403
     else:
@@ -322,6 +402,7 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     tylko całkiem znika z odpowiedzi."""
     client_id = await _seed_client()
     owner_id, owner_email, owner_pass = await _seed_user(UserRole.delivery_lead)
+    await _assign_client(owner_id, client_id, UserRole.delivery_lead)
     await _seed_contact(client_id, owner_id=owner_id, notes="Sekret: urodziny 1 maja")
 
     # Admin — widzi notatki
@@ -342,7 +423,8 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     assert resp.json()[0].get("relationship_notes") == "Sekret: urodziny 1 maja"
 
     # Inny TAC — pole nie występuje w ogóle
-    _, tac_email, tac_pass = await _seed_user(UserRole.tac)
+    tac_id, tac_email, tac_pass = await _seed_user(UserRole.tac)
+    await _assign_client(tac_id, client_id, UserRole.tac)
     tac_headers = await _login(cam_client, tac_email, tac_pass)
     resp = await cam_client.get(
         f"/api/clients/{client_id}/contacts", headers=tac_headers
@@ -359,9 +441,7 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     await _seed_job(client_id, r_id)
     await _seed_contact(client_id, owner_id=None, notes="Niczyje notatki")
     r_headers = await _login(cam_client, r_email, r_pass)
-    resp = await cam_client.get(
-        f"/api/clients/{client_id}/contacts", headers=r_headers
-    )
+    resp = await cam_client.get(f"/api/clients/{client_id}/contacts", headers=r_headers)
     assert resp.status_code == 200
     for item in resp.json():
         assert "relationship_notes" not in item
@@ -372,9 +452,7 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
         f"/api/clients/{client_id}/contacts", headers=tac_headers
     )
     assert resp.status_code == 200
-    unowned = [
-        c for c in resp.json() if c.get("key_relationship_owner_id") is None
-    ]
+    unowned = [c for c in resp.json() if c.get("key_relationship_owner_id") is None]
     assert unowned and any(
         c.get("relationship_notes") == "Niczyje notatki" for c in unowned
     )
@@ -428,6 +506,7 @@ async def test_owner_reassignment_rules(cam_client: AsyncClient) -> None:
 
     # DL (nie-admin) nie może przepisać ownera na kogoś innego
     dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    await _assign_client(dl_id, client_id, UserRole.delivery_lead)
     dl_headers = await _login(cam_client, dl_email, dl_pass)
     resp = await cam_client.put(
         f"/api/contacts/{contact_id}",
@@ -466,26 +545,21 @@ async def test_contact_delete_matrix(cam_client: AsyncClient) -> None:
     contact_id = await _seed_contact(client_id)
     _, v_email, v_pass = await _seed_user(UserRole.user)
     v_headers = await _login(cam_client, v_email, v_pass)
-    resp = await cam_client.delete(
-        f"/api/contacts/{contact_id}", headers=v_headers
-    )
+    resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=v_headers)
     assert resp.status_code == 403
 
     # Recruiter — 403 (nawet z jobem u klienta zapis jest zabroniony)
     r_id, r_email, r_pass = await _seed_user(UserRole.recruiter)
     await _seed_job(client_id, r_id)
     r_headers = await _login(cam_client, r_email, r_pass)
-    resp = await cam_client.delete(
-        f"/api/contacts/{contact_id}", headers=r_headers
-    )
+    resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=r_headers)
     assert resp.status_code == 403
 
     # TAC — 204
-    _, t_email, t_pass = await _seed_user(UserRole.tac)
+    tac_id, t_email, t_pass = await _seed_user(UserRole.tac)
+    await _assign_client(tac_id, client_id, UserRole.tac)
     t_headers = await _login(cam_client, t_email, t_pass)
-    resp = await cam_client.delete(
-        f"/api/contacts/{contact_id}", headers=t_headers
-    )
+    resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=t_headers)
     assert resp.status_code == 204
 
 
@@ -496,15 +570,30 @@ async def test_contact_delete_matrix(cam_client: AsyncClient) -> None:
 async def test_global_contacts_list_requires_managing_role(
     cam_client: AsyncClient,
 ) -> None:
-    _, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
-    dl_headers = await _login(cam_client, dl_email, dl_pass)
-    resp = await cam_client.get("/api/contacts", headers=dl_headers)
-    assert resp.status_code == 200
+    client_id = await _seed_client()
+    await _seed_contact(client_id)
 
-    _, r_email, r_pass = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    unassigned_dl = await _login(cam_client, dl_email, dl_pass)
+    denied = await cam_client.get("/api/contacts", headers=unassigned_dl)
+    assert denied.status_code == 403
+
+    await _assign_client(dl_id, client_id, UserRole.delivery_lead)
+    allowed_dl = await cam_client.get("/api/contacts", headers=unassigned_dl)
+    assert allowed_dl.status_code == 200
+    assert {row["client_id"] for row in allowed_dl.json()} == {client_id}
+
+    recruiter_id, r_email, r_pass = await _seed_user(UserRole.recruiter)
     r_headers = await _login(cam_client, r_email, r_pass)
     resp = await cam_client.get("/api/contacts", headers=r_headers)
     assert resp.status_code == 403
+
+    await _seed_job(client_id, recruiter_id)
+    assigned_recruiter = await cam_client.get("/api/contacts", headers=r_headers)
+    assert assigned_recruiter.status_code == 200
+    assert {row["client_id"] for row in assigned_recruiter.json()} == {client_id}
+    for row in assigned_recruiter.json():
+        assert "relationship_notes" not in row
 
     _, v_email, v_pass = await _seed_user(UserRole.user)
     v_headers = await _login(cam_client, v_email, v_pass)
@@ -523,15 +612,11 @@ async def test_404_for_missing_client_403_for_denied(
     _, v_email, v_pass = await _seed_user(UserRole.user)
     v_headers = await _login(cam_client, v_email, v_pass)
 
-    resp = await cam_client.get(
-        "/api/clients/99999999/contacts", headers=v_headers
-    )
+    resp = await cam_client.get("/api/clients/99999999/contacts", headers=v_headers)
     assert resp.status_code == 404
 
     client_id = await _seed_client()
-    resp = await cam_client.get(
-        f"/api/clients/{client_id}/contacts", headers=v_headers
-    )
+    resp = await cam_client.get(f"/api/clients/{client_id}/contacts", headers=v_headers)
     assert resp.status_code == 403
     # Stabilny kod błędu w detail (kryterium akceptacji PR1)
     assert resp.json()["detail"].startswith("client_access_denied")
@@ -545,7 +630,8 @@ async def test_contact_mutations_leave_audit_events(
     cam_client: AsyncClient,
 ) -> None:
     client_id = await _seed_client()
-    _, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    await _assign_client(dl_id, client_id, UserRole.delivery_lead)
     headers = await _login(cam_client, dl_email, dl_pass)
 
     # create
@@ -597,7 +683,8 @@ async def test_knowledge_mutations_leave_audit_events(
     cam_client: AsyncClient,
 ) -> None:
     client_id = await _seed_client()
-    _, tac_email, tac_pass = await _seed_user(UserRole.tac)
+    tac_id, tac_email, tac_pass = await _seed_user(UserRole.tac)
+    await _assign_client(tac_id, client_id, UserRole.tac)
     headers = await _login(cam_client, tac_email, tac_pass)
 
     resp = await cam_client.post(
@@ -641,9 +728,10 @@ async def test_multi_role_user_gets_union_of_roles(cam_client: AsyncClient) -> N
     """Hybryda recruiter+DL: primary role = recruiter, ale unia ról daje
     uprawnienia DL — w portalach osobistych i w module klienta."""
     client_id = await _seed_client()
-    _, email, password = await _seed_user(
+    user_id, email, password = await _seed_user(
         UserRole.recruiter, ["recruiter", "delivery_lead"]
     )
+    await _assign_client(user_id, client_id, UserRole.delivery_lead)
     headers = await _login(cam_client, email, password)
 
     # Moich klientów — przed fixem M1-RBAC-02 hybryda dostawała 403

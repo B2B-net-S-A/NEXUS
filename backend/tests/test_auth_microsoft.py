@@ -10,8 +10,8 @@ Covers:
 - State JWT signing/verification rejects wrong purpose (mailbox state cannot
   replay on login flow).
 - ``callback`` rejects domains outside ``SSO_ALLOWED_DOMAINS``.
-- ``callback`` upserts a new user as the read-only viewer role (UserRole.user),
-  password_hash IS NULL, oauth_provider="microsoft", profile_completed=False,
+- ``callback`` bootstraps a new allowed-domain user as Recruiter behind
+  mandatory onboarding; an enabled AAD mapping remains authoritative,
   and stores an exchange-code row.
 - ``callback`` for an existing email/password user links identity but does not
   touch role / password_hash / profile_completed.
@@ -29,13 +29,20 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from jose import jwt as jose_jwt
 from sqlalchemy import delete, select
 
 from app.api import auth_microsoft as auth_ms_module
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.rate_limit import limiter as _limiter
-from app.core.security import hash_password
+from app.core.security import (
+    ALGORITHM,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_password,
+)
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
@@ -128,9 +135,7 @@ async def test_authorize_returns_url_with_login_redirect(
     # redirect_uri now follows the app domain (PUBLIC_BASE_URL), not the legacy
     # MICROSOFT_LOGIN_REDIRECT_URI value — the OAuth hop must land on the app
     # host (api.nexus.* was Safe-Browsing-flagged); the frontend proxies it.
-    assert qs["redirect_uri"] == [
-        "https://app.test.example/auth/microsoft/callback"
-    ]
+    assert qs["redirect_uri"] == ["https://app.test.example/auth/microsoft/callback"]
     assert "openid" in qs["scope"][0]
     assert "User.Read" in qs["scope"][0]
     # State JWT decodes to purpose=sso_login.
@@ -199,7 +204,7 @@ async def test_callback_rejects_domain_not_in_whitelist(
 
 
 @pytest.mark.asyncio
-async def test_callback_creates_new_sso_user_as_viewer(
+async def test_callback_creates_new_sso_user_as_onboarding_recruiter(
     app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
 ):
     unique = uuid.uuid4().hex[:8]
@@ -232,10 +237,10 @@ async def test_callback_creates_new_sso_user_as_viewer(
         u = await db.scalar(select(User).where(User.email == email))
         assert u is not None
         assert u.password_hash is None
-        # New-user contract: first-time SSO users default to the least-privileged
-        # read-only viewer role (admin promotes real recruiters afterwards).
-        assert u.role == UserRole.user
-        assert u.roles == [UserRole.user.value]
+        # New-user contract: allowlisted SSO identities become Recruiters but
+        # cannot reach domain surfaces until mandatory onboarding completes.
+        assert u.role == UserRole.recruiter
+        assert u.roles == [UserRole.recruiter.value]
         assert u.is_active is True
         assert u.profile_completed is False
         assert u.oauth_provider == "microsoft"
@@ -248,6 +253,7 @@ async def test_callback_creates_new_sso_user_as_viewer(
         )
         assert ex is not None
         assert ex.consumed_at is None
+        assert ex.issued_authorization_version == u.authorization_version
         assert ex.expires_at > datetime.now(timezone.utc)
 
 
@@ -315,7 +321,112 @@ async def test_callback_with_invalid_state_redirects_to_login(
     assert "error=" in resp.headers["location"]
 
 
+@pytest.mark.asyncio
+async def test_callback_provider_error_does_not_leak_details(
+    app_client_no_redirect: AsyncClient,
+):
+    sensitive_details = "alice@b2bnetwork.pl tenant=secret-tenant"
+
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"error": "access_denied", "error_description": sensitive_details},
+    )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    error = parse_qs(urlparse(location).query)["error"]
+    assert error == [auth_ms_module._MICROSOFT_SIGN_IN_ERROR]
+    assert sensitive_details not in location
+    assert "alice%40b2bnetwork.pl" not in location
+
+
+@pytest.mark.asyncio
+async def test_callback_token_exchange_error_does_not_leak_exception(
+    app_client_no_redirect: AsyncClient, monkeypatch
+):
+    sensitive_details = "alice@b2bnetwork.pl oauth_response=secret"
+
+    async def _failing_exchange(_code: str, _verifier: str) -> dict:
+        raise RuntimeError(sensitive_details)
+
+    monkeypatch.setattr(
+        auth_ms_module,
+        "_exchange_code_for_id_token",
+        _failing_exchange,
+    )
+
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    error = parse_qs(urlparse(location).query)["error"]
+    assert error == [auth_ms_module._MICROSOFT_SIGN_IN_ERROR]
+    assert sensitive_details not in location
+    assert "alice%40b2bnetwork.pl" not in location
+
+
 # ── /exchange ───────────────────────────────────────────────────────────────
+
+
+def _exchange_token_pair(user_id: int, authorization_version: int) -> tuple[str, str]:
+    return (
+        create_access_token(
+            user_id,
+            UserRole.recruiter.value,
+            roles=[UserRole.recruiter.value],
+            authorization_version=authorization_version,
+        ),
+        create_refresh_token(
+            user_id,
+            authorization_version=authorization_version,
+        ),
+    )
+
+
+def test_exchange_token_pair_accepts_current_authorization_version():
+    access, refresh = _exchange_token_pair(41, 7)
+
+    assert auth_ms_module._exchange_tokens_are_current(
+        access,
+        refresh,
+        user_id=41,
+        authorization_version=7,
+        tokens_valid_after=None,
+    )
+
+
+def test_exchange_token_pair_rejects_stale_authorization_version():
+    access, refresh = _exchange_token_pair(41, 6)
+
+    assert not auth_ms_module._exchange_tokens_are_current(
+        access,
+        refresh,
+        user_id=41,
+        authorization_version=7,
+        tokens_valid_after=None,
+    )
+
+
+def test_exchange_token_pair_rejects_missing_authorization_version():
+    access, refresh = _exchange_token_pair(41, 7)
+    access_payload = decode_token(access)
+    access_payload.pop("av")
+    access_without_av = jose_jwt.encode(
+        access_payload,
+        settings.SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+
+    assert not auth_ms_module._exchange_tokens_are_current(
+        access_without_av,
+        refresh,
+        user_id=41,
+        authorization_version=7,
+        tokens_valid_after=None,
+    )
 
 
 async def _make_exchange_row(
@@ -323,15 +434,58 @@ async def _make_exchange_row(
     *,
     expires_in_seconds: int = 60,
     consumed: bool = False,
+    issued_authorization_version: int | None = None,
+    token_authorization_version: int | None = None,
+    omit_access_token_av: bool = False,
+    omit_refresh_token_av: bool = False,
 ) -> str:
     code = uuid.uuid4().hex + uuid.uuid4().hex[:8]  # 40 chars
     async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
+        issued_version = (
+            user.authorization_version
+            if issued_authorization_version is None
+            else issued_authorization_version
+        )
+        token_version = (
+            issued_version
+            if token_authorization_version is None
+            else token_authorization_version
+        )
+        access_token = create_access_token(
+            user_id,
+            user.role.value,
+            roles=[role.value for role in user.get_all_roles()],
+            authorization_version=token_version,
+        )
+        refresh_token = create_refresh_token(
+            user_id,
+            authorization_version=token_version,
+        )
+        if omit_access_token_av:
+            access_payload = decode_token(access_token)
+            access_payload.pop("av", None)
+            access_token = jose_jwt.encode(
+                access_payload,
+                settings.SECRET_KEY,
+                algorithm=ALGORITHM,
+            )
+        if omit_refresh_token_av:
+            refresh_payload = decode_token(refresh_token)
+            refresh_payload.pop("av", None)
+            refresh_token = jose_jwt.encode(
+                refresh_payload,
+                settings.SECRET_KEY,
+                algorithm=ALGORITHM,
+            )
         db.add(
             AuthExchangeCode(
                 code=code,
                 user_id=user_id,
-                access_token="fake-access-token",
-                refresh_token="fake-refresh-token",
+                access_token=access_token,
+                refresh_token=refresh_token,
+                issued_authorization_version=issued_version,
                 expires_at=datetime.now(timezone.utc)
                 + timedelta(seconds=expires_in_seconds),
                 consumed_at=(datetime.now(timezone.utc) if consumed else None),
@@ -363,7 +517,7 @@ async def _make_test_user(email: str) -> int:
 
 
 @pytest.mark.asyncio
-async def test_exchange_consumes_code_once(
+async def test_exchange_consumes_current_version_code_once(
     app_client_no_redirect: AsyncClient, cleanup_sso_users
 ):
     unique = uuid.uuid4().hex[:8]
@@ -377,8 +531,12 @@ async def test_exchange_consumes_code_once(
     )
     assert resp1.status_code == 200, resp1.text
     body = resp1.json()
-    assert body["access_token"] == "fake-access-token"
-    assert body["refresh_token"] == "fake-refresh-token"
+    access_payload = decode_token(body["access_token"])
+    refresh_payload = decode_token(body["refresh_token"])
+    assert access_payload["av"] == 1
+    assert access_payload["type"] == "access"
+    assert refresh_payload["av"] == 1
+    assert refresh_payload["type"] == "refresh"
     assert body["user"]["email"] == email
     assert body["user"]["role"] == "recruiter"
     assert body["user"]["profile_completed"] is False
@@ -388,6 +546,70 @@ async def test_exchange_consumes_code_once(
         "/api/auth/microsoft/exchange", json={"code": code}
     )
     assert resp2.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_exchange_rejects_stale_issued_authorization_version(
+    app_client_no_redirect: AsyncClient, cleanup_sso_users
+):
+    unique = uuid.uuid4().hex[:8]
+    email = f"exchange-stale-issued-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    user_id = await _make_test_user(email)
+    code = await _make_exchange_row(user_id)
+
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
+        user.authorization_version += 1
+        await db.commit()
+
+    resp = await app_client_no_redirect.post(
+        "/api/auth/microsoft/exchange", json={"code": code}
+    )
+    assert resp.status_code == 410
+    async with AsyncSessionLocal() as db:
+        assert await db.get(AuthExchangeCode, code) is None
+
+
+@pytest.mark.asyncio
+async def test_exchange_rejects_stale_token_authorization_version(
+    app_client_no_redirect: AsyncClient, cleanup_sso_users
+):
+    unique = uuid.uuid4().hex[:8]
+    email = f"exchange-stale-token-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    user_id = await _make_test_user(email)
+    code = await _make_exchange_row(
+        user_id,
+        issued_authorization_version=1,
+        token_authorization_version=0,
+    )
+
+    resp = await app_client_no_redirect.post(
+        "/api/auth/microsoft/exchange", json={"code": code}
+    )
+    assert resp.status_code == 410
+    async with AsyncSessionLocal() as db:
+        assert await db.get(AuthExchangeCode, code) is None
+
+
+@pytest.mark.asyncio
+async def test_exchange_rejects_token_missing_authorization_version(
+    app_client_no_redirect: AsyncClient, cleanup_sso_users
+):
+    unique = uuid.uuid4().hex[:8]
+    email = f"exchange-missing-av-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    user_id = await _make_test_user(email)
+    code = await _make_exchange_row(user_id, omit_access_token_av=True)
+
+    resp = await app_client_no_redirect.post(
+        "/api/auth/microsoft/exchange", json={"code": code}
+    )
+    assert resp.status_code == 410
+    async with AsyncSessionLocal() as db:
+        assert await db.get(AuthExchangeCode, code) is None
 
 
 @pytest.mark.asyncio

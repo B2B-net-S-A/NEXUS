@@ -11,7 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DeliveryLeadPlus
+from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
+from app.api.deps import DeliveryLeadPlus
 from app.api.ws import notify_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -182,7 +183,7 @@ async def _broadcast(
 @router.get("/{candidate_id}/chat/messages", response_model=CandidateChatMessageList)
 async def list_messages(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     before_id: Optional[int] = Query(None, ge=1),
@@ -226,7 +227,7 @@ async def create_message(
     request: Request,
     candidate_id: int,
     data: CandidateChatMessageCreate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateChatMessageResponse:
     await _require_member(db, current_user, candidate_id)
@@ -321,7 +322,7 @@ async def edit_message(
     candidate_id: int,
     msg_id: int,
     data: CandidateChatMessageUpdate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateChatMessageResponse:
     await _require_member(db, current_user, candidate_id)
@@ -371,7 +372,7 @@ async def edit_message(
 async def delete_message(
     candidate_id: int,
     msg_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _require_member(db, current_user, candidate_id)
@@ -493,7 +494,7 @@ async def unpin_message(
 )
 async def list_pinned(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[CandidateChatMessageResponse]:
     await _require_member(db, current_user, candidate_id)
@@ -517,7 +518,7 @@ async def list_pinned(
 @router.put("/{candidate_id}/chat/read", response_model=CandidateChatUnreadCount)
 async def mark_read(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateChatUnreadCount:
     await _require_member(db, current_user, candidate_id)
@@ -562,7 +563,7 @@ async def mark_read(
 )
 async def unread_count(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateChatUnreadCount:
     await _require_member(db, current_user, candidate_id)
@@ -594,7 +595,7 @@ async def unread_count(
 @router.get("/{candidate_id}/chat/members", response_model=list[ChatUserMini])
 async def list_members(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[ChatUserMini]:
     await _require_member(db, current_user, candidate_id)
@@ -619,7 +620,7 @@ async def add_reaction(
     candidate_id: int,
     msg_id: int,
     payload: dict,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReactionToggleResponse:
     await _require_member(db, current_user, candidate_id)
@@ -678,7 +679,7 @@ async def remove_reaction(
     candidate_id: int,
     msg_id: int,
     emoji: str,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReactionToggleResponse:
     await _require_member(db, current_user, candidate_id)
@@ -723,7 +724,7 @@ async def remove_reaction(
 async def message_read_by(
     candidate_id: int,
     msg_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[ReadByUser]:
     """Lista użytkowników którzy przeczytali tę (lub późniejszą) wiadomość.
@@ -735,6 +736,7 @@ async def message_read_by(
     if msg is None or msg.candidate_id != candidate_id:
         raise HTTPException(status_code=404, detail="Wiadomość nie znaleziona.")
 
+    eligible_member_ids = await list_candidate_chat_member_ids(db, candidate_id)
     rows = await db.execute(
         select(
             CandidateChatReadState.user_id,
@@ -745,6 +747,7 @@ async def message_read_by(
         .where(CandidateChatReadState.candidate_id == candidate_id)
         .where(CandidateChatReadState.last_read_message_id >= msg_id)
         .where(CandidateChatReadState.user_id != current_user.id)
+        .where(CandidateChatReadState.user_id.in_(eligible_member_ids))
         .order_by(CandidateChatReadState.last_read_at.asc())
     )
     return [

@@ -25,6 +25,7 @@ export interface UserFormData {
 // Pełna lista ról systemu (sync z backend/app/models/user.py:UserRole).
 export const ROLES = [
   "admin",
+  "finance",
   "head_of_recruitment",
   "delivery_lead",
   "tac",
@@ -45,12 +46,13 @@ export const RECRUITER_ROLES = [
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
+  finance: "Finanse",
   head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
   tac: "TAC",
   recruiter: "Rekruter",
   sourcer: "Sourcer",
-  user: "Viewer",
+  user: "Viewer (legacy)",
   manager: "Manager",
   client: "Klient",
 };

@@ -11,6 +11,10 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import {
+  canManageCandidateFinance,
+  useAuthStore,
+} from "@/store/auth";
 
 interface ExtendOrderDialogProps {
   clientId: number;
@@ -27,6 +31,8 @@ export function ExtendOrderDialog({
   onCreated,
 }: ExtendOrderDialogProps) {
   const { showToast } = useToast();
+  const user = useAuthStore((state) => state.user);
+  const canManageFinance = canManageCandidateFinance(user);
   const latest = contract.orders[0]; // assumed already sorted desc
 
   const [title, setTitle] = useState(
@@ -42,7 +48,9 @@ export function ExtendOrderDialog({
   );
   const [endDate, setEndDate] = useState("");
   const [rateClient, setRateClient] = useState(
-    String(latest?.rate_client ?? contract.latest_order_rate_client ?? ""),
+    canManageFinance
+      ? String(latest?.rate_client ?? contract.latest_order_rate_client ?? "")
+      : "",
   );
   const [totalValue, setTotalValue] = useState("");
   const [jobId, setJobId] = useState(
@@ -61,10 +69,13 @@ export function ExtendOrderDialog({
       fd.append("order_status", "active");
       if (startDate) fd.append("start_date", startDate);
       if (endDate) fd.append("end_date", endDate);
-      // Wyślij znormalizowaną liczbę (kropka dziesiętna), nie surowy string z przecinkiem.
-      if (rateClientNum !== null) fd.append("rate_client", String(rateClientNum));
-      const totalValueNum = parseDecimalInput(totalValue);
-      if (totalValueNum !== null) fd.append("total_value", String(totalValueNum));
+      if (canManageFinance) {
+        // Candidate-bearing order finance is Admin-only. Operational callers
+        // omit amounts entirely instead of sending redacted/default values.
+        if (rateClientNum !== null) fd.append("rate_client", String(rateClientNum));
+        const totalValueNum = parseDecimalInput(totalValue);
+        if (totalValueNum !== null) fd.append("total_value", String(totalValueNum));
+      }
       if (jobId) fd.append("job_id", jobId);
       if (file) fd.append("file", file);
       return dlPortalApi.createOrderExtension(clientId, fd);
@@ -133,34 +144,40 @@ export function ExtendOrderDialog({
           </label>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">Klient płaci (rate_client) /mc</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={rateClient}
-              onChange={(e) => setRateClient(sanitizeDecimalInput(e.target.value))}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="np. 17000"
-            />
-            {contract.rate_candidate !== null && rateClientNum !== null && (
-              <span className="text-xs text-green-700 mt-0.5 block">
-                marża /mc: {rateClientNum - contract.rate_candidate}
-              </span>
-            )}
-          </label>
-          <label>
-            <span className="text-sm">Total value (opcjonalnie)</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={totalValue}
-              onChange={(e) => setTotalValue(sanitizeDecimalInput(e.target.value))}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            />
-          </label>
-        </div>
+        {canManageFinance && (
+          <div className="grid grid-cols-2 gap-3">
+            <label>
+              <span className="text-sm">Klient płaci (rate_client) /mc</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={rateClient}
+                onChange={(e) =>
+                  setRateClient(sanitizeDecimalInput(e.target.value))
+                }
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                placeholder="np. 17000"
+              />
+              {contract.rate_candidate !== null && rateClientNum !== null && (
+                <span className="text-xs text-green-700 mt-0.5 block">
+                  marża /mc: {rateClientNum - contract.rate_candidate}
+                </span>
+              )}
+            </label>
+            <label>
+              <span className="text-sm">Total value (opcjonalnie)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={totalValue}
+                onChange={(e) =>
+                  setTotalValue(sanitizeDecimalInput(e.target.value))
+                }
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              />
+            </label>
+          </div>
+        )}
 
         <label className="block">
           <span className="text-sm">Job ID (rekrutacja, z której przedłużenie)</span>

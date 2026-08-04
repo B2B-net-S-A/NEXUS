@@ -32,7 +32,7 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { canManageCandidateFinance, useAuthStore } from "@/store/auth";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
 
@@ -61,6 +61,8 @@ const STATUS_COLORS: Record<ClientOrderStatus, string> = {
 export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const user = useAuthStore((state) => state.user);
+  const canManageFinance = canManageCandidateFinance(user);
   const [filter, setFilter] = useState<Filter>("all");
   const [extendingContract, setExtendingContract] = useState<ContractWithOrdersRead | null>(
     null,
@@ -165,6 +167,7 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
               key={contractor.contract_id}
               contractor={contractor}
               clientId={clientId}
+              canManageFinance={canManageFinance}
               onExtend={() => setExtendingContract(contractor)}
               onChange={refresh}
               onError={(msg) => showToast(msg, "error")}
@@ -552,6 +555,7 @@ function InlinePeriod({ startDate, endDate, onSave, onError }: InlinePeriodProps
 interface ContractorCardProps {
   contractor: ContractWithOrdersRead;
   clientId: number;
+  canManageFinance: boolean;
   onExtend: () => void;
   onChange: () => void;
   onError: (msg: string) => void;
@@ -561,15 +565,12 @@ interface ContractorCardProps {
 function ContractorCard({
   contractor,
   clientId,
+  canManageFinance,
   onExtend,
   onChange,
   onError,
   onSuccess,
 }: ContractorCardProps) {
-  const user = useAuthStore((s) => s.user);
-  // Mirror backend VIEW_FINANCE redaction (admin + delivery_lead): stawki are
-  // hidden from everyone else, so we don't render (or offer to edit) them.
-  const canViewFinance = hasRole(user, "admin", "delivery_lead");
   const [showHistory, setShowHistory] = useState(false);
 
   const { activeOrder, futureOrders, historyOrders } = useMemo(
@@ -603,7 +604,6 @@ function ContractorCard({
               </span>
             )}
           </div>
-
           {/* Numer zamówienia (from the active order's title) */}
           <div className="mt-1 text-sm">
             <span className="text-muted-foreground">Numer zamówienia </span>
@@ -633,7 +633,7 @@ function ContractorCard({
 
           {/* Finance + period row */}
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-            {canViewFinance && (
+            {canManageFinance && (
               <span>
                 stawka kosztowa{" "}
                 <InlineText
@@ -662,7 +662,7 @@ function ContractorCard({
                 />
               </span>
             )}
-            {canViewFinance && activeOrder && (
+            {canManageFinance && activeOrder && (
               <span>
                 stawka przychodowa{" "}
                 <InlineText
@@ -774,6 +774,7 @@ function ContractorCard({
                 key={order.id}
                 order={order}
                 clientId={clientId}
+                canManageFinance={canManageFinance}
                 onError={onError}
                 onSuccess={onSuccess}
                 onDeleted={onChange}
@@ -866,6 +867,7 @@ function FutureOrderRow({
 interface HistoryOrderRowProps {
   order: ClientOrderRead;
   clientId: number;
+  canManageFinance: boolean;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
   onDeleted: () => void;
@@ -874,6 +876,7 @@ interface HistoryOrderRowProps {
 function HistoryOrderRow({
   order,
   clientId,
+  canManageFinance,
   onError,
   onSuccess,
   onDeleted,
@@ -918,10 +921,10 @@ function HistoryOrderRow({
               {fmtDate(order.start_date)} → {fmtDate(order.end_date) || "bezterminowo"}
             </span>
           )}
-          {order.rate_client !== null && (
+          {canManageFinance && order.rate_client !== null && (
             <span>przychód {fmtMoney(order.rate_client)}/mc</span>
           )}
-          {order.monthly_margin !== null && (
+          {canManageFinance && order.monthly_margin !== null && (
             <span className="flex items-center gap-1 text-green-700">
               <TrendingUp className="w-3 h-3" />
               marża {fmtMoney(order.monthly_margin)}/mc

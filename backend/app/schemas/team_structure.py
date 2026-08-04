@@ -57,6 +57,13 @@ class AssignSourcerPayload(BaseModel):
     priority: int = Field(ge=1, le=2, description="1 lub 2")
 
 
+class OperatorCompetencesUpdate(BaseModel):
+    """Atomic primary + secondary competence selection for one operator."""
+
+    primary_competence_category_id: int = Field(gt=0)
+    secondary_competence_category_ids: list[int] = Field(default_factory=list)
+
+
 # ── TAC → DL ──────────────────────────────────────────────────────────────
 
 

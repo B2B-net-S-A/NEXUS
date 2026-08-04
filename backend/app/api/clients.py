@@ -24,6 +24,11 @@ from app.schemas.client import (
     ClientSafeResponse,
     ClientUpdate,
 )
+from app.services.access_scope import (
+    apply_delivery_lead_client_scope,
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
+)
 from app.services.client_access import ADMIN_LIKE_ROLES, CLIENT_TEAM_ROLES
 from app.schemas.client_profile import (
     ActiveConsultantItem,
@@ -36,7 +41,7 @@ from app.schemas.client_profile import (
     OpenJobItem,
     RecruiterBrief,
 )
-from app.api.deps import OperationalUser, TacPlus, DeliveryLeadPlus
+from app.api.deps import AdminUser, OperationalUser, TacPlus
 
 router = APIRouter()
 
@@ -165,6 +170,10 @@ async def list_clients(
     page_size: int = Query(20, ge=1, le=100),
     q: Optional[str] = None,
 ):
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(
+        current_user,
+        db,
+    )
     effective_name = _effective_client_name()
     query = (
         select(Client, effective_name.label("effective_name"))
@@ -174,6 +183,11 @@ async def list_clients(
             Client.merged_into_client_id.is_(None),
         )
         .order_by(func.lower(effective_name).asc(), Client.id.asc())
+    )
+    query = apply_delivery_lead_client_scope(
+        query,
+        Client.id,
+        delivery_lead_client_ids,
     )
     normalized_q = (q or "").strip()
     if normalized_q:
@@ -249,6 +263,10 @@ async def create_client(
 async def get_client(
     client_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ):
+    assert_delivery_lead_client_visible(
+        client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
     result = await db.execute(select(Client).where(Client.id == client_id))
     client = result.scalar_one_or_none()
     if not client:
@@ -274,6 +292,10 @@ async def get_client_profile(
     Contract model's own `monthly_rate_client` / `monthly_margin` properties
     so the math stays consistent with the Contracts module.
     """
+    assert_delivery_lead_client_visible(
+        client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
     # 404 early so we don't hand back empty sections for a phantom client.
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
@@ -486,6 +508,9 @@ async def get_client_profile(
     if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
         response.summary.active_mrr = None
         response.summary.ltv = None
+        for job in response.open_jobs:
+            job.salary_min = None
+            job.salary_max = None
         for consultant in response.active_consultants:
             consultant.monthly_rate_client = None
             consultant.monthly_margin = None
@@ -502,6 +527,10 @@ async def update_client(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    assert_delivery_lead_client_visible(
+        client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
     result = await db.execute(select(Client).where(Client.id == client_id))
     client = result.scalar_one_or_none()
     if not client:
@@ -527,7 +556,7 @@ async def update_client(
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client(
-    client_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    client_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Client).where(Client.id == client_id))
     client = result.scalar_one_or_none()

@@ -8,11 +8,13 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus, require_roles
+from app.analytics.capabilities import AnalyticsCapability, require_capability
+from app.api.deps import CurrentUser, require_roles
+from app.api.financial_access import FinanceReadUser
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
 from app.models.candidate import Candidate
@@ -131,23 +133,23 @@ def _safe_pct(numerator: int, denominator: int) -> float:
 # ── Recruitment Report ─────────────────────────────────────────────────────────
 
 
-# Read-only team funnel report — recruiter dashboard renders this for everyone
-# on the recruitment team. FE gate (frontend/src/app/dashboard/recruiter/page.tsx)
-# allows sourcer | tac | recruiter | admin | head_of_recruitment; BE must match
-# or the dashboard skeleton hangs forever (FE has no 403 fallback). Data is a
-# team-wide aggregate; per-user privacy already handled at row level.
+# Frozen team funnel and named ranking. The canonical /dashboard route uses v2,
+# but this report still backs legacy consumers and therefore remains available
+# to the My Work/HoR personas through the same ranking capability. A plain
+# Delivery Lead no longer owns that capability; Finance and the retired viewer
+# never do.
+_recruitment_ranking_guard = require_capability(
+    AnalyticsCapability.VIEW_RECRUITMENT_RANKING
+)
+RecruitmentRankingUser = Annotated[
+    User,
+    Depends(_recruitment_ranking_guard),
+]
+
+
 @router.get("/recruitment")
 async def report_recruitment(
-    current_user: User = Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.tac,
-            UserRole.recruiter,
-            UserRole.sourcer,
-            UserRole.head_of_recruitment,
-        )
-    ),
+    current_user: RecruitmentRankingUser,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
     recruitment_type: Optional[str] = Query(None),
@@ -354,8 +356,8 @@ async def report_recruitment(
 
 @router.get("/sales")
 async def report_sales(
-    # R0 (plan 2026-07-16): revenue/margin/MRR = VIEW_FINANCE -> DL+/admin.
-    current_user: DeliveryLeadPlus,
+    # Revenue/margin/MRR: wyłącznie Finance/Admin, nigdy Delivery Lead.
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -779,7 +781,9 @@ async def _compute_dl_metrics(
 
 @router.get("/delivery-leads")
 async def report_delivery_leads(
-    current_user: TacPlus,
+    current_user: User = Depends(
+        require_roles(UserRole.admin, UserRole.head_of_recruitment)
+    ),
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
 ):
@@ -803,7 +807,9 @@ async def report_delivery_leads(
 @router.get("/delivery-leads/{dl_id}/trend")
 async def report_delivery_lead_trend(
     dl_id: int,
-    current_user: TacPlus,
+    current_user: User = Depends(
+        require_roles(UserRole.admin, UserRole.head_of_recruitment)
+    ),
     db: AsyncSession = Depends(get_db),
     months: int = Query(6, ge=1, le=24),
 ):
@@ -856,48 +862,21 @@ async def report_my_delivery_lead(
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
 ):
-    """Własne KPI dla użytkownika z rolą `delivery_lead`. Zwraca pozycję
-    w rankingu + własne clients + metryki.
+    """Retired unscoped DL projection.
+
+    Its response mixed the caller's row with an organization-wide leaderboard
+    and was calculated from legacy ``Job.delivery_lead_id`` fallbacks rather
+    than the canonical client–TAC relationships.
     """
     if not current_user.has_role(UserRole.delivery_lead):
         raise HTTPException(
             status_code=403,
             detail="Requires role=delivery_lead",
         )
-    start = _period_start(period)
-    per_dl, overall = await _compute_dl_metrics(db, period_start=start)
-
-    my_row = next((d for d in per_dl if d["user_id"] == current_user.id), None)
-    if my_row is None:
-        # DL nie ma jeszcze żadnego Job w okresie — zwracamy zera.
-        my_row = {
-            "user_id": current_user.id,
-            "name": current_user.name,
-            "total_requests": 0,
-            "total_vacancies": 0,
-            "placements": 0,
-            "hit_ratio": 0.0,
-            "fill_rate": 0.0,
-            "avg_vacancies_per_request": 0.0,
-            "open_requests": 0,
-            "open_vacancies": 0,
-            "target_achieved": False,
-            "clients": [],
-        }
-
-    rank = next(
-        (i + 1 for i, d in enumerate(per_dl) if d["user_id"] == current_user.id),
-        None,
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Use /api/dashboard/v2/delivery-lead",
     )
-
-    return {
-        "period": period,
-        "me": my_row,
-        "rank": rank,
-        "total_dls": len(per_dl),
-        "team_overall": overall,
-        "leaderboard_top5": per_dl[:5],
-    }
 
 
 # ── Clients Hit Ratio Report ───────────────────────────────────────────────────
@@ -1355,9 +1334,8 @@ async def report_client_trend(
 
 @router.get("/tenders")
 async def report_tenders(
-    # R0: raport zawiera wartości przetargów -> DL+/admin (wariant bez kwot
-    # dla TAC dojdzie w Analytics v1).
-    current_user: DeliveryLeadPlus,
+    # Raport zawiera wartości przetargów: wyłącznie Finance/Admin.
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     period: str = Query("year", enum=["week", "month", "quarter", "year"]),
 ):
@@ -1445,8 +1423,8 @@ async def report_tenders(
 
 @router.get("/board")
 async def report_board(
-    # R0: P&L zarządu = VIEW_FINANCE -> DL+/admin.
-    current_user: DeliveryLeadPlus,
+    # P&L zarządu: wyłącznie Finance/Admin, nigdy Delivery Lead.
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """

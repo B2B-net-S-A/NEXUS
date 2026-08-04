@@ -42,6 +42,7 @@ ROLES = [
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
@@ -69,7 +70,7 @@ EXPORT_ROLES = {
     UserRole.delivery_lead,
     UserRole.tac,
 }
-FINANCE_ROLES = {UserRole.admin, UserRole.delivery_lead, UserRole.tac}
+FINANCE_ROLES = {UserRole.admin}
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -450,7 +451,7 @@ async def test_write_surface_role_matrix(
 async def test_client_rate_requires_finance_capability(
     m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """„Stawka do klienta” is a finance mutation — recruiter/sourcer/viewer 403."""
+    """Candidate-specific client rate is Admin-only; Finance gets no PII."""
     for role in ROLES:
         resp = await m2_client.patch(
             "/api/candidates/999999/recruitments/999999/client-rate",
@@ -768,13 +769,19 @@ async def test_seeking_contractors_rejects_viewer(
 
 
 async def test_secondary_role_grants_candidate_access(m2_client: AsyncClient):
-    """A user whose PRIMARY role is `user` but who holds a secondary
-    `recruiter` role passes the capability check (union semantics)."""
-    email, password = await _seed_user(UserRole.user, secondary=["user", "recruiter"])
+    """A valid Recruiter+TAC hybrid gets export through its secondary TAC role.
+
+    Recruiter alone cannot export candidates, so the successful response pins
+    union semantics without constructing the forbidden legacy-viewer hybrid.
+    """
+    email, password = await _seed_user(
+        UserRole.recruiter,
+        secondary=[UserRole.recruiter.value, UserRole.tac.value],
+    )
     headers = await _login(m2_client, email, password)
 
-    resp = await m2_client.get("/api/candidates?page_size=1", headers=headers)
-    assert resp.status_code != 403, resp.text
+    resp = await m2_client.get("/api/candidates/export?limit=1", headers=headers)
+    assert resp.status_code == 200, resp.text
 
 
 # ── Global search projection ────────────────────────────────────────────────

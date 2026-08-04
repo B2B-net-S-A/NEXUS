@@ -52,6 +52,7 @@ async def _seed_user(role: UserRole) -> tuple[str, str]:
                 name=f"RBAC Test {role.value}",
                 role=role,
                 is_active=True,
+                profile_completed=True,
             )
             db.add(u)
             await db.commit()
@@ -115,9 +116,17 @@ async def role_headers(
 # macierz modułu: tests/test_candidate_module_access.py.
 GET_ENDPOINTS_ALL = [
     "/api/jobs",
-    "/api/dashboard/stats",
-    "/api/dashboard/kpis",
-    "/api/dashboard/pipeline-funnel",
+]
+
+LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS = [
+    ("GET", "/api/dashboard/stats"),
+    ("GET", "/api/dashboard/kpis"),
+    ("GET", "/api/dashboard/pipeline-funnel"),
+]
+
+RECRUITMENT_RANKING_ENDPOINTS = [
+    ("GET", "/api/reports/recruitment"),
+    ("GET", "/api/activities/leaderboard"),
 ]
 
 # R0: odczyty operacyjne (wszyscy POZA read-only viewerem `user`):
@@ -126,11 +135,7 @@ OPERATIONAL_ENDPOINTS = [
     # macierz w tests/test_candidate_module_access.py.
     ("GET", "/api/candidates"),
     ("GET", "/api/clients"),
-    # Celowo operacyjny (nie TacPlus): team-wide agregat dla dashboardu —
-    # patrz komentarz nad reports.py::report_recruitment.
-    ("GET", "/api/reports/recruitment"),
     ("GET", "/api/activities/feed"),
-    ("GET", "/api/activities/leaderboard"),
     ("GET", "/api/dashboard/recent-activity"),
 ]
 
@@ -158,22 +163,18 @@ RECRUITER_PLUS_ENDPOINTS = [
 DELIVERY_LEAD_PLUS_ENDPOINTS = [
     ("POST", "/api/pipeline-templates"),
     ("POST", "/api/embed-init"),
-    ("POST", "/api/candidates/99999/rate-history"),
-    ("DELETE", "/api/clients/99999"),  # PR #17 — DELETE client wymaga DL+
-    # R0: benchmarki stawek = finanse (odczyt DL+).
-    ("GET", "/api/rate-benchmarks"),
-    # R0: raporty finansowe zeszły z TacPlus na DL+ (TAC bez finansów).
-    ("GET", "/api/reports/sales"),
-    ("GET", "/api/reports/board"),
-    ("GET", "/api/reports/tenders"),
-    # M5 PR-01c: faktury to w całości dane finansowe → VIEW_FINANCE (admin/DL).
-    ("GET", "/api/invoices"),
 ]
 
 # Endpointy admin-only:
 ADMIN_ONLY_ENDPOINTS = [
     ("GET", "/api/admin/users"),
     ("GET", "/api/admin/system"),
+    # Client deletion is an organization-wide destructive operation. Delivery
+    # Lead is scoped to assigned clients and may update them, but cannot delete.
+    ("DELETE", "/api/clients/99999"),
+    # Candidate-specific rate data carries recruitment PII; Finance uses
+    # person-free financial endpoints and Delivery Lead stays operational-only.
+    ("POST", "/api/candidates/99999/rate-history"),
 ]
 
 
@@ -202,6 +203,17 @@ ROLE_SETS = {
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+    },
+    "legacy_organization_dashboard": {
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+    },
+    "recruitment_ranking": {
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
     },
     "all": set(ROLES),
 }
@@ -261,6 +273,52 @@ async def test_get_read_endpoints_open_to_all_authenticated(
         f"[{role.value}] GET {path} returned {resp.status_code} — 5xx nie jest "
         "akceptowalną odpowiedzią (R0: 500 ≠ odmowa dostępu)"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS)
+async def test_legacy_organization_dashboards_are_admin_or_hor_only(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers)
+    if role in ROLE_SETS["legacy_organization_dashboard"]:
+        assert resp.status_code != 403, (
+            f"[{role.value}] {method} {path} got 403 but should be allowed"
+        )
+        assert resp.status_code < 500, (
+            f"[{role.value}] {method} {path} returned {resp.status_code}"
+        )
+    else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", RECRUITMENT_RANKING_ENDPOINTS)
+async def test_recruitment_ranking_endpoint_follows_capability_roles(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers)
+    if role in ROLE_SETS["recruitment_ranking"]:
+        assert resp.status_code != 403, (
+            f"[{role.value}] {method} {path} got 403 but should be allowed"
+        )
+        assert resp.status_code < 500, (
+            f"[{role.value}] {method} {path} returned {resp.status_code}"
+        )
+    else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
 
 
 @pytest.mark.asyncio
@@ -502,22 +560,16 @@ async def test_operational_endpoints_reject_viewer(
         )
 
 
-# ── R0: /api/dashboard/kpis — viewer bez imiennego rankingu ──────────────────
+# ── Legacy /api/dashboard/kpis — viewer nie omija presetów ───────────────────
 
 
 @pytest.mark.asyncio
-async def test_dashboard_kpis_hides_ranking_from_viewer(rbac_client: AsyncClient):
-    """Rola `user` dostaje agregaty, ale top_recruiters musi być puste."""
+async def test_dashboard_kpis_rejects_viewer(rbac_client: AsyncClient):
+    """Rola `user` nie dostaje starego organization-wide endpointu."""
     email, password = await _seed_user(UserRole.user)
     headers = await _login(rbac_client, email, password)
     resp = await rbac_client.get("/api/dashboard/kpis", headers=headers)
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["ats"]["top_recruiters"] == [], (
-        "viewer nie może dostać imiennego rankingu rekruterów"
-    )
-    # R0: InfraReporter zniknął z odpowiedzi (sekret usunięty z kodu).
-    assert "infrareporter" not in body
+    assert resp.status_code == 403, resp.text
 
 
 # ── R0: IDOR /api/kpis/users/{id}/today ──────────────────────────────────────
@@ -643,9 +695,9 @@ async def test_dynareporter_section_does_not_widen_role(rbac_client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_dynareporter_dl_with_section_allowed(rbac_client: AsyncClient):
-    """DL z sekcją clients-mrr przechodzi (VIEW_FINANCE ∩ sekcja)."""
-    email, password = await _seed_user(UserRole.delivery_lead)
+async def test_dynareporter_finance_with_section_allowed(rbac_client: AsyncClient):
+    """Finance z sekcją clients-mrr przechodzi (VIEW_FINANCE ∩ sekcja)."""
+    email, password = await _seed_user(UserRole.finance)
     async with AsyncSessionLocal() as db:
         u = await db.scalar(select(User).where(User.email == email))
         u.allowed_sections = ["clients-mrr"]
@@ -684,16 +736,18 @@ async def test_me_returns_analytics_capabilities(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
 ):
-    """Każda rola dostaje analytics_capabilities; viewer tylko agregaty."""
+    """Każda sesja dostaje listę capability; legacy viewer ma deny-all."""
     role, headers = role_headers
     resp = await rbac_client.get("/api/auth/me", headers=headers)
     assert resp.status_code == 200, resp.text
     caps = resp.json().get("analytics_capabilities")
-    assert isinstance(caps, list) and caps, (
-        f"[{role.value}] analytics_capabilities missing/empty: {caps}"
+    assert isinstance(caps, list), (
+        f"[{role.value}] analytics_capabilities missing: {caps}"
     )
     if role is UserRole.user:
-        assert caps == ["view_operational_aggregates"]
+        assert caps == []
+    else:
+        assert caps, f"[{role.value}] expected at least one capability"
     if role is UserRole.admin:
         assert "view_finance" in caps and "admin_analytics" in caps
     if role is UserRole.tac:
@@ -740,8 +794,8 @@ async def test_rekrutacja_dashboard_requires_ranking_capability(
 ):
     """P0.2: imienny dashboard rekrutacji → VIEW_RECRUITMENT_RANKING (bez sekcji).
 
-    Wszyscy poza `user` (viewer) przechodzą; viewer dostaje 403 także przez
-    direct API (wcześniej goły CurrentUser = każdy zalogowany).
+    My Work, HoR i Admin przechodzą; Delivery Lead, Finance i legacy viewer
+    dostają 403 także przez direct API. Sekcja nie poszerza capability.
     """
     role, headers = role_headers
     # available-weeks: prosty SELECT (pusta lista na testowej DB) — ten sam
@@ -749,7 +803,7 @@ async def test_rekrutacja_dashboard_requires_ranking_capability(
     resp = await rbac_client.get(
         "/api/dynareporter/rekrutacja/available-weeks", headers=headers
     )
-    if role in ROLE_SETS["operational"]:  # wszyscy poza `user`
+    if role in ROLE_SETS["recruitment_ranking"]:
         assert resp.status_code != 403, (
             f"[{role.value}] rekrutacja got 403 but should be allowed"
         )
@@ -767,16 +821,15 @@ async def test_board_dashboard_monthly_requires_view_finance(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
 ):
-    """P0.1: board-dashboard/monthly to pełny P&L → VIEW_FINANCE {admin, DL}.
+    """P0.1: board-dashboard/monthly to pełny P&L → Finance/Admin.
 
-    Head of recruitment traci dostęp (nie ma VIEW_FINANCE) — dotąd wpuszczany
-    przez BOARD_ALLOWED_ROLES (split-brain względem macierzy capability).
+    Delivery Lead i Head of Recruitment nie mają VIEW_FINANCE.
     """
     role, headers = role_headers
     resp = await rbac_client.get(
         "/api/dynareporter/board-dashboard/monthly", headers=headers
     )
-    if role in ROLE_SETS["delivery_lead_plus"]:  # {admin, delivery_lead}
+    if role is UserRole.admin:
         assert resp.status_code != 403, (
             f"[{role.value}] board-dashboard got 403 but should be allowed"
         )

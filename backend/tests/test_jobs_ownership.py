@@ -17,6 +17,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.job import Job, JobStatus
+from app.models.team_structure import ClientTacAssignment, DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 
 
@@ -80,6 +81,31 @@ async def _seed_job(recruiter_id: int | None = None) -> int:
         return j.id
 
 
+async def _grant_dl_job_scope(delivery_lead_id: int, job_id: int) -> None:
+    """Attach a job to the explicit client–TAC graph visible to one DL."""
+    tac_id, _, _ = await _seed_user(UserRole.tac, prefix="own-scope")
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None
+        job.tac_id = tac_id
+        db.add_all(
+            [
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=delivery_lead_id,
+                    client_id=job.client_id,
+                    is_head=True,
+                ),
+                ClientTacAssignment(
+                    tac_user_id=tac_id,
+                    client_id=job.client_id,
+                    is_primary=False,
+                    is_first_priority_for_tac=False,
+                ),
+            ]
+        )
+        await db.commit()
+
+
 async def _login(client: AsyncClient, email: str, password: str) -> dict[str, str]:
     resp = await client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -96,6 +122,7 @@ async def test_assign_owner_as_dl_succeeds(ownership_client: AsyncClient):
     dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
     rec_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job()
+    await _grant_dl_job_scope(dl_id, job_id)
 
     headers = await _login(ownership_client, dl_email, dl_pass)
     resp = await ownership_client.post(
@@ -141,9 +168,10 @@ async def test_assign_owner_as_tac_forbidden(ownership_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_assign_owner_rejects_read_only_user(ownership_client: AsyncClient):
-    _, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
     viewer_id, _, _ = await _seed_user(UserRole.user)
     job_id = await _seed_job()
+    await _grant_dl_job_scope(dl_id, job_id)
 
     headers = await _login(ownership_client, dl_email, dl_pass)
     resp = await ownership_client.post(
@@ -306,22 +334,27 @@ async def test_collaborator_add_duplicate_is_idempotent(
         from app.models.job_collaborator import JobCollaborator
 
         rows = (
-            await db.execute(
-                select(JobCollaborator).where(
-                    JobCollaborator.job_id == job_id,
-                    JobCollaborator.user_id == collab_id,
+            (
+                await db.execute(
+                    select(JobCollaborator).where(
+                        JobCollaborator.job_id == job_id,
+                        JobCollaborator.user_id == collab_id,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(rows) == 1
 
 
 @pytest.mark.asyncio
 async def test_collaborator_remove_by_dl_succeeds(ownership_client: AsyncClient):
-    _, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
     owner_id, _, _ = await _seed_user(UserRole.recruiter)
     collab_id, _, _ = await _seed_user(UserRole.sourcer)
     job_id = await _seed_job(recruiter_id=owner_id)
+    await _grant_dl_job_scope(dl_id, job_id)
 
     async with AsyncSessionLocal() as db:
         from app.models.job_collaborator import JobCollaborator
@@ -359,10 +392,50 @@ async def test_users_directory_respects_roles_filter(ownership_client: AsyncClie
     sourcer_id, _, _ = await _seed_user(UserRole.sourcer)
 
     headers = await _login(ownership_client, rec_email, rec_pass)
-    resp = await ownership_client.get(
-        "/api/users?roles=recruiter", headers=headers
-    )
+    resp = await ownership_client.get("/api/users?roles=recruiter", headers=headers)
     assert resp.status_code == 200
     ids = [u["id"] for u in resp.json()]
     assert rec_id in ids
     assert sourcer_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_users_directory_and_mentions_include_secondary_roles(
+    ownership_client: AsyncClient,
+):
+    _, requester_email, requester_password = await _seed_user(UserRole.recruiter)
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        hybrid = User(
+            email=f"hybrid-recruiter-tac-{unique}@example.com",
+            password_hash=hash_password(f"T3st_{unique}!HYBRID"),
+            name=f"Hybrid TAC {unique}",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value, UserRole.tac.value],
+            is_active=True,
+        )
+        db.add(hybrid)
+        await db.commit()
+        await db.refresh(hybrid)
+        hybrid_id = hybrid.id
+
+    headers = await _login(
+        ownership_client,
+        requester_email,
+        requester_password,
+    )
+    directory = await ownership_client.get(
+        "/api/users?roles=tac",
+        headers=headers,
+    )
+    mentionable = await ownership_client.get(
+        "/api/users/mentionable",
+        headers=headers,
+    )
+
+    assert directory.status_code == 200, directory.text
+    assert mentionable.status_code == 200, mentionable.text
+    directory_row = next(user for user in directory.json() if user["id"] == hybrid_id)
+    assert directory_row["role"] == UserRole.recruiter.value
+    assert UserRole.tac.value in directory_row["roles"]
+    assert hybrid_id in {user["id"] for user in mentionable.json()}

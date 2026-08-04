@@ -12,16 +12,16 @@ Port `EmployeeManagement.tsx` + `RecruitmentTeamManager.tsx` +
 from __future__ import annotations
 
 import logging
-
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.core.database import get_db
+from app.models.user import User, UserRole
 
 logger = logging.getLogger("dynareporter.admin_users")
 
@@ -252,13 +252,28 @@ async def toggle_active(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await db.execute(
-        text("UPDATE users SET is_active = :a WHERE id = :uid"),
+    # One atomic statement closes the legacy session-revocation bypass.
+    # ``IS DISTINCT FROM`` makes retries/no-ops harmless: the auth version and
+    # revocation floor advance exactly once for each real active-state change.
+    result = await db.execute(
+        text(
+            """
+            UPDATE users
+            SET is_active = :a,
+                authorization_version = authorization_version + 1,
+                tokens_valid_after = CURRENT_TIMESTAMP
+            WHERE id = :uid
+              AND is_active IS DISTINCT FROM :a
+            RETURNING id
+            """
+        ),
         {"a": payload.is_active, "uid": user_id},
     )
+    changed = result.scalar_one_or_none() is not None
     await db.commit()
     logger.info(
-        "User is_active toggled: user=%s active=%s by admin=%s",
+        "User is_active %s: user=%s active=%s by admin=%s",
+        "toggled" if changed else "unchanged",
         user_id,
         payload.is_active,
         current_user.id,
@@ -301,13 +316,24 @@ async def update_allowed_sections(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Nieznane sekcje: {invalid}",
         )
-    # Use json.dumps żeby asyncpg cast'ował list jako JSONB properly.
-    import json
-
-    await db.execute(
-        text("UPDATE users SET allowed_sections = CAST(:s AS jsonb) WHERE id = :uid"),
-        {"s": json.dumps(payload.allowed_sections), "uid": user_id},
-    )
+    target = await db.scalar(select(User).where(User.id == user_id))
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    if payload.allowed_sections and target.has_any_role(
+        UserRole.finance,
+        UserRole.user,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Finance and Viewer cannot receive legacy DynaReporter sections",
+        )
+    changed = list(target.allowed_sections or []) != payload.allowed_sections
+    if changed:
+        target.allowed_sections = list(payload.allowed_sections)
+        target.authorization_version += 1
+        target.tokens_valid_after = datetime.now(timezone.utc)
     await db.commit()
     logger.info(
         "User allowed_sections updated: user=%s sections=%s by admin=%s",
@@ -315,7 +341,11 @@ async def update_allowed_sections(
         payload.allowed_sections,
         current_user.id,
     )
-    return {"ok": True, "allowed_sections": payload.allowed_sections}
+    return {
+        "ok": True,
+        "changed": changed,
+        "allowed_sections": payload.allowed_sections,
+    }
 
 
 # ---------------------------------------------------------------------------

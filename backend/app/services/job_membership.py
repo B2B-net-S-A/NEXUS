@@ -15,6 +15,7 @@ from typing import Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
@@ -22,6 +23,11 @@ from app.models.user import User, UserRole
 
 async def is_member_of_job(db: AsyncSession, user: User, job_id: int) -> bool:
     """Czy user może widzieć/uczestniczyć w Job Chacie danego projektu."""
+    # A historical owner/collaborator id is not an authorization grant.
+    # Recruitment chat is candidate-domain data, so Finance/viewer and
+    # deactivated accounts fail closed before membership is evaluated.
+    if not user_can_access_candidate_domain(user):
+        return False
     if user.has_role(UserRole.admin):
         return True
 
@@ -78,7 +84,18 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
     for (uid,) in admins.all():
         member_ids.add(uid)
 
-    return sorted(member_ids)
+    if not member_ids:
+        return []
+
+    eligible_rows = await db.execute(
+        select(User).where(User.id.in_(member_ids)).where(User.is_active.is_(True))
+    )
+    eligible_ids = {
+        user.id
+        for user in eligible_rows.scalars().all()
+        if user_can_access_candidate_domain(user)
+    }
+    return sorted(eligible_ids)
 
 
 async def list_job_members(db: AsyncSession, job_id: int) -> list[User]:

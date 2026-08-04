@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.m365 import GraphSubscription, M365Connection
+from app.services.m365.access import connection_owner_is_eligible
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,13 @@ async def subscribe_all_for_connection(
     Returns the rows that succeeded. Used from the OAuth callback so a single
     transient Graph 5xx on one resource doesn't block the whole connect.
     """
+    if not await connection_owner_is_eligible(db, conn):
+        logger.warning(
+            "subscription enrolment refused for ineligible connection_id=%s",
+            conn.id,
+        )
+        return []
+
     rows: list[GraphSubscription] = []
     async with GraphClient(conn, db) as gc:
         for resource, change_type in resources:

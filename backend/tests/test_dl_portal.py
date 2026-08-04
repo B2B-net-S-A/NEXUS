@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
@@ -45,6 +46,7 @@ async def _new_user(role: UserRole) -> tuple[int, str, str]:
             name=f"DL portal {role.value} {suffix}",
             role=role,
             is_active=True,
+            profile_completed=True,
         )
         db.add(u)
         await db.flush()
@@ -363,6 +365,85 @@ async def test_dl_assigned_can_create_order(app_client: AsyncClient):
         await _cleanup([client_id], [dl_id], [cand_id])
 
 
+async def test_dl_assigned_can_create_flow_b_without_finance(
+    app_client: AsyncClient,
+):
+    client_id = await _new_client()
+    cand_id = await _new_candidate()
+    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
+    await _assign_dl(dl_id, client_id)
+    try:
+        headers = await _login(app_client, dl_email, dl_pwd)
+        response = await app_client.post(
+            f"/api/clients/{client_id}/contract-with-order",
+            json={
+                "candidate_id": cand_id,
+                "title": "Operacyjny order bez finansów",
+            },
+            headers=headers,
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["monthly_margin"] is None
+
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, body["contract_id"])
+            order = await db.get(ClientOrder, body["order_id"])
+            assert contract is not None
+            assert contract.status == ContractStatus.draft
+            assert contract.rate_candidate is None
+            assert contract.rate_client is None
+            assert order is not None
+            assert order.status == ClientOrderStatus.draft
+            assert order.filled_at is None
+            assert order.rate_client is None
+            assert order.total_value is None
+            assert order.currency is None
+    finally:
+        await _cleanup([client_id], [dl_id], [cand_id])
+
+
+async def test_admin_flow_b_without_activation_fields_stays_draft(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+):
+    """Flow B cannot bypass the canonical contract activation lifecycle."""
+
+    client_id = await _new_client()
+    cand_id = await _new_candidate()
+    try:
+        response = await app_client.post(
+            f"/api/clients/{client_id}/contract-with-order",
+            json={
+                "candidate_id": cand_id,
+                "title": "Admin order wymagający uzupełnienia",
+                "rate_client": "18000",
+                "rate_candidate": "14000",
+                # Deliberately omit start/end and work_mode. Flow B has no
+                # contract_type/work_mode fields and therefore can never prove
+                # readiness for activation on create.
+            },
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert Decimal(body["monthly_margin"]) == Decimal("4000")
+
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, body["contract_id"])
+            order = await db.get(ClientOrder, body["order_id"])
+            assert contract is not None
+            assert contract.status == ContractStatus.draft
+            assert contract.start_date is None
+            assert contract.end_date is None
+            assert contract.work_mode is None
+            assert order is not None
+            assert order.status == ClientOrderStatus.draft
+            assert order.filled_at is None
+    finally:
+        await _cleanup([client_id], [], [cand_id])
+
+
 # ── My clients filter (sanity) ─────────────────────────────────────────────
 
 
@@ -370,29 +451,99 @@ async def test_my_clients_admin_sees_all(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
     client_id = await _new_client()
+    candidate_id = await _new_candidate()
+    contract_id = await _new_contract(client_id, candidate_id)
     try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ClientOrder(
+                    client_id=client_id,
+                    contract_id=contract_id,
+                    title="Admin finance visibility",
+                    status=ClientOrderStatus.active,
+                    start_date=date.today(),
+                    total_value=Decimal("25000.00"),
+                    currency="PLN",
+                )
+            )
+            await db.commit()
+
         resp = await app_client.get("/api/my-clients", headers=app_auth_headers)
         assert resp.status_code == 200
-        ids = [r["client_id"] for r in resp.json()]
+        rows = resp.json()
+        ids = [r["client_id"] for r in rows]
         assert client_id in ids
+        row = next(r for r in rows if r["client_id"] == client_id)
+        assert row["total_revenue_all_time"] is not None
+        assert row["active_revenue"] is not None
+
+        dashboard = await app_client.get(
+            f"/api/my-clients/{client_id}/dashboard",
+            headers=app_auth_headers,
+        )
+        assert dashboard.status_code == 200, dashboard.text
+        body = dashboard.json()
+        assert body["total_revenue_all_time"] is not None
+        assert body["active_revenue"] is not None
+        assert body["currency_breakdown"]
+        assert body["monthly_margin_total"] is not None
     finally:
-        await _cleanup([client_id], [])
+        await _cleanup([client_id], [], [candidate_id])
 
 
 async def test_my_clients_dl_only_assigned(app_client: AsyncClient):
     own = await _new_client()
     other = await _new_client()
+    candidate_id = await _new_candidate()
+    contract_id = await _new_contract(own, candidate_id)
     dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
     await _assign_dl(dl_id, own)
     try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ClientOrder(
+                    client_id=own,
+                    contract_id=contract_id,
+                    title="DL redaction",
+                    status=ClientOrderStatus.active,
+                    start_date=date.today(),
+                    total_value=Decimal("25000.00"),
+                    currency="PLN",
+                )
+            )
+            await db.commit()
+
         headers = await _login(app_client, dl_email, dl_pwd)
         resp = await app_client.get("/api/my-clients", headers=headers)
         assert resp.status_code == 200
-        ids = [r["client_id"] for r in resp.json()]
+        rows = resp.json()
+        ids = [r["client_id"] for r in rows]
         assert own in ids
         assert other not in ids
+        row = next(r for r in rows if r["client_id"] == own)
+        assert row["active_orders_count"] == 1
+        assert "total_revenue_all_time" not in row
+        assert "active_revenue" not in row
+
+        dashboard = await app_client.get(
+            f"/api/my-clients/{own}/dashboard",
+            headers=headers,
+        )
+        assert dashboard.status_code == 200, dashboard.text
+        body = dashboard.json()
+        assert body["active_consultants"] == 1
+        assert body["active_orders_count"] == 1
+        for financial_key in (
+            "total_revenue_all_time",
+            "active_revenue",
+            "completed_revenue",
+            "currency_breakdown",
+            "monthly_margin_total",
+            "monthly_margin_pct",
+        ):
+            assert financial_key not in body
     finally:
-        await _cleanup([own, other], [dl_id])
+        await _cleanup([own, other], [dl_id], [candidate_id])
 
 
 # ── Admin overview ──────────────────────────────────────────────────────────
@@ -497,9 +648,7 @@ async def test_hired_stage_auto_creates_contract_and_order_draft(
         # Cleanup: kasuj job + stage + contract + order
         async with AsyncSessionLocal() as db:
             await db.execute(
-                ClientOrder.__table__.delete().where(
-                    ClientOrder.client_id == client_id
-                )
+                ClientOrder.__table__.delete().where(ClientOrder.client_id == client_id)
             )
             await db.execute(
                 Contract.__table__.delete().where(Contract.client_id == client_id)
@@ -518,9 +667,7 @@ async def test_recruiter_forbidden_from_admin_overview(app_client: AsyncClient):
     rec_id, rec_email, rec_pwd = await _new_user(UserRole.recruiter)
     try:
         headers = await _login(app_client, rec_email, rec_pwd)
-        resp = await app_client.get(
-            "/api/admin/clients-overview", headers=headers
-        )
+        resp = await app_client.get("/api/admin/clients-overview", headers=headers)
         assert resp.status_code == 403
     finally:
         await _cleanup([], [rec_id])

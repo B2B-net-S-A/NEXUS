@@ -18,7 +18,11 @@ from sqlalchemy import select
 
 from app.api.candidate_access import user_has_candidate_read
 from app.core.database import AsyncSessionLocal
-from app.core.security import decode_token
+from app.core.security import (
+    decode_token,
+    token_authorization_version_matches,
+    token_is_revoked,
+)
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -365,8 +369,25 @@ def _extract_ws_token(
     return query_token, None
 
 
+def _ws_payload_authorizes_user(payload: dict, user: User) -> bool:
+    """Mirror the stateful HTTP session checks for a decoded WS access token."""
+
+    return (
+        user.is_active
+        and not token_is_revoked(payload, user.tokens_valid_after)
+        and token_authorization_version_matches(payload, user.authorization_version)
+    )
+
+
 async def _authenticate_ws_token(token: str) -> Optional[User]:
-    """Validate JWT token and return User, or None on failure."""
+    """Validate JWT token and return User, or None on failure.
+
+    WebSockets bypass FastAPI's HTTP dependencies, so the handshake must mirror
+    ``get_current_user`` explicitly. In particular, a correctly signed access
+    token is still stale after a role/status change when its ``av`` claim no
+    longer matches ``users.authorization_version``. Tokens without ``av`` (or
+    with a non-integer value) fail closed.
+    """
     try:
         payload = decode_token(token)
         user_id_str = payload.get("sub")
@@ -379,7 +400,7 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        if user and user.is_active:
+        if user and _ws_payload_authorizes_user(payload, user):
             return user
     return None
 
@@ -492,11 +513,27 @@ async def ws_notifications(
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
             except asyncio.TimeoutError:
+                # The connection manager is process-local, so an admin changing a
+                # role in another worker cannot safely "push" a disconnect into
+                # this worker. Re-check the signed token against authoritative DB
+                # state on every keep-alive interval instead. This also expires
+                # existing sockets after an authorization-version bump rather
+                # than protecting only new handshakes.
+                if await _authenticate_ws_token(raw_token) is None:
+                    await websocket.close(code=4001, reason="Unauthorized")
+                    break
                 try:
                     await websocket.send_json({"type": "ping"})
                 except Exception:
                     break
                 continue
+
+            # Re-authorize before acting on any client frame. A role/status
+            # change that landed while receive_text() was pending must not leave
+            # a stale socket able to subscribe to presence channels.
+            if await _authenticate_ws_token(raw_token) is None:
+                await websocket.close(code=4001, reason="Unauthorized")
+                break
 
             if data == "ping":
                 await websocket.send_json({"type": "pong"})

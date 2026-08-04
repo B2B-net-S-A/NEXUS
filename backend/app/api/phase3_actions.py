@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.candidate_access import require_candidate_write
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -31,6 +32,10 @@ from app.schemas.shortlist_actions import (
     CandidateShortlistEmailRequest,
     ClientProposalRequest,
 )
+from app.services.access_scope import (
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,7 +44,11 @@ router = APIRouter()
 # ── Shortlist email ─────────────────────────────────────────────────────────
 
 
-def _format_jobs_html(jobs: list[Job]) -> str:
+def _format_jobs_html(
+    jobs: list[Job],
+    *,
+    include_finance: bool = False,
+) -> str:
     if not jobs:
         return "<p>—</p>"
     items: list[str] = []
@@ -47,7 +56,7 @@ def _format_jobs_html(jobs: list[Job]) -> str:
         bits: list[str] = []
         if j.location:
             bits.append(f"📍 {j.location}")
-        if j.salary_min and j.salary_max:
+        if include_finance and j.salary_min and j.salary_max:
             bits.append(f"💰 {j.salary_min:,} – {j.salary_max:,} PLN")
         if j.seniority:
             bits.append(f"🎯 {j.seniority.value}")
@@ -95,6 +104,15 @@ async def send_candidate_shortlist_email(
             status_code=400,
             detail="Żadna z wybranych ofert nie jest opublikowana.",
         )
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    for job in jobs:
+        assert_delivery_lead_client_visible(
+            job.client_id,
+            delivery_lead_client_ids,
+        )
+    include_finance = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    )
 
     subject = f"Mamy {len(jobs)} propozycji projektu dla Ciebie"
     intro = (
@@ -112,7 +130,7 @@ async def send_candidate_shortlist_email(
         f"<p>Mamy dla Ciebie <strong>{len(jobs)}</strong> aktualnie otwarte "
         "projekty, które wyglądają na dobre dopasowanie. Daj znać, czy "
         "któryś Cię interesuje — chętnie podeślę szczegóły.</p>"
-        + _format_jobs_html(jobs)
+        + _format_jobs_html(jobs, include_finance=include_finance)
         + "<p>Pozdrawiam,<br>Zespół B2B.net</p>"
     )
 
@@ -205,6 +223,10 @@ async def prepare_client_proposal(
     job = await db.scalar(select(Job).where(Job.id == body.job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Oferta nie istnieje")
+    assert_delivery_lead_client_visible(
+        job.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
 
     skills = cand.skills or []
     skills_summary = [

@@ -41,7 +41,7 @@ async def _resolve_mentions(db: AsyncSession, content: str, note: Note) -> list[
     """Wybiera scope w zależności od note.job_id (najwęższy → najszerszy).
 
     job_id present → tylko members projektu (parse_mentions).
-    inaczej → każdy aktywny user firmy (parse_mentions_global).
+    inaczej → aktywni użytkownicy candidate-domain (parse_mentions_global).
     """
     if not content:
         return []

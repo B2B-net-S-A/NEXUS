@@ -139,4 +139,31 @@ describe("JobsListV2 Priority Work", () => {
       })
     })
   })
+
+  it("opisuje brak TAC-a jako brak ownera requestu, nie primary klienta", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 102,
+            title: "Data Engineer",
+            status: "published",
+            headcount: 1,
+            candidates_count: 0,
+            tac_id: null,
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    renderJobs()
+
+    expect(
+      await screen.findByText("Brak ownera requestu"),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/primary TAC/i)).not.toBeInTheDocument()
+  })
 })

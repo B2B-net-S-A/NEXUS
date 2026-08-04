@@ -8,8 +8,9 @@ against the postgres service container; alembic migration 0139 creates the
 Security invariants under test:
 - Endpoint gated by ``SELF_REGISTRATION_ENABLED`` (503 when off).
 - Domain whitelist enforced (fail-closed).
-- Role is ALWAYS forced to ``user`` — a caller-supplied ``role`` is ignored,
-  so nobody can self-provision an ``admin``.
+- Role is ALWAYS forced to ``recruiter`` for an allowed corporate domain — a
+  caller-supplied ``role`` is ignored, and mandatory onboarding still blocks
+  candidate/RODO access until completion.
 - Account is unverified and cannot log in until the email link is consumed.
 """
 
@@ -73,7 +74,7 @@ async def test_register_rejects_foreign_domain(
 
 
 @pytest.mark.asyncio
-async def test_register_creates_unverified_viewer(
+async def test_register_creates_unverified_recruiter_behind_onboarding(
     app_client: AsyncClient, enable_registration
 ):
     email = _unique_email()
@@ -85,10 +86,11 @@ async def test_register_creates_unverified_viewer(
 
     user = await _get_user(email)
     assert user is not None
-    assert user.role == UserRole.user
-    assert user.roles == [UserRole.user.value]
+    assert user.role == UserRole.recruiter
+    assert user.roles == [UserRole.recruiter.value]
     assert user.is_active is True
     assert user.email_verified is False
+    assert user.profile_completed is False
     assert user.password_hash  # bcrypt hash set
 
 
@@ -110,7 +112,7 @@ async def test_register_ignores_caller_supplied_role(
     assert resp.status_code == 201, resp.text
     user = await _get_user(email)
     assert user is not None
-    assert user.role == UserRole.user  # NOT admin
+    assert user.role == UserRole.recruiter  # NOT admin
 
 
 @pytest.mark.asyncio
@@ -140,13 +142,14 @@ async def test_register_duplicate_is_generic_201_no_enumeration(
     assert second.status_code == 201, second.text
     assert second.json()["detail"] == first.json()["detail"]
 
-    # Exactly one row, still a read-only viewer (no escalation, no duplicate).
+    # Exactly one row, still the server-selected role (no body-driven
+    # escalation and no duplicate).
     async with AsyncSessionLocal() as db:
         rows = (
             (await db.execute(select(User).where(User.email == email))).scalars().all()
         )
     assert len(rows) == 1
-    assert rows[0].role == UserRole.user
+    assert rows[0].role == UserRole.recruiter
 
 
 @pytest.mark.asyncio

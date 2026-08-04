@@ -1,10 +1,7 @@
-"""P0.12 — faktury tylko dla VIEW_FINANCE (admin + delivery_lead) (M5 PR-01c).
+"""Faktury tylko dla Finance/Admin.
 
-Faktury to w całości dane finansowe (kwoty, DSO). Dotąd wszystkie endpointy
-``/api/invoices`` używały ``TacPlus`` (admin/DL/tac), więc TAC — który wg
-kanonicznej polityki NEXUS (``AnalyticsCapability.VIEW_FINANCE``) finansów nie
-ma — widział i mutował kwoty faktur. Po zmianie chroni je
-``require_capability(VIEW_FINANCE)`` (admin + delivery_lead).
+GET/DSO/export wymagają ``VIEW_FINANCE``; mutacje ``MANAGE_FINANCE``.
+Delivery Lead nie ma żadnej z tych capabilities.
 """
 
 from __future__ import annotations
@@ -16,11 +13,15 @@ from httpx import AsyncClient
 
 INVOICES_URL = "/api/invoices"
 
-# VIEW_FINANCE = admin + delivery_lead (app/analytics/capabilities.py).
-ALLOWED_ROLES = ["admin", "delivery_lead"]
-# tac/HoR mają role operacyjne ale NIE VIEW_FINANCE; recruiter/sourcer/user tym
-# bardziej. Wszyscy → 403 na fakturach.
-DENIED_ROLES = ["tac", "head_of_recruitment", "recruiter", "sourcer", "user"]
+ALLOWED_ROLES = ["admin", "finance"]
+DENIED_ROLES = [
+    "delivery_lead",
+    "tac",
+    "head_of_recruitment",
+    "recruiter",
+    "sourcer",
+    "user",
+]
 
 
 async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, str]:
@@ -64,20 +65,21 @@ async def test_finance_roles_pass(app_client: AsyncClient, role_value: str):
 
 
 async def test_non_finance_cannot_create_or_mutate(app_client: AsyncClient):
-    """TAC nie może już tworzyć faktur (mutacja kwot poza polityką)."""
-    headers = await _headers_for(app_client, "tac")
-    r = await app_client.post(
-        INVOICES_URL,
-        json={
-            "contract_id": 1,
-            "direction": "to_client",
-            "invoice_number": "T-1",
-            "issue_date": "2026-01-01",
-            "amount": 1000,
-        },
-        headers=headers,
-    )
-    assert r.status_code == 403
+    """Ani TAC, ani Delivery Lead nie mogą mutować kwot faktur."""
+    for role in ("tac", "delivery_lead"):
+        headers = await _headers_for(app_client, role)
+        response = await app_client.post(
+            INVOICES_URL,
+            json={
+                "contract_id": 1,
+                "direction": "to_client",
+                "invoice_number": "T-1",
+                "issue_date": "2026-01-01",
+                "amount": 1000,
+            },
+            headers=headers,
+        )
+        assert response.status_code == 403
 
 
 async def test_unauthenticated_rejected(app_client: AsyncClient):

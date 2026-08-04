@@ -37,6 +37,7 @@ from app.models.m365 import (
     M365SyncStatus,
 )
 from app.services.m365 import attachment_handler, matcher
+from app.services.m365.access import connection_owner_is_eligible
 from app.services.m365.calendar import M365_SOURCE
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
@@ -79,6 +80,13 @@ async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
       every loop iteration).
     """
     result = SyncResult(connection_id=conn.id)
+    if not await connection_owner_is_eligible(db, conn):
+        logger.warning(
+            "m365 sync refused for ineligible connection owner: connection_id=%s",
+            conn.id,
+        )
+        return result
+
     conn.last_sync_status = M365SyncStatus.running
     conn.last_error = None
     await db.commit()

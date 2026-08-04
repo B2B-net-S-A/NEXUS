@@ -14,7 +14,16 @@ nie nową tabelą (DRY).
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -121,17 +130,24 @@ class DeliveryLeadClientAssignment(Base):
 
 
 class ClientTacAssignment(Base):
-    """TAC × klient. `is_primary=True` = główny opiekun (max 1/klient).
+    """TAC × klient with independent legacy and TAC-centric priority flags.
 
-    Enforcement max-1-primary: partial unique index `uq_client_primary_tac`
-    na `(client_id) WHERE is_primary = TRUE` (migracja 0060). API musi
-    przed insertem z `is_primary=True` zrobić UPDATE poprzedniego primary
-    na `False` — wzorzec `toggle_dl_client_head`.
+    ``is_primary`` remains the legacy client-level notification marker
+    (max 1/client). ``is_first_priority_for_tac`` is a personal work-order
+    preference (max 1 client per TAC). They are intentionally independent.
+    Both maxima are protected by partial unique indexes and atomic commands in
+    ``app.services.client_tac_assignments``.
     """
 
     __tablename__ = "client_tac_assignments"
     __table_args__ = (
         UniqueConstraint("tac_user_id", "client_id", name="uq_client_tac"),
+        Index(
+            "ux_client_tac_one_first_priority_client",
+            "tac_user_id",
+            unique=True,
+            postgresql_where=text("is_first_priority_for_tac IS TRUE"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -141,6 +157,18 @@ class ClientTacAssignment(Base):
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Expand-phase replacement for the legacy client-centric `is_primary`.
+    # This flag is TAC-centric: at most one client may be priority #1 for a
+    # given TAC, while the same client may be priority #1 for many equal TACs.
+    # Nullable preserves the distinction between legacy, not-yet-reconciled
+    # rows and assignments explicitly written under the new policy.
+    is_first_priority_for_tac: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+        default=None,
+    )
+    # Legacy compatibility only.  Do not derive or backfill the TAC-centric
+    # priority from this client-centric owner marker.
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -154,5 +182,6 @@ class ClientTacAssignment(Base):
     def __repr__(self) -> str:
         return (
             f"<ClientTacAssignment tac={self.tac_user_id} "
-            f"client={self.client_id} primary={self.is_primary}>"
+            f"client={self.client_id} primary={self.is_primary} "
+            f"first_priority_for_tac={self.is_first_priority_for_tac}>"
         )

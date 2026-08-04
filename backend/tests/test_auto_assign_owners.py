@@ -6,7 +6,6 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -108,13 +107,16 @@ async def seeded_client_with_team():
 
 
 @pytest.mark.unit
-async def test_resolve_returns_primary_tac_and_head_dl(seeded_client_with_team):
+async def test_resolve_refuses_legacy_primary_when_multiple_tacs(
+    seeded_client_with_team,
+):
     data = seeded_client_with_team
     async with AsyncSessionLocal() as db:
         resolved = await resolve_default_owners(db, data["client_id"])
     assert isinstance(resolved, ResolvedOwners)
-    assert resolved.tac_id == data["tac_primary_id"]
+    assert resolved.tac_id is None
     assert resolved.delivery_lead_id == data["dl_head_id"]
+    assert resolved.tac_selection_required is True
 
 
 @pytest.mark.unit
@@ -125,10 +127,10 @@ async def test_resolve_none_client_id_no_sql():
 
 
 @pytest.mark.unit
-async def test_resolve_fallback_none_when_no_primary_tac():
+async def test_resolve_returns_sole_active_tac_regardless_of_legacy_primary():
     async with AsyncSessionLocal() as db:
         client = await _new_client(db)
-        # Non-primary TAC only — resolver must skip it.
+        # Legacy client-primary is unrelated to safe Job ownership.
         tac = await _new_user(db, role=UserRole.tac)
         db.add(
             ClientTacAssignment(
@@ -138,8 +140,9 @@ async def test_resolve_fallback_none_when_no_primary_tac():
         await db.commit()
 
         resolved = await resolve_default_owners(db, client.id)
-        assert resolved.tac_id is None
+        assert resolved.tac_id == tac.id
         assert resolved.delivery_lead_id is None
+        assert resolved.tac_selection_required is False
 
         # Cleanup
         await db.execute(
@@ -156,9 +159,7 @@ async def test_resolve_fallback_none_when_no_primary_tac():
 async def test_resolve_skips_inactive_primary_tac():
     async with AsyncSessionLocal() as db:
         client = await _new_client(db)
-        inactive = await _new_user(
-            db, role=UserRole.tac, is_active=False
-        )
+        inactive = await _new_user(db, role=UserRole.tac, is_active=False)
         db.add(
             ClientTacAssignment(
                 tac_user_id=inactive.id,
@@ -193,9 +194,7 @@ async def test_partial_unique_index_blocks_two_primary_tacs():
         b = await _new_user(db, role=UserRole.tac)
 
         db.add(
-            ClientTacAssignment(
-                tac_user_id=a.id, client_id=client.id, is_primary=True
-            )
+            ClientTacAssignment(tac_user_id=a.id, client_id=client.id, is_primary=True)
         )
         await db.commit()
 

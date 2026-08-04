@@ -13,12 +13,11 @@ from pydantic import BaseModel, PlainSerializer
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.capabilities import AnalyticsCapability, require_capability
+from app.api.financial_access import FinanceManageUser, FinanceReadUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
-from app.models.user import User
 from app.services.fx_service import rates_to_pln
 
 logger = logging.getLogger(__name__)
@@ -40,15 +39,6 @@ def _money_out(value: Decimal) -> float:
 MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
-
-# P0.12: faktury to w całości dane finansowe (kwoty, DSO). Kanoniczna polityka
-# NEXUS (plan analytics R0) trzyma finanse za AnalyticsCapability.VIEW_FINANCE =
-# admin + delivery_lead. Dotąd te endpointy używały TacPlus, więc TAC (bez
-# VIEW_FINANCE) widział i mutował kwoty faktur niezgodnie z tą polityką.
-FinanceUser = Annotated[
-    User, Depends(require_capability(AnalyticsCapability.VIEW_FINANCE))
-]
-
 
 # ── Pydantic DTOs ────────────────────────────────────────────────────────────
 
@@ -115,7 +105,7 @@ class DsoRow(BaseModel):
 
 @router.get("", response_model=List[InvoiceResponse])
 async def list_invoices(
-    current_user: FinanceUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     contract_id: Optional[int] = Query(None),
     status_filter: Optional[InvoiceStatus] = Query(None, alias="status"),
@@ -144,7 +134,7 @@ async def list_invoices(
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
 async def create_invoice(
     data: InvoiceCreate,
-    current_user: FinanceUser,
+    current_user: FinanceManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await db.scalar(select(Contract).where(Contract.id == data.contract_id))
@@ -159,7 +149,7 @@ async def create_invoice(
 
 @router.get("/dso", response_model=List[DsoRow])
 async def dso_by_client(
-    current_user: FinanceUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Per-client Days Sales Outstanding aggregates (client-facing invoices).
@@ -280,7 +270,7 @@ async def dso_by_client(
 
 @router.get("/export.csv")
 async def export_invoices_csv(
-    current_user: FinanceUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """CSV export in a format compatible with Fakturownia/iFirma."""
@@ -333,7 +323,7 @@ async def export_invoices_csv(
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
     invoice_id: int,
-    current_user: FinanceUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     inv = await db.scalar(select(Invoice).where(Invoice.id == invoice_id))
@@ -346,7 +336,7 @@ async def get_invoice(
 async def update_invoice(
     invoice_id: int,
     data: InvoiceUpdate,
-    current_user: FinanceUser,
+    current_user: FinanceManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     inv = await db.scalar(select(Invoice).where(Invoice.id == invoice_id))
@@ -362,7 +352,7 @@ async def update_invoice(
 @router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_invoice(
     invoice_id: int,
-    current_user: FinanceUser,
+    current_user: FinanceManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     inv = await db.scalar(select(Invoice).where(Invoice.id == invoice_id))

@@ -13,11 +13,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.analytics.capabilities import (
     AnalyticsCapability,
     require_dynareporter_section,
@@ -37,6 +37,27 @@ HIT_RATIO_TARGET = 30  # %
 
 
 _DATE_RE = r"^\d{4}-\d{2}-\d{2}$"
+
+
+def _require_legacy_team_dashboard_scope(current_user: User) -> None:
+    """Keep the frozen organization-wide report out of Delivery Lead scope.
+
+    The canonical Delivery Lead dashboard is relationship-aware.  This legacy
+    table has no client–TAC dimension, so allowing a Delivery Lead here would
+    silently fall back to organization-wide named metrics.
+    """
+
+    if not current_user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Legacy organization-wide Delivery Lead report is restricted; "
+                "use /api/dashboard/v2/delivery-lead"
+            ),
+        )
 
 
 @router.get(
@@ -77,6 +98,7 @@ async def get_dashboard(
     sees the correct type. NULL handling stays at the CAST(:x AS date) IS NULL
     sites (Python `None` → SQL NULL works for both date and text columns).
     """
+    _require_legacy_team_dashboard_scope(current_user)
     start_date_obj = (
         datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
     )
@@ -284,6 +306,7 @@ async def get_trend(
     months: int = Query(default=6, ge=1, le=24),
 ) -> list[DLTrendRow]:
     """Zwraca trend Hit-Ratio per użytkownik za ostatnie `months` mies."""
+    _require_legacy_team_dashboard_scope(current_user)
     sql = """
         SELECT
             k.report_month::text AS month,

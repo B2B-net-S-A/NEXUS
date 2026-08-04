@@ -7,7 +7,15 @@ import httpx
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import and_, func, nulls_last, or_, select, update as sql_update
+from sqlalchemy import (
+    and_,
+    func,
+    nulls_last,
+    or_,
+    select,
+    tuple_,
+    update as sql_update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -33,6 +41,7 @@ from app.models.recruitment_priority import (
     RecruitmentPriorityPlanMember,
 )
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+from app.models.team_structure import ClientTacAssignment
 from app.models.user import User, UserRole
 from app.schemas.champion import (
     ChampionBriefingRequest,
@@ -61,6 +70,7 @@ from app.api.deps import (
     TacPlus,
 )
 from app.services.auto_assign_owners import resolve_default_owners
+from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 from app.api.notifications import create_notification
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
@@ -86,6 +96,123 @@ from app.tasks.compute_proposals import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _delivery_lead_job_pairs(
+    current_user: User,
+    db: AsyncSession,
+) -> frozenset[tuple[int, int]] | None:
+    """Resolve the exact legacy Job scope for a Delivery Lead.
+
+    ``None`` means this caller uses an oversight or non-DL persona. An empty
+    set is deny-all and must never fall back to the organization.
+    """
+
+    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+        return None
+    if not current_user.has_role(UserRole.delivery_lead):
+        return None
+
+    scope = await resolve_dashboard_scope(current_user, db)
+    if scope.kind is not ScopeKind.delivery_clients or scope.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Delivery scope belongs to a different user",
+        )
+    return scope.allowed_client_tac_pairs
+
+
+def _apply_delivery_lead_job_scope(
+    query,
+    allowed_pairs: frozenset[tuple[int, int]] | None,
+):
+    """Apply the canonical client–TAC relationship graph to a Job list."""
+
+    if allowed_pairs is None:
+        return query
+    return query.where(
+        tuple_(Job.client_id, Job.tac_id).in_(sorted(allowed_pairs) or [(-1, -1)])
+    )
+
+
+def _assert_delivery_lead_job_visible(
+    job: Job,
+    allowed_pairs: frozenset[tuple[int, int]] | None,
+) -> None:
+    if allowed_pairs is None:
+        return
+    if (job.client_id, job.tac_id) not in allowed_pairs:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Job is outside the resolved Delivery Lead scope",
+        )
+
+
+def _assert_delivery_lead_client_visible(
+    client_id: int | None,
+    allowed_pairs: frozenset[tuple[int, int]] | None,
+) -> None:
+    """Fail closed when a DL addresses a client outside their assignments."""
+
+    if allowed_pairs is None:
+        return
+    if client_id is None or not any(
+        allowed_client_id == client_id for allowed_client_id, _ in allowed_pairs
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Client is outside the resolved Delivery Lead scope",
+        )
+
+
+def _assert_delivery_lead_cross_client_disabled(
+    cross_client: bool,
+    allowed_pairs: frozenset[tuple[int, int]] | None,
+) -> None:
+    if allowed_pairs is not None and cross_client:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cross-client job data is outside the Delivery Lead scope",
+        )
+
+
+def _assert_delivery_lead_finance_write(
+    fields_set: set[str],
+    current_user: User,
+) -> None:
+    """Delivery Leads may never create or mutate recruitment budget fields."""
+
+    if (
+        current_user.has_role(UserRole.delivery_lead)
+        and not current_user.has_role(UserRole.admin)
+        and {"salary_min", "salary_max"} & fields_set
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Delivery Leads cannot manage recruitment budget fields",
+        )
+
+
+async def _ensure_delivery_lead_job_visible(
+    job: Job,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    _assert_delivery_lead_job_visible(
+        job,
+        await _delivery_lead_job_pairs(current_user, db),
+    )
+
+
+def _redact_delivery_lead_job_finance(payload: dict, current_user: User) -> dict:
+    """Remove recruitment budget fields from every non-Admin DL projection."""
+
+    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_role(
+        UserRole.admin
+    ):
+        payload["salary_min"] = None
+        payload["salary_max"] = None
+    return payload
 
 
 # Fields that, when changed, should trigger re-embedding the job (Phase 2).
@@ -135,6 +262,29 @@ async def _validate_owner_override(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=f"{field} must reference a user with role {allowed}",
+        )
+
+
+async def _validate_tac_client_assignment(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    client_id: int,
+) -> None:
+    """Require an explicit Job TAC to belong to the selected client team."""
+
+    assignment_id = (
+        await db.execute(
+            select(ClientTacAssignment.id).where(
+                ClientTacAssignment.tac_user_id == user_id,
+                ClientTacAssignment.client_id == client_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if assignment_id is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=("tac_id must reference a TAC assigned to the selected client_id"),
         )
 
 
@@ -372,6 +522,10 @@ async def list_jobs(
     from app.models.recruitment_pipeline import CandidateStage
 
     query = select(Job)
+    query = _apply_delivery_lead_job_scope(
+        query,
+        await _delivery_lead_job_pairs(current_user, db),
+    )
     priority_now = datetime.now(timezone.utc)
     priority_assignment_job_ids = (
         select(RecruitmentPriorityAssignment.job_id)
@@ -638,6 +792,7 @@ async def list_jobs(
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)
+        _redact_delivery_lead_job_finance(d, current_user)
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -650,6 +805,9 @@ async def create_job(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
+    _assert_delivery_lead_finance_write(data.model_fields_set, current_user)
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+
     # AI CC matching (migracja 0041). If the caller didn't specify a CC and
     # opted into auto-suggest, we run the classifier *after* the embedding
     # has been generated (needs job text). For create we must persist first
@@ -676,6 +834,7 @@ async def create_job(
                 status.HTTP_404_NOT_FOUND,
                 detail=f"from_job_id: source job {data.from_job_id} not found",
             )
+        _assert_delivery_lead_job_visible(src_job, delivery_lead_pairs)
         copy_fields = (
             "description",
             "requirements",
@@ -708,6 +867,14 @@ async def create_job(
         ):
             payload["champion_profile"] = dict(src_job.champion_profile)
 
+    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_role(
+        UserRole.admin
+    ):
+        # A template must not become a side channel for copying recruitment
+        # budget fields into a DL-created role.
+        payload["salary_min"] = None
+        payload["salary_max"] = None
+
     # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
     # hit `resolve_default_owners`. Override always wins, but only when it
     # points to a real active user with an allowed role.
@@ -717,6 +884,11 @@ async def create_job(
             user_id=data.tac_id,
             allowed_roles=TAC_ASSIGNABLE_ROLES,
             field="tac_id",
+        )
+        await _validate_tac_client_assignment(
+            db,
+            user_id=data.tac_id,
+            client_id=payload["client_id"],
         )
     if data.delivery_lead_id is not None:
         await _validate_owner_override(
@@ -736,9 +908,33 @@ async def create_job(
     if payload.get("tac_id") is None or payload.get("delivery_lead_id") is None:
         resolved = await resolve_default_owners(db, payload.get("client_id"))
         if payload.get("tac_id") is None:
+            if resolved.tac_selection_required:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "TAC_OWNER_REQUIRED",
+                        "message": (
+                            "Client has multiple assigned TACs; choose the "
+                            "request owner explicitly"
+                        ),
+                    },
+                )
             payload["tac_id"] = resolved.tac_id
         if payload.get("delivery_lead_id") is None:
             payload["delivery_lead_id"] = resolved.delivery_lead_id
+
+    if (
+        delivery_lead_pairs is not None
+        and (
+            payload.get("client_id"),
+            payload.get("tac_id"),
+        )
+        not in delivery_lead_pairs
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Job is outside the resolved Delivery Lead scope",
+        )
 
     # Phase 15 / Phase D: auto-extract train_name if the caller didn't set it.
     # Best-effort — never blocks save. Regex + per-client dictionary.
@@ -921,7 +1117,8 @@ async def create_job(
     # getattr na atrybutach joba — expired atrybut w async sesji rzuca
     # MissingGreenlet co objawia sie jako ResponseValidationError.
     await db.refresh(job)
-    return job
+    response = JobResponse.model_validate(job).model_dump()
+    return _redact_delivery_lead_job_finance(response, current_user)
 
 
 @router.get("/train-names")
@@ -953,6 +1150,10 @@ async def list_train_names(
         .where(Job.train_name.isnot(None))
         .where(func.length(func.trim(Job.train_name)) > 0)
     )
+    stmt = _apply_delivery_lead_job_scope(
+        stmt,
+        await _delivery_lead_job_pairs(current_user, db),
+    )
     if client_id is not None:
         stmt = stmt.where(Job.client_id == client_id)
     stmt = (
@@ -972,6 +1173,10 @@ async def get_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _assert_delivery_lead_job_visible(
+        job,
+        await _delivery_lead_job_pairs(current_user, db),
+    )
 
     collab_map = await _load_collaborator_map(db, [job.id])
     collab_ids = collab_map.get(job.id, [])
@@ -1011,6 +1216,7 @@ async def get_job(
             )
         )
     redact_job_for_viewer(payload, current_user)
+    _redact_delivery_lead_job_finance(payload, current_user)
     return payload
 
 
@@ -1042,6 +1248,9 @@ async def update_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    _assert_delivery_lead_finance_write(data.model_fields_set, current_user)
 
     # Validate explicit owner overrides before applying any mutations.
     # `model_fields_set` only contains fields the caller actually sent, so
@@ -1053,6 +1262,23 @@ async def update_job(
             allowed_roles=TAC_ASSIGNABLE_ROLES,
             field="tac_id",
         )
+
+    # Changing either half of the relationship must leave a valid pair.  We
+    # intentionally do not re-validate untouched historical Jobs during the
+    # expand phase; only explicit owner/client mutations cross this gate.
+    if {"tac_id", "client_id"} & data.model_fields_set:
+        effective_tac_id = (
+            data.tac_id if "tac_id" in data.model_fields_set else job.tac_id
+        )
+        effective_client_id = (
+            data.client_id if "client_id" in data.model_fields_set else job.client_id
+        )
+        if effective_tac_id is not None and effective_client_id is not None:
+            await _validate_tac_client_assignment(
+                db,
+                user_id=effective_tac_id,
+                client_id=effective_client_id,
+            )
     if (
         "delivery_lead_id" in data.model_fields_set
         and data.delivery_lead_id is not None
@@ -1084,6 +1310,7 @@ async def update_job(
     _before = {f: getattr(job, f) for f in _marketplace_snapshot_fields}
     for k, v in updates.items():
         setattr(job, k, v)
+    _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
 
     # Phase 15 / Phase D: re-extract train_name if title/description changed
     # and the DL hasn't set one manually. Never overrides a DL-provided tag.
@@ -1157,7 +1384,7 @@ async def update_job(
     # bez konieczności re-fetcha GET /jobs/{id} po stronie UI.
     payload = JobResponse.model_validate(job).model_dump()
     payload = await _populate_hiring_manager_name(db, payload, job)
-    return payload
+    return _redact_delivery_lead_job_finance(payload, current_user)
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1168,6 +1395,7 @@ async def delete_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
     process_rows = int(
         await db.scalar(
             select(func.count(RecruitmentProcess.id)).where(
@@ -1269,6 +1497,7 @@ async def close_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     job.status = JobStatus.closed
     job.closed_at = datetime.now(timezone.utc)
@@ -1298,7 +1527,8 @@ async def close_job(
     await db.refresh(job)
 
     await cache_invalidate("reports:clients")
-    return job
+    payload = JobResponse.model_validate(job).model_dump()
+    return _redact_delivery_lead_job_finance(payload, current_user)
 
 
 @router.post("/{job_id}/publish")
@@ -1310,6 +1540,7 @@ async def publish_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
     job.status = JobStatus.published
     db.add(
         Activity(
@@ -1319,6 +1550,7 @@ async def publish_job(
             user_id=current_user.id,
         )
     )
+    await db.commit()
     return {"status": "published", "job_id": job_id}
 
 
@@ -1340,6 +1572,7 @@ async def get_champion_profile(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     await db.execute(
         sql_update(Notification)
@@ -1400,6 +1633,7 @@ async def update_champion_profile(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     old_profile = dict(job.champion_profile) if job.champion_profile else {}
     profile = ChampionProfile.model_validate(payload or {})
@@ -1522,6 +1756,7 @@ async def update_champion_verification(
     job = job_res.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     current_profile = dict(job.champion_profile or {})
     verification = ChampionVerification.model_validate(
@@ -1662,6 +1897,7 @@ async def champion_consultant_suggestions(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     later_stage = aliased(CandidateStage)
     no_later_move = ~(
@@ -1793,6 +2029,7 @@ async def set_champion_briefing(
     job = job_res.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     note = await db.scalar(select(Note).where(Note.id == payload.note_id))
     if not note:
@@ -1912,6 +2149,7 @@ async def clear_champion_briefing(
     job = job_res.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     old_key = ((job.champion_profile or {}).get("briefing") or {}).get(
         "audio_storage_key"
@@ -1953,6 +2191,7 @@ async def champion_briefing_audio_url(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
     key = ((job.champion_profile or {}).get("briefing") or {}).get("audio_storage_key")
     if not key:
         raise HTTPException(status_code=404, detail="Briefing nie ma nagrania audio.")
@@ -1982,6 +2221,11 @@ async def generate_recommended_searches_endpoint(
     from app.models.ai_feature import AIFeatureKey
     from app.services.ai_quota import AIQuotaExceeded, check_and_increment
     from app.services.champion_draft_service import generate_recommended_searches
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     try:
         await check_and_increment(
@@ -2029,6 +2273,7 @@ async def decide_recommended_search(
     job = job_res.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     profile = dict(job.champion_profile or {})
     entries: list[RecommendedSearch] = []
@@ -2132,6 +2377,11 @@ async def generate_champion_from_jd(
     from app.services.ai_quota import AIQuotaExceeded, check_and_increment
     from app.services.champion_draft_service import generate_from_jd
 
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+
     try:
         await check_and_increment(
             db, AIFeatureKey.champion_draft, user_id=current_user.id
@@ -2186,6 +2436,11 @@ async def generate_champion_from_history(
     from app.services.ai_quota import AIQuotaExceeded, check_and_increment
     from app.services.champion_draft_service import generate_from_historical_jobs
 
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+
     try:
         await check_and_increment(
             db, AIFeatureKey.champion_draft, user_id=current_user.id
@@ -2204,6 +2459,11 @@ async def generate_champion_from_history(
         ) from exc
 
     body = GenerateFromHistoryPayload.model_validate(payload or {})
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_cross_client_disabled(
+        body.cross_client,
+        delivery_lead_pairs,
+    )
     suggestion = await generate_from_historical_jobs(
         db,
         job_id=job_id,
@@ -2244,6 +2504,9 @@ async def get_champion_historical_matches(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    _assert_delivery_lead_cross_client_disabled(cross_client, delivery_lead_pairs)
 
     matches = await find_similar_historical_jobs(
         db,
@@ -2302,6 +2565,12 @@ async def preview_historical_matches_for_new_role(
     )
 
     body = HistoricalMatchesPreviewRequest.model_validate(payload or {})
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_client_visible(body.client_id, delivery_lead_pairs)
+    _assert_delivery_lead_cross_client_disabled(
+        body.cross_client,
+        delivery_lead_pairs,
+    )
 
     matches = await find_similar_historical_jobs(
         db,
@@ -2389,6 +2658,9 @@ async def get_request_history(
     job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    _assert_delivery_lead_cross_client_disabled(cross_client, delivery_lead_pairs)
 
     entries = await find_similar_requests(
         db,
@@ -2473,6 +2745,12 @@ async def preview_request_history(
     )
 
     body = RequestHistoryPreviewRequest.model_validate(payload or {})
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_client_visible(body.client_id, delivery_lead_pairs)
+    _assert_delivery_lead_cross_client_disabled(
+        body.cross_client,
+        delivery_lead_pairs,
+    )
 
     entries = await find_similar_requests(
         db,
@@ -2528,6 +2806,7 @@ async def add_candidate_from_history(
     job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     candidate = (
         await db.execute(select(Candidate).where(Candidate.id == payload.candidate_id))
@@ -2627,6 +2906,11 @@ async def list_champion_suggestions(
         patches_from_payload,
     )
 
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+
     stmt = select(ChampionProfileSuggestion).where(
         ChampionProfileSuggestion.job_id == job_id
     )
@@ -2667,6 +2951,7 @@ async def assign_owner(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     target = await db.scalar(select(User).where(User.id == payload.user_id))
     if not target or not target.is_active:
@@ -2702,6 +2987,7 @@ async def release_owner(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
     previous = job.recruiter_id
     job.recruiter_id = None
     db.add(
@@ -2739,6 +3025,7 @@ async def claim_job(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
     if job.recruiter_id is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -2769,6 +3056,7 @@ async def list_collaborators(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
     rows = (
         (
             await db.execute(
@@ -2803,6 +3091,7 @@ async def add_collaborator(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     await _require_manage_ownership(job, current_user)
 
@@ -2861,6 +3150,7 @@ async def remove_collaborator(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     await _require_manage_ownership(job, current_user)
 
@@ -2925,6 +3215,7 @@ async def classify_job_cc(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     result = await classify_job_to_cc(job, db)
     top_schema = _cc_score_to_schema(result.top) if result.top else None
@@ -2947,6 +3238,7 @@ async def log_cc_override(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     override = CcSuggestionOverride(
         job_id=job_id,
