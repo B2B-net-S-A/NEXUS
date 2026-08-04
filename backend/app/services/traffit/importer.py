@@ -32,6 +32,7 @@ from typing import Any, Optional
 import httpx
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
@@ -1824,6 +1825,68 @@ class TraffitImporter:
 
     # ── Faza A: candidates-files (multi-file CV w candidate_documents) ──────
 
+    async def _upsert_candidate_document(self, doc_params: dict[str, Any]) -> None:
+        """Insert/update one candidate document, tolerant of the one-active-
+        primary-CV invariant.
+
+        The upsert already handles ``(external_source, external_id)`` conflicts.
+        But a candidate may hold only ONE active primary CV
+        (``ux_candidate_documents_active_primary_cv``), and when two Traffit
+        files both arrive flagged ``is_primary`` the second insert violates it.
+        That IntegrityError is unattributable, so before this it froze the whole
+        daily-sync watermark permanently (prod: emp 57740 stuck since
+        2026-07-31). Here the demote+insert run in a SAVEPOINT; on the collision
+        we roll it back and store the file as NON-primary instead — the existing
+        primary is kept, nothing is lost, and one ambiguous row no longer blocks
+        every other candidate.
+        """
+        is_primary = bool(doc_params.get("is_primary"))
+        try:
+            async with self.db.begin_nested():
+                if is_primary:
+                    await self.db.execute(
+                        text(
+                            """
+                            UPDATE candidate_documents
+                            SET is_primary = FALSE, updated_at = NOW()
+                            WHERE candidate_id = :candidate_id
+                              AND document_kind = 'cv'
+                              AND is_primary IS TRUE
+                              AND source_deleted_at IS NULL
+                              AND external_id IS DISTINCT FROM :external_id
+                            """
+                        ),
+                        {
+                            "candidate_id": doc_params["candidate_id"],
+                            "external_id": doc_params["external_id"],
+                        },
+                    )
+                await self.db.execute(_UPSERT_CANDIDATE_DOCUMENT, doc_params)
+        except IntegrityError as ie:
+            # Downgrade ONLY the one-active-primary-CV invariant to a non-primary
+            # store; any other IntegrityError still surfaces. Prefer the driver's
+            # structured constraint name (asyncpg exposes ``constraint_name``) and
+            # fall back to the message for wrappers/tests that don't carry it.
+            constraint = "ux_candidate_documents_active_primary_cv"
+            if getattr(
+                ie.orig, "constraint_name", None
+            ) != constraint and constraint not in str(ie):
+                raise
+            logger.warning(
+                "candidate %s doc %s: active primary-CV collision — storing "
+                "as non-primary",
+                doc_params["candidate_id"],
+                doc_params["external_id"],
+            )
+            # Keep Traffit's document_kind — it IS a CV, just not the primary one,
+            # and a non-primary CV doesn't touch the constraint; only cede the
+            # primary flag.
+            async with self.db.begin_nested():
+                await self.db.execute(
+                    _UPSERT_CANDIDATE_DOCUMENT,
+                    {**doc_params, "is_primary": False},
+                )
+
     async def import_candidate_files(
         self, since: Optional[datetime] = None
     ) -> PhaseProgress:
@@ -1995,44 +2058,22 @@ class TraffitImporter:
                         content_type=content_type[:100] if content_type else None,
                     )
 
-                    if is_primary:
-                        await self.db.execute(
-                            text(
-                                """
-                                UPDATE candidate_documents
-                                SET is_primary = FALSE, updated_at = NOW()
-                                WHERE candidate_id = :candidate_id
-                                  AND document_kind = 'cv'
-                                  AND is_primary IS TRUE
-                                  AND source_deleted_at IS NULL
-                                  AND external_id IS DISTINCT FROM :external_id
-                                """
-                            ),
-                            {
-                                "candidate_id": row.id,
-                                "external_id": ext_id,
-                            },
-                        )
-                    await self.db.execute(
-                        _UPSERT_CANDIDATE_DOCUMENT,
-                        {
-                            "candidate_id": row.id,
-                            "filename": filename[:500],
-                            "storage_key": storage_key,
-                            "content_type": content_type[:100]
-                            if content_type
-                            else None,
-                            "size_bytes": len(file_bytes),
-                            "document_kind": _traffit_document_kind(
-                                filename,
-                                is_primary=is_primary,
-                            ),
-                            "is_primary": is_primary,
-                            "uploaded_at": uploaded_at,
-                            "external_id": ext_id,
-                            "external_source": "traffit",
-                        },
-                    )
+                    doc_params = {
+                        "candidate_id": row.id,
+                        "filename": filename[:500],
+                        "storage_key": storage_key,
+                        "content_type": content_type[:100] if content_type else None,
+                        "size_bytes": len(file_bytes),
+                        "document_kind": _traffit_document_kind(
+                            filename,
+                            is_primary=is_primary,
+                        ),
+                        "is_primary": is_primary,
+                        "uploaded_at": uploaded_at,
+                        "external_id": ext_id,
+                        "external_source": "traffit",
+                    }
+                    await self._upsert_candidate_document(doc_params)
                     progress.inserted += 1
 
                 since_commit += 1
