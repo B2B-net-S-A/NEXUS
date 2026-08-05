@@ -49,6 +49,7 @@ const contract: ContractWithOrdersRead = {
   contract_end_date: null,
   // Intentionally populated to prove the UI does not trust a stale/leaky cache.
   rate_candidate: 12_000,
+  rate_unit: "monthly",
   initial_job_id: 44,
   initial_job_title: "Backend Engineer",
   latest_order_id: null,
