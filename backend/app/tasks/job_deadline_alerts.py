@@ -48,6 +48,10 @@ from app.models.job_collaborator import JobCollaborator
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import email_channel_enabled, send_email
+from app.services.m365.system_mail import (
+    get_system_sender_connection,
+    send_system_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,9 +228,16 @@ async def _release_email_claim(db: AsyncSession, notif_id: int) -> None:
 
 
 async def _dispatch_emails(db: AsyncSession) -> int:
-    """Wyślij email dla deadline-notyfikacji bez ``email_sent_at``. Zwraca # wysłanych."""
-    if not email_channel_enabled():
-        # Żaden kanał (Graph app-only ani SMTP) — nie rezerwuj wierszy, retry później.
+    """Wyślij email dla deadline-notyfikacji bez ``email_sent_at``. Zwraca # wysłanych.
+
+    Priorytet kanału: **delegated** (skrzynka serwisowa podłączona w Nexusie przez
+    „Połącz Microsoft 365") → inaczej ``send_email`` (Graph app-only / SMTP).
+    Delegated nie wymaga admin-consentu w Azure — działa gdy ktoś podłączył
+    ``M365_MAIL_SENDER_UPN`` w UI.
+    """
+    connection = await get_system_sender_connection(db)
+    if connection is None and not email_channel_enabled():
+        # Żaden kanał (delegated, Graph app-only, SMTP) — nie rezerwuj, retry później.
         return 0
 
     now = datetime.now(timezone.utc)
@@ -275,10 +286,16 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         )
         ok = False
         try:
-            # Blocking smtplib — offload z event loopa.
-            ok = await asyncio.to_thread(
-                send_email, user.email, subject, text_body, None
-            )
+            if connection is not None:
+                # Delegated Graph — async, wprost (ma sesję db).
+                ok = await send_system_email(
+                    db, connection, to=user.email, subject=subject, text_body=text_body
+                )
+            else:
+                # Blocking smtplib/app-only — offload z event loopa.
+                ok = await asyncio.to_thread(
+                    send_email, user.email, subject, text_body, None
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "job_deadline_alerts email failed notif=%d: %s",
