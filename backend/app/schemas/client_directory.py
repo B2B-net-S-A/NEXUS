@@ -35,10 +35,21 @@ class ClientDirectoryItem(BaseModel):
     scope_label: Optional[str] = None
     industry: Optional[str] = None
     active_consultants_count: int = 0
+    # ``effective_date`` / ``expiry_date`` / ``category`` are the EFFECTIVE
+    # values: a manual placement override wins over the manifest / linked MSA.
     effective_date: Optional[date] = None
     expiry_date: Optional[date] = None
     category: PortfolioCategory
+    # The manifest/base category (before any manual override). The UI compares it
+    # with ``category`` to tell a genuine manual placement from a redundant one
+    # and to clear an override that matches the manifest again.
+    category_base: PortfolioCategory
     client_status: ClientStatus
+    # Raw override state so the UI can flag a manually-placed row and prefill the
+    # edit dialog exactly (``None`` means the row follows the manifest / MSA).
+    category_override: Optional[PortfolioCategory] = None
+    contract_start_override: Optional[date] = None
+    contract_end_override: Optional[date] = None
 
 
 class ClientDirectoryResponse(BaseModel):
@@ -88,11 +99,28 @@ class ClientPortfolioScopeUpdate(BaseModel):
         return normalized or None
 
 
+class ClientPortfolioScopePlacementUpdate(BaseModel):
+    """Manual placement overrides — never touch the manifest base columns.
+
+    A field present in the request is applied to the matching ``*_override``
+    column; ``null`` clears it (the row falls back to the manifest / linked
+    MSA).  A field that is absent is left unchanged (partial update), so
+    ``{"category": "active"}`` moves the tab without disturbing the dates.
+    """
+
+    category: Optional[PortfolioCategory] = None
+    contract_start: Optional[date] = None
+    contract_end: Optional[date] = None
+
+
 class ClientPortfolioScopeResponse(BaseModel):
     id: int
     client_id: int
     framework_contract_id: Optional[int] = None
     category: PortfolioCategory
+    category_override: Optional[PortfolioCategory] = None
+    contract_start_override: Optional[date] = None
+    contract_end_override: Optional[date] = None
     label: Optional[str] = None
     source_system: str
     source_key: Optional[str] = None

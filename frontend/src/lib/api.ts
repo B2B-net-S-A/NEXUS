@@ -269,10 +269,18 @@ export interface ClientDirectoryItem {
   scope_label: string | null;
   industry: string | null;
   active_consultants_count: number;
+  /** EFFECTIVE values: a manual placement override wins over the manifest/MSA. */
   effective_date: string | null;
   expiry_date: string | null;
   category: ClientDirectoryCategory;
+  /** Manifest/base category before any override — used to detect a real
+   *  manual placement and to clear an override that matches the manifest. */
+  category_base: ClientDirectoryCategory;
   client_status: "active" | "inactive" | "prospect";
+  /** Raw override state — non-null means the row was manually placed. */
+  category_override: ClientDirectoryCategory | null;
+  contract_start_override: string | null;
+  contract_end_override: string | null;
 }
 
 export interface ClientDirectoryCategoryCounts {
@@ -299,12 +307,46 @@ export interface ClientDirectoryParams {
   page_size: number;
 }
 
+/**
+ * Manual placement of a directory scope — moves a client between the
+ * Aktywni/Relacyjni/Nieaktywni tabs and/or pins a contract period WITHOUT
+ * touching the manifest-owned columns (so it never causes portfolio drift /
+ * an unhealthy `/api/health/deep`). A field sent as `null` clears that
+ * override; an absent field is left unchanged (partial update).
+ */
+export interface PortfolioScopePlacementUpdate {
+  category?: ClientDirectoryCategory | null;
+  contract_start?: string | null;
+  contract_end?: string | null;
+}
+
+export interface PortfolioScope {
+  id: number;
+  client_id: number;
+  framework_contract_id: number | null;
+  category: ClientDirectoryCategory;
+  category_override: ClientDirectoryCategory | null;
+  contract_start_override: string | null;
+  contract_end_override: string | null;
+  label: string | null;
+  source_system: string;
+}
+
 export const clientsDirectoryApi = {
   list: (params: ClientDirectoryParams, signal?: AbortSignal) =>
     api.get<ClientDirectoryResponse>("/api/clients/directory", {
       params,
       signal,
     }),
+  updateScopePlacement: (
+    clientId: number,
+    scopeId: number,
+    payload: PortfolioScopePlacementUpdate,
+  ) =>
+    api.patch<PortfolioScope>(
+      `/api/clients/${clientId}/portfolio-scopes/${scopeId}/placement`,
+      payload,
+    ),
 };
 
 // ── Client team / request ownership ───────────────────────────────────────

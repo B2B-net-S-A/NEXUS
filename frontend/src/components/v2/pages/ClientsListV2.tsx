@@ -17,6 +17,7 @@ import {
   Download,
   Handshake,
   Info,
+  PenLine,
   Plus,
   Search,
   SearchX,
@@ -28,7 +29,9 @@ import {
   type ClientDirectoryCategory,
   type ClientDirectoryCategoryCounts,
   type ClientDirectoryItem,
+  type PortfolioScopePlacementUpdate,
 } from "@/lib/api";
+import { AppModal } from "@/components/ds/AppModal";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/session";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -134,11 +137,27 @@ function formatDirectoryDate(value: string | null): string {
   return "—";
 }
 
+/** A row has a contract period if it links an MSA or pins either date manually. */
+function hasContractPeriod(item: ClientDirectoryItem): boolean {
+  return (
+    item.msa_id !== null ||
+    item.contract_start_override !== null ||
+    item.contract_end_override !== null
+  );
+}
+
 function contractEndLabel(item: ClientDirectoryItem): string {
-  if (item.msa_id === null) return "—";
+  if (!hasContractPeriod(item)) return "—";
   if (item.expiry_date === null) return "Bezterminowa";
   return formatDirectoryDate(item.expiry_date);
 }
+
+/** Short tab labels for the placement dialog (distinct from the status badge). */
+const CATEGORY_SHORT_LABEL: Record<ClientDirectoryCategory, string> = {
+  active: "Aktywni",
+  relationship: "Relacyjni",
+  inactive: "Nieaktywni",
+};
 
 function initialsFor(name: string): string {
   return name
@@ -185,6 +204,8 @@ export function ClientsListV2() {
   const [counts, setCounts] =
     useState<ClientDirectoryCategoryCounts>(EMPTY_COUNTS);
   const [showAdd, setShowAdd] = useState(false);
+  const [placementTarget, setPlacementTarget] =
+    useState<ClientDirectoryItem | null>(null);
   const [exporting, setExporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const didCanonicalizeUrl = useRef(false);
@@ -289,6 +310,10 @@ export function ClientsListV2() {
   }, [data?.category_counts]);
 
   const canCreateClient = useCapability("client.create");
+  const canManagePortfolio = useCapability("client.portfolio.manage");
+  // The actions column only exists for portfolio managers, so table-wide
+  // colSpans (skeleton, empty, error) must track it.
+  const columnCount = canManagePortfolio ? 7 : 6;
   const items = data?.items ?? [];
   const totalRows = data?.total_rows ?? 0;
   const totalClients = data?.total_clients ?? 0;
@@ -352,6 +377,13 @@ export function ClientsListV2() {
 
   const onAdded = (message: string) => {
     setShowAdd(false);
+    setToast(message);
+    void queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const onPlacementSaved = (message: string) => {
+    setPlacementTarget(null);
     setToast(message);
     void queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
     setTimeout(() => setToast(null), 3000);
@@ -593,7 +625,29 @@ export function ClientsListV2() {
                 <TableHead>Aktywni konsultanci</TableHead>
                 <TableHead>Start umowy</TableHead>
                 <TableHead>Koniec umowy</TableHead>
-                <TableHead>Status klienta</TableHead>
+                <TableHead>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="inline-flex cursor-help items-center gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        tabIndex={0}
+                      >
+                        Status klienta
+                        <Info
+                          className="h-3.5 w-3.5 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Status handlowy (etykieta) — niezależny od zakładki. O tym,
+                      w której zakładce jest klient, decyduje kategoria portfela.
+                    </TooltipContent>
+                  </Tooltip>
+                </TableHead>
+                {canManagePortfolio ? (
+                  <TableHead className="text-right">Akcje</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -609,7 +663,7 @@ export function ClientsListV2() {
                         </div>
                       </div>
                     </TableCell>
-                    {Array.from({ length: 5 }, (_, cellIndex) => (
+                    {Array.from({ length: columnCount - 1 }, (_, cellIndex) => (
                       <TableCell key={cellIndex}>
                         <Skeleton className="h-4 w-24" />
                       </TableCell>
@@ -618,7 +672,7 @@ export function ClientsListV2() {
                 ))
               ) : failed ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="p-0">
+                  <TableCell colSpan={columnCount} className="p-0">
                     <QueryStateNotice
                       state={
                         viewState as Extract<
@@ -645,7 +699,7 @@ export function ClientsListV2() {
                 </TableRow>
               ) : viewState === "empty" ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center">
+                  <TableCell colSpan={columnCount} className="py-12 text-center">
                     {querySearch ? (
                       <>
                         <SearchX
@@ -700,29 +754,53 @@ export function ClientsListV2() {
               ) : (
                 items.map((item) => {
                   const status = STATUS_META[item.client_status];
+                  // A row is "manually placed" when its effective tab differs
+                  // from the manifest base, or a contract date was pinned — not
+                  // merely when a (possibly redundant) override column is set.
+                  const manuallyPlaced =
+                    item.category !== item.category_base ||
+                    item.contract_start_override !== null ||
+                    item.contract_end_override !== null;
                   return (
                     <TableRow key={item.scope_id} interactive>
                       <TableCell>
-                        <Link
-                          href={`/clients/${item.client_id}`}
-                          className="flex items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          <Avatar size="sm">
-                            <AvatarFallback>
-                              {initialsFor(item.display_name)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0">
-                            <span className="block font-medium text-foreground">
-                              {item.display_name}
-                            </span>
-                            {item.scope_label ? (
-                              <span className="mt-0.5 block text-xs text-muted-foreground">
-                                {item.scope_label}
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/clients/${item.client_id}`}
+                            className="flex min-w-0 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <Avatar size="sm">
+                              <AvatarFallback>
+                                {initialsFor(item.display_name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0">
+                              <span className="block font-medium text-foreground">
+                                {item.display_name}
                               </span>
-                            ) : null}
-                          </span>
-                        </Link>
+                              {item.scope_label ? (
+                                <span className="mt-0.5 block text-xs text-muted-foreground">
+                                  {item.scope_label}
+                                </span>
+                              ) : null}
+                            </span>
+                          </Link>
+                          {manuallyPlaced ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span tabIndex={0} className="shrink-0">
+                                  <Badge size="sm" variant="soft">
+                                    ręcznie
+                                  </Badge>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Ustawienia portfela (zakładka / daty) nadpisane
+                                ręcznie — inaczej niż w manifeście.
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell>{item.industry || "—"}</TableCell>
                       <TableCell>
@@ -757,6 +835,18 @@ export function ClientsListV2() {
                           {status.label}
                         </Badge>
                       </TableCell>
+                      {canManagePortfolio ? (
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPlacementTarget(item)}
+                          >
+                            <PenLine className="h-4 w-4" aria-hidden="true" />
+                            Przenieś
+                          </Button>
+                        </TableCell>
+                      ) : null}
                     </TableRow>
                   );
                 })
@@ -809,6 +899,13 @@ export function ClientsListV2() {
           category={category}
         />
       ) : null}
+      {placementTarget ? (
+        <PlacementDialog
+          item={placementTarget}
+          onClose={() => setPlacementTarget(null)}
+          onSaved={onPlacementSaved}
+        />
+      ) : null}
       {toast ? (
         <div
           role="status"
@@ -818,5 +915,201 @@ export function ClientsListV2() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+// ── Placement dialog (manifest-safe curation) ─────────────────────────────────
+// Moves a scope between the Aktywni/Relacyjni/Nieaktywni tabs and/or pins a
+// contract period by writing the scope's *_override columns. It never edits the
+// manifest base columns, so it can't cause portfolio drift / an unhealthy
+// /api/health/deep. Category is separate from the "Status klienta" badge.
+
+const PLACEMENT_INPUT_CLASS =
+  "h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+function PlacementDialog({
+  item,
+  onClose,
+  onSaved,
+}: {
+  item: ClientDirectoryItem;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [selectedCategory, setSelectedCategory] =
+    useState<ClientDirectoryCategory>(item.category);
+  const [startOverride, setStartOverride] = useState(
+    item.contract_start_override ?? "",
+  );
+  const [endOverride, setEndOverride] = useState(
+    item.contract_end_override ?? "",
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasOverride =
+    item.category_override !== null ||
+    item.contract_start_override !== null ||
+    item.contract_end_override !== null;
+
+  const submit = async (payload: PortfolioScopePlacementUpdate) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await clientsDirectoryApi.updateScopePlacement(
+        item.client_id,
+        item.scope_id,
+        payload,
+      );
+      const moved =
+        payload.category !== undefined &&
+        payload.category !== null &&
+        payload.category !== item.category;
+      onSaved(
+        moved
+          ? `Przeniesiono „${item.display_name}” do: ${CATEGORY_SHORT_LABEL[payload.category as ClientDirectoryCategory]}.`
+          : `Zapisano ustawienie portfela dla „${item.display_name}”.`,
+      );
+    } catch (err) {
+      const detail = (
+        err as { response?: { data?: { detail?: string } } }
+      )?.response?.data?.detail;
+      setError(detail ?? "Nie udało się zapisać. Spróbuj ponownie.");
+      setSaving(false);
+    }
+  };
+
+  const handleSave = () => {
+    if (startOverride && endOverride && endOverride < startOverride) {
+      setError("Data zakończenia nie może być wcześniejsza niż rozpoczęcia.");
+      return;
+    }
+    const payload: PortfolioScopePlacementUpdate = {};
+    if (selectedCategory !== item.category) {
+      // Picking the manifest's own category clears the override instead of
+      // pinning a redundant one (which would keep the "ręcznie" flag forever).
+      payload.category =
+        selectedCategory === item.category_base ? null : selectedCategory;
+    }
+    if (startOverride !== (item.contract_start_override ?? "")) {
+      payload.contract_start = startOverride || null;
+    }
+    if (endOverride !== (item.contract_end_override ?? "")) {
+      payload.contract_end = endOverride || null;
+    }
+    if (Object.keys(payload).length === 0) {
+      onClose();
+      return;
+    }
+    void submit(payload);
+  };
+
+  return (
+    <AppModal
+      open
+      onOpenChange={(open) => {
+        if (!open && !saving) onClose();
+      }}
+      title="Kategoria portfela (zakładka)"
+      description={`Ręczne ustawienie dla „${item.display_name}”. Nadpisuje manifest tylko w tym widoku — nie zmienia „Statusu klienta”.`}
+      footer={
+        <>
+          {hasOverride ? (
+            <Button
+              variant="ghost"
+              className="mr-auto"
+              disabled={saving}
+              onClick={() =>
+                void submit({
+                  category: null,
+                  contract_start: null,
+                  contract_end: null,
+                })
+              }
+            >
+              Przywróć z manifestu
+            </Button>
+          ) : null}
+          <Button variant="outline" disabled={saving} onClick={onClose}>
+            Anuluj
+          </Button>
+          <Button variant="primary" disabled={saving} onClick={handleSave}>
+            {saving ? "Zapisuję…" : "Zapisz"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {error ? (
+          <p
+            role="alert"
+            className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        <div className="space-y-1.5">
+          <label
+            htmlFor="placement-category"
+            className="block text-sm font-medium text-foreground"
+          >
+            Zakładka portfela
+          </label>
+          <select
+            id="placement-category"
+            className={PLACEMENT_INPUT_CLASS}
+            value={selectedCategory}
+            onChange={(event) =>
+              setSelectedCategory(event.target.value as ClientDirectoryCategory)
+            }
+          >
+            {CATEGORY_ORDER.map((value) => (
+              <option key={value} value={value}>
+                {CATEGORY_SHORT_LABEL[value]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label
+              htmlFor="placement-start"
+              className="block text-sm font-medium text-foreground"
+            >
+              Start umowy
+            </label>
+            <input
+              id="placement-start"
+              type="date"
+              className={PLACEMENT_INPUT_CLASS}
+              value={startOverride}
+              onChange={(event) => setStartOverride(event.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label
+              htmlFor="placement-end"
+              className="block text-sm font-medium text-foreground"
+            >
+              Koniec umowy
+            </label>
+            <input
+              id="placement-end"
+              type="date"
+              className={PLACEMENT_INPUT_CLASS}
+              value={endOverride}
+              onChange={(event) => setEndOverride(event.target.value)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Puste daty = użyj dat z umowy ramowej (jeśli podpięta). Ustawione daty
+          nadpisują widok w katalogu, nie zmieniając samej umowy ramowej.
+        </p>
+      </div>
+    </AppModal>
   );
 }

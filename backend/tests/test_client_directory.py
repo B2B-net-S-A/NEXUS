@@ -486,6 +486,206 @@ async def test_scope_crud_rejects_null_category_foreign_and_occupied_msa(
         await _cleanup_directory(seed)
 
 
+# ── Placement overrides (manifest-invisible curation) ─────────────────────────
+
+
+async def _scope_id_by_source_key(source_key: str) -> int:
+    async with AsyncSessionLocal() as db:
+        scope = (
+            await db.execute(
+                select(ClientPortfolioScope).where(
+                    ClientPortfolioScope.source_key == source_key
+                )
+            )
+        ).scalar_one()
+        return scope.id
+
+
+async def test_placement_override_moves_tab_without_touching_base(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()
+    suffix = seed["suffix"]
+    alpha_id = seed["client_ids"][0]
+    scope_id = await _scope_id_by_source_key(f"{suffix}:alpha")
+    try:
+        moved = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{scope_id}/placement",
+            json={"category": "inactive"},
+            headers=app_auth_headers,
+        )
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["category_override"] == "inactive"
+        # The manifest base column is untouched — the invariant still sees active.
+        assert moved.json()["category"] == "active"
+
+        async with AsyncSessionLocal() as db:
+            scope = await db.get(ClientPortfolioScope, scope_id)
+            assert scope.category == PortfolioCategory.active
+            assert scope.category_override == PortfolioCategory.inactive
+
+        # The directory now lists alpha under Nieaktywni, not Aktywni.
+        active = await app_client.get(
+            "/api/clients/directory",
+            params={"category": "active", "q": f"Alpha {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert active.status_code == 200
+        assert all(item["client_id"] != alpha_id for item in active.json()["items"])
+
+        inactive = await app_client.get(
+            "/api/clients/directory",
+            params={"category": "inactive", "q": f"Alpha {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert inactive.status_code == 200
+        rows = [i for i in inactive.json()["items"] if i["client_id"] == alpha_id]
+        assert len(rows) == 1
+        assert rows[0]["category"] == "inactive"
+        assert rows[0]["category_override"] == "inactive"
+        # The manifest/base category is exposed unchanged for the UI.
+        assert rows[0]["category_base"] == "active"
+        # The badge (Client.status) is a different field — still active.
+        assert rows[0]["client_status"] == "active"
+
+        # Clearing the override returns the row to the manifest tab.
+        cleared = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{scope_id}/placement",
+            json={"category": None},
+            headers=app_auth_headers,
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["category_override"] is None
+        back = await app_client.get(
+            "/api/clients/directory",
+            params={"category": "active", "q": f"Alpha {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert any(item["client_id"] == alpha_id for item in back.json()["items"])
+    finally:
+        await _cleanup_directory(seed)
+
+
+async def test_placement_override_pins_and_validates_contract_dates(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()
+    suffix = seed["suffix"]
+    alpha_id = seed["client_ids"][0]
+    scope_id = await _scope_id_by_source_key(f"{suffix}:alpha")
+    try:
+        # Alpha's scope has no linked MSA — dates are empty until pinned.
+        pinned = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{scope_id}/placement",
+            json={"contract_start": "2026-05-11", "contract_end": "2027-12-31"},
+            headers=app_auth_headers,
+        )
+        assert pinned.status_code == 200, pinned.text
+        assert pinned.json()["contract_start_override"] == "2026-05-11"
+
+        listing = await app_client.get(
+            "/api/clients/directory",
+            params={"category": "active", "q": f"Alpha {suffix}"},
+            headers=app_auth_headers,
+        )
+        row = next(i for i in listing.json()["items"] if i["client_id"] == alpha_id)
+        assert row["effective_date"] == "2026-05-11"
+        assert row["expiry_date"] == "2027-12-31"
+        assert row["msa_id"] is None  # dates come from the override, not an MSA
+
+        # End before start is rejected without persisting.
+        bad = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{scope_id}/placement",
+            json={"contract_start": "2027-01-01", "contract_end": "2026-01-01"},
+            headers=app_auth_headers,
+        )
+        assert bad.status_code == 422, bad.text
+    finally:
+        await _cleanup_directory(seed)
+
+
+async def test_base_scope_patch_guards_manifest_owned_scope(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    seed = await _seed_directory()
+    alpha_id = seed["client_ids"][0]
+    suffix = seed["suffix"]
+    manifest_scope_id = await _scope_id_by_source_key(f"{suffix}:alpha")
+    try:
+        # A manifest-owned (non-manual) scope refuses in-place category edits …
+        blocked = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{manifest_scope_id}",
+            json={"category": "inactive"},
+            headers=app_auth_headers,
+        )
+        assert blocked.status_code == 409, blocked.text
+
+        # … but the label stays freely editable on the same scope.
+        relabel = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{manifest_scope_id}",
+            json={"label": "Etykieta"},
+            headers=app_auth_headers,
+        )
+        assert relabel.status_code == 200, relabel.text
+
+        # A genuinely manual scope may still change category in place.
+        created = await app_client.post(
+            f"/api/clients/{alpha_id}/portfolio-scopes",
+            json={"category": "inactive", "label": "Manual"},
+            headers=app_auth_headers,
+        )
+        assert created.status_code == 201, created.text
+        manual_scope_id = created.json()["id"]
+        moved = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{manual_scope_id}",
+            json={"category": "relationship"},
+            headers=app_auth_headers,
+        )
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["category"] == "relationship"
+    finally:
+        await _cleanup_directory(seed)
+
+
+async def test_archive_guards_manifest_owned_scope(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """Archiving a manifest scope would drop it from the invariant join (the
+    2026-08-03 outage). Only manual scopes may be archived from the API."""
+    seed = await _seed_directory()
+    alpha_id = seed["client_ids"][0]
+    suffix = seed["suffix"]
+    manifest_scope_id = await _scope_id_by_source_key(f"{suffix}:alpha")
+    try:
+        blocked = await app_client.delete(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{manifest_scope_id}",
+            headers=app_auth_headers,
+        )
+        assert blocked.status_code == 409, blocked.text
+        async with AsyncSessionLocal() as db:
+            scope = await db.get(ClientPortfolioScope, manifest_scope_id)
+            assert scope.archived_at is None  # untouched
+
+        created = await app_client.post(
+            f"/api/clients/{alpha_id}/portfolio-scopes",
+            json={"category": "inactive", "label": "Manual"},
+            headers=app_auth_headers,
+        )
+        assert created.status_code == 201, created.text
+        manual_scope_id = created.json()["id"]
+        archived = await app_client.delete(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{manual_scope_id}",
+            headers=app_auth_headers,
+        )
+        assert archived.status_code == 204, archived.text
+    finally:
+        await _cleanup_directory(seed)
+
+
 # ── Directory export (CSV / XLSX) ─────────────────────────────────────────────
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

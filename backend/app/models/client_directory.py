@@ -203,6 +203,14 @@ class ClientPortfolioScope(Base, TimestampMixin):
             sqlite_where=text("archived_at IS NULL"),
         ),
         Index("ix_client_portfolio_scopes_client_id", "client_id"),
+        # Manual placement overrides must stay internally coherent, mirroring
+        # the ``client_import_rows`` date check.
+        CheckConstraint(
+            "contract_start_override IS NULL "
+            "OR contract_end_override IS NULL "
+            "OR contract_end_override >= contract_start_override",
+            name="ck_client_portfolio_scopes_override_dates",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -229,6 +237,24 @@ class ClientPortfolioScope(Base, TimestampMixin):
     )
     source_key: Mapped[Optional[str]] = mapped_column(String(255))
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # ── Manual placement overrides (UI-owned, manifest-invisible) ──────────────
+    # The directory READ prefers these over ``category`` / the linked MSA dates,
+    # but ``get_client_portfolio_import_health`` keeps reading the base columns,
+    # so a manual move never breaks the manifest consistency invariant (no
+    # ``applied_manifest_state_inconsistent`` drift, no /api/health/deep 503).
+    # ``NULL`` means "follow the manifest / linked MSA"; a value pins a manual
+    # placement.  The manifest apply never writes these.
+    category_override: Mapped[Optional[PortfolioCategory]] = mapped_column(
+        Enum(
+            PortfolioCategory,
+            name="clientportfoliocategory",
+            create_type=False,
+        ),
+        nullable=True,
+    )
+    contract_start_override: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    contract_end_override: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     client = relationship("Client", back_populates="portfolio_scopes")
     framework_contract = relationship(

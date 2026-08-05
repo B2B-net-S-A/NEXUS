@@ -1730,12 +1730,17 @@ function ClientFormFields({ form, onChange, onCheckbox }: {
         <FieldGroup label="Branża">
           <Input value={form.industry} onChange={e => onChange("industry", e.target.value)} placeholder="IT / Finance..." />
         </FieldGroup>
-        <FieldGroup label="Status">
+        <FieldGroup label="Status handlowy">
           <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
             <option value="prospect">Prospect</option>
             <option value="active">Aktywny</option>
             <option value="inactive">Nieaktywny</option>
           </Select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Etykieta handlowa. Nie przenosi między zakładkami — o zakładce
+            (Aktywni / Relacyjni / Nieaktywni) decyduje kategoria portfela na
+            liście klientów.
+          </p>
         </FieldGroup>
       </div>
       <FieldGroup label="Strona WWW">

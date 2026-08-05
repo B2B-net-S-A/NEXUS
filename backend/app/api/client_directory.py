@@ -34,6 +34,7 @@ from app.schemas.client_directory import (
     ClientDirectoryItem,
     ClientDirectoryResponse,
     ClientPortfolioScopeCreate,
+    ClientPortfolioScopePlacementUpdate,
     ClientPortfolioScopeResponse,
     ClientPortfolioScopeUpdate,
 )
@@ -95,6 +96,29 @@ def _directory_rows_statement(
     scope_label = func.nullif(func.btrim(ClientPortfolioScope.label), "")
     active_consultants = _active_consultants_subquery(as_of)
 
+    # Effective placement: a manual override wins over the manifest ``category``
+    # and the linked-MSA dates.  The manifest consistency invariant keeps
+    # reading the raw base columns, so this display-time preference never trips
+    # ``applied_manifest_state_inconsistent``.
+    effective_category = func.coalesce(
+        ClientPortfolioScope.category_override,
+        ClientPortfolioScope.category,
+    )
+    effective_start = func.coalesce(
+        ClientPortfolioScope.contract_start_override,
+        ClientFrameworkContract.effective_date,
+    )
+    effective_end = func.coalesce(
+        ClientPortfolioScope.contract_end_override,
+        ClientFrameworkContract.expiry_date,
+    )
+    # A row carries a contract period if it links an MSA or pins either date.
+    has_contract_period = or_(
+        ClientPortfolioScope.framework_contract_id.is_not(None),
+        ClientPortfolioScope.contract_start_override.is_not(None),
+        ClientPortfolioScope.contract_end_override.is_not(None),
+    )
+
     statement = (
         select(
             ClientPortfolioScope.id.label("scope_id"),
@@ -104,11 +128,18 @@ def _directory_rows_statement(
             Client.nip.label("nip"),
             Client.regon.label("regon"),
             Client.industry.label("industry"),
-            ClientPortfolioScope.category.label("category"),
+            effective_category.label("category"),
+            ClientPortfolioScope.category.label("category_base"),
+            ClientPortfolioScope.category_override.label("category_override"),
+            ClientPortfolioScope.contract_start_override.label(
+                "contract_start_override"
+            ),
+            ClientPortfolioScope.contract_end_override.label("contract_end_override"),
             scope_label.label("scope_label"),
             ClientPortfolioScope.framework_contract_id.label("msa_id"),
-            ClientFrameworkContract.effective_date.label("effective_date"),
-            ClientFrameworkContract.expiry_date.label("expiry_date"),
+            effective_start.label("effective_date"),
+            effective_end.label("expiry_date"),
+            has_contract_period.label("has_contract_period"),
             Client.status.label("client_status"),
             func.coalesce(active_consultants.c.active_consultants, 0).label(
                 "active_consultants_count"
@@ -130,7 +161,7 @@ def _directory_rows_statement(
         )
         .where(
             ClientPortfolioScope.archived_at.is_(None),
-            ClientPortfolioScope.category == category,
+            effective_category == category,
             *_visible_client_filters(),
         )
     )
@@ -163,9 +194,15 @@ def _directory_rows_statement(
 
 
 def _directory_counts_statement():
+    # Group by the EFFECTIVE category so a manually-moved client is counted in
+    # the tab it actually appears in (mirrors the row query's COALESCE).
+    effective_category = func.coalesce(
+        ClientPortfolioScope.category_override,
+        ClientPortfolioScope.category,
+    )
     return (
         select(
-            ClientPortfolioScope.category,
+            effective_category.label("category"),
             func.count(distinct(ClientPortfolioScope.client_id)),
         )
         .select_from(ClientPortfolioScope)
@@ -174,7 +211,7 @@ def _directory_counts_statement():
             ClientPortfolioScope.archived_at.is_(None),
             *_visible_client_filters(),
         )
-        .group_by(ClientPortfolioScope.category)
+        .group_by(effective_category)
     )
 
 
@@ -234,7 +271,11 @@ async def list_client_directory(
             effective_date=row.effective_date,
             expiry_date=row.expiry_date,
             category=row.category,
+            category_base=row.category_base,
             client_status=row.client_status,
+            category_override=row.category_override,
+            contract_start_override=row.contract_start_override,
+            contract_end_override=row.contract_end_override,
         )
         for row in result.all()
     ]
@@ -303,9 +344,11 @@ def _directory_enum_label(value, labels: dict) -> str:
 
 
 def _directory_contract_end_cell(row) -> str:
-    """Mirror the UI's "Koniec umowy" column: a scope without an MSA has no
-    contract end, an MSA with no expiry date is open-ended."""
-    if row.msa_id is None:
+    """Mirror the UI's "Koniec umowy" column: a scope with no contract period
+    (no MSA and no manual date override) has no contract end, while a contract
+    period with no end date is open-ended. ``expiry_date`` is already the
+    effective (override-preferring) value."""
+    if not row.has_contract_period:
         return ""
     if row.expiry_date is None:
         return "Bezterminowa"
@@ -561,6 +604,24 @@ async def update_client_portfolio_scope(
     if not updates:
         return ClientPortfolioScopeResponse.model_validate(scope)
 
+    # Manifest-owned scopes must not have their invariant columns rewritten in
+    # place: ``get_client_portfolio_import_health`` compares live ``category`` /
+    # ``framework_contract_id`` against the applied import rows, so an in-place
+    # edit here reports the portfolio import as unhealthy (/api/health/deep 503)
+    # and never self-heals on restart. Curate those through the placement
+    # override (PATCH …/placement) instead; ``label`` stays freely editable.
+    if scope.source_system != "manual" and (
+        "category" in updates or "framework_contract_id" in updates
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Ten zakres pochodzi z manifestu portfela — zmiana kategorii "
+                "lub umowy w miejscu rozjechałaby stan z manifestem. Użyj akcji "
+                "„Przenieś w portfelu” (nakładka placementu)."
+            ),
+        )
+
     if "framework_contract_id" in updates:
         await _validate_framework_contract(
             db,
@@ -591,6 +652,66 @@ async def update_client_portfolio_scope(
     return ClientPortfolioScopeResponse.model_validate(scope)
 
 
+@router.patch(
+    "/{client_id}/portfolio-scopes/{scope_id}/placement",
+    response_model=ClientPortfolioScopeResponse,
+)
+async def update_client_portfolio_scope_placement(
+    client_id: int,
+    scope_id: int,
+    payload: ClientPortfolioScopePlacementUpdate,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Curate a scope's directory placement without touching the manifest.
+
+    Writes only the ``*_override`` columns, which the directory READ prefers but
+    the manifest consistency invariant ignores. This is the safe way to move a
+    client between the Aktywni/Relacyjni/Nieaktywni tabs or pin a contract
+    period for a manifest-owned scope — it never causes portfolio drift. A field
+    sent as ``null`` clears that override (the row falls back to the manifest /
+    linked MSA); an absent field is left unchanged.
+    """
+
+    await _get_scope_client(db, client_id)
+    scope = await _get_active_scope(db, client_id=client_id, scope_id=scope_id)
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return ClientPortfolioScopeResponse.model_validate(scope)
+
+    if "category" in updates:
+        scope.category_override = updates["category"]
+    if "contract_start" in updates:
+        scope.contract_start_override = updates["contract_start"]
+    if "contract_end" in updates:
+        scope.contract_end_override = updates["contract_end"]
+
+    # Guard the override pair up front (the DB CHECK is the backstop) so callers
+    # get a clean 422 instead of an IntegrityError.
+    if (
+        scope.contract_start_override is not None
+        and scope.contract_end_override is not None
+        and scope.contract_end_override < scope.contract_start_override
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Data zakończenia umowy nie może być wcześniejsza niż rozpoczęcia.",
+        )
+
+    db.add(
+        Activity(
+            entity_type="client",
+            entity_id=client_id,
+            action="portfolio_scope_placement_updated",
+            user_id=current_user.id,
+            details={"scope_id": scope.id, "fields": sorted(updates)},
+        )
+    )
+    await db.flush()
+    await db.refresh(scope)
+    return ClientPortfolioScopeResponse.model_validate(scope)
+
+
 @router.delete(
     "/{client_id}/portfolio-scopes/{scope_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -603,6 +724,19 @@ async def archive_client_portfolio_scope(
 ):
     await _get_scope_client(db, client_id)
     scope = await _get_active_scope(db, client_id=client_id, scope_id=scope_id)
+    # Archiving a manifest-owned scope removes it from the live invariant join
+    # entirely (live_portfolio_scopes < audit_rows) → /api/health/deep 503 with
+    # no self-heal — this is exactly the 2026-08-03 outage. Manifest scopes are
+    # curated via the placement override; true removal goes through the manifest.
+    if scope.source_system != "manual":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Ten zakres pochodzi z manifestu portfela — archiwizacja z UI "
+                "rozjechałaby stan z manifestem. Zmień kategorię/umowę akcją "
+                "„Przenieś w portfelu”; trwałe usunięcie zrób przez manifest."
+            ),
+        )
     scope.archived_at = datetime.now(timezone.utc)
     db.add(
         Activity(
