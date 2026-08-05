@@ -60,6 +60,7 @@ from app.services.candidate_job_eligibility import (
     extract_excluded_client_ids,
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
+from app.services.pipeline_eligibility import evaluate_candidates_for_job
 from app.services.recruitment_process_commands import open_process
 
 router = APIRouter()
@@ -114,6 +115,24 @@ async def add_to_shortlist(
         .all()
     )
 
+    # Eligibility gate — a globally-blacklisted / NDA / competitor-conflict /
+    # hiring-manager-vetoed candidate must not be parked on a shortlist (nor
+    # trigger outreach on promote), mirroring the bulk-add and promote ingresses.
+    # The recommendations widget already pre-filters these; the manual-search
+    # surface (which does not conflict-filter) is the only ingress that feeds
+    # unfiltered ids here. Same policy source as the deployed matching path.
+    now = datetime.now(timezone.utc)
+    eligibility = await evaluate_candidates_for_job(
+        db, job=job, candidate_ids=list(valid), now=now
+    )
+    # Fail-closed: only ids the policy explicitly cleared may be added. Every id
+    # in ``valid`` exists so ``evaluate_candidates_for_job`` returns a decision
+    # for it, but treating a missing decision as "not allowed" keeps the gate
+    # safe even if the candidate pool changes under us between the two reads.
+    allowed = {
+        cid for cid, decision in eligibility.items() if decision.assignment_allowed
+    }
+
     added: list[int] = []
     skipped: list[int] = []
     seen: set[int] = set()
@@ -121,7 +140,7 @@ async def add_to_shortlist(
         if cid in seen:
             continue
         seen.add(cid)
-        if cid not in valid or cid in already:
+        if cid not in valid or cid in already or cid not in allowed:
             skipped.append(cid)
             continue
         db.add(

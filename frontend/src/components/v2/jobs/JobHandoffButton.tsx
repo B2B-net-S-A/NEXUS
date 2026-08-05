@@ -35,7 +35,13 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
     enabled: open,
     queryFn: () =>
       api
-        .get("/api/users", { params: { roles: ["recruiter", "tac", "sourcer"] } })
+        .get("/api/users", {
+          params: { roles: ["recruiter", "tac", "sourcer"] },
+          // FastAPI binds repeated `roles=`; axios 1.x defaults to `roles[]=`,
+          // which the backend ignores → it falls back to ALL roles (incl.
+          // admin/DL). `indexes: null` emits the repeated form (P1-05a).
+          paramsSerializer: { indexes: null },
+        })
         .then((r) => r.data as RecruiterOption[]),
   });
 

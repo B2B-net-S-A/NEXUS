@@ -1493,6 +1493,10 @@ export default function JobDetailPage() {
           <ChampionProfileEditor
             jobId={Number(id)}
             clientId={job?.client_id ?? null}
+            // Backend PUT /champion-profile is DeliveryLeadPlus — mirror it so a
+            // recruiter sees a read-only Champion instead of filling a form that
+            // 403s on save (P1-02).
+            canEdit={isAdmin || hasRole(authUser, "delivery_lead")}
           />
           {(isAdmin || hasRole(authUser, "delivery_lead")) && (
             <JobHandoffButton jobId={Number(id)} />
