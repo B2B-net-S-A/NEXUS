@@ -711,6 +711,9 @@ export default function ClientDetailPage() {
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
+  // PATCH /api/clients/{id} → TacPlus. Bez bramki nie-TAC widział "Edytuj"
+  // i dostawał 403 dopiero na zapisie (czytało się jak "zapis nie działa").
+  const canUpdateClient = useCapability("client.update");
 
   const {
     data: client,
@@ -804,14 +807,16 @@ export default function ClientDetailPage() {
                       {STATUS_LABELS[client.status] || client.status}
                     </span>
                   )}
-                  <button
-                    onClick={() => setShowEdit(true)}
-                    title="Edytuj firmę"
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    Edytuj
-                  </button>
+                  {canUpdateClient && (
+                    <button
+                      onClick={() => setShowEdit(true)}
+                      title="Edytuj firmę"
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Edytuj
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -965,6 +970,9 @@ export default function ClientDetailPage() {
           onSuccess={(msg) => {
             queryClient.invalidateQueries({ queryKey: ["client", id] });
             queryClient.invalidateQueries({ queryKey: ["client-profile", Number(id)] });
+            // Zmieniona nazwa/status musi być widoczna też na liście klientów
+            // bez pełnego przeładowania (ClientsListV2 → "clients-directory").
+            queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
             showSuccess(msg);
           }}
         />

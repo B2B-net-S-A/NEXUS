@@ -34,6 +34,7 @@ export type Capability =
   | "job.create"
   | "job.update"
   | "client.create"
+  | "client.update"
   | "contract.create"
   | "contact.create"
   | "calendar_event.create"
@@ -83,6 +84,10 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "job.update": TAC_PLUS,
   // POST /api/clients → TacPlus (backend/app/api/clients.py)
   "client.create": TAC_PLUS,
+  // PATCH /api/clients/{id} → TacPlus (backend/app/api/clients.py). Bez tej
+  // bramki nie-TAC widział "Edytuj", wypełniał formularz i dostawał 403 na
+  // zapisie — czytało się jak "zapis nie działa".
+  "client.update": TAC_PLUS,
   // POST /api/contracts → TacPlus (backend/app/api/contracts.py)
   "contract.create": TAC_PLUS,
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts =

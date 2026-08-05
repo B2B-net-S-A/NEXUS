@@ -1716,15 +1716,23 @@ function clientToForm(c: any): ClientFormData {
   };
 }
 
-function ClientFormFields({ form, onChange, onCheckbox }: {
+function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true }: {
   form: ClientFormData;
   onChange: (k: keyof ClientFormData, v: string) => void;
   onCheckbox: (k: keyof ClientFormData, v: boolean) => void;
+  /** Edycja pozwala wyczyścić nazwę (powrót do nazwy źródłowej z Traffita) —
+      tworzenie nadal jej wymaga. */
+  nameRequired?: boolean;
 }) {
   return (
     <>
-      <FieldGroup label="Nazwa firmy" required>
+      <FieldGroup label="Nazwa firmy" required={nameRequired}>
         <Input value={form.name} onChange={e => onChange("name", e.target.value)} placeholder="Acme Sp. z o.o." />
+        {!nameRequired && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Wyczyść pole, aby przywrócić nazwę źródłową (np. z Traffita).
+          </p>
+        )}
       </FieldGroup>
       <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Branża">
@@ -1825,6 +1833,9 @@ export function AddClientModal({
 
 export function EditClientModal({ client, onClose, onSuccess }: { client: any; onClose: () => void; onSuccess: (msg: string) => void }) {
   const [form, setForm] = useState<ClientFormData>(() => clientToForm(client));
+  // Nazwa z chwili otwarcia (GET zwraca nazwę EFEKTYWNĄ = display_name ?? name)
+  // — dirty-check decyduje, czy w ogóle wysyłamy display_name.
+  const [initialName] = useState<string>(() => clientToForm(client).name);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -1833,11 +1844,9 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name) { setError("Nazwa firmy jest wymagana"); return; }
     setSaving(true); setError("");
     try {
-      await api.patch(`/api/clients/${client.id}`, {
-        name: form.name,
+      const payload: Record<string, unknown> = {
         industry: form.industry || null,
         website: form.website || null,
         address: form.address || null,
@@ -1845,7 +1854,17 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
         nda_signed: form.nda_signed,
         contract_type: form.contract_type || null,
         notes: form.notes || null,
-      });
+      };
+      // Edycja nazwy pisze do sync-odpornego `display_name` — Traffit nadpisuje
+      // `name` przy każdym daily sync, a wyświetlanie i tak robi
+      // coalesce(display_name, name). Wysyłamy TYLKO gdy pole faktycznie
+      // zmienione (bezwarunkowy zapis przy edycji np. branży zamroziłby nazwę
+      // względem Traffita na stałe). Wyczyszczenie pola → null → powrót do
+      // nazwy źródłowej. `name` celowo NIE jest już wysyłane.
+      if (form.name.trim() !== initialName.trim()) {
+        payload.display_name = form.name.trim() || null;
+      }
+      await api.patch(`/api/clients/${client.id}`, payload);
       onSuccess("Firma zaktualizowana");
       onClose();
     } catch (err: any) {
@@ -1857,7 +1876,7 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
     <Modal title={`Edytuj: ${client.name}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
+        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} nameRequired={false} />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />
