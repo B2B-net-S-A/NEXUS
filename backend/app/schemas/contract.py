@@ -464,3 +464,9 @@ class ContractorStats(BaseModel):
     drafts_incomplete: int = 0
     active: int = 0
     ending: int = 0
+
+
+class RegisterSubcategoriesResponse(BaseModel):
+    """Distinct `Job.subcategory` values powering the register subcategory filter."""
+
+    subcategories: list[str]

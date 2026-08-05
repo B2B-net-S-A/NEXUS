@@ -71,6 +71,7 @@ from app.schemas.contract import (
     ContractTimelineItem,
     ContractUpdate,
     ContractVoidRequest,
+    RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
     ContractAmendmentCreate,
@@ -308,6 +309,7 @@ def _apply_contract_list_filters(
     expiring_in_days: Optional[int],
     period_from: Optional[date] = None,
     period_to: Optional[date] = None,
+    subcategory: Optional[list[str]] = None,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -368,6 +370,16 @@ def _apply_contract_list_filters(
     if period_to is not None:
         query = query.where(
             or_(Contract.start_date.is_(None), Contract.start_date <= period_to)
+        )
+    if subcategory:
+        # Podkategoria kompetencyjna kontraktu = `subcategory` powiązanej oferty
+        # (Job leży pod jedną CC i niesie free-text podkategorię). Filtrujemy
+        # przez podzapytanie po job_id, a NIE przez JOIN — helper bywa już
+        # (outer)joinowany z Job w bloku `q`, więc drugi JOIN by się zderzał.
+        # Kontrakty bez oferty (job_id NULL) naturalnie wypadają przy aktywnym
+        # filtrze podkategorii.
+        query = query.where(
+            Contract.job_id.in_(select(Job.id).where(Job.subcategory.in_(subcategory)))
         )
     if rate_client_min is not None:
         query = query.where(Contract.rate_client >= rate_client_min)
@@ -546,6 +558,14 @@ async def list_contracts(
     period_to: Optional[date] = Query(
         None, description="Okres (overlap) — górna granica nakładającego się zakresu."
     ),
+    subcategory: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Filtr po podkategorii kompetencyjnej powiązanej oferty "
+            "(`Job.subcategory`, leżącej pod jej competence category). Powtarzalny "
+            "dla multi-select, OR-łączony. Kontrakty bez oferty są wykluczane."
+        ),
+    ),
     rate_client_min: Optional[int] = Query(None, ge=0),
     rate_client_max: Optional[int] = Query(None, ge=0),
     margin_min: Optional[int] = Query(None),
@@ -588,6 +608,7 @@ async def list_contracts(
         end_to=end_to,
         period_from=period_from,
         period_to=period_to,
+        subcategory=subcategory,
         rate_client_min=rate_client_min,
         rate_client_max=rate_client_max,
         margin_min=margin_min,
@@ -773,6 +794,7 @@ async def export_contracts(
     end_to: Optional[date] = Query(None),
     period_from: Optional[date] = Query(None),
     period_to: Optional[date] = Query(None),
+    subcategory: Optional[list[str]] = Query(None),
     rate_client_min: Optional[int] = Query(None, ge=0),
     rate_client_max: Optional[int] = Query(None, ge=0),
     margin_min: Optional[int] = Query(None),
@@ -807,6 +829,7 @@ async def export_contracts(
         end_to=end_to,
         period_from=period_from,
         period_to=period_to,
+        subcategory=subcategory,
         rate_client_min=rate_client_min,
         rate_client_max=rate_client_max,
         margin_min=margin_min,
@@ -866,10 +889,13 @@ async def export_contracts(
 
 
 # \u2500\u2500 Per-klient rejestr \u2014 eksport XLSX \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-# Odr\u0119bny od finansowego /export: te same 7 kolumn co widoczna tabela rejestru
-# klienta (ClientContractRegister), BEZ stawek/mar\u017cy \u2014 wi\u0119c dost\u0119pny dla ca\u0142ego
-# audytorium rejestru (TacPlus + Delivery Lead), nie tylko Admina. Zawsze
-# zaw\u0119\u017cony do jednego klienta ("brak klienta = brak sensu eksportu").
+# Odr\u0119bny od finansowego /export: kolumny widocznej tabeli rejestru klienta
+# (ClientContractRegister) + \u201ePodkategoria" (Job.subcategory powi\u0105zanej oferty)
+# na ko\u0144cu jako jedyna kolumna wykraczaj\u0105ca poza ekran \u2014 na \u017cyczenie do analizy.
+# BEZ stawek/mar\u017cy, wi\u0119c dost\u0119pny dla ca\u0142ego audytorium rejestru (TacPlus +
+# Delivery Lead), nie tylko Admina. Zawsze zaw\u0119\u017cony do jednego klienta ("brak
+# klienta = brak sensu eksportu"). \u201ePodkategoria" dopisana po \u201eStatus" (koniec
+# wiersza), \u017ceby zachowa\u0107 kolejno\u015b\u0107 7 kolumn widocznej tabeli.
 _REGISTER_EXPORT_COLUMNS = [
     "Nr projektu",
     "Projekt",
@@ -878,6 +904,7 @@ _REGISTER_EXPORT_COLUMNS = [
     "Okres / Pula godzin",
     "Prolongata",
     "Status",
+    "Podkategoria",
 ]
 # Etykiety lustrzane wobec frontendu (lib/contract-register.ts) \u2014 eksport czyta
 # si\u0119 jak tabela na ekranie: te same etykiety, daty w formacie PL i liczby.
@@ -922,14 +949,16 @@ def _register_period_cell(c: Contract) -> str:
 
 
 def _register_export_row(c: Contract) -> list:
-    """Jeden wiersz eksportu rejestru \u2014 7 kolumn w kolejno\u015bci ze specyfikacji,
-    lustro widocznej tabeli ``ClientContractRegister`` (puste tekstowo = pusta
-    kom\u00f3rka; placeholdery #id/\u201e\u2014" jak w UI zachowane)."""
+    """Jeden wiersz eksportu rejestru \u2014 kolumny widocznej tabeli
+    ``ClientContractRegister`` + \u201ePodkategoria" (`Job.subcategory`). Puste
+    tekstowo = pusta kom\u00f3rka; placeholdery #id/\u201e\u2014" jak w UI zachowane. Wymaga
+    eager-loadu ``Contract.job`` (endpoint dok\u0142ada ``selectinload``)."""
     consultant = (
         f"{c.candidate.name} {c.candidate.lastname}".strip()
         if c.candidate
         else f"#{c.candidate_id}"
     )
+    subcategory = c.job.subcategory if (c.job and c.job.subcategory) else ""
     return [
         c.project_code or f"#{c.id}",
         c.project_name or "",
@@ -938,6 +967,7 @@ def _register_export_row(c: Contract) -> list:
         _register_period_cell(c),
         _enum_label(c.prolongation_status, _REGISTER_PROLONGATION_LABELS),
         _enum_label(c.status, _CONTRACT_STATUS_LABELS),
+        subcategory,
     ]
 
 
@@ -956,17 +986,21 @@ async def export_client_register(
     status: Optional[list[ContractStatus]] = Query(None),
     period_from: Optional[date] = Query(None),
     period_to: Optional[date] = Query(None),
+    subcategory: Optional[list[str]] = Query(None),
     limit: int = Query(10000, ge=1, le=50000),
 ):
-    """Eksport per-klient rejestru kontrakt\u00f3w do XLSX (7 kolumn = widoczna tabela).
+    """Eksport per-klient rejestru kontrakt\u00f3w do XLSX (kolumny widocznej tabeli
+    + \u201ePodkategoria" = Job.subcategory oferty).
 
-    Honoruje te same filtry co lista rejestru (``q``, ``status``, \u201eOkres" overlap),
-    wi\u0119c \u201eeksportuj to, co widz\u0119" jest zawsze prawdziwe; pomija paginacj\u0119 (wszystkie
-    pasuj\u0105ce wiersze do ``limit``). Bez stawek/mar\u017cy \u2192 dost\u0119pny dla TacPlus, nie
-    tylko Admina. Delivery Lead widzi wy\u0142\u0105cznie swoich klient\u00f3w (scope jak na li\u015bcie).
+    Honoruje te same filtry co lista rejestru (``q``, ``status``, \u201eOkres" overlap,
+    podkategoria oferty), wi\u0119c \u201eeksportuj to, co widz\u0119" jest zawsze prawdziwe;
+    pomija paginacj\u0119 (wszystkie pasuj\u0105ce wiersze do ``limit``). Bez stawek/mar\u017cy \u2192
+    dost\u0119pny dla TacPlus, nie tylko Admina. Delivery Lead widzi wy\u0142\u0105cznie swoich
+    klient\u00f3w (scope jak na li\u015bcie).
     """
     query = select(Contract).options(
         selectinload(Contract.candidate),
+        selectinload(Contract.job),
     )
     query = apply_delivery_lead_client_scope(
         query,
@@ -986,6 +1020,7 @@ async def export_client_register(
         end_to=None,
         period_from=period_from,
         period_to=period_to,
+        subcategory=subcategory,
         rate_client_min=None,
         rate_client_max=None,
         margin_min=None,
@@ -1019,6 +1054,42 @@ async def export_client_register(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/register/subcategories", response_model=RegisterSubcategoriesResponse)
+async def list_client_register_subcategories(
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    client_id: int = Query(
+        ..., description="Klient, którego podkategorie ofert zwracamy — WYMAGANY."
+    ),
+) -> RegisterSubcategoriesResponse:
+    """Odrębne podkategorie (`Job.subcategory`) ofert powiązanych z kontraktami
+    danego klienta — zasila multiselect filtra podkategorii w rejestrze. Zwraca
+    wyłącznie wartości faktycznie występujące u klienta (dropdown pokazuje tylko
+    to, co da się odfiltrować). Voidy pominięte; scope Delivery Lead jak na liście.
+    """
+    query = (
+        select(Job.subcategory)
+        .join(Contract, Contract.job_id == Job.id)
+        .where(
+            Contract.client_id == client_id,
+            Contract.status != ContractStatus.void,
+            Job.subcategory.isnot(None),
+            func.length(func.trim(Job.subcategory)) > 0,
+        )
+        .distinct()
+    )
+    query = apply_delivery_lead_client_scope(
+        query,
+        Contract.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
+    rows = await db.execute(query)
+    # SQL `.distinct()` + WHERE (not-null, trimmed length > 0) już gwarantują
+    # unikalność i niepustość — zostaje tylko stabilne sortowanie case-insensitive.
+    values = sorted((v for (v,) in rows.all()), key=lambda s: s.casefold())
+    return RegisterSubcategoriesResponse(subcategories=values)
 
 
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)

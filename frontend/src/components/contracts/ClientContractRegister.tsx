@@ -77,8 +77,8 @@ interface RegisterResponse {
 }
 
 /** Klucz React Query rejestru — współdzielony przez listę i optimistic update
- * prolongaty. Sygnatura filtrów (status + okres) jest częścią klucza, więc
- * optimistic update trafia dokładnie w cache aktualnie widocznej listy. */
+ * prolongaty. Sygnatura filtrów (status + okres + podkategoria) jest częścią
+ * klucza, więc optimistic update trafia dokładnie w cache widocznej listy. */
 type RegisterQueryKey = readonly [
   "client-register",
   number, // clientId
@@ -87,6 +87,7 @@ type RegisterQueryKey = readonly [
   string, // statusFilter.join(",")
   string, // periodFrom
   string, // periodTo
+  string, // subcategoryFilter (JSON)
 ];
 
 /** Inline-editowalny status przedłużenia (Select) lub read-only Badge. */
@@ -238,20 +239,64 @@ export function ClientContractRegister({
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const search = useDebouncedValue(searchInput.trim(), 300);
-  // Filtry łączone logiką AND (server-side): status (multi) + „Okres" (overlap).
+  // Filtry łączone logiką AND (server-side): status (multi) + „Okres" (overlap)
+  // + podkategoria oferty (multi).
   const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
   const [periodFrom, setPeriodFrom] = useState("");
   const [periodTo, setPeriodTo] = useState("");
+  const [subcategoryFilter, setSubcategoryFilter] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Każda zmiana filtra (fraza, status, okres) cofa do pierwszej strony wyników,
-  // inaczej można utknąć na stronie N, której przefiltrowany wynik już nie ma.
+  // Podkategorie są specyficzne per klient (Backend u klienta A ≠ oferta u B).
+  // Ten komponent NIE jest remontowany przy zmianie klienta (brak `key`), więc
+  // czyścimy wybór SYNCHRONICZNIE w renderze (wzorzec React „adjust state on
+  // prop change") — inaczej pierwszy fetch nowego klienta poleciałby ze starym
+  // filtrem: lista mignęłaby pusta, a przy błędzie endpointu podkategorii filtr
+  // zostałby aktywny-niewidoczny (dropdown się nie renderuje). Status/Okres to
+  // wymiary klient-niezależne i celowo przechodzą między klientami.
+  const [prevClientId, setPrevClientId] = useState(clientId);
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId);
+    setSubcategoryFilter([]);
+  }
+
+  // Opcje filtra podkategorii = odrębne `Job.subcategory` faktycznie występujące
+  // u tego klienta (dropdown pokazuje tylko to, co da się odfiltrować). Osobne,
+  // rzadko zmienne zapytanie — cache 5 min.
+  const { data: subcategoryValues } = useQuery({
+    queryKey: ["client-register-subcategories", clientId],
+    queryFn: () =>
+      api
+        .get<{ subcategories: string[] }>(
+          "/api/contracts/register/subcategories",
+          { params: { client_id: clientId } },
+        )
+        .then((r) => r.data.subcategories ?? []),
+    staleTime: 5 * 60 * 1000,
+  });
+  const subcategoryOptions = useMemo(
+    () => (subcategoryValues ?? []).map((s) => ({ value: s, label: s })),
+    [subcategoryValues],
+  );
+  // Gdy lista opcji się zmieni (inny klient), odrzuć wybory spoza niej.
+  useEffect(() => {
+    if (!subcategoryValues) return;
+    setSubcategoryFilter((prev) => {
+      const allowed = new Set(subcategoryValues);
+      const next = prev.filter((s) => allowed.has(s));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [subcategoryValues]);
+
+  // Każda zmiana filtra (fraza, status, okres, podkategoria) cofa do pierwszej
+  // strony, inaczej można utknąć na stronie N, której przefiltrowany wynik nie ma.
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, periodFrom, periodTo]);
+  }, [search, statusFilter, periodFrom, periodTo, subcategoryFilter]);
 
   const statusKey = statusFilter.join(",");
+  const subcatKey = JSON.stringify(subcategoryFilter);
   const queryKey: RegisterQueryKey = [
     "client-register",
     clientId,
@@ -260,6 +305,7 @@ export function ClientContractRegister({
     statusKey,
     periodFrom,
     periodTo,
+    subcatKey,
   ];
   const { data, isLoading, isFetching } = useQuery({
     queryKey,
@@ -274,8 +320,9 @@ export function ClientContractRegister({
             status: statusFilter.length ? statusFilter : undefined,
             period_from: periodFrom || undefined,
             period_to: periodTo || undefined,
+            subcategory: subcategoryFilter.length ? subcategoryFilter : undefined,
           },
-          // Powtarzany `status` jako status=a&status=b (backend: list[ContractStatus]).
+          // Powtarzane `status`/`subcategory` jako a&b (backend: list[...]).
           paramsSerializer: { indexes: null },
         })
         .then((r) => r.data),
@@ -283,7 +330,10 @@ export function ClientContractRegister({
   });
 
   const hasActiveFilters =
-    statusFilter.length > 0 || Boolean(periodFrom) || Boolean(periodTo);
+    statusFilter.length > 0 ||
+    Boolean(periodFrom) ||
+    Boolean(periodTo) ||
+    subcategoryFilter.length > 0;
 
   const flashToast = (msg: string) => {
     setToast(msg);
@@ -294,6 +344,7 @@ export function ClientContractRegister({
     setStatusFilter([]);
     setPeriodFrom("");
     setPeriodTo("");
+    setSubcategoryFilter([]);
   };
 
   // Eksport do Excela — zawsze zawężony do WYBRANEGO klienta (ten komponent
@@ -310,6 +361,7 @@ export function ClientContractRegister({
       statusFilter.forEach((s) => params.append("status", s));
       if (periodFrom) params.set("period_from", periodFrom);
       if (periodTo) params.set("period_to", periodTo);
+      subcategoryFilter.forEach((s) => params.append("subcategory", s));
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
       const token = getAccessToken();
       const res = await fetch(
@@ -383,8 +435,9 @@ export function ClientContractRegister({
       </div>
 
       {/* Panel filtrów (logika AND, server-side) + eksport. Wyszukiwarka filtruje
-          po nazwisku konsultanta; „Status" i „Okres" (overlap) zawężają listę
-          w czasie rzeczywistym. Eksport bierze dokładnie to, co widać na liście. */}
+          po nazwisku konsultanta; „Status", „Okres" (overlap) i „Podkategoria"
+          (podkategoria oferty) zawężają listę w czasie rzeczywistym. Eksport
+          bierze dokładnie to, co widać na liście. */}
       <FilterBar
         search={{
           value: searchInput,
@@ -431,6 +484,21 @@ export function ClientContractRegister({
                 className="h-9 w-[150px]"
               />
             </div>
+            {/* Podkategoria — tylko gdy klient ma jakiekolwiek podkategorie ofert
+                (pusty dropdown byłby martwym filtrem). */}
+            {subcategoryOptions.length > 0 && (
+              <MultiSelectFilter<string>
+                value={subcategoryFilter}
+                onChange={setSubcategoryFilter}
+                options={subcategoryOptions}
+                placeholder="Wszystkie podkategorie"
+                searchPlaceholder="Szukaj podkategorii…"
+                triggerWidthClass="w-[190px]"
+                triggerLabel={(n) =>
+                  n === 1 ? (subcategoryFilter[0] ?? "Podkategoria") : `Podkategoria: ${n}`
+                }
+              />
+            )}
             {hasActiveFilters && (
               <Button size="sm" variant="ghost" onClick={clearFilters}>
                 Wyczyść
