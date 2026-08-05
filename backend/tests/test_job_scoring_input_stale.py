@@ -98,3 +98,20 @@ async def test_deadline_edit_marks_snapshot_stale(
     )
     assert resp.status_code == 200, resp.text
     assert await _latest_snapshot_stale(job_id) is True
+
+
+async def test_remote_policy_edit_marks_snapshot_stale(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    from app.models.job import RemotePolicy
+
+    job_id = await _seed_job_with_ready_snapshot(remote_policy=RemotePolicy.onsite)
+    assert await _latest_snapshot_stale(job_id) is False
+
+    resp = await app_client.patch(
+        f"/api/jobs/{job_id}",
+        headers=app_auth_headers,
+        json={"remote_policy": "remote"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert await _latest_snapshot_stale(job_id) is True

@@ -128,3 +128,26 @@ async def test_shortlist_skips_active_client_conflict(
     assert body["added"] == [clean]
     assert nda in body["skipped"]
     assert await _shortlisted_ids(job_id) == {clean}
+
+
+async def test_shortlist_skips_hiring_manager_veto(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    # The third ineligibility vector: a candidate the job's hiring manager
+    # interviewed and disqualifyingly rejected. Reuse the canonical veto seed
+    # (append-only stage history + manager-met machinery) from the veto contract
+    # test so this stays in lockstep with how load_manager_rejections reads it.
+    from tests.test_manager_rejection_gate import _seed_vetoed_candidate
+
+    world = await _seed_vetoed_candidate()
+
+    resp = await app_client.post(
+        f"/api/jobs/{world['target_job_id']}/shortlist",
+        headers=app_auth_headers,
+        json={"candidate_ids": [world["candidate_id"]]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["added"] == []
+    assert world["candidate_id"] in body["skipped"]
+    assert await _shortlisted_ids(world["target_job_id"]) == set()

@@ -125,8 +125,12 @@ async def add_to_shortlist(
     eligibility = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=list(valid), now=now
     )
-    ineligible = {
-        cid for cid, decision in eligibility.items() if not decision.assignment_allowed
+    # Fail-closed: only ids the policy explicitly cleared may be added. Every id
+    # in ``valid`` exists so ``evaluate_candidates_for_job`` returns a decision
+    # for it, but treating a missing decision as "not allowed" keeps the gate
+    # safe even if the candidate pool changes under us between the two reads.
+    allowed = {
+        cid for cid, decision in eligibility.items() if decision.assignment_allowed
     }
 
     added: list[int] = []
@@ -136,7 +140,7 @@ async def add_to_shortlist(
         if cid in seen:
             continue
         seen.add(cid)
-        if cid not in valid or cid in already or cid in ineligible:
+        if cid not in valid or cid in already or cid not in allowed:
             skipped.append(cid)
             continue
         db.add(
