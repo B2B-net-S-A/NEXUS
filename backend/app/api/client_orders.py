@@ -12,6 +12,8 @@ Flow B — "Nowy kontraktor / zamówienie" (POST /contract-with-order) —
 
 from __future__ import annotations
 
+import os
+import tempfile
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
@@ -29,11 +31,13 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.concurrency import run_in_threadpool
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import DlAssignedOrAdmin, TacPlus
 from app.core.database import get_db
 from app.models.activity import Activity
+from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import ClientFrameworkContract
@@ -46,13 +50,19 @@ from app.schemas.client_order import (
     ClientOrdersGroupedResponse,
     ClientOrderUpdate,
     ContractWithOrdersRead,
+    OrderDocumentItem,
+    OrderDocumentsResponse,
+    OrderExtractionResult,
 )
 from app.schemas.new_contractor_order import (
     NewContractorOrderRequest,
     NewContractorOrderResponse,
 )
 from app.services import storage_service
+from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
+from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
+from app.services.order_pdf_parser import parse_order_document
 
 router = APIRouter()
 
@@ -128,6 +138,11 @@ def _compute_monthly_margin(
 # (`_redact_contract_finance`) i clients.py. Waluta również znika, żeby nie
 # zdradzać sposobu rozliczenia ukrytej kwoty.
 _ORDER_FINANCE_FIELDS = ("rate_client", "total_value", "monthly_margin", "currency")
+# Klucze pól finansowych w fields_confidence odczytu PDF — redagowane dla ról
+# bez VIEW_FINANCE (obecność klucza sama zdradza, że PO zawiera stawkę/wartość).
+_EXTRACTION_FINANCE_CONF_KEYS = frozenset(
+    {"rate_client", "total_value", "currency", "rate_unit"}
+)
 _CONTRACTOR_FINANCE_FIELDS = (
     "rate_candidate",
     "latest_order_rate_client",
@@ -537,6 +552,124 @@ async def create_order_extension(
     return _order_response_for_user(await _order_to_read(db, order), user)
 
 
+@router.post(
+    "/{client_id}/orders/extract",
+    response_model=OrderExtractionResult,
+)
+async def extract_order_pdf(
+    client_id: int,
+    user: DlAssignedOrAdmin,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """„Zczytaj dane z dokumentu" — odczyt pól z PDF/DOCX zamówienia klienta.
+
+    Świadoma akcja użytkownika, ODDZIELONA od zapisu: NIE tworzy Orderu ani nie
+    zapisuje pliku — zwraca tylko odczytane pola do wstawienia w formularzu
+    (wszystkie edytowalne). Przy jakiejkolwiek niepewności ``uncertain=True`` →
+    front pokazuje baner „Sprawdź dane!". Kwoty zredagowane dla ról bez VIEW_FINANCE.
+
+    Bramkowane: DL przypisany do klienta lub Admin (jak create), plus quota AI
+    ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
+    """
+    await _assert_client(db, client_id)
+
+    filename = file.filename or "zamowienie.pdf"
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _ALLOWED_EXT:
+        raise HTTPException(415, detail="Tylko pliki PDF/DOCX/DOC")
+
+    payload = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, detail="File too large")
+    if not payload:
+        raise HTTPException(400, detail="Pusty plik")
+
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=ext, delete=False, prefix="nexus_order_"
+        ) as tmp:
+            tmp.write(payload)
+            tmp_path = tmp.name
+        try:
+            # Ekstrakcja PDF/DOCX (+ OCR) jest synchroniczna i CPU/IO-heavy —
+            # offload żeby nie blokować single-worker event loopu.
+            text = await run_in_threadpool(extract_text, tmp_path, filename)
+        except UnsupportedCvFormat as exc:
+            raise HTTPException(400, detail=str(exc)) from exc
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    if not text.strip():
+        raise HTTPException(
+            400,
+            detail=(
+                "Nie udało się odczytać tekstu z dokumentu "
+                "(skan, plik zaszyfrowany lub nieobsługiwany format .doc?)."
+            ),
+        )
+
+    # Quota AI — liczone po udanej ekstrakcji, przed wywołaniem Claude, żeby
+    # blokada zwróciła 503 bez palenia wywołania modelu (wzorzec cv_match_preview).
+    try:
+        await check_and_increment(db, AIFeatureKey.order_parser, user_id=user.id)
+        await db.commit()
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
+
+    extraction = await parse_order_document(text)
+
+    # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
+    # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
+    # kanały poboczne, które zdradzałyby sygnał finansowy roli bez VIEW_FINANCE:
+    #  - fields_confidence z kluczami finansowymi (np. {"rate_client": 0.97})
+    #    ujawnia, że PO zawiera stawkę i jak pewnie ją odczytano;
+    #  - uncertain_reasons to tekst (regułowy „Niepewny odczyt: stawka…" ORAZ
+    #    swobodny od Claude), który może cytować kwoty.
+    # Baner „Sprawdź dane!" zostaje (flaga uncertain), ale z ogólnym powodem.
+    show_finance = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
+    if show_finance:
+        reasons = extraction.uncertain_reasons
+        confidence = extraction.confidence
+    else:
+        reasons = (
+            ["Sprawdź odczytane dane przed zapisem."] if extraction.uncertain else []
+        )
+        confidence = {
+            k: v
+            for k, v in extraction.confidence.items()
+            if k not in _EXTRACTION_FINANCE_CONF_KEYS
+        }
+
+    return OrderExtractionResult(
+        title=extraction.title,
+        start_date=extraction.start_date,
+        end_date=extraction.end_date,
+        rate_client=extraction.rate_client if show_finance else None,
+        rate_unit=extraction.rate_unit if show_finance else None,
+        total_value=extraction.total_value if show_finance else None,
+        currency=extraction.currency if show_finance else None,
+        uncertain=extraction.uncertain,
+        uncertain_reasons=reasons,
+        fields_confidence=confidence,
+        source=extraction.source,
+    )
+
+
 @router.patch("/{client_id}/orders/{order_id}", response_model=ClientOrderRead)
 async def update_order(
     client_id: int,
@@ -642,6 +775,113 @@ async def download_order_po(
         filename=order.filename or "po.pdf",
         media_type=order.content_type or "application/pdf",
     )
+
+
+# ── Order documents (jeden plik, dwa widoki: kontrakt + osoba) ──────────────
+# Wymaganie: załączony PDF zamówienia ma być widoczny w Dokumentach kontraktu
+# ORAZ w Plikach osoby — jako JEDEN zapisany plik, do którego oba widoki się
+# odwołują (nie kopia). Realizacja read-time: plik żyje na ``ClientOrder.file_path``
+# i jest pobierany istniejącym ``GET /orders/{id}/file``; poniższe endpointy tylko
+# LISTUJĄ te pliki dla kontraktu / osoby. Zero kopii, zero migracji dokumentów.
+
+
+def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
+    return OrderDocumentItem(
+        order_id=order.id,
+        client_id=order.client_id,
+        contract_id=order.contract_id,
+        title=order.title,
+        filename=order.filename,
+        content_type=order.content_type,
+        size_bytes=order.size_bytes,
+        created_at=order.created_at,
+        order_status=order.status,
+    )
+
+
+@router.get(
+    "/order-documents/by-contract/{contract_id}",
+    response_model=OrderDocumentsResponse,
+)
+async def list_contract_order_documents(
+    contract_id: int,
+    user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """PO PDF-y zamówień danego kontraktu — sekcja „Dokumenty zamówień" w
+    zakładce Dokumenty kontraktu. Read-only widok tego samego pliku, pobierany
+    istniejącym ``GET /orders/{id}/file`` (nie kopiuje pliku)."""
+    contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
+    if contract is None:
+        raise HTTPException(404, detail="Contract not found")
+    await _require_client_order_read(db, user, contract.client_id)
+
+    orders = (
+        (
+            await db.execute(
+                select(ClientOrder)
+                .where(
+                    ClientOrder.contract_id == contract_id,
+                    ClientOrder.file_path.is_not(None),
+                )
+                .order_by(ClientOrder.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return OrderDocumentsResponse(
+        documents=[_order_to_document_item(o) for o in orders]
+    )
+
+
+@router.get(
+    "/order-documents/by-candidate/{candidate_id}",
+    response_model=OrderDocumentsResponse,
+)
+async def list_candidate_order_documents(
+    candidate_id: int,
+    user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """PO PDF-y wszystkich zamówień osoby/kontraktora — sekcja „Dokumenty
+    zamówień / kontraktów" w Plikach osoby. Ten sam plik co w widoku kontraktu.
+
+    Poufność: PO zawiera stawki, więc filtrujemy po dostępie do klienta —
+    pokazujemy tylko zamówienia klientów, których użytkownik może czytać
+    (admin/head_of_recruitment = wszystkie, Delivery Lead = przypisane). Spójne
+    z ``_require_client_order_read``. Osoby może dotyczyć wielu klientów."""
+    exists = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
+    if exists is None:
+        raise HTTPException(404, detail="Candidate not found")
+
+    orders = (
+        (
+            await db.execute(
+                select(ClientOrder)
+                .join(Contract, Contract.id == ClientOrder.contract_id)
+                .where(
+                    Contract.candidate_id == candidate_id,
+                    ClientOrder.file_path.is_not(None),
+                )
+                .order_by(ClientOrder.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    access_cache: dict[int, bool] = {}
+    visible: list[OrderDocumentItem] = []
+    for o in orders:
+        can = access_cache.get(o.client_id)
+        if can is None:
+            access = await resolve_client_access(db, user, o.client_id)
+            can = access.can_view_legal_documents
+            access_cache[o.client_id] = can
+        if can:
+            visible.append(_order_to_document_item(o))
+    return OrderDocumentsResponse(documents=visible)
 
 
 # ── Flow B: atomic create Contract + Order ─────────────────────────────────

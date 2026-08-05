@@ -123,6 +123,57 @@ CV_ENRICHMENT = PromptTemplate(
 )
 
 
+# ── Order-PDF extraction (Zczytaj dane z dokumentu — przedłużenie) ──────────
+
+ORDER_EXTRACTION = PromptTemplate(
+    name="order_extraction",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "You extract structured fields from a client purchase order / call-off / "
+        "'zamówienie' document for a Polish IT body-leasing agency. The document "
+        "may be Polish or English and the data may sit anywhere — header, a table, "
+        "or free-text body. Search the WHOLE document, not one fixed line. Formats "
+        "vary by client, so recognise unusual notations. Never invent a value: when "
+        "a field is absent or ambiguous, return null and lower its confidence. When "
+        "several candidates match a field and you cannot decide, pick the most "
+        "likely one but flag uncertainty."
+    ),
+    template=(
+        "From the order document below, produce a JSON object with these fields:\n"
+        '  "title": the order identifier — order number, "numer zamówienia", '
+        '"Call Off Agreement number", PO number or a similar document reference, '
+        "exactly as written. If no explicit number exists, a short descriptive "
+        "title (e.g. client + role). null only if nothing usable.\n"
+        '  "start_date": start of the order period. Use "YYYY-MM-DD" when the exact '
+        'day is stated, otherwise "YYYY-MM" when only the month is known, else null.\n'
+        '  "end_date": end of the order period, same format as start_date. null = '
+        "open-ended / not stated.\n"
+        '  "rate_client": the NET rate the client pays, as a plain number (no '
+        'currency, no thousands separators, dot decimal). Look for "cena netto", '
+        '"Stawka PLN/MD netto", "Price", "rate", "stawka". null if absent.\n'
+        '  "rate_unit": the unit of rate_client — one of "hour"|"day"|"month" '
+        "(godzina/roboczodzień-MD/miesiąc) or null if not stated.\n"
+        '  "total_value": total order value as a plain number, only if the document '
+        "states it directly. null otherwise (do not compute it yourself).\n"
+        '  "currency": ISO 4217 code ("PLN"|"EUR"|"USD") if present, else null.\n'
+        '  "_confidence": object mapping each field above to a float 0.0-1.0 — 0.95+ '
+        "when explicit and unambiguous, 0.6-0.85 when inferred from context, "
+        "0.0-0.4 when guessing or missing. Include every field you filled.\n"
+        '  "uncertain": boolean — true if ANY field was missing, ambiguous, had '
+        "several plausible candidates, or looked atypical/incomplete.\n"
+        '  "uncertain_reasons": list of short Polish strings naming what is unsure '
+        '(e.g. "Nie znaleziono jednoznacznej daty końca"). Empty list if fully confident.\n\n'
+        "PERIOD NOTATION: some clients write the period in the body, e.g. BNP uses "
+        '"mc 06-2026_12-2026" meaning months 06/2026 through 12/2026 — output '
+        'start_date "2026-06" and end_date "2026-12". Recognise such MM-YYYY ranges '
+        "and any similar shorthand, converting them to the period bounds.\n\n"
+        "Respond with ONLY the raw JSON, no prose.\n\n"
+        "Order document:\n{document_text}\n"
+    ),
+)
+
+
 # ── Interview prep kit (already in prep_kit.py; here for version tracking) ──
 
 INTERVIEW_PREP = PromptTemplate(
