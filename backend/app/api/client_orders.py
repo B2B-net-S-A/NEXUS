@@ -117,8 +117,12 @@ def _normalize_monthly(
 def _compute_monthly_margin(
     order: ClientOrder, contract: Contract
 ) -> Optional[Decimal | int]:
-    """Marża/mc dla Order: (Order.rate_client OR Contract.rate_client) - Contract.rate_candidate."""
-    rate_client_effective = order.rate_client or contract.rate_client
+    """Marża/mc dla Order: (Order.rate_client ?? Contract.rate_client) - Contract.rate_candidate."""
+    # `is not None` zamiast `or` — stawka 0 na Orderze jest legalna i nie może
+    # po cichu spadać do stawki kontraktu.
+    rate_client_effective = (
+        order.rate_client if order.rate_client is not None else contract.rate_client
+    )
     if rate_client_effective is None or contract.rate_candidate is None:
         return None
     monthly_client = _normalize_monthly(
@@ -352,12 +356,20 @@ async def list_contractors_with_orders(
                 contract_start_date=c.start_date,
                 contract_end_date=c.end_date,
                 rate_candidate=c.rate_candidate,
+                rate_unit=c.rate_unit.value,
                 initial_job_id=c.job_id,
                 initial_job_title=c.job.title if c.job else None,
                 latest_order_id=latest.id if latest else None,
                 latest_order_end_date=latest_end,
                 latest_order_rate_client=(
-                    (latest.rate_client or c.rate_client) if latest else c.rate_client
+                    # `is not None` — stawka 0 na Orderze nie spada do kontraktu.
+                    (
+                        latest.rate_client
+                        if latest.rate_client is not None
+                        else c.rate_client
+                    )
+                    if latest
+                    else c.rate_client
                 ),
                 latest_order_monthly_margin=latest_margin,
                 days_to_latest_end=days_to_end,

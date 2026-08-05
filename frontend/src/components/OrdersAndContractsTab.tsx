@@ -11,6 +11,7 @@ import {
   History,
   Pencil,
   Plus,
+  Search,
   TrendingUp,
   Trash2,
   UserPlus,
@@ -20,6 +21,8 @@ import {
 import { useToast } from "@/components/Toast";
 import { contractsApi } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { foldText } from "@/lib/contract-client-filter";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import type {
   ClientOrderRead,
@@ -64,6 +67,9 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
   const user = useAuthStore((state) => state.user);
   const canManageFinance = canManageCandidateFinance(user);
   const [filter, setFilter] = useState<Filter>("all");
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const searching = debouncedSearch.trim().length > 0;
   const [extendingContract, setExtendingContract] = useState<ContractWithOrdersRead | null>(
     null,
   );
@@ -79,34 +85,42 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
 
   const filtered = useMemo<ContractWithOrdersRead[]>(() => {
     const contractors = data?.contractors ?? [];
-    if (filter === "all") return contractors;
+    let byPill = contractors;
     if (filter === "active") {
-      return contractors.filter(
+      byPill = contractors.filter(
         (c) => c.contract_status === "active" || c.contract_status === "ending",
       );
-    }
-    if (filter === "expiring_30d") {
-      return contractors.filter(
+    } else if (filter === "expiring_30d") {
+      byPill = contractors.filter(
         (c) =>
           c.days_to_latest_end !== null &&
           c.days_to_latest_end >= 0 &&
           c.days_to_latest_end <= 30,
       );
-    }
-    if (filter === "ended") {
-      return contractors.filter(
+    } else if (filter === "ended") {
+      byPill = contractors.filter(
         (c) => c.contract_status === "ended" || c.contract_status === "completed",
       );
-    }
-    if (filter === "drafts") {
-      return contractors.filter(
+    } else if (filter === "drafts") {
+      byPill = contractors.filter(
         (c) =>
           c.contract_status === "draft" ||
           c.orders.some((o) => o.status === "draft"),
       );
     }
-    return contractors;
-  }, [data, filter]);
+    // Filtr tekstowy działa PO stronie klienta, bo GET /orders zwraca pełną
+    // listę bez paginacji — jeśli kiedyś dojdzie limit/paginacja, przenieś
+    // wyszukiwanie na serwer (?q=), inaczej zacznie cicho gubić trafienia.
+    // Dopasowanie po konsultancie ORAZ po numerze KAŻDEGO zamówienia
+    // (aktywnego, przyszłego i historycznego), diacritic-insensitive.
+    const q = foldText(debouncedSearch.trim());
+    if (!q) return byPill;
+    return byPill.filter(
+      (c) =>
+        foldText(c.candidate_name).includes(q) ||
+        c.orders.some((o) => foldText(o.title).includes(q)),
+    );
+  }, [data, filter, debouncedSearch]);
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
@@ -122,6 +136,16 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
 
   return (
     <div className="space-y-4">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Szukaj po konsultancie lub numerze zamówienia…"
+          aria-label="Szukaj zamówień"
+          className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
+        />
+      </div>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex flex-wrap gap-2 items-center">
           <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
@@ -156,9 +180,13 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
       {filtered.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
           <Users className="w-12 h-12 mx-auto mb-2 opacity-40" />
-          {filter === "all"
-            ? "Brak kontraktorów u tego klienta. Dodaj pierwszego kontraktora i zamówienie."
-            : "Brak wyników dla wybranego filtra."}
+          {/* Pustka po wyszukaniu ≠ brak danych — inaczej czyta się jak utratę
+              danych (ten sam wzorzec co ProjectsTab / rejestr umów B2B). */}
+          {searching
+            ? "Brak zamówień pasujących do wyszukiwania."
+            : filter === "all"
+              ? "Brak kontraktorów u tego klienta. Dodaj pierwszego kontraktora i zamówienie."
+              : "Brak wyników dla wybranego filtra."}
         </div>
       ) : (
         <ul className="space-y-3">
@@ -168,6 +196,7 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
               contractor={contractor}
               clientId={clientId}
               canManageFinance={canManageFinance}
+              searching={searching}
               onExtend={() => setExtendingContract(contractor)}
               onChange={refresh}
               onError={(msg) => showToast(msg, "error")}
@@ -556,6 +585,9 @@ interface ContractorCardProps {
   contractor: ContractWithOrdersRead;
   clientId: number;
   canManageFinance: boolean;
+  /** Aktywne wyszukiwanie — wymusza rozwinięcie historii, żeby trafienie
+      w historycznym zamówieniu nie było schowane za zwiniętym togglem. */
+  searching: boolean;
   onExtend: () => void;
   onChange: () => void;
   onError: (msg: string) => void;
@@ -566,12 +598,14 @@ function ContractorCard({
   contractor,
   clientId,
   canManageFinance,
+  searching,
   onExtend,
   onChange,
   onError,
   onSuccess,
 }: ContractorCardProps) {
   const [showHistory, setShowHistory] = useState(false);
+  const historyOpen = searching ? true : showHistory;
 
   const { activeOrder, futureOrders, historyOrders } = useMemo(
     () => splitOrders(contractor.orders),
@@ -589,14 +623,11 @@ function ContractorCard({
     <li className="border border-border rounded-lg bg-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex-1 min-w-0">
-          {/* Header: name + gray contract number (no status) */}
+          {/* Header: samo imię i nazwisko — numer kontraktu usunięty (ticket #4) */}
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold text-base">
               👤 {contractor.candidate_name}
             </h3>
-            <span className="text-sm text-muted-foreground">
-              Contract {contractor.contract_id}
-            </span>
             {expiringWarn && (
               <span className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
@@ -641,7 +672,8 @@ function ContractorCard({
                   display={
                     contractor.rate_candidate != null ? (
                       <strong className="text-foreground">
-                        {fmtMoney(contractor.rate_candidate)}/mc
+                        {fmtMoney(contractor.rate_candidate)}
+                        {rateUnitSuffix(contractor.rate_unit)}
                       </strong>
                     ) : (
                       <em className="text-muted-foreground">ustaw stawkę</em>
@@ -670,7 +702,8 @@ function ContractorCard({
                   display={
                     activeOrder.rate_client != null ? (
                       <strong className="text-foreground">
-                        {fmtMoney(activeOrder.rate_client)}/mc
+                        {fmtMoney(activeOrder.rate_client)}
+                        {rateUnitSuffix(contractor.rate_unit)}
                       </strong>
                     ) : (
                       <em className="text-muted-foreground">ustaw stawkę</em>
@@ -713,12 +746,8 @@ function ContractorCard({
             )}
           </div>
 
-          {/* z rekrutacji (unchanged) */}
-          {contractor.initial_job_title && (
-            <div className="mt-1 text-xs text-muted-foreground">
-              z rekrutacji: {contractor.initial_job_title}
-            </div>
-          )}
+          {/* Info o rekrutacji usunięte z widoku Zamówień (ticket #4) —
+              pozostaje w Profil → Obecni konsultanci (ConsultantRow). */}
         </div>
 
         <button
@@ -740,8 +769,12 @@ function ContractorCard({
             {historyOrders.length > 0 && (
               <button
                 type="button"
-                onClick={() => setShowHistory((v) => !v)}
-                aria-expanded={showHistory}
+                onClick={() => {
+                  // Przy aktywnym wyszukiwaniu historia jest wymuszona —
+                  // toggle nie może schować dopasowanego zamówienia.
+                  if (!searching) setShowHistory((v) => !v);
+                }}
+                aria-expanded={historyOpen}
                 className="text-xs text-muted-foreground hover:text-violet-600 flex items-center gap-1"
               >
                 <History className="w-3 h-3" />
@@ -768,13 +801,14 @@ function ContractorCard({
             </div>
           )}
 
-          {showHistory &&
+          {historyOpen &&
             historyOrders.map((order) => (
               <HistoryOrderRow
                 key={order.id}
                 order={order}
                 clientId={clientId}
                 canManageFinance={canManageFinance}
+                rateUnit={contractor.rate_unit}
                 onError={onError}
                 onSuccess={onSuccess}
                 onDeleted={onChange}
@@ -868,6 +902,8 @@ interface HistoryOrderRowProps {
   order: ClientOrderRead;
   clientId: number;
   canManageFinance: boolean;
+  /** Jednostka stawek kontraktu — surowy rate_client jest w tej jednostce. */
+  rateUnit: string;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
   onDeleted: () => void;
@@ -877,6 +913,7 @@ function HistoryOrderRow({
   order,
   clientId,
   canManageFinance,
+  rateUnit,
   onError,
   onSuccess,
   onDeleted,
@@ -922,16 +959,17 @@ function HistoryOrderRow({
             </span>
           )}
           {canManageFinance && order.rate_client !== null && (
-            <span>przychód {fmtMoney(order.rate_client)}/mc</span>
+            <span>
+              przychód {fmtMoney(order.rate_client)}
+              {rateUnitSuffix(rateUnit)}
+            </span>
           )}
+          {/* Marża zostaje /mc — jest znormalizowana miesięcznie po stronie BE. */}
           {canManageFinance && order.monthly_margin !== null && (
             <span className="flex items-center gap-1 text-green-700">
               <TrendingUp className="w-3 h-3" />
               marża {fmtMoney(order.monthly_margin)}/mc
             </span>
-          )}
-          {order.job_title && (
-            <span className="text-violet-600">Job: {order.job_title}</span>
           )}
           {order.has_file && (
             <button
@@ -969,6 +1007,19 @@ function fmtMoney(v: number | string | null): string {
   const num = typeof v === "string" ? parseFloat(v) : v;
   if (Number.isNaN(num)) return "—";
   return num.toLocaleString("pl-PL");
+}
+
+// Surowe stawki (rate_candidate / rate_client) są w jednostce kontraktu —
+// etykieta musi za nią podążać (Alior ma stawki godzinowe; „164,375/mc" to
+// był bug). Marża NIE używa tego sufiksu — jest normalizowana do /mc na BE.
+const RATE_UNIT_SUFFIX: Record<string, string> = {
+  hourly: "/h",
+  daily: "/dzień",
+  monthly: "/mc",
+};
+
+export function rateUnitSuffix(unit: string | null | undefined): string {
+  return RATE_UNIT_SUFFIX[unit ?? "monthly"] ?? "/mc";
 }
 
 export { FilePlus2 };
