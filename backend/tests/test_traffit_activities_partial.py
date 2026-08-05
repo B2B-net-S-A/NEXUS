@@ -42,7 +42,7 @@ class _FakeDB:
 
 
 class _FakeTraffit:
-    """``total_count`` ok; ``get_paginated`` yields N rows then times out."""
+    """``total_count`` ok; ``get_pages`` yields pages totalling N rows then times out."""
 
     def __init__(self, yield_count: int) -> None:
         self.yield_count = yield_count
@@ -50,9 +50,14 @@ class _FakeTraffit:
     async def total_count(self, path: str) -> int:
         return 99999
 
-    async def get_paginated(self, path, *, page_size=100, filter_=None, **kw):
-        for i in range(self.yield_count):
-            yield {"id": i + 1}
+    async def get_pages(self, path, *, page_size=100, filter_=None, start_page=1, **kw):
+        emitted = 0
+        page_no = start_page
+        while emitted < self.yield_count:
+            n = min(page_size, self.yield_count - emitted)
+            yield page_no, [{"id": emitted + j + 1} for j in range(n)]
+            emitted += n
+            page_no += 1
         raise httpx.ReadTimeout("simulated mid-stream timeout")
 
 
@@ -116,9 +121,10 @@ async def test_activities_total_count_timeout_does_not_skip_import(monkeypatch) 
         async def total_count(self, path: str) -> int:
             raise httpx.ReadTimeout("probe timeout")
 
-        async def get_paginated(self, path, *, page_size=100, filter_=None, **kw):
-            for i in range(3):
-                yield {"id": i + 1}
+        async def get_pages(
+            self, path, *, page_size=100, filter_=None, start_page=1, **kw
+        ):
+            yield start_page, [{"id": i + 1} for i in range(3)]
 
     imp = TraffitImporter(
         _ProbeFailTraffit(yield_count=3), _FakeDB(), dry_run=False, batch_size=100
