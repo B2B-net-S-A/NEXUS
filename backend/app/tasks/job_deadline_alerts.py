@@ -47,7 +47,7 @@ from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
-from app.services.email import send_email
+from app.services.email import email_channel_enabled, send_email
 
 logger = logging.getLogger(__name__)
 
@@ -225,8 +225,8 @@ async def _release_email_claim(db: AsyncSession, notif_id: int) -> None:
 
 async def _dispatch_emails(db: AsyncSession) -> int:
     """Wyślij email dla deadline-notyfikacji bez ``email_sent_at``. Zwraca # wysłanych."""
-    if not settings.SMTP_ENABLED:
-        # Bez SMTP nie ma sensu rezerwować wierszy — zostaw nietknięte na retry.
+    if not email_channel_enabled():
+        # Żaden kanał (Graph app-only ani SMTP) — nie rezerwuj wierszy, retry później.
         return 0
 
     now = datetime.now(timezone.utc)

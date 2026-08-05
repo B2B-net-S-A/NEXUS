@@ -417,6 +417,23 @@ class Settings(BaseSettings):
         "Calendars.ReadWrite",
         "User.Read",
     ]
+    # ── App-only (client_credentials) Graph mail — systemowy nadawca ─────────
+    # Kanał dla POWIADOMIEŃ SYSTEMOWYCH (deadline alerts, reset hasła,
+    # weryfikacja rejestracji, @mention, chat fallback, powiadomienia o
+    # etapach) — inaczej niż delegated m365/sender.py (skrzynka rekrutera).
+    # Gdy ON, generyczne `send_email()` (app/services/email.py) routuje przez
+    # POST /users/{M365_MAIL_SENDER_UPN}/sendMail z APPLICATION permission
+    # `Mail.Send` (client_credentials) zamiast SMTP.
+    #
+    # Wymaga w Azure App Registration APPLICATION permission `Mail.Send` +
+    # admin consent, oraz realnego tenanta (client_credentials nie działa z
+    # "common"). Zawężenie do jednej skrzynki: Application Access Policy.
+    M365_APP_MAIL_ENABLED: bool = False
+    # UPN/adres skrzynki, z której wychodzą maile systemowe (np. "nexus@b2bnetwork.pl").
+    M365_MAIL_SENDER_UPN: str = ""
+    # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
+    # być realnym tenantem (GUID lub domena), NIE "common".
+    M365_MAIL_TENANT_ID: str = ""
     # Sync loop cadence; clamped to >=60s in the loop itself.
     M365_SYNC_INTERVAL_SECONDS: int = 300
     # Separate kill-switch for the background sync loop (router stays live so
