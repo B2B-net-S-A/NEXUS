@@ -185,8 +185,6 @@ _FAILING = {
     "test_cv_enrichment.py",
     # 1 fail — parsed-CV dict gained current_position_started_at_precision.
     "test_cv_parser.py",
-    # 7 fails — fixture inserts candidates without lastname, now NOT NULL.
-    "test_dl_portal.py",
     # 1 fail — fixture inserts client_orders without contract_id, now NOT NULL.
     "test_dl_portal_scheduler.py",
     # 1 fail — client_id is now required, so the invalid payload 422s where the

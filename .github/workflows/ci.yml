@@ -141,7 +141,6 @@ jobs:
                  --ignore=tests/test_champion_ai_intake.py \
                  --ignore=tests/test_cv_enrichment.py \
                  --ignore=tests/test_cv_parser.py \
-                 --ignore=tests/test_dl_portal.py \
                  --ignore=tests/test_dl_portal_scheduler.py \
                  --ignore=tests/test_jobs.py \
                  --ignore=tests/test_jobs_auto_assign.py \

@@ -96,6 +96,11 @@ class ContractWithOrdersRead(BaseModel):
     contract_start_date: Optional[date]
     contract_end_date: Optional[date]
     rate_candidate: Optional[Decimal]  # we płacimy
+    # Jednostka stawek kontraktu ("hourly" | "daily" | "monthly") — surowe
+    # rate_candidate/rate_client są w TEJ jednostce; FE etykietuje /h, /dzień,
+    # /mc zamiast hardkodować "/mc". Sama jednostka nie jest kwotą → nie
+    # podlega redakcji finansowej.
+    rate_unit: str = "monthly"
 
     # Initial Job z którego powstał Contract
     initial_job_id: Optional[int]
