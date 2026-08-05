@@ -109,6 +109,8 @@ const HISTORY = makeOrder({
   start_date: localISO(-400),
   end_date: localISO(-40),
   rate_client: 150,
+  // Ticket #4: etykieta "Job: …" ma NIE renderować się mimo obecnej wartości.
+  job_title: "Specjalista: Engineer DevOps",
 });
 
 // Backend returns orders sorted by start_date desc.
@@ -120,6 +122,7 @@ const CONTRACTOR = {
   contract_start_date: localISO(-30),
   contract_end_date: null,
   rate_candidate: 120,
+  rate_unit: "monthly",
   initial_job_id: null,
   initial_job_title: "Specjalista: Engineer DevOps",
   latest_order_id: 2,
@@ -128,6 +131,24 @@ const CONTRACTOR = {
   latest_order_monthly_margin: 70,
   days_to_latest_end: 60,
   orders: [FUTURE, ACTIVE, HISTORY],
+};
+
+// Drugi kontraktor z polskimi znakami — do testów diacritic-insensitive search.
+const CONTRACTOR_2 = {
+  ...structuredClone(CONTRACTOR),
+  contract_id: 530,
+  candidate_id: 100,
+  candidate_name: "Michał Jarząb",
+  orders: [
+    makeOrder({
+      id: 11,
+      title: "77777",
+      contract_id: 530,
+      candidate_id: 100,
+      candidate_name: "Michał Jarząb",
+      start_date: localISO(-10),
+    }),
+  ],
 };
 
 function renderTab() {
@@ -204,13 +225,16 @@ describe("splitOrders", () => {
 // ── Card rendering ────────────────────────────────────────────────────────────
 
 describe("OrdersAndContractsTab card", () => {
-  it("shows the contract label without status and the active order's number", async () => {
+  it("shows the consultant name without the contract id or recruitment info", async () => {
     renderTab();
-    expect(await screen.findByText("Contract 529")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /Tomasz Sadowski/ }),
+    ).toBeInTheDocument();
     // Active order title surfaces as "Numer zamówienia" at the top of the card.
     expect(screen.getByText("45767")).toBeInTheDocument();
-    // No "· draft"/status suffix on the contract label anymore.
-    expect(screen.queryByText(/Contract 529 ·/)).not.toBeInTheDocument();
+    // Ticket #4: "Contract #<id>" oraz "z rekrutacji" usunięte z karty.
+    expect(screen.queryByText(/Contract 529/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/z rekrutacji/)).not.toBeInTheDocument();
   });
 
   it("renames the section to Przyszłe zamówienie and lists the future order", async () => {
@@ -226,7 +250,7 @@ describe("OrdersAndContractsTab card", () => {
     async (role) => {
       authState.role = role;
       renderTab();
-      await screen.findByText("Contract 529");
+      await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
       expect(screen.queryByText(/stawka kosztowa/)).not.toBeInTheDocument();
       expect(screen.queryByText(/stawka przychodowa/)).not.toBeInTheDocument();
       // Period is not finance-gated — it stays visible.
@@ -236,7 +260,7 @@ describe("OrdersAndContractsTab card", () => {
 
   it("shows candidate finance rows to admin with manage_finance", async () => {
     renderTab();
-    await screen.findByText("Contract 529");
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();
     expect(screen.getByText(/stawka przychodowa/)).toBeInTheDocument();
   });
@@ -250,12 +274,14 @@ describe("OrdersAndContractsTab card", () => {
     expect(screen.queryByText("OLD-1")).not.toBeInTheDocument();
     await user.click(toggle);
     expect(await screen.findByText("OLD-1")).toBeInTheDocument();
+    // Ticket #4: etykieta "Job: <rekrutacja>" usunięta z wierszy historii.
+    expect(screen.queryByText(/Job:/)).not.toBeInTheDocument();
   });
 
   it("saves an edited order number via updateOrder", async () => {
     const user = userEvent.setup();
     renderTab();
-    await screen.findByText("Contract 529");
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Numer zamówienia"));
     const input = screen.getByLabelText("Numer zamówienia");
@@ -273,7 +299,7 @@ describe("OrdersAndContractsTab card", () => {
   it("saves an edited stawka kosztowa via contractsApi.update", async () => {
     const user = userEvent.setup();
     renderTab();
-    await screen.findByText("Contract 529");
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Stawka kosztowa"));
     const input = screen.getByLabelText("Stawka kosztowa");
@@ -309,7 +335,7 @@ describe("OrdersAndContractsTab card", () => {
   it("saves an edited okres (start + end) via updateOrder", async () => {
     const user = userEvent.setup();
     renderTab();
-    await screen.findByText("Contract 529");
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: okres zamówienia"));
     const endInput = screen.getByLabelText("Data do (puste = bezterminowo)");
@@ -333,7 +359,87 @@ describe("OrdersAndContractsTab card", () => {
       },
     } as never);
     renderTab();
-    await screen.findByText("Contract 529");
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByText("ustaw stawkę")).toBeInTheDocument();
+  });
+
+  it("labels raw rates with the contract's rate unit (hourly ≠ /mc)", async () => {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [{ ...structuredClone(CONTRACTOR), rate_unit: "hourly" }],
+        total_contractors: 1,
+      },
+    } as never);
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    // Surowe stawki w jednostce kontraktu: 120/h (koszt) i 180/h (przychód).
+    expect(screen.getByText("120/h")).toBeInTheDocument();
+    expect(screen.getByText("180/h")).toBeInTheDocument();
+    expect(screen.queryByText("120/mc")).not.toBeInTheDocument();
+  });
+});
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+describe("OrdersAndContractsTab search", () => {
+  function mockTwoContractors() {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [structuredClone(CONTRACTOR), structuredClone(CONTRACTOR_2)],
+        total_contractors: 2,
+      },
+    } as never);
+  }
+
+  it("filters by consultant name, diacritic-insensitive", async () => {
+    mockTwoContractors();
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByRole("heading", { name: /Michał Jarząb/ });
+
+    // "jarzab" bez polskich znaków musi trafić w "Jarząb" (foldText).
+    await user.type(screen.getByLabelText("Szukaj zamówień"), "jarzab");
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: /Tomasz Sadowski/ }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("heading", { name: /Michał Jarząb/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("matches a history order number and force-expands the history section", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    // Historia domyślnie zwinięta.
+    expect(screen.queryByText("OLD-1")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Szukaj zamówień"), "OLD-1");
+
+    // Trafienie w zamówieniu historycznym: karta zostaje, historia wymuszona.
+    expect(await screen.findByText("OLD-1")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /Tomasz Sadowski/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a distinct empty state when nothing matches the search", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+
+    await user.type(screen.getByLabelText("Szukaj zamówień"), "nie-ma-takiego");
+
+    expect(
+      await screen.findByText("Brak zamówień pasujących do wyszukiwania."),
+    ).toBeInTheDocument();
+    // Komunikat "brak kontraktorów" NIE może się tu pojawić — pustka po
+    // wyszukaniu ≠ brak danych.
+    expect(
+      screen.queryByText(/Brak kontraktorów u tego klienta/),
+    ).not.toBeInTheDocument();
   });
 });

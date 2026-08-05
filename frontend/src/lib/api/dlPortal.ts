@@ -122,6 +122,9 @@ export interface ContractWithOrdersRead {
   contract_start_date: string | null;
   contract_end_date: string | null;
   rate_candidate: number | null;
+  /** Jednostka stawek kontraktu — surowe rate_candidate/rate_client są w tej
+      jednostce; UI etykietuje /h, /dzień, /mc zamiast hardkodować "/mc". */
+  rate_unit: "hourly" | "daily" | "monthly";
   initial_job_id: number | null;
   initial_job_title: string | null;
   latest_order_id: number | null;
