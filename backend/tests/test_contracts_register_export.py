@@ -52,19 +52,23 @@ def _mem_contract(**kw) -> Contract:
     # instrumented setter rejects a plain SimpleNamespace (no _sa_instance_state).
     # Writing __dict__ is exactly how an eager-loaded relation looks.
     candidate = kw.pop("candidate", SimpleNamespace(name="Jan", lastname="Kowalski"))
+    job = kw.pop("job", None)  # SimpleNamespace(subcategory=...) or None
     c = Contract(candidate_id=kw.pop("candidate_id", 1), client_id=1)
     c.id = kw.pop("id", 101)
     for k, v in kw.items():
         setattr(c, k, v)
     c.__dict__["candidate"] = candidate
+    c.__dict__["job"] = job
     return c
 
 
 def test_register_export_columns_order_matches_spec():
-    # Kolejność kolumn jest częścią kontraktu (warunek zamknięcia #6).
+    # Kolejność kolumn jest częścią kontraktu. „Podkategoria" (Job.subcategory)
+    # dołożona tuż po „Projekt" — jedyna kolumna wykraczająca poza ekran.
     assert _REGISTER_EXPORT_COLUMNS == [
         "Nr projektu",
         "Projekt",
+        "Podkategoria",
         "Konsultant",
         "Model",
         "Okres / Pula godzin",
@@ -136,6 +140,7 @@ def test_register_export_row_shape_and_labels():
     c = _mem_contract(
         project_code="PRJ-7",
         project_name="Migracja Core",
+        job=SimpleNamespace(subcategory="Backend"),
         engagement_model=EngagementModel.time_based,
         start_date=date(2026, 1, 1),
         end_date=date(2026, 12, 31),
@@ -147,6 +152,7 @@ def test_register_export_row_shape_and_labels():
     by = dict(zip(_REGISTER_EXPORT_COLUMNS, row))
     assert by["Nr projektu"] == "PRJ-7"
     assert by["Projekt"] == "Migracja Core"
+    assert by["Podkategoria"] == "Backend"
     assert by["Konsultant"] == "Jan Kowalski"
     assert by["Model"] == "Czasowy"
     assert by["Okres / Pula godzin"] == "1.01.2026 → 31.12.2026"
@@ -170,6 +176,7 @@ def test_register_export_row_fallbacks_when_project_and_names_missing():
     by = dict(zip(_REGISTER_EXPORT_COLUMNS, _register_export_row(c)))
     assert by["Nr projektu"] == "#555"  # brak project_code → #id (jak w UI)
     assert by["Projekt"] == ""
+    assert by["Podkategoria"] == ""  # brak oferty → pusta komórka
     assert by["Konsultant"] == "#999"
     assert by["Prolongata"] == "Nieznany"
     assert by["Status"] == "Szkic"
@@ -402,7 +409,7 @@ async def test_period_from_only_keeps_open_ended_and_future(
 
 
 @pytest.mark.asyncio
-async def test_register_export_returns_xlsx_with_seven_columns(
+async def test_register_export_returns_xlsx_with_expected_columns(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     marker = uuid.uuid4().hex[:8]
@@ -417,6 +424,7 @@ async def test_register_export_returns_xlsx_with_seven_columns(
         project_code="ZAM-11",
         project_name="Core Banking",
         prolongation_status="yes",
+        subcategory="Backend",  # → kolumna „Podkategoria"
     )
     hp = await _seed_contract(
         client_id=client_id,
@@ -448,6 +456,7 @@ async def test_register_export_returns_xlsx_with_seven_columns(
 
         tb_row = by_project["ZAM-11"]
         assert tb_row["Projekt"] == "Core Banking"
+        assert tb_row["Podkategoria"] == "Backend"
         assert tb_row["Konsultant"].startswith("RegExp")
         assert tb_row["Model"] == "Czasowy"
         assert tb_row["Okres / Pula godzin"] == "1.01.2026 → 31.12.2026"
@@ -455,6 +464,9 @@ async def test_register_export_returns_xlsx_with_seven_columns(
         assert tb_row["Status"] == "Aktywny"
 
         hp_row = by_project["ZAM-12"]
+        # Brak oferty → pusta komórka. openpyxl odczytuje pustą komórkę jako None
+        # (nie ""), więc akceptujemy oba — obie znaczą „brak podkategorii".
+        assert hp_row["Podkategoria"] in (None, "")
         assert hp_row["Model"] == "Pula godzin"
         assert hp_row["Okres / Pula godzin"] == "50 / 200 h (25%)"
         assert hp_row["Prolongata"] == "Negocjacje"
