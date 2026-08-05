@@ -289,3 +289,47 @@ async def test_extract_redacts_finance_and_metadata_for_delivery_lead(
     # Pola operacyjne przechodzą.
     assert data["title"] == "PO-DL"
     assert data["start_date"] == "2026-06-01"
+
+
+async def test_candidate_order_documents_dl_not_assigned_sees_nothing(
+    app_client: AsyncClient,
+):
+    """Poufność: Delivery Lead NIE przypisany do klienta nie widzi jego PO w
+    widoku osoby (PO zawiera stawki). Testuje filtr access w
+    ``list_candidate_order_documents`` (ścieżka security-critical — testy happy
+    path lecą na adminie, który omija filtr)."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    ids = await _seed_graph_with_order()
+
+    email = f"dl-unassigned-{uuid.uuid4().hex[:8]}@example.com"
+    password = f"P4ss_{uuid.uuid4().hex[:6]}!"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name="DL Unassigned",
+                role=UserRole.delivery_lead,
+                is_active=True,
+                profile_completed=True,
+            )
+        )
+        await db.commit()
+
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    resp = await app_client.get(
+        f"/api/clients/order-documents/by-candidate/{ids['candidate_id']}",
+        headers=headers,
+    )
+    # TacPlus przepuszcza DL na endpoint, ale filtr access wycina PO klienta,
+    # do którego DL nie jest przypisany → pusto (nie leak).
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["documents"] == []

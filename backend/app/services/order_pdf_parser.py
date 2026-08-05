@@ -234,8 +234,10 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
     )
 
     reasons = data.get("uncertain_reasons")
+    # Cap ilości (6) ORAZ długości pojedynczego powodu (200) — swobodny tekst
+    # od Claude bywa długi i trafia wprost do listy w banerze na FE.
     llm_reasons = (
-        [str(r) for r in reasons if r][:6] if isinstance(reasons, list) else []
+        [str(r)[:200] for r in reasons if r][:6] if isinstance(reasons, list) else []
     )
     uncertain, extra = _assess_uncertainty(result, llm_flag=bool(data.get("uncertain")))
     result.uncertain = uncertain
@@ -252,10 +254,10 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
 
 
 async def _extract_with_claude(text: str) -> Optional[OrderExtraction]:
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or getattr(
-        settings, "ANTHROPIC_API_KEY", ""
-    )
-    if not api_key or not getattr(settings, "ORDER_EXTRACTION_ENABLED", True):
+    # Typed field w Settings — dostęp wprost (getattr z defaultem cicho
+    # re-enable'owałby kill-switch, gdyby pole zniknęło z config.py).
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
+    if not api_key or not settings.ORDER_EXTRACTION_ENABLED:
         return None
 
     prompt = ORDER_EXTRACTION.render(document_text=text[:_MAX_DOC_CHARS])
