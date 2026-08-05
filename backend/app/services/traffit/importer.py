@@ -2394,6 +2394,54 @@ class TraffitImporter:
 
     # ── Faza 5b: candidate activities ───────────────────────────────────────
 
+    async def _read_sync_cursor(self, phase: str) -> Optional[dict[str, Any]]:
+        """Read the resume cursor (JSONB ``cursor_payload``) for a phase row.
+
+        The dedicated ``cursor_*`` columns are safe to use: the orchestrator's
+        ``_UPSERT_STATE``/``_get_state`` never touch them (it owns
+        ``last_status``/``stats``/``last_synced_at``), so a phase can persist its
+        own resume cursor here without being clobbered.
+        """
+        row = await self.db.execute(
+            text("SELECT cursor_payload FROM traffit_sync_state WHERE phase = :p"),
+            {"p": phase},
+        )
+        r = row.fetchone()
+        if r is None or r[0] is None:
+            return None
+        val = r[0]
+        if isinstance(val, str):  # some drivers return JSONB as text
+            val = json.loads(val)
+        return val if isinstance(val, dict) else None
+
+    async def _write_sync_cursor(self, phase: str, payload: dict[str, Any]) -> None:
+        """UPSERT the resume cursor onto the phase row (touching ONLY
+        ``cursor_payload`` — the row may not exist yet on the first-ever run, and
+        the orchestrator owns the other columns)."""
+        await self.db.execute(
+            text(
+                """
+                INSERT INTO traffit_sync_state
+                    (phase, cursor_payload, created_at, updated_at)
+                VALUES (:p, CAST(:cp AS JSONB), NOW(), NOW())
+                ON CONFLICT (phase) DO UPDATE SET
+                    cursor_payload = CAST(:cp AS JSONB),
+                    updated_at = NOW()
+                """
+            ),
+            {"p": phase, "cp": json.dumps(payload)},
+        )
+
+    async def _clear_sync_cursor(self, phase: str) -> None:
+        """Clear the resume cursor (no-op if the row does not exist yet)."""
+        await self.db.execute(
+            text(
+                "UPDATE traffit_sync_state SET cursor_payload = NULL, "
+                "updated_at = NOW() WHERE phase = :p"
+            ),
+            {"p": phase},
+        )
+
     async def import_candidate_activities(
         self, since: Optional[datetime] = None
     ) -> PhaseProgress:
@@ -2425,6 +2473,25 @@ class TraffitImporter:
         commit_every = 500
         since_commit = 0
 
+        # Stage 3 — resumable page cursor. A large catch-up (days of history) is
+        # slow and a Coolify deploy restart kills the run mid-stream; without a
+        # cursor it would restart from page 1 every time and never persist
+        # progress. We store the last committed page on the phase's own
+        # traffit_sync_state row and resume here, so progress survives
+        # interruptions and the catch-up completes across runs.
+        since_iso = since.isoformat() if since else None
+        start_page = 1
+        _cursor = await self._read_sync_cursor("candidate_activities")
+        if (
+            _cursor is not None
+            and _cursor.get("since") == since_iso
+            and _cursor.get("page_size") == self.batch_size
+        ):
+            # Inclusive resume: re-fetch the last committed page (idempotent via
+            # ON CONFLICT) rather than page+1, so a mid-page commit never skips.
+            start_page = max(1, int(_cursor.get("page") or 1))
+            logger.info("Activities: resuming from page %d", start_page)
+
         # Wrap the paginated fetch so a terminal transport failure mid-stream
         # (httpx.ReadTimeout on a large catch-up page, or a non-200 page raised
         # as RuntimeError) stops iteration gracefully instead of aborting the
@@ -2432,16 +2499,28 @@ class TraffitImporter:
         # the recorded (unattributable) error keeps the watermark frozen so the
         # un-fetched tail is re-covered on the next run — never silently lost.
         pagination_error: Optional[Exception] = None
+        current_page = start_page
+        # If the tenant rejects the filter (400), get_pages drops it and restarts
+        # UNFILTERED from page 1 → page numbers no longer map to since_iso, so we
+        # stop persisting the cursor for this run (regress detected below).
+        saw_fallback = False
 
         async def _activities_stream():
-            nonlocal pagination_error
+            nonlocal pagination_error, current_page, saw_fallback
+            prev_page = start_page
             try:
-                async for item in self.traffit.get_paginated(
+                async for page_no, items in self.traffit.get_pages(
                     "/employees/activities",
                     page_size=self.batch_size,
                     filter_=self._delta_filter("created_at", since),
+                    start_page=start_page,
                 ):
-                    yield item
+                    if page_no < prev_page:
+                        saw_fallback = True
+                    prev_page = page_no
+                    current_page = page_no
+                    for item in items:
+                        yield item
             except (httpx.TransportError, RuntimeError) as exc:
                 pagination_error = exc
 
@@ -2499,12 +2578,27 @@ class TraffitImporter:
                     progress.updated += 1
                 since_commit += 1
                 if since_commit >= commit_every:
+                    # Stage the resume cursor in the SAME transaction as the row
+                    # batch, then one commit → rows + cursor persist atomically
+                    # (a row-error rollback drops both, leaving the last good
+                    # cursor). Skip once the filter was dropped (page numbers no
+                    # longer map to since_iso).
+                    if not saw_fallback:
+                        await self._write_sync_cursor(
+                            "candidate_activities",
+                            {
+                                "page": current_page,
+                                "since": since_iso,
+                                "page_size": self.batch_size,
+                            },
+                        )
                     await self.db.commit()
                     since_commit = 0
                     logger.info(
-                        "Activities progress: %d/%d",
+                        "Activities progress: %d/%d (page %d)",
                         progress.processed,
                         progress.total_source,
+                        current_page,
                     )
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
@@ -2514,19 +2608,36 @@ class TraffitImporter:
                 since_commit = 0
 
         if not self.dry_run and since_commit > 0:
+            if not saw_fallback:
+                await self._write_sync_cursor(
+                    "candidate_activities",
+                    {
+                        "page": current_page,
+                        "since": since_iso,
+                        "page_size": self.batch_size,
+                    },
+                )
             await self.db.commit()
 
         if pagination_error is not None:
             logger.warning(
                 "Activities pagination aborted after %d processed: %r — "
-                "committed partial batch, notes still promoted, watermark "
-                "frozen for next-run re-cover",
+                "committed partial batch (cursor at page %d), notes still "
+                "promoted, watermark frozen; next run resumes from the cursor",
                 progress.processed,
                 pagination_error,
+                current_page,
             )
             progress.add_error(
                 f"activities pagination incomplete: {pagination_error!r}"
             )
+        elif not self.dry_run:
+            # Full, uninterrupted fetch — clear the cursor so the next run (after
+            # the watermark advances → a different `since`) starts fresh. Row
+            # errors do NOT block clearing: they freeze the watermark separately
+            # and the next full re-scan (fresh cursor) re-covers them.
+            await self._clear_sync_cursor("candidate_activities")
+            await self.db.commit()
 
         # Promote candidate notes (Notatka/Email/Reply/Rozmowa/Spotkanie) from
         # `activities` into the dedicated `notes` table so the candidate
