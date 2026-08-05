@@ -232,6 +232,19 @@ _EMBED_TRIGGER_FIELDS = {
     "train_name",
 }
 
+# Fields that feed the deterministic scorer / eligibility but NOT the embedding
+# text. Editing them must invalidate cached scores + flag the snapshot stale so
+# the recruiter is prompted to re-run — but must NOT re-embed (they are absent
+# from `_build_job_text`). `location`/`remote_policy` drive the location layer
+# (scoring_service `_score_location`); `deadline` drives availability. Salary is
+# intentionally omitted: candidate B2B PLN/h vs job PLN/month is always
+# not_comparable → neutral, so it never moves a score (see P0-B1).
+_SCORING_INPUT_FIELDS = _EMBED_TRIGGER_FIELDS | {
+    "location",
+    "remote_policy",
+    "deadline",
+}
+
 
 async def _validate_owner_override(
     db: AsyncSession,
@@ -1357,8 +1370,11 @@ async def update_job(
         await _maybe_embed_job(job_id, db)
 
     # Phase C1: invalidate cached (*, job) match scores when any scoring input
-    # changes (_EMBED_TRIGGER_FIELDS covers must/nice, seniority, salary, etc.)
-    if _EMBED_TRIGGER_FIELDS & changed:
+    # changes. This uses the WIDER `_SCORING_INPUT_FIELDS` (not the embed set):
+    # location/remote_policy/deadline move the score without changing the
+    # embedding text, so gating on `_EMBED_TRIGGER_FIELDS` would leave a ranking
+    # silently stale after those edits (P0-03a).
+    if _SCORING_INPUT_FIELDS & changed:
         from app.services.match_score_cache import mark_stale_for_job
 
         await mark_stale_for_job(db, job_id)
