@@ -79,7 +79,20 @@ async def send_system_email(
                     "system_mail: draft bez id (to=%s subject=%r)", to, subject
                 )
                 return False
-            await gc.post(f"/me/messages/{message_id}/send", json={})
+            try:
+                await gc.post(f"/me/messages/{message_id}/send", json={})
+            except Exception:
+                # Wersja robocza już powstała — sprzątnij sierotę z Drafts, żeby
+                # nieudane wysyłki nie akumulowały śmieci w skrzynce nadawcy.
+                # Potem propaguj błąd do handlera (zwróci False → retry outbox).
+                try:
+                    await gc.delete(f"/me/messages/{message_id}")
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "system_mail: nie udało się usunąć osieroconego draftu %s",
+                        message_id,
+                    )
+                raise
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "system_mail send failed to=%s subject=%r error=%s",

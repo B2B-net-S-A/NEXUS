@@ -17,8 +17,12 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 
-def _fake_graph(behavior):
-    """Factory podmieniająca GraphClient na async-CM z zadanym `post`."""
+def _fake_graph(behavior, deleted=None):
+    """Factory podmieniająca GraphClient na async-CM z zadanym `post`.
+
+    `deleted` (opcjonalna lista) zbiera URL-e przekazane do `delete` — do
+    weryfikacji sprzątania osieroconego draftu.
+    """
 
     class _FGC:
         def __init__(self, conn, db):
@@ -32,6 +36,10 @@ def _fake_graph(behavior):
 
         async def post(self, url, json=None):
             return behavior(url, json)
+
+        async def delete(self, url):
+            if deleted is not None:
+                deleted.append(url)
 
     return _FGC
 
@@ -106,6 +114,23 @@ async def test_send_system_email_graph_error(monkeypatch):
         db=None, connection=_Conn(), to="x@example.com", subject="s", text_body="t"
     )
     assert ok is False
+
+
+async def test_send_system_email_deletes_orphaned_draft_on_send_failure(monkeypatch):
+    """Draft powstał, /send padł → sierota usuwana z Drafts, wynik False."""
+    deleted = []
+
+    def _behavior(url, json):
+        if url == "/me/messages":
+            return {"id": "m-9"}
+        raise RuntimeError("send exploded")  # /send
+
+    monkeypatch.setattr(sysmail, "GraphClient", _fake_graph(_behavior, deleted=deleted))
+    ok = await sysmail.send_system_email(
+        db=None, connection=_Conn(), to="x@example.com", subject="s", text_body="t"
+    )
+    assert ok is False
+    assert deleted == ["/me/messages/m-9"]
 
 
 async def test_get_system_sender_connection_matches_active_upn(monkeypatch):
