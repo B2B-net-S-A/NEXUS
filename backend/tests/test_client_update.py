@@ -95,6 +95,31 @@ async def test_patch_blank_display_name_reverts_to_source_name(
         await _cleanup(client_id)
 
 
+async def test_patch_name_is_ignored_source_column_untouched(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """`name` usunięte z ClientUpdate — surowy PATCH {"name": ...} nie może
+    pisać do Traffit-owned kolumny (odtwarzałby bug „nazwa się cofa")."""
+    client_id = await _new_client()
+    try:
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}",
+            json={"name": "Proba Nadpisania", "industry": "IT"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+        async with AsyncSessionLocal() as db:
+            row = await db.scalar(select(Client).where(Client.id == client_id))
+            assert row is not None
+            # Kolumna źródłowa nietknięta; legalne pole z tego samego payloadu
+            # przeszło normalnie.
+            assert row.name.startswith("Zrodlowa Nazwa")
+            assert row.industry == "IT"
+    finally:
+        await _cleanup(client_id)
+
+
 async def test_patch_other_field_leaves_display_name_alone(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):

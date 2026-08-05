@@ -21,11 +21,15 @@ class ClientCreate(BaseModel):
 
 
 class ClientUpdate(BaseModel):
-    name: Optional[str] = None
-    # Sync-odporny override nazwy (Traffit nadpisuje `name` przy każdym daily
-    # sync, `display_name` nigdy — patrz models/client.py). Edycja nazwy z UI
-    # pisze TUTAJ; wyczyszczenie pola (""/whitespace → None) przywraca nazwę
-    # źródłową, bo odczyt robi coalesce(nullif(btrim(display_name),''), name).
+    # `name` CELOWO nieobecne: to pole jest Traffit-owned (daily sync robi
+    # ON CONFLICT ... SET name=EXCLUDED.name), więc każdy zapis przez API
+    # odtwarzałby pierwotny bug „nazwa się cofa". Pydantic po cichu zignoruje
+    # `name` w payload — jedyną ścieżką zmiany nazwy jest `display_name`.
+    #
+    # Sync-odporny override nazwy (Traffit nigdy nie dotyka `display_name` —
+    # patrz models/client.py). Edycja nazwy z UI pisze TUTAJ; wyczyszczenie
+    # pola (""/whitespace → None) przywraca nazwę źródłową, bo odczyt robi
+    # coalesce(nullif(btrim(display_name),''), name).
     display_name: Optional[str] = Field(None, max_length=255)
     industry: Optional[str] = None
     website: Optional[str] = None
