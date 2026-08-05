@@ -234,10 +234,13 @@ async def emit_match_outcome(
     """Best-effort: record a downstream match outcome for a (candidate, job),
     correlated with the job's latest ranking ``run_id`` (P0-B).
 
-    No-op when telemetry is off. Idempotent per ``(event_type, job, candidate)``
-    so a repeated click records once. Never raises — telemetry must never break
-    the user action. ``db`` is used only to look up the run_id; the write itself
-    happens in ``record_outcome``'s own session.
+    No-op when telemetry is off. Idempotent per
+    ``(event_type, run_id, job, candidate)`` — a repeated click within the same
+    ranking run records once, but the same pair acted on after a NEW ranking run
+    is captured again, so outcomes correlate per run (PR #1036 review follow-up).
+    Falls back to the pair when no run_id is available. Never raises — telemetry
+    must never break the user action. ``db`` is used only to look up the run_id;
+    the write itself happens in ``record_outcome``'s own session.
     """
     if not telemetry_enabled():
         return
@@ -257,7 +260,7 @@ async def emit_match_outcome(
         run_id = None
     await record_outcome(
         db,
-        event_id=f"{event_type}:{job_id}:{candidate_id}",
+        event_id=f"{event_type}:{run_id or 'norun'}:{job_id}:{candidate_id}",
         event_type=event_type,
         run_id=run_id,
         candidate_id=candidate_id,
