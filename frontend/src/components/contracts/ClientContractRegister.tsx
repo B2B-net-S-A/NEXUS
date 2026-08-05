@@ -8,14 +8,21 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Calendar, Clock, FileText, Pencil, Plus } from "lucide-react";
+import { Calendar, Clock, Download, FileText, Pencil, Plus } from "lucide-react";
 import api, { contractsApi } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { getAccessToken } from "@/lib/session";
 import { useAuthStore, hasRole } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { FilterBar } from "@/components/ds/FilterBar";
+import { MultiSelectFilter } from "@/components/v2/filters/MultiSelectFilter";
+import {
+  CONTRACT_STATUS_OPTIONS,
+  type ContractStatusValue,
+} from "@/lib/filter-options";
 import {
   Select,
   SelectContent,
@@ -69,12 +76,17 @@ interface RegisterResponse {
   page_size: number;
 }
 
-/** Klucz React Query rejestru — współdzielony przez listę i optimistic update prolongaty. */
+/** Klucz React Query rejestru — współdzielony przez listę i optimistic update
+ * prolongaty. Sygnatura filtrów (status + okres) jest częścią klucza, więc
+ * optimistic update trafia dokładnie w cache aktualnie widocznej listy. */
 type RegisterQueryKey = readonly [
   "client-register",
-  number,
-  number,
-  string,
+  number, // clientId
+  number, // page
+  string, // search
+  string, // statusFilter.join(",")
+  string, // periodFrom
+  string, // periodTo
 ];
 
 /** Inline-editowalny status przedłużenia (Select) lub read-only Badge. */
@@ -226,13 +238,29 @@ export function ClientContractRegister({
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const search = useDebouncedValue(searchInput.trim(), 300);
+  // Filtry łączone logiką AND (server-side): status (multi) + „Okres" (overlap).
+  const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
+  const [periodFrom, setPeriodFrom] = useState("");
+  const [periodTo, setPeriodTo] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  // Każda zmiana frazy wyszukiwania cofa do pierwszej strony wyników.
+  // Każda zmiana filtra (fraza, status, okres) cofa do pierwszej strony wyników,
+  // inaczej można utknąć na stronie N, której przefiltrowany wynik już nie ma.
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, statusFilter, periodFrom, periodTo]);
 
-  const queryKey: RegisterQueryKey = ["client-register", clientId, page, search];
+  const statusKey = statusFilter.join(",");
+  const queryKey: RegisterQueryKey = [
+    "client-register",
+    clientId,
+    page,
+    search,
+    statusKey,
+    periodFrom,
+    periodTo,
+  ];
   const { data, isLoading, isFetching } = useQuery({
     queryKey,
     queryFn: () =>
@@ -243,11 +271,77 @@ export function ClientContractRegister({
             page,
             page_size: PAGE_SIZE,
             q: search || undefined,
+            status: statusFilter.length ? statusFilter : undefined,
+            period_from: periodFrom || undefined,
+            period_to: periodTo || undefined,
           },
+          // Powtarzany `status` jako status=a&status=b (backend: list[ContractStatus]).
+          paramsSerializer: { indexes: null },
         })
         .then((r) => r.data),
     placeholderData: keepPreviousData,
   });
+
+  const hasActiveFilters =
+    statusFilter.length > 0 || Boolean(periodFrom) || Boolean(periodTo);
+
+  const flashToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const clearFilters = () => {
+    setStatusFilter([]);
+    setPeriodFrom("");
+    setPeriodTo("");
+  };
+
+  // Eksport do Excela — zawsze zawężony do WYBRANEGO klienta (ten komponent
+  // renderuje się tylko z klientem) i honoruje aktualne filtry, więc plik
+  // odpowiada temu, co widać na liście („eksportuj to, co widzę"). Fraza to
+  // wartość zdebouncowana (`search`) — ta sama, którą karmiona jest lista.
+  const doExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("client_id", String(clientId));
+      if (search) params.set("q", search);
+      statusFilter.forEach((s) => params.append("status", s));
+      if (periodFrom) params.set("period_from", periodFrom);
+      if (periodTo) params.set("period_to", periodTo);
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+      const token = getAccessToken();
+      const res = await fetch(
+        `${apiBase}/api/contracts/register/export?${params}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!res.ok) {
+        flashToast("Eksport nie powiódł się.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const slug =
+        (clientName ?? "klient")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "klient";
+      a.download = `rejestr-kontraktow-${slug}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`;
+      // Anchor musi być w DOM, by a.click() zadziałał we wszystkich przeglądarkach;
+      // obiekt URL zwalniany leniwie, żeby duże pliki zdążyły się pobrać.
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
@@ -288,13 +382,73 @@ export function ClientContractRegister({
         )}
       </div>
 
-      {/* Wyszukiwarka — filtruje po nazwisku konsultanta (server-side, łączona z paginacją). */}
+      {/* Panel filtrów (logika AND, server-side) + eksport. Wyszukiwarka filtruje
+          po nazwisku konsultanta; „Status" i „Okres" (overlap) zawężają listę
+          w czasie rzeczywistym. Eksport bierze dokładnie to, co widać na liście. */}
       <FilterBar
         search={{
           value: searchInput,
           onChange: setSearchInput,
           placeholder: "Szukaj po nazwisku konsultanta…",
         }}
+        filters={
+          <>
+            <MultiSelectFilter<ContractStatusValue>
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={CONTRACT_STATUS_OPTIONS}
+              placeholder="Wszystkie statusy"
+              searchPlaceholder="Szukaj statusu…"
+              triggerWidthClass="w-[170px]"
+              triggerLabel={(n) =>
+                n === 1
+                  ? (CONTRACT_STATUS_OPTIONS.find(
+                      (o) => o.value === statusFilter[0],
+                    )?.label ?? "Status")
+                  : `Status: ${n}`
+              }
+            />
+            <div
+              className="flex items-center gap-1.5"
+              role="group"
+              aria-label="Okres (zakres dat)"
+            >
+              <Input
+                type="date"
+                aria-label="Okres od"
+                value={periodFrom}
+                onChange={(e) => setPeriodFrom(e.target.value)}
+                className="h-9 w-[150px]"
+              />
+              <span className="text-sm text-muted-foreground" aria-hidden>
+                –
+              </span>
+              <Input
+                type="date"
+                aria-label="Okres do"
+                value={periodTo}
+                onChange={(e) => setPeriodTo(e.target.value)}
+                className="h-9 w-[150px]"
+              />
+            </div>
+            {hasActiveFilters && (
+              <Button size="sm" variant="ghost" onClick={clearFilters}>
+                Wyczyść
+              </Button>
+            )}
+          </>
+        }
+        actions={
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={doExport}
+            disabled={exporting}
+          >
+            <Download className="h-4 w-4" />
+            {exporting ? "Eksportuję…" : "Eksportuj do Excela"}
+          </Button>
+        }
       />
 
       {/* Table */}
@@ -328,9 +482,11 @@ export function ClientContractRegister({
                 <p className="text-sm text-muted-foreground">
                   {search
                     ? `Brak konsultantów pasujących do „${search}”.`
-                    : "Brak kontraktów dla tego klienta."}
+                    : hasActiveFilters
+                      ? "Brak kontraktów pasujących do wybranych filtrów."
+                      : "Brak kontraktów dla tego klienta."}
                 </p>
-                {canEdit && !search && (
+                {canEdit && !search && !hasActiveFilters && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -442,6 +598,12 @@ export function ClientContractRegister({
               Następna
             </Button>
           </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-24 right-4 z-9999 rounded-lg bg-card px-4 py-3 text-sm text-foreground shadow-md">
+          {toast}
         </div>
       )}
 

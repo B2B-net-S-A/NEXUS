@@ -33,6 +33,7 @@ from app.models.client import Client
 from app.models.contract import (
     Contract,
     ContractStatus,
+    EngagementModel,
     RateUnit,
 )
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
@@ -305,6 +306,8 @@ def _apply_contract_list_filters(
     rate_client_max: Optional[int],
     margin_min: Optional[int],
     expiring_in_days: Optional[int],
+    period_from: Optional[date] = None,
+    period_to: Optional[date] = None,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -352,6 +355,20 @@ def _apply_contract_list_filters(
         query = query.where(Contract.end_date >= end_from)
     if end_to:
         query = query.where(Contract.end_date <= end_to)
+    # „Okres" — nakładający się zakres (overlap): kontrakt trafia na listę, jeśli
+    # jego okres obowiązywania [start_date, end_date] PRZECINA się z wybranym
+    # [period_from, period_to] (a nie tylko po dacie startu lub tylko końca).
+    # Otwarty koniec (end_date IS NULL = „bezterminowo") zawsze sięga w prawo;
+    # brak startu (start_date IS NULL) zawsze sięga w lewo. Dwie niezależne
+    # klauzule (AND) dają iloczyn = część wspólną przedziałów.
+    if period_from is not None:
+        query = query.where(
+            or_(Contract.end_date.is_(None), Contract.end_date >= period_from)
+        )
+    if period_to is not None:
+        query = query.where(
+            or_(Contract.start_date.is_(None), Contract.start_date <= period_to)
+        )
     if rate_client_min is not None:
         query = query.where(Contract.rate_client >= rate_client_min)
     if rate_client_max is not None:
@@ -518,6 +535,17 @@ async def list_contracts(
     start_to: Optional[date] = Query(None),
     end_from: Optional[date] = Query(None),
     end_to: Optional[date] = Query(None),
+    period_from: Optional[date] = Query(
+        None,
+        description=(
+            "Okres (overlap) — dolna granica nakładającego się zakresu. Kontrakt "
+            "trafia na listę, gdy jego okres obowiązywania przecina się z "
+            "[period_from, period_to], nie tylko po dacie startu/końca."
+        ),
+    ),
+    period_to: Optional[date] = Query(
+        None, description="Okres (overlap) — górna granica nakładającego się zakresu."
+    ),
     rate_client_min: Optional[int] = Query(None, ge=0),
     rate_client_max: Optional[int] = Query(None, ge=0),
     margin_min: Optional[int] = Query(None),
@@ -558,6 +586,8 @@ async def list_contracts(
         start_to=start_to,
         end_from=end_from,
         end_to=end_to,
+        period_from=period_from,
+        period_to=period_to,
         rate_client_min=rate_client_min,
         rate_client_max=rate_client_max,
         margin_min=margin_min,
@@ -741,6 +771,8 @@ async def export_contracts(
     start_to: Optional[date] = Query(None),
     end_from: Optional[date] = Query(None),
     end_to: Optional[date] = Query(None),
+    period_from: Optional[date] = Query(None),
+    period_to: Optional[date] = Query(None),
     rate_client_min: Optional[int] = Query(None, ge=0),
     rate_client_max: Optional[int] = Query(None, ge=0),
     margin_min: Optional[int] = Query(None),
@@ -773,6 +805,8 @@ async def export_contracts(
         start_to=start_to,
         end_from=end_from,
         end_to=end_to,
+        period_from=period_from,
+        period_to=period_to,
         rate_client_min=rate_client_min,
         rate_client_max=rate_client_max,
         margin_min=margin_min,
@@ -827,6 +861,162 @@ async def export_contracts(
     return StreamingResponse(
         iter(["\ufeff" + buf.getvalue()]),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# \u2500\u2500 Per-klient rejestr \u2014 eksport XLSX \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# Odr\u0119bny od finansowego /export: te same 7 kolumn co widoczna tabela rejestru
+# klienta (ClientContractRegister), BEZ stawek/mar\u017cy \u2014 wi\u0119c dost\u0119pny dla ca\u0142ego
+# audytorium rejestru (TacPlus + Delivery Lead), nie tylko Admina. Zawsze
+# zaw\u0119\u017cony do jednego klienta ("brak klienta = brak sensu eksportu").
+_REGISTER_EXPORT_COLUMNS = [
+    "Nr projektu",
+    "Projekt",
+    "Konsultant",
+    "Model",
+    "Okres / Pula godzin",
+    "Prolongata",
+    "Status",
+]
+# Etykiety lustrzane wobec frontendu (lib/contract-register.ts) \u2014 eksport czyta
+# si\u0119 jak tabela na ekranie: te same etykiety, daty w formacie PL i liczby.
+# Puste warto\u015bci tekstowe id\u0105 jako pusta kom\u00f3rka (nie UI-owy \u201e\u2014") \u2014 to naturalna
+# reprezentacja braku w arkuszu do dalszej analizy.
+_ENGAGEMENT_MODEL_LABELS = {
+    "time_based": "Czasowy",
+    "hours_pool": "Pula godzin",
+}
+_REGISTER_PROLONGATION_LABELS = {
+    "unknown": "Nieznany",
+    "yes": "Tak",
+    "no": "Nie",
+    "negotiate": "Negocjacje",
+}
+
+
+def _pl_date(d: Optional[date]) -> str:
+    """Data w formacie polskim `d.mm.rrrr` \u2014 lustro frontendowego ``formatDate``
+    (`Intl.DateTimeFormat('pl-PL')`: dzie\u0144 bez zera wiod\u0105cego, miesi\u0105c z zerem),
+    np. 2026-01-01 \u2192 \u201e1.01.2026". Pusty string dla braku daty."""
+    return f"{d.day}.{d.month:02d}.{d.year}" if d else ""
+
+
+def _register_period_cell(c: Contract) -> str:
+    """Kolumna \u201eOkres / Pula godzin" jako jedna kom\u00f3rka tekstowa \u2014 lustro
+    ``PeriodCell`` z frontendu (te same liczby i daty co na ekranie). Dla
+    ``hours_pool`` \u201ezu\u017cyte / total h (pct%)": procent zaokr\u0105glany half-up jak
+    JS ``Math.round`` i ZAWSZE pokazywany (tak\u017ce 0% dla pustej/zerowej puli, jak
+    na ekranie). Dla ``time_based`` okres \u201estart \u2192 koniec" w formacie PL (brak
+    startu = \u201e\u2014", otwarty koniec = \u201ebezterminowo")."""
+    if c.engagement_model == EngagementModel.hours_pool:
+        total = c.hours_pool_total or 0
+        consumed = c.hours_pool_consumed or 0
+        # Ekran (PeriodCell) traktuje brakuj\u0105cy pct jako 0 i zawsze go renderuje;
+        # `int(pct + 0.5)` = half-up (pct \u2265 0), lustrzane wobec JS Math.round.
+        pct = c.hours_pool_usage_pct or 0
+        return f"{consumed} / {total} h ({int(pct + 0.5)}%)"
+    start = _pl_date(c.start_date) or "\u2014"
+    end = _pl_date(c.end_date) if c.end_date else "bezterminowo"
+    return f"{start} \u2192 {end}"
+
+
+def _register_export_row(c: Contract) -> list:
+    """Jeden wiersz eksportu rejestru \u2014 7 kolumn w kolejno\u015bci ze specyfikacji,
+    lustro widocznej tabeli ``ClientContractRegister`` (puste tekstowo = pusta
+    kom\u00f3rka; placeholdery #id/\u201e\u2014" jak w UI zachowane)."""
+    consultant = (
+        f"{c.candidate.name} {c.candidate.lastname}".strip()
+        if c.candidate
+        else f"#{c.candidate_id}"
+    )
+    return [
+        c.project_code or f"#{c.id}",
+        c.project_name or "",
+        consultant,
+        _enum_label(c.engagement_model, _ENGAGEMENT_MODEL_LABELS),
+        _register_period_cell(c),
+        _enum_label(c.prolongation_status, _REGISTER_PROLONGATION_LABELS),
+        _enum_label(c.status, _CONTRACT_STATUS_LABELS),
+    ]
+
+
+@router.get("/register/export")
+async def export_client_register(
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    client_id: int = Query(
+        ...,
+        description=(
+            "Klient, kt\u00f3rego rejestr eksportujemy \u2014 WYMAGANY. Eksport jest zawsze "
+            "zaw\u0119\u017cony do jednego klienta (bez klienta eksport nie ma sensu)."
+        ),
+    ),
+    q: Optional[str] = Query(None),
+    status: Optional[list[ContractStatus]] = Query(None),
+    period_from: Optional[date] = Query(None),
+    period_to: Optional[date] = Query(None),
+    limit: int = Query(10000, ge=1, le=50000),
+):
+    """Eksport per-klient rejestru kontrakt\u00f3w do XLSX (7 kolumn = widoczna tabela).
+
+    Honoruje te same filtry co lista rejestru (``q``, ``status``, \u201eOkres" overlap),
+    wi\u0119c \u201eeksportuj to, co widz\u0119" jest zawsze prawdziwe; pomija paginacj\u0119 (wszystkie
+    pasuj\u0105ce wiersze do ``limit``). Bez stawek/mar\u017cy \u2192 dost\u0119pny dla TacPlus, nie
+    tylko Admina. Delivery Lead widzi wy\u0142\u0105cznie swoich klient\u00f3w (scope jak na li\u015bcie).
+    """
+    query = select(Contract).options(
+        selectinload(Contract.candidate),
+    )
+    query = apply_delivery_lead_client_scope(
+        query,
+        Contract.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
+    query = _apply_contract_list_filters(
+        query,
+        q=q,
+        status=status,
+        client_id=client_id,
+        candidate_id=None,
+        contract_type=None,
+        start_from=None,
+        start_to=None,
+        end_from=None,
+        end_to=None,
+        period_from=period_from,
+        period_to=period_to,
+        rate_client_min=None,
+        rate_client_max=None,
+        margin_min=None,
+        expiring_in_days=None,
+    )
+    query = query.order_by(Contract.id).limit(limit)
+    result = await db.execute(query)
+    contracts = list(result.scalars().all())
+    rows = [_register_export_row(c) for c in contracts]
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Rejestr kontrakt\u00f3w"
+    ws.append(_REGISTER_EXPORT_COLUMNS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"  # nag\u0142\u00f3wek widoczny przy przewijaniu
+    for row in rows:
+        ws.append(row)
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"rejestr-kontraktow_{ts}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
