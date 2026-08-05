@@ -124,3 +124,20 @@ i wypuść od razu" — bo kandydatowa taksonomia podkategorii CC to niezbudowan
   endpoint distinct client-scoped, `client_id`→422) + FE (fetch opcji + wybór do
   listy/eksportu + reset przy zmianie klienta). Audyt adwersaryjny: 0 findingów
   security/regression; 1 low (stale filtr przy zmianie klienta) — naprawiony.
+
+### Aktualizacja — kolumna „Podkategoria" w eksporcie (2026-08-05)
+
+Dołożono **„Podkategoria"** jako kolumnę eksportu rejestru (`Job.subcategory`
+powiązanej oferty), tuż po „Projekt" — grupuje deskryptory oferty
+(Nr projektu / Projekt / Podkategoria) przed osobą i statusem. To jedyna kolumna
+wykraczająca poza widoczną tabelę (na życzenie, do dalszej analizy).
+
+- **Kolumny (8)**: Nr projektu, Projekt, **Podkategoria**, Konsultant, Model,
+  Okres / Pula godzin, Prolongata, Status.
+- **Wartość**: `c.job.subcategory` gdy jest oferta z podkategorią, inaczej pusta
+  komórka (kontrakty bez oferty / bez podkategorii). Endpoint dokłada
+  `selectinload(Contract.job)` (poza kolumną nic więcej nie ładuje).
+- **Tylko eksport** — lista/tabela na ekranie bez zmian (zgodnie ze zgłoszeniem).
+- **Testy**: kolejność 8 kolumn, wartość „Podkategoria" (z ofertą i pusta bez),
+  round-trip xlsx (openpyxl czyta pustą komórkę jako `None`). Pełny pakiet
+  `test_contract*` zielony (200), bez regresji.
