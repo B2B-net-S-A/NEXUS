@@ -112,6 +112,34 @@ def test_send_via_graph_app_returns_false_on_non_202(monkeypatch):
     )
 
 
+def test_send_via_graph_app_returns_false_when_no_token(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: None)
+
+    def _boom(*a, **k):  # brak tokenu → nie powinno dojść do POST
+        raise AssertionError("httpx.post nie powinno być wołane bez tokenu")
+
+    monkeypatch.setattr(app_mail.httpx, "post", _boom)
+    assert (
+        app_mail.send_via_graph_app(to="x@example.com", subject="s", text_body="t")
+        is False
+    )
+
+
+def test_send_via_graph_app_returns_false_on_network_error(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "tok")
+
+    def _raise(*a, **k):
+        raise app_mail.httpx.ConnectError("timeout")
+
+    monkeypatch.setattr(app_mail.httpx, "post", _raise)
+    assert (
+        app_mail.send_via_graph_app(to="x@example.com", subject="s", text_body="t")
+        is False
+    )
+
+
 def test_send_via_graph_app_noop_when_not_configured(monkeypatch):
     _configure(monkeypatch, M365_APP_MAIL_ENABLED=False)
 

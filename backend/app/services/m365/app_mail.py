@@ -31,6 +31,10 @@ _SCOPE = ["https://graph.microsoft.com/.default"]
 
 _app_lock = threading.Lock()
 _msal_app: Optional[msal.ConfidentialClientApplication] = None
+# (client_id, client_secret, tenant) użyte do zbudowania `_msal_app`. Gdy się
+# zmienią (np. rotacja creds / env update bez restartu), przebudowujemy app —
+# inaczej stary klient z nieaktualnym tenantem/sekretem auth-owałby po cichu źle.
+_msal_key: Optional[tuple[str, str, str]] = None
 
 
 def _tenant() -> str:
@@ -52,15 +56,17 @@ def is_configured() -> bool:
 
 
 def _get_msal_app() -> msal.ConfidentialClientApplication:
-    """Singleton MSAL app — reużywa in-memory token cache między wysyłkami."""
-    global _msal_app
+    """MSAL app z reużyciem token-cache; przebudowa gdy zmienią się creds/tenant."""
+    global _msal_app, _msal_key
+    key = (settings.M365_CLIENT_ID, settings.M365_CLIENT_SECRET, _tenant())
     with _app_lock:
-        if _msal_app is None:
+        if _msal_app is None or _msal_key != key:
             _msal_app = msal.ConfidentialClientApplication(
                 client_id=settings.M365_CLIENT_ID,
                 authority=f"https://login.microsoftonline.com/{_tenant()}",
                 client_credential=settings.M365_CLIENT_SECRET,
             )
+            _msal_key = key
         return _msal_app
 
 

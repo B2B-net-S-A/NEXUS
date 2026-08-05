@@ -48,10 +48,13 @@ def email_channel_enabled() -> bool:
     """
     if settings.M365_APP_MAIL_ENABLED:
         # Import lokalny — unika cyklu email ↔ m365 i kosztu msal przy imporcie.
+        # Gdy flaga Graph jest ON, Graph jest WYBRANYM kanałem — bez cichego
+        # fallbacku na SMTP (spójnie z `send_email`, które routuje twardo na
+        # Graph). Inaczej misconfig Graph + SMTP dostępny → `_dispatch_emails`
+        # rezerwowałby wiersze, a `send_email` no-opował je w pętli.
         from app.services.m365.app_mail import is_configured
 
-        if is_configured():
-            return True
+        return is_configured()
     return bool(settings.SMTP_ENABLED and settings.SMTP_HOST)
 
 
