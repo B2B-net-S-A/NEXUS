@@ -319,3 +319,105 @@ async def test_strict_filtered_pagination_rejects_malformed_payload(
         finally:
             await client._http.aclose()
             client._http = None
+
+
+# ── Stage 3: get_pages (page-level primitive + start_page resume) ─────────────
+
+
+@pytest.mark.asyncio
+async def test_get_pages_yields_page_number_and_items() -> None:
+    handler = _PaginatedHandler(total=250, server_cap=100)
+    transport = httpx.MockTransport(
+        lambda req: (
+            _token_route(req) if req.url.path == "/oauth2/token" else handler(req)
+        )
+    )
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+        try:
+            pages = [
+                (pno, items)
+                async for pno, items in client.get_pages("/clients/", page_size=100)
+            ]
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    assert [pno for pno, _ in pages] == [1, 2, 3]
+    assert sum(len(items) for _, items in pages) == 250
+
+
+@pytest.mark.asyncio
+async def test_get_pages_start_page_skips_earlier_pages() -> None:
+    handler = _PaginatedHandler(total=350, server_cap=100)
+    transport = httpx.MockTransport(
+        lambda req: (
+            _token_route(req) if req.url.path == "/oauth2/token" else handler(req)
+        )
+    )
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+        try:
+            pages = [
+                pno
+                async for pno, _ in client.get_pages(
+                    "/employees/", page_size=100, start_page=2
+                )
+            ]
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    # Resumed at page 2 — page 1 is never requested.
+    assert pages == [2, 3, 4]
+    assert [c["page"] for c in handler.calls] == [2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_get_pages_400_fallback_fires_at_start_page_and_resets() -> None:
+    """B1: a resumed caller must still detect a filter rejection; the fallback
+    then restarts the UNFILTERED scan from page 1 (not the resumed page)."""
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        page = int(request.headers.get("X-Request-Current-Page", "1"))
+        filtered = "X-Request-Filter" in request.headers
+        seen.append({"page": page, "filtered": filtered})
+        if filtered:  # tenant rejects the filter, at whatever page
+            return httpx.Response(400, json={"error": "unsupported filter"})
+        items = [{"id": 1}, {"id": 2}] if page == 1 else [{"id": 3}]
+        return httpx.Response(
+            200,
+            json=items,
+            headers={
+                "X-Result-Total-Pages": "2",
+                "X-Result-Page-Size": "100",
+                "X-Result-Total-Count": "3",
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+        try:
+            pages = [
+                (pno, items)
+                async for pno, items in client.get_pages(
+                    "/employees/activities",
+                    page_size=100,
+                    start_page=5,
+                    filter_={"created_at": {"value": "2026-07-29", "comparison": ">="}},
+                )
+            ]
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    # First attempt: filtered page 5 → 400. Fallback drops the filter and
+    # restarts at page 1; iteration completes without raising.
+    assert seen[0] == {"page": 5, "filtered": True}
+    assert seen[1] == {"page": 1, "filtered": False}
+    assert [pno for pno, _ in pages] == [1, 2]
+    assert sum(len(items) for _, items in pages) == 3

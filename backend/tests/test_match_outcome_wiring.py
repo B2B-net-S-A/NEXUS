@@ -121,3 +121,40 @@ async def test_no_outcome_when_flag_off(
     assert resp.status_code == 200, resp.text
 
     assert await _outcome_row(job_id, cand_id) is None
+
+
+async def test_outcome_is_recorded_per_ranking_run(monkeypatch):
+    # PR #1036 follow-up: event_id is scoped by run_id, so the same (event, job,
+    # candidate) acted on after a NEW ranking run is captured again — one row per
+    # run, not one forever.
+    monkeypatch.setattr(
+        "app.services.match_telemetry_service.telemetry_enabled", lambda: True
+    )
+    from app.services.match_telemetry_service import emit_match_outcome
+
+    job_id = await _seed_job()
+    cand_id = await _seed_candidate()
+
+    await _seed_snapshot(job_id, run_id="runA")
+    async with AsyncSessionLocal() as db:
+        await emit_match_outcome(
+            db, event_type="shortlist", candidate_id=cand_id, job_id=job_id
+        )
+    # A second run — same pair acted on again.
+    await _seed_snapshot(job_id, run_id="runB")
+    async with AsyncSessionLocal() as db:
+        await emit_match_outcome(
+            db, event_type="shortlist", candidate_id=cand_id, job_id=job_id
+        )
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT run_id FROM match_outcomes "
+                    "WHERE job_id = :j AND candidate_id = :c"
+                ),
+                {"j": job_id, "c": cand_id},
+            )
+        ).all()
+    assert {r.run_id for r in rows} == {"runA", "runB"}

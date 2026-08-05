@@ -256,7 +256,7 @@ class TraffitClient:
             )
         return int(resp.headers.get("X-Result-Total-Count", "0"))
 
-    async def get_paginated(
+    async def get_pages(
         self,
         path: str,
         *,
@@ -264,8 +264,20 @@ class TraffitClient:
         skip_on_5xx: bool = False,
         filter_: Optional[dict] = None,
         fallback_on_filter_rejection: bool = True,
-    ) -> AsyncIterator[dict]:
-        """Yield each item across all pages. Sorts on `id ASC` for stability.
+        start_page: int = 1,
+    ) -> AsyncIterator[tuple[int, list[dict]]]:
+        """Yield ``(page_number, items)`` for each page. Sorts on `id ASC`.
+
+        Same fetch/stop/fallback semantics as :meth:`get_paginated` (which is a
+        thin wrapper over this), plus page-level **resume**:
+
+        start_page: begin pagination at this page number instead of 1. Because
+            the sort is `id ASC` and the filter is fixed, an append-only feed's
+            page prefix is stable across runs (new rows carry the highest ids and
+            land on the tail), so a caller can persist the last committed page and
+            resume here after an interruption. The persisted page number is only
+            meaningful relative to a fixed ``(filter_, page_size)`` — the caller
+            owns that invalidation.
 
         skip_on_5xx: when True, log a 5xx page and continue past it instead of
             raising. Useful for /sources/ on b2bnetwork tenant which has random
@@ -287,7 +299,7 @@ class TraffitClient:
         """
         # The filter may be dropped mid-flight if the server rejects it (400).
         active_filter = filter_
-        page = 1
+        page = start_page
         # If we know the total page count from page=1, use it; otherwise we
         # rely on len(items) < page_size to stop. With skip_on_5xx the first
         # page might fail, so we probe total_pages via total_count for safety.
@@ -311,11 +323,16 @@ class TraffitClient:
                 extra_headers=extra_headers,
             )
             # Tenant rejected the delta filter — degrade to a full scan. Safe
-            # because every importer upsert is ON CONFLICT idempotent.
+            # because every importer upsert is ON CONFLICT idempotent. Guard on
+            # ``page == start_page`` (not ``page == 1``) so a RESUMED caller still
+            # detects the rejection; then reset ``page = 1`` because the unfiltered
+            # scan must restart from the top ("unfiltered page N" != "filtered
+            # page N"). A resumed caller sees the page number regress and stops
+            # persisting its cursor for this (now unfiltered) run.
             if (
                 resp.status_code == 400
                 and active_filter is not None
-                and page == 1
+                and page == start_page
                 and fallback_on_filter_rejection
             ):
                 logger.warning(
@@ -324,6 +341,7 @@ class TraffitClient:
                     path,
                 )
                 active_filter = None
+                page = 1
                 continue
             if resp.status_code != 200:
                 if skip_on_5xx and 500 <= resp.status_code < 600:
@@ -356,8 +374,7 @@ class TraffitClient:
                 return
             if not items:
                 return
-            for item in items:
-                yield item
+            yield page, items
             total_pages = int(resp.headers.get("X-Result-Total-Pages", "0"))
             if total_pages:
                 # Total-pages header is authoritative when present.
@@ -374,3 +391,23 @@ class TraffitClient:
                 if len(items) < actual_page_size:
                     return
             page += 1
+
+    async def get_paginated(
+        self,
+        path: str,
+        *,
+        page_size: int = 100,
+        skip_on_5xx: bool = False,
+        filter_: Optional[dict] = None,
+        fallback_on_filter_rejection: bool = True,
+    ) -> AsyncIterator[dict]:
+        """Yield each item across all pages — thin wrapper over :meth:`get_pages`."""
+        async for _page, items in self.get_pages(
+            path,
+            page_size=page_size,
+            skip_on_5xx=skip_on_5xx,
+            filter_=filter_,
+            fallback_on_filter_rejection=fallback_on_filter_rejection,
+        ):
+            for item in items:
+                yield item
