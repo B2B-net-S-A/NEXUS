@@ -889,13 +889,17 @@ async def export_contracts(
 
 
 # \u2500\u2500 Per-klient rejestr \u2014 eksport XLSX \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-# Odr\u0119bny od finansowego /export: te same 7 kolumn co widoczna tabela rejestru
-# klienta (ClientContractRegister), BEZ stawek/mar\u017cy \u2014 wi\u0119c dost\u0119pny dla ca\u0142ego
-# audytorium rejestru (TacPlus + Delivery Lead), nie tylko Admina. Zawsze
-# zaw\u0119\u017cony do jednego klienta ("brak klienta = brak sensu eksportu").
+# Odr\u0119bny od finansowego /export: kolumny widocznej tabeli rejestru klienta
+# (ClientContractRegister) + \u201ePodkategoria" (Job.subcategory powi\u0105zanej oferty)
+# jako jedyna kolumna wykraczaj\u0105ca poza ekran \u2014 na \u017cyczenie do analizy. BEZ
+# stawek/mar\u017cy, wi\u0119c dost\u0119pny dla ca\u0142ego audytorium rejestru (TacPlus + Delivery
+# Lead), nie tylko Admina. Zawsze zaw\u0119\u017cony do jednego klienta ("brak klienta =
+# brak sensu eksportu"). \u201ePodkategoria" tu\u017c po \u201eProjekt" \u2014 grupuje deskryptory
+# oferty (Nr projektu / Projekt / Podkategoria) przed osob\u0105 i statusem.
 _REGISTER_EXPORT_COLUMNS = [
     "Nr projektu",
     "Projekt",
+    "Podkategoria",
     "Konsultant",
     "Model",
     "Okres / Pula godzin",
@@ -945,17 +949,20 @@ def _register_period_cell(c: Contract) -> str:
 
 
 def _register_export_row(c: Contract) -> list:
-    """Jeden wiersz eksportu rejestru \u2014 7 kolumn w kolejno\u015bci ze specyfikacji,
-    lustro widocznej tabeli ``ClientContractRegister`` (puste tekstowo = pusta
-    kom\u00f3rka; placeholdery #id/\u201e\u2014" jak w UI zachowane)."""
+    """Jeden wiersz eksportu rejestru \u2014 kolumny widocznej tabeli
+    ``ClientContractRegister`` + \u201ePodkategoria" (`Job.subcategory`). Puste
+    tekstowo = pusta kom\u00f3rka; placeholdery #id/\u201e\u2014" jak w UI zachowane. Wymaga
+    eager-loadu ``Contract.job`` (endpoint dok\u0142ada ``selectinload``)."""
     consultant = (
         f"{c.candidate.name} {c.candidate.lastname}".strip()
         if c.candidate
         else f"#{c.candidate_id}"
     )
+    subcategory = c.job.subcategory if (c.job and c.job.subcategory) else ""
     return [
         c.project_code or f"#{c.id}",
         c.project_name or "",
+        subcategory,
         consultant,
         _enum_label(c.engagement_model, _ENGAGEMENT_MODEL_LABELS),
         _register_period_cell(c),
@@ -982,7 +989,8 @@ async def export_client_register(
     subcategory: Optional[list[str]] = Query(None),
     limit: int = Query(10000, ge=1, le=50000),
 ):
-    """Eksport per-klient rejestru kontrakt\u00f3w do XLSX (7 kolumn = widoczna tabela).
+    """Eksport per-klient rejestru kontrakt\u00f3w do XLSX (kolumny widocznej tabeli
+    + \u201ePodkategoria" = Job.subcategory oferty).
 
     Honoruje te same filtry co lista rejestru (``q``, ``status``, \u201eOkres" overlap,
     podkategoria oferty), wi\u0119c \u201eeksportuj to, co widz\u0119" jest zawsze prawdziwe;
@@ -992,6 +1000,7 @@ async def export_client_register(
     """
     query = select(Contract).options(
         selectinload(Contract.candidate),
+        selectinload(Contract.job),
     )
     query = apply_delivery_lead_client_scope(
         query,
