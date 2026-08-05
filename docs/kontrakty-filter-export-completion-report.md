@@ -94,3 +94,33 @@ kosmetyczne):
 - Register export to `.xlsx` (bez CSV) — zgodnie z „Eksportuj do Excela".
 - Format daty w eksporcie odwzorowuje `Intl.DateTimeFormat('pl-PL')` empirycznie;
   ewentualny dryf ICU pozostaje kosmetyczny (komórka tekstowa, nie natywna data).
+
+## Aktualizacja — filtr Podkategoria (2026-08-05)
+
+Dołożono trzeci filtr rejestru: **Podkategoria** (multi-select), zawężający listę
+i eksport po **`Job.subcategory`** powiązanej oferty (każda oferta leży pod jedną
+competence category i niesie free-text podkategorię). Decyzja: „wyprowadź z oferty
+i wypuść od razu" — bo kandydatowa taksonomia podkategorii CC to niezbudowana Faza 2
+(brak modelu/danych), a `Job.subcategory` istnieje i jest wypełniony.
+
+- **Filtr (`_apply_contract_list_filters`)**: `subcategory: list[str]` jako
+  **podzapytanie** `Contract.job_id IN (SELECT Job.id WHERE Job.subcategory IN (...))`
+  — NIE JOIN, bo helper bywa już (outer)joinowany z Job w bloku `q`; drugi JOIN by
+  się zderzał. Wpięte w listę rejestru, eksport rejestru i finansowy `/export`.
+  Kontrakty bez oferty (job_id NULL) wypadają przy aktywnym filtrze.
+- **Endpoint opcji**: `GET /api/contracts/register/subcategories?client_id=` (TacPlus,
+  DL-scope, `client_id` wymagany) → odrębne, niepuste `Job.subcategory` faktycznie
+  występujące u klienta (dropdown pokazuje tylko to, co da się odfiltrować; voidy
+  pominięte). Zasila multiselect.
+- **Frontend**: multiselect renderowany tylko gdy klient ma podkategorie; wpięty w
+  zapytanie listy (repeat-param), URL eksportu, `queryKey`, reset strony,
+  `hasActiveFilters`, „Wyczyść". **Reset per klient**: podkategorie są specyficzne
+  dla klienta, a komponent nie jest remontowany przy zmianie klienta — wybór jest
+  więc czyszczony SYNCHRONICZNIE w renderze (wzorzec React „adjust state on prop
+  change"), żeby pierwszy fetch nowego klienta nie poleciał ze starym filtrem
+  (inaczej lista mignęłaby pusta, a przy błędzie endpointu podkategorii filtr
+  zostałby aktywny-niewidoczny). Status/Okres celowo przechodzą między klientami.
+- **Testy**: +4 BE (filtr listy z pominięciem job-less/void, filtr eksportu,
+  endpoint distinct client-scoped, `client_id`→422) + FE (fetch opcji + wybór do
+  listy/eksportu + reset przy zmianie klienta). Audyt adwersaryjny: 0 findingów
+  security/regression; 1 low (stale filtr przy zmianie klienta) — naprawiony.

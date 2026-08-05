@@ -226,15 +226,34 @@ async def _seed_contract(
     project_code: str | None = None,
     project_name: str | None = None,
     prolongation_status: str = "unknown",
+    subcategory: str | None = None,
 ) -> tuple[int, int, int]:
-    """Seed one contract under `client_id`. Returns (contract, cand, client)."""
+    """Seed one contract under `client_id`. Returns (contract, cand, client).
+
+    When ``subcategory`` is given, also seeds a linked Job carrying that
+    ``Job.subcategory`` and points the contract's ``job_id`` at it (so the
+    register subcategory filter has something to match); otherwise no job.
+    """
     from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
 
     cand_id = await _seed_candidate(marker)
     async with AsyncSessionLocal() as db:
+        job_id = None
+        if subcategory is not None:
+            j = Job(
+                title=f"RegExpJob-{marker}",
+                client_id=client_id,
+                subcategory=subcategory,
+            )
+            db.add(j)
+            await db.commit()
+            await db.refresh(j)
+            job_id = j.id
         c = Contract(
             candidate_id=cand_id,
             client_id=client_id,
+            job_id=job_id,
             status=ContractStatus(status),
             contract_type=ContractType.b2b,
             start_date=start_date,
@@ -256,6 +275,7 @@ async def _cleanup(rows: list[tuple[int, int, int]], client_ids: set[int]) -> No
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
+    from app.models.job import Job
     from sqlalchemy import delete
 
     async with AsyncSessionLocal() as db:
@@ -264,6 +284,9 @@ async def _cleanup(rows: list[tuple[int, int, int]], client_ids: set[int]) -> No
         for _, cand_id, _ in rows:
             await db.execute(delete(Candidate).where(Candidate.id == cand_id))
         for cid in client_ids:
+            # Jobs seeded for the subcategory filter (FK Job.client_id) go before
+            # the client row.
+            await db.execute(delete(Job).where(Job.client_id == cid))
             await db.execute(delete(Client).where(Client.id == cid))
         await db.commit()
 
@@ -543,3 +566,100 @@ async def test_register_export_scoped_to_selected_client_only(
         assert codes == {"CA-1"}
     finally:
         await _cleanup(rows, {client_a, client_b})
+
+
+# ── Subcategory (Job.subcategory) filter ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_subcategory_filter_on_list_matches_linked_job(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    marker = uuid.uuid4().hex[:8]
+    client_id = await _seed_client()
+    be = await _seed_contract(client_id=client_id, marker=marker, subcategory="Backend")
+    fe = await _seed_contract(
+        client_id=client_id, marker=marker, subcategory="Frontend"
+    )
+    nojob = await _seed_contract(client_id=client_id, marker=marker)  # job_id NULL
+    rows = [be, fe, nojob]
+    try:
+        r = await app_client.get(
+            "/api/contracts",
+            params={"q": marker, "subcategory": ["Backend"], "page_size": 100},
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {it["id"] for it in r.json()["items"]}
+        # Only the Backend-job contract; Frontend and the job-less one excluded.
+        assert ids == {be[0]}
+    finally:
+        await _cleanup(rows, {client_id})
+
+
+@pytest.mark.asyncio
+async def test_register_export_honours_subcategory(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    marker = uuid.uuid4().hex[:8]
+    client_id = await _seed_client()
+    be = await _seed_contract(
+        client_id=client_id, marker=marker, project_code="BE-1", subcategory="Backend"
+    )
+    fe = await _seed_contract(
+        client_id=client_id, marker=marker, project_code="FE-1", subcategory="Frontend"
+    )
+    rows = [be, fe]
+    try:
+        r = await app_client.get(
+            "/api/contracts/register/export",
+            params={"client_id": client_id, "subcategory": ["Backend"]},
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ws = load_workbook(BytesIO(r.content)).active
+        codes = {row[0] for row in ws.iter_rows(min_row=2, values_only=True) if row}
+        assert codes == {"BE-1"}  # Frontend excluded by the subcategory filter
+    finally:
+        await _cleanup(rows, {client_id})
+
+
+@pytest.mark.asyncio
+async def test_register_subcategories_endpoint_returns_client_distinct(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    marker = uuid.uuid4().hex[:8]
+    client_id = await _seed_client()
+    other = await _seed_client()
+    a = await _seed_contract(client_id=client_id, marker=marker, subcategory="Backend")
+    # Duplicate subcategory + a void row (must be ignored) + a job-less row.
+    b = await _seed_contract(client_id=client_id, marker=marker, subcategory="Backend")
+    c = await _seed_contract(
+        client_id=client_id, marker=marker, subcategory="DevOps", status="void"
+    )
+    d = await _seed_contract(client_id=client_id, marker=marker)  # no job
+    # A different client's subcategory must not leak in.
+    e = await _seed_contract(client_id=other, marker=marker, subcategory="Frontend")
+    rows = [a, b, c, d, e]
+    try:
+        r = await app_client.get(
+            "/api/contracts/register/subcategories",
+            params={"client_id": client_id},
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        # Distinct, void-excluded, client-scoped: only "Backend" (DevOps is void,
+        # Frontend belongs to the other client, the job-less row contributes none).
+        assert r.json()["subcategories"] == ["Backend"]
+    finally:
+        await _cleanup(rows, {client_id, other})
+
+
+@pytest.mark.asyncio
+async def test_register_subcategories_requires_client_id(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    r = await app_client.get(
+        "/api/contracts/register/subcategories", headers=app_auth_headers
+    )
+    assert r.status_code == 422, r.text
