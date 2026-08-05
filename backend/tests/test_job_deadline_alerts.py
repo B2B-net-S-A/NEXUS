@@ -178,6 +178,7 @@ async def test_email_dispatch_marks_sent_on_success(monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "SMTP_ENABLED", True)
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.test")
     sent_to: list[str] = []
 
     def _fake_send(to, subject, text_body, html_body=None):
@@ -218,6 +219,7 @@ async def test_email_dispatch_releases_claim_on_failure(monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "SMTP_ENABLED", True)
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.test")
     monkeypatch.setattr(jda, "send_email", lambda *a, **k: False)
 
     deadline = date.today() + timedelta(days=1)
