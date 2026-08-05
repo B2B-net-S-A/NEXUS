@@ -8,6 +8,7 @@ import {
   downloadContractDocument,
 } from "@/lib/contract-documents";
 import { RequireRole } from "@/components/RequireRole";
+import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
 import { formatDate } from "@/lib/utils";
 import {
   Upload,
@@ -363,6 +364,9 @@ export function ContractDocumentsTab({ contractId }: Props) {
           </table>
         )}
       </div>
+
+      {/* Dokumenty zamówień (PO) — ten sam plik co w zakładce Zamówienia. */}
+      <OrderDocumentsSection contractId={contractId} />
     </div>
   );
 }

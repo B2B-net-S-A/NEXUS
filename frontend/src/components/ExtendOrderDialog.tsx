@@ -2,9 +2,14 @@
 
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { AlertTriangle, Upload } from "lucide-react";
 import { useToast } from "@/components/Toast";
+import { extractErrorMsg } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
-import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
+import type {
+  ContractWithOrdersRead,
+  OrderExtractionResult,
+} from "@/lib/api/dlPortal";
 import {
   DATE_PATTERN,
   DATE_PLACEHOLDER,
@@ -58,8 +63,51 @@ export function ExtendOrderDialog({
   );
   const [file, setFile] = useState<File | null>(null);
 
+  // Odczyt PDF ("Zczytaj dane z dokumentu") — świadoma akcja, ODDZIELONA od
+  // dodania pliku. Dodanie pliku samo w sobie NIC nie zmienia w formularzu.
+  const [extracting, setExtracting] = useState(false);
+  // Baner „Sprawdź dane!" — pokazywany gdy odczyt był niepewny (uncertain).
+  const [checkData, setCheckData] = useState(false);
+  const [checkReasons, setCheckReasons] = useState<string[]>([]);
+
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);
+
+  /** Wstawia odczytane pola. Wypełnia tylko te, które dokument dostarczył —
+   *  nie kasuje ręcznych wpisów dla pól nieodczytanych. Wszystkie edytowalne. */
+  const applyExtraction = (d: OrderExtractionResult) => {
+    if (d.title) setTitle(d.title);
+    if (d.start_date) setStartDate(normalizeDateInput(d.start_date));
+    if (d.end_date) setEndDate(normalizeDateInput(d.end_date));
+    if (canManageFinance) {
+      // Kwoty finansowe tylko dla ról z manage_finance (backend i tak je redaguje).
+      if (d.rate_client != null) setRateClient(String(d.rate_client));
+      if (d.total_value != null) setTotalValue(String(d.total_value));
+    }
+    setCheckData(Boolean(d.uncertain));
+    setCheckReasons(d.uncertain_reasons ?? []);
+  };
+
+  const handleExtract = async () => {
+    if (!file || extracting) return;
+    setExtracting(true);
+    try {
+      const res = await dlPortalApi.extractOrderPdf(clientId, file);
+      applyExtraction(res.data);
+      showToast("Odczytano dane z dokumentu", "success");
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response
+        ?.status;
+      showToast(
+        status === 503
+          ? "Odczyt AI jest chwilowo niedostępny (wyłączony lub wyczerpany limit). Wpisz dane ręcznie."
+          : extractErrorMsg(err),
+        "error",
+      );
+    } finally {
+      setExtracting(false);
+    }
+  };
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -67,8 +115,10 @@ export function ExtendOrderDialog({
       fd.append("contract_id", String(contract.contract_id));
       fd.append("title", title);
       fd.append("order_status", "active");
-      if (startDate) fd.append("start_date", startDate);
-      if (endDate) fd.append("end_date", endDate);
+      // Normalizacja EU→ISO także tutaj — submit przez Enter nie odpala onBlur,
+      // więc surowe „1.6.2026" trafiłoby do backendu jako 422.
+      if (startDate) fd.append("start_date", normalizeDateInput(startDate));
+      if (endDate) fd.append("end_date", normalizeDateInput(endDate));
       if (canManageFinance) {
         // Candidate-bearing order finance is Admin-only. Operational callers
         // omit amounts entirely instead of sending redacted/default values.
@@ -104,6 +154,29 @@ export function ExtendOrderDialog({
             Dla: <strong>{contract.candidate_name}</strong> · Contract #{contract.contract_id}
           </p>
         </div>
+
+        {/* Baner „Sprawdź dane!" — nad tytułem zamówienia, gdy odczyt niepewny. */}
+        {checkData && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-orange-800 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200"
+          >
+            <AlertTriangle
+              className="w-5 h-5 shrink-0 mt-0.5 text-orange-500"
+              aria-hidden
+            />
+            <div className="text-sm">
+              <span className="font-bold">Sprawdź dane!</span>
+              {checkReasons.length > 0 && (
+                <ul className="mt-1 list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-0.5">
+                  {checkReasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
 
         <label className="block">
           <span className="text-sm">Tytuł zamówienia</span>
@@ -190,15 +263,46 @@ export function ExtendOrderDialog({
           />
         </label>
 
-        <label className="block">
-          <span className="text-sm">PDF zamówienia od klienta</span>
+        {/* Kafelek załącznika + przycisk odczytu — na dole formularza. Dodanie
+            pliku NIE uruchamia odczytu; to robi dopiero pomarańczowy przycisk. */}
+        <div className="pt-1">
+          <label
+            htmlFor="order-pdf-input"
+            className="flex items-center gap-3 w-full cursor-pointer rounded-lg border-2 border-dashed border-border bg-muted/40 px-4 py-3 hover:bg-muted/60 transition-colors"
+          >
+            <Upload
+              className="w-5 h-5 text-muted-foreground shrink-0"
+              aria-hidden
+            />
+            <div className="min-w-0">
+              <div className="font-bold text-sm">PDF zamówienia od klienta</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {file ? file.name : "Kliknij, aby dodać plik PDF / DOCX"}
+              </div>
+            </div>
+          </label>
           <input
+            id="order-pdf-input"
             type="file"
             accept=".pdf,.docx,.doc"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-1 w-full text-sm"
+            onChange={(e) => {
+              // Sam wybór pliku NIC nie zmienia w polach — kasuje tylko baner
+              // z poprzedniego odczytu (dotyczył innego pliku).
+              setFile(e.target.files?.[0] ?? null);
+              setCheckData(false);
+              setCheckReasons([]);
+            }}
+            className="sr-only"
           />
-        </label>
+          <button
+            type="button"
+            onClick={handleExtract}
+            disabled={!file || extracting}
+            className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
+          </button>
+        </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <button
