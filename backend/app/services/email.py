@@ -39,17 +39,45 @@ def _build_message(
     return msg
 
 
+def email_channel_enabled() -> bool:
+    """Czy jakikolwiek kanał wysyłki jest skonfigurowany (Graph app-only lub SMTP).
+
+    Pozwala pre-gate'ować background taski (np. deadline alerts) bez zakładania
+    konkretnego kanału — inaczej włączenie tylko Grapha zostawiłoby je uśpione
+    na `if not SMTP_ENABLED`.
+    """
+    if settings.M365_APP_MAIL_ENABLED:
+        # Import lokalny — unika cyklu email ↔ m365 i kosztu msal przy imporcie.
+        # Gdy flaga Graph jest ON, Graph jest WYBRANYM kanałem — bez cichego
+        # fallbacku na SMTP (spójnie z `send_email`, które routuje twardo na
+        # Graph). Inaczej misconfig Graph + SMTP dostępny → `_dispatch_emails`
+        # rezerwowałby wiersze, a `send_email` no-opował je w pętli.
+        from app.services.m365.app_mail import is_configured
+
+        return is_configured()
+    return bool(settings.SMTP_ENABLED and settings.SMTP_HOST)
+
+
 def send_email(
     to: str,
     subject: str,
     text_body: str,
     html_body: Optional[str] = None,
 ) -> bool:
-    """Wyślij email. Zwraca True gdy SMTP potwierdził, False gdy no-op lub błąd.
+    """Wyślij email. Zwraca True gdy kanał potwierdził, False gdy no-op lub błąd.
 
-    Nie rzuca wyjątków — wszystko loguje i zwraca bool. Wynik można zignorować
-    w ścieżkach fallback.
+    Routing: gdy `M365_APP_MAIL_ENABLED` — idzie przez Microsoft Graph app-only
+    (stała skrzynka serwisowa), inaczej przez SMTP. Graph jest wybranym kanałem
+    (nie fallbackuje na SMTP), więc jego wynik jest zwracany wprost. Nie rzuca
+    wyjątków — wszystko loguje i zwraca bool.
     """
+    if settings.M365_APP_MAIL_ENABLED:
+        from app.services.m365.app_mail import send_via_graph_app
+
+        return send_via_graph_app(
+            to=to, subject=subject, text_body=text_body, html_body=html_body
+        )
+
     if not settings.SMTP_ENABLED:
         logger.debug(
             "email: SMTP_ENABLED=false — skip send to=%s subject=%r", to, subject
