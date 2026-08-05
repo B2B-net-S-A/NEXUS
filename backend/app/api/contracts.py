@@ -71,6 +71,7 @@ from app.schemas.contract import (
     ContractTimelineItem,
     ContractUpdate,
     ContractVoidRequest,
+    RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
     ContractAmendmentCreate,
@@ -1046,14 +1047,14 @@ async def export_client_register(
     )
 
 
-@router.get("/register/subcategories")
+@router.get("/register/subcategories", response_model=RegisterSubcategoriesResponse)
 async def list_client_register_subcategories(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
         ..., description="Klient, którego podkategorie ofert zwracamy — WYMAGANY."
     ),
-) -> dict:
+) -> RegisterSubcategoriesResponse:
     """Odrębne podkategorie (`Job.subcategory`) ofert powiązanych z kontraktami
     danego klienta — zasila multiselect filtra podkategorii w rejestrze. Zwraca
     wyłącznie wartości faktycznie występujące u klienta (dropdown pokazuje tylko
@@ -1076,8 +1077,10 @@ async def list_client_register_subcategories(
         await resolve_delivery_lead_client_ids(current_user, db),
     )
     rows = await db.execute(query)
-    values = sorted({v for (v,) in rows.all() if v}, key=lambda s: s.casefold())
-    return {"subcategories": values}
+    # SQL `.distinct()` + WHERE (not-null, trimmed length > 0) już gwarantują
+    # unikalność i niepustość — zostaje tylko stabilne sortowanie case-insensitive.
+    values = sorted((v for (v,) in rows.all()), key=lambda s: s.casefold())
+    return RegisterSubcategoriesResponse(subcategories=values)
 
 
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
