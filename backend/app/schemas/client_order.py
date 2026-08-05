@@ -116,3 +116,45 @@ class ClientOrdersGroupedResponse(BaseModel):
 
     contractors: list[ContractWithOrdersRead]
     total_contractors: int
+
+
+class OrderExtractionResult(BaseModel):
+    """`POST /api/clients/{client_id}/orders/extract` — odczyt pól z PDF/DOCX.
+
+    "Zczytaj dane z dokumentu" w przedłużeniu. NIE tworzy Orderu ani nie zapisuje
+    pliku — zwraca odczytane pola do wstawienia w formularzu (wszystkie edytowalne).
+    Kwoty (rate_client/total_value/currency) są zredagowane dla ról bez VIEW_FINANCE.
+    """
+
+    title: Optional[str] = None
+    # Daty jako ISO "YYYY-MM-DD" — front (dateInput) przyjmuje je wprost.
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    rate_client: Optional[Decimal] = None
+    rate_unit: Optional[str] = None  # "hour" | "day" | "month"
+    total_value: Optional[Decimal] = None
+    currency: Optional[str] = None
+    uncertain: bool = True
+    uncertain_reasons: list[str] = Field(default_factory=list)
+    fields_confidence: dict[str, float] = Field(default_factory=dict)
+    source: str = "none"  # "claude" | "regex" | "none"
+
+
+class OrderDocumentItem(BaseModel):
+    """Pozycja „Dokumentu zamówienia" — plik PO z ``ClientOrder`` widziany read-only
+    w zakładce Dokumenty (kontrakt) oraz w Plikach osoby. Jeden fizyczny plik,
+    pobierany istniejącym endpointem ``GET /orders/{order_id}/file``."""
+
+    order_id: int
+    client_id: int
+    contract_id: int
+    title: str
+    filename: Optional[str] = None
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    created_at: datetime
+    order_status: ClientOrderStatus
+
+
+class OrderDocumentsResponse(BaseModel):
+    documents: list[OrderDocumentItem]
