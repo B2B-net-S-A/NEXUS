@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.client import ClientStatus
 
@@ -22,6 +22,11 @@ class ClientCreate(BaseModel):
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
+    # Sync-odporny override nazwy (Traffit nadpisuje `name` przy każdym daily
+    # sync, `display_name` nigdy — patrz models/client.py). Edycja nazwy z UI
+    # pisze TUTAJ; wyczyszczenie pola (""/whitespace → None) przywraca nazwę
+    # źródłową, bo odczyt robi coalesce(nullif(btrim(display_name),''), name).
+    display_name: Optional[str] = Field(None, max_length=255)
     industry: Optional[str] = None
     website: Optional[str] = None
     address: Optional[str] = None
@@ -32,6 +37,14 @@ class ClientUpdate(BaseModel):
     legal_name: Optional[str] = None
     nip: Optional[str] = None
     regon: Optional[str] = None
+
+    @field_validator("display_name")
+    @classmethod
+    def _blank_display_name_to_none(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
 
 
 class ClientSafeResponse(BaseModel):

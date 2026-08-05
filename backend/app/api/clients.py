@@ -520,7 +520,7 @@ async def get_client_profile(
     return response
 
 
-@router.patch("/{client_id}", response_model=ClientResponse)
+@router.patch("/{client_id}", response_model=AnyClientResponse)
 async def update_client(
     client_id: int,
     data: ClientUpdate,
@@ -551,7 +551,10 @@ async def update_client(
     )
     await db.flush()
     await db.refresh(client)
-    return client
+    # Serializacja jak w get_client — `name` = coalesce(display_name, name).
+    # Surowy ORM zwracał tu client.name, więc odpowiedź PATCH po edycji
+    # display_name pokazywała starą nazwę (wyglądało jak brak zapisu).
+    return _serialize_client(client, current_user=current_user)
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
