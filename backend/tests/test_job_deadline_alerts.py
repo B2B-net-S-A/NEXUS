@@ -213,6 +213,58 @@ async def test_email_dispatch_marks_sent_on_success(monkeypatch):
         await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
 
 
+async def test_email_dispatch_via_delegated_connection(monkeypatch):
+    """Gdy jest połączenie skrzynki serwisowej → wysyłka przez send_system_email (delegated)."""
+    import app.tasks.job_deadline_alerts as jda
+
+    sentinel_conn = object()
+
+    async def _fake_get_conn(db):
+        return sentinel_conn
+
+    calls = []
+
+    async def _fake_send_system(
+        db, connection, *, to, subject, text_body, html_body=None
+    ):
+        calls.append((connection, to))
+        return True
+
+    def _no_send_email(*a, **k):
+        raise AssertionError(
+            "send_email nie powinien być użyty gdy jest delegated connection"
+        )
+
+    monkeypatch.setattr(jda, "get_system_sender_connection", _fake_get_conn)
+    monkeypatch.setattr(jda, "send_system_email", _fake_send_system)
+    monkeypatch.setattr(jda, "send_email", _no_send_email)
+
+    deadline = date.today() + timedelta(days=7)
+    job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
+    try:
+        summary = await run_once()
+        assert summary["emails_sent"] >= 2
+        assert calls and all(c[0] is sentinel_conn for c in calls)
+
+        async with AsyncSessionLocal() as db:
+            rows = list(
+                (
+                    await db.execute(
+                        select(Notification).where(
+                            Notification.related_entity_type == "job",
+                            Notification.related_entity_id == job_id,
+                            Notification.notification_type
+                            == NotificationType.job_deadline_7d,
+                        )
+                    )
+                ).scalars()
+            )
+        assert rows
+        assert all(n.email_sent_at is not None for n in rows)
+    finally:
+        await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
+
+
 async def test_email_dispatch_releases_claim_on_failure(monkeypatch):
     """SMTP on + send_email→False → email_sent_at NULL i rezerwacja zwolniona (retryable)."""
     import app.tasks.job_deadline_alerts as jda
