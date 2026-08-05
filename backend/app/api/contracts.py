@@ -891,20 +891,20 @@ async def export_contracts(
 # \u2500\u2500 Per-klient rejestr \u2014 eksport XLSX \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 # Odr\u0119bny od finansowego /export: kolumny widocznej tabeli rejestru klienta
 # (ClientContractRegister) + \u201ePodkategoria" (Job.subcategory powi\u0105zanej oferty)
-# jako jedyna kolumna wykraczaj\u0105ca poza ekran \u2014 na \u017cyczenie do analizy. BEZ
-# stawek/mar\u017cy, wi\u0119c dost\u0119pny dla ca\u0142ego audytorium rejestru (TacPlus + Delivery
-# Lead), nie tylko Admina. Zawsze zaw\u0119\u017cony do jednego klienta ("brak klienta =
-# brak sensu eksportu"). \u201ePodkategoria" tu\u017c po \u201eProjekt" \u2014 grupuje deskryptory
-# oferty (Nr projektu / Projekt / Podkategoria) przed osob\u0105 i statusem.
+# na ko\u0144cu jako jedyna kolumna wykraczaj\u0105ca poza ekran \u2014 na \u017cyczenie do analizy.
+# BEZ stawek/mar\u017cy, wi\u0119c dost\u0119pny dla ca\u0142ego audytorium rejestru (TacPlus +
+# Delivery Lead), nie tylko Admina. Zawsze zaw\u0119\u017cony do jednego klienta ("brak
+# klienta = brak sensu eksportu"). \u201ePodkategoria" dopisana po \u201eStatus" (koniec
+# wiersza), \u017ceby zachowa\u0107 kolejno\u015b\u0107 7 kolumn widocznej tabeli.
 _REGISTER_EXPORT_COLUMNS = [
     "Nr projektu",
     "Projekt",
-    "Podkategoria",
     "Konsultant",
     "Model",
     "Okres / Pula godzin",
     "Prolongata",
     "Status",
+    "Podkategoria",
 ]
 # Etykiety lustrzane wobec frontendu (lib/contract-register.ts) \u2014 eksport czyta
 # si\u0119 jak tabela na ekranie: te same etykiety, daty w formacie PL i liczby.
@@ -962,12 +962,12 @@ def _register_export_row(c: Contract) -> list:
     return [
         c.project_code or f"#{c.id}",
         c.project_name or "",
-        subcategory,
         consultant,
         _enum_label(c.engagement_model, _ENGAGEMENT_MODEL_LABELS),
         _register_period_cell(c),
         _enum_label(c.prolongation_status, _REGISTER_PROLONGATION_LABELS),
         _enum_label(c.status, _CONTRACT_STATUS_LABELS),
+        subcategory,
     ]
 
 
