@@ -57,8 +57,13 @@ describe("ClientContractRegister — filtry (Okres) + eksport", () => {
       hydrated: true,
     });
     getMock.mockReset();
-    getMock.mockResolvedValue({
-      data: { items: [], total: 0, page: 1, page_size: 50 },
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/contracts/register/subcategories") {
+        return Promise.resolve({ data: { subcategories: ["Backend", "Frontend"] } });
+      }
+      return Promise.resolve({
+        data: { items: [], total: 0, page: 1, page_size: 50 },
+      });
     });
 
     fetchMock.mockReset();
@@ -136,5 +141,104 @@ describe("ClientContractRegister — filtry (Okres) + eksport", () => {
     // Bearer token dołączony z sesji.
     const init = fetchMock.mock.calls[0][1] as { headers?: Record<string, string> };
     expect(init.headers?.Authorization).toBe("Bearer tok");
+  });
+
+  it("pobiera podkategorie klienta i przepuszcza wybór do listy oraz eksportu", async () => {
+    renderRegister();
+    await waitFor(() => expect(listCalls().length).toBeGreaterThan(0));
+
+    // Opcje podkategorii pobrane z osobnego endpointu, scope po kliencie.
+    const subcatCall = getMock.mock.calls.find(
+      (c) => c[0] === "/api/contracts/register/subcategories",
+    );
+    expect(subcatCall).toBeTruthy();
+    expect(
+      (subcatCall![1] as { params: Record<string, unknown> }).params,
+    ).toMatchObject({ client_id: CLIENT_ID });
+
+    // Filtr renderuje się dopiero gdy klient ma jakieś podkategorie.
+    const trigger = await screen.findByRole("button", {
+      name: /wszystkie podkategorie/i,
+    });
+    fireEvent.click(trigger);
+    // Wybór wartości z listy (cmdk CommandItem renderuje etykietę).
+    const option = await screen.findByText("Backend");
+    fireEvent.click(option);
+
+    // Wybór trafia do zapytania listy jako repeat-param `subcategory`.
+    await waitFor(() => {
+      const withSub = listCalls().find((c) => {
+        const p = (c[1] as { params?: Record<string, unknown> })?.params;
+        return (
+          Array.isArray(p?.subcategory) &&
+          (p!.subcategory as string[]).includes("Backend")
+        );
+      });
+      expect(withSub).toBeTruthy();
+    });
+
+    // I do URL eksportu.
+    fireEvent.click(
+      screen.getByRole("button", { name: /eksportuj do excela/i }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("subcategory=Backend");
+  });
+
+  it("czyści filtr podkategorii przy zmianie klienta (nie przenosi go na nowego)", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <ClientContractRegister clientId={42} clientName="Klient A" />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(listCalls().length).toBeGreaterThan(0));
+
+    // Wybierz podkategorię u klienta 42.
+    fireEvent.click(
+      await screen.findByRole("button", { name: /wszystkie podkategorie/i }),
+    );
+    fireEvent.click(await screen.findByText("Backend"));
+    await waitFor(() => {
+      const withSub = listCalls().find((c) => {
+        const p = (c[1] as { params?: Record<string, unknown> })?.params;
+        return (
+          p?.client_id === 42 &&
+          Array.isArray(p?.subcategory) &&
+          (p!.subcategory as string[]).includes("Backend")
+        );
+      });
+      expect(withSub).toBeTruthy();
+    });
+
+    getMock.mockClear(); // patrzymy tylko na wywołania PO zmianie klienta
+
+    // Zmiana klienta — ten sam instancja komponentu (brak remountu).
+    rerender(
+      <QueryClientProvider client={qc}>
+        <ClientContractRegister clientId={99} clientName="Klient B" />
+      </QueryClientProvider>,
+    );
+
+    // Lista nowego klienta NIE niesie starego filtra podkategorii (reset w renderze).
+    await waitFor(() => {
+      const forB = listCalls().find(
+        (c) =>
+          (c[1] as { params?: Record<string, unknown> })?.params?.client_id === 99,
+      );
+      expect(forB).toBeTruthy();
+    });
+    const bCalls = listCalls().filter(
+      (c) =>
+        (c[1] as { params?: Record<string, unknown> })?.params?.client_id === 99,
+    );
+    for (const c of bCalls) {
+      expect(
+        (c[1] as { params: Record<string, unknown> }).params.subcategory,
+      ).toBeUndefined();
+    }
   });
 });
