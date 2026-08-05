@@ -56,7 +56,7 @@ async def traffit_sync_status(
     rows = await db.execute(
         text(
             "SELECT phase, last_synced_at, last_run_started_at, "
-            "last_run_finished_at, last_status, stats "
+            "last_run_finished_at, last_status, stats, cursor_at, cursor_payload "
             "FROM traffit_sync_state ORDER BY phase"
         )
     )
@@ -74,6 +74,12 @@ async def traffit_sync_status(
             else None,
             "last_status": r.last_status,
             "stats": r.stats,
+            # Resume cursor (Stage 3) — non-null while a phase (e.g.
+            # candidate_activities) is mid-catch-up; watch cursor.page advance
+            # across runs to see resumable pagination working, NULL after a
+            # full pass.
+            "cursor_at": r.cursor_at.isoformat() if r.cursor_at else None,
+            "cursor": r.cursor_payload,
         }
         for r in rows
     ]
