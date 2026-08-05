@@ -76,6 +76,16 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
+  // PATCH /api/clients/{id} → TacPlus (bramka przycisku "Edytuj" na karcie)
+  "client.update": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   // POST /api/contracts → TacPlus
   "contract.create": {
     admin: true,
