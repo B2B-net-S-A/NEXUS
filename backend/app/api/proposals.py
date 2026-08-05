@@ -111,6 +111,11 @@ async def get_latest_proposal(
     never had a snapshot (e.g. legacy jobs created before Phase 13).
     """
     await _ensure_job_exists(db, job_id)
+    # Same resource scope as the write paths (regenerate uses this too): the
+    # snapshot hydrates candidate PII, so a delivery_lead outside the job's
+    # client scope must not read it. ensure_job_membership bypasses admin/HoR
+    # and grants owner/DL-by-client/TAC/collaborator/assigned-recruiter.
+    await ensure_job_membership(db, current_user, job_id)
     snap = await db.scalar(
         select(ProposalSnapshot)
         .where(ProposalSnapshot.job_id == job_id)
@@ -151,6 +156,9 @@ async def list_proposals(
 ):
     """Paginated history of proposal snapshots for `job_id`."""
     await _ensure_job_exists(db, job_id)
+    # Same resource scope as latest/regenerate — no PII here (counts only), but
+    # the job↔snapshot history still honours the DL client boundary (RBAC #1031).
+    await ensure_job_membership(db, current_user, job_id)
 
     base_query = select(ProposalSnapshot).where(ProposalSnapshot.job_id == job_id)
     total = (
