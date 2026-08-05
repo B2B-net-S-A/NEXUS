@@ -172,6 +172,10 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL_CV: str = "claude-sonnet-5"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
+    # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
+    # bez redeploya, obok bramki AIFeatureKey.order_parser (master → feature → limit).
+    ORDER_EXTRACTION_ENABLED: bool = True
+    ORDER_PARSER_MODEL: str = "claude-sonnet-5"
     # Resilience for the shared claude_client.call_claude() helper. Caps a hung
     # request (SDK default is 600 s) and retries transient overload/429/529/5xx.
     ANTHROPIC_TIMEOUT_SECONDS: float = 90.0

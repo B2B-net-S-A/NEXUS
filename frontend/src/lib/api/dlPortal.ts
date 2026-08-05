@@ -137,6 +137,38 @@ export interface ClientOrdersGroupedResponse {
   total_contractors: number;
 }
 
+/** Wynik "Zczytaj dane z dokumentu" — odczyt PDF/DOCX zamówienia. */
+export interface OrderExtractionResult {
+  title: string | null;
+  start_date: string | null; // ISO YYYY-MM-DD
+  end_date: string | null;
+  rate_client: number | null;
+  rate_unit: string | null; // "hour" | "day" | "month"
+  total_value: number | null;
+  currency: string | null;
+  uncertain: boolean;
+  uncertain_reasons: string[];
+  fields_confidence: Record<string, number>;
+  source: string; // "claude" | "regex" | "none"
+}
+
+/** Pozycja "Dokumentu zamówienia" (plik PO) — read-only widok w Dokumentach. */
+export interface OrderDocumentItem {
+  order_id: number;
+  client_id: number;
+  contract_id: number;
+  title: string;
+  filename: string | null;
+  content_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+  order_status: ClientOrderStatus;
+}
+
+export interface OrderDocumentsResponse {
+  documents: OrderDocumentItem[];
+}
+
 export interface ClientOrderUpdate {
   title?: string;
   description?: string | null;
@@ -306,11 +338,38 @@ export const dlPortalApi = {
   getOrder: (clientId: number, orderId: number) =>
     api.get<ClientOrderRead>(`/api/clients/${clientId}/orders/${orderId}`),
 
+  /** Read-only pliki PO zamówień kontraktu — sekcja Dokumenty (kontrakt). */
+  listContractOrderDocuments: (contractId: number) =>
+    api.get<OrderDocumentsResponse>(
+      `/api/clients/order-documents/by-contract/${contractId}`
+    ),
+
+  /** Read-only pliki PO zamówień osoby — sekcja Pliki (osoba). */
+  listCandidateOrderDocuments: (candidateId: number) =>
+    api.get<OrderDocumentsResponse>(
+      `/api/clients/order-documents/by-candidate/${candidateId}`
+    ),
+
   /** Flow A: tworzy Order pod istniejącym Contract (przedłużenie). */
   createOrderExtension: (clientId: number, formData: FormData) =>
     api.post<ClientOrderRead>(`/api/clients/${clientId}/orders`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+
+  /**
+   * "Zczytaj dane z dokumentu": odczyt pól z PDF/DOCX zamówienia. NIE tworzy
+   * Orderu ani nie zapisuje pliku — zwraca odczytane pola do wstawienia w
+   * formularzu (wszystkie edytowalne). `uncertain` => baner "Sprawdź dane!".
+   */
+  extractOrderPdf: (clientId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<OrderExtractionResult>(
+      `/api/clients/${clientId}/orders/extract`,
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+  },
 
   /** Flow B: atomic Contract + Order create (nowy kontraktor). */
   createContractWithOrder: (

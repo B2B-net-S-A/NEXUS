@@ -143,6 +143,13 @@ _ENUM_STATEMENTS = [
     # tej wartości w INSERT, więc brak w enum => InvalidTextRepresentationError
     # i crash-loop feature'a dla DL-i.
     "ALTER TYPE champion_suggestion_source ADD VALUE IF NOT EXISTS 'historical_jobs'",
+    # 0214: nowa wartość aifeaturekey dla odczytu PDF zamówienia
+    # ("Zczytaj dane z dokumentu" w przedłużeniu). Bez niej seed ai_features
+    # poniżej ORAZ INSERT do ai_usage_log przy odczycie wywalają się
+    # InvalidTextRepresentationError. _ENUM_STATEMENTS leci przed
+    # _DATA_STATEMENTS (patrz pętla w main()), więc wartość jest zacommitowana,
+    # zanim seed jej użyje.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'order_parser'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
     # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
     # POST /api/autenti/contracts/{id}/send wywala się na insercie Notification
@@ -3027,6 +3034,12 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'candidate_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'candidate_summary')",
+    # 0214: seed feature'a AI `order_parser` (odczyt PDF zamówienia w przedłużeniu).
+    # Enabled + unlimited, idempotentny WHERE NOT EXISTS. Wymaga wartości enuma
+    # dodanej w _ENUM_STATEMENTS (leci wcześniej).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'order_parser', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'order_parser')",
     # 0173: rejection_reasons.external_source backfill (integracja Traffit).
     "UPDATE rejection_reasons SET external_source = 'manual' "
     "WHERE external_source IS NULL",

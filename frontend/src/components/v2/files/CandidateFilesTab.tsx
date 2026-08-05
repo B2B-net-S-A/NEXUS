@@ -22,6 +22,7 @@ import {
   fileIcon,
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
+import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
 
 export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  const { showError, showToast } = useToast();
@@ -240,6 +241,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  ? "Brak plików. Dodaj CV, certyfikat lub inny dokument."
  : "Brak plików."}
  </div>
+ <OrderDocumentsSection candidateId={candidateId} />
  </div>
  );
  }
@@ -353,6 +355,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  </div>
  ))}
  </div>
+ <OrderDocumentsSection candidateId={candidateId} />
  </div>
  <FilePreviewModal
  doc={previewDoc?.document_kind === "cv" ? undefined : previewDoc}
