@@ -128,12 +128,12 @@ i wypuść od razu" — bo kandydatowa taksonomia podkategorii CC to niezbudowan
 ### Aktualizacja — kolumna „Podkategoria" w eksporcie (2026-08-05)
 
 Dołożono **„Podkategoria"** jako kolumnę eksportu rejestru (`Job.subcategory`
-powiązanej oferty), tuż po „Projekt" — grupuje deskryptory oferty
-(Nr projektu / Projekt / Podkategoria) przed osobą i statusem. To jedyna kolumna
-wykraczająca poza widoczną tabelę (na życzenie, do dalszej analizy).
+powiązanej oferty) **na końcu wiersza, po „Status"** — zachowuje kolejność
+7 kolumn widocznej tabeli i dopisuje podkategorię jako 8. kolumnę. To jedyna
+kolumna wykraczająca poza widoczną tabelę (na życzenie, do dalszej analizy).
 
-- **Kolumny (8)**: Nr projektu, Projekt, **Podkategoria**, Konsultant, Model,
-  Okres / Pula godzin, Prolongata, Status.
+- **Kolumny (8)**: Nr projektu, Projekt, Konsultant, Model, Okres / Pula godzin,
+  Prolongata, Status, **Podkategoria**.
 - **Wartość**: `c.job.subcategory` gdy jest oferta z podkategorią, inaczej pusta
   komórka (kontrakty bez oferty / bez podkategorii). Endpoint dokłada
   `selectinload(Contract.job)` (poza kolumną nic więcej nie ładuje).

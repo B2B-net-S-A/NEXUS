@@ -63,17 +63,18 @@ def _mem_contract(**kw) -> Contract:
 
 
 def test_register_export_columns_order_matches_spec():
-    # Kolejność kolumn jest częścią kontraktu. „Podkategoria" (Job.subcategory)
-    # dołożona tuż po „Projekt" — jedyna kolumna wykraczająca poza ekran.
+    # Kolejność kolumn jest częścią kontraktu. 7 kolumn widocznej tabeli w
+    # ustalonej kolejności, a „Podkategoria" (Job.subcategory) dopisana na końcu
+    # (po „Status") — jedyna kolumna wykraczająca poza ekran.
     assert _REGISTER_EXPORT_COLUMNS == [
         "Nr projektu",
         "Projekt",
-        "Podkategoria",
         "Konsultant",
         "Model",
         "Okres / Pula godzin",
         "Prolongata",
         "Status",
+        "Podkategoria",
     ]
 
 
