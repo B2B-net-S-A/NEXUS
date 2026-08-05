@@ -41,14 +41,14 @@ async def _seed_client() -> int:
         return cli.id
 
 
-async def _seed_job(*, champion: dict | None = None) -> int:
+async def _seed_job(*, champion: dict | None = None, status=None) -> int:
     from app.models.job import Job, JobStatus
 
     client_id = await _seed_client()
     async with AsyncSessionLocal() as db:
         job = Job(
             title=f"Handoff-Job-{uuid.uuid4().hex[:6]}",
-            status=JobStatus.published,
+            status=status or JobStatus.published,
             client_id=client_id,
             champion_profile=champion,
         )
@@ -185,6 +185,23 @@ async def test_handoff_rejects_non_operational_recruiter(
     )
 
     assert resp.status_code == 422, resp.text
+
+
+async def test_handoff_rejects_closed_job(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    from app.models.job import JobStatus
+
+    job_id = await _seed_job(champion=_READY_CHAMPION, status=JobStatus.closed)
+    recruiter_id = await _seed_recruiter()
+
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/handoff",
+        headers=app_auth_headers,
+        json={"recruiter_id": recruiter_id},
+    )
+
+    assert resp.status_code == 409, resp.text
 
 
 # ── create no longer produces a ranking ──────────────────────────────────────

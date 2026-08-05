@@ -1806,6 +1806,14 @@ async def handoff_job_to_search(
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
+    # Don't start a search for a closed recruitment — the ranking would be wasted
+    # work on a job nobody is filling (PR #1036 review follow-up).
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=409,
+            detail="Rekrutacja jest zamknięta — nie można jej przekazać do searchu.",
+        )
+
     blockers = _compute_job_readiness(job)
     if blockers:
         raise HTTPException(
