@@ -15,6 +15,7 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
+import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   canManageCandidateFinance,
@@ -60,6 +61,13 @@ export function ExtendOrderDialog({
   const [totalValue, setTotalValue] = useState("");
   const [jobId, setJobId] = useState(
     String(latest?.job_id ?? contract.initial_job_id ?? ""),
+  );
+  // „Część umowy" — tylko Centrum e-Zdrowia (ticket #3). Przedłużenie
+  // DZIEDZICZY część z najnowszego zamówienia (edytowalne — zmiana części
+  // przy przedłużeniu to legalny scenariusz).
+  const ezdrowie = isEzdrowieClient(clientId);
+  const [projectPart, setProjectPart] = useState<string>(
+    latest?.project_part ?? "",
   );
   const [file, setFile] = useState<File | null>(null);
 
@@ -127,6 +135,7 @@ export function ExtendOrderDialog({
         if (totalValueNum !== null) fd.append("total_value", String(totalValueNum));
       }
       if (jobId) fd.append("job_id", jobId);
+      if (ezdrowie && projectPart) fd.append("project_part", projectPart);
       if (file) fd.append("file", file);
       return dlPortalApi.createOrderExtension(clientId, fd);
     },
@@ -144,6 +153,10 @@ export function ExtendOrderDialog({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (ezdrowie && !projectPart) {
+            showToast("Wybierz część umowy", "error");
+            return;
+          }
           mutation.mutate();
         }}
         className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 space-y-3 max-h-[90vh] overflow-auto"
@@ -262,6 +275,26 @@ export function ExtendOrderDialog({
             placeholder={contract.initial_job_id?.toString() ?? "—"}
           />
         </label>
+
+        {/* „Wybór części umowy" — tylko Centrum e-Zdrowia (ticket #3). */}
+        {ezdrowie && (
+          <label className="block">
+            <span className="text-sm">Wybór części umowy *</span>
+            <select
+              value={projectPart}
+              onChange={(e) => setProjectPart(e.target.value)}
+              aria-label="Wybór części umowy"
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+            >
+              <option value="">— wybierz —</option>
+              {PROJECT_PARTS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {/* Kafelek załącznika + przycisk odczytu — na dole formularza. Dodanie
             pliku NIE uruchamia odczytu; to robi dopiero pomarańczowy przycisk. */}

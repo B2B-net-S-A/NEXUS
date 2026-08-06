@@ -70,6 +70,7 @@ function makeOrder(partial: Partial<ClientOrderRead> & { id: number; title: stri
     rate_client: null,
     total_value: null,
     currency: "PLN",
+    project_part: null,
     filename: null,
     has_file: false,
     content_type: null,

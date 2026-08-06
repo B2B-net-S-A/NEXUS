@@ -12,6 +12,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
+from app.models.client_order import ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -160,6 +161,33 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     if target is None:
         return None
     return (target - date.today()).days
+
+
+def _representative_project_part(contract: Contract) -> Optional[str]:
+    """„Część umowy" e-Zdrowia dla wiersza konsultanta (ticket #3).
+
+    Part żyje na ZAMÓWIENIU (1 kontrakt = N zamówień/przedłużeń), wiersz
+    „Obecni konsultanci" jest per-KONTRAKT — reguła reprezentanta lustrzana
+    do FE ``splitOrders.activeOrder``: najnowsze ROZPOCZĘTE zamówienie
+    (start_date ≤ dziś, nullowe traktowane jak rozpoczęte), a gdy wszystkie
+    dopiero przyszłe — najbliższe nadchodzące. Anulowane pomijamy. Dzięki temu
+    edycja części na bieżącym zamówieniu natychmiast przestawia filtr Profilu,
+    a zaplanowane przedłużenie nie przejmuje wiersza przed swoim startem.
+    """
+    orders = [
+        o
+        for o in (contract.client_orders or [])
+        if o.status != ClientOrderStatus.cancelled
+    ]
+    if not orders:
+        return None
+    today = date.today()
+    started = [o for o in orders if o.start_date is None or o.start_date <= today]
+    if started:
+        representative = max(started, key=lambda o: (o.start_date or date.min, o.id))
+    else:
+        representative = min(orders, key=lambda o: (o.start_date or date.max, o.id))
+    return representative.project_part
 
 
 @router.get("", response_model=ClientList)
@@ -357,6 +385,9 @@ async def get_client_profile(
         .options(
             selectinload(Contract.candidate),
             selectinload(Contract.job),
+            # Potrzebne do wyliczenia „części umowy" e-Zdrowia (ticket #3) —
+            # part żyje na ZAMÓWIENIU, wiersz konsultanta jest per-KONTRAKT.
+            selectinload(Contract.client_orders),
         )
         .order_by(Contract.start_date.desc())
     )
@@ -378,6 +409,7 @@ async def get_client_profile(
                 monthly_rate_client=c.monthly_rate_client,
                 monthly_margin=c.monthly_margin,
                 currency=c.currency or "PLN",
+                project_part=_representative_project_part(c),
             )
         )
 

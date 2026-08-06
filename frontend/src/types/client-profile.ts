@@ -75,6 +75,9 @@ export interface ActiveConsultantItem {
   monthly_rate_client: number | null;
   monthly_margin: number | null;
   currency: string;
+  /** „Część umowy" e-Zdrowia z reprezentatywnego (bieżącego) zamówienia
+      kontraktu — null u innych klientów i gdy nieuzupełniona. */
+  project_part?: string | null;
 }
 
 export interface HistoricalPlacementItem {

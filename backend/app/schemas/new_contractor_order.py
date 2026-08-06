@@ -61,6 +61,10 @@ class NewContractorOrderRequest(BaseModel):
     notes: Optional[str] = None
     """Notatki — trafiają na Contract.handover_notes + Order.notes."""
 
+    project_part: Optional[str] = Field(None, max_length=8)
+    """„Część umowy" — tylko Centrum e-Zdrowia (walidacja w endpointcie przez
+    app/services/ezdrowie.py; wymagana dla client_id=115, zabroniona u innych)."""
+
 
 class NewContractorOrderResponse(BaseModel):
     contract_id: int

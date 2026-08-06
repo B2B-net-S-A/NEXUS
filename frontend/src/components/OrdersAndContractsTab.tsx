@@ -22,6 +22,7 @@ import { useToast } from "@/components/Toast";
 import { contractsApi } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { foldText } from "@/lib/contract-client-filter";
+import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import type {
@@ -606,6 +607,9 @@ function ContractorCard({
 }: ContractorCardProps) {
   const [showHistory, setShowHistory] = useState(false);
   const historyOpen = searching ? true : showHistory;
+  // „Część umowy" — uzupełnianie/edycja bezpośrednio na karcie (to jest
+  // powierzchnia kompletacji draftu ClientOrder); tylko Centrum e-Zdrowia.
+  const ezdrowie = isEzdrowieClient(clientId);
 
   const { activeOrder, futureOrders, historyOrders } = useMemo(
     () => splitOrders(contractor.orders),
@@ -722,6 +726,39 @@ function ContractorCard({
                     onChange();
                   }}
                 />
+              </span>
+            )}
+            {ezdrowie && activeOrder && (
+              <span className="flex items-center gap-1">
+                część umowy
+                <select
+                  value={activeOrder.project_part ?? ""}
+                  aria-label="Część umowy"
+                  onChange={async (e) => {
+                    const value = e.target.value || null;
+                    try {
+                      await dlPortalApi.updateOrder(clientId, activeOrder.id, {
+                        project_part: value,
+                      });
+                      onSuccess("Część umowy zaktualizowana");
+                      onChange();
+                    } catch {
+                      onError("Nie udało się zapisać części umowy");
+                    }
+                  }}
+                  className={`px-1.5 py-0.5 border rounded bg-background text-xs ${
+                    activeOrder.project_part
+                      ? "border-border"
+                      : "border-amber-400 text-amber-700"
+                  }`}
+                >
+                  <option value="">— uzupełnij —</option>
+                  {PROJECT_PARTS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
               </span>
             )}
             {activeOrder ? (
