@@ -573,7 +573,9 @@ async def merge_client_into(
     37721 → 115 (Faza B); kolejni kandydaci: rodzina „BNP *".
     """
     if client_id == target_id:
-        raise HTTPException(status_code=422, detail="Nie można scalić klienta z samym sobą")
+        raise HTTPException(
+            status_code=422, detail="Nie można scalić klienta z samym sobą"
+        )
     source = await db.scalar(select(Client).where(Client.id == client_id))
     if source is None:
         raise HTTPException(status_code=404, detail="Client not found")
