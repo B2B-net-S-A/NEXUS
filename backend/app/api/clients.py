@@ -601,8 +601,11 @@ async def merge_client_into(
         )
 
     source.merged_into_client_id = target_id
-    source.archived_at = datetime.now(timezone.utc)
-    source.archived_by = current_user.id
+    # Wcześniej zarchiwizowane źródło to legalny kandydat do scalenia —
+    # zachowujemy ORYGINALNY moment/autora archiwizacji (review #1054), merge
+    # tylko dokłada wskazanie kanonicznego rekordu.
+    source.archived_at = source.archived_at or datetime.now(timezone.utc)
+    source.archived_by = source.archived_by or current_user.id
     db.add(
         Activity(
             entity_type="client",

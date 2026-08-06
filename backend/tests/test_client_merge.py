@@ -34,9 +34,12 @@ async def _new_client(**kwargs) -> int:
 
 async def _cleanup(*client_ids: int) -> None:
     async with AsyncSessionLocal() as db:
-        # Najpierw wskazujące (FK RESTRICT na merged_into), potem cele.
+        # ORM delete (nie raw DELETE) respektuje kaskady modelu; kolejność:
+        # najpierw wskazujące (FK RESTRICT na merged_into), potem cele.
         for cid in client_ids:
-            await db.execute(Client.__table__.delete().where(Client.id == cid))
+            c = await db.scalar(select(Client).where(Client.id == cid))
+            if c is not None:
+                await db.delete(c)
         await db.commit()
 
 
