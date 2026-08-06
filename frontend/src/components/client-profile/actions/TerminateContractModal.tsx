@@ -11,6 +11,8 @@ interface Props {
   candidateName: string;
   clientId: number;
   onClose: () => void;
+  /** Dodatkowa invalidacja wołającej listy (np. contractors-v2) po sukcesie. */
+  onTerminated?: () => void;
 }
 
 export function TerminateContractModal({
@@ -18,6 +20,7 @@ export function TerminateContractModal({
   candidateName,
   clientId,
   onClose,
+  onTerminated,
 }: Props) {
   const [reason, setReason] = useState<ContractTerminationReason>("project_ended");
   const [lessons, setLessons] = useState("");
@@ -37,7 +40,11 @@ export function TerminateContractModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
       queryClient.invalidateQueries({ queryKey: ["client-contracts", clientId] });
-      showSuccess("Kontrakt zakończony");
+      // Terminacja synchronizuje też zamówienia kontraktu (ticket #5) —
+      // zakładka Zamówienia musi się odświeżyć bez przeładowania.
+      queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
+      onTerminated?.();
+      showSuccess("Projekt zakończony");
       onClose();
     },
     onError: () => showError("Nie udało się zakończyć kontraktu"),
@@ -69,12 +76,14 @@ export function TerminateContractModal({
 
       <div>
         <label className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground block mb-1">
-          Data zakończenia
+          Data zakończenia projektu *
         </label>
         <input
           type="date"
           value={terminatedAt}
           onChange={(e) => setTerminatedAt(e.target.value)}
+          required
+          aria-label="Data zakończenia projektu"
           className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
         />
       </div>
@@ -100,11 +109,19 @@ export function TerminateContractModal({
           Anuluj
         </button>
         <button
-          onClick={() => mutation.mutate()}
+          onClick={() => {
+            // Data jest WYMAGANA (ticket #5) — dotąd wyczyszczone pole
+            // przechodziło i backend po cichu podstawiał dzisiaj.
+            if (!terminatedAt) {
+              showError("Podaj datę zakończenia projektu");
+              return;
+            }
+            mutation.mutate();
+          }}
           disabled={mutation.isPending}
           className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
         >
-          {mutation.isPending ? "Kończę..." : "Zakończ kontrakt"}
+          {mutation.isPending ? "Kończę..." : "Zakończ projekt"}
         </button>
       </div>
     </ModalShell>

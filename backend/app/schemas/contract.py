@@ -433,6 +433,9 @@ class ContractorListItem(BaseModel):
 
     contract_id: int
     candidate: ContractorCandidateRef
+    # client_id potrzebny akcji „Zakończ projekt" (ticket #5) — modal
+    # terminacji invaliduje cache per-klient (profil, zamówienia).
+    client_id: Optional[int] = None
     client_name: Optional[str] = None
     job_title: Optional[str] = None
     status: ContractStatus

@@ -74,6 +74,9 @@ class ActiveConsultantItem(BaseModel):
         None  # null if no end_date; < 30 triggers amber UI, < 7 red
     )
     monthly_rate_client: Optional[int] = None
+    # Stawka kosztowa /mc (ticket #5 krok 1: koszt + przychód + marża w wierszu).
+    # Dane finansowe — redagowane dla ról bez VIEW_FINANCE jak rodzeństwo.
+    monthly_rate_candidate: Optional[int] = None
     monthly_margin: Optional[int] = None
     currency: str = "PLN"
     # „Część umowy" e-Zdrowia z REPREZENTATYWNEGO zamówienia kontraktu

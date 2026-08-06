@@ -111,6 +111,7 @@ def _to_item(contract: Contract) -> ContractorListItem:
     return ContractorListItem(
         contract_id=contract.id,
         candidate=candidate_ref,
+        client_id=contract.client_id,
         client_name=contract.client.name if contract.client else None,
         job_title=contract.job.title if contract.job else None,
         status=contract.status,

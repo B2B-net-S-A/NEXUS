@@ -33,6 +33,7 @@ import {
  TableRow,
 } from"@/components/ui/table";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
+import { TerminateContractModal } from"@/components/client-profile/actions/TerminateContractModal";
 
 type Tab = Exclude<ContractorStatus, "ready_for_signature">;
 
@@ -86,6 +87,9 @@ export function ContractorsListV2() {
  };
  const [draftToComplete, setDraftToComplete] =
  useState<ContractorListItem | null>(null);
+ // „Zakończ projekt" (ticket #5 krok 4) — per wiersz = per kontrakt u jednego
+ // klienta, więc wybór klienta jest zbędny; backend synchronizuje zamówienia.
+ const [terminating, setTerminating] = useState<ContractorListItem | null>(null);
  const queryClient = useQueryClient();
 
  const { data, isLoading } = useQuery({
@@ -342,6 +346,16 @@ export function ContractorsListV2() {
  >
  <FileText className="h-3.5 w-3.5" /> Szczegóły
  </Link>
+ {(c.status === "active" || c.status === "ending") && (
+ <Button
+ size="sm"
+ variant="ghost"
+ className="text-destructive hover:bg-destructive/10"
+ onClick={() => setTerminating(c)}
+ >
+ Zakończ projekt
+ </Button>
+ )}
  </div>
  </TableCell>
  </TableRow>
@@ -382,6 +396,19 @@ export function ContractorsListV2() {
  </Button>
  </div>
  </div>
+ )}
+
+ {terminating && (
+ <TerminateContractModal
+ contractId={terminating.contract_id}
+ candidateName={`${terminating.candidate.name} ${terminating.candidate.lastname}`.trim()}
+ clientId={terminating.client_id ?? 0}
+ onClose={() => setTerminating(null)}
+ onTerminated={() => {
+ queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+ queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
+ }}
+ />
  )}
 
  {draftToComplete && (

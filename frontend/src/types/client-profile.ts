@@ -73,6 +73,8 @@ export interface ActiveConsultantItem {
   end_date: string | null;
   days_to_end: number | null;
   monthly_rate_client: number | null;
+  /** Stawka kosztowa /mc (ticket #5) — redagowana bez VIEW_FINANCE. */
+  monthly_rate_candidate?: number | null;
   monthly_margin: number | null;
   currency: string;
   /** „Część umowy" e-Zdrowia z reprezentatywnego (bieżącego) zamówienia

@@ -80,11 +80,16 @@ export function ContractTerminationDialog({
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-muted-foreground">Data zakończenia</span>
+            <span className="text-xs text-muted-foreground">
+              Data zakończenia projektu *
+            </span>
+            {/* required (ticket #5): wyczyszczone pole przechodziło, a backend
+                po cichu podstawiał dzisiaj. */}
             <input
               type="date"
               value={when}
               onChange={(e) => setWhen(e.target.value)}
+              required
               className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950"
             />
           </label>
