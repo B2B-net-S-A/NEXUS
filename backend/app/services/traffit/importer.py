@@ -229,7 +229,11 @@ _UPSERT_CLIENT = text(
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         name       = EXCLUDED.name,
-        status     = EXCLUDED.status,
+        -- ``status`` CELOWO nieobecne (decyzja Fazy B, 2026-08-06): status jest
+        -- NEXUS-owned — seedowany przy pierwszym imporcie, potem edytowany
+        -- ręcznie z UI. Traffit trzyma go głównie jako default 'active'
+        -- (normalize_client_status fallback), więc nadpis przy każdym daily
+        -- sync cofał ręczne zmiany w <24h i wpychał 'Aktywny' 130 nieaktywnym.
         notes      = COALESCE(EXCLUDED.notes, clients.notes),
         updated_at = NOW()
     RETURNING id, (xmax = 0) AS was_insert
