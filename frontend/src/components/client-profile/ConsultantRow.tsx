@@ -81,9 +81,22 @@ export function ConsultantRow({ consultant, actions }: Props) {
                 {formatDate(consultant.start_date)}
                 {consultant.end_date && ` → ${formatDate(consultant.end_date)}`}
               </span>
+              {/* Ticket #5 krok 1: koszt + przychód + marża w jednym wierszu
+                  (finansowe — backend redaguje bez VIEW_FINANCE). */}
+              {consultant.monthly_rate_candidate != null && (
+                <span>
+                  koszt{" "}
+                  <span className="font-medium text-foreground dark:text-muted-foreground">
+                    {formatPLN(consultant.monthly_rate_candidate)}/mc
+                  </span>
+                </span>
+              )}
               {consultant.monthly_rate_client != null && (
-                <span className="font-medium text-foreground dark:text-muted-foreground">
-                  {formatPLN(consultant.monthly_rate_client)}/mc
+                <span>
+                  przychód{" "}
+                  <span className="font-medium text-foreground dark:text-muted-foreground">
+                    {formatPLN(consultant.monthly_rate_client)}/mc
+                  </span>
                 </span>
               )}
               {consultant.monthly_margin != null && (

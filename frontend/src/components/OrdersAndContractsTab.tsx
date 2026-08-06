@@ -39,6 +39,7 @@ import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { canManageCandidateFinance, useAuthStore } from "@/store/auth";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
+import { TerminateContractModal } from "@/components/client-profile/actions/TerminateContractModal";
 
 interface OrdersAndContractsTabProps {
   clientId: number;
@@ -74,6 +75,10 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
   const [extendingContract, setExtendingContract] = useState<ContractWithOrdersRead | null>(
     null,
   );
+  // „Zakończ" obok „Dodaj przedłużenie" (ticket #5 krok 3) — reuse modal
+  // terminacji; backend synchronizuje kontrakt + zamówienia jedną datą.
+  const [terminatingContract, setTerminatingContract] =
+    useState<ContractWithOrdersRead | null>(null);
   const [newContractor, setNewContractor] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -199,6 +204,7 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
               canManageFinance={canManageFinance}
               searching={searching}
               onExtend={() => setExtendingContract(contractor)}
+              onTerminate={() => setTerminatingContract(contractor)}
               onChange={refresh}
               onError={(msg) => showToast(msg, "error")}
               onSuccess={(msg) => showToast(msg, "success")}
@@ -227,6 +233,16 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
             setNewContractor(false);
             refresh();
           }}
+        />
+      )}
+
+      {terminatingContract && (
+        <TerminateContractModal
+          contractId={terminatingContract.contract_id}
+          candidateName={terminatingContract.candidate_name}
+          clientId={clientId}
+          onClose={() => setTerminatingContract(null)}
+          onTerminated={refresh}
         />
       )}
     </div>
@@ -590,6 +606,7 @@ interface ContractorCardProps {
       w historycznym zamówieniu nie było schowane za zwiniętym togglem. */
   searching: boolean;
   onExtend: () => void;
+  onTerminate: () => void;
   onChange: () => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
@@ -601,6 +618,7 @@ function ContractorCard({
   canManageFinance,
   searching,
   onExtend,
+  onTerminate,
   onChange,
   onError,
   onSuccess,
@@ -795,13 +813,27 @@ function ContractorCard({
               pozostaje w Profil → Obecni konsultanci (ConsultantRow). */}
         </div>
 
-        <button
-          onClick={onExtend}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
-        >
-          <Plus className="w-4 h-4" />
-          Dodaj przedłużenie
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onExtend}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
+          >
+            <Plus className="w-4 h-4" />
+            Dodaj przedłużenie
+          </button>
+          {/* „Zakończ" (ticket #5 krok 3) — tylko dla żywych kontraktów;
+              zakończenie zamkniętego/draftowego nie ma sensu. */}
+          {(contractor.contract_status === "active" ||
+            contractor.contract_status === "ending") && (
+            <button
+              onClick={onTerminate}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-destructive border border-destructive/40 rounded hover:bg-destructive/10"
+            >
+              <Trash2 className="w-4 h-4" />
+              Zakończ
+            </button>
+          )}
+        </div>
       </div>
 
       {hasSection ? (
