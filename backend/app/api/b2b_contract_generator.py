@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.contract_access import (
-    ContractLegalAccess,
+    B2BGeneratorAccess,
     apply_contract_legal_client_scope,
     assert_contract_legal_client_access,
 )
@@ -123,6 +123,58 @@ def _has_signature_role(user: User) -> bool:
     )
 
 
+def _generator_unscoped(user: User) -> bool:
+    """Roles that operate the generator without the client-team scope.
+
+    TAC is a full-access generator persona (business decision): it may draft,
+    render, list and download every B2B contract regardless of any
+    ``ClientTacAssignment`` graph. Admin/Head of Recruitment were already
+    unrestricted through the underlying resolvers, so listing them here is
+    behaviour-preserving. Delivery Lead is deliberately excluded — it keeps the
+    per-client assignment scope.
+    """
+
+    return user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.tac,
+    )
+
+
+async def _assert_generator_client_access(
+    db: AsyncSession,
+    user: User,
+    client_id: int | None,
+    *,
+    write: bool = False,
+) -> None:
+    """Client-entity authorization for the generator, bypassed for TAC.
+
+    Full-access personas (see :func:`_generator_unscoped`) skip the client-team
+    check entirely; everyone else falls through to the shared, relationship-aware
+    :func:`assert_contract_legal_client_access` so Delivery Lead stays scoped.
+    """
+
+    if _generator_unscoped(user):
+        return
+    await assert_contract_legal_client_access(db, user, client_id, write=write)
+
+
+async def _scope_generator_query(
+    statement, client_column, db: AsyncSession, user: User
+):
+    """Scope the generated-contracts list, unrestricted for TAC.
+
+    A full-access TAC must see every generated contract — including ones it just
+    drafted for a client it is not assigned to — so the client-team scope is not
+    applied. Delivery Lead keeps its assignment-bounded view.
+    """
+
+    if _generator_unscoped(user):
+        return statement
+    return await apply_contract_legal_client_scope(statement, client_column, db, user)
+
+
 async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -> None:
     await ensure_job_membership(db, user, job.id)
 
@@ -133,18 +185,34 @@ async def _load_legal_scoped_job(
     job_id: int,
     *,
     write: bool,
+    strict_client_scope: bool = False,
 ) -> Job:
-    """Load a Job and authorize its client before touching candidate/legal PII."""
+    """Load a Job and authorize its client before touching candidate/legal PII.
+
+    ``strict_client_scope`` selects which authorization applies. The default
+    (``False``) uses the generator's TAC-unscoped check, so drafting/rendering
+    is reachable for a full-access TAC. The audited ``confirm-fully-signed``
+    automation passes ``True`` to keep DL/TAC bound to their explicit client
+    assignment — that one-way employment automation must stay contained.
+    """
 
     job = await db.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
-    await assert_contract_legal_client_access(
-        db,
-        user,
-        job.client_id,
-        write=write,
-    )
+    if strict_client_scope:
+        await assert_contract_legal_client_access(
+            db,
+            user,
+            job.client_id,
+            write=write,
+        )
+    else:
+        await _assert_generator_client_access(
+            db,
+            user,
+            job.client_id,
+            write=write,
+        )
     return job
 
 
@@ -322,7 +390,7 @@ async def _serialize_generated_contract(
 
 @router.get("/roles", response_model=list[B2BRoleResponse])
 async def list_roles(
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
     include_inactive: bool = Query(False),
 ):
@@ -387,7 +455,7 @@ async def create_role(
 @router.get("/roles/{role_id}", response_model=B2BRoleResponse)
 async def get_role(
     role_id: int,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     role = await db.get(B2BContractRole, role_id)
@@ -460,7 +528,7 @@ async def _b2b_template_for(db: AsyncSession, lang: str) -> ContractTemplate:
 @router.post("/generate", response_model=B2BGenerateResponse)
 async def generate(
     payload: B2BGenerateRequest,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     role = await db.get(B2BContractRole, payload.role_id)
@@ -481,7 +549,7 @@ async def generate(
         )
         if not contract:
             raise HTTPException(status_code=404, detail="Umowa nie znaleziona")
-        await assert_contract_legal_client_access(
+        await _assert_generator_client_access(
             db,
             current_user,
             contract.client_id,
@@ -588,7 +656,7 @@ async def generate(
                 status_code=422,
                 detail="Wymagany candidate_id oraz client_id lub job_id z klientem",
             )
-        await assert_contract_legal_client_access(
+        await _assert_generator_client_access(
             db,
             current_user,
             client_id,
@@ -699,11 +767,11 @@ async def generate(
 @router.get("/contracts/{contract_id}/detail", response_model=B2BContractDetailResponse)
 async def get_detail(
     contract_id: int,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _load_contract_with_relations(db, contract_id, current_user)
-    await assert_contract_legal_client_access(
+    await _assert_generator_client_access(
         db,
         current_user,
         contract.client_id,
@@ -732,12 +800,12 @@ async def get_detail(
 @router.get("/contracts/{contract_id}/docx")
 async def download_docx(
     contract_id: int,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
     language: str | None = Query(None),
 ):
     contract = await _load_contract_with_relations(db, contract_id, current_user)
-    await assert_contract_legal_client_access(
+    await _assert_generator_client_access(
         db,
         current_user,
         contract.client_id,
@@ -808,7 +876,7 @@ async def _next_seq(db: AsyncSession, year: int) -> int:
 
 @router.get("/next-number", response_model=B2BNextNumberResponse)
 async def next_number(
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Sugerowany kolejny WOLNY numer umowy `<seq>/<rok>` (edytowalny w UI)."""
@@ -822,7 +890,7 @@ async def next_number(
 
 @router.get("/company-lookup", response_model=B2BCompanyLookupResponse)
 async def company_lookup(
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     nip: str | None = Query(None),
     krs: str | None = Query(None),
 ):
@@ -842,7 +910,7 @@ async def company_lookup(
 @router.post("/render")
 async def render_standalone(
     payload: B2BRenderRequest,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
     fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
 ):
@@ -866,7 +934,7 @@ async def render_standalone(
             candidate_id=payload.candidate_id,
             job_id=linked_job.id,
         )
-    await assert_contract_legal_client_access(
+    await _assert_generator_client_access(
         db,
         current_user,
         linked_job.client_id if linked_job else None,
@@ -964,7 +1032,7 @@ def _like_needle(raw: str) -> str:
 
 @router.get("/generated", response_model=list[B2BGeneratedContractItem])
 async def list_generated_contracts(
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     q: str | None = Query(
@@ -989,7 +1057,7 @@ async def list_generated_contracts(
 
     ``can_delete`` mówi UI, czy bieżący użytkownik może usunąć dany wpis (autor
     wpisu lub admin)."""
-    query = await apply_contract_legal_client_scope(
+    query = await _scope_generator_query(
         select(B2BGeneratedContract),
         B2BGeneratedContract.client_id,
         db,
@@ -1036,7 +1104,7 @@ async def list_generated_contracts(
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_contract(
     generated_id: int,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
@@ -1048,7 +1116,7 @@ async def download_generated_contract(
     row = await db.get(B2BGeneratedContract, generated_id)
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
-    await assert_contract_legal_client_access(
+    await _assert_generator_client_access(
         db,
         current_user,
         row.client_id,
@@ -1091,6 +1159,9 @@ async def confirm_generated_contract_fully_signed(
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+        # confirm-fully-signed is the audited, one-way employment automation —
+        # it stays strictly client-scoped for DL/TAC even though the rest of the
+        # generator is unscoped for a full-access TAC.
         if row.client_id is not None:
             await assert_contract_legal_client_access(
                 db,
@@ -1111,6 +1182,7 @@ async def confirm_generated_contract_fully_signed(
                 current_user,
                 payload.job_id,
                 write=True,
+                strict_client_scope=True,
             )
 
         # Idempotent replay: do not recreate an order/stage after the original
@@ -1296,7 +1368,7 @@ async def confirm_generated_contract_fully_signed(
 async def update_generated_contract(
     generated_id: int,
     payload: B2BGeneratedContractUpdate,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Popraw wpis na liście „Wygenerowane umowy": nazwa Klienta i/lub status.
@@ -1316,7 +1388,7 @@ async def update_generated_contract(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
-    await assert_contract_legal_client_access(
+    await _assert_generator_client_access(
         db,
         current_user,
         row.client_id,
@@ -1419,7 +1491,7 @@ async def update_generated_contract(
 @router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_generated_contract(
     generated_id: int,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń wpis z listy „Wygenerowane umowy".
@@ -1435,7 +1507,7 @@ async def delete_generated_contract(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
-    await assert_contract_legal_client_access(
+    await _assert_generator_client_access(
         db,
         current_user,
         row.client_id,
@@ -1471,7 +1543,7 @@ async def delete_generated_contract(
 @router.post("/check-uop", response_model=B2BUopCheckResponse)
 async def check_uop(
     payload: B2BUopCheckRequest,
-    current_user: ContractLegalAccess,
+    current_user: B2BGeneratorAccess,
 ):
     """AI-sprawdzenie opisu/zakresu pod kątem znamion umowy o pracę (art. 22 §1 KP).
 

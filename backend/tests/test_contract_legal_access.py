@@ -4,9 +4,14 @@ P0.11 containment: B2B generator + contract-template render używały bare
 ``CurrentUser``, więc read-only viewer (`user`) oraz recruiter/sourcer mogli
 generować/mutować/pobierać umowy prawne. Po zmianie chroni je ``ContractLegalAccess``
 (admin / head_of_recruitment / delivery_lead / tac — grono legal-team, spójne z
-``client_access.can_view_legal_documents``). Delivery Lead/TAC additionally
-require at least one explicit client assignment for global tools and the exact
-client assignment for entity routes.
+``client_access.can_view_legal_documents``).
+
+Generator umów B2B jest jednak pełnoprawnym narzędziem TAC-a: TAC (obok
+Admin/HoR) otwiera i obsługuje generator **rolą, bez wymogu przypisania do
+klienta** (``B2BGeneratorAccess`` + odscopowane wrappery w
+``b2b_contract_generator``). Delivery Lead nadal wymaga co najmniej jednego
+jawnego przypisania klienta dla narzędzi globalnych i dokładnego przypisania
+dla tras encji.
 
 Ten test dowodzi: denied roles → 403, legal-team → NIE 403 (auth przechodzi),
 na reprezentatywnych endpointach każdego typu (GET bez body, GET z listą,
@@ -153,11 +158,14 @@ async def test_legal_team_roles_pass_auth(app_client: AsyncClient, role_value: s
     )
 
 
-@pytest.mark.parametrize("role_value", ["delivery_lead", "tac"])
+@pytest.mark.parametrize("role_value", ["delivery_lead"])
 async def test_unassigned_client_team_role_fails_closed(
     app_client: AsyncClient,
     role_value: str,
 ):
+    # Delivery Lead keeps the fail-closed contract: an empty client graph is a
+    # hard deny on the generator surfaces. (TAC intentionally does NOT — see
+    # ``test_unassigned_tac_has_full_generator_access``.)
     headers = await _headers_for(
         app_client,
         role_value,
@@ -168,6 +176,35 @@ async def test_unassigned_client_team_role_fails_closed(
         assert response.status_code == 403, (
             f"unassigned {role_value} GET {url} → {response.status_code}"
         )
+
+
+async def test_unassigned_tac_has_full_generator_access(app_client: AsyncClient):
+    """A TAC with zero ClientTacAssignment rows still gets the full generator.
+
+    Regression guard for the reported bug: a freshly-added TAC saw the "Brak
+    uprawnień" banner because the shared legal gate required a non-empty client
+    graph. The generator is a full-access TAC tool, so role alone must admit it.
+    """
+
+    headers = await _headers_for(app_client, "tac", assign_client=False)
+
+    # Global GET surfaces resolve, they do not 403 into an empty banner.
+    for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
+        r = await app_client.get(url, headers=headers)
+        assert r.status_code == 200, (
+            f"unassigned tac GET {url} → {r.status_code}: {r.text}"
+        )
+
+    # Drafting is reachable: auth passes, business logic 404s on the missing
+    # role_id — never a client-scope 403.
+    r = await app_client.post(
+        GENERATE_URL,
+        json={"role_id": 999999, "start_date": "2026-01-01"},
+        headers=headers,
+    )
+    assert r.status_code == 404, (
+        f"unassigned tac POST generate → {r.status_code}: {r.text}"
+    )
 
 
 async def test_unauthenticated_is_rejected(app_client: AsyncClient):
