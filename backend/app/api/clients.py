@@ -407,6 +407,7 @@ async def get_client_profile(
                 end_date=c.end_date,
                 days_to_end=_days_to(c.end_date),
                 monthly_rate_client=c.monthly_rate_client,
+                monthly_rate_candidate=c.monthly_rate_candidate,
                 monthly_margin=c.monthly_margin,
                 currency=c.currency or "PLN",
                 project_part=_representative_project_part(c),
@@ -545,6 +546,7 @@ async def get_client_profile(
             job.salary_max = None
         for consultant in response.active_consultants:
             consultant.monthly_rate_client = None
+            consultant.monthly_rate_candidate = None
             consultant.monthly_margin = None
         for placement in response.historical.placements:
             placement.total_revenue = None

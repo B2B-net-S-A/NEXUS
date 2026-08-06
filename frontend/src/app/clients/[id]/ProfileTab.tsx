@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, FileText, XCircle, Trash2 } from "lucide-react";
+import { Users, FileText, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import {
   filterConsultantsByPart,
@@ -11,15 +11,11 @@ import {
   type ProjectPart,
 } from "@/lib/ezdrowie";
 import { cn } from "@/lib/utils";
-import type {
-  ActiveConsultantItem,
-  ClientProfileResponse,
-} from "@/types/client-profile";
+import type { ClientProfileResponse } from "@/types/client-profile";
 import { SummaryBar } from "@/components/client-profile/SummaryBar";
 import { ConsultantRow } from "@/components/client-profile/ConsultantRow";
 import { PlacementRow } from "@/components/client-profile/PlacementRow";
 import { LostJobRow } from "@/components/client-profile/LostJobRow";
-import { TerminateContractModal } from "@/components/client-profile/actions/TerminateContractModal";
 import { ExtendContractMenu } from "@/components/client-profile/actions/ExtendContractMenu";
 import { ReEngageButton } from "@/components/client-profile/actions/ReEngageButton";
 
@@ -34,12 +30,10 @@ export function ProfileTab({ clientId }: Props) {
       api.get(`/api/clients/${clientId}/profile`).then((r) => r.data),
   });
 
-  // Modal state — a single in-flight action at a time. Keeping each modal's
-  // trigger data colocated here avoids drilling setState through every Row.
-  // Akcje rekrutacji (Dodaj/Lost) mieszkają teraz w zakładce Projekty —
-  // sekcja „Otwarte rekrutacje" została usunięta (ticket #3), kafelek
-  // metryki w SummaryBar zostaje.
-  const [terminateContract, setTerminateContract] = useState<ActiveConsultantItem | null>(null);
+  // Akcje rekrutacji (Dodaj/Lost) mieszkają w zakładce Projekty — sekcja
+  // „Otwarte rekrutacje" usunięta (ticket #3). Zakończenie projektu (ticket
+  // #5) odbywa się w Zamówieniach lub Kontraktach — Profil jest wyłącznie
+  // odbiorcą danych (Obecni/Archiwum to read-modele).
 
   if (isLoading) {
     return (
@@ -62,109 +56,133 @@ export function ProfileTab({ clientId }: Props) {
     <div className="space-y-6">
       <SummaryBar summary={data.summary} />
 
-      <ActiveConsultantsSection
-        items={data.active_consultants}
+      <ConsultantsSection
+        active={data.active_consultants}
+        archived={data.historical.placements}
         clientId={clientId}
-        onTerminate={setTerminateContract}
       />
-      <HistorySection
-        placements={data.historical.placements}
-        lostJobs={data.historical.lost_jobs}
-      />
-
-      {terminateContract && (
-        <TerminateContractModal
-          contractId={terminateContract.contract_id}
-          candidateName={terminateContract.candidate.name}
-          clientId={clientId}
-          onClose={() => setTerminateContract(null)}
-        />
-      )}
+      <LostJobsSection lostJobs={data.historical.lost_jobs} />
     </div>
   );
 }
 
-// ── Obecni konsultanci ────────────────────────────────────────────────────────
+// ── Konsultanci: Obecni | Archiwum ───────────────────────────────────────────
 // Sekcja „Otwarte rekrutacje" (lista) usunięta dla wszystkich klientów
 // (ticket #3) — akcje Dodaj/Lost przeniesione do zakładki Projekty, kafelek
 // metryki „Otwarte rekrutacje" w SummaryBar zostaje bez zmian.
+// Ticket #5: Obecni BEZ akcji „Zakończ" (zakończenie w Zamówieniach lub
+// Kontraktach); Archiwum = wyłącznie odbiorca danych — konsultant trafia tu
+// automatycznie po zakończeniu projektu (read-model z zakończonych kontraktów).
 
-function ActiveConsultantsSection({
-  items,
+type ConsultantsTab = "obecni" | "archiwum";
+
+function ConsultantsSection({
+  active,
+  archived,
   clientId,
-  onTerminate,
 }: {
-  items: ClientProfileResponse["active_consultants"];
+  active: ClientProfileResponse["active_consultants"];
+  archived: ClientProfileResponse["historical"]["placements"];
   clientId: number;
-  onTerminate: (c: ActiveConsultantItem) => void;
 }) {
+  const [tab, setTab] = useState<ConsultantsTab>("obecni");
   // Filtr „części umowy" — widoczny wyłącznie dla Centrum e-Zdrowia
   // (ticket #3; bramka po client_id). Domyślnie pełna lista.
   const ezdrowie = isEzdrowieClient(clientId);
   const [partFilter, setPartFilter] = useState<ProjectPart | "all">("all");
-  const filtered = ezdrowie ? filterConsultantsByPart(items, partFilter) : items;
+  const filtered = ezdrowie
+    ? filterConsultantsByPart(active, partFilter)
+    : active;
 
   return (
     <section className="space-y-3">
       <SectionHeader
         icon={<Users className="w-4 h-4 text-emerald-600" />}
-        title="Obecni konsultanci"
-        // Aktywny filtr części zawęża licznik do tego, co realnie widać —
-        // stały total przy filtrze czytał się jak błąd (review #1056).
-        count={
-          ezdrowie && partFilter !== "all" ? filtered.length : items.length
-        }
+        title="Konsultanci"
+        count={active.length + archived.length}
       />
-      {ezdrowie && items.length > 0 && (
-        <div
-          className="flex flex-wrap gap-2"
-          role="group"
-          aria-label="Filtr części umowy"
+
+      <div className="flex gap-2 border-b border-border dark:border-border">
+        <SubTabButton
+          active={tab === "obecni"}
+          onClick={() => setTab("obecni")}
+          icon={<Users className="w-3.5 h-3.5" />}
         >
-          <PartFilterPill
-            active={partFilter === "all"}
-            onClick={() => setPartFilter("all")}
-          >
-            Wszystkie części
-          </PartFilterPill>
-          {PROJECT_PARTS.map((p) => (
-            <PartFilterPill
-              key={p.value}
-              active={partFilter === p.value}
-              onClick={() => setPartFilter(p.value)}
+          {/* Aktywny filtr części zawęża licznik do tego, co realnie widać —
+              stały total przy filtrze czytał się jak błąd (review #1056). */}
+          Obecni konsultanci (
+          {ezdrowie && partFilter !== "all" ? filtered.length : active.length})
+        </SubTabButton>
+        <SubTabButton
+          active={tab === "archiwum"}
+          onClick={() => setTab("archiwum")}
+          icon={<FileText className="w-3.5 h-3.5" />}
+        >
+          Archiwum konsultantów ({archived.length})
+        </SubTabButton>
+      </div>
+
+      {tab === "obecni" ? (
+        <>
+          {ezdrowie && active.length > 0 && (
+            <div
+              className="flex flex-wrap gap-2"
+              role="group"
+              aria-label="Filtr części umowy"
             >
-              {p.label}
-            </PartFilterPill>
-          ))}
-        </div>
-      )}
-      {items.length === 0 ? (
-        <EmptyState icon={<Users className="w-8 h-8" />}>
-          Nie mamy aktywnych konsultantów u tego klienta.
-        </EmptyState>
-      ) : filtered.length === 0 ? (
-        <EmptyState icon={<Users className="w-8 h-8" />}>
-          Brak konsultantów spełniających wybrane kryteria.
+              <PartFilterPill
+                active={partFilter === "all"}
+                onClick={() => setPartFilter("all")}
+              >
+                Wszystkie części
+              </PartFilterPill>
+              {PROJECT_PARTS.map((p) => (
+                <PartFilterPill
+                  key={p.value}
+                  active={partFilter === p.value}
+                  onClick={() => setPartFilter(p.value)}
+                >
+                  {p.label}
+                </PartFilterPill>
+              ))}
+            </div>
+          )}
+          {active.length === 0 ? (
+            <EmptyState icon={<Users className="w-8 h-8" />}>
+              Nie mamy aktywnych konsultantów u tego klienta.
+            </EmptyState>
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={<Users className="w-8 h-8" />}>
+              Brak konsultantów spełniających wybrane kryteria.
+            </EmptyState>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((c) => (
+                <ConsultantRow
+                  key={c.contract_id}
+                  consultant={c}
+                  actions={
+                    <ExtendContractMenu
+                      contractId={c.contract_id}
+                      clientId={clientId}
+                    />
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </>
+      ) : archived.length === 0 ? (
+        <EmptyState icon={<FileText className="w-8 h-8" />}>
+          Brak zakończonych kontraktów dla tego klienta.
         </EmptyState>
       ) : (
         <div className="space-y-2">
-          {filtered.map((c) => (
-            <ConsultantRow
-              key={c.contract_id}
-              consultant={c}
-              actions={
-                <>
-                  <ExtendContractMenu contractId={c.contract_id} clientId={clientId} />
-                  <button
-                    onClick={() => onTerminate(c)}
-                    title="Zakończ kontrakt"
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Zakończ
-                  </button>
-                </>
-              }
+          {archived.map((p) => (
+            <PlacementRow
+              key={p.contract_id}
+              placement={p}
+              actions={<ReEngageButton placement={p} />}
             />
           ))}
         </div>
@@ -199,62 +217,23 @@ function PartFilterPill({
   );
 }
 
-// ── Historia ──────────────────────────────────────────────────────────────────
+// ── Przegrane rekrutacje ─────────────────────────────────────────────────────
+// Dawna sekcja „Historia" miała dwie zakładki: Placementy (teraz „Archiwum
+// konsultantów" obok Obecnych — ticket #5 krok 2) i Przegrane (zostają tutaj).
 
-type HistoryTab = "placements" | "lost";
-
-function HistorySection({
-  placements,
+function LostJobsSection({
   lostJobs,
 }: {
-  placements: ClientProfileResponse["historical"]["placements"];
   lostJobs: ClientProfileResponse["historical"]["lost_jobs"];
 }) {
-  const [tab, setTab] = useState<HistoryTab>("placements");
-  const total = placements.length + lostJobs.length;
-
   return (
     <section className="space-y-3">
       <SectionHeader
-        icon={<FileText className="w-4 h-4 text-muted-foreground" />}
-        title="Historia"
-        count={total}
+        icon={<XCircle className="w-4 h-4 text-muted-foreground" />}
+        title="Przegrane rekrutacje"
+        count={lostJobs.length}
       />
-
-      <div className="flex gap-2 border-b border-border dark:border-border">
-        <SubTabButton
-          active={tab === "placements"}
-          onClick={() => setTab("placements")}
-          icon={<FileText className="w-3.5 h-3.5" />}
-        >
-          Placementy ({placements.length})
-        </SubTabButton>
-        <SubTabButton
-          active={tab === "lost"}
-          onClick={() => setTab("lost")}
-          icon={<XCircle className="w-3.5 h-3.5" />}
-        >
-          Przegrane ({lostJobs.length})
-        </SubTabButton>
-      </div>
-
-      {tab === "placements" ? (
-        placements.length === 0 ? (
-          <EmptyState icon={<FileText className="w-8 h-8" />}>
-            Brak zakończonych kontraktów dla tego klienta.
-          </EmptyState>
-        ) : (
-          <div className="space-y-2">
-            {placements.map((p) => (
-              <PlacementRow
-                key={p.contract_id}
-                placement={p}
-                actions={<ReEngageButton placement={p} />}
-              />
-            ))}
-          </div>
-        )
-      ) : lostJobs.length === 0 ? (
+      {lostJobs.length === 0 ? (
         <EmptyState icon={<XCircle className="w-8 h-8" />}>
           Świetnie — żadna oferta u tego klienta nie została przegrana.
         </EmptyState>

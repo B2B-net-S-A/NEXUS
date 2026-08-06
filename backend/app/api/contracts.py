@@ -2882,6 +2882,25 @@ async def terminate_contract(
     when = data.terminated_at or date.today()
     previous_end_date = contract.end_date
 
+    # Idempotentny replay (double-submit / retry): identyczna dyspozycja nie
+    # dokłada drugiej Activity ani aneksu — dotąd każdy resubmit dopisywał
+    # kolejny wpis 'terminated' (audyt-higiena z weryfikacji Fazy A/B).
+    if (
+        contract.terminated_at == when
+        and contract.termination_reason == data.termination_reason
+        and contract.end_date is not None
+        and contract.end_date <= when
+    ):
+        detail = _to_detail(contract)
+        from app.analytics.capabilities import (
+            AnalyticsCapability,
+            user_has_capability,
+        )
+
+        if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+            _redact_contract_finance(detail)
+        return detail
+
     contract.terminated_at = when
     contract.termination_reason = data.termination_reason
     contract.termination_lessons = data.termination_lessons
@@ -2895,6 +2914,46 @@ async def terminate_contract(
     contract.status = _status_after_end_date_change(
         ContractStatus.ended, contract.end_date, date.today()
     )
+
+    # ── Sync zamówień (ticket #5, Faza C): JEDNA data końca w obu modelach ──
+    # Contract.end_date i ClientOrder.end_date to osobne kolumny skanowane
+    # przez dwa niezależne demony (contract_alerts / dl_portal_expiry_scanner)
+    # — bez jawnego syncu zakończony kontrakt zostawiał otwarte zamówienia
+    # dryfujące bezterminowo. Reguły:
+    #  • zamówienie startujące PO dacie końca → cancelled (nigdy nie ruszy),
+    #  • pozostałe otwarte (draft/active/paused): end_date = when; completed
+    #    dopiero gdy data nadeszła — przyszłą datę materializuje dzienny
+    #    skaner (lustrzana semantyka P0.7 kontraktu),
+    #  • B2BGeneratedContract celowo NIETKNIĘTY (step 6 ticketa — zamknięcie
+    #    dokumentu prawnego to odrębna, ręczna operacja).
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    open_orders = (
+        (
+            await db.execute(
+                select(ClientOrder).where(
+                    ClientOrder.contract_id == contract_id,
+                    ClientOrder.status.in_(
+                        (
+                            ClientOrderStatus.draft,
+                            ClientOrderStatus.active,
+                            ClientOrderStatus.paused,
+                        )
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for order in open_orders:
+        if order.start_date is not None and order.start_date > when:
+            order.status = ClientOrderStatus.cancelled
+        else:
+            if order.end_date is None or order.end_date > when:
+                order.end_date = when
+            if when <= date.today():
+                order.status = ClientOrderStatus.completed
 
     # Audit amendment if the contract was cut short.
     if previous_end_date is not None and when < previous_end_date:
@@ -2930,6 +2989,7 @@ async def terminate_contract(
                 "termination_reason": data.termination_reason.value,
                 "terminated_at": when.isoformat(),
                 "early": previous_end_date is not None and when < previous_end_date,
+                "synced_orders": len(open_orders),
             },
         )
     )

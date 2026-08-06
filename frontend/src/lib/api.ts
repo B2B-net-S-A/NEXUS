@@ -1452,6 +1452,8 @@ export interface ContractorCandidateRef {
 export interface ContractorListItem {
   contract_id: number;
   candidate: ContractorCandidateRef;
+  /** Potrzebny akcji „Zakończ projekt" (invalidacje cache per-klient). */
+  client_id?: number | null;
   client_name?: string | null;
   job_title?: string | null;
   status: ContractorStatus;
