@@ -147,8 +147,12 @@ async def require_b2b_generator_access(
     ):
         return current_user
     if current_user.has_role(UserRole.delivery_lead):
+        # Delivery Lead stays fail-closed: it needs a non-empty explicit client
+        # graph. ``resolve_client_team_client_ids`` only returns ``None`` for
+        # admin-like roles (already returned above), so for a DL it is always a
+        # concrete set here — an empty one is an authoritative deny.
         client_ids = await resolve_client_team_client_ids(db, current_user)
-        if client_ids is None or client_ids:
+        if client_ids:
             return current_user
         raise deny("dostęp prawny wymaga jawnego przypisania klienta")
     raise deny(

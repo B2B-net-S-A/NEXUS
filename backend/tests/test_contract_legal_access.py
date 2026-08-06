@@ -206,6 +206,15 @@ async def test_unassigned_tac_has_full_generator_access(app_client: AsyncClient)
         f"unassigned tac POST generate → {r.status_code}: {r.text}"
     )
 
+    # DOCX download is the highest-PII generator surface and (unlike
+    # delete/update) has no author-only secondary check — so full-access TAC
+    # reaches it too. Missing id ⇒ 404 (gate + scope passed), never 403. This
+    # guards the intentional expanded exposure against a future re-tightening.
+    r = await app_client.get(f"{GENERATED_URL}/999999/docx", headers=headers)
+    assert r.status_code == 404, (
+        f"unassigned tac GET generated/docx → {r.status_code}: {r.text}"
+    )
+
 
 async def test_unauthenticated_is_rejected(app_client: AsyncClient):
     # No Authorization header → FastAPI's HTTPBearer rejects before the role

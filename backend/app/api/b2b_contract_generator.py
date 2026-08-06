@@ -15,10 +15,10 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
-from sqlalchemy import func, or_, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from app.api.contract_access import (
     B2BGeneratorAccess,
@@ -161,8 +161,11 @@ async def _assert_generator_client_access(
 
 
 async def _scope_generator_query(
-    statement, client_column, db: AsyncSession, user: User
-):
+    statement: Select,
+    client_column: InstrumentedAttribute,
+    db: AsyncSession,
+    user: User,
+) -> Select:
     """Scope the generated-contracts list, unrestricted for TAC.
 
     A full-access TAC must see every generated contract — including ones it just
