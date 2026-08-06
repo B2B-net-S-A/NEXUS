@@ -59,6 +59,7 @@ _GATE_QUALNAME_MARKERS = (
     "require_required_docs_read_access",
     "require_required_docs_write_access",
     "require_contract_legal_access",
+    "require_b2b_generator_access",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
