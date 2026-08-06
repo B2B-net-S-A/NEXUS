@@ -95,10 +95,12 @@ export function ContractRegisterDialog({
   // e-Zdrowie → „Numer umowy".
   // Dopasowanie po nazwie, spójne z detekcją w B2BContractGeneratorV2 (hasSpecialClauses).
   //
-  // Dwa warianty dla e-Zdrowia są konieczne, nie nadmiarowe: w tabeli `clients`
-  // ten klient figuruje DWA razy — `eZdrowie` (id 115) i `E-Zdrowie` (id 5257).
-  // Sam stem „zdrow" byłby za szeroki (złapałby np. „Zdrowit"), więc dopasowanie
-  // jest do obu konkretnych zapisów.
+  // Dwa warianty dla e-Zdrowia są konieczne, nie nadmiarowe: historycznie ten
+  // klient figurował w `clients` wielokrotnie (kanoniczny id 115 „Centrum
+  // e-Zdrowia" + duplikat z Traffita — 37721 „E-Zdrowie", scalony w 115 w
+  // Fazie B 2026-08-06), a stare umowy niosą różne zapisy nazwy. Sam stem
+  // „zdrow" byłby za szeroki (złapałby np. „Zdrowit"), więc dopasowanie jest
+  // do obu konkretnych zapisów. Backendowe needles klauzul: clause_override_content.py.
   const clientNameLower = (clientName ?? "").toLowerCase();
   const projectCodeLabel =
     clientNameLower.includes("bnp") || clientNameLower.includes("pocztowy")

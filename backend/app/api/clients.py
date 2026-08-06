@@ -557,6 +557,64 @@ async def update_client(
     return _serialize_client(client, current_user=current_user)
 
 
+@router.post("/{client_id}/merge-into/{target_id}", response_model=AnyClientResponse)
+async def merge_client_into(
+    client_id: int,
+    target_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Kanonizacja duplikatu: archiwizuje ``client_id`` i wskazuje na ``target_id``.
+
+    Historia (joby, kontrakty, aktywności) ZOSTAJE na scalanym wierszu — merge
+    nie przepisuje danych, tylko chowa duplikat z katalogu/lookupów
+    (``merged_into_client_id IS NULL`` filtry) i przekierowuje detail 307-ką
+    (``_merged_client_redirect``). Pierwszy klient tej ścieżki: e-Zdrowie
+    37721 → 115 (Faza B); kolejni kandydaci: rodzina „BNP *".
+    """
+    if client_id == target_id:
+        raise HTTPException(status_code=422, detail="Nie można scalić klienta z samym sobą")
+    source = await db.scalar(select(Client).where(Client.id == client_id))
+    if source is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    target = await db.scalar(select(Client).where(Client.id == target_id))
+    if target is None:
+        raise HTTPException(status_code=404, detail="Target client not found")
+    if target.merged_into_client_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Cel scalenia sam jest scalony — wskaż klienta kanonicznego",
+        )
+    if target.hidden or target.archived_at is not None:
+        raise HTTPException(
+            status_code=409, detail="Cel scalenia jest ukryty/zarchiwizowany"
+        )
+    if source.merged_into_client_id is not None:
+        if source.merged_into_client_id == target_id:
+            # Idempotentny replay — już scalone dokładnie tak, jak proszono.
+            return _serialize_client(source, current_user=current_user)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Klient jest już scalony z id={source.merged_into_client_id}",
+        )
+
+    source.merged_into_client_id = target_id
+    source.archived_at = datetime.now(timezone.utc)
+    source.archived_by = current_user.id
+    db.add(
+        Activity(
+            entity_type="client",
+            entity_id=client_id,
+            action="merged",
+            user_id=current_user.id,
+            details={"merged_into_client_id": target_id},
+        )
+    )
+    await db.flush()
+    await db.refresh(source)
+    return _serialize_client(source, current_user=current_user)
+
+
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client(
     client_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)

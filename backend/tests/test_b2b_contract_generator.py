@@ -608,6 +608,27 @@ def test_overrides_matching_pl_en():
     assert overrides_for_client("", "pl") == []
 
 
+def test_ezdrowie_raw_row_names_hit_centrum_override():
+    """Realne wiersze klientów z Traffita nazywają się „E-Zdrowie"/„eZdrowie".
+
+    Needle „e-zdrowia" (dopełniacz) ich nie łapał — wybór takiego wpisu
+    w generatorze dawał umowę BEZ §10/PFRON (Faza B, 2026-08-06). Goły
+    „zdrow" jest celowo zabroniony (łapałby np. „Zdrowit")."""
+    from app.services.b2b_contract_generator.clause_overrides import (
+        has_override,
+        overrides_for_client,
+    )
+
+    centrum = overrides_for_client("Centrum e-Zdrowia", "pl")
+    for name in ("E-Zdrowie", "eZdrowie", "e-zdrowie"):
+        assert overrides_for_client(name, "pl") == centrum
+        assert has_override(name)
+
+    # Podobne, ale OBCE nazwy nie mogą łapać override'u Centrum.
+    for name in ("Zdrowit", "Zdrowie24", "Centrum Zdrowia"):
+        assert not has_override(name)
+
+
 def test_bnp_cardif_gets_plain_template():
     """BNP Paribas Cardif = odrębny Klient, nie Bank BNP Paribas Polska.
 

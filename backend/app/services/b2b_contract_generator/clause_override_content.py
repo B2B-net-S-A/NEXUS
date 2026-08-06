@@ -2712,7 +2712,11 @@ def _ops_none(lang: str) -> list[Op]:
 
 CLIENT_OVERRIDES: list[tuple[tuple[str, ...], object]] = [
     (("pfron", "rehabilitacji osób niepełnosprawnych"), _ops_pfron),
-    (("centrum e-zdrowia", "e-zdrowia"), _ops_centrum),
+    # Realne wiersze klientów bywały nazwane „E-Zdrowie"/„eZdrowie" (Traffit),
+    # których needle „e-zdrowia" (dopełniacz, -ia) NIE łapie — umowa wychodziła
+    # bez §10/PFRON przy wyborze takiego wpisu (Faza B, 2026-08-06). Świadomie
+    # BEZ gołego „zdrow" — łapałby np. „Zdrowit".
+    (("centrum e-zdrowia", "e-zdrowia", "e-zdrowie", "ezdrowie"), _ops_centrum),
     # „BNP Paribas Cardif" to ODRĘBNY Klient (ubezpieczyciel), nie Bank BNP
     # Paribas Polska S.A. — dostaje zwykły szablon, bez § 4 banku i bez zdania
     # w Załączniku nr 1. Musi stać PRZED wpisem „bnp paribas", bo needle jest
