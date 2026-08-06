@@ -129,6 +129,110 @@ async def test_flow_a_forbids_part_for_other_clients(
         await _cleanup(client_id, cand_id)
 
 
+async def test_flow_b_requires_part_for_ezdrowie_and_forbids_for_others(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+):
+    """Flow B (atomic Contract+Order) idzie przez tę samą walidację co Flow A."""
+    ez_client, ez_cand, _ = await _seed()
+    other_client, other_cand, _ = await _seed()
+    monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", ez_client)
+    try:
+
+        def payload(cand_id: int, **extra):
+            return {
+                "candidate_id": cand_id,
+                "title": "Nowy kontraktor",
+                "contract_start_date": date.today().isoformat(),
+                "order_start_date": date.today().isoformat(),
+                # Admin musi podać obie stawki (admin_finance_fields_required).
+                "rate_client": 16000,
+                "rate_candidate": 12000,
+                **extra,
+            }
+
+        # e-Zdrowie bez części → 422 z komunikatem z ticketa.
+        resp = await app_client.post(
+            f"/api/clients/{ez_client}/contract-with-order",
+            json=payload(ez_cand),
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "Wybierz część umowy" in resp.text
+
+        # e-Zdrowie z częścią → 201, part zapisany na Orderze.
+        resp = await app_client.post(
+            f"/api/clients/{ez_client}/contract-with-order",
+            json=payload(ez_cand, project_part="cz5"),
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        order_id = resp.json()["order_id"]
+        async with AsyncSessionLocal() as db:
+            saved = await db.scalar(
+                select(ClientOrder.project_part).where(ClientOrder.id == order_id)
+            )
+            assert saved == "cz5"
+
+        # Inny klient z częścią → 422.
+        resp = await app_client.post(
+            f"/api/clients/{other_client}/contract-with-order",
+            json=payload(other_cand, project_part="cz2"),
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422
+        assert "wyłącznie Centrum e-Zdrowia" in resp.text
+    finally:
+        await _cleanup(ez_client, ez_cand)
+        await _cleanup(other_client, other_cand)
+
+
+async def test_patch_part_validation(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+):
+    """PATCH: wartość spoza słownika → 422; part u nie-e-Zdrowia → 422."""
+    ez_client, ez_cand, ez_contract = await _seed()
+    other_client, other_cand, other_contract = await _seed()
+    monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", ez_client)
+    try:
+        async with AsyncSessionLocal() as db:
+            ez_order = ClientOrder(
+                client_id=ez_client,
+                contract_id=ez_contract,
+                title="EZ order",
+                status=ClientOrderStatus.active,
+            )
+            other_order = ClientOrder(
+                client_id=other_client,
+                contract_id=other_contract,
+                title="Other order",
+                status=ClientOrderStatus.active,
+            )
+            db.add_all([ez_order, other_order])
+            await db.flush()
+            ez_order_id, other_order_id = ez_order.id, other_order.id
+            await db.commit()
+
+        # e-Zdrowie: cz3 nie istnieje → 422.
+        resp = await app_client.patch(
+            f"/api/clients/{ez_client}/orders/{ez_order_id}",
+            json={"project_part": "cz3"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422
+
+        # Nie-e-Zdrowie: PATCH z partem → 422 (pole zabronione).
+        resp = await app_client.patch(
+            f"/api/clients/{other_client}/orders/{other_order_id}",
+            json={"project_part": "cz2"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422
+        assert "wyłącznie Centrum e-Zdrowia" in resp.text
+    finally:
+        await _cleanup(ez_client, ez_cand)
+        await _cleanup(other_client, other_cand)
+
+
 async def test_patch_updates_part_and_profile_uses_current_order(
     app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
 ):

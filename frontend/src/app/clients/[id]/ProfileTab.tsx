@@ -109,7 +109,11 @@ function ActiveConsultantsSection({
       <SectionHeader
         icon={<Users className="w-4 h-4 text-emerald-600" />}
         title="Obecni konsultanci"
-        count={items.length}
+        // Aktywny filtr części zawęża licznik do tego, co realnie widać —
+        // stały total przy filtrze czytał się jak błąd (review #1056).
+        count={
+          ezdrowie && partFilter !== "all" ? filtered.length : items.length
+        }
       />
       {ezdrowie && items.length > 0 && (
         <div
