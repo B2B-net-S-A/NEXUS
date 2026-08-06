@@ -202,14 +202,14 @@ function smartDescription(role: B2BRole, lang: Lang, clientName: string): string
   const scope = (lang === "pl" ? role.scope_pl : role.scope_en).slice(0, 3);
   const client = clientName.trim();
   if (lang === "en") {
-    const lead = `Provision of services in the area of ${area}${
+    const lead = `The Partner provides services in the area of ${area}${
       client ? ` for the Client ${client}` : ""
     }.`;
     return scope.length
       ? `${lead} The scope includes, among others: ${scope.join("; ")}.`
       : lead;
   }
-  const lead = `Świadczenie usług w obszarze: ${area}${
+  const lead = `Partner świadczy usługi w obszarze: ${area}${
     client ? ` na rzecz Klienta ${client}` : ""
   }.`;
   return scope.length

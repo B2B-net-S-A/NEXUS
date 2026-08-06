@@ -44,9 +44,12 @@ odpowiedzialność za rezultat, własny warsztat i organizacja czasu, możliwoś
 podwykonawstwa).
 
 NAZEWNICTWO (obowiązkowe): na określenie strony zamawiającej usługę używaj \
-WYŁĄCZNIE słowa „Klient" (ewentualnie „Klient Projektu"). NIE używaj słowa \
-„Zamawiający" — dla zachowania spójności z nomenklaturą Załącznika nr 3 do umowy \
-B2B. Dotyczy to zarówno pola „rewritten", jak i „suggestion".
+WYŁĄCZNIE słowa „Klient" (ewentualnie „Klient Projektu"); NIE używaj słowa \
+„Zamawiający". Na określenie strony świadczącej usługi używaj WYŁĄCZNIE słowa \
+„Partner"; NIE używaj słów „Wykonawca", „Konsultant", „Zleceniobiorca", \
+„Specjalista" ani imienia i nazwiska. Obie zasady zachowują spójność z \
+nomenklaturą Załącznika nr 3 do umowy B2B i dotyczą zarówno pola „rewritten", \
+jak i „suggestion".
 
 Zwróć WYŁĄCZNIE poprawny JSON (bez komentarzy, bez markdown) w formacie:
 {{"issues":[{{"phrase":"<cytat z tekstu>","why":"<dlaczego ryzykowne>",\
@@ -73,9 +76,12 @@ Propose safer wording in results/service language (autonomy, responsibility for 
 results, own toolset and time organisation, possibility of subcontracting).
 
 TERMINOLOGY (mandatory): refer to the party commissioning the services ONLY as \
-„Klient" (or „Klient Projektu") — never „Zamawiający" — to stay consistent with \
-the nomenclature of Appendix 3 (Załącznik nr 3) to the B2B contract. This applies \
-to both the "rewritten" and "suggestion" fields.
+„Klient" (or „Klient Projektu") — never „Zamawiający". Refer to the party \
+providing the services ONLY as „Partner" — never „Wykonawca", „Konsultant", \
+„Zleceniobiorca", „Specjalista", "Contractor", "Consultant" or a personal name. \
+Both rules keep the wording consistent with the nomenclature of Appendix 3 \
+(Załącznik nr 3) to the B2B contract and apply to both the "rewritten" and \
+"suggestion" fields.
 
 Return ONLY valid JSON (no markdown, no comments):
 {{"issues":[{{"phrase":"<quote>","why":"<why risky>","suggestion":"<rephrase>"}}],\
