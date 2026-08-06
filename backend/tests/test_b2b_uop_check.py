@@ -91,3 +91,28 @@ def test_check_uop_raises_after_two_malformed_responses(monkeypatch):
 
     with pytest.raises(ValueError, match="twice"):
         uop_check.check_employment_hallmarks("Praca od 9:00 do 17:00.")
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_pins_partner_wording_for_the_service_provider(monkeypatch, language):
+    """Redakcja AI musi nazywać stronę świadczącą usługi „Partnerem" — spójnie z
+    treścią umowy B2B (Załącznik nr 3). Bez tego pinu model wstawiał do „Opisu
+    projektu i zakresu usług" „Wykonawcę"/„Konsultanta"."""
+    captured: list[str] = []
+
+    def fake_analyze(content, *args, **kwargs):
+        captured.append(content)
+        return '{"issues":[],"rewritten":"Partner świadczy usługi.","summary":"OK."}'
+
+    monkeypatch.setattr(uop_check, "analyze_with_ai", fake_analyze)
+
+    uop_check.check_employment_hallmarks(
+        "Konsultant realizuje zadania w projekcie.", language=language
+    )
+
+    prompt = captured[0]
+    # Prompt pinuje „Partnera" jako jedyne dozwolone określenie…
+    assert "Partner" in prompt
+    # …i jawnie wymienia terminy zakazane (żeby model nie wstawił ich do redakcji).
+    for forbidden in ("Wykonawca", "Konsultant", "Zleceniobiorca"):
+        assert forbidden in prompt

@@ -88,9 +88,25 @@ describe("areaPrefillDescription", () => {
       descTouched: false,
     });
     expect(out).not.toBeNull();
-    expect(out).toContain("Świadczenie usług w obszarze: Data Engineering");
+    expect(out).toContain("Partner świadczy usługi w obszarze: Data Engineering");
     expect(out).toContain("Projektowanie potoków przetwarzania danych.");
     expect((out ?? "").trim().length).toBeGreaterThan(0);
+  });
+
+  // Nazewnictwo strony świadczącej usługi musi być spójne z treścią umowy
+  // (Załącznik nr 3 zna Partnera, nie Wykonawcę/Konsultanta).
+  it("nazywa stronę świadczącą usługi Partnerem (PL i EN), nigdy Wykonawcą/Konsultantem", () => {
+    for (const language of ["pl", "en"] as const) {
+      const out =
+        areaPrefillDescription({
+          role: role(),
+          language,
+          clientName: "Nordea Bank Abp",
+          descTouched: false,
+        }) ?? "";
+      expect(out).toContain("Partner");
+      expect(out).not.toMatch(/Wykonawc|Konsultant/i);
+    }
   });
 
   it("dokłada nazwę Klienta, gdy podana", () => {
@@ -110,7 +126,9 @@ describe("areaPrefillDescription", () => {
       clientName: "Nordea Bank Abp",
       descTouched: false,
     });
-    expect(out).toContain("Provision of services in the area of Data Engineering");
+    expect(out).toContain(
+      "The Partner provides services in the area of Data Engineering",
+    );
     expect(out).toContain("for the Client Nordea Bank Abp");
   });
 
