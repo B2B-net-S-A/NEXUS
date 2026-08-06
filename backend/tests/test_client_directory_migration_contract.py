@@ -20,6 +20,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 ROOT = BACKEND.parent
 MIGRATION = BACKEND / "alembic/versions/0205_client_directory_portfolio.py"
+MIGRATION_0215 = BACKEND / "alembic/versions/0215_client_portfolio_scope_overrides.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 DIRECTORY_MODEL = BACKEND / "app/models/client_directory.py"
 MSA_MODEL = BACKEND / "app/models/client_framework_contract.py"
@@ -142,9 +143,7 @@ def test_revision_is_linear_and_upgrade_is_additive() -> None:
     source = MIGRATION.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    assert _literal_assignment(tree, "revision") == (
-        "0205_client_directory_portfolio"
-    )
+    assert _literal_assignment(tree, "revision") == ("0205_client_directory_portfolio")
     assert _literal_assignment(tree, "down_revision") == (
         "0204_candidate_activity_summaries"
     )
@@ -187,12 +186,11 @@ def test_applied_hash_uniqueness_is_partial_and_retry_safe() -> None:
                 f"{label} lost the applied-only workbook hash guard: {token}"
             )
         assert (
-            "DROP CONSTRAINT IF EXISTS uq_client_import_runs_source_sha256"
-            in source
+            "DROP CONSTRAINT IF EXISTS uq_client_import_runs_source_sha256" in source
         ), f"{label} would leave the old all-status uniqueness constraint"
-        assert (
-            "UNIQUE (source_system, source_sha256)" not in source
-        ), f"{label} would block failed/rolled-back retries"
+        assert "UNIQUE (source_system, source_sha256)" not in source, (
+            f"{label} would block failed/rolled-back retries"
+        )
 
     assert '"ux_client_import_runs_applied_source_sha256"' in run_model
     assert "unique=True" in run_model
@@ -210,23 +208,22 @@ def test_msa_date_constraint_and_import_provenance_match_every_layer() -> None:
         _named_check_expression(msa_model, "ck_client_framework_contracts_dates")
     )
     expected_check = (
-        "effective_date IS NULL OR expiry_date IS NULL "
-        "OR expiry_date >= effective_date"
+        "effective_date IS NULL OR expiry_date IS NULL OR expiry_date >= effective_date"
     )
 
     assert expected_check in model_check
     for label, source in (("migration", migration), ("entrypoint", entrypoint)):
         assert "ck_client_framework_contracts_dates" in source
-        assert (
-            "effective_date is null or expiry_date is null" in source.lower()
-        ), f"{label} date invariant lost its nullable-date semantics"
-        assert (
-            "expiry_date >= effective_date" in source.lower()
-        ), f"{label} date invariant no longer rejects reversed periods"
+        assert "effective_date is null or expiry_date is null" in source.lower(), (
+            f"{label} date invariant lost its nullable-date semantics"
+        )
+        assert "expiry_date >= effective_date" in source.lower(), (
+            f"{label} date invariant no longer rejects reversed periods"
+        )
         for column in ("source_system", "source_key", "import_run_id"):
-            assert (
-                f"ADD COLUMN IF NOT EXISTS {column}".lower() in source.lower()
-            ), f"{label} is missing MSA provenance column {column}"
+            assert f"ADD COLUMN IF NOT EXISTS {column}".lower() in source.lower(), (
+                f"{label} is missing MSA provenance column {column}"
+            )
 
     assert "ux_client_framework_contracts_source_key" in msa_model
     assert "source_key IS NOT NULL" in msa_model
@@ -251,8 +248,7 @@ def test_legacy_import_enum_is_created_before_any_imported_msa_can_use_it() -> N
     )
     assert "ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS" in migration
     assert (
-        "ALTER TYPE frameworkcontractsignedvia "
-        "ADD VALUE IF NOT EXISTS 'legacy_import'"
+        "ALTER TYPE frameworkcontractsignedvia ADD VALUE IF NOT EXISTS 'legacy_import'"
     ) in entrypoint
 
 
@@ -325,6 +321,37 @@ def test_downgrade_respects_fk_order_and_preserves_shared_enum() -> None:
         assert f'"{column}"' in downgrade
     for column in ("archived_by", "archived_at", "merged_into_client_id"):
         assert f'"{column}"' in downgrade
+
+
+def test_placement_override_columns_parity_across_layers() -> None:
+    """0215's override columns + date CHECK must exist identically in the
+    migration, the startup safety-net and the ORM model. Prod alembic is
+    orphaned, so entrypoint.sh is the live authority — a drift here would
+    silently drop the override columns on prod while migration-only CI stays
+    green (the same failure mode this file already guards for 0205)."""
+    migration = _normalise_sql(MIGRATION_0215.read_text(encoding="utf-8")).lower()
+    entrypoint = _normalise_sql(ENTRYPOINT.read_text(encoding="utf-8")).lower()
+    model = DIRECTORY_MODEL.read_text(encoding="utf-8")
+
+    for column in (
+        "category_override",
+        "contract_start_override",
+        "contract_end_override",
+    ):
+        add_clause = f"add column if not exists {column}"
+        assert add_clause in migration, f"0215 migration missing column {column}"
+        assert add_clause in entrypoint, (
+            f"entrypoint safety-net missing column {column}"
+        )
+        assert column in model, f"model missing column {column}"
+
+    constraint = "ck_client_portfolio_scopes_override_dates"
+    check_expr = "contract_end_override >= contract_start_override"
+    for label, source in (("migration", migration), ("entrypoint", entrypoint)):
+        assert constraint in source, f"{label} missing override-date constraint"
+        assert check_expr in source, f"{label} lost the override-date invariant"
+    model_check = _normalise_sql(_named_check_expression(model, constraint))
+    assert check_expr in model_check
 
 
 def test_hosted_ci_runs_fresh_retry_downgrade_and_reupgrade_cycle() -> None:

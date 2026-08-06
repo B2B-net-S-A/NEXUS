@@ -39,6 +39,8 @@ export type Capability =
   | "contact.create"
   | "calendar_event.create"
   | "invite_link.create"
+  // ── Kuratela portfela klientów ─────────────────────────────────────────────
+  | "client.portfolio.manage"
   // ── Wejścia nawigacyjne ────────────────────────────────────────────────────
   | "nav.candidates"
   | "nav.talents"
@@ -98,6 +100,11 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "calendar_event.create": RECRUITER_PLUS,
   // POST /api/invite-links → RecruiterPlus (backend/app/api/invite_links.py)
   "invite_link.create": RECRUITER_PLUS,
+
+  // PATCH /api/clients/{id}/portfolio-scopes/{scope}/placement → AdminUser
+  // (backend/app/api/client_directory.py). Przenoszenie klienta między
+  // zakładkami portfela + daty umowy to kuratela katalogu — tylko admin.
+  "client.portfolio.manage": ["admin"],
 
   // Nawigacja — odwzorowanie ROLE_ROUTES z `middleware.ts` oraz bramek
   // sidebara. Trzymane tutaj, żeby Command Palette nie utrzymywała drugiej,

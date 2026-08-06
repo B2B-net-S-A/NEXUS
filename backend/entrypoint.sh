@@ -579,6 +579,22 @@ _COLUMN_STATEMENTS = [
     "issued_authorization_version BIGINT NOT NULL DEFAULT 1",
     "ALTER TABLE client_tac_assignments ADD COLUMN IF NOT EXISTS "
     "is_first_priority_for_tac BOOLEAN NULL",
+    # 0215: manualne nakładki placementu katalogu klientów. Czytane przez
+    # katalog (COALESCE), niewidoczne dla inwariantu manifestu — ręczne
+    # przeniesienie między zakładkami nie rozjeżdża /api/health/deep.
+    "ALTER TABLE client_portfolio_scopes ADD COLUMN IF NOT EXISTS category_override clientportfoliocategory NULL",
+    "ALTER TABLE client_portfolio_scopes ADD COLUMN IF NOT EXISTS contract_start_override DATE NULL",
+    "ALTER TABLE client_portfolio_scopes ADD COLUMN IF NOT EXISTS contract_end_override DATE NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_portfolio_scopes
+            ADD CONSTRAINT ck_client_portfolio_scopes_override_dates
+            CHECK (
+                contract_start_override IS NULL
+                OR contract_end_override IS NULL
+                OR contract_end_override >= contract_start_override
+            );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
     # Recruitment Priority Lock (0200) — provenance/eligibility is added to the
     # existing canonical aggregate. New priority-work tables are created by the
     # metadata safety net below; post-create FKs are installed after it.

@@ -126,6 +126,16 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  // PATCH /api/clients/{id}/portfolio-scopes/{scope}/placement → AdminUser
+  "client.portfolio.manage": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: false,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   // ── Nawigacja (middleware ROLE_ROUTES / bramki sidebara) ──
   "nav.candidates": {
     admin: true,
