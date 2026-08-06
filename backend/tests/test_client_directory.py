@@ -602,6 +602,20 @@ async def test_placement_override_pins_and_validates_contract_dates(
             headers=app_auth_headers,
         )
         assert bad.status_code == 422, bad.text
+
+        # Partial update: only the end date is sent, but it precedes the ALREADY
+        # pinned start (2026-05-11). The prospective pair is validated against the
+        # stored start, so this is 422 too — and the existing override is intact.
+        partial_bad = await app_client.patch(
+            f"/api/clients/{alpha_id}/portfolio-scopes/{scope_id}/placement",
+            json={"contract_end": "2026-01-01"},
+            headers=app_auth_headers,
+        )
+        assert partial_bad.status_code == 422, partial_bad.text
+        async with AsyncSessionLocal() as db:
+            scope = await db.get(ClientPortfolioScope, scope_id)
+            assert scope.contract_start_override == date(2026, 5, 11)
+            assert scope.contract_end_override == date(2027, 12, 31)
     finally:
         await _cleanup_directory(seed)
 

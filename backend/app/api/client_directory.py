@@ -679,24 +679,33 @@ async def update_client_portfolio_scope_placement(
     if not updates:
         return ClientPortfolioScopeResponse.model_validate(scope)
 
+    # Validate the PROSPECTIVE override pair (incoming value or the existing one
+    # for an omitted field) BEFORE mutating the ORM object. Mutating first would
+    # let an autoflush persist an incoherent pair and surface as an
+    # IntegrityError/500 instead of this clean 422 — and it also covers the
+    # partial-update case (one date already pinned, the other now sent).
+    new_start = (
+        updates["contract_start"]
+        if "contract_start" in updates
+        else scope.contract_start_override
+    )
+    new_end = (
+        updates["contract_end"]
+        if "contract_end" in updates
+        else scope.contract_end_override
+    )
+    if new_start is not None and new_end is not None and new_end < new_start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Data zakończenia umowy nie może być wcześniejsza niż rozpoczęcia.",
+        )
+
     if "category" in updates:
         scope.category_override = updates["category"]
     if "contract_start" in updates:
         scope.contract_start_override = updates["contract_start"]
     if "contract_end" in updates:
         scope.contract_end_override = updates["contract_end"]
-
-    # Guard the override pair up front (the DB CHECK is the backstop) so callers
-    # get a clean 422 instead of an IntegrityError.
-    if (
-        scope.contract_start_override is not None
-        and scope.contract_end_override is not None
-        and scope.contract_end_override < scope.contract_start_override
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Data zakończenia umowy nie może być wcześniejsza niż rozpoczęcia.",
-        )
 
     db.add(
         Activity(
