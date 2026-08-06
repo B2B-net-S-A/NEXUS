@@ -76,6 +76,11 @@ class ActiveConsultantItem(BaseModel):
     monthly_rate_client: Optional[int] = None
     monthly_margin: Optional[int] = None
     currency: str = "PLN"
+    # „Część umowy" e-Zdrowia z REPREZENTATYWNEGO zamówienia kontraktu
+    # (zamówienie pokrywające dziś, fallback: najnowsze po start_date — ta sama
+    # semantyka co FE splitOrders.activeOrder). NULL u innych klientów i gdy
+    # część nieuzupełniona. Napędza filtr części w Profil → Obecni konsultanci.
+    project_part: Optional[str] = None
 
 
 class HistoricalPlacementItem(BaseModel):

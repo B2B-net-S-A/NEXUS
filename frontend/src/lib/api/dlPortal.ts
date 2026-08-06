@@ -97,6 +97,8 @@ export interface ClientOrderRead {
   rate_client: number | null;
   total_value: string | number | null;
   currency: string | null;
+  /** „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — null u innych klientów. */
+  project_part: string | null;
   filename: string | null;
   has_file: boolean;
   content_type: string | null;
@@ -184,6 +186,8 @@ export interface ClientOrderUpdate {
   framework_contract_id?: number | null;
   job_id?: number | null;
   notes?: string | null;
+  /** „Część umowy" e-Zdrowia — walidowana serwerowo (tylko client_id=115). */
+  project_part?: string | null;
 }
 
 export interface NewContractorOrderRequest {
@@ -202,6 +206,8 @@ export interface NewContractorOrderRequest {
   currency?: string;
   total_value?: number | null;
   notes?: string | null;
+  /** „Część umowy" e-Zdrowia — wymagana dla client_id=115, zabroniona u innych. */
+  project_part?: string | null;
 }
 
 export interface NewContractorOrderResponse {

@@ -595,6 +595,18 @@ _COLUMN_STATEMENTS = [
             );
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
+    # 0216: „część umowy" Centrum e-Zdrowia (ticket #3). Nullable — wymagane
+    # tylko w walidacji API/UI dla client_id=115; cz.3 celowo nie istnieje.
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS project_part VARCHAR(8) NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_orders
+            ADD CONSTRAINT ck_client_orders_project_part
+            CHECK (
+                project_part IS NULL
+                OR project_part IN ('cz1', 'cz2', 'cz4', 'cz5', 'cz6')
+            );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
     # Recruitment Priority Lock (0200) — provenance/eligibility is added to the
     # existing canonical aggregate. New priority-work tables are created by the
     # metadata safety net below; post-create FKs are installed after it.

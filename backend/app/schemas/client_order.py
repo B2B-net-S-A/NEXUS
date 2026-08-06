@@ -46,6 +46,9 @@ class ClientOrderUpdate(BaseModel):
     framework_contract_id: Optional[int] = None
     job_id: Optional[int] = None
     notes: Optional[str] = None
+    # „Część umowy" — tylko Centrum e-Zdrowia (walidacja w endpointach przez
+    # app/services/ezdrowie.py; słownik cz1|cz2|cz4|cz5|cz6, cz.3 nie istnieje).
+    project_part: Optional[str] = Field(None, max_length=8)
 
 
 class ClientOrderRead(BaseModel):
@@ -62,6 +65,8 @@ class ClientOrderRead(BaseModel):
     rate_client: Optional[Decimal]
     total_value: Optional[Decimal]
     currency: Optional[str]
+    # „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — NULL u innych klientów.
+    project_part: Optional[str] = None
     filename: Optional[str]
     has_file: bool
     content_type: Optional[str]

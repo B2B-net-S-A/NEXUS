@@ -22,6 +22,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -51,6 +52,13 @@ class ClientOrder(Base, TimestampMixin):
     """Zamówienie od klienta pod konkretnym kandydackim Contractem."""
 
     __tablename__ = "client_orders"
+    __table_args__ = (
+        CheckConstraint(
+            "project_part IS NULL OR project_part IN "
+            "('cz1', 'cz2', 'cz4', 'cz5', 'cz6')",
+            name="ck_client_orders_project_part",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
@@ -113,6 +121,11 @@ class ClientOrder(Base, TimestampMixin):
     lub manualnie wpisane."""
 
     currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+
+    # „Część umowy" Centrum e-Zdrowia (ticket #3): slug cz1|cz2|cz4|cz5|cz6
+    # (cz.3 celowo nie istnieje). Nullable — wymagane tylko w walidacji API/UI
+    # dla client_id=115 (app/services/ezdrowie.py); inni klienci mają NULL.
+    project_part: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
 
     # PO PDF (Purchase Order od klienta)
     filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

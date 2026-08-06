@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { projectPartLabel } from "@/lib/ezdrowie";
 import { cn } from "@/lib/utils";
 import type { ActiveConsultantItem } from "@/types/client-profile";
 import { daysToEndBadgeColor, formatDate, formatPLN } from "@/types/client-profile";
@@ -46,6 +47,13 @@ export function ConsultantRow({ consultant, actions }: Props) {
               {c.competence_category && (
                 <span className="px-1.5 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded text-xs">
                   {c.competence_category}
+                </span>
+              )}
+              {/* „Część umowy" e-Zdrowia — renderuje się tylko, gdy backend
+                  wystawił part (czyli wyłącznie u Centrum e-Zdrowia). */}
+              {consultant.project_part && (
+                <span className="px-1.5 py-0.5 bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 rounded text-xs font-medium">
+                  {projectPartLabel(consultant.project_part)}
                 </span>
               )}
               {consultant.days_to_end != null && (

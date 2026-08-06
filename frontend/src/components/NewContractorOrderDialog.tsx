@@ -11,6 +11,7 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
+import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   canManageCandidateFinance,
@@ -86,6 +87,10 @@ export function NewContractorOrderDialog({
   const [billingHours, setBillingHours] = useState("160");
   const [currency, setCurrency] = useState("PLN");
   const [notes, setNotes] = useState("");
+  // „Część umowy" — pole widoczne i wymagane wyłącznie dla Centrum e-Zdrowia
+  // (ticket #3; bramka po client_id, walidacja też serwerowo).
+  const ezdrowie = isEzdrowieClient(clientId);
+  const [projectPart, setProjectPart] = useState<string>("");
 
   // Debounce candidate search (300ms — same as AddCandidateToJobModal)
   useEffect(() => {
@@ -160,6 +165,9 @@ export function NewContractorOrderDialog({
         order_end_date: orderEnd || null,
         notes: notes || null,
       };
+      if (ezdrowie) {
+        payload.project_part = projectPart || null;
+      }
       if (canManageFinance) {
         payload.rate_client = rateClientNum ?? undefined;
         payload.rate_candidate = rateCandidateNum ?? undefined;
@@ -202,6 +210,10 @@ export function NewContractorOrderDialog({
                 ? "Wypełnij wymagane pola (kandydat, tytuł, daty, stawki)"
                 : "Wypełnij wymagane pola (kandydat, tytuł, data rozpoczęcia)",
             );
+            return;
+          }
+          if (ezdrowie && !projectPart) {
+            showError("Wybierz część umowy");
             return;
           }
           mutation.mutate();
@@ -320,6 +332,31 @@ export function NewContractorOrderDialog({
             ))}
           </select>
         </label>
+
+        {/* „Wybór części umowy" — tylko Centrum e-Zdrowia (ticket #3). */}
+        {ezdrowie && (
+          <label className="block">
+            <span className="text-sm">Wybór części umowy *</span>
+            <select
+              value={projectPart}
+              onChange={(e) => setProjectPart(e.target.value)}
+              aria-label="Wybór części umowy"
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+            >
+              <option value="">— wybierz —</option>
+              {PROJECT_PARTS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            {!projectPart && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Pole wymagane dla Centrum e-Zdrowia.
+              </p>
+            )}
+          </label>
+        )}
 
         <label className="block">
           <span className="text-sm">Tytuł zamówienia *</span>

@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Briefcase, ExternalLink, Search } from "lucide-react";
+import { Briefcase, ExternalLink, Search, UserPlus, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
+import { AddCandidateToJobModal } from "@/components/client-profile/actions/AddCandidateToJobModal";
+import { CloseJobAsLostModal } from "@/components/client-profile/actions/CloseJobAsLostModal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,24 +66,38 @@ async function fetchClientJobs(
 
 // ── Row ───────────────────────────────────────────────────────────────────────
 
-function ProjectRow({ job }: { job: ProjectJob }) {
+function ProjectRow({
+  job,
+  actions,
+}: {
+  job: ProjectJob;
+  /** Akcje rekrutacji (Dodaj / Lost) — przeniesione z usuniętej sekcji
+      „Otwarte rekrutacje" w Profilu (ticket #3); Projekty są teraz jedynym
+      miejscem zarządzania rekrutacjami klienta. */
+  actions?: React.ReactNode;
+}) {
+  // Wiersz to <div>, nie <a> — akcje (przyciski) nie mogą być zagnieżdżone
+  // w linku; nawigacja do rekrutacji zostaje na tytule + ikonie.
   return (
-    <a
-      href={`/jobs/${job.id}`}
-      className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group"
-    >
-      <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center shrink-0">
-        <Briefcase className="w-4 h-4 text-purple-600" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-foreground dark:text-muted-foreground truncate">
-          {job.title}
-        </p>
-        {job.location && (
-          <p className="text-xs text-muted-foreground truncate">{job.location}</p>
-        )}
-      </div>
+    <div className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group">
+      <a
+        href={`/jobs/${job.id}`}
+        className="flex items-center gap-3 flex-1 min-w-0"
+      >
+        <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center shrink-0">
+          <Briefcase className="w-4 h-4 text-purple-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-foreground dark:text-muted-foreground truncate">
+            {job.title}
+          </p>
+          {job.location && (
+            <p className="text-xs text-muted-foreground truncate">{job.location}</p>
+          )}
+        </div>
+      </a>
       <div className="flex items-center gap-2 shrink-0">
+        {actions}
         <span
           className={cn(
             "text-xs px-2 py-0.5 rounded-full font-medium",
@@ -98,9 +114,14 @@ function ProjectRow({ job }: { job: ProjectJob }) {
               ? "Szkic"
               : "Zamknięta"}
         </span>
-        <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
+        <a
+          href={`/jobs/${job.id}`}
+          aria-label={`Przejdź do rekrutacji ${job.title}`}
+        >
+          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
+        </a>
       </div>
-    </a>
+    </div>
   );
 }
 
@@ -117,6 +138,7 @@ function ProjectsSection({
   emptyLabel,
   open,
   onToggle,
+  renderActions,
 }: {
   title: string;
   tone: Bucket;
@@ -128,6 +150,7 @@ function ProjectsSection({
   emptyLabel: string;
   open: boolean;
   onToggle: (event: React.SyntheticEvent<HTMLDetailsElement>) => void;
+  renderActions?: (job: ProjectJob) => React.ReactNode;
 }) {
   const truncated = total > items.length;
   return (
@@ -177,7 +200,7 @@ function ProjectsSection({
         ) : (
           <>
             {items.map((job) => (
-              <ProjectRow key={job.id} job={job} />
+              <ProjectRow key={job.id} job={job} actions={renderActions?.(job)} />
             ))}
             {truncated && (
               <p className="pt-1 text-center text-xs text-muted-foreground">
@@ -198,6 +221,12 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
   const searching = debouncedSearch.trim().length > 0;
+
+  // Akcje rekrutacji — jedyny dom po usunięciu sekcji „Otwarte rekrutacje"
+  // z Profilu (ticket #3). CloseJobAsLostModal to JEDYNY caller
+  // POST /api/jobs/{id}/close w całej aplikacji.
+  const [addCandidateTo, setAddCandidateTo] = useState<ProjectJob | null>(null);
+  const [closeJobAsLost, setCloseJobAsLost] = useState<ProjectJob | null>(null);
 
   // Aktywne rozwinięte domyślnie (wymóg: "domyślnie widoczna sekcja Aktywne"),
   // zamknięte zwinięte. Aktywne wyszukiwanie wymusza rozwinięcie obu sekcji, żeby
@@ -245,6 +274,28 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
         onToggle={(e) => {
           if (!searching) setOpenActive(e.currentTarget.open);
         }}
+        renderActions={(job) =>
+          job.status === "published" ? (
+            <>
+              <button
+                onClick={() => setAddCandidateTo(job)}
+                title="Dodaj kandydata do pipeline"
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-md transition-colors"
+              >
+                <UserPlus className="w-3 h-3" />
+                Dodaj
+              </button>
+              <button
+                onClick={() => setCloseJobAsLost(job)}
+                title="Zamknij jako przegraną"
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
+              >
+                <XCircle className="w-3 h-3" />
+                Lost
+              </button>
+            </>
+          ) : null
+        }
       />
 
       <ProjectsSection
@@ -261,6 +312,23 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
           if (!searching) setOpenClosed(e.currentTarget.open);
         }}
       />
+
+      {addCandidateTo && (
+        <AddCandidateToJobModal
+          jobId={addCandidateTo.id}
+          jobTitle={addCandidateTo.title}
+          clientId={clientId}
+          onClose={() => setAddCandidateTo(null)}
+        />
+      )}
+      {closeJobAsLost && (
+        <CloseJobAsLostModal
+          jobId={closeJobAsLost.id}
+          jobTitle={closeJobAsLost.title}
+          clientId={clientId}
+          onClose={() => setCloseJobAsLost(null)}
+        />
+      )}
     </div>
   );
 }

@@ -61,6 +61,7 @@ from app.schemas.new_contractor_order import (
 from app.services import storage_service
 from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
+from app.services.ezdrowie import validate_project_part
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import parse_order_document
 
@@ -280,6 +281,7 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
         rate_client=order.rate_client,
         total_value=order.total_value,
         currency=order.currency,
+        project_part=order.project_part,
         filename=order.filename,
         has_file=order.file_path is not None,
         content_type=order.content_type,
@@ -457,6 +459,7 @@ async def create_order_extension(
     framework_contract_id: Optional[int] = Form(None),
     job_id: Optional[int] = Form(None),
     notes: Optional[str] = Form(None),
+    project_part: Optional[str] = Form(None),
 ):
     """Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract."""
     from decimal import InvalidOperation
@@ -473,6 +476,13 @@ async def create_order_extension(
     _assert_order_finance_write_allowed(user, supplied_finance_fields)
 
     await _assert_client(db, client_id)
+
+    # „Część umowy" — wymagana dla Centrum e-Zdrowia (także przy przedłużeniu),
+    # zabroniona u pozostałych klientów (ticket #3, bramka po client_id).
+    try:
+        project_part = validate_project_part(client_id, project_part, require=True)
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e)) from None
 
     contract = await db.scalar(
         select(Contract).where(
@@ -536,6 +546,7 @@ async def create_order_extension(
         rate_client=rate_client,
         total_value=total_dec,
         currency=currency or contract.currency,
+        project_part=project_part,
         filename=filename,
         file_path=rel_path,
         content_type=content_type,
@@ -693,14 +704,25 @@ async def update_order(
     _assert_order_finance_write_allowed(user, payload.model_fields_set)
     await _assert_client(db, client_id)
     order = await db.scalar(
-        select(ClientOrder).where(
-            ClientOrder.id == order_id, ClientOrder.client_id == client_id
-        )
+        select(ClientOrder)
+        # Eager-load jak w get_order — _order_to_read czyta order.contract,
+        # a lazy-load na async sesji = MissingGreenlet (500).
+        .options(selectinload(ClientOrder.contract))
+        .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
 
     data = payload.model_dump(exclude_unset=True)
+    if "project_part" in data:
+        # Edycja/uzupełnienie draftu: wartość ze słownika albo NULL; u klientów
+        # innych niż e-Zdrowie pole pozostaje zabronione (ticket #3).
+        try:
+            data["project_part"] = validate_project_part(
+                client_id, data["project_part"], require=False
+            )
+        except ValueError as e:
+            raise HTTPException(422, detail=str(e)) from None
     for field, value in data.items():
         setattr(order, field, value)
 
@@ -959,6 +981,15 @@ async def create_contract_with_order(
     db.add(contract)
     await db.flush()  # Get contract.id
 
+    # „Część umowy" — wymagana dla Centrum e-Zdrowia, zabroniona u innych
+    # (ticket #3, bramka po client_id).
+    try:
+        order_project_part = validate_project_part(
+            client_id, payload.project_part, require=True
+        )
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e)) from None
+
     order = ClientOrder(
         client_id=client_id,
         contract_id=contract.id,
@@ -973,6 +1004,7 @@ async def create_contract_with_order(
         end_date=payload.order_end_date,
         created_by_user_id=user.id,
         notes=payload.notes,
+        project_part=order_project_part,
         **order_finance_kwargs,
     )
     db.add(order)
