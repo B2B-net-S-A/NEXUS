@@ -120,3 +120,49 @@ async def apply_contract_legal_client_scope(
 # their legal numbers. Excludes Finance/viewer/recruiter/sourcer and an
 # unassigned DL/TAC before the endpoint body runs.
 ContractLegalAccess = Annotated[User, Depends(require_contract_legal_access)]
+
+
+async def require_b2b_generator_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Gate for the B2B contract generator specifically.
+
+    The generator is a first-class TAC tool, so — unlike the shared legal gate
+    ``require_contract_legal_access`` — a TAC (and Admin/Head of Recruitment)
+    opens it by role alone, with no client-assignment precondition. A brand new
+    TAC who has not yet been wired to any client must still be able to draft and
+    list B2B contracts; the client-team graph is not the key here (see
+    ``b2b_contract_generator`` for the matching unscoped entity/list behaviour).
+
+    Delivery Lead keeps the original fail-closed contract: an empty DL client
+    graph is still denied, so this change does not widen the Delivery Lead
+    persona. Every other role is rejected.
+    """
+
+    if current_user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.tac,
+    ):
+        return current_user
+    if current_user.has_role(UserRole.delivery_lead):
+        # Delivery Lead stays fail-closed: it needs a non-empty explicit client
+        # graph. ``resolve_client_team_client_ids`` only returns ``None`` for
+        # admin-like roles (already returned above), so for a DL it is always a
+        # concrete set here — an empty one is an authoritative deny.
+        client_ids = await resolve_client_team_client_ids(db, current_user)
+        if client_ids:
+            return current_user
+        raise deny("dostęp prawny wymaga jawnego przypisania klienta")
+    raise deny(
+        "Generator umów B2B jest dostępny dla ról: "
+        "administrator, head of recruitment, delivery lead, TAC"
+    )
+
+
+# Entry gate for the B2B generator surfaces. TAC/Admin/HoR pass by role;
+# Delivery Lead still needs a non-empty client graph. Client-level scoping of
+# individual entities/lists for TAC is intentionally disabled inside
+# ``b2b_contract_generator`` (full-access TAC tool).
+B2BGeneratorAccess = Annotated[User, Depends(require_b2b_generator_access)]
