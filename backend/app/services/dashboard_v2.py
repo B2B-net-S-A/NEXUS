@@ -18,12 +18,14 @@ from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import Period
+from app.core.cache import cache_get, cache_set
 from app.models.user import User
 from app.schemas.dashboard_v2 import (
     AdminOpsBoardRow,
     AdminOpsDashboardData,
     AdminOpsDashboardResponse,
     AdminOpsKpis,
+    CompetitionRankingEntry,
     DashboardAlert,
     DashboardDataQuality,
     DashboardKpi,
@@ -45,7 +47,26 @@ from app.schemas.dashboard_v2 import (
     MyWorkDashboardData,
     MyWorkDashboardResponse,
     MyWorkKpis,
+    RecruitmentFunnelConversions,
+    RecruitmentHallOfFame,
+    RecruitmentHallOfFameHistoryEntry,
+    RecruitmentHallOfFameHistoryPeriod,
+    RecruitmentLinkedIn,
+    RecruitmentLinkedInRow,
+    RecruitmentLinkedInTotals,
+    RecruitmentMonthlyRace,
+    RecruitmentMonthlyRaces,
+    RecruitmentQuarterlyLeague,
+    RecruitmentStatsData,
+    RecruitmentStatsDashboardResponse,
+    RecruitmentStatsKpis,
+    RecruitmentStatsPeriod,
     RecruitmentTeamBoardRow,
+    RecruitmentTeamTable,
+    RecruitmentTeamTableRow,
+    RecruitmentTeamTableTotals,
+    RecruitmentTrend,
+    RecruitmentTrendMonth,
 )
 from app.services import dashboard_v2_sources as sources
 
@@ -1557,3 +1578,352 @@ async def build_finance_dashboard(
         data_quality=quality.build(),
         data=data,
     )
+
+
+# ── Statystyki rekrutacji (sekcja wspólna wszystkich presetów) ───────────────
+
+_RECRUITMENT_STATS_CACHE_PREFIX = "dashv2:recruitment-stats"
+
+
+def _competition_entry(
+    raw: dict[str, Any],
+    fallback_rank: int,
+    *,
+    prize_pln: int | None = None,
+) -> CompetitionRankingEntry:
+    """Jawne mapowanie luźnego `RankedUser.to_dict()` na typowany kontrakt.
+
+    Wybieramy wyłącznie znane klucze — nowe extras w serwisie konkursów nie
+    wysadzą kontraktu `extra="forbid"`.
+    """
+    required = raw.get("required_verifications")
+    return CompetitionRankingEntry(
+        rank=int(raw.get("rank") or fallback_rank),
+        user_id=raw["user_id"],
+        name=raw["name"],
+        metric_value=raw.get("metric_value") or 0,
+        role=raw.get("role"),
+        hit_ratio=raw.get("hit_ratio"),
+        prize_pln=raw.get("prize_pln", prize_pln),
+        excluded=bool(raw.get("excluded", False)),
+        qualified=raw.get("qualified"),
+        placements=raw.get("placements"),
+        interviews=raw.get("interviews"),
+        recommendations=raw.get("recommendations"),
+        verifications=raw.get("verifications"),
+        precision_pct=raw.get("precision_pct"),
+        required_verifications=int(required) if required is not None else None,
+        disqualification_reasons=list(raw.get("disqualification_reasons") or []),
+    )
+
+
+def _recruitment_race(block: dict[str, Any]) -> RecruitmentMonthlyRace:
+    leader = block.get("qualified_leader") or {}
+    return RecruitmentMonthlyRace(
+        requirements=list(block.get("requirements") or []),
+        ranking=[
+            _competition_entry(entry, idx + 1)
+            for idx, entry in enumerate(block.get("ranking") or [])
+        ],
+        excluded_user_ids=list(block.get("excluded_user_ids") or []),
+        qualified_leader_user_id=leader.get("user_id"),
+    )
+
+
+async def build_recruitment_stats_dashboard(
+    user: User,
+    db: AsyncSession,
+    period: Period,
+) -> RecruitmentStatsDashboardResponse:
+    """Composite sekcji „Statystyki rekrutacji" na /dashboard.
+
+    Dane są org-wide BY DESIGN (decyzja właściciela 2026-08-07: każda rola
+    operacyjna widzi imienne wyniki całego zespołu) — scope w kopercie
+    raportuje kontekst uprawnień widza, ale NIE filtruje danych. Dzięki temu
+    payload jest identyczny dla każdego uprawnionego i cache może być
+    org-level (klucz bez user_id): ciężkie CTE liczy się ≤1×/TTL niezależnie
+    od liczby userów na stronie głównej.
+    """
+    scope = await sources.resolve_scope(user, db)
+
+    cache_key = (
+        f"{_RECRUITMENT_STATS_CACHE_PREFIX}:{period.kind.value}"
+        f":{period.start.isoformat()}:{period.end.isoformat()}"
+    )
+    cached = await cache_get(cache_key)
+    if cached:
+        response = RecruitmentStatsDashboardResponse.model_validate(cached)
+        # Scope odzwierciedla BIEŻĄCEGO widza, nie tego, kto napełnił cache.
+        return response.model_copy(update={"scope": scope.payload})
+
+    quality = _Quality()
+
+    team = await _capture(
+        quality,
+        "team_funnel",
+        lambda: sources.load_recruitment_team_panel(db, period),
+    )
+    if team is not None and not hasattr(getattr(team, "totals", None), "akceptacje"):
+        _mark_partial(
+            quality,
+            "team_funnel",
+            "team_funnel: odpowiedź nie zawiera totals z lejkiem",
+        )
+        team = None
+    league = await _capture(
+        quality, "quarterly_league", lambda: sources.load_quarterly_league(db)
+    )
+    if league is not None and not _mapping_with_list_fields(league, "ranked"):
+        _mark_partial(
+            quality,
+            "quarterly_league",
+            "quarterly_league: odpowiedź nie zawiera rankingu",
+        )
+        league = None
+    races = await _capture(
+        quality, "monthly_races", lambda: sources.load_monthly_races(db)
+    )
+    if races is not None and not (
+        isinstance(races, dict)
+        and _mapping_with_list_fields(races.get("recommendations"), "ranking")
+        and _mapping_with_list_fields(races.get("placements"), "ranking")
+    ):
+        _mark_partial(
+            quality,
+            "monthly_races",
+            "monthly_races: odpowiedź nie zawiera obu wyścigów",
+        )
+        races = None
+    hof = await _capture(quality, "hall_of_fame", lambda: sources.load_hall_of_fame(db))
+    if hof is not None and not _mapping_with_list_fields(hof, "all_time", "history"):
+        _mark_partial(
+            quality,
+            "hall_of_fame",
+            "hall_of_fame: odpowiedź nie zawiera all_time i history",
+        )
+        hof = None
+    linkedin = await _capture(
+        quality, "linkedin", lambda: sources.load_linkedin_summary(db, period)
+    )
+    if linkedin is not None and not _mapping_with_list_fields(linkedin, "per_user"):
+        _mark_partial(
+            quality,
+            "linkedin",
+            "linkedin: odpowiedź nie zawiera per_user",
+        )
+        linkedin = None
+    trend = await _capture(quality, "trend", lambda: sources.load_recruitment_trend(db))
+
+    kpi_quality = _source_kpi_quality(quality, "team_funnel", team)
+    totals = team.totals if team is not None else None
+    kpis = RecruitmentStatsKpis(
+        verifications=_kpi(
+            totals.weryfikacje if totals else None,
+            "count",
+            "Pierwsze przejścia na etap Zweryfikowany w oknie "
+            "(atrybucja verifier-anchored).",
+            quality=kpi_quality,
+        ),
+        recommendations=_kpi(
+            totals.rekomendacje if totals else None,
+            "count",
+            "CV wysłane do klienta — pierwsze cv_sent per proces.",
+            quality=kpi_quality,
+        ),
+        interviews=_kpi(
+            totals.interview if totals else None,
+            "count",
+            "Pierwsze interview per proces.",
+            quality=kpi_quality,
+        ),
+        acceptances=_kpi(
+            totals.akceptacje if totals else None,
+            "count",
+            "Klient zaakceptował kandydata — pierwsze acceptance per proces.",
+            quality=kpi_quality,
+        ),
+        placements=_kpi(
+            totals.placementy if totals else None,
+            "count",
+            "Pierwsze hired per proces.",
+            quality=kpi_quality,
+        ),
+    )
+
+    team_table = None
+    conversions = None
+    if team is not None:
+        team_table = RecruitmentTeamTable(
+            precision_target_pct=team.precision_target_pct,
+            rows=[
+                RecruitmentTeamTableRow(
+                    user_id=row.user_id,
+                    name=row.name,
+                    role=row.role,
+                    verifications=row.weryfikacje,
+                    recommendations=row.rekomendacje,
+                    interviews=row.interview,
+                    acceptances=row.akceptacje,
+                    placements=row.placementy,
+                    cv_to_base=row.cv_to_base,
+                    precision_pct=row.precision_pct,
+                    precision_verified_30d=row.precision_verified_30d,
+                    precision_sent_30d=row.precision_sent_30d,
+                )
+                for row in team.rows
+            ],
+            totals=RecruitmentTeamTableTotals(
+                verifications=team.totals.weryfikacje,
+                recommendations=team.totals.rekomendacje,
+                interviews=team.totals.interview,
+                acceptances=team.totals.akceptacje,
+                placements=team.totals.placementy,
+                cv_to_base=team.totals.cv_to_base,
+                precision_pct=team.totals.precision_pct,
+                people=team.totals.people,
+            ),
+        )
+        from app.services.recruitment_trend import funnel_conversions
+
+        fc = funnel_conversions(
+            weryfikacje=team.totals.weryfikacje,
+            rekomendacje=team.totals.rekomendacje,
+            interview=team.totals.interview,
+            akceptacje=team.totals.akceptacje,
+            placementy=team.totals.placementy,
+        )
+        conversions = RecruitmentFunnelConversions(
+            verified_to_recommendation_pct=fc.verified_to_recommendation_pct,
+            recommendation_to_interview_pct=fc.recommendation_to_interview_pct,
+            interview_to_acceptance_pct=fc.interview_to_acceptance_pct,
+            acceptance_to_placement_pct=fc.acceptance_to_placement_pct,
+            interview_to_placement_pct=fc.interview_to_placement_pct,
+            overall_pct=fc.overall_pct,
+        )
+
+    quarterly_league = None
+    if league is not None:
+        prizes: dict[str, int] = league.get("prizes_pln") or {}
+        entries = [
+            _competition_entry(
+                entry,
+                idx + 1,
+                prize_pln=prizes.get(str(idx + 1)),
+            )
+            for idx, entry in enumerate(league["ranked"])
+        ]
+        quarterly_league = RecruitmentQuarterlyLeague(
+            period=league["period"],
+            days_remaining=league["days_remaining"],
+            points_formula=league["points_formula"],
+            prizes_pln=prizes,
+            requirement=league["requirement"],
+            top3=entries[:3],
+            full_ranking=entries,
+        )
+
+    monthly_races = None
+    if races is not None:
+        rec_block = races["recommendations"]
+        monthly_races = RecruitmentMonthlyRaces(
+            period=rec_block["period"],
+            days_remaining=rec_block["days_remaining"],
+            prize_amount_pln=rec_block["prize"]["amount_pln"],
+            prize_name=rec_block["prize"]["name"],
+            recommendations=_recruitment_race(rec_block),
+            placements=_recruitment_race(races["placements"]),
+        )
+
+    hall_of_fame = None
+    if hof is not None:
+        hall_of_fame = RecruitmentHallOfFame(
+            all_time=[
+                _competition_entry(entry, idx + 1)
+                for idx, entry in enumerate(hof["all_time"])
+            ],
+            history=[
+                RecruitmentHallOfFameHistoryPeriod(
+                    period=item["period"],
+                    top3=[
+                        RecruitmentHallOfFameHistoryEntry(
+                            rank=winner["rank"],
+                            user_id=winner["user_id"],
+                            name=winner["name"],
+                            metric_value=winner.get("metric_value"),
+                            points=winner.get("points"),
+                            prize_pln=winner.get("prize_pln"),
+                        )
+                        for winner in item["top3"]
+                    ],
+                )
+                for item in hof["history"]
+            ],
+        )
+
+    linkedin_block = None
+    if linkedin is not None:
+        totals_raw = linkedin["totals"]
+        linkedin_block = RecruitmentLinkedIn(
+            date_from=linkedin["date_from"],
+            date_to=linkedin["date_to"],
+            per_user=[
+                RecruitmentLinkedInRow(
+                    user_id=row.user_id,
+                    name=row.name,
+                    role=row.role,
+                    cv_added=row.cv_added,
+                    messages_sent=row.messages_sent,
+                    responses_received=row.responses_received,
+                    response_rate=row.response_rate,
+                    cv_response_rate=row.cv_response_rate,
+                    days_reported=row.days_reported,
+                )
+                for row in linkedin["per_user"]
+            ],
+            totals=RecruitmentLinkedInTotals(**totals_raw),
+        )
+
+    trend_block = None
+    if trend is not None:
+        trend_block = RecruitmentTrend(
+            months=[
+                RecruitmentTrendMonth(
+                    month=point.month,
+                    verifications=point.weryfikacje,
+                    recommendations=point.rekomendacje,
+                    interviews=point.interview,
+                    acceptances=point.akceptacje,
+                    placements=point.placementy,
+                )
+                for point in trend
+            ]
+        )
+
+    computed_at = _now()
+    data_quality = quality.build()
+    data_quality.source_watermarks["recruitment_stats.computed_at"] = computed_at
+
+    response = RecruitmentStatsDashboardResponse(
+        generated_at=computed_at,
+        scope=scope.payload,
+        data_quality=data_quality,
+        data=RecruitmentStatsData(
+            period=RecruitmentStatsPeriod(
+                kind=period.kind.value,
+                start=period.start,
+                end=period.end,
+            ),
+            kpis=kpis,
+            team_table=team_table,
+            conversions=conversions,
+            quarterly_league=quarterly_league,
+            monthly_races=monthly_races,
+            hall_of_fame=hall_of_fame,
+            linkedin=linkedin_block,
+            trend=trend_block,
+        ),
+    )
+    # Krótszy TTL dla stanu zdegradowanego — awaria nie „zamraża się" na 2 min.
+    ttl = 120 if data_quality.status == "complete" else 30
+    await cache_set(cache_key, response.model_dump(mode="json"), ttl_seconds=ttl)
+    return response

@@ -29,6 +29,7 @@ from app.api import (
     candidate_contact,
     contract_analytics,
     invoices,
+    linkedin_metrics,
     priority_work,
 )
 from app.core.config import settings
@@ -468,3 +469,119 @@ async def load_revenue_forecast(user: User, db: AsyncSession) -> Any:
         horizon_months=3,
         convert_currency=True,
     )
+
+
+# ── Statystyki rekrutacji (sekcja wspólna wszystkich presetów) ──────────────
+#
+# Dane są org-wide by design (decyzja właściciela 2026-08-07) — adaptery nie
+# przyjmują scope'u. Autoryzację robi guard endpointu (OperationalUser).
+
+
+async def load_recruitment_team_panel(db: AsyncSession, period: Period) -> Any:
+    """Lejek per osoba + totals w kanonicznym oknie `[start, end)`."""
+    from app.services.kpi_team import compute_team_panel
+
+    return await compute_team_panel(
+        db,
+        bounds=(period.start, period.end),
+        period_label=period.kind.value,
+    )
+
+
+async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
+    """Liga Mistrzów rekruterów — ZAWSZE bieżący kwartał (reguła konkursu),
+    niezależnie od okresu sekcji."""
+    from datetime import date as _date
+
+    from app.services import competitions as comp
+
+    period = comp.current_quarter_period()
+    ranked = await comp.quarterly_champions_recruiter(db, period)
+    return {
+        "period": period,
+        "days_remaining": comp.days_left_in_quarter(_date.today()),
+        "points_formula": dict(comp.POINTS_FORMULA),
+        "prizes_pln": {str(k): v for k, v in comp.QUARTERLY_PRIZES_PLN.items()},
+        # Ten sam tekst co /api/competitions/current?type=quarterly_champions_recruiter.
+        "requirement": (
+            f"Wymagane minimum {comp.QUARTERLY_MIN_PLACEMENTS} "
+            "placementów w kwartale (łącznie 1 miesięcznie)."
+        ),
+        "ranked": [r.to_dict() for r in ranked],
+    }
+
+
+async def load_monthly_races(db: AsyncSession) -> dict[str, Any]:
+    """Oba wyścigi miesięczne — ta sama kompozycja co /api/competitions."""
+    from app.services import competitions as comp
+
+    return await comp.compose_monthly_races(db)
+
+
+async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
+    """All-time TOP 5 (live) + zamrożone podia ligi kwartalnej z historii."""
+    from sqlalchemy import desc
+
+    from app.models.competition_winner import CompetitionType, CompetitionWinner
+    from app.services import competitions as comp
+
+    all_time = await comp.hall_of_fame(db, limit=5)
+
+    frozen = (
+        await db.execute(
+            select(CompetitionWinner, User.name.label("user_name"))
+            .join(User, CompetitionWinner.user_id == User.id)
+            .where(
+                CompetitionWinner.competition_type
+                == CompetitionType.quarterly_champions_recruiter.value
+            )
+            .order_by(desc(CompetitionWinner.period), CompetitionWinner.rank)
+            .limit(12)  # 4 okresy × podium
+        )
+    ).all()
+    history: dict[str, list[dict[str, Any]]] = {}
+    for winner, user_name in frozen:
+        history.setdefault(winner.period, []).append(
+            {
+                "rank": winner.rank,
+                "user_id": winner.user_id,
+                "name": user_name,
+                "metric_value": winner.metric_value,
+                "points": winner.points,
+                "prize_pln": winner.prize_pln,
+            }
+        )
+    return {
+        "all_time": [r.to_dict() for r in all_time],
+        "history": [
+            {"period": period, "top3": history[period]}
+            for period in sorted(history.keys(), reverse=True)
+        ],
+    }
+
+
+async def load_linkedin_summary(db: AsyncSession, period: Period) -> dict[str, Any]:
+    """Agregacja LinkedIn w kanonicznym oknie sekcji (kalendarz Warsaw).
+
+    `linkedin_daily_metrics.report_date` to DATE, a filtr `_compute_summary`
+    jest domknięty z obu stron — end (exclusive datetime) mapujemy na
+    ostatni dzień W oknie.
+    """
+    from datetime import timedelta
+
+    date_from = period.start.date()
+    date_to = (period.end - timedelta(microseconds=1)).date()
+    per_user, totals = await linkedin_metrics._compute_summary(db, date_from, date_to)
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "per_user": per_user,
+        "totals": totals,
+    }
+
+
+async def load_recruitment_trend(db: AsyncSession) -> Any:
+    """Trend 12-mies. kamieni milowych (zawsze pełne okno, nie okres sekcji)."""
+    from app.services.recruitment_trend import monthly_milestone_trend
+
+    return await monthly_milestone_trend(db, months=12)
