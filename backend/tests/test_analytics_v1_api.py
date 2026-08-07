@@ -541,3 +541,38 @@ async def test_legacy_endpoints_carry_deprecation_headers(v1_client: AsyncClient
     # nie-statystyczne API bez nagłówków
     me = await v1_client.get("/api/auth/me", headers=headers)
     assert "Deprecation" not in me.headers
+
+
+@pytest.mark.asyncio
+async def test_canonical_surfaces_do_not_carry_deprecation_headers(
+    v1_client: AsyncClient,
+):
+    """Kanoniczne powierzchnie nie mogą być stemplowane jako legacy.
+
+    `/api/dashboard/v2` to bieżący kontrakt RoleDashboard (prefiks
+    `/api/dashboard` łapał go omyłkowo), a `/api/competitions` to natywny,
+    żywy moduł rywalizacji bez następcy w analytics_v1. Middleware dokleja
+    nagłówki także do odpowiedzi 401/403, więc test nie potrzebuje loginu.
+    """
+    v2 = await v1_client.get("/api/dashboard/v2/my-work")
+    assert v2.status_code in (401, 403)
+    assert "Deprecation" not in v2.headers
+    assert "Sunset" not in v2.headers
+
+    competitions = await v1_client.get("/api/competitions/current")
+    assert competitions.status_code in (401, 403)
+    assert "Deprecation" not in competitions.headers
+    assert "Sunset" not in competitions.headers
+
+    # Kontrola pozytywna: prawdziwe legacy wciąż nosi pełen komplet nagłówków.
+    legacy = await v1_client.get("/api/kpis/me/today")
+    assert legacy.status_code in (401, 403)
+    assert legacy.headers.get("Deprecation") == "true"
+    assert "Sunset" in legacy.headers
+    assert "successor-version" in legacy.headers.get("Link", "")
+
+    # Granica segmentu: wyjątek obejmuje `/api/dashboard/v2` i `/v2/...`,
+    # ale NIE hipotetyczne `/api/dashboard/v2-beta` (goły startswith by je
+    # zwolnił). Trasa nie istnieje — middleware stempluje też 404.
+    lookalike = await v1_client.get("/api/dashboard/v2-beta")
+    assert lookalike.headers.get("Deprecation") == "true"
