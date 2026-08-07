@@ -43,8 +43,19 @@ from app.services.candidate_profile_rate import (
 _LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2", "native"]
 
 
-def _safe(col: ColumnElement) -> ColumnElement:
-    """Coalesce NULL → '' so ILIKE doesn't yield NULL (which excludes rows)."""
+def _coalesce_empty(col: ColumnElement) -> ColumnElement:
+    """Coalesce NULL → '' so ILIKE yields FALSE instead of NULL.
+
+    NOT a safety helper, despite what the old name (``_safe``) suggested. The
+    coalesce makes the comparison return a boolean rather than NULL — which
+    means a row with no value evaluates to FALSE and is **excluded**. That
+    reads as protection and is the opposite: it is how the location filter
+    silently dropped 85% of the database while looking careful.
+
+    Any caller that must keep unknown-valued rows has to add the NULL arm
+    itself (see the `location` group in ``build_filter_groups``), or use
+    ``nullable()``.
+    """
     return func.coalesce(col, "")
 
 
@@ -172,8 +183,10 @@ def _city_match_clauses(cities: list[str]) -> list[ColumnElement]:
     """
     return [
         or_(
-            _safe(Candidate.city).ilike(f"%{_escape_like(c)}%", escape="\\"),
-            _safe(Candidate.location).ilike(f"%{_escape_like(c)}%", escape="\\"),
+            _coalesce_empty(Candidate.city).ilike(f"%{_escape_like(c)}%", escape="\\"),
+            _coalesce_empty(Candidate.location).ilike(
+                f"%{_escape_like(c)}%", escape="\\"
+            ),
         )
         for c in cities
     ]
