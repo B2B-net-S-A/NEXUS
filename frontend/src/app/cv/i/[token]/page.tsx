@@ -283,14 +283,17 @@ function CvDocument({
         <>
           <SectionTitle>{t.skills}</SectionTitle>
           <div className="space-y-1.5">
-            {cv.skills.map((group, i) => (
-              <p key={i} className="text-sm text-foreground">
-                {group.label ? (
-                  <span className="font-medium">{group.label}: </span>
-                ) : null}
-                <span className="text-muted-foreground">{group.content}</span>
-              </p>
-            ))}
+            {cv.skills.map((group, i) => {
+              // Payload bywa z dwukropkiem w labelu ("Big Data i ETL:") —
+              // zdejmujemy go, żeby nie renderować "ETL:: Hadoop…".
+              const label = (group.label || "").replace(/:+\s*$/, "");
+              return (
+                <p key={i} className="text-sm text-foreground">
+                  {label ? <span className="font-medium">{label}: </span> : null}
+                  <span className="text-muted-foreground">{group.content}</span>
+                </p>
+              );
+            })}
           </div>
         </>
       )}
