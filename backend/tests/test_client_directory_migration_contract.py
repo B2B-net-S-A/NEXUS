@@ -376,15 +376,17 @@ def test_hosted_ci_runs_fresh_retry_downgrade_and_reupgrade_cycle() -> None:
     # znaki nowej linii, więc konkatenacja mogłaby skleić ostatnią komendę
     # jednego pliku z pierwszą komendą drugiego i sfabrykować `double_upgrade`,
     # którego nigdzie nie ma.
-    hosts = [
-        path.name
-        for path in CI_WORKFLOWS
-        if path.exists()
-        for workflow in (_normalise_sql(path.read_text(encoding="utf-8")),)
-        if double_upgrade in workflow
-        and downgrade in workflow
-        and workflow.count("alembic -c alembic/alembic.ini upgrade heads") >= 3
-    ]
+    hosts = []
+    for path in CI_WORKFLOWS:
+        if not path.exists():
+            continue
+        workflow = _normalise_sql(path.read_text(encoding="utf-8"))
+        if (
+            double_upgrade in workflow
+            and downgrade in workflow
+            and workflow.count("alembic -c alembic/alembic.ini upgrade heads") >= 3
+        ):
+            hosts.append(path.name)
 
     assert hosts, (
         "Żaden z workflow-ów "

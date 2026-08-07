@@ -307,13 +307,18 @@ async def _seed_invoice(contract_id: int, invoice_number: str) -> None:
 async def _contracts_count() -> int:
     """Policz WSZYSTKIE kontrakty.
 
-    Pomiar globalny jest tu celowy i wiarygodny, bo każdy worker xdist dostaje
-    własną bazę (patrz `_provision_worker_database` w conftest.py). Bez tej
-    izolacji ten licznik trzeba by zawęzić do znacznika `MAX(id)`, co osłabiłoby
-    asercję: nowy wiersz dostaje id powyżej znacznika, więc endpoint dodający
-    dane byłby nieodróżnialny od wstawki cudzego workera i przestałby być
-    wykrywany. Izolacja pozwala zachować mocniejszą wersję — łapiącą zarówno
-    dodanie, jak i skasowanie wiersza.
+    Pomiar globalny jest wiarygodny, dopóki suite backendu chodzi w JEDNYM
+    procesie — a tak jest dziś (`ci.yml` woła pytest bez `-n`). Łapie wtedy
+    zarówno dodanie, jak i skasowanie wiersza przez endpoint.
+
+    Gdyby ktoś wprowadzał `pytest-xdist`: ta asercja jest jedną z tych, które
+    się o to rozbijają. Przy WSPÓLNEJ bazie równoległy worker wstawiający
+    własny kontrakt jest nieodróżnialny od endpointu mutującego dane i test
+    zaczyna oskarżać endpoint o cudzy zapis (tak wywrócił się w CI 2026-08-07).
+    Zawężenie do znacznika `MAX(id)` ratuje przebieg, ale kosztuje wykrywanie
+    INSERT-u. Właściwym rozwiązaniem jest osobna baza per worker — wtedy ten
+    licznik zostaje bez zmian. Patrz gałąź `xdist-per-worker-db-wip` i
+    docs/ci-deploy-latency-completion-report.md.
     """
     from app.core.database import AsyncSessionLocal
 
