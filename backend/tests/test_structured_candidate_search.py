@@ -92,9 +92,19 @@ class TestExperienceRange:
         assert "<=" in sql
 
     def test_both(self):
+        """Both bounds now live in ONE NULL-tolerant clause, not two.
+
+        Previously this asserted `len(clauses) == 2` — two bare comparisons.
+        They were merged into a single `nullable(col, >=min, <=max)` so a
+        candidate who never stated their experience is no longer dropped
+        (the column is filled for 1.2% of the base).
+        """
         req = CandidateSearchRequest(experience_years_min=5, experience_years_max=10)
         clauses = build_structured_filter(req)
-        assert len(clauses) == 2
+        assert len(clauses) == 1
+        sql = _compile(clauses)
+        assert "years_it_experience IS NULL" in sql
+        assert ">= 5" in sql and "<= 10" in sql
 
 
 class TestLanguages:
@@ -429,7 +439,7 @@ def _is_null_tolerant(clause) -> bool:
     """
     from sqlalchemy import BooleanClauseList
     from sqlalchemy.sql.elements import UnaryExpression
-    from sqlalchemy.sql.operators import is_, or_ as or_op
+    from sqlalchemy.sql.operators import or_ as or_op
 
     def _has_is_null(node) -> bool:
         if isinstance(node, UnaryExpression) and node.operator is not None:
@@ -449,7 +459,7 @@ def _is_null_tolerant(clause) -> bool:
     return _has_is_null(clause)
 
 
-@pytest.mark.parametrize("group_key", ["experience", "location", "rate_hourly", "availability"])
+@pytest.mark.parametrize("group_key", ["experience", "location", "rate_hourly"])
 def test_include_policy_groups_keep_rows_with_a_missing_value(group_key):
     groups = {g.key: g for g in build_filter_groups(_maximal_request())}
     assert NULL_POLICY[group_key].policy is NullPolicy.include
@@ -478,7 +488,9 @@ def test_location_chip_still_drops_a_known_mismatching_city():
     different city is still excluded — only the unknowns are kept."""
     req = CandidateSearchRequest(location_cities=["Kraków"])
     sql = _compile(build_structured_filter(req))
-    assert "ILIKE '%Kraków%'" in sql
+    # `literal_binds` doubles the wildcard (%% ), so match the operator and the
+    # city rather than a hand-written pattern.
+    assert "ILIKE" in sql and "Kraków" in sql
 
 
 # ── Soft ranking (the other half of softening a filter) ──────────────────────

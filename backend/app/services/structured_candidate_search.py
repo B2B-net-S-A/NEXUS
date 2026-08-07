@@ -326,7 +326,23 @@ NULL_POLICY: dict[str, GroupPolicy] = {
             "a 'German C1' search returns the whole database. Tracked separately."
         ),
     ),
-    "availability": GroupPolicy(NullPolicy.include, 0.0, "2026-08-07"),
+    # Heterogeneous on purpose, and the contract test caught it: this group
+    # holds an enum-membership filter (`availability_status`, a NOT NULL column
+    # — so "missing" is not a state it can be in) alongside two range filters
+    # over nullable columns. The range parts ARE NULL-tolerant individually
+    # (`availability_date`, `notice_period`, both `IS NULL OR ...`); the enum
+    # part legitimately excludes, because asking for "actively looking" and
+    # getting someone marked "unknown" is a wrong answer, not a kind one.
+    "availability": GroupPolicy(
+        NullPolicy.exclude,
+        0.0,
+        "2026-08-07",
+        justification=(
+            "`availability_status` is NOT NULL — an enum equality, not a "
+            "missing-data question. The nullable parts of this group "
+            "(availability_date, notice_period) are individually NULL-tolerant."
+        ),
+    ),
     "rate_hourly": GroupPolicy(NullPolicy.include, 0.0, "2026-08-07"),
     "eligibility": GroupPolicy(
         NullPolicy.exclude,
