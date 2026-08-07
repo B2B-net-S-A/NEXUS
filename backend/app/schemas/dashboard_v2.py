@@ -12,7 +12,7 @@ must therefore never be serialized as a numeric zero.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -294,3 +294,202 @@ FinanceDashboardData = Union[
 
 class FinanceDashboardResponse(DashboardResponseBase):
     data: FinanceDashboardData = Field(discriminator="tab")
+
+
+# ── Statystyki rekrutacji (sekcja wspólna /dashboard) ───────────────────────
+#
+# Sekcja jest z natury IMIENNA (tabela per osoba, podia, wyścigi, LinkedIn),
+# więc jej guard to OperationalUser — persona finance jej nie widzi i ten
+# kontrakt NIE może wejść do FinanceDashboardResponse (containment
+# strukturalny). Każdy pod-blok jest `| None`: awaria źródła daje null +
+# sekcję `unavailable` w data_quality, nigdy fabrykowane zera.
+
+
+class RecruitmentStatsPeriod(DashboardModel):
+    kind: str
+    start: datetime
+    end: datetime
+    timezone: str = "Europe/Warsaw"
+
+
+class RecruitmentStatsKpis(DashboardModel):
+    """5 kafli — zawsze z `totals` tabeli zespołu (jedno przeliczenie CTE)."""
+
+    verifications: DashboardKpi
+    recommendations: DashboardKpi
+    interviews: DashboardKpi
+    acceptances: DashboardKpi
+    placements: DashboardKpi
+
+
+class RecruitmentTeamTableRow(DashboardModel):
+    user_id: int
+    name: str
+    role: str
+    verifications: int
+    recommendations: int
+    interviews: int
+    acceptances: int
+    placements: int
+    cv_to_base: int
+    precision_pct: float | None = None
+    precision_verified_30d: int
+    precision_sent_30d: int
+
+
+class RecruitmentTeamTableTotals(DashboardModel):
+    verifications: int
+    recommendations: int
+    interviews: int
+    acceptances: int
+    placements: int
+    cv_to_base: int
+    precision_pct: float | None = None
+    people: int
+
+
+class RecruitmentTeamTable(DashboardModel):
+    precision_target_pct: int
+    rows: list[RecruitmentTeamTableRow] = Field(default_factory=list)
+    totals: RecruitmentTeamTableTotals
+
+
+class RecruitmentFunnelConversions(DashboardModel):
+    """Konwersje ze zliczeń okresu (nie kohorty); mianownik 0 → None."""
+
+    verified_to_recommendation_pct: float | None = None
+    recommendation_to_interview_pct: float | None = None
+    interview_to_acceptance_pct: float | None = None
+    acceptance_to_placement_pct: float | None = None
+    interview_to_placement_pct: float | None = None
+    overall_pct: float | None = None
+
+
+class CompetitionRankingEntry(DashboardModel):
+    """Typowany wpis rankingu (zamiast luźnych dictów `RankedUser.to_dict`).
+
+    Pola opcjonalne pokrywają unię extras wszystkich typów konkursów;
+    mapowanie jawnie wybiera znane klucze, więc nowe extras nie łamią
+    kontraktu `extra="forbid"`.
+    """
+
+    rank: int
+    user_id: int
+    name: str
+    metric_value: float | int
+    role: str | None = None
+    hit_ratio: float | None = None
+    prize_pln: int | None = None
+    excluded: bool = False
+    qualified: bool | None = None
+    placements: int | None = None
+    interviews: int | None = None
+    recommendations: int | None = None
+    verifications: int | None = None
+    precision_pct: float | None = None
+    required_verifications: int | None = None
+    disqualification_reasons: list[str] = Field(default_factory=list)
+
+
+class RecruitmentQuarterlyLeague(DashboardModel):
+    period: str
+    days_remaining: int
+    points_formula: dict[str, int]
+    prizes_pln: dict[str, int]
+    requirement: str
+    top3: list[CompetitionRankingEntry] = Field(default_factory=list)
+    full_ranking: list[CompetitionRankingEntry] = Field(default_factory=list)
+
+
+class RecruitmentMonthlyRace(DashboardModel):
+    requirements: list[str] = Field(default_factory=list)
+    ranking: list[CompetitionRankingEntry] = Field(default_factory=list)
+    excluded_user_ids: list[int] = Field(default_factory=list)
+    qualified_leader_user_id: int | None = None
+
+
+class RecruitmentMonthlyRaces(DashboardModel):
+    period: str
+    days_remaining: int
+    prize_amount_pln: int
+    prize_name: str
+    recommendations: RecruitmentMonthlyRace
+    placements: RecruitmentMonthlyRace
+
+
+class RecruitmentHallOfFameHistoryEntry(DashboardModel):
+    rank: int
+    user_id: int
+    name: str
+    metric_value: float | int | None = None
+    points: int | None = None
+    prize_pln: int | None = None
+
+
+class RecruitmentHallOfFameHistoryPeriod(DashboardModel):
+    period: str
+    top3: list[RecruitmentHallOfFameHistoryEntry] = Field(default_factory=list)
+
+
+class RecruitmentHallOfFame(DashboardModel):
+    """All-time TOP 5 (live) + zamrożone podia ligi z historii."""
+
+    all_time: list[CompetitionRankingEntry] = Field(default_factory=list)
+    history: list[RecruitmentHallOfFameHistoryPeriod] = Field(default_factory=list)
+
+
+class RecruitmentLinkedInRow(DashboardModel):
+    user_id: int
+    name: str
+    role: str
+    cv_added: int
+    messages_sent: int
+    responses_received: int
+    response_rate: float
+    cv_response_rate: float
+    days_reported: int
+
+
+class RecruitmentLinkedInTotals(DashboardModel):
+    cv_added: int
+    messages_sent: int
+    responses_received: int
+    response_rate: float
+    cv_response_rate: float
+    active_users: int
+
+
+class RecruitmentLinkedIn(DashboardModel):
+    date_from: date
+    date_to: date
+    per_user: list[RecruitmentLinkedInRow] = Field(default_factory=list)
+    totals: RecruitmentLinkedInTotals
+
+
+class RecruitmentTrendMonth(DashboardModel):
+    month: str
+    verifications: int
+    recommendations: int
+    interviews: int
+    acceptances: int
+    placements: int
+
+
+class RecruitmentTrend(DashboardModel):
+    months: list[RecruitmentTrendMonth] = Field(default_factory=list)
+
+
+class RecruitmentStatsData(DashboardModel):
+    period: RecruitmentStatsPeriod
+    kpis: RecruitmentStatsKpis
+    team_table: RecruitmentTeamTable | None = None
+    conversions: RecruitmentFunnelConversions | None = None
+    quarterly_league: RecruitmentQuarterlyLeague | None = None
+    monthly_races: RecruitmentMonthlyRaces | None = None
+    hall_of_fame: RecruitmentHallOfFame | None = None
+    linkedin: RecruitmentLinkedIn | None = None
+    trend: RecruitmentTrend | None = None
+
+
+class RecruitmentStatsDashboardResponse(DashboardResponseBase):
+    data: RecruitmentStatsData

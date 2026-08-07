@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -43,8 +44,11 @@ from app.services.ai_quota import check_and_increment
 # helperów — duplikacja ~100 linii regexów rozjechałaby się przy pierwszej
 # poprawce wzorca).
 from app.services.candidate_activity_summary_service import (
-    _contains_financial_amount,
+    _AMOUNT_TOKEN,
+    _CURRENCY_TOKEN,
+    _MONEY_UNIT,
     _contains_prompt_injection,
+    _normalize_for_detection,
 )
 from app.services.cv_generator_b2b.public_view import build_public_payload
 
@@ -93,6 +97,28 @@ _SYSTEM_PROMPT = (
     "<profile>\n{profile_json}\n</profile>\n\n"
     "<requirement_map>\n{requirement_map_json}\n</requirement_map>"
 )
+
+
+# Skan wyjścia chatu: WYŁĄCZNIE liczba bezpośrednio przy walucie/jednostce
+# ("180 PLN/h", "25 000 zł netto", "$90/h", "40k"). Świadomie ciaśniej niż
+# ``_contains_financial_amount`` z podsumowania aktywności, i to z dwóch
+# powodów wykrytych smoke'iem na prodzie (2026-08-07):
+# 1. topic-scan (gołe „finansowych"/„koszt"/„b2b"/„rate") odrzucał odpowiedź
+#    cytującą z CV „przetwarzanie miliardów rekordów finansowych";
+# 2. gałęzie „keyword w pobliżu liczby" łapią lata ("od 2019") i samo „B2B"
+#    (cyfra 2 to token liczbowy).
+# Kontekst chatu fizycznie nie zawiera stawek, więc jedyny realny wektor
+# (konfabulowana/wstrzyknięta kwota) to zawsze liczba + waluta/jednostka.
+_STRICT_AMOUNT_RE = re.compile(
+    rf"(?:{_AMOUNT_TOKEN}\s*(?:{_CURRENCY_TOKEN}|{_MONEY_UNIT}))|"
+    rf"(?:(?:{_CURRENCY_TOKEN})\s*{_AMOUNT_TOKEN})|"
+    rf"(?:\b\d{{2,}}\s*(?:k\b|tys(?:\.|ięcy)?\b))",
+    re.IGNORECASE,
+)
+
+
+def _contains_concrete_financial_amount(text: str) -> bool:
+    return bool(_STRICT_AMOUNT_RE.search(_normalize_for_detection(text)))
 
 
 class CvChatDailyLimitExceeded(Exception):
@@ -222,7 +248,9 @@ async def answer_question(
     # Defense-in-depth na wyjściu: echo injection albo konkretna kwota
     # pieniężna (kontekst nie zawiera stawek, więc kwota = konfabulacja
     # albo wyciek) → generyczna odmowa zamiast odpowiedzi.
-    if _contains_prompt_injection(answer) or _contains_financial_amount(answer):
+    if _contains_prompt_injection(answer) or _contains_concrete_financial_amount(
+        answer
+    ):
         logger.warning(
             "[cv_chat] output rejected (policy) revoke_key=%s", token_row.token
         )

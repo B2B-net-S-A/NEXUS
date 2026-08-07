@@ -82,12 +82,21 @@ const COLUMNS: { key: NumKey; label: string; hint: string }[] = [
  * (Dziś/Tydzień/Miesiąc — zmienia zapytanie), rola (dropdown) oraz osoba
  * (wyszukiwarka). Sortowanie po dowolnej kolumnie (klik w nagłówek).
  *
- * Widoczny tylko dla ról managerskich (admin / head_of_recruitment /
- * delivery_lead) — dla pozostałych zwraca null.
+ * Widoczny dla każdej roli operacyjnej (decyzja właściciela 2026-08-07:
+ * cały zespół widzi imienne wyniki wszystkich, jak w InfraReporterze).
+ * Finance i legacy `user` — null (backend też ich odcina).
  */
 export function TeamKpiPanel({ className }: { className?: string }) {
   const user = useAuthStore((s) => s.user)
-  const canView = hasRole(user, "admin", "head_of_recruitment", "delivery_lead")
+  const canView = hasRole(
+    user,
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+    "recruiter",
+    "sourcer",
+  )
 
   const [period, setPeriod] = useState<Period>("week")
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all")

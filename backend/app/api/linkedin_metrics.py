@@ -215,7 +215,7 @@ async def delete_metric(
 # ── Summary (team-wide) ────────────────────────────────────────────────
 
 
-async def _compute_summary(
+async def compute_summary(
     db: AsyncSession,
     date_from: date,
     date_to: date,
@@ -284,7 +284,7 @@ async def summary(
 ):
     """Team-wide aggregacja za okres. Dostępne dla wszystkich zalogowanych."""
     start, end = _period_bounds(period)
-    per_user, totals = await _compute_summary(db, start, end)
+    per_user, totals = await compute_summary(db, start, end)
     return LinkedInSummary(
         period=period,
         date_from=start,
@@ -302,7 +302,7 @@ async def my_summary(
 ):
     """Własna aggregacja + trend dzienny dla zalogowanego usera."""
     start, end = _period_bounds(period)
-    per_user, _totals = await _compute_summary(
+    per_user, _totals = await compute_summary(
         db, start, end, only_user_id=current_user.id
     )
     me = per_user[0] if per_user else None
