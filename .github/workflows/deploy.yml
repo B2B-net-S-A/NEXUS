@@ -29,31 +29,41 @@ name: Deploy
 #   APP_URL           Production URL for smoke test (e.g. https://compass.dynaminds.pl)
 
 on:
-  # P1-CI-01: gate the deploy on the SAME-SHA CI passing.
+  # P1-CI-01: bramkuj deploy na przejściu weryfikacji dla TEGO SAMEGO SHA.
   #
-  # Previously this workflow triggered directly on `push: branches: [main]`,
-  # INDEPENDENTLY of ci.yml. Nothing coupled them, so a red post-merge push-CI
-  # (branch protection only gates the PR, not the post-merge push to main) did
-  # NOT stop the deploy — a broken main could still ship to prod.
+  # Pierwotnie ten workflow odpalał się wprost na `push: branches: [main]`,
+  # NIEZALEŻNIE od ci.yml. Nic ich nie łączyło, więc czerwone post-merge CI
+  # (branch protection bramkuje PR, nie push na main) NIE zatrzymywało deployu —
+  # zepsuty main mógł pojechać na prod. Dlatego deploy został wtedy podpięty
+  # przez `workflow_run` pod workflow "CI".
   #
-  # Now the deploy is chained to ci.yml (workflow name "CI") via `workflow_run`:
-  #   push to main → "CI" runs → on its completion this workflow fires →
-  #   the deploy job runs ONLY if that run's conclusion == success (see the
-  #   `if:` guard on the deploy job). Red CI → deploy job skipped → no deploy.
+  # 2026-08-07: bramka przeniesiona z "CI" na "CI Gate". Powód — `workflow_run`
+  # czeka na CAŁY workflow, a nie na konkretny job, więc deploy wisiał na
+  # najwolniejszym jobie w ci.yml. Zmierzone na b4af6c58 (zmiana jednej stałej):
+  # CI na main 24 min 24 s, z czego 22 min 20 s to sam pytest; z deployem
+  # ~28 min od merge'u do produkcji. Te 22 min to POWTÓRKA — `strict: true`
+  # gwarantuje, że gałąź była aktualna z main, więc pytest przeszedł już na PR
+  # na tym samym kodzie.
   #
-  # `workflow_run` always uses the workflow file from the default branch (main)
-  # and carries the triggering run's commit as
-  # `github.event.workflow_run.head_sha` — the SHA whose CI we just verified —
-  # exposed below as TARGET_SHA and asserted by the smoke test.
+  # Teraz łańcuch to: push na main → "CI Gate" (gitleaks + ruff + alembic +
+  # import smoke, ~2 min) → ten workflow → deploy. Pełne "CI" (pytest, frontend,
+  # Trivy) leci na main RÓWNOLEGLE i nadal jest wymagane na PR przed merge'em.
   #
-  # ROLLBACK: revert this `on:` block to the ungated form —
-  #     on:
-  #       push:
-  #         branches: [main]
-  #       workflow_dispatch:
-  # and drop the `if:` guard + TARGET_SHA env added alongside it.
+  # Świadomy kompromis: produkcja może żyć ~6 min zanim pytest na main się
+  # skończy. To okno kryje przypadek dwóch PR-ów zmergowanych blisko siebie,
+  # które osobno są zielone, a razem nie. Sygnałem jest wtedy czerwone "CI" na
+  # main → rollback (deployment-runbook §2). Deep healthcheck poniżej łapie
+  # osobną, częstszą klasę: migrację, która nie weszła.
+  #
+  # `workflow_run` zawsze bierze plik workflow z gałęzi domyślnej (main) i niesie
+  # commit wyzwalającego przebiegu jako `github.event.workflow_run.head_sha` —
+  # SHA, którego bramkę właśnie zweryfikowaliśmy — wystawiony niżej jako
+  # TARGET_SHA i asertowany przez smoke test.
+  #
+  # ROLLBACK (przywrócenie bramki na pełnym CI): zmień `workflows: ["CI Gate"]`
+  # z powrotem na `workflows: ["CI"]`. Deploy znowu poczeka na pytest.
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["CI Gate"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -81,11 +91,11 @@ jobs:
     name: Trigger Coolify deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Deploy ONLY when the same-SHA CI passed on main. A manual
-    # workflow_dispatch (no workflow_run payload) is kept as an escape hatch for
-    # redeploys/rollbacks (deployment-runbook §4). A red — or non-main — CI run
-    # leaves this false → this job is skipped → smoke-test (needs: deploy) is
-    # skipped too → the whole workflow no-ops without touching prod.
+    # Deploy TYLKO gdy "CI Gate" dla tego samego SHA przeszła na main. Ręczny
+    # workflow_dispatch (brak payloadu workflow_run) zostaje jako furtka na
+    # redeploy/rollback (deployment-runbook §4). Czerwony — lub spoza main —
+    # przebieg bramki zostawia to jako false → job pominięty → smoke-test
+    # (needs: deploy) też pominięty → workflow no-op bez dotykania produkcji.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
       - name: Ensure dedicated candidate identity fingerprint key

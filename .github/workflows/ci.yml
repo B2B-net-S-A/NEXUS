@@ -1,5 +1,10 @@
 name: CI
 
+# Ciężka warstwa weryfikacji. Szybkie bramki (gitleaks, ruff, alembic, import
+# smoke) mieszkają w ci-gate.yml — to na NIE jest podpięty deploy, żeby wdrożenie
+# nie czekało 22 min na pytest. Ten workflow nadal leci na każdym PR-ze i na main,
+# i nadal jest wymagany przez branch protection przed merge'em.
+
 on:
   push:
     branches: [main]
@@ -7,44 +12,9 @@ on:
     branches: [main]
 
 jobs:
-  secret-scan:
-    name: Gitleaks secret scan
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      # Replaced ``gitleaks/gitleaks-action@v2`` with a direct CLI install:
-      # the action started returning failure with no retrievable logs (the
-      # log blob 404s from Azure storage) so debugging was impossible.
-      # Native install + ``--no-git`` scans the working tree so the result
-      # is deterministic regardless of PR base/HEAD ref games.
-      - name: Install gitleaks
-        run: |
-          curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
-            | tar -xz -C /tmp gitleaks
-          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
-          gitleaks version
-      - name: Scan working tree
-        run: |
-          gitleaks detect \
-            --no-git \
-            --config .gitleaks.toml \
-            --redact \
-            --verbose \
-            --exit-code 1
-
   backend-lint-test:
-    name: Backend (ruff + pytest)
+    name: Backend (pytest)
     runs-on: ubuntu-latest
-    # Decoupled from secret-scan in PR #118 — GH Actions hosted runners
-    # have been refusing to pick up the gitleaks job (runner stays
-    # "waiting" for ~9s then job fails with no log). We still run the
-    # secret scan, but its failure no longer blocks other CI lanes.
-    # Re-couple once the upstream runner queue stabilises.
     defaults:
       run:
         working-directory: backend
@@ -73,36 +43,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff==0.15.22 pytest pytest-asyncio pytest-cov
-      - name: Ruff lint
-        run: ruff check app/
-      - name: Ruff format check
-        run: ruff format --check app/
-      - name: Alembic legacy-row, retry, and contact-queue rollback probe
+          pip install pytest pytest-asyncio pytest-cov pytest-xdist
+      # Ten job ma własny kontener postgresa, więc potrzebuje własnego schematu.
+      # Pełna choreografia migracji (seed → downgrade → re-upgrade) żyje w
+      # ci-gate.yml; tutaj wystarczy doprowadzić bazę do head.
+      - name: Apply migrations
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
           CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
-        run: |
-          alembic -c alembic/alembic.ini upgrade 0195_candidate_document_kind
-          python scripts/verify_b2b_signature_migration.py seed
-          # Stop at the last reversible revision for the legacy rollback probe.
-          # 0208 intentionally strips retired saved-search criteria and refuses
-          # downgrade because those user choices cannot be reconstructed.
-          alembic -c alembic/alembic.ini upgrade 0207_candidate_summary_security
-          alembic -c alembic/alembic.ini upgrade 0207_candidate_summary_security
-          python scripts/verify_b2b_signature_migration.py verify
-          alembic -c alembic/alembic.ini downgrade 0199_candidate_stage_removals
-          alembic -c alembic/alembic.ini upgrade 0201_candidate_contact_coordination
-          alembic -c alembic/alembic.ini upgrade heads
-          alembic -c alembic/alembic.ini upgrade heads
-          alembic -c alembic/alembic.ini upgrade heads
-      - name: Import smoke check
-        env:
-          DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
-          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
-          CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
-        run: python -c "from app.main import app; print('app importable:', app.title)"
+        run: alembic -c alembic/alembic.ini upgrade heads
       - name: Pytest (unit + in-process integration)
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
@@ -131,6 +81,25 @@ jobs:
           # backend/tests asserts it matches the categorised exceptions declared
           # there, so an entry cannot appear without a written reason, nor linger
           # once the debt is paid.
+          #
+          # `-n 4 --dist loadfile` — 4792 testy w jednym procesie zajmowały
+          # 22 min 20 s i samodzielnie wyznaczały długość całego CI (reszta
+          # jobów kończyła się w 5 min i czekała). `loadfile`, a nie `load`:
+          # cały plik trafia do jednego workera, więc kolejność WEWNĄTRZ pliku
+          # jest zachowana i zrównoleglenie może zepsuć tylko zależności MIĘDZY
+          # plikami — a tych i tak nie powinno być.
+          #
+          # Suite jest na to gotowy z trzech powodów, sprawdzonych przed zmianą:
+          # `app_client` seeduje unikatowego admina per test (uuid w mailu),
+          # w całym tests/ nie ma ani jednego TRUNCATE/drop_all, a globalny stan
+          # (taksonomia skilli w scoring_service/skill_normalize) jest
+          # per-proces, więc każdy worker dostaje własny — pod xdist jest to
+          # bezpieczniejsze niż przy jednym współdzielonym procesie.
+          #
+          # `-n 4` jawnie, nie `auto`: ubuntu-latest ma dziś 4 vCPU, więc to ta
+          # sama liczba, ale jawna wartość nie zmieni cicho poziomu współbieżności
+          # (i obciążenia współdzielonego postgresa) gdyby GitHub zmienił rozmiar
+          # runnera na większy.
           pytest tests/ \
                  --ignore=tests/test_auth.py \
                  --ignore=tests/test_backfill_candidate_experience.py \
@@ -157,6 +126,7 @@ jobs:
                  --ignore=tests/test_recommendation_filters.py \
                  --ignore=tests/test_shortlist_and_proposal.py \
                  --ignore=tests/test_team_structure_dl_clients_dedup.py \
+                 -n 4 --dist loadfile \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
