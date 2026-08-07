@@ -49,7 +49,7 @@ import sys
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
 # Allow "python scripts/eval_matching.py" from the backend/ directory
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -64,6 +64,7 @@ from app.models.candidate import Candidate, CandidateStatus  # noqa: E402
 from app.models.job import Job  # noqa: E402
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage  # noqa: E402
 from app.services import scoring_service  # noqa: E402
+from app.services.embedding_service import indexed_candidate_ids  # noqa: E402
 from app.services.embedding_service import (  # noqa: E402
     _build_job_text,
     search_candidates_semantic,
@@ -87,6 +88,12 @@ STAGE_RELEVANCE: dict[PipelineStage, float] = {
     PipelineStage.client_interview: 2.0,
     PipelineStage.interview: 1.0,
     PipelineStage.cv_sent: 1.0,
+    # `verified` (rate-acceptance gate, migration 0056) sits between screening
+    # and interview. It was omitted by oversight, which silently dropped 658
+    # (candidate, job) pairs whose ONLY positive row is `verified` — measured on
+    # prod 2026-08-07. Those are recruiter-vetted people, i.e. exactly the signal
+    # the harness exists to reward, so leaving them out understated recall.
+    PipelineStage.verified: 1.0,
     PipelineStage.screening: 0.5,
     # Excluded from GT (no signal or negative): new, prep_call, rejected, withdrawn
 }
@@ -196,9 +203,18 @@ class JobEval:
     relevance_map: dict[int, float]
     precision_at_5: float
     recall_at_20: float
+    # Recall@20 divided by the highest value reachable for this |GT| — see
+    # `recall_ceiling_at_20`. This is the number to compare across jobs.
+    recall_at_20_normalized: float
     mrr: float
     ndcg_at_10: float
     pool_size: int
+    # How many ground-truth candidates actually have a vector in Qdrant. When
+    # this is below `len(ground_truth_ids)`, the shortfall is a data-pipeline
+    # hole, not a ranking failure, and the job's recall is capped accordingly.
+    # ``None`` means Qdrant could not be asked — distinct from 0 ("asked, none
+    # are indexed"), because an outage must never read as an empty index.
+    ground_truth_indexed: Optional[int] = None
     # Phase 14: fraction of top-10 ranked candidates who were present in the
     # pipeline of at least one semantically-similar historical job.
     historical_hit_rate_at_10: float = 0.0
@@ -218,6 +234,34 @@ class ProfileEval:
     @property
     def mean_recall_at_20(self) -> float:
         return _mean(j.recall_at_20 for j in self.per_job)
+
+    @property
+    def mean_recall_at_20_normalized(self) -> float:
+        return _mean(j.recall_at_20_normalized for j in self.per_job)
+
+    @property
+    def fully_indexed_jobs(self) -> list[JobEval]:
+        """Jobs whose entire ground truth is verified present in the index.
+
+        Only these can be read as a verdict on ranking quality; elsewhere the
+        engine is being scored on people it structurally could not return.
+        Jobs with unknown coverage (``None``) are excluded rather than assumed
+        good — an unanswered question is not a passing answer.
+        """
+        return [
+            j
+            for j in self.per_job
+            if j.ground_truth_ids
+            and j.ground_truth_indexed == len(j.ground_truth_ids)
+        ]
+
+    @property
+    def mean_precision_at_5_fully_indexed(self) -> float:
+        return _mean(j.precision_at_5 for j in self.fully_indexed_jobs)
+
+    @property
+    def mean_recall_at_20_normalized_fully_indexed(self) -> float:
+        return _mean(j.recall_at_20_normalized for j in self.fully_indexed_jobs)
 
     @property
     def mean_mrr(self) -> float:
@@ -310,13 +354,26 @@ async def _audit_data_quality(db: AsyncSession) -> DataQuality:
 
 
 async def _discover_jobs_with_ground_truth(
-    db: AsyncSession, limit: int, min_ground_truth: int = 3
+    db: AsyncSession,
+    limit: int,
+    min_ground_truth: int = 3,
+    *,
+    only_job_ids: Sequence[int] | None = None,
+    exclude_job_ids: Sequence[int] | None = None,
 ) -> list[tuple[Job, list[int], dict[int, float]]]:
     """
     Return jobs with at least `min_ground_truth` positive candidates in pipeline.
 
     The relevance_map keeps the highest relevance reached by each candidate
     (so if a person went through screening -> hired, they score as hired).
+
+    ``only_job_ids`` / ``exclude_job_ids`` exist because sampling was silently
+    biased: the qualifying set was ordered by ``Job.id`` and truncated, so
+    ``--jobs N`` always took the N *lowest* ids — which on this database are the
+    hand-seeded demo jobs (``external_source='manual'``, ids 1-15). Those score
+    far higher than real imports, so every historical run mixed two populations
+    and reported a blended number. Pass ``--exclude-job-ids`` (or the
+    ``--exclude-seed-jobs`` shorthand) to measure production data only.
     """
     # Aggregate max-relevance per (job, candidate) across all historical stage rows
     stages_res = await db.execute(
@@ -334,6 +391,12 @@ async def _discover_jobs_with_ground_truth(
             job_to_gt[job_id][candidate_id] = rel
 
     qualifying_job_ids = [jid for jid, m in job_to_gt.items() if len(m) >= min_ground_truth]
+    if only_job_ids:
+        wanted = set(only_job_ids)
+        qualifying_job_ids = [jid for jid in qualifying_job_ids if jid in wanted]
+    if exclude_job_ids:
+        unwanted = set(exclude_job_ids)
+        qualifying_job_ids = [jid for jid in qualifying_job_ids if jid not in unwanted]
     if not qualifying_job_ids:
         return []
 
@@ -346,6 +409,17 @@ async def _discover_jobs_with_ground_truth(
         (j, list(job_to_gt[j.id].keys()), job_to_gt[j.id])
         for j in jobs
     ]
+
+
+async def _seed_job_ids(db: AsyncSession) -> list[int]:
+    """Ids of hand-seeded demo jobs (``external_source='manual'``).
+
+    Kept as a query rather than a literal list so the shorthand keeps working as
+    the seed set changes. NOT ``external_source IS NULL`` — every row on prod has
+    the column populated, so a null-based guess excludes nothing.
+    """
+    res = await db.execute(select(Job.id).where(Job.external_source == "manual"))
+    return [jid for (jid,) in res.all()]
 
 
 async def _score_job_candidates(
@@ -418,19 +492,35 @@ async def _score_job_candidates(
     return [b.candidate_id for b in breakdowns], pool_size, boost_map
 
 
+def recall_ceiling_at_20(ground_truth_size: int) -> float:
+    """Highest Recall@20 a perfect ranker could reach for this ground-truth size.
+
+    Twenty slots cannot hold more than twenty of them, so a job with |GT|=61 is
+    capped at 20/61 = 0.33 no matter how good the engine is. On prod 18.3% of
+    qualifying jobs have |GT| > 20 (max 197, measured 2026-08-07), so averaging
+    raw Recall@20 across jobs silently averages incomparable scales — a job
+    capped at 0.10 drags the mean down as if the ranker had failed.
+    """
+    if ground_truth_size <= 0:
+        return 0.0
+    return min(1.0, 20.0 / ground_truth_size)
+
+
 def _metrics(
     ranked_ids: list[int], relevance: dict[int, float]
-) -> tuple[float, float, float, float]:
-    """Compute (Precision@5, Recall@20, MRR, nDCG@10)."""
+) -> tuple[float, float, float, float, float]:
+    """Compute (Precision@5, Recall@20, Recall@20 normalized, MRR, nDCG@10)."""
     gt_ids = set(relevance.keys())
     if not gt_ids:
-        return 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
 
     top5 = ranked_ids[:5]
     top20 = ranked_ids[:20]
 
     precision_at_5 = sum(1 for c in top5 if c in gt_ids) / 5.0
     recall_at_20 = sum(1 for c in top20 if c in gt_ids) / len(gt_ids)
+    ceiling = recall_ceiling_at_20(len(gt_ids))
+    recall_at_20_normalized = recall_at_20 / ceiling if ceiling else 0.0
 
     mrr = 0.0
     for rank, cid in enumerate(ranked_ids, start=1):
@@ -447,7 +537,7 @@ def _metrics(
     denom = dcg(ideal_gains)
     ndcg_at_10 = dcg(gains) / denom if denom else 0.0
 
-    return precision_at_5, recall_at_20, mrr, ndcg_at_10
+    return precision_at_5, recall_at_20, recall_at_20_normalized, mrr, ndcg_at_10
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
@@ -465,8 +555,17 @@ async def evaluate_profile(
         ranked_ids, pool_size, boost_map = await _score_job_candidates(
             job, db, profile=profile, with_historical_boost=with_historical_boost
         )
-        p5, r20, mrr, ndcg = _metrics(ranked_ids, relevance)
+        p5, r20, r20n, mrr, ndcg = _metrics(ranked_ids, relevance)
         hhr = _historical_hit_rate(ranked_ids, boost_map, k=10)
+        indexed = await indexed_candidate_ids(gt_ids)
+        gt_indexed = None if indexed is None else len(indexed)
+        notes = []
+        if pool_size == 0:
+            notes.append("no pool")
+        if gt_indexed is None:
+            notes.append("index coverage unknown (Qdrant unreachable)")
+        elif gt_ids and gt_indexed < len(gt_ids):
+            notes.append(f"{len(gt_ids) - gt_indexed} of GT not indexed")
         result.per_job.append(
             JobEval(
                 job_id=job.id,
@@ -476,11 +575,13 @@ async def evaluate_profile(
                 relevance_map={str(k): v for k, v in relevance.items()},  # type: ignore[misc]
                 precision_at_5=p5,
                 recall_at_20=r20,
+                recall_at_20_normalized=r20n,
                 mrr=mrr,
                 ndcg_at_10=ndcg,
                 historical_hit_rate_at_10=hhr,
                 pool_size=pool_size,
-                notes=("no pool" if pool_size == 0 else ""),
+                ground_truth_indexed=gt_indexed,
+                notes="; ".join(notes),
             )
         )
     return result
@@ -572,19 +673,44 @@ def _render_markdown(
     lines.append("## Summary")
     lines.append("")
     lines.append(
-        "| Profile | Boost | Jobs | Precision@5 | Recall@20 | MRR | nDCG@10 | HistHit@10 |"
+        "| Profile | Boost | Jobs | Precision@5 | Recall@20 | R@20 norm | MRR "
+        "| nDCG@10 | HistHit@10 |"
     )
-    lines.append("|---|:---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|:---:|---:|---:|---:|---:|---:|---:|---:|")
     for p in profile_results:
         boost_flag = "✓" if p.with_boost else ""
         lines.append(
             f"| `{p.profile.name}` | {boost_flag} | {len(p.per_job)} "
             f"| {p.mean_precision_at_5:.3f} "
             f"| {p.mean_recall_at_20:.3f} "
+            f"| {p.mean_recall_at_20_normalized:.3f} "
             f"| {p.mean_mrr:.3f} "
             f"| {p.mean_ndcg_at_10:.3f} "
             f"| {p.mean_historical_hit_rate_at_10:.3f} |"
         )
+    lines.append("")
+
+    # The verdict-grade numbers: only jobs whose entire ground truth is indexed.
+    # Elsewhere the engine is scored on people it structurally could not return,
+    # which reads as a ranking failure and sends you tuning the wrong thing.
+    lines.append("### Restricted to jobs with fully indexed ground truth")
+    lines.append("")
+    lines.append("| Profile | Jobs | Precision@5 | R@20 norm |")
+    lines.append("|---|---:|---:|---:|")
+    for p in profile_results:
+        n_full = len(p.fully_indexed_jobs)
+        lines.append(
+            f"| `{p.profile.name}` | {n_full}/{len(p.per_job)} "
+            f"| {p.mean_precision_at_5_fully_indexed:.3f} "
+            f"| {p.mean_recall_at_20_normalized_fully_indexed:.3f} |"
+        )
+    lines.append("")
+    lines.append(
+        "> Read these, not the table above. `R@20 norm` divides Recall@20 by "
+        "the highest value reachable for that job's ground-truth size — twenty "
+        "slots cannot hold sixty people, so the raw figure is not comparable "
+        "across jobs."
+    )
     lines.append("")
 
     default = next(
@@ -654,14 +780,25 @@ def _render_markdown(
             )
         )
         lines.append("")
-        lines.append("| Job ID | Title | GT size | Pool | P@5 | R@20 | MRR | nDCG@10 |")
-        lines.append("|---:|---|---:|---:|---:|---:|---:|---:|")
+        lines.append(
+            "| Job ID | Title | GT size | GT indexed | Pool | P@5 | R@20 "
+            "| R@20 norm | MRR | nDCG@10 |"
+        )
+        lines.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
         for j in p.per_job:
             title = (j.job_title or "").replace("|", "\\|")[:60]
+            gt_total = len(j.ground_truth_ids)
+            if j.ground_truth_indexed is None:
+                gt_idx = "?"
+            elif j.ground_truth_indexed == gt_total:
+                gt_idx = f"{j.ground_truth_indexed}"
+            else:
+                gt_idx = f"**{j.ground_truth_indexed}**"
             lines.append(
-                f"| {j.job_id} | {title} | {len(j.ground_truth_ids)} "
+                f"| {j.job_id} | {title} | {gt_total} | {gt_idx} "
                 f"| {j.pool_size} | {j.precision_at_5:.2f} "
-                f"| {j.recall_at_20:.2f} | {j.mrr:.2f} | {j.ndcg_at_10:.2f} |"
+                f"| {j.recall_at_20:.2f} | {j.recall_at_20_normalized:.2f} "
+                f"| {j.mrr:.2f} | {j.ndcg_at_10:.2f} |"
             )
         lines.append("")
 
@@ -722,8 +859,19 @@ async def _run(args: argparse.Namespace) -> int:
 
     async with AsyncSessionLocal() as db:
         data_quality = await _audit_data_quality(db)
+
+        excluded: list[int] = list(args.exclude_job_ids or [])
+        if args.exclude_seed_jobs:
+            seeds = await _seed_job_ids(db)
+            logger.info("Excluding %d hand-seeded demo jobs", len(seeds))
+            excluded.extend(seeds)
+
         job_records = await _discover_jobs_with_ground_truth(
-            db, limit=args.jobs, min_ground_truth=args.min_gt
+            db,
+            limit=args.jobs,
+            min_ground_truth=args.min_gt,
+            only_job_ids=args.job_ids or None,
+            exclude_job_ids=excluded or None,
         )
 
         if not job_records:
@@ -818,6 +966,16 @@ async def _run(args: argparse.Namespace) -> int:
                     "with_boost": p.with_boost,
                     "mean_precision_at_5": p.mean_precision_at_5,
                     "mean_recall_at_20": p.mean_recall_at_20,
+                    "mean_recall_at_20_normalized": (
+                        p.mean_recall_at_20_normalized
+                    ),
+                    "fully_indexed_jobs": len(p.fully_indexed_jobs),
+                    "mean_precision_at_5_fully_indexed": (
+                        p.mean_precision_at_5_fully_indexed
+                    ),
+                    "mean_recall_at_20_normalized_fully_indexed": (
+                        p.mean_recall_at_20_normalized_fully_indexed
+                    ),
                     "mean_mrr": p.mean_mrr,
                     "mean_ndcg_at_10": p.mean_ndcg_at_10,
                     "mean_historical_hit_rate_at_10": (
@@ -846,14 +1004,19 @@ async def _run(args: argparse.Namespace) -> int:
             args.fail_under_precision,
         )
         exit_code = 1
+    # Gate on the NORMALIZED recall: the raw figure moves with ground-truth size,
+    # so a fixed threshold on it would pass or fail depending on which jobs the
+    # sample happened to contain rather than on how well the engine ranked.
     if (
         args.fail_under_recall is not None
-        and primary.mean_recall_at_20 < args.fail_under_recall
+        and primary.mean_recall_at_20_normalized < args.fail_under_recall
     ):
         logger.error(
-            "QUALITY GATE FAIL: Recall@20 %.4f < threshold %.4f",
-            primary.mean_recall_at_20,
+            "QUALITY GATE FAIL: normalized Recall@20 %.4f < threshold %.4f "
+            "(raw Recall@20 was %.4f)",
+            primary.mean_recall_at_20_normalized,
             args.fail_under_recall,
+            primary.mean_recall_at_20,
         )
         exit_code = 1
     return exit_code
@@ -874,6 +1037,36 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=3,
         help="Minimum ground-truth candidates per job (default: 3).",
+    )
+
+    def _int_list(raw: str) -> list[int]:
+        return [int(part) for part in raw.replace(" ", "").split(",") if part]
+
+    parser.add_argument(
+        "--job-ids",
+        type=_int_list,
+        default=None,
+        metavar="ID,ID,...",
+        help=(
+            "Evaluate only these job ids (still subject to --min-gt). Use for "
+            "A/B runs where both sides must cover exactly the same jobs."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-job-ids",
+        type=_int_list,
+        default=None,
+        metavar="ID,ID,...",
+        help="Skip these job ids.",
+    )
+    parser.add_argument(
+        "--exclude-seed-jobs",
+        action="store_true",
+        help=(
+            "Skip hand-seeded demo jobs (external_source='manual'). Without "
+            "this, sampling starts at the lowest ids — which are the demo rows "
+            "— and blends them with real imports into one meaningless average."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -930,7 +1123,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help=(
             "Quality gate: exit non-zero if the primary profile's mean "
-            "Recall@20 is below this value."
+            "NORMALIZED Recall@20 is below this value (raw Recall@20 moves "
+            "with ground-truth size, so it cannot carry a fixed threshold)."
         ),
     )
     return parser.parse_args(argv)
