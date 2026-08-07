@@ -16,6 +16,7 @@ from app.api.deps import (
     AdminUser,
     DeliveryLeadPlus,
     HeadOfRecruitmentPlus,
+    OperationalUser,
     require_roles,
 )
 from app.core.database import get_db
@@ -26,6 +27,7 @@ from app.schemas.dashboard_v2 import (
     FinanceDashboardResponse,
     HeadOfRecruitmentDashboardResponse,
     MyWorkDashboardResponse,
+    RecruitmentStatsDashboardResponse,
 )
 from app.services.dashboard_v2 import (
     build_admin_ops_dashboard,
@@ -33,6 +35,7 @@ from app.services.dashboard_v2 import (
     build_finance_dashboard,
     build_head_of_recruitment_dashboard,
     build_my_work_dashboard,
+    build_recruitment_stats_dashboard,
 )
 
 router = APIRouter()
@@ -110,6 +113,25 @@ async def my_work_dashboard(
     period: DashboardPeriod,
 ) -> MyWorkDashboardResponse:
     return await build_my_work_dashboard(current_user, db, period)
+
+
+@router.get(
+    "/recruitment-stats",
+    response_model=RecruitmentStatsDashboardResponse,
+)
+async def recruitment_stats_dashboard(
+    current_user: OperationalUser,
+    db: Database,
+    period: DashboardPeriod,
+) -> RecruitmentStatsDashboardResponse:
+    """Sekcja „Statystyki rekrutacji" — wspólna dla wszystkich presetów.
+
+    Guard `OperationalUser` (nie capability): payload jest z natury imienny
+    (tabela per osoba, podia, wyścigi, LinkedIn), więc finance — persona z
+    zakazem danych osobowych — i legacy `user` dostają 403. Dane org-wide
+    dla każdego uprawnionego; default `period=month` (decyzja właściciela).
+    """
+    return await build_recruitment_stats_dashboard(current_user, db, period)
 
 
 @router.get("/finance", response_model=FinanceDashboardResponse)
