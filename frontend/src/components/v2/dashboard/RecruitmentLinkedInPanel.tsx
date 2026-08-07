@@ -30,6 +30,7 @@ export function RecruitmentLinkedInPanel({
     { label: "Wiadomości", value: String(totals.messages_sent) },
     { label: "Odpowiedzi", value: String(totals.responses_received) },
     { label: "Response rate", value: `${totals.response_rate}%` },
+    { label: "CV response rate", value: `${totals.cv_response_rate}%` },
     { label: "Aktywni", value: String(totals.active_users) },
   ]
 
@@ -47,7 +48,7 @@ export function RecruitmentLinkedInPanel({
         </span>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {summary.map((item) => (
           <div
             key={item.label}
@@ -81,6 +82,12 @@ export function RecruitmentLinkedInPanel({
                   title="Odpowiedzi ÷ wysłane wiadomości"
                 >
                   Response rate
+                </th>
+                <th
+                  className="px-2 py-2 text-right font-medium"
+                  title="Odpowiedzi ÷ dodane CV"
+                >
+                  CV resp.
                 </th>
                 <th className="px-2 py-2 text-right font-medium">
                   Dni raportowane
@@ -119,6 +126,9 @@ export function RecruitmentLinkedInPanel({
                     )}
                   >
                     {row.response_rate}%
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                    {row.cv_response_rate}%
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
                     {row.days_reported}

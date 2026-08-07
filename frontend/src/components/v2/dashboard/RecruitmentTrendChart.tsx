@@ -132,7 +132,11 @@ export function RecruitmentTrendChart({
             {
               label: "Placements",
               count: totals.placements,
-              conv: conv(conversions.interview_to_placement_pct),
+              // Review: etap wizualnie następuje po Akceptacjach, więc
+              // konwersja też musi być akceptacje→placements (nie int→plac) —
+              // przy rzadko używanym etapie Akceptacja bywa >100%, ale to
+              // uczciwa liczba, nie błąd.
+              conv: conv(conversions.acceptance_to_placement_pct),
             },
           ]}
         />
