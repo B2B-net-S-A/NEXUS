@@ -43,7 +43,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov pytest-xdist
+          pip install pytest pytest-asyncio pytest-cov
       # Ten job ma własny kontener postgresa, więc potrzebuje własnego schematu.
       # Pełna choreografia migracji (seed → downgrade → re-upgrade) żyje w
       # ci-gate.yml; tutaj wystarczy doprowadzić bazę do head.
@@ -82,24 +82,21 @@ jobs:
           # there, so an entry cannot appear without a written reason, nor linger
           # once the debt is paid.
           #
-          # `-n 4 --dist loadfile` — 4792 testy w jednym procesie zajmowały
-          # 22 min 20 s i samodzielnie wyznaczały długość całego CI (reszta
-          # jobów kończyła się w 5 min i czekała). `loadfile`, a nie `load`:
-          # cały plik trafia do jednego workera, więc kolejność WEWNĄTRZ pliku
-          # jest zachowana i zrównoleglenie może zepsuć tylko zależności MIĘDZY
-          # plikami — a tych i tak nie powinno być.
+          # BEZ pytest-xdist — świadomie, po pomiarze. Zrównoleglenie zostało
+          # wdrożone i wycofane: 25 plików testowych porównuje globalne agregaty
+          # (`COUNT(*)`, `total` z listy), więc przy wspólnej bazie workery
+          # oskarżają się nawzajem o mutacje — w CI wywróciły się przez to
+          # `test_engagement_inventory` i `test_contracts_search`, a łatanie ich
+          # osłabia asercje. Izolacja bazy per worker (`CREATE DATABASE …
+          # TEMPLATE` w conftest) rozwiązuje poprawność, ale lokalnie wydłużyła
+          # pełny suite z 5 min 35 s do 39 min 46 s — cztery bazy przekraczają
+          # domyślne `shared_buffers` postgresa. Praca zachowana na gałęzi
+          # `xdist-per-worker-db-wip`; szczegóły i liczby w
+          # docs/ci-deploy-latency-completion-report.md.
           #
-          # Suite jest na to gotowy z trzech powodów, sprawdzonych przed zmianą:
-          # `app_client` seeduje unikatowego admina per test (uuid w mailu),
-          # w całym tests/ nie ma ani jednego TRUNCATE/drop_all, a globalny stan
-          # (taksonomia skilli w scoring_service/skill_normalize) jest
-          # per-proces, więc każdy worker dostaje własny — pod xdist jest to
-          # bezpieczniejsze niż przy jednym współdzielonym procesie.
-          #
-          # `-n 4` jawnie, nie `auto`: ubuntu-latest ma dziś 4 vCPU, więc to ta
-          # sama liczba, ale jawna wartość nie zmieni cicho poziomu współbieżności
-          # (i obciążenia współdzielonego postgresa) gdyby GitHub zmienił rozmiar
-          # runnera na większy.
+          # Czas tego joba NIE bramkuje już wdrożenia — deploy wisi na
+          # „CI Gate" (~1,5 min), więc pytest wpływa wyłącznie na czas
+          # oczekiwania na PR-ze.
           pytest tests/ \
                  --ignore=tests/test_auth.py \
                  --ignore=tests/test_backfill_candidate_experience.py \
@@ -126,7 +123,6 @@ jobs:
                  --ignore=tests/test_recommendation_filters.py \
                  --ignore=tests/test_shortlist_and_proposal.py \
                  --ignore=tests/test_team_structure_dl_clients_dedup.py \
-                 -n 4 --dist loadfile \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

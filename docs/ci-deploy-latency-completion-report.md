@@ -47,31 +47,21 @@ całego CI — reszta jobów kończyła się w 5 min i czekała.
 
 ## Zmiany
 
-### 1. Zrównoleglenie pytest (`ci.yml`)
-
-`pytest-xdist` + `-n 4 --dist loadfile`. `loadfile`, nie `load`: cały plik trafia
-do jednego workera, więc kolejność wewnątrz pliku jest zachowana i zrównoleglenie
-może zepsuć wyłącznie zależności *między* plikami.
-
-`-n 4` jawnie, nie `auto` — ubuntu-latest ma dziś 4 vCPU (ta sama liczba), ale
-jawna wartość nie zmieni cicho współbieżności i obciążenia współdzielonego
-postgresa, gdyby GitHub zmienił rozmiar runnera.
-
-### 2. Podział na dwa workflow (`ci-gate.yml` + `ci.yml`)
+### 1. Podział na dwa workflow (`ci-gate.yml` + `ci.yml`)
 
 `workflow_run` reaguje na ukończenie **całego** workflow, nie pojedynczego joba —
 dlatego samo rozbicie na joby w jednym pliku nic by nie dało. Stąd osobny plik:
 
 | Workflow | Joby | Czas |
 |---|---|---|
-| **CI Gate** | Gitleaks secret scan · Backend (lint + migrations) | ~2 min |
-| **CI** | Backend (pytest) · Frontend (typecheck + build) · Trivy + hadolint | ~8 min |
+| **CI Gate** | Gitleaks secret scan · Backend (lint + migrations) | **1 min 28 s** |
+| **CI** | Backend (pytest) · Frontend (typecheck + build) · Trivy + hadolint | ~22 min |
 
 W bramce jest to, co tanio i realnie chroni produkcję: sekrety (nieodwracalne),
 ruff (1 s), pełna choreografia alembica (migracja, która nie wchodzi, to
 najczęstszy tryb awarii tego repo) i import smoke.
 
-### 3. Deploy bramkowany na `CI Gate`, nie na `CI` (`deploy.yml`)
+### 2. Deploy bramkowany na `CI Gate`, nie na `CI` (`deploy.yml`)
 
 `workflows: ["CI"]` → `workflows: ["CI Gate"]`.
 
@@ -83,7 +73,7 @@ Czego świadomie **nie ma** w bramce:
 - **Pytest** — przeszedł już na PR na tym samym kodzie i nadal leci na `main`
   równolegle.
 
-### 4. Kontrakt migracji (`test_client_directory_migration_contract.py`)
+### 3. Kontrakt migracji (`test_client_directory_migration_contract.py`)
 
 `test_hosted_ci_runs_fresh_retry_downgrade_and_reupgrade_cycle` czytał `ci.yml`
 i sprawdzał choreografię alembica, którą przeniesiono do bramki. Kontrakt
@@ -99,77 +89,97 @@ jednego pliku z pierwszą komendą drugiego i sfabrykować dopasowanie.
 |---|---|---|
 | Gitleaks | 17 s | 21 s |
 | Backend — lint + migracje (bramka) | *(w jobie 24 min)* | **1 min 28 s** |
-| Backend — pytest | 22 min 20 s | **15 min 12 s** |
 | Frontend | 5 min 11 s | 5 min 24 s |
+| Backend — pytest | 22 min 20 s | bez zmian *(patrz niżej)* |
 | **Bramka przed deployem** | **24 min** | **1 min 28 s** |
 | **merge → produkcja** | **~28 min** | **~5,5 min** |
 
-Główny cel osiągnięty: **czas wdrożenia przestał zależeć od pytestu**. Bramka to
-1,5 min, deploy ~4 min.
+Cel osiągnięty: **czas wdrożenia przestał zależeć od pytestu**. Bramka to
+1,5 min, deploy ~4 min. Pytest wpływa już wyłącznie na czas oczekiwania na PR-ze.
 
-Przyspieszenie samego pytestu jest natomiast **skromniejsze, niż zapowiadał
-pomiar lokalny**: 1,47× w CI wobec ~3× u mnie. Powód nie leży w nierównym
-podziale plików — największy plik ma 126 z 4792 testów (2,6%), więc
-`--dist loadfile` nie jest tu wąskim gardłem. Bardziej prawdopodobna jest
-przesubskrypcja: runner `ubuntu-latest` ma 4 vCPU dzielone między 4 workery
-**i** kontener postgresa, podczas gdy lokalnie były 3 rdzenie zapasu.
-Do sprawdzenia w przyszłości: `-n 3` (rdzeń zostaje bazie) — każdy taki
-eksperyment kosztuje jeden cykl CI, więc nie zgadywany tutaj.
+## Zrównoleglenie pytest — wdrożone i WYCOFANE
+
+Pierwotna rekomendacja („22 min → ~6 min przez `pytest-xdist`") **nie
+utrzymała się w zderzeniu z rzeczywistością**. Zapis przebiegu, bo wnioski są
+warte więcej niż sam wynik:
+
+**Pomiar lokalny obiecywał 4×.** Pełny suite na czystej bazie: 4792 passed,
+0 failed, 5 min 35 s wobec 22 min 20 s. Statyczny przegląd wyglądał zachęcająco:
+`app_client` seeduje unikatowego admina per test, zero `TRUNCATE`/`drop_all`
+w całym `tests/`, globalny stan taksonomii jest per-proces.
+
+**CI pokazało co innego.** Przyspieszenie tylko 1,47× (22 min 20 s → 15 min 12 s)
+— i, ważniejsze, **realne wyścigi**, których 8-rdzeniowa maszyna lokalna nie
+ujawniała, a 4-vCPU runner owszem:
+
+- `test_engagement_inventory` — liczy `COUNT(*)` z całej tabeli przed i po
+  GET-cie, żeby dowieść że endpoint jest read-only. Równoległy worker
+  wstawiający własny wiersz jest nieodróżnialny od mutacji → test oskarżał
+  endpoint o cudzy zapis.
+- `test_contracts_search` — `assert 115 == 116`, porównuje `total` z dwóch
+  wywołań API; między nimi cudzy worker zmienia dane.
+
+W grupie ryzyka jest **25 plików** dotykających globalnych agregatów. Łatanie
+po jednym osłabia asercje: pierwsza próba (znacznik `MAX(id)`) sprawiła, że
+licznik przestał wykrywać INSERT przez endpoint.
+
+**Właściwa naprawa też nie przeszła — z innego powodu.** Izolacja bazy per
+worker (`CREATE DATABASE … TEMPLATE` w `conftest.py`) rozwiązuje poprawność
+elegancko: zero zmian w testach, żadnego osłabiania asercji, cała klasa znika.
+Ale pełny suite wydłużył się do **39 min 46 s** — cztery bazy po ~40 MB
+przekraczają domyślne `shared_buffers` postgresa (128 MB), a doszła też
+porażka z presji na pulę połączeń (awaria commitu, nie asercji).
+
+**Decyzja: zrównoleglenie zdjęte z tego PR-a.** Praca nad izolacją zachowana na
+gałęzi `xdist-per-worker-db-wip`. Uzasadnienie: zysk deployowy jest niezależny
+od xdista i już zweryfikowany, a zrównoleglenie 4792 testów mocno związanych
+z bazą to osobny problem — wymaga zmierzenia izolacji na natywnym Linuksie
+(lokalne 39 min może być artefaktem wolnego I/O Dockera na macOS), rozważenia
+mniejszej liczby workerów i strojenia postgresa.
+
+### Lekcja przenośna
+
+**Zielony przebieg lokalny nie jest dowodem zgodności z xdistem dla testów
+mierzących stan globalny.** Liczba rdzeni zmienia przeplecenie, więc wyścig
+ujawnia się dopiero tam, gdzie rdzeni jest mniej. Do tego dochodzi druga
+pułapka: pierwszy przebieg lokalny dał 35 porażek, z których **wszystkie**
+okazały się artefaktem środowiska (kontener z zamontowanym tylko `backend/`
+i bez bibliotek systemowych), a nie problemem xdista — łatwo było wtedy wyciągnąć
+odwrotny, równie fałszywy wniosek.
 
 ## Weryfikacja
 
 Środowisko odtwarzające CI: `python:3.12-slim` + `postgres:16-alpine`, ten sam
 zestaw zmiennych, ta sama lista `--ignore`.
 
-| Przebieg | Warunki | Wynik |
-|---|---|---|
-| 1 | mount tylko `backend/`, brak libów systemowych | 35 failed, 4 errors — **artefakt środowiska** |
-| 2 | mount całego repo + libsy, baza brudna po przebiegu 1 | 5 failed, 4787 passed |
-| A/B | czysta baza, pliki podejrzane, serialnie **vs** `-n 4` | 21 passed w OBU — xdist nie jest przyczyną |
-| 3 | **czysta baza, pełny suite, `-n 4 --dist loadfile`** | **4792 passed, 14 skipped, 0 failed, 5 min 35 s** |
+Co zostało potwierdzone dla tego, co wchodzi:
 
-Przebieg 3 zgadza się z baselinem CI co do liczby testów i pominięć
-(4792 passed / 14 skipped), więc zrównoleglenie nie zmieniło zakresu — tylko czas.
+- **Kroki bramki na świeżym postgresie** — pełna choreografia alembica
+  (upgrade → ponowny upgrade → downgrade poniżej 0205 → upgrade heads) przechodzi,
+  a `from app.main import app` się importuje.
+- **Kontrakt migracji po przepisaniu** — warunki spełnia `ci-gate.yml`, nie
+  spełnia `ci.yml`; asercja „któryś workflow przechodzi cykl" trzyma.
+- **Gitleaks** — po allowlistowaniu DSN-a CI po WARTOŚCI: „no leaks found",
+  exit 0 lokalnie (ta sama wersja 8.21.2 i to samo polecenie co CI),
+  potwierdzone w CI (21 s).
+- **Dwa pełne przebiegi pod rząd bez resetu bazy** — 4792 passed / 0 failed
+  w obu (dowód odtwarzalności, patrz sekcja niżej).
 
-Diagnoza 5 porażek z przebiegu 2, rozłożona eksperymentem A/B:
+### Pułapka metodyczna warta zapamiętania
 
-- **4 × brudna baza.** Część testów wstawia rekordy o stałych kluczach
-  (np. `b2b_generated_contracts` z `year=9999, seq=1`) i ich nie sprząta, więc
-  suite jest jednorazowy na danej bazie. W CI maskuje to świeży kontener
-  postgresa per job, więc **nie ma wpływu na CI**. Osobny dług, zgłoszony do
-  odrębnego zadania — nie mieszany do tego PR-a.
-- **1 × kontrakt migracji.** Przebieg wystartował zanim naniosłem poprawkę
-  opisaną w §4; po niej test przechodzi.
+Pierwszy przebieg lokalny dał **35 porażek i 4 błędy**. Wszystkie okazały się
+artefaktem środowiska, nie kodu: kontener miał zamontowany tylko `backend/`,
+więc testy czytające pliki z roota repo (`docker-compose`, `ci.yml`, skrypty)
+nie miały do nich dostępu, a `weasyprint` nie miał bibliotek systemowych.
+Po przemontowaniu na root repo i doinstalowaniu libów zostało 5 porażek, a po
+eksperymencie A/B na czystej bazie (serialnie vs `-n 4`, ten sam zestaw
+plików — 21 passed w obu) okazało się, że żadna z nich nie wynikała ze
+zrównoleglenia.
 
-Osobno potwierdzone na świeżym postgresie: pełna choreografia alembica z bramki
-przechodzi, a `from app.main import app` się importuje.
-
-### Czego pomiar lokalny NIE złapał
-
-Pierwszy przebieg w prawdziwym CI wywrócił się na jednym teście —
-`test_inventory_detects_anomalies_and_does_not_mutate`, z komunikatem
-„endpoint zmutował dane!". To była **realna niezgodność z xdistem**, nie flake:
-
-Test mierzył `COUNT(*)` z całej tabeli `contracts` przed i po wywołaniu GET-a,
-żeby udowodnić, że endpoint jest read-only. Pod zrównolegleniem równoległy
-worker wstawiający własny kontrakt między dwoma pomiarami wygląda dokładnie
-tak samo jak endpoint mutujący dane — więc test oskarżał endpoint o cudzy zapis.
-
-Lokalnie przechodził, bo mam 8 rdzeni i przeplecenie wypadało inaczej; runner
-ma 4 vCPU. **Wniosek na przyszłość: zielony przebieg lokalny nie jest dowodem
-zgodności z xdistem dla testów mierzących stan globalny.**
-
-Naprawione znacznikiem wodnym: `MAX(id)` przed wywołaniem, potem liczenie tylko
-`id <= znacznik`. Wiersze cudzych workerów dostają wyższe id z sekwencji i
-wypadają z pomiaru, a wykrywanie zniknięcia wiersza sprzed wywołania zostaje.
-Świadomie tracimy wykrywanie INSERT-u przez endpoint — nowy wiersz też ma id
-powyżej znacznika, więc jest nieodróżnialny od wstawki cudzego workera, a
-przypisania INSERT-u do konkretnego zapisującego nie da się zrobić samym
-liczeniem przy równoległym wykonaniu.
-
-Zweryfikowane odtworzeniem wyścigu: `test_engagement_inventory` puszczony
-`-n 4` równolegle z trzema plikami masowo tworzącymi kontrakty, 3 próby —
-23 passed za każdym razem.
+Wniosek: **czerwony wynik z niedopieczonego środowiska jest bezwartościowy jako
+dowód w którąkolwiek stronę.** Gdyby przyjąć te 35 porażek za wynik, decyzja
+byłaby błędna; gdyby przyjąć późniejszy zielony przebieg lokalny za dowód
+zgodności z xdistem — również (patrz „Lekcja przenośna" wyżej).
 
 ## Odtwarzalność suite'u na trwałej bazie
 
