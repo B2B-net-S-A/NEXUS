@@ -77,6 +77,15 @@ class Client(Base, TimestampMixin):
     # złożona klientowi zostaje deklaracją, którą znosi jeden checkbox.
     cv_content_mode_cap: Mapped[Optional[str]] = mapped_column(String(16))
 
+    # Czy hiring managerowie tego klienta widzą INTERAKTYWNĄ wersję CV na
+    # publicznym linku (kafelki must/nice-have + chat). Domyślnie tak; flaga
+    # jest świadomie NIEZALEŻNA od `cv_content_mode_cap` — kafelki pokazują
+    # fakty z dowodami (cytaty z CV), nie sprzedażową narrację, więc sufit
+    # trybu treści ich nie dotyczy. Wyłącz, gdy klient sobie nie życzy.
+    cv_interactive_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
     # External source tracking — Traffit / future imports.
     # Migracja 0071 dodaje partial unique index na (external_source, external_id).
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
