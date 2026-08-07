@@ -195,6 +195,13 @@ w entrypoint.sh). Pełny opis: `docs/cv-interactive-share-completion-report.md`.
   Publiczny endpoint serwuje wyłącznie cache. Uwaga: upload nie zna klienta,
   więc flaga `cv_interactive_enabled` go nie ogranicza (ta sama klasa luki co
   sufit content_mode w upload — świadoma).
+- **Jeden plik HTML** (doprecyzowanie Artura — wersja do wysyłki mailem jak
+  DOCX): `GET /api/cv-generator/generated/{id}/html` → samodzielny plik
+  (style/dane/JS inline, offline) z układem szablonu firmowego + kafelkami +
+  przełącznikiem; druk = czyste klasyczne CV. Renderer:
+  `cv_generator_b2b/html_export.py` (wejście = ten sam client-safe payload;
+  wszystko przez html.escape). DOCX nie wykonuje logiki, PDF z JS działa
+  tylko w Acrobacie — stąd HTML. Chat NIE działa w pliku (wymaga serwera).
 - **Chat**: `POST /api/public/cv-i/{token}/chat` — dzienny limit per link
   (`CV_INTERACTIVE_CHAT_DAILY_LIMIT`=30 → 429) + kwota
   `AIFeatureKey.cv_interactive_chat` (→ 503) + rate limit 5/min; injection →
