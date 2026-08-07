@@ -93,13 +93,28 @@ spełniał komplet warunków. Każdy plik osobno, nie na sklejce — `_normalise
 zwija także znaki nowej linii, więc konkatenacja mogłaby skleić ostatnią komendę
 jednego pliku z pierwszą komendą drugiego i sfabrykować dopasowanie.
 
-## Wynik
+## Wynik (liczby z PRAWDZIWEGO CI, nie lokalne)
 
 | | Przed | Po |
 |---|---|---|
-| pytest (backend) | 22 min 20 s | **5 min 35 s** |
-| Bramka przed deployem | 24 min | ~2 min |
-| **merge → produkcja** | **~28 min** | **~6 min** (bramka 2 min + deploy 4 min) |
+| Gitleaks | 17 s | 21 s |
+| Backend — lint + migracje (bramka) | *(w jobie 24 min)* | **1 min 28 s** |
+| Backend — pytest | 22 min 20 s | **15 min 12 s** |
+| Frontend | 5 min 11 s | 5 min 24 s |
+| **Bramka przed deployem** | **24 min** | **1 min 28 s** |
+| **merge → produkcja** | **~28 min** | **~5,5 min** |
+
+Główny cel osiągnięty: **czas wdrożenia przestał zależeć od pytestu**. Bramka to
+1,5 min, deploy ~4 min.
+
+Przyspieszenie samego pytestu jest natomiast **skromniejsze, niż zapowiadał
+pomiar lokalny**: 1,47× w CI wobec ~3× u mnie. Powód nie leży w nierównym
+podziale plików — największy plik ma 126 z 4792 testów (2,6%), więc
+`--dist loadfile` nie jest tu wąskim gardłem. Bardziej prawdopodobna jest
+przesubskrypcja: runner `ubuntu-latest` ma 4 vCPU dzielone między 4 workery
+**i** kontener postgresa, podczas gdy lokalnie były 3 rdzenie zapasu.
+Do sprawdzenia w przyszłości: `-n 3` (rdzeń zostaje bazie) — każdy taki
+eksperyment kosztuje jeden cykl CI, więc nie zgadywany tutaj.
 
 ## Weryfikacja
 
@@ -129,9 +144,58 @@ Diagnoza 5 porażek z przebiegu 2, rozłożona eksperymentem A/B:
 Osobno potwierdzone na świeżym postgresie: pełna choreografia alembica z bramki
 przechodzi, a `from app.main import app` się importuje.
 
-**Zastrzeżenie co do liczb:** 5 min 35 s zmierzone lokalnie (Docker na macOS,
-4 workery). Runner `ubuntu-latest` ma 4 vCPU, więc rząd wielkości powinien się
-zgadzać, ale dokładną wartość poda pierwszy przebieg w CI.
+### Czego pomiar lokalny NIE złapał
+
+Pierwszy przebieg w prawdziwym CI wywrócił się na jednym teście —
+`test_inventory_detects_anomalies_and_does_not_mutate`, z komunikatem
+„endpoint zmutował dane!". To była **realna niezgodność z xdistem**, nie flake:
+
+Test mierzył `COUNT(*)` z całej tabeli `contracts` przed i po wywołaniu GET-a,
+żeby udowodnić, że endpoint jest read-only. Pod zrównolegleniem równoległy
+worker wstawiający własny kontrakt między dwoma pomiarami wygląda dokładnie
+tak samo jak endpoint mutujący dane — więc test oskarżał endpoint o cudzy zapis.
+
+Lokalnie przechodził, bo mam 8 rdzeni i przeplecenie wypadało inaczej; runner
+ma 4 vCPU. **Wniosek na przyszłość: zielony przebieg lokalny nie jest dowodem
+zgodności z xdistem dla testów mierzących stan globalny.**
+
+Naprawione znacznikiem wodnym: `MAX(id)` przed wywołaniem, potem liczenie tylko
+`id <= znacznik`. Wiersze cudzych workerów dostają wyższe id z sekwencji i
+wypadają z pomiaru, a wykrywanie zniknięcia wiersza sprzed wywołania zostaje.
+Świadomie tracimy wykrywanie INSERT-u przez endpoint — nowy wiersz też ma id
+powyżej znacznika, więc jest nieodróżnialny od wstawki cudzego workera, a
+przypisania INSERT-u do konkretnego zapisującego nie da się zrobić samym
+liczeniem przy równoległym wykonaniu.
+
+Zweryfikowane odtworzeniem wyścigu: `test_engagement_inventory` puszczony
+`-n 4` równolegle z trzema plikami masowo tworzącymi kontrakty, 3 próby —
+23 passed za każdym razem.
+
+## Odtwarzalność suite'u na trwałej bazie
+
+Osobna klasa problemu, wyszła przy okazji. Suite dawał się uruchomić dokładnie
+raz na danej bazie; drugi przebieg padał. W CI maskował to świeży kontener
+postgresa per job, więc bolało tylko lokalnie.
+
+Dwie różne przyczyny, mimo że objawiały się razem:
+
+1. **`test_engagement_inventory.py`** — seedował wiersz o stałej parze
+   `(year=9999, seq=1/2)` przy UNIQUE na tej parze i nie sprzątał.
+   Naprawa: seed jest teraz **idempotentny** — kasuje dokładnie tę jedną parę
+   przed wstawieniem (nigdy zakres). `contract_number` celowo nie jest kluczem:
+   nie ma na nim UNIQUE, a duplikat numeru jest właśnie tym, co ten test bada.
+
+2. **`test_contract_finance_redaction.py`** — pobierał jedną stronę
+   `?page_size=100` i wymagał swojego wiersza na niej, czyli zakładał prawie
+   pustą tabelę. Przy nagromadzonych kontraktach wiersz wypadał poza stronę i
+   test czerwieniał z powodu niezwiązanego z redakcją danych finansowych, czyli
+   z tym, co bada. Podbicie `page_size` tylko przesunęłoby próg (endpoint tnie
+   na 200), więc naprawa przechodzi po **wszystkich** stronach — to zdejmuje
+   założenie o rozmiarze bazy całkowicie.
+
+**Dowód:** dwa pełne przebiegi pod rząd na tej samej bazie, bez resetu między
+nimi — 4792 passed / 0 failed w obu (7 min 44 s i 10 min 14 s; drugi wolniejszy,
+bo baza urosła).
 
 ## Świadomy kompromis
 

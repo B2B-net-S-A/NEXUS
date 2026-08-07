@@ -249,10 +249,32 @@ async def _seed_candidate_rate(contract_id: int, effective_from: date) -> None:
 
 
 async def _seed_b2b_generated(contract_number: str, year: int, seq: int) -> None:
+    """Wstaw wiersz sentinelowy — IDEMPOTENTNIE.
+
+    `b2b_generated_contracts` ma UNIQUE(year, seq), a wołający przekazuje tu
+    stałą parę (rok 9999 to sentinel „dane testowe"). Bez usunięcia
+    poprzednika drugi przebieg suite'u na tej samej bazie kończył się
+    `UniqueViolationError` — czyli suite dawał się uruchomić dokładnie raz.
+    W CI maskował to świeży kontener postgresa per job, więc widać to było
+    tylko lokalnie.
+
+    Kasowanie jest wąskie: dokładnie ta jedna para (year, seq), nigdy zakres.
+    `contract_number` celowo NIE jest tu kluczem — nie ma na nim UNIQUE
+    (patrz docstring modelu: legacy `seq` był licznikiem niezależnym od
+    numeru), a duplikat numeru jest właśnie tym, co ten test bada.
+    """
+    from sqlalchemy import delete
+
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_generated_contract import B2BGeneratedContract
 
     async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(B2BGeneratedContract).where(
+                B2BGeneratedContract.year == year,
+                B2BGeneratedContract.seq == seq,
+            )
+        )
         db.add(
             B2BGeneratedContract(
                 year=year,
@@ -282,11 +304,46 @@ async def _seed_invoice(contract_id: int, invoice_number: str) -> None:
         await db.commit()
 
 
-async def _contracts_count() -> int:
+async def _contracts_watermark() -> int:
+    """Najwyższe istniejące `contracts.id` — granica „przed wywołaniem"."""
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
-        return (await db.execute(text("SELECT COUNT(*) FROM contracts"))).scalar_one()
+        return (
+            await db.execute(text("SELECT COALESCE(MAX(id), 0) FROM contracts"))
+        ).scalar_one()
+
+
+async def _contracts_count(max_id: int) -> int:
+    """Policz kontrakty istniejące do znacznika `max_id` włącznie.
+
+    Wcześniej liczyło `COUNT(*)` z CAŁEJ tabeli. Pod pytest-xdist to pomiar
+    bezużyteczny: równoległy worker, który wstawi własny kontrakt między dwoma
+    pomiarami, wygląda dokładnie tak samo jak endpoint mutujący dane — i test
+    orzekał „endpoint zmutował dane!" o cudzym zapisie. Dokładnie tak wywrócił
+    się pierwszy przebieg w CI (4 workery), choć lokalnie na 8 rdzeniach
+    przechodził, bo przeplecenie wypadało inaczej.
+
+    Ograniczenie do `id <= znacznik` wycina wiersze cudze (dostają wyższe id
+    z sekwencji) i zostawia to, co dla gwarancji read-only jest naprawdę
+    groźne: zniknięcie wiersza, który istniał przed wywołaniem.
+
+    Świadome ograniczenie: tak zawężony pomiar nie wykryje już, że endpoint
+    DODAŁ wiersz — nowy wiersz też dostaje id powyżej znacznika, więc jest
+    nieodróżnialny od wstawki cudzego workera. Przypisanie INSERT-u do
+    konkretnego zapisującego jest przy równoległym wykonaniu niemożliwe samym
+    liczeniem, a wykrywanie kasowania jest tu wartościowsze niż fałszywe
+    czerwone przy każdym przebiegu.
+    """
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        return (
+            await db.execute(
+                text("SELECT COUNT(*) FROM contracts WHERE id <= :max_id"),
+                {"max_id": max_id},
+            )
+        ).scalar_one()
 
 
 def _check(report: dict, key: str) -> dict:
@@ -454,11 +511,14 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     await _seed_invoice(c_inv, dup_inv)
     await _seed_invoice(c_inv, dup_inv)
 
-    rows_before = await _contracts_count()
+    watermark = await _contracts_watermark()
+    rows_before = await _contracts_count(watermark)
     r = await app_client.get(URL, headers=app_auth_headers)
     assert r.status_code == 200, r.text
     report = r.json()
-    assert await _contracts_count() == rows_before, "endpoint zmutował dane!"
+    assert await _contracts_count(watermark) == rows_before, (
+        "endpoint skasował kontrakty istniejące przed wywołaniem!"
+    )
 
     # Shape
     assert report["query_version"].startswith("m5-pr00")
