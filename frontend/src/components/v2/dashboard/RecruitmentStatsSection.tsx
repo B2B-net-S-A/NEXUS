@@ -22,7 +22,10 @@ import {
 import type { DashboardPeriod } from "@/lib/dashboard-presets"
 import { hasRole, useAuthStore } from "@/store/auth"
 
+import { RecruitmentCompetitions } from "./RecruitmentCompetitions"
+import { RecruitmentLinkedInPanel } from "./RecruitmentLinkedInPanel"
 import { RecruitmentTeamTable } from "./RecruitmentTeamTable"
+import { RecruitmentTrendChart } from "./RecruitmentTrendChart"
 import { StatsBoundary, type StatsBoundaryState } from "./StatsBoundary"
 
 // Sekcja „Statystyki rekrutacji" — wspólna dla WSZYSTKICH presetów
@@ -230,6 +233,30 @@ export function RecruitmentStatsSection({ className }: { className?: string }) {
                 </p>
               )}
             </div>
+
+            {/* Trend 12-mies. + lejek konwersji za wybrany okres */}
+            <RecruitmentTrendChart
+              trend={data.trend}
+              conversions={data.conversions}
+              totals={data.team_table?.totals ?? null}
+            />
+
+            {/* Rywalizacje — własne okresy biznesowe (kwartał/miesiąc/all-time) */}
+            <RecruitmentCompetitions
+              league={data.quarterly_league}
+              races={data.monthly_races}
+              hallOfFame={data.hall_of_fame}
+              highlightUserId={user?.id ?? null}
+            />
+
+            {/* LinkedIn Performance — okres sekcji */}
+            {data.linkedin ? (
+              <RecruitmentLinkedInPanel linkedin={data.linkedin} />
+            ) : (
+              <div className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-xs text-muted-foreground">
+                LinkedIn: dane chwilowo niedostępne (to NIE jest zero).
+              </div>
+            )}
           </div>
         ) : null}
       </StatsBoundary>

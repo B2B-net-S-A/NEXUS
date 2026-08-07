@@ -47,10 +47,13 @@ export function ChampionsSection() {
         />
         <ChampionsPodium
           title="Liga Mistrzów Rekrutacja"
-          subtitle="Kwartalni top placerzy"
+          subtitle="Kwartalny ranking punktowy (150/15/5)"
           period={recruiter?.period ?? ""}
           top3={(recruiter?.top3 ?? []) as never[]}
-          metricLabel="placementów"
+          // Ranking rekruterów liczy PUNKTY (placement=150, interview=15,
+          // rekomendacja=5), nie liczbę placementów — label „placementów"
+          // kłamał przy metric_value będącym sumą punktów.
+          metricLabel="pkt"
         />
       </div>
     </section>
