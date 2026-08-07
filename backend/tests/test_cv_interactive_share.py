@@ -384,6 +384,34 @@ async def test_chat_injection_refused_without_llm(
     assert "opiekunem procesu" in r.json()["answer"]
 
 
+def test_chat_output_scan_allows_finance_topics_blocks_amounts():
+    """Fałszywy pozytyw ze smoke na prod (2026-08-07): CV data engineera
+    zawiera „rekordów finansowych", a topic-scan odrzucał każdą odpowiedź
+    cytującą to doświadczenie. Skan wyjścia chatu ma łapać wyłącznie
+    KONKRETNE kwoty."""
+    from app.services.cv_generator_b2b.interactive_chat import (
+        _contains_concrete_financial_amount,
+    )
+
+    # Legalna treść z CV — NIE może być odrzucana (topic-słowa, lata, "B2B"
+    # z cyfrą w środku, liczby bez waluty).
+    assert not _contains_concrete_financial_amount(
+        "Kandydat przetwarzał miliardy rekordów finansowych w architekturze "
+        "medallion i optymalizował koszty infrastruktury B2B."
+    )
+    assert not _contains_concrete_financial_amount(
+        "Od 2019 do 2024 pracował jako Data Architect — 9 lat doświadczenia, "
+        "kontrakt B2B, projekty w sektorze finansowym."
+    )
+    # Konkretne kwoty — muszą być odrzucane.
+    assert _contains_concrete_financial_amount("Stawka kandydata to 180 PLN/h.")
+    assert _contains_concrete_financial_amount("Oczekuje około 25 000 zł netto.")
+    assert _contains_concrete_financial_amount("Around $90/h for this profile.")
+    # Trzecia gałąź _STRICT_AMOUNT_RE: skrót tysięcy bez waluty.
+    assert _contains_concrete_financial_amount("Oczekiwania w okolicach 40k.")
+    assert _contains_concrete_financial_amount("Około 25 tys. miesięcznie.")
+
+
 async def test_chat_daily_limit_returns_429(app_client: AsyncClient, app_auth_headers):
     from app.models.cv_generated_share import CvShareChatMessage
     from app.services.cv_generator_b2b.interactive_chat import DAILY_QUESTION_LIMIT
