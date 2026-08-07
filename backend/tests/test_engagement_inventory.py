@@ -304,46 +304,21 @@ async def _seed_invoice(contract_id: int, invoice_number: str) -> None:
         await db.commit()
 
 
-async def _contracts_watermark() -> int:
-    """Najwyższe istniejące `contracts.id` — granica „przed wywołaniem"."""
-    from app.core.database import AsyncSessionLocal
+async def _contracts_count() -> int:
+    """Policz WSZYSTKIE kontrakty.
 
-    async with AsyncSessionLocal() as db:
-        return (
-            await db.execute(text("SELECT COALESCE(MAX(id), 0) FROM contracts"))
-        ).scalar_one()
-
-
-async def _contracts_count(max_id: int) -> int:
-    """Policz kontrakty istniejące do znacznika `max_id` włącznie.
-
-    Wcześniej liczyło `COUNT(*)` z CAŁEJ tabeli. Pod pytest-xdist to pomiar
-    bezużyteczny: równoległy worker, który wstawi własny kontrakt między dwoma
-    pomiarami, wygląda dokładnie tak samo jak endpoint mutujący dane — i test
-    orzekał „endpoint zmutował dane!" o cudzym zapisie. Dokładnie tak wywrócił
-    się pierwszy przebieg w CI (4 workery), choć lokalnie na 8 rdzeniach
-    przechodził, bo przeplecenie wypadało inaczej.
-
-    Ograniczenie do `id <= znacznik` wycina wiersze cudze (dostają wyższe id
-    z sekwencji) i zostawia to, co dla gwarancji read-only jest naprawdę
-    groźne: zniknięcie wiersza, który istniał przed wywołaniem.
-
-    Świadome ograniczenie: tak zawężony pomiar nie wykryje już, że endpoint
-    DODAŁ wiersz — nowy wiersz też dostaje id powyżej znacznika, więc jest
-    nieodróżnialny od wstawki cudzego workera. Przypisanie INSERT-u do
-    konkretnego zapisującego jest przy równoległym wykonaniu niemożliwe samym
-    liczeniem, a wykrywanie kasowania jest tu wartościowsze niż fałszywe
-    czerwone przy każdym przebiegu.
+    Pomiar globalny jest tu celowy i wiarygodny, bo każdy worker xdist dostaje
+    własną bazę (patrz `_provision_worker_database` w conftest.py). Bez tej
+    izolacji ten licznik trzeba by zawęzić do znacznika `MAX(id)`, co osłabiłoby
+    asercję: nowy wiersz dostaje id powyżej znacznika, więc endpoint dodający
+    dane byłby nieodróżnialny od wstawki cudzego workera i przestałby być
+    wykrywany. Izolacja pozwala zachować mocniejszą wersję — łapiącą zarówno
+    dodanie, jak i skasowanie wiersza.
     """
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
-        return (
-            await db.execute(
-                text("SELECT COUNT(*) FROM contracts WHERE id <= :max_id"),
-                {"max_id": max_id},
-            )
-        ).scalar_one()
+        return (await db.execute(text("SELECT COUNT(*) FROM contracts"))).scalar_one()
 
 
 def _check(report: dict, key: str) -> dict:
@@ -511,14 +486,11 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     await _seed_invoice(c_inv, dup_inv)
     await _seed_invoice(c_inv, dup_inv)
 
-    watermark = await _contracts_watermark()
-    rows_before = await _contracts_count(watermark)
+    rows_before = await _contracts_count()
     r = await app_client.get(URL, headers=app_auth_headers)
     assert r.status_code == 200, r.text
     report = r.json()
-    assert await _contracts_count(watermark) == rows_before, (
-        "endpoint skasował kontrakty istniejące przed wywołaniem!"
-    )
+    assert await _contracts_count() == rows_before, "endpoint zmutował dane!"
 
     # Shape
     assert report["query_version"].startswith("m5-pr00")
