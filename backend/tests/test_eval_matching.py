@@ -248,14 +248,28 @@ def test_fully_indexed_subset_drives_the_headline_metrics():
 
 
 def test_relevance_is_monotonic_along_the_funnel():
-    """Later funnel stages must never score below earlier ones."""
+    """Later funnel stages must never score below earlier ones.
+
+    Lists ALL nine GT-contributing stages, not a subset: a partial list would
+    let a mis-scored stage (say `interview` above `client_interview`) sit
+    outside the assertion and never be checked — a guard that guards part of
+    the thing it names.
+    """
     funnel = [
         PipelineStage.screening,
         PipelineStage.verified,
+        PipelineStage.interview,
         PipelineStage.cv_sent,
         PipelineStage.client_interview,
         PipelineStage.acceptance,
+        PipelineStage.negotiation,
+        PipelineStage.onboarding,
         PipelineStage.hired,
     ]
+    assert set(funnel) == set(STAGE_RELEVANCE), (
+        "the funnel list and STAGE_RELEVANCE have drifted apart — every graded "
+        f"stage must appear here. Missing: {set(STAGE_RELEVANCE) - set(funnel)}; "
+        f"unexpected: {set(funnel) - set(STAGE_RELEVANCE)}"
+    )
     scores = [STAGE_RELEVANCE[s] for s in funnel]
     assert scores == sorted(scores), f"funnel relevance not monotonic: {scores}"

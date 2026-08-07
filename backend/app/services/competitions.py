@@ -642,6 +642,82 @@ async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
     ]
 
 
+async def compose_monthly_races(
+    db: AsyncSession, month_period: Optional[str] = None
+) -> dict:
+    """Oba wyścigi miesięczne + wykluczenie lidera kwartału, w jednym dictcie.
+
+    Jedno źródło prawdy dla API `/api/competitions/monthly-races` ORAZ
+    composite'u `/api/dashboard/v2/recruitment-stats` — logika wykluczenia
+    lidera kwartalnego i wyboru „zakwalifikowanego lidera" nie może się
+    rozjechać między powierzchniami.
+    """
+    month_period = month_period or current_month_period()
+    quarter_period = current_quarter_period()
+
+    rec_ranked = await monthly_most_recommendations(db, month_period)
+    pl_ranked = await monthly_most_placements(db, month_period)
+
+    # Wykluczenie: lider kwartalny (rank 1 w quarterly_champions_recruiter)
+    # nie może wygrać wyścigu miesięcznego — ale z rankingu nie wypada.
+    quarterly = await quarterly_champions_recruiter(db, quarter_period)
+    excluded_ids = {quarterly[0].user_id} if quarterly else set()
+
+    days_left = days_left_in_month(date.today())
+
+    def _format(ranked: list[RankedUser], extra_reqs: list[str]) -> dict:
+        ranking = [
+            {
+                **r.to_dict(),
+                "rank": idx + 1,
+                "excluded": r.user_id in excluded_ids,
+            }
+            for idx, r in enumerate(ranked)
+        ]
+        # Zakwalifikowany lider = pierwszy spełniający warunki i niewykluczony.
+        qualified = next(
+            (
+                entry
+                for entry in ranking
+                if not entry["excluded"] and entry.get("qualified", True)
+            ),
+            None,
+        )
+        return {
+            "period": month_period,
+            "days_remaining": days_left,
+            "prize": {
+                "amount_pln": MONTHLY_RACE_PRIZE_PLN,
+                "name": MONTHLY_RACE_PRIZE_NAME,
+            },
+            "requirements": extra_reqs
+            + ["Lider kwartalny wykluczony z nagrody miesięcznej"],
+            "ranking": ranking,
+            "excluded_user_ids": list(excluded_ids),
+            "qualified_leader": qualified,
+        }
+
+    return {
+        "recommendations": _format(
+            rec_ranked,
+            [
+                (
+                    f"Wymóg: min. {MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY} "
+                    "weryfikacji/dzień roboczy w tym miesiącu"
+                ),
+                (
+                    f"Wymóg: min. {int(MONTHLY_RACE_MIN_PRECISION_PCT)}% "
+                    "precision rate (rekomendacje / weryfikacje)"
+                ),
+            ],
+        ),
+        "placements": _format(
+            pl_ranked,
+            [f"Minimum {MONTHLY_RACE_MIN_PLACEMENTS} placementy do kwalifikacji"],
+        ),
+    }
+
+
 # ── Compute by CompetitionType ──────────────────────────────────────────
 
 
