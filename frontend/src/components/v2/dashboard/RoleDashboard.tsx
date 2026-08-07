@@ -17,7 +17,6 @@ import {
 import type { FinanceDashboardTab } from "@/lib/dashboard-v2-api"
 import { useAuthStore } from "@/store/auth"
 
-import { CompactGamification } from "./CompactGamification"
 import { DashboardShell } from "./DashboardShell"
 import { DashboardV2Preset } from "./DashboardV2Preset"
 import { RecruitmentStatsSection } from "./RecruitmentStatsSection"
@@ -51,14 +50,10 @@ function FinancePreset({ period }: { period: DashboardPeriod }) {
 function presetContent(preset: DashboardPreset, period: DashboardPeriod) {
   if (preset === "finance") return <FinancePreset period={period} />
 
-  return (
-    <div className="space-y-6">
-      <DashboardV2Preset preset={preset} period={period} />
-      {preset === "head-of-recruitment" || preset === "my-work" ? (
-        <CompactGamification types={["quarterly_champions_recruiter"]} />
-      ) : null}
-    </div>
-  )
+  // CompactGamification usunięty — pełny blok rywalizacji (hero ligi,
+  // wyścigi, Hall of Fame) renderuje RecruitmentStatsSection pod każdym
+  // presetem; skrót dublowałby requesty do /api/competitions.
+  return <DashboardV2Preset preset={preset} period={period} />
 }
 
 export function RoleDashboard() {
