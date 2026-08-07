@@ -98,14 +98,15 @@ env:
 
 jobs:
   deploy:
-    name: Trigger Coolify deploy
+    name: Deploy + smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Deploy TYLKO gdy "CI Gate" dla tego samego SHA przeszła na main. Ręczny
     # workflow_dispatch (brak payloadu workflow_run) zostaje jako furtka na
     # redeploy/rollback (deployment-runbook §4). Czerwony — lub spoza main —
-    # przebieg bramki zostawia to jako false → job pominięty → smoke-test
-    # (needs: deploy) też pominięty → workflow no-op bez dotykania produkcji.
+    # przebieg bramki zostawia to jako false → job pominięty razem ze
+    # smoke-testem, który od 2026-08-07 jest jego częścią → workflow no-op
+    # bez dotykania produkcji.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
       - name: Skip if target already live (burst coalescing)
@@ -240,10 +241,13 @@ jobs:
         run: |
           # Poll the exact deployment we queued instead of blind-sleeping.
           # Statuses: queued | in_progress | finished | failed | cancelled-by-user.
-          # 60 × 15s = 15 min ceiling (cold ARM build with heavy native deps).
+          # 180 × 5s = 15 min ceiling — ten sam sufit co wcześniej (60 × 15s),
+          # ale drobniejsza ziarnistość. Coolify kończy w losowym momencie
+          # względem pętli, więc przy 15 s marnowaliśmy średnio ~7 s na samo
+          # niezauważenie, że już skończył. Odpytanie API jest tanie.
           DEPLOYMENT_UUID="${{ steps.trigger.outputs.deployment_uuid }}"
           status=""
-          for i in $(seq 1 60); do
+          for i in $(seq 1 180); do
             resp=$(curl -sS \
               -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
               -H "Accept: application/json" \
@@ -251,7 +255,7 @@ jobs:
             status=$(echo "$resp" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
             case "$status" in
               finished)
-                echo "✅ Deployment $DEPLOYMENT_UUID finished after ~$((i * 15))s"
+                echo "✅ Deployment $DEPLOYMENT_UUID finished after ~$((i * 5))s"
                 exit 0
                 ;;
               failed|cancelled*|cancelled-by-user)
@@ -269,20 +273,27 @@ jobs:
                 exit 1
                 ;;
               *)
-                echo "Attempt $i/60: status=$status, retrying in 15s..."
-                sleep 15
+                # Log co 6. próbę (~30 s), żeby 5-sekundowa ziarnistość nie
+                # zalała logu 180 liniami. `if`, nie `[ … ] && echo`: kroki
+                # `run:` chodzą pod `bash -e`, więc fałszywy test jako ostatnia
+                # komenda iteracji wywaliłby krok.
+                if [ $(( (i - 1) % 6 )) -eq 0 ]; then
+                  echo "Attempt $i/180: status=$status, retrying every 5s..."
+                fi
+                sleep 5
                 ;;
             esac
           done
           echo "::error::Deployment $DEPLOYMENT_UUID still '$status' after 15 min — treating as failed. Run the 'Coolify Ops' workflow to inspect/cancel it."
           exit 1
 
-  smoke-test:
-    name: Smoke test /api/health
-    needs: deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
+      # ── Smoke test scalony z jobem deploy (2026-08-07) ──────────────
+      # Był osobnym jobem z `needs: deploy`. Same testy trwają ~5 s, a
+      # GitHub kolejkował pod nie DRUGI runner: zmierzone 10 s luki między
+      # jobami + ~7 s setupu, czyli narzut ~3x dłuższy niż praca. Scalenie
+      # nic nie zmienia w kolejności (i tak biegły sekwencyjnie) ani
+      # w bramkowaniu — `if:` joba deploy obejmuje teraz również te kroki,
+      # a wcześniej `needs: deploy` dawał dokładnie ten sam efekt.
       - name: Healthcheck (standard shape + version match)
         env:
           APP_URL: ${{ vars.APP_URL }}
