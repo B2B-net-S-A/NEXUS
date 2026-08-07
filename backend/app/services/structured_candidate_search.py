@@ -19,6 +19,7 @@ Why a separate module:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from functools import reduce
 from typing import Optional
 
@@ -42,8 +43,19 @@ from app.services.candidate_profile_rate import (
 _LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2", "native"]
 
 
-def _safe(col: ColumnElement) -> ColumnElement:
-    """Coalesce NULL → '' so ILIKE doesn't yield NULL (which excludes rows)."""
+def _coalesce_empty(col: ColumnElement) -> ColumnElement:
+    """Coalesce NULL → '' so ILIKE yields FALSE instead of NULL.
+
+    NOT a safety helper, despite what the old name (``_safe``) suggested. The
+    coalesce makes the comparison return a boolean rather than NULL — which
+    means a row with no value evaluates to FALSE and is **excluded**. That
+    reads as protection and is the opposite: it is how the location filter
+    silently dropped 85% of the database while looking careful.
+
+    Any caller that must keep unknown-valued rows has to add the NULL arm
+    itself (see the `location` group in ``build_filter_groups``), or use
+    ``nullable()``.
+    """
     return func.coalesce(col, "")
 
 
@@ -163,6 +175,54 @@ def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
     return reduce(lambda a, b: a + b, matches)
 
 
+def _city_match_clauses(cities: list[str]) -> list[ColumnElement]:
+    """One ILIKE-pair predicate per requested city.
+
+    Shared by the WHERE clause and ``location_soft_rank`` so the two can never
+    disagree about what "matches this city" means.
+    """
+    return [
+        or_(
+            _coalesce_empty(Candidate.city).ilike(f"%{_escape_like(c)}%", escape="\\"),
+            _coalesce_empty(Candidate.location).ilike(
+                f"%{_escape_like(c)}%", escape="\\"
+            ),
+        )
+        for c in cities
+    ]
+
+
+def experience_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
+    """ORDER BY expression: 1 when the stated experience is inside the request.
+
+    The second half of making the experience filter NULL-tolerant. Dropping the
+    hard cut alone would be a regression: on the measured example the 45 people
+    who actually state 2-6 years would be scattered among 11 046 whose field is
+    blank. This lifts the ones who said so; the rest keep their place below.
+
+    Returns ``None`` when no bound was requested (nothing to rank by).
+    """
+    bounds: list[ColumnElement] = []
+    if req.experience_years_min is not None:
+        bounds.append(Candidate.years_it_experience >= req.experience_years_min)
+    if req.experience_years_max is not None:
+        bounds.append(Candidate.years_it_experience <= req.experience_years_max)
+    if not bounds:
+        return None
+    return case((and_(Candidate.years_it_experience.is_not(None), *bounds), 1), else_=0)
+
+
+def location_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
+    """ORDER BY expression: how many of the requested cities the candidate matches."""
+    if not req.location_cities:
+        return None
+    matches = [
+        case((clause, 1), else_=0)
+        for clause in _city_match_clauses(req.location_cities)
+    ]
+    return reduce(lambda a, b: a + b, matches)
+
+
 def _language_clause(req: LanguageRequirement) -> Optional[ColumnElement]:
     """Match an active normalized fact at/above the requested CEFR level.
 
@@ -215,6 +275,143 @@ class FilterGroup:
     clauses: list[ColumnElement]
 
 
+# ── NULL policy ──────────────────────────────────────────────────────────────
+# Every filter group must declare what a MISSING value means. The default is
+# "missing → keep the candidate": on this dataset most structured columns are
+# empty for the overwhelming majority of rows, so a filter that drops NULLs
+# selects on *who happened to have the field filled in*, not on relevance.
+#
+# Measured on prod 2026-08-07 (56 608 candidates): a search for
+# "2-6 years of experience" narrowed a genuinely relevant pool of 11 091 down
+# to 45 — a 99.6% cut driven entirely by 1.2% column coverage. The same shape
+# was already fixed once for skills (SEARCH-P0-03) and correctly avoided for
+# rate/availability/notice-period; experience and location were simply missed.
+#
+# The registry — not the helper — is what stops this recurring: a new filter
+# group with no entry fails `test_every_group_declares_a_null_policy`, so the
+# omission becomes a red build instead of a silent 99% cut nobody notices.
+
+
+class NullPolicy(str, Enum):
+    include = "include"  # missing value → candidate STAYS (default)
+    exclude = "exclude"  # missing value → candidate DROPS (needs justification)
+
+
+@dataclass(frozen=True)
+class GroupPolicy:
+    policy: NullPolicy
+    coverage_pct: float
+    measured_at: str
+    justification: str = ""
+
+
+NULL_POLICY: dict[str, GroupPolicy] = {
+    "competence_category": GroupPolicy(
+        NullPolicy.exclude,
+        58.9,
+        "2026-08-07",
+        justification=(
+            "Curated taxonomy with usable coverage, and the chip reads as an "
+            "explicit 'show me Backend people'. Admitting the 41% uncategorised "
+            "would change what an existing, actively used surface returns — a "
+            "product decision, not a bug fix. Revisit if coverage drops."
+        ),
+    ),
+    "skills": GroupPolicy(
+        NullPolicy.exclude,
+        0.5,
+        "2026-08-07",
+        justification=(
+            "Only `skills_none` remains here — 'must NOT have X' is an exclusion "
+            "the recruiter explicitly asked for. The inclusion chips became a "
+            "soft ranking signal in SEARCH-P0-03 (`skills_soft_rank`)."
+        ),
+    ),
+    "experience": GroupPolicy(NullPolicy.include, 1.2, "2026-08-07"),
+    "location": GroupPolicy(NullPolicy.include, 14.9, "2026-08-07"),
+    "languages": GroupPolicy(
+        NullPolicy.exclude,
+        0.4,
+        "2026-08-07",
+        justification=(
+            "A CEFR level is a claim someone recorded; absence is not evidence "
+            "of ability. Softening this needs a ranking signal first, otherwise "
+            "a 'German C1' search returns the whole database. Tracked separately."
+        ),
+    ),
+    # Heterogeneous on purpose, and the contract test caught it: this group
+    # holds an enum-membership filter (`availability_status`, a NOT NULL column
+    # — so "missing" is not a state it can be in) alongside two range filters
+    # over nullable columns. The range parts ARE NULL-tolerant individually
+    # (`availability_date`, `notice_period`, both `IS NULL OR ...`); the enum
+    # part legitimately excludes, because asking for "actively looking" and
+    # getting someone marked "unknown" is a wrong answer, not a kind one.
+    "availability": GroupPolicy(
+        NullPolicy.exclude,
+        0.0,
+        "2026-08-07",
+        justification=(
+            "`availability_status` is NOT NULL — an enum equality, not a "
+            "missing-data question. The nullable parts of this group "
+            "(availability_date, notice_period) are individually NULL-tolerant."
+        ),
+    ),
+    "rate_hourly": GroupPolicy(NullPolicy.include, 0.0, "2026-08-07"),
+    "eligibility": GroupPolicy(
+        NullPolicy.exclude,
+        100.0,
+        "2026-08-07",
+        justification=(
+            "`status` is NOT NULL, so there is no missing case; the blacklist "
+            "exclusion is a hard containment rule regardless."
+        ),
+    ),
+    "status": GroupPolicy(
+        NullPolicy.exclude,
+        100.0,
+        "2026-08-07",
+        justification="`status` is NOT NULL — no missing case exists.",
+    ),
+    "sources": GroupPolicy(
+        NullPolicy.exclude,
+        100.0,
+        "2026-08-07",
+        justification=(
+            "Provenance filter: 'came from Traffit' is a fact about the record, "
+            "and an unknown source genuinely does not satisfy it."
+        ),
+    ),
+    "tags": GroupPolicy(
+        NullPolicy.exclude,
+        0.0,
+        "2026-08-07",
+        justification=(
+            "Tags are applied by hand; an untagged candidate has not been given "
+            "the tag. Same shape as `skills_none`."
+        ),
+    ),
+    "attributes": GroupPolicy(
+        NullPolicy.exclude,
+        100.0,
+        "2026-08-07",
+        justification=(
+            "Derived booleans (has_cv, has_linkedin) computed from presence — "
+            "they are never NULL, they are False."
+        ),
+    ),
+}
+
+
+def nullable(col: ColumnElement, *bounds: ColumnElement) -> ColumnElement:
+    """NULL-tolerant comparison: a candidate with no value is kept.
+
+    The one way to write a bounded filter in this module. Writing
+    ``Candidate.x >= v`` directly silently drops every row where ``x`` is NULL,
+    which is the bug this exists to prevent.
+    """
+    return or_(col.is_(None), and_(*bounds))
+
+
 def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     """Return the populated structured filters, grouped and labelled.
 
@@ -246,10 +443,17 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     add("skills", "Umiejętności (wykluczenia)", skills)
 
     experience: list[ColumnElement] = []
+    exp_bounds: list[ColumnElement] = []
     if req.experience_years_min is not None:
-        experience.append(Candidate.years_it_experience >= req.experience_years_min)
+        exp_bounds.append(Candidate.years_it_experience >= req.experience_years_min)
     if req.experience_years_max is not None:
-        experience.append(Candidate.years_it_experience <= req.experience_years_max)
+        exp_bounds.append(Candidate.years_it_experience <= req.experience_years_max)
+    if exp_bounds:
+        # NULL-tolerant per NULL_POLICY["experience"]: `years_it_experience` is
+        # filled for 1.2% of the base, so a hard bound selects on bookkeeping
+        # rather than on seniority. Candidates who DO state a matching range are
+        # lifted by `experience_soft_rank`.
+        experience.append(nullable(Candidate.years_it_experience, *exp_bounds))
     add("experience", "Doświadczenie", experience)
 
     languages: list[ColumnElement] = []
@@ -261,17 +465,23 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
 
     location: list[ColumnElement] = []
     if req.location_cities:
-        city_clauses = [
+        # NULL-tolerant per NULL_POLICY["location"]: city/location are filled for
+        # ~15% of the base. `_safe` coalesces NULL → '' so ILIKE returns a
+        # boolean rather than NULL — which reads as "safe" but *guarantees* the
+        # unknown-location rows are excluded. Known-and-not-matching still drops;
+        # unknown stays and sinks via `location_soft_rank`.
+        location.append(
             or_(
-                _safe(Candidate.city).ilike(f"%{_escape_like(c)}%", escape="\\"),
-                _safe(Candidate.location).ilike(f"%{_escape_like(c)}%", escape="\\"),
+                and_(Candidate.city.is_(None), Candidate.location.is_(None)),
+                or_(*_city_match_clauses(req.location_cities)),
             )
-            for c in req.location_cities
-        ]
-        location.append(or_(*city_clauses))
+        )
     if req.location_countries:
         location.append(
-            Candidate.country.in_([c.upper() for c in req.location_countries])
+            nullable(
+                Candidate.country,
+                Candidate.country.in_([c.upper() for c in req.location_countries]),
+            )
         )
     add("location", "Lokalizacja", location)
 

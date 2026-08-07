@@ -166,6 +166,13 @@ class SearchMeta(BaseModel):
     # outage must never read as an empty database. Unlike ``ai_status`` (a
     # rolling health window), this reflects the current request's outcome.
     search_degraded: bool = False
+    # Per softened chip: how many of the `total` results actually state a
+    # matching value. Experience and location no longer exclude candidates whose
+    # field is blank (see NULL_POLICY in structured_candidate_search), so a
+    # narrow band can return thousands — which reads as a broken filter unless
+    # the UI can say how many of them genuinely match. Empty when no such chip
+    # was sent. Keys: "experience", "location".
+    soft_match_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class CandidateSearchResponse(BaseModel):
