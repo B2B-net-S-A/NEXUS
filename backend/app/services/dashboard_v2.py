@@ -1597,11 +1597,14 @@ def _competition_entry(
     wysadzą kontraktu `extra="forbid"`.
     """
     required = raw.get("required_verifications")
+    # Review: nie `or 0` — legalne 0 zostaje zerem, ale None/brak klucza też
+    # ma dać 0 bez połykania innych falsy wartości.
+    metric = raw.get("metric_value")
     return CompetitionRankingEntry(
         rank=int(raw.get("rank") or fallback_rank),
         user_id=raw["user_id"],
         name=raw["name"],
-        metric_value=raw.get("metric_value") or 0,
+        metric_value=metric if metric is not None else 0,
         role=raw.get("role"),
         hit_ratio=raw.get("hit_ratio"),
         prize_pln=raw.get("prize_pln", prize_pln),
@@ -1663,11 +1666,15 @@ async def build_recruitment_stats_dashboard(
         "team_funnel",
         lambda: sources.load_recruitment_team_panel(db, period),
     )
-    if team is not None and not hasattr(getattr(team, "totals", None), "akceptacje"):
+    # Guard typu zamiast duck-checku pojedynczego atrybutu (review): adapter
+    # zwraca dokładnie TeamPanelResult; wszystko inne = malformed źródło.
+    from app.services.kpi_team import TeamPanelResult
+
+    if team is not None and not isinstance(team, TeamPanelResult):
         _mark_partial(
             quality,
             "team_funnel",
-            "team_funnel: odpowiedź nie zawiera totals z lejkiem",
+            "team_funnel: odpowiedź nie jest TeamPanelResult",
         )
         team = None
     league = await _capture(
@@ -1683,15 +1690,29 @@ async def build_recruitment_stats_dashboard(
     races = await _capture(
         quality, "monthly_races", lambda: sources.load_monthly_races(db)
     )
+
+    def _race_block_shape_ok(block: Any) -> bool:
+        # Review: guard musi pokrywać KAŻDY klucz czytany przy mapowaniu
+        # (period/days_remaining/prize) — inaczej KeyError poza _capture
+        # wywala cały endpoint zamiast zdegradować jeden blok.
+        return (
+            _mapping_with_list_fields(block, "ranking")
+            and "period" in block
+            and "days_remaining" in block
+            and isinstance(block.get("prize"), dict)
+            and "amount_pln" in block["prize"]
+            and "name" in block["prize"]
+        )
+
     if races is not None and not (
         isinstance(races, dict)
-        and _mapping_with_list_fields(races.get("recommendations"), "ranking")
-        and _mapping_with_list_fields(races.get("placements"), "ranking")
+        and _race_block_shape_ok(races.get("recommendations"))
+        and _race_block_shape_ok(races.get("placements"))
     ):
         _mark_partial(
             quality,
             "monthly_races",
-            "monthly_races: odpowiedź nie zawiera obu wyścigów",
+            "monthly_races: odpowiedź nie zawiera kompletnych obu wyścigów",
         )
         races = None
     hof = await _capture(quality, "hall_of_fame", lambda: sources.load_hall_of_fame(db))
