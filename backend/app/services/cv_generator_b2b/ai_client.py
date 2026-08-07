@@ -7,7 +7,7 @@ Policy:
     ``CV_B2B_FALLBACK_MODELS``, comma-separated). A 529 ``overloaded_error`` is
     per-model-pool, so when the primary pool is saturated we re-issue the call
     against a different model family rather than failing the whole generation.
-  - Max tokens: 8192 (env-overridable via ``CV_B2B_MAX_TOKENS``).
+  - Max tokens: 16384 (env-overridable via ``CV_B2B_MAX_TOKENS``).
   - Per-request timeout: 120 s (env-overridable via ``CV_B2B_REQUEST_TIMEOUT``)
     so a hung attempt can't pin its FastAPI threadpool slot for the SDK's 600 s
     default.
@@ -47,7 +47,13 @@ logger = logging.getLogger(__name__)
 # CV_B2B_THINKING=adaptive + CV_B2B_MAX_TOKENS>=24576 i porównania jakości.
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_FALLBACK_MODELS = ("claude-opus-4-8",)
-_DEFAULT_MAX_TOKENS = 8192
+# Bump 8192 → 16384: gęste CV (długi staż, wiele ról, rozbudowane obowiązki)
+# przekraczały 8192 tokeny outputu i ucinały JSON (stop_reason=max_tokens →
+# "Odpowiedź Claude została ucięta", upload=Błąd). 16384 daje 2× zapasu, a przy
+# strukturalnej ekstrakcji płaci się tylko za realnie wygenerowane tokeny, więc
+# normalne CV nie drożeją. Wartość mieści się pod capem outputu modelu fallback
+# (Opus 4.8), więc kaskada fallbacku dalej działa. Override: CV_B2B_MAX_TOKENS.
+_DEFAULT_MAX_TOKENS = 16384
 _DEFAULT_MAX_RETRIES = 3
 # Per-request ceiling (seconds). The SDK default is 600 s — far too long for a
 # call that runs synchronously inside a FastAPI threadpool slot; a hung attempt
