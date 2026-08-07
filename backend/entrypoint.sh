@@ -150,6 +150,12 @@ _ENUM_STATEMENTS = [
     # _DATA_STATEMENTS (patrz pętla w main()), więc wartość jest zacommitowana,
     # zanim seed jej użyje.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'order_parser'",
+    # 0217: interaktywne CV — kafelki wymagań (cv_requirement_map) + chat
+    # hiring managera (cv_interactive_chat). Bez wartości enuma seed ai_features
+    # niżej i INSERT do ai_usage_log przy generacji mapy/odpowiedzi chatu
+    # => InvalidTextRepresentationError.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_requirement_map'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_interactive_chat'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
     # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
     # POST /api/autenti/contracts/{id}/send wywala się na insercie Notification
@@ -2368,6 +2374,54 @@ _COLUMN_STATEMENTS = [
             CHECK (cv_content_mode_cap IS NULL
                    OR cv_content_mode_cap IN ('basic', 'polished', 'tailored'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0217: interaktywne CV. Mapa „wymaganie → dowody" zapisywana po generacji
+    # (mode="new"); bez kolumn UPDATE cv_generated_documents => UndefinedColumn
+    # i generacja mapy pada przy każdym CV.
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "requirement_map JSONB",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "requirement_map_input_hash VARCHAR(64)",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "requirement_map_model VARCHAR(64)",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "requirement_map_generated_at TIMESTAMPTZ",
+    # 0217: per-klientowy włącznik wersji interaktywnej na publicznym linku.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "cv_interactive_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    # 0217: tokeny publicznych linków do WYGENEROWANYCH CV (Generator B2B).
+    # Wyłącznie token v2 (hash-at-rest): PK = revoke-key v2$<hex>, sekret tylko
+    # jako SHA-256. Bez tej tabeli POST /generated/{id}/share-token => 500.
+    """CREATE TABLE IF NOT EXISTS cv_generated_share_tokens (
+        token VARCHAR(64) PRIMARY KEY,
+        token_sha256 VARCHAR(64) NOT NULL,
+        generated_document_id INTEGER NOT NULL
+            REFERENCES cv_generated_documents(id) ON DELETE CASCADE,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at TIMESTAMPTZ,
+        revoked BOOLEAN NOT NULL DEFAULT FALSE,
+        revoked_at TIMESTAMPTZ,
+        revoked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        revoke_reason VARCHAR(255),
+        max_views INTEGER,
+        view_count INTEGER NOT NULL DEFAULT 0,
+        last_viewed_at TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_cv_generated_share_tokens_token_sha256 "
+    "ON cv_generated_share_tokens (token_sha256)",
+    "CREATE INDEX IF NOT EXISTS ix_cv_generated_share_tokens_generated_document_id "
+    "ON cv_generated_share_tokens (generated_document_id)",
+    # 0217: chat hiring managera na publicznym linku (dzienny limit + log pytań).
+    """CREATE TABLE IF NOT EXISTS cv_share_chat_messages (
+        id BIGSERIAL PRIMARY KEY,
+        share_token VARCHAR(64) NOT NULL
+            REFERENCES cv_generated_share_tokens(token) ON DELETE CASCADE,
+        role VARCHAR(12) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_cv_share_chat_token_created "
+    "ON cv_share_chat_messages (share_token, created_at)",
     # 0206: typed candidate profile facts. Existing candidate rows need OCC
     # counters even when orphaned Alembic skipped the migration; create_all
     # cannot add columns to an existing table.
@@ -3068,6 +3122,15 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'order_parser', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'order_parser')",
+    # 0217: seedy feature'ów interaktywnego CV (kafelki + chat). Brak wiersza w
+    # ai_features = feature milcząco zablokowany (get_feature_config -> None).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_requirement_map', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_requirement_map')",
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_interactive_chat', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'cv_interactive_chat')",
     # 0173: rejection_reasons.external_source backfill (integracja Traffit).
     "UPDATE rejection_reasons SET external_source = 'manual' "
     "WHERE external_source IS NULL",

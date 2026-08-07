@@ -22,8 +22,11 @@ request time. Real (non-stringized) annotations sidestep it. Same reason as
 ``cv_match_preview``.
 """
 
+import hashlib
 import json
 import logging
+import secrets
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 from urllib.parse import quote
@@ -45,6 +48,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 # Re-audyt M2 (PR1c): kolejna rownolegla powierzchnia danych kandydata.
 # Panel generatora B2B jest w sidebarze dostepny dla WSZYSTKICH rol, a jego
@@ -63,7 +67,11 @@ from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import limiter
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generated_share import CvGeneratedShareToken
+from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.services.cv_generator_b2b.standalone_service import (
     DEFAULT_CONTENT_MODE,
@@ -347,7 +355,8 @@ async def _run_generate_new_job(
             await db.commit()
             return
 
-        if await _finalize_success(db, generated_id, result=result):
+        finalized = await _finalize_success(db, generated_id, result=result)
+        if finalized:
             db.add(
                 Activity(
                     entity_type="candidate",
@@ -370,6 +379,16 @@ async def _run_generate_new_job(
                 )
             )
         await db.commit()
+
+        # Interaktywne CV: precompute mapy „wymaganie → dowody" (kafelki na
+        # publicznym linku). Fail-open — porażka/kwota nie psuje generacji,
+        # link działa wtedy w samym widoku classic.
+        if finalized:
+            from app.services.cv_generator_b2b.requirement_map import (
+                ensure_requirement_map,
+            )
+
+            await ensure_requirement_map(db, generated_id, user_id=user_id)
 
 
 async def _run_generate_upload_job(
@@ -810,3 +829,228 @@ async def delete_generated_cv(
     await db.delete(row)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Publiczny link do wygenerowanego CV (interaktywne CV) ──────────────────
+#
+# Mirror wzorca share-tokenów brandowanego CV (candidate_stage_cv.py, token v2)
+# — ale od pierwszego dnia WYŁĄCZNIE hash-at-rest: sekret pokazany raz, w DB
+# tylko SHA-256, PK = nie-sekretny revoke-key `v2$<hex>`. Strona kliencka:
+# `/cv/i/{token}` (public), dane: GET /api/public/cv-i/{token}.
+
+_SHARE_PATH_PREFIX = "/cv/i/"
+
+
+class CvGeneratedShareCreateResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    share_url_suffix: str
+    generated_id: int
+    revoke_key: str
+    max_views: Optional[int] = None
+    # Czy link pokaże wersję interaktywną (kafelki; chat zależy dodatkowo od
+    # toggle'a AI). False = klient zobaczy sam widok classic.
+    interactive_available: bool
+
+
+class CvGeneratedShareListItem(BaseModel):
+    revoke_key: str
+    token_preview: str
+    created_at: Optional[str] = None
+    created_by_name: Optional[str] = None
+    expires_at: Optional[str] = None
+    revoked: bool
+    revoked_at: Optional[str] = None
+    revoke_reason: Optional[str] = None
+    view_count: int = 0
+    max_views: Optional[int] = None
+    last_viewed_at: Optional[str] = None
+
+
+async def _interactive_available(db: AsyncSession, row: CvGeneratedDocument) -> bool:
+    """Czy publiczna strona pokaże wersję interaktywną dla tego CV.
+
+    Wymaga: trybu "new" (jest job → są wymagania), wygenerowanej mapy oraz
+    włączonej flagi `Client.cv_interactive_enabled` (domyślnie ON; flaga jest
+    niezależna od sufitu content_mode — kafelki to fakty z cytatami, nie
+    narracja sprzedażowa).
+    """
+    if row.mode != "new" or row.job_id is None:
+        return False
+    if not (row.requirement_map or {}).get("items"):
+        return False
+    job = await db.get(Job, row.job_id)
+    if job is None or job.client_id is None:
+        return True
+    client = await db.get(Client, job.client_id)
+    return bool(client.cv_interactive_enabled) if client else True
+
+
+@router.post(
+    "/generated/{generated_id}/share-token",
+    response_model=CvGeneratedShareCreateResponse,
+    status_code=201,
+)
+async def create_generated_cv_share_token(
+    generated_id: int,
+    current_user: CandidateDocumentAccess,
+    expires_in_days: int = Query(14, ge=1, le=90),
+    max_views: Optional[int] = Query(None, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+) -> CvGeneratedShareCreateResponse:
+    """Wygeneruj publiczny link do wygenerowanego CV dla hiring managera.
+
+    Sekret NIE jest zapisywany (w DB tylko SHA-256); raw token zwracamy jeden
+    raz. Przed wystawieniem — ostatnia linia obrony przed wysyłką CV osoby
+    z wetem HM (ten sam gate co przy brandowanym CV).
+    """
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if row.status != "ready" or not row.render_payload:
+        raise HTTPException(
+            status_code=409,
+            detail="CV nie jest gotowe do udostępnienia (brak zapisanych danych).",
+        )
+
+    # Veto hiring managera — jak w share brandowanego CV. Wygenerowane CV zna
+    # (candidate_id, job_id); etap wyprowadzamy z tej pary.
+    if row.candidate_id is not None and row.job_id is not None:
+        from app.services.hiring_manager_verdicts import veto_for_candidate_stage
+
+        stage_id = await db.scalar(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == row.candidate_id,
+                CandidateStage.job_id == row.job_id,
+            )
+        )
+        if stage_id is not None:
+            verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
+            if verdict is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"{verdict.as_polish_detail()} "
+                        "Nie udostępniaj ponownie tego CV."
+                    ),
+                )
+
+    raw_token = secrets.token_urlsafe(36)
+    revoke_key = f"v2${secrets.token_hex(16)}"
+    token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
+    db.add(
+        CvGeneratedShareToken(
+            token=revoke_key,
+            token_sha256=token_digest,
+            generated_document_id=row.id,
+            created_by=current_user.id,
+            expires_at=expires_at,
+            max_views=max_views,
+        )
+    )
+    interactive = await _interactive_available(db, row)
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=row.id,
+            action="cv_generated_share_created",
+            user_id=current_user.id,
+            details={
+                "expires_at": expires_at.isoformat(),
+                "revoke_key": revoke_key,
+                "max_views": max_views,
+                "interactive_available": interactive,
+            },
+        )
+    )
+    await db.commit()
+
+    return CvGeneratedShareCreateResponse(
+        token=raw_token,
+        expires_at=expires_at,
+        share_url_suffix=f"{_SHARE_PATH_PREFIX}{raw_token}",
+        generated_id=row.id,
+        revoke_key=revoke_key,
+        max_views=max_views,
+        interactive_available=interactive,
+    )
+
+
+@router.get(
+    "/generated/{generated_id}/share-tokens",
+    response_model=list[CvGeneratedShareListItem],
+)
+async def list_generated_cv_share_tokens(
+    generated_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[CvGeneratedShareListItem]:
+    """Lista linków (aktywnych i odwołanych) dla tego CV — bez sekretów."""
+    del current_user  # auth only — spójnie z resztą panelu generatora
+    rows = (
+        (
+            await db.execute(
+                select(CvGeneratedShareToken)
+                .options(selectinload(CvGeneratedShareToken.creator))
+                .where(CvGeneratedShareToken.generated_document_id == generated_id)
+                .order_by(CvGeneratedShareToken.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        CvGeneratedShareListItem(
+            revoke_key=r.token,
+            token_preview=f"v2 · {r.token_sha256[:6]}…",
+            created_at=r.created_at.isoformat() if r.created_at else None,
+            created_by_name=(r.creator.name if r.creator else None),
+            expires_at=r.expires_at.isoformat() if r.expires_at else None,
+            revoked=r.revoked,
+            revoked_at=r.revoked_at.isoformat() if r.revoked_at else None,
+            revoke_reason=r.revoke_reason,
+            view_count=r.view_count or 0,
+            max_views=r.max_views,
+            last_viewed_at=(r.last_viewed_at.isoformat() if r.last_viewed_at else None),
+        )
+        for r in rows
+    ]
+
+
+@router.delete("/generated/share-token/{token}")
+async def revoke_generated_cv_share_token(
+    token: str,
+    current_user: CandidateDocumentAccess,
+    reason: Optional[str] = Query(None, max_length=255),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Odwołaj link. Idempotentne. Przyjmuje revoke-key (`v2$…`) albo raw token
+    (lookup po hashu — okładka, gdy caller ma tylko URL). Rewokacja zmniejsza
+    ekspozycję, więc celowo nie wymaga bycia autorem linku."""
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    row = await db.scalar(
+        select(CvGeneratedShareToken).where(
+            (CvGeneratedShareToken.token == token)
+            | (CvGeneratedShareToken.token_sha256 == digest)
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Token nie znaleziony")
+    if row.revoked:
+        return {"ok": True, "already_revoked": True}
+    row.revoked = True
+    row.revoked_at = datetime.now(timezone.utc)
+    row.revoked_by = current_user.id
+    row.revoke_reason = reason
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=row.generated_document_id,
+            action="cv_generated_share_revoked",
+            user_id=current_user.id,
+            details={"revoke_key": row.token, "reason": reason},
+        )
+    )
+    await db.commit()
+    return {"ok": True, "already_revoked": False}
