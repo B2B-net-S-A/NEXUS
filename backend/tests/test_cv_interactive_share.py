@@ -407,6 +407,9 @@ def test_chat_output_scan_allows_finance_topics_blocks_amounts():
     assert _contains_concrete_financial_amount("Stawka kandydata to 180 PLN/h.")
     assert _contains_concrete_financial_amount("Oczekuje około 25 000 zł netto.")
     assert _contains_concrete_financial_amount("Around $90/h for this profile.")
+    # Trzecia gałąź _STRICT_AMOUNT_RE: skrót tysięcy bez waluty.
+    assert _contains_concrete_financial_amount("Oczekiwania w okolicach 40k.")
+    assert _contains_concrete_financial_amount("Około 25 tys. miesięcznie.")
 
 
 async def test_chat_daily_limit_returns_429(app_client: AsyncClient, app_auth_headers):
