@@ -391,6 +391,40 @@ async def _run_generate_new_job(
             await ensure_requirement_map(db, generated_id, user_id=user_id)
 
 
+def _upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
+    """Wymagania na kafelki dla trybu upload (brak joba).
+
+    Pierwszeństwo mają RĘCZNE pola rekrutera; gdy puste, a wgrano plik
+    championa — sekcje MUST-HAVE/NICE-TO-HAVE z niego. Champion jest tu
+    parsowany DRUGI raz (pierwszy — w pipeline generacji): świadomie, to tani
+    regex na DOCX, a przewlekanie list przez ``GenerationResult`` wiązałoby
+    kontrakt wyniku generacji z feature'em kafelków. Zwraca [] gdy brak źródeł.
+    """
+    from app.services.cv_generator_b2b.requirement_map import (
+        parse_manual_requirements,
+    )
+
+    requirements = parse_manual_requirements(
+        payload.must_requirements, payload.nice_requirements
+    )
+    if not requirements and payload.champion_bytes:
+        try:
+            from app.services.cv_generator_b2b.champion_builder import (
+                parse_champion_from_docx_bytes,
+            )
+
+            champ = parse_champion_from_docx_bytes(
+                payload.champion_bytes,
+                payload.champion_filename or "champion.docx",
+            )
+            requirements = parse_manual_requirements(
+                ", ".join(champ.must_have), ", ".join(champ.nice_to_have)
+            )
+        except Exception as err:  # noqa: BLE001 — fallback nie psuje mapy
+            logger.warning("[cv_b2b] champion parse for requirements failed: %s", err)
+    return requirements
+
+
 async def _run_generate_upload_job(
     generated_id: int,
     *,
@@ -443,29 +477,9 @@ async def _run_generate_upload_job(
         if finalized:
             from app.services.cv_generator_b2b.requirement_map import (
                 ensure_requirement_map,
-                parse_manual_requirements,
             )
 
-            requirements = parse_manual_requirements(
-                payload.must_requirements, payload.nice_requirements
-            )
-            if not requirements and payload.champion_bytes:
-                try:
-                    from app.services.cv_generator_b2b.champion_builder import (
-                        parse_champion_from_docx_bytes,
-                    )
-
-                    champ = parse_champion_from_docx_bytes(
-                        payload.champion_bytes,
-                        payload.champion_filename or "champion.docx",
-                    )
-                    requirements = parse_manual_requirements(
-                        ", ".join(champ.must_have), ", ".join(champ.nice_to_have)
-                    )
-                except Exception as err:  # noqa: BLE001 — fallback nie psuje mapy
-                    logger.warning(
-                        "[cv_b2b] champion parse for requirements failed: %s", err
-                    )
+            requirements = _upload_requirements(payload)
             if requirements:
                 await ensure_requirement_map(
                     db, generated_id, user_id=user_id, requirements=requirements
@@ -847,6 +861,51 @@ async def download_generated_cv(
         warnings=[],
         processing_time_ms=0,
         generated_id=row.id,
+    )
+
+
+@router.get("/generated/{generated_id}/html")
+async def download_generated_cv_html(
+    generated_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Interaktywne CV jako JEDEN samodzielny plik HTML — do wysyłki mailem.
+
+    Ten sam client-safe payload co publiczny link (bez warnings, blind
+    zamaskowany) + zapisana mapa wymagań, spakowane w plik z inline
+    stylami/JS: kafelki, przełącznik Klasyczne↔Interaktywne, druk = czysty
+    dokument. Bez mapy plik degraduje do samego widoku klasycznego. Chat
+    celowo nieobecny — wymaga serwera, żyje na linku /cv/i/{{token}}.
+    """
+    del current_user  # auth only — spójnie z /docx
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if row.status != "ready" or not row.render_payload:
+        raise HTTPException(
+            status_code=422,
+            detail="CV nie jest gotowe (brak zapisanych danych) — wygeneruj ponownie.",
+        )
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    html_str = render_interactive_html(
+        build_public_payload(row.render_payload),
+        (row.requirement_map or {}).get("items") or [],
+    )
+    filename = (Path(row.filename).stem or "CV") + ".html"
+    ascii_name = ascii_filename_fallback(filename)
+    disposition = f'attachment; filename="{ascii_name}"'
+    if filename != ascii_name:
+        disposition += f"; filename*=UTF-8''{quote(filename, safe='')}"
+    return Response(
+        content=html_str.encode("utf-8"),
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": disposition,
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
     )
 
 

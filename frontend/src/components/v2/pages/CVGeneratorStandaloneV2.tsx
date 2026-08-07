@@ -9,6 +9,7 @@ import {
   ChevronsUpDown,
   Download,
   Eye,
+  FileCode2,
   FileText,
   Link2,
   Loader2,
@@ -336,6 +337,23 @@ export function CVGeneratorStandaloneV2() {
     }
   }
 
+  async function handleDownloadHtml(item: GeneratedCvItem) {
+    // Interaktywne CV jako JEDEN plik HTML — do wysyłki mailem jak DOCX.
+    try {
+      const res = await api.get(`/api/cv-generator/generated/${item.id}/html`, {
+        responseType: "blob",
+      });
+      downloadBlob(
+        res.data as Blob,
+        item.filename.replace(/\.docx$/i, "") + ".html",
+      );
+    } catch (err) {
+      toast.showError(
+        (await extractErrorDetail(err)) || "Nie udało się pobrać pliku HTML.",
+      );
+    }
+  }
+
   async function handleDeleteGenerated(item: GeneratedCvItem) {
     try {
       await api.delete(`/api/cv-generator/generated/${item.id}`);
@@ -584,6 +602,7 @@ export function CVGeneratorStandaloneV2() {
                   item={item}
                   onPreview={setPreviewItem}
                   onDownload={handleDownloadGenerated}
+                  onDownloadHtml={handleDownloadHtml}
                   onShare={setShareItem}
                   onDelete={handleDeleteGenerated}
                 />
@@ -1078,6 +1097,7 @@ type GeneratedCvRowProps = {
   item: GeneratedCvItem;
   onPreview: (item: GeneratedCvItem) => void;
   onDownload: (item: GeneratedCvItem) => void;
+  onDownloadHtml: (item: GeneratedCvItem) => void;
   onShare: (item: GeneratedCvItem) => void;
   onDelete: (item: GeneratedCvItem) => void;
 };
@@ -1086,6 +1106,7 @@ function GeneratedCvRow({
   item,
   onPreview,
   onDownload,
+  onDownloadHtml,
   onShare,
   onDelete,
 }: GeneratedCvRowProps) {
@@ -1168,6 +1189,15 @@ function GeneratedCvRow({
                     title="Pobierz DOCX"
                   >
                     <Download className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!item.can_download}
+                    onClick={() => onDownloadHtml(item)}
+                    title="Pobierz interaktywny HTML (jeden plik: kafelki + widok klasyczny)"
+                  >
+                    <FileCode2 className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"

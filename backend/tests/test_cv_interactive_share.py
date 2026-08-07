@@ -289,6 +289,59 @@ async def test_upload_with_manual_requirements_gets_interactive(
     assert body["chat_enabled"] is True
 
 
+def test_upload_requirements_champion_docx_fallback():
+    """Puste pola ręczne + plik championa → wymagania z sekcji MUST/NICE-HAVE;
+    pola ręczne mają pierwszeństwo nad plikiem."""
+    from io import BytesIO
+
+    from docx import Document
+
+    from app.api.cv_generator_b2b import _upload_requirements
+    from app.services.cv_generator_b2b.standalone_service import (
+        UploadGenerationInput,
+    )
+
+    doc = Document()
+    doc.add_paragraph("MUST-HAVE:")
+    doc.add_paragraph("Kubernetes, AWS")
+    doc.add_paragraph("NICE-TO-HAVE:")
+    doc.add_paragraph("Grafana")
+    buf = BytesIO()
+    doc.save(buf)
+    champion_bytes = buf.getvalue()
+
+    fallback = _upload_requirements(
+        UploadGenerationInput(
+            cv_bytes=b"x",
+            cv_filename="cv.pdf",
+            champion_bytes=champion_bytes,
+            champion_filename="champion.docx",
+        )
+    )
+    by_kind = {
+        kind: {r["name"].casefold() for r in fallback if r["kind"] == kind}
+        for kind in ("must", "nice")
+    }
+    assert {"kubernetes", "aws"} <= by_kind["must"]
+    assert "grafana" in by_kind["nice"]
+
+    manual_wins = _upload_requirements(
+        UploadGenerationInput(
+            cv_bytes=b"x",
+            cv_filename="cv.pdf",
+            must_requirements="Python",
+            champion_bytes=champion_bytes,
+            champion_filename="champion.docx",
+        )
+    )
+    assert manual_wins == [{"name": "Python", "kind": "must"}]
+
+    assert (
+        _upload_requirements(UploadGenerationInput(cv_bytes=b"x", cv_filename="c.pdf"))
+        == []
+    )
+
+
 def test_parse_manual_requirements():
     from app.services.cv_generator_b2b.requirement_map import (
         parse_manual_requirements,
@@ -396,6 +449,55 @@ def test_requirement_map_keeps_verbatim_quotes_and_fills_missing():
     terraform = out[1]
     assert terraform["status"] == "no_data"
     assert terraform["evidence"] == []
+
+
+# ── Interaktywny HTML — jeden plik do wysyłki mailem ─────────────────────────
+
+
+def test_html_export_renders_sections_tiles_and_escapes():
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    payload = _render_payload()
+    payload["why_points"].append("<script>alert('xss')</script>")
+    out = render_interactive_html(
+        build_public_payload(payload), _REQUIREMENT_MAP["items"]
+    )
+    # Sekcje szablonu + kafelki + RODO.
+    assert "DLACZEGO NASZ KANDYDAT?" in out
+    assert "DOŚWIADCZENIE" in out
+    assert "Zarządzanie klastrami Kubernetes na EKS" in out  # cytat-dowód
+    assert "Dopasowanie do wymagań" in out
+    assert "B2B.net S.A." in out  # klauzula RODO
+    # Wstrzyknięty skrypt MUSI być zescapowany (plik otwiera hiring manager).
+    assert "<script>alert" not in out
+    assert "&lt;script&gt;" in out
+    # Bezpiecznik fabrykacji nie wycieka do pliku.
+    assert "WERYFIKUJ" not in out
+
+
+def test_html_export_blind_masks_and_degrades_without_map():
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    out = render_interactive_html(build_public_payload(_render_payload(blind=True)), [])
+    assert "Jan Interaktywny" not in out
+    assert "Acme" not in out
+    assert "Firma z branży fintech" in out
+    # Bez mapy: brak sekcji kafelków i przełącznika, domyślny widok klasyczny.
+    assert 'id="tiles"' not in out
+    assert 'class="classic"' in out
+
+
+async def test_html_export_endpoint(app_client: AsyncClient, app_auth_headers):
+    doc_id = await _seed_generated_doc()
+    r = await app_client.get(
+        f"/api/cv-generator/generated/{doc_id}/html", headers=app_auth_headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/html")
+    assert "attachment" in r.headers.get("content-disposition", "")
+    assert "Dopasowanie do wymagań" in r.text
 
 
 # ── Chat: guardraile bez wywołania LLM ───────────────────────────────────────
