@@ -2,7 +2,9 @@
 
 **Data:** 2026-08-07 · **HEAD:** `b4af6c58` · **Metoda:** mapowanie kodu (6 obszarów) + adwersaryjna weryfikacja + bezpośrednie pomiary na produkcyjnej bazie i w Qdrancie.
 
-Raport wizualny: <https://claude.ai/code/artifact/cc7b6ee5-fe2c-4bfc-8859-69b67983fe63>
+Istnieje też wersja wizualna raportu (opublikowana jako prywatny artefakt w sesji, link poza repo —
+`.gitleaks.toml` traktuje każdy UUID jako potencjalny klucz Fireflies i celowo nie osłabiamy tej reguły
+dla linku wygodowego). Ten dokument jest kompletny sam w sobie.
 
 ---
 
