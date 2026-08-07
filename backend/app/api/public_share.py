@@ -27,7 +27,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from pydantic import EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +47,9 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.champion_share import ChampionCardShareToken
+from app.models.client import Client
+from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.cv_share_token import CVShareToken
 from app.services.html_sanitizer import sanitize_cv_html
 from app.models.invite_link import CandidateInviteLink
@@ -241,6 +244,198 @@ async def get_public_cv(
         "cv_html": cv_html,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }
+
+
+# ── Wygenerowane CV (Generator B2B) — interaktywny public share ────────────
+#
+# `/cv/i/{token}` — jedna strona, dwa widoki: „classic" (HTML 1:1 z
+# render_payload) i „interaktywny" (kafelki wymagań + chat). Token WYŁĄCZNIE
+# v2 (hash-at-rest, bez gałęzi legacy — tabela powstała już po audycie P1.9).
+
+
+async def _load_generated_share(token: str, db: AsyncSession) -> CvGeneratedShareToken:
+    """Zwaliduj token linku wygenerowanego CV (bez konsumowania view-limitu).
+
+    404 dla nieznanego/odwołanego, 410 dla wygasłego — spójnie z `/cv/{token}`.
+    Lookup tylko po SHA-256: PK wiersza to nie-sekretny revoke-key, który
+    NIGDY nie może działać jako klucz dostępu (lekcja z audytu M2 PR1b).
+    """
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    row: Optional[CvGeneratedShareToken] = await db.scalar(
+        select(CvGeneratedShareToken).where(
+            CvGeneratedShareToken.token_sha256 == digest
+        )
+    )
+    if row is None or row.revoked:
+        raise HTTPException(
+            status_code=404, detail="Link nie istnieje lub został odwołany."
+        )
+    if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="Link wygasł.")
+    return row
+
+
+def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
+    doc = row.generated_document
+    if doc is None or doc.status != "ready" or not doc.render_payload:
+        raise HTTPException(status_code=404, detail="CV nie jest już dostępne.")
+    return doc
+
+
+async def _interactive_flags(
+    db: AsyncSession, doc: CvGeneratedDocument
+) -> tuple[bool, bool]:
+    """(kafelki_dostępne, chat_dostępny) dla publicznego widoku.
+
+    Wersja interaktywna tylko dla trybu "new" (jest job → są wymagania) i
+    tylko gdy klient ma włączone `cv_interactive_enabled`. Chat dodatkowo
+    wymaga włączonych toggle'i AI (master + feature) — sam limit kwoty
+    egzekwuje endpoint chatu przy pytaniu.
+    """
+    if doc.mode != "new" or doc.job_id is None:
+        return False, False
+    job = await db.scalar(select(Job).where(Job.id == doc.job_id))
+    if job is not None and job.client_id is not None:
+        client = await db.scalar(select(Client).where(Client.id == job.client_id))
+        if client is not None and not client.cv_interactive_enabled:
+            return False, False
+
+    tiles = bool((doc.requirement_map or {}).get("items"))
+
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import get_feature_config, get_master_enabled
+
+    chat = False
+    if await get_master_enabled(db):
+        config = await get_feature_config(db, AIFeatureKey.cv_interactive_chat)
+        chat = bool(config is not None and config.enabled)
+    return tiles, chat
+
+
+@router.get("/cv-i/{token}")
+@limiter.limit("30/minute")
+async def get_public_generated_cv(
+    token: str,
+    request: Request,  # required by slowapi limiter
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Hiring manager otwiera link do wygenerowanego CV — bez logowania.
+
+    Response zawiera WYŁĄCZNIE client-safe payload (`build_public_payload`):
+    bez `warnings` (bezpiecznik fabrykacji jest wewnętrzny), bez trybu obróbki,
+    bez PII spoza treści CV; przy blind — zamaskowane nazwisko i firmy.
+    Walidacja: 404 nieznany/odwołany, 410 wygasły / limit wyświetleń.
+    """
+    row = await _load_generated_share(token, db)
+
+    # Limit wyświetleń — atomowy UPDATE (ten sam wzorzec co /cv/{token}).
+    claimed = (
+        await db.execute(
+            update(CvGeneratedShareToken)
+            .where(
+                CvGeneratedShareToken.token == row.token,
+                (CvGeneratedShareToken.max_views.is_(None))
+                | (CvGeneratedShareToken.view_count < CvGeneratedShareToken.max_views),
+            )
+            .values(
+                view_count=CvGeneratedShareToken.view_count + 1,
+                last_viewed_at=datetime.now(timezone.utc),
+            )
+            .returning(CvGeneratedShareToken.view_count)
+        )
+    ).scalar_one_or_none()
+    if claimed is None:
+        raise HTTPException(
+            status_code=410, detail="Limit wyświetleń linku został wyczerpany."
+        )
+
+    doc = _generated_doc_or_404(row)
+    tiles, chat = await _interactive_flags(db, doc)
+
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    payload = build_public_payload(doc.render_payload)
+
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=doc.id,
+            action="cv_generated_share_viewed",
+            user_id=None,
+            details={"revoke_key": row.token, "view_no": int(claimed)},
+        )
+    )
+    await db.commit()
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+
+    return {
+        "cv": payload,
+        "requirements": ((doc.requirement_map or {}).get("items") if tiles else None),
+        "chat_enabled": chat,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+    }
+
+
+class PublicCvChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/cv-i/{token}/chat")
+@limiter.limit("5/minute; 60/hour")
+async def post_public_generated_cv_chat(
+    token: str,
+    request: Request,  # required by slowapi limiter
+    payload: PublicCvChatRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Pytanie hiring managera o kandydata z tego linku (chat AI).
+
+    Kontekst modelu = wyłącznie client-safe payload + mapa wymagań — patrz
+    `cv_generator_b2b.interactive_chat`. Warstwy limitów: rate limit (IP),
+    dzienny limit pytań per link (429), globalna kwota AI (503).
+    """
+    row = await _load_generated_share(token, db)
+    doc = _generated_doc_or_404(row)
+    _tiles, chat_enabled = await _interactive_flags(db, doc)
+    if not chat_enabled:
+        raise HTTPException(
+            status_code=404, detail="Chat nie jest dostępny dla tego linku."
+        )
+
+    from app.services.ai_quota import AIQuotaExceeded
+    from app.services.cv_generator_b2b.interactive_chat import (
+        CvChatDailyLimitExceeded,
+        CvChatLLMError,
+        answer_question,
+    )
+
+    try:
+        answer = await answer_question(
+            db, token_row=row, doc_row=doc, question=payload.question
+        )
+    except CvChatDailyLimitExceeded:
+        raise HTTPException(
+            status_code=429,
+            detail="Dzienny limit pytań dla tego linku został wyczerpany.",
+        ) from None
+    except AIQuotaExceeded:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat jest chwilowo niedostępny. Spróbuj ponownie później.",
+        ) from None
+    except CvChatLLMError:
+        raise HTTPException(
+            status_code=502,
+            detail="Nie udało się uzyskać odpowiedzi. Spróbuj ponownie.",
+        ) from None
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return {"answer": answer}
 
 
 # ── Candidate invite links (self-service apply) ────────────────────────────

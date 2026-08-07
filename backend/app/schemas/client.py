@@ -41,6 +41,9 @@ class ClientUpdate(BaseModel):
     legal_name: Optional[str] = None
     nip: Optional[str] = None
     regon: Optional[str] = None
+    # Interaktywna wersja CV na publicznym linku (kafelki + chat) dla hiring
+    # managerów tego klienta. Niezależne od `cv_content_mode_cap`.
+    cv_interactive_enabled: Optional[bool] = None
 
     @field_validator("display_name")
     @classmethod
@@ -69,6 +72,7 @@ class ClientSafeResponse(BaseModel):
     status: ClientStatus
     nda_signed: bool
     contract_type: Optional[str]
+    cv_interactive_enabled: bool = True
     created_at: datetime
     updated_at: datetime
 

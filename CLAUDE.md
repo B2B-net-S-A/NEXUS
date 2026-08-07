@@ -173,6 +173,37 @@ dostała kolumnę **Status umowy** i wyszukiwarkę. Migracja `0203_b2b_generated
   pozycje ze swojej listy oczekiwanych, więc dołożenie kolumn/constraintów jej nie psuje.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
+## Interaktywne CV (publiczny link do wygenerowanego CV)
+
+Generator CV B2B ma ścieżkę do klienta: rekruter tworzy token-link
+(`/cv/i/{token}`), hiring manager przełącza widok **classic** (HTML 1:1 z
+`render_payload`) ↔ **interaktywny** (kafelki must/nice-have z
+dowodami-cytatami + chat AI). Migracja `0217_cv_interactive_share` (+ lustro
+w entrypoint.sh). Pełny opis: `docs/cv-interactive-share-completion-report.md`.
+
+- **Jedno źródło prawdy client-safe**: `cv_generator_b2b/public_view.py::build_public_payload`
+  (bez `warnings`, blind maskowany lustrem renderera DOCX). Ten sam payload
+  renderuje widok classic, jest WEJŚCIEM generacji mapy wymagań i CAŁYM
+  kontekstem chatu — model fizycznie nie widzi notatek/stawek/transkryptów.
+- **Kafelki = precompute**: 1 dodatkowy call Claude na końcu background-joba
+  generacji (mode="new" only; upload = classic-only). Walidator odrzuca cytaty
+  niebędące substringiem payloadu; „met" bez dowodów degraduje do „partial".
+  Fail-open — kwota/błąd LLM nie psuje generacji CV. Publiczny endpoint
+  serwuje wyłącznie cache.
+- **Chat**: `POST /api/public/cv-i/{token}/chat` — dzienny limit per link
+  (`CV_INTERACTIVE_CHAT_DAILY_LIMIT`=30 → 429) + kwota
+  `AIFeatureKey.cv_interactive_chat` (→ 503) + rate limit 5/min; injection →
+  odmowa bez wywołania AI; historia server-side. Model default Haiku
+  (`CV_INTERACTIVE_CHAT_MODEL`). Pytania logowane w `cv_share_chat_messages`.
+- **Tokeny v2-only** (`cv_generated_share_tokens`): sekret raz, w DB tylko
+  SHA-256, PK = revoke-key `v2$<hex>`, bez gałęzi legacy. Veto HM przy
+  tworzeniu linku (jak w brandowanym CV).
+- **Flaga per klient** `Client.cv_interactive_enabled` (default ON, checkbox w
+  EditClientModal) — gasi kafelki+chat, link zostaje classic. Świadomie
+  NIEZALEŻNA od `cv_content_mode_cap`.
+- Dwa nowe klucze AI w Ustawieniach → AI: `cv_requirement_map`,
+  `cv_interactive_chat` (0217 seeduje `ai_features`).
+
 ## Podsumowanie aktywności kandydata (AI)
 
 Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydata
