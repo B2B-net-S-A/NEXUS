@@ -11,9 +11,10 @@ liście (opisane kandydatem + kto + kiedy), zamiast lądować jako bezimienne
 pliki w „Pobranych".
 """
 
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -76,6 +77,28 @@ class CvGeneratedDocument(Base, TimestampMixin):
     )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # ── Interaktywna wersja CV (kafelki wymagań na publicznym linku) ────────
+    # Mapa „wymaganie → dowody z doświadczenia" generowana JEDNYM dodatkowym
+    # wywołaniem Claude tuż po udanej generacji (tylko mode="new" — upload nie
+    # ma joba, więc nie ma wymagań). Kształt: {"items": [{"requirement", "kind"
+    # (must|nice), "status" (met|partial|no_data), "evidence": [{
+    # "experience_index", "quote"}]}]}. NULL = kafelki niedostępne (link nadal
+    # działa w widoku classic). Cytaty są walidowane jako substring publicznego
+    # payloadu, więc do klienta nie trafia nic spoza treści samego CV.
+    requirement_map: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    # Cache-key regeneracji: sha256(prompt_version + model + payload + wymagania).
+    requirement_map_input_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    requirement_map_model: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    requirement_map_generated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     def __repr__(self) -> str:

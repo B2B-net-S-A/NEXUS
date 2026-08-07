@@ -4520,6 +4520,56 @@ export const candidateStageCvApi = {
   },
 };
 
+// ── Generator CV B2B — publiczny link (interaktywne CV) ─────────────────────
+
+export interface CvGeneratedShareCreateResp {
+  token: string;
+  expires_at: string;
+  share_url_suffix: string;
+  generated_id: number;
+  revoke_key: string;
+  max_views?: number | null;
+  interactive_available: boolean;
+}
+
+export interface CvGeneratedShareListItem {
+  revoke_key: string;
+  token_preview: string;
+  created_at?: string | null;
+  created_by_name?: string | null;
+  expires_at?: string | null;
+  revoked: boolean;
+  revoked_at?: string | null;
+  revoke_reason?: string | null;
+  view_count: number;
+  max_views?: number | null;
+  last_viewed_at?: string | null;
+}
+
+export const cvGeneratedShareApi = {
+  // Token v2-only: sekret zwracany raz, w DB tylko SHA-256.
+  create: (generatedId: number, expiresInDays = 14, maxViews?: number) =>
+    api.post<CvGeneratedShareCreateResp>(
+      `/api/cv-generator/generated/${generatedId}/share-token`,
+      null,
+      {
+        params: {
+          expires_in_days: expiresInDays,
+          ...(maxViews ? { max_views: maxViews } : {}),
+        },
+      },
+    ),
+  list: (generatedId: number) =>
+    api.get<CvGeneratedShareListItem[]>(
+      `/api/cv-generator/generated/${generatedId}/share-tokens`,
+    ),
+  revoke: (tokenOrKey: string, reason?: string) =>
+    api.delete<{ ok: boolean; already_revoked: boolean }>(
+      `/api/cv-generator/generated/share-token/${tokenOrKey}`,
+      reason ? { params: { reason } } : undefined,
+    ),
+};
+
 // ── Settings → AI (Traffit gap #5) ───────────────────────────────────────────
 
 export type AIFeatureKey =
@@ -4527,7 +4577,10 @@ export type AIFeatureKey =
   | "job_description_generator"
   | "cv_parser"
   | "candidate_summary"
-  | "champion_draft";
+  | "champion_draft"
+  | "order_parser"
+  | "cv_requirement_map"
+  | "cv_interactive_chat";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;

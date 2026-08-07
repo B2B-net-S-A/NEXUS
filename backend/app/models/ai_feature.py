@@ -49,6 +49,8 @@ class AIFeatureKey(str, enum.Enum):
     candidate_summary = "candidate_summary"
     champion_draft = "champion_draft"
     order_parser = "order_parser"
+    cv_requirement_map = "cv_requirement_map"
+    cv_interactive_chat = "cv_interactive_chat"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -60,6 +62,8 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.candidate_summary: "Podsumowanie kandydata",
     AIFeatureKey.champion_draft: "Profil Championa AI",
     AIFeatureKey.order_parser: "Odczyt danych z PDF zamówienia",
+    AIFeatureKey.cv_requirement_map: "Interaktywne CV — kafelki wymagań",
+    AIFeatureKey.cv_interactive_chat: "Interaktywne CV — chat klienta",
 }
 
 
@@ -93,6 +97,15 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.order_parser: [
         "Tekst wyekstrahowany z PDF/DOCX zamówienia od klienta",
+    ],
+    AIFeatureKey.cv_requirement_map: [
+        "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
+        "Wymagania must/nice-have oferty",
+    ],
+    AIFeatureKey.cv_interactive_chat: [
+        "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
+        "Mapa wymagań z dowodami",
+        "Pytania hiring managera z publicznego linku",
     ],
 }
 

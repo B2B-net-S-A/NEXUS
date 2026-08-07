@@ -51,7 +51,7 @@ _LABELED_SECRET_RE = re.compile(
 # segment immediately after each known public prefix, keeping the prefix so the
 # log line still says which flow it was.
 _PATH_TOKEN_RE = re.compile(
-    r"(?i)(/(?:sign|cv|champion-card|apply|champion-share|calls/webhook|public/[\w-]+)/)"
+    r"(?i)(/(?:sign|cv|champion-card|apply|champion-share|calls/webhook|share-token|public/[\w-]+)/)"
     r"([A-Za-z0-9._\-]{8,})"
 )
 
