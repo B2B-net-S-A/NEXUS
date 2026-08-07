@@ -570,3 +570,9 @@ async def test_canonical_surfaces_do_not_carry_deprecation_headers(
     assert legacy.headers.get("Deprecation") == "true"
     assert "Sunset" in legacy.headers
     assert "successor-version" in legacy.headers.get("Link", "")
+
+    # Granica segmentu: wyjątek obejmuje `/api/dashboard/v2` i `/v2/...`,
+    # ale NIE hipotetyczne `/api/dashboard/v2-beta` (goły startswith by je
+    # zwolnił). Trasa nie istnieje — middleware stempluje też 404.
+    lookalike = await v1_client.get("/api/dashboard/v2-beta")
+    assert lookalike.headers.get("Deprecation") == "true"

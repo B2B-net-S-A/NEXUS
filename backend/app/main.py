@@ -325,6 +325,20 @@ _LEGACY_STATS_PREFIXES = (
 # nie legacy — `startswith("/api/dashboard")` łapał go omyłkowo.
 _LEGACY_STATS_EXEMPT_PREFIXES = ("/api/dashboard/v2",)
 
+
+def _legacy_stats_exempt(path: str) -> bool:
+    """Czy ścieżka to kanoniczna powierzchnia zwolniona z nagłówków legacy.
+
+    Dopasowanie z granicą segmentu: `/api/dashboard/v2` i `/api/dashboard/v2/...`
+    są zwolnione, ale hipotetyczne `/api/dashboard/v2-beta` już nie — goły
+    `startswith` nie zna granic segmentów URL.
+    """
+    return any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in _LEGACY_STATS_EXEMPT_PREFIXES
+    )
+
+
 # Audyt M7 PR-02 (P0.3): metody mutujące blokowane przy DYNAREPORTER_MODE=read_only.
 _DYNAREPORTER_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
@@ -404,9 +418,7 @@ class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
                 )
 
         response = await call_next(request)
-        if path.startswith(_LEGACY_STATS_PREFIXES) and not path.startswith(
-            _LEGACY_STATS_EXEMPT_PREFIXES
-        ):
+        if path.startswith(_LEGACY_STATS_PREFIXES) and not _legacy_stats_exempt(path):
             response.headers.setdefault("Deprecation", "true")
             response.headers.setdefault("Sunset", "Wed, 30 Sep 2026 00:00:00 GMT")
             response.headers.setdefault(
