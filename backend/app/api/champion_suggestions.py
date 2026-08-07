@@ -75,9 +75,7 @@ async def _load_scoped_suggestion(
         await ensure_delivery_lead_job_visible(job, current_user, db)
     except HTTPException as exc:
         if exc.status_code == 403:
-            raise HTTPException(
-                status_code=404, detail="Suggestion not found"
-            ) from exc
+            raise HTTPException(status_code=404, detail="Suggestion not found") from exc
         raise
     return suggestion
 
