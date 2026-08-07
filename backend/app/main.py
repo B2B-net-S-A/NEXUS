@@ -312,12 +312,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # Legacy powierzchnie statystyk (plan analytics PR 3): nagłówki deprecation
 # na odpowiedziach — BEZ zmiany body (shadow mode nie dotyka legacy).
 # Sunset = data orientacyjna cutoveru; Link wskazuje następcę per RFC 8594.
+# 2026-08-07: `/api/competitions` wyjęte — to natywny, żywy moduł rywalizacji
+# (nie DynaReporter), a analytics_v1 nie ma trasy-następcy dla rankingów.
 _LEGACY_STATS_PREFIXES = (
     "/api/dashboard",
     "/api/reports",
     "/api/kpis",
-    "/api/competitions",
 )
+
+# Kanoniczne powierzchnie wyłączone spod nagłówków legacy mimo pasującego
+# prefiksu: `/api/dashboard/v2` to bieżący kontrakt RoleDashboard (PR #1031),
+# nie legacy — `startswith("/api/dashboard")` łapał go omyłkowo.
+_LEGACY_STATS_EXEMPT_PREFIXES = ("/api/dashboard/v2",)
 
 # Audyt M7 PR-02 (P0.3): metody mutujące blokowane przy DYNAREPORTER_MODE=read_only.
 _DYNAREPORTER_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -398,7 +404,9 @@ class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
                 )
 
         response = await call_next(request)
-        if path.startswith(_LEGACY_STATS_PREFIXES):
+        if path.startswith(_LEGACY_STATS_PREFIXES) and not path.startswith(
+            _LEGACY_STATS_EXEMPT_PREFIXES
+        ):
             response.headers.setdefault("Deprecation", "true")
             response.headers.setdefault("Sunset", "Wed, 30 Sep 2026 00:00:00 GMT")
             response.headers.setdefault(
