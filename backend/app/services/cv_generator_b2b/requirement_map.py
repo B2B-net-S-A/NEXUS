@@ -1,8 +1,10 @@
 """Mapa „wymaganie → dowody z CV" dla interaktywnej wersji wygenerowanego CV.
 
-Generowana JEDNYM dodatkowym wywołaniem Claude tuż po udanej generacji CV
-(tylko mode="new" — upload nie ma joba, więc nie ma wymagań). Publiczny
-endpoint ``GET /api/public/cv-i/{token}`` serwuje wyłącznie zapisany cache —
+Generowana JEDNYM dodatkowym wywołaniem Claude tuż po udanej generacji CV.
+Źródło wymagań: mode="new" → Job (must/nice, fallback champion/JD);
+mode="upload" → ręczne pola rekrutera (``parse_manual_requirements``) albo
+sekcje MUST/NICE z wgranego pliku championa. Publiczny endpoint
+``GET /api/public/cv-i/{token}`` serwuje wyłącznie zapisany cache —
 zero AI na publicznej ścieżce, koszt jest deterministyczny (1 call/generację).
 
 Bezpieczniki:
@@ -200,34 +202,66 @@ def _sanitize_items(
     return sanitized
 
 
+_REQ_SPLIT_RE = re.compile(r"[,;\n\r]+")
+
+
+def parse_manual_requirements(must_raw: str, nice_raw: str) -> list[dict[str, str]]:
+    """Wymagania wpisane ręcznie przez rekrutera (tryb upload — brak joba).
+
+    Format wejścia: stringi rozdzielane przecinkami/średnikami/nowymi liniami
+    (Form fields z multiparta). Dedup case-insensitive, nice nie dubluje must,
+    te same capy co ścieżka jobowa.
+    """
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for raw, kind, cap in (
+        (must_raw, "must", _MAX_MUST),
+        (nice_raw, "nice", _MAX_NICE),
+    ):
+        count = 0
+        for part in _REQ_SPLIT_RE.split(raw or ""):
+            name = part.strip()
+            key = _normalize_for_match(name)
+            if not key or key in seen or count >= cap:
+                continue
+            seen.add(key)
+            out.append({"name": name, "kind": kind})
+            count += 1
+    return out
+
+
 async def ensure_requirement_map(
-    db: AsyncSession, generated_id: int, *, user_id: Optional[int]
+    db: AsyncSession,
+    generated_id: int,
+    *,
+    user_id: Optional[int],
+    requirements: Optional[list[dict[str, str]]] = None,
 ) -> None:
     """Wygeneruj (lub potwierdź z cache) mapę wymagań dla wiersza ``generated_id``.
 
-    Wołane na końcu background-joba generacji (mode="new"). NIGDY nie rzuca —
-    każda porażka jest logowana, a CV zostaje w pełni użyteczne bez mapy.
-    Committuje samodzielnie (job po ``_finalize_success`` już zrobił commit).
+    Wołane na końcu background-joba generacji. Źródło wymagań:
+    * ``requirements`` podane wprost (tryb upload — ręczne pola rekrutera albo
+      lista z wgranego pliku championa),
+    * inaczej ``Job`` wiersza (tryb "new"; bez joba — cichy no-op).
+
+    NIGDY nie rzuca — każda porażka jest logowana, a CV zostaje w pełni
+    użyteczne bez mapy. Committuje samodzielnie (job po ``_finalize_success``
+    już zrobił commit).
     """
     try:
         row = await db.get(CvGeneratedDocument, generated_id)
-        if (
-            row is None
-            or row.mode != "new"
-            or row.status != "ready"
-            or not row.render_payload
-            or row.job_id is None
-        ):
+        if row is None or row.status != "ready" or not row.render_payload:
             return
-        job = await db.get(Job, row.job_id)
-        if job is None:
-            return
-
-        requirements = build_requirements(job)
+        if requirements is None:
+            if row.mode != "new" or row.job_id is None:
+                return
+            job = await db.get(Job, row.job_id)
+            if job is None:
+                return
+            requirements = build_requirements(job)
         if not requirements:
             logger.info(
-                "[cv_req_map] no requirements for job=%s generated=%s — skipping",
-                row.job_id,
+                "[cv_req_map] no requirements for generated=%s — skipping",
                 generated_id,
             )
             return

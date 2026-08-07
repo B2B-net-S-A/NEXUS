@@ -150,6 +150,19 @@ limit→429. Zaktualizowany `test_ai_settings_schemas.py` (8 kluczy).
 Uruchomione lokalnie w obrazie prod na czystym Postgresie (migracje 0001→0217
 przechodzą): **10/10 + 206 testów generatora + kontrakt authz zielone**.
 
+## Follow-up: ręczne wymagania w trybie upload (2026-08-07, decyzja Artura)
+
+Obserwacja ze smoke'a (ostatnie 200 wygenerowanych CV = 100% tryb upload)
+odwróciła wcześniejszą decyzję „interactive tylko z procesu". Tryb upload
+dostał **Krok 4 — Wymagania na kafelki**: dwa pola (must/nice, przecinki lub
+nowe linie, cap 12/8) → Form `must_requirements`/`nice_requirements` →
+`parse_manual_requirements` → `ensure_requirement_map(requirements=…)`.
+Gdy pola puste, a wgrano plik championa — wymagania biorą się automatycznie
+z jego sekcji MUST-HAVE/NICE-TO-HAVE. Bez żadnego źródła upload zostaje
+classic-only. Upload z mapą dostaje też chat. Uwaga: upload nie zna klienta,
+więc `Client.cv_interactive_enabled` go nie ogranicza (świadomie — ta sama
+klasa luki co sufit content_mode w upload).
+
 ## Znane ograniczenia / świadome decyzje
 
 * Mapa wymagań generuje się tylko dla NOWYCH generacji — historyczne CV mają

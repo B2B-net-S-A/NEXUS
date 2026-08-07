@@ -186,10 +186,15 @@ w entrypoint.sh). Pełny opis: `docs/cv-interactive-share-completion-report.md`.
   renderuje widok classic, jest WEJŚCIEM generacji mapy wymagań i CAŁYM
   kontekstem chatu — model fizycznie nie widzi notatek/stawek/transkryptów.
 - **Kafelki = precompute**: 1 dodatkowy call Claude na końcu background-joba
-  generacji (mode="new" only; upload = classic-only). Walidator odrzuca cytaty
-  niebędące substringiem payloadu; „met" bez dowodów degraduje do „partial".
-  Fail-open — kwota/błąd LLM nie psuje generacji CV. Publiczny endpoint
-  serwuje wyłącznie cache.
+  generacji. Źródło wymagań: mode="new" → Job (must/nice, fallback
+  champion/JD); mode="upload" → ręczne pola `must_requirements`/
+  `nice_requirements` (Form, przecinki/nowe linie) albo sekcje MUST/NICE
+  wgranego pliku championa — bez żadnego źródła upload zostaje classic-only.
+  Walidator odrzuca cytaty niebędące substringiem payloadu; „met" bez dowodów
+  degraduje do „partial". Fail-open — kwota/błąd LLM nie psuje generacji CV.
+  Publiczny endpoint serwuje wyłącznie cache. Uwaga: upload nie zna klienta,
+  więc flaga `cv_interactive_enabled` go nie ogranicza (ta sama klasa luki co
+  sufit content_mode w upload — świadoma).
 - **Chat**: `POST /api/public/cv-i/{token}/chat` — dzienny limit per link
   (`CV_INTERACTIVE_CHAT_DAILY_LIMIT`=30 → 429) + kwota
   `AIFeatureKey.cv_interactive_chat` (→ 503) + rate limit 5/min; injection →

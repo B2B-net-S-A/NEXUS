@@ -261,8 +261,10 @@ def test_build_public_payload_strips_internal_fields():
 # ── Gating interaktywności ───────────────────────────────────────────────────
 
 
-async def test_upload_mode_is_classic_only(app_client: AsyncClient, app_auth_headers):
-    doc_id = await _seed_generated_doc(mode="upload")
+async def test_upload_without_requirements_is_classic_only(
+    app_client: AsyncClient, app_auth_headers
+):
+    doc_id = await _seed_generated_doc(mode="upload", with_map=False)
     created = await _create_share(app_client, app_auth_headers, doc_id)
     assert created["interactive_available"] is False
     pub = await app_client.get(f"/api/public/cv-i/{created['token']}")
@@ -270,6 +272,39 @@ async def test_upload_mode_is_classic_only(app_client: AsyncClient, app_auth_hea
     body = pub.json()
     assert body["requirements"] is None
     assert body["chat_enabled"] is False
+
+
+async def test_upload_with_manual_requirements_gets_interactive(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Ręczne wymagania w trybie upload → mapa istnieje → kafelki + chat
+    działają mimo braku joba/klienta."""
+    doc_id = await _seed_generated_doc(mode="upload", with_map=True)
+    created = await _create_share(app_client, app_auth_headers, doc_id)
+    assert created["interactive_available"] is True
+    pub = await app_client.get(f"/api/public/cv-i/{created['token']}")
+    assert pub.status_code == 200, pub.text
+    body = pub.json()
+    assert body["requirements"][0]["requirement"] == "Kubernetes"
+    assert body["chat_enabled"] is True
+
+
+def test_parse_manual_requirements():
+    from app.services.cv_generator_b2b.requirement_map import (
+        parse_manual_requirements,
+    )
+
+    reqs = parse_manual_requirements(
+        "Kubernetes, AWS;Terraform\nkubernetes,  ",  # dubel + puste człony
+        "Grafana, aws",  # aws już w must — nie dubluje się jako nice
+    )
+    assert reqs == [
+        {"name": "Kubernetes", "kind": "must"},
+        {"name": "AWS", "kind": "must"},
+        {"name": "Terraform", "kind": "must"},
+        {"name": "Grafana", "kind": "nice"},
+    ]
+    assert parse_manual_requirements("", "") == []
 
 
 async def test_client_flag_disables_interactive(
