@@ -156,7 +156,25 @@ przechodzą): **10/10 + 206 testów generatora + kontrakt authz zielone**.
   link classic-only (regeneracja CV dobuduje mapę).
 * `GET /generated` nadal listuje globalnie dla `CandidateDocumentAccess`
   (istniejący quirk #9 audytu — nie ruszany w tym PR).
-* Chat odmawia przy KONKRETNYCH kwotach w odpowiedzi (defense-in-depth) —
-  może to złapać legalne „budżet 2 mln EUR" z treści CV; rzadkie, świadome.
+* Skan wyjścia chatu łapie wyłącznie KONKRETNE kwoty (liczba przy
+  walucie/jednostce: „180 PLN/h", „25 tys.", „40k") — patrz smoke niżej.
 * Ocena statusu kafelka (met/partial) jest oceną AI — ale każdy dowód to
   zweryfikowany substring CV, a status bez dowodów nie może być „met".
+
+## Smoke na prod (2026-08-07, po deployu #1061)
+
+Pełny golden path na żywych danych (kandydat 6393, job 5132 „Expert Data
+Engineers: Snowflake, AWS…"): generacja z procesu → mapa wymagań powstała
+(1 dodatkowy call, `interactive_available=true`) → publiczny link → kafelek
+AWS pokazał uczciwe „Częściowo/pośrednio" z dosłownym cytatem z CV → widok
+klasyczny OK → revoke → 404. Testowe CV usunięte po smoke'u.
+
+**Znaleziony i naprawiony bug (fix #1070):** skan wyjścia chatu reużywał
+`_contains_financial_amount` z podsumowania aktywności, który fail-closed'uje
+na sam TEMAT finansowy — a CV data engineera legalnie zawiera „rekordów
+finansowych", lata („od 2019") i „B2B" (cyfra 2 = token liczbowy). Pierwsza
+naturalna odpowiedź o AWS została odrzucona. Nowy `_STRICT_AMOUNT_RE`
+(interactive_chat.py): wyłącznie liczba bezpośrednio przy walucie/jednostce.
+Po deployu fixa to samo pytanie dostało poprawną, groundowaną odpowiedź
+(spójną z kafelkiem: AWS w skillach, brak opisu zadań, szczegóły u opiekuna).
+Drobiazg FE przy okazji: etykiety umiejętności bez podwójnego dwukropka.

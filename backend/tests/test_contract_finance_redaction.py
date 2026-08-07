@@ -187,13 +187,43 @@ async def test_export_requires_finance(app_client: AsyncClient, app_auth_headers
     assert r_admin.status_code == 200, r_admin.text
 
 
+async def _find_contractor_row(
+    app_client: AsyncClient, headers: dict, contract_id: int
+) -> dict | None:
+    """Znajdź wiersz kontraktora, przechodząc po WSZYSTKICH stronach.
+
+    Wcześniej test brał jedną stronę (`page_size=100`) i zakładał, że jego
+    świeżo zaseedowany kontrakt się w niej zmieści. To wiąże wynik z liczbą
+    wierszy w bazie: przy nagromadzonych kontraktach — czyli przy drugim
+    przebiegu suite'u na tej samej bazie — wiersz wypadał poza pierwszą stronę
+    i test czerwieniał z powodu, który nie ma nic wspólnego z redakcją danych
+    finansowych, czyli z tym, co ten test bada.
+
+    Podbicie `page_size` tylko przesunęłoby próg (endpoint i tak tnie na 200).
+    Przejście po stronach zdejmuje założenie o rozmiarze tabeli całkowicie.
+    """
+    page = 1
+    seen = 0
+    while True:
+        r = await app_client.get(
+            f"/api/contractors?page={page}&page_size=200", headers=headers
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        items = body["items"]
+        for item in items:
+            if item["contract_id"] == contract_id:
+                return item
+        seen += len(items)
+        if not items or seen >= body["total"]:
+            return None
+        page += 1
+
+
 async def test_tac_gets_redacted_contractor_list(app_client: AsyncClient):
     cid = await _seed_contract()
     headers = await _headers_for(app_client, "tac")
-    r = await app_client.get("/api/contractors?page_size=100", headers=headers)
-    assert r.status_code == 200, r.text
-    items = r.json()["items"]
-    row = next((i for i in items if i["contract_id"] == cid), None)
+    row = await _find_contractor_row(app_client, headers, cid)
     assert row is not None, "seeded contractor not in list"
     assert row["rate_candidate"] is None
     assert row["margin"] is None
