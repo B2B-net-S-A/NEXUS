@@ -167,8 +167,8 @@ describe("RecruitmentStatsSection", () => {
     expect((await screen.findAllByText("Akceptacje")).length).toBeGreaterThan(0)
     expect(screen.getAllByText("Weryfikacje").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Rekomendacje").length).toBeGreaterThan(0)
-    expect(screen.getByText("Interviews")).toBeInTheDocument()
-    expect(screen.getByText("Placements")).toBeInTheDocument()
+    expect(screen.getAllByText("Interviews").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Placements").length).toBeGreaterThan(0)
     // Kafle = totals tabeli.
     expect(screen.getAllByText("132").length).toBeGreaterThan(0)
     expect(screen.getAllByText("12").length).toBeGreaterThan(0)
@@ -242,6 +242,158 @@ describe("RecruitmentStatsSection", () => {
       await screen.findByText("Nie udało się załadować danych."),
     ).toBeInTheDocument()
     expect(screen.queryByText("0")).not.toBeInTheDocument()
+  })
+
+  it("renders competitions, hall of fame, linkedin and trend from the full payload", async () => {
+    act(() => {
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
+    })
+    const full = fullResponse()
+    const entry = (rank: number, name: string, metric: number) => ({
+      rank,
+      user_id: rank,
+      name,
+      metric_value: metric,
+      role: "recruiter",
+      hit_ratio: null,
+      prize_pln: null,
+      excluded: false,
+      qualified: true,
+      placements: 2,
+      interviews: 3,
+      recommendations: 10,
+      verifications: 20,
+      precision_pct: 80,
+      required_verifications: 40,
+      disqualification_reasons: [],
+    })
+    full.data.quarterly_league = {
+      period: "Q3 2026",
+      days_remaining: 54,
+      points_formula: { placement: 150, interview: 15, recommendation: 5 },
+      prizes_pln: { "1": 5000, "2": 3000, "3": 2000 },
+      requirement: "Wymagane minimum 3 placementów w kwartale.",
+      top3: [entry(1, "Liga Lider", 980)],
+      full_ranking: [entry(1, "Liga Lider", 980)],
+    }
+    full.data.monthly_races = {
+      period: "2026-08",
+      days_remaining: 24,
+      prize_amount_pln: 1500,
+      prize_name: "Voucher 1 500 PLN (Modivo, Douglas, Media Markt)",
+      recommendations: {
+        requirements: ["Wymóg: min. 4 weryfikacji/dzień roboczy"],
+        ranking: [entry(1, "Rekomendacyjna Mistrzyni", 28)],
+        excluded_user_ids: [],
+        qualified_leader_user_id: 1,
+      },
+      placements: {
+        requirements: ["Minimum 2 placementy do kwalifikacji"],
+        ranking: [entry(1, "Placementowy Mistrz", 4)],
+        excluded_user_ids: [],
+        qualified_leader_user_id: 1,
+      },
+    }
+    full.data.hall_of_fame = {
+      all_time: [entry(1, "Legenda Wszechczasów", 31)],
+      history: [
+        {
+          period: "Q2 2026",
+          top3: [
+            {
+              rank: 1,
+              user_id: 5,
+              name: "Zamrożona Zwyciężczyni",
+              metric_value: 900,
+              points: 900,
+              prize_pln: 5000,
+            },
+          ],
+        },
+      ],
+    }
+    full.data.linkedin = {
+      date_from: "2026-08-01",
+      date_to: "2026-08-31",
+      per_user: [
+        {
+          user_id: 7,
+          name: "Linkedinowa Osoba",
+          role: "tac",
+          cv_added: 40,
+          messages_sent: 210,
+          responses_received: 18,
+          response_rate: 8.6,
+          cv_response_rate: 45.0,
+          days_reported: 5,
+        },
+      ],
+      totals: {
+        cv_added: 320,
+        messages_sent: 1400,
+        responses_received: 120,
+        response_rate: 8.6,
+        cv_response_rate: 37.5,
+        active_users: 11,
+      },
+    }
+    full.data.trend = {
+      months: [
+        {
+          month: "2026-07",
+          verifications: 120,
+          recommendations: 84,
+          interviews: 30,
+          acceptances: 9,
+          placements: 5,
+        },
+        {
+          month: "2026-08",
+          verifications: 132,
+          recommendations: 97,
+          interviews: 41,
+          acceptances: 12,
+          placements: 7,
+        },
+      ],
+    }
+    getStats.mockResolvedValue(full)
+
+    renderSection()
+
+    expect(await screen.findByText("Liga Mistrzów")).toBeInTheDocument()
+    expect(screen.getByText("Wyścig Rekomendacji")).toBeInTheDocument()
+    expect(screen.getByText("Wyścig Placementów")).toBeInTheDocument()
+    expect(
+      screen.getByText("Hall of Fame — placementy all-time"),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Zamrożona Zwyciężczyni/)).toBeInTheDocument()
+    expect(screen.getByText("LinkedIn Performance")).toBeInTheDocument()
+    expect(screen.getByText("Linkedinowa Osoba")).toBeInTheDocument()
+    expect(screen.getByText("Trend 12 miesięcy")).toBeInTheDocument()
+    expect(
+      screen.getByText("Efektywność lejka (wybrany okres)"),
+    ).toBeInTheDocument()
+  })
+
+  it("renders unavailable notices (never zeros) when optional blocks are null", async () => {
+    act(() => {
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
+    })
+    getStats.mockResolvedValue(fullResponse()) // bloki opcjonalne = null
+
+    renderSection()
+
+    await screen.findAllByText("Akceptacje")
+    expect(
+      screen.getByText(/Liga Mistrzów: dane chwilowo niedostępne/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/LinkedIn: dane chwilowo niedostępne/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Trend: dane chwilowo niedostępne/),
+    ).toBeInTheDocument()
   })
 
   it("refetches with the chosen period when the section toggle changes", async () => {
