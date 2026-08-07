@@ -1696,11 +1696,12 @@ interface ClientFormData {
   nda_signed: boolean;
   contract_type: string;
   notes: string;
+  cv_interactive_enabled: boolean;
 }
 
 const EMPTY_CLIENT: ClientFormData = {
   name: "", industry: "", website: "", address: "", status: "prospect",
-  nda_signed: false, contract_type: "", notes: "",
+  nda_signed: false, contract_type: "", notes: "", cv_interactive_enabled: true,
 };
 
 function clientToForm(c: any): ClientFormData {
@@ -1713,6 +1714,7 @@ function clientToForm(c: any): ClientFormData {
     nda_signed: c.nda_signed ?? false,
     contract_type: c.contract_type ?? "",
     notes: c.notes ?? "",
+    cv_interactive_enabled: c.cv_interactive_enabled ?? true,
   };
 }
 
@@ -1771,6 +1773,21 @@ function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true }: {
           className="w-4 h-4 rounded accent-blue-600"
         />
         <span className="text-sm text-foreground dark:text-muted-foreground">NDA podpisane</span>
+      </label>
+      <label className="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={form.cv_interactive_enabled}
+          onChange={e => onCheckbox("cv_interactive_enabled", e.target.checked)}
+          className="mt-0.5 w-4 h-4 rounded accent-blue-600"
+        />
+        <span className="text-sm text-foreground dark:text-muted-foreground">
+          Interaktywna wersja CV na linku dla klienta
+          <span className="block text-xs text-muted-foreground">
+            Kafelki must/nice-have z dowodami z CV + chat AI. Wyłącz, jeśli
+            klient ma dostawać wyłącznie klasyczny widok dokumentu.
+          </span>
+        </span>
       </label>
     </>
   );
@@ -1859,6 +1876,7 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
         nda_signed: form.nda_signed,
         contract_type: form.contract_type || null,
         notes: form.notes || null,
+        cv_interactive_enabled: form.cv_interactive_enabled,
       };
       // Edycja nazwy pisze do sync-odpornego `display_name` — Traffit nadpisuje
       // `name` przy każdym daily sync, a wyświetlanie i tak robi
