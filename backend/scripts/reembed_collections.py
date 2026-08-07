@@ -21,6 +21,10 @@ Run:
     python -m scripts.reembed_collections --target candidates --only-missing --dry-run
     python -m scripts.reembed_collections --target candidates --only-missing --commit --batch 128
 
+    # the other direction: drop vectors of rows that no longer exist
+    python -m scripts.reembed_collections --target all --prune-orphans --dry-run
+    python -m scripts.reembed_collections --target all --prune-orphans --commit
+
 Note on scope: without ``--only-missing`` this re-embeds EVERY row, which costs
 the same Voyage spend as the original import. That is the right thing after a
 ``VOYAGE_MODEL`` change (old vectors live in a different semantic space) and the
@@ -73,6 +77,74 @@ async def _bulk_upsert_qdrant(collection: str, points: list[dict]) -> int:
 
     await asyncio.to_thread(_upsert)
     return len(points)
+
+
+async def _delete_qdrant_points(collection: str, ids: list[int]) -> int:
+    """Delete points by id. Returns how many ids were submitted."""
+    if not ids:
+        return 0
+    from qdrant_client import QdrantClient  # noqa: PLC0415
+    from qdrant_client.models import PointIdsList  # noqa: PLC0415
+
+    def _delete():
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        for start in range(0, len(ids), 1000):
+            client.delete(
+                collection_name=collection,
+                points_selector=PointIdsList(points=ids[start : start + 1000]),
+                wait=True,
+            )
+
+    await asyncio.to_thread(_delete)
+    return len(ids)
+
+
+async def _prune_orphans(
+    *, entity: str, collection: str, id_column, commit: bool
+) -> int:
+    """Delete points whose entity no longer exists in the database.
+
+    Right-to-erasure does not reach the vector store today. A candidate vector
+    is built from text containing the person's name and up to ~3 000 characters
+    of their CV, and the point payload carries `name` outright — so a row that
+    is gone from Postgres still has its personal data sitting in Qdrant.
+
+    Measured on prod 2026-08-07: 1 932 orphaned candidate points and 23 job
+    points. The likely source is `scripts/merge_duplicate_candidates.py`, which
+    merged ~1 884 TalentRadar/Traffit duplicates and deleted the losing rows —
+    it re-points every child table and even disables immutability triggers to
+    avoid "orphaned PII", but has no notion of the vector store at all.
+
+    Deliberately NOT wired into the main re-embed loop: deleting is not the
+    same risk as writing, and an operator should be able to see the count
+    before anything is removed. Run with `--dry-run` first.
+    """
+    indexed = await _qdrant_point_ids(collection)
+    async with AsyncSessionLocal() as db:
+        live = {row for (row,) in (await db.execute(select(id_column))).all()}
+
+    orphans = sorted(indexed - live)
+    logger.info(
+        "[prune %s] %s points in Qdrant, %s rows in DB → %s orphaned",
+        entity,
+        len(indexed),
+        len(live),
+        len(orphans),
+    )
+    if not orphans:
+        return 0
+    if not commit:
+        logger.info(
+            "[prune %s] DRY RUN — would delete %s points (first 10: %s)",
+            entity,
+            len(orphans),
+            orphans[:10],
+        )
+        return len(orphans)
+
+    await _delete_qdrant_points(collection, orphans)
+    logger.info("[prune %s] deleted %s orphaned points", entity, len(orphans))
+    return len(orphans)
 
 
 async def _qdrant_point_ids(collection: str) -> set[int]:
@@ -363,6 +435,16 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             "original import and is only needed after a model change."
         ),
     )
+    p.add_argument(
+        "--prune-orphans",
+        action="store_true",
+        help=(
+            "Delete points whose row no longer exists in the database. These "
+            "hold the person's name and CV text after the record was removed, "
+            "so erasure never reached them. Runs instead of embedding; honours "
+            "--dry-run. Check the reported count before committing."
+        ),
+    )
     args = p.parse_args(argv)
     if not args.commit and not args.dry_run:
         p.error("must pass --commit or --dry-run")
@@ -376,6 +458,25 @@ async def _main(args: argparse.Namespace) -> int:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    if args.prune_orphans:
+        # Runs INSTEAD of embedding: deleting and writing are different risks,
+        # and mixing them in one invocation makes the dry-run output ambiguous.
+        if args.target in ("candidates", "all"):
+            await _prune_orphans(
+                entity="candidates",
+                collection=_collection(),
+                id_column=Candidate.id,
+                commit=args.commit,
+            )
+        if args.target in ("jobs", "all"):
+            await _prune_orphans(
+                entity="jobs",
+                collection=_jobs_collection(),
+                id_column=Job.id,
+                commit=args.commit,
+            )
+        return 0
 
     if args.target in ("candidates", "all"):
         await _reembed_candidates(

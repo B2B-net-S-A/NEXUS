@@ -97,3 +97,47 @@ def test_scroll_terminates_for_various_page_sizes(monkeypatch, total, page):
     _install(monkeypatch, client)
 
     assert asyncio.run(reembed_collections._qdrant_point_ids("c")) == set(range(total))
+
+
+# ── Orphan pruning ───────────────────────────────────────────────────────────
+# Deletion carries a different risk from writing: a bug here removes vectors of
+# LIVE candidates, and nothing in the app would report it — search would just
+# quietly stop returning those people.
+
+
+class _RecordingClient(_FakeClient):
+    """Fake that also records what would be deleted."""
+
+    def __init__(self, ids, page=1000, **kw):
+        super().__init__(ids, page=page, **kw)
+        self.deleted: list[int] = []
+
+    def delete(self, *, collection_name, points_selector, wait):
+        self.deleted.extend(points_selector.points)
+
+
+def _install_recording(monkeypatch, client):
+    import qdrant_client
+    import qdrant_client.models as qm
+
+    monkeypatch.setattr(qdrant_client, "QdrantClient", lambda **_kw: client)
+
+    class _Sel:
+        def __init__(self, points, shard_key=None):
+            self.points = list(points)
+
+    monkeypatch.setattr(qm, "PointIdsList", _Sel)
+    return client
+
+
+def test_delete_submits_every_id_in_chunks(monkeypatch):
+    client = _install_recording(monkeypatch, _RecordingClient([]))
+    n = asyncio.run(reembed_collections._delete_qdrant_points("c", list(range(2500))))
+    assert n == 2500
+    assert client.deleted == list(range(2500))  # nothing dropped at chunk seams
+
+
+def test_delete_of_nothing_touches_qdrant_not_at_all(monkeypatch):
+    client = _install_recording(monkeypatch, _RecordingClient([]))
+    assert asyncio.run(reembed_collections._delete_qdrant_points("c", [])) == 0
+    assert client.deleted == []

@@ -328,6 +328,14 @@ async def merge_pairs(db: AsyncSession, pairs: list[tuple[int, int]]) -> MergeSt
             stats.repoint_conflicts[table] = (res.rowcount or 0)
 
     # 3) Delete the duplicates (remaining CASCADE / SET NULL children handled by DB).
+    #
+    # Capture the ids BEFORE the DELETE — afterwards `merge_pairs` still holds
+    # them, but nothing else can tell us which vectors to drop.
+    dup_ids = [
+        row
+        for (row,) in (await db.execute(text("SELECT dup_id FROM merge_pairs"))).all()
+    ]
+
     stats.deleted = (
         await db.execute(
             text(
@@ -336,6 +344,35 @@ async def merge_pairs(db: AsyncSession, pairs: list[tuple[int, int]]) -> MergeSt
             )
         )
     ).rowcount or 0
+
+    # 4) Drop the duplicates' vectors. The DB has ON DELETE CASCADE for every
+    # child table and this script goes further still — re-pointing append-only
+    # rows with their immutability trigger disabled, specifically so no orphaned
+    # PII is left behind. Qdrant has no foreign keys, so it was the one store
+    # the sweep missed: a candidate vector is built from text containing the
+    # person's name and up to ~3 000 characters of their CV, and the payload
+    # carries `name` outright. The previous run left 1 932 such points behind
+    # (measured 2026-08-07); clean them with
+    # `reembed_collections --prune-orphans`.
+    #
+    # Best-effort by design: Qdrant being unreachable must not roll back a
+    # completed, consistent merge. The prune tool is the backstop.
+    if dup_ids:
+        try:
+            from app.services.embedding_service import delete_candidate_embedding
+
+            dropped = 0
+            for dup_id in dup_ids:
+                if await delete_candidate_embedding(int(dup_id)):
+                    dropped += 1
+            logger.info("Dropped %s/%s duplicate vectors", dropped, len(dup_ids))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Vector cleanup failed (%s) — merge itself is committed. Run "
+                "`python -m scripts.reembed_collections --target candidates "
+                "--prune-orphans --dry-run` to see what is left.",
+                exc,
+            )
 
     return stats
 
