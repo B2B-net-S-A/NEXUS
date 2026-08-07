@@ -16,6 +16,15 @@ Run:
 
     # progress logging every 100 entities
     python -m scripts.reembed_collections --target all --commit --log-every 100
+
+    # close an indexing gap: embed ONLY what Qdrant is missing
+    python -m scripts.reembed_collections --target candidates --only-missing --dry-run
+    python -m scripts.reembed_collections --target candidates --only-missing --commit --batch 128
+
+Note on scope: without ``--only-missing`` this re-embeds EVERY row, which costs
+the same Voyage spend as the original import. That is the right thing after a
+``VOYAGE_MODEL`` change (old vectors live in a different semantic space) and the
+wrong thing when you merely want to fill a gap.
 """
 
 from __future__ import annotations
@@ -66,18 +75,74 @@ async def _bulk_upsert_qdrant(collection: str, points: list[dict]) -> int:
     return len(points)
 
 
+async def _qdrant_point_ids(collection: str) -> set[int]:
+    """Every point id currently stored in ``collection``.
+
+    Scrolls with vectors and payload switched off, so this pulls ids only —
+    the whole candidate collection is ~48k integers, a few MB.
+
+    This, not ``candidates.embedding_id``, is the authority on what is indexed:
+    the column is written by ``embed_candidate`` but NOT by this script, and on
+    prod the two disagree by ~2.6k rows (column says 45 317, Qdrant holds
+    47 921). Trusting the column would re-embed thousands of candidates that
+    already have a vector — and miss orphaned points entirely.
+    """
+    from qdrant_client import QdrantClient  # noqa: PLC0415
+
+    def _scroll() -> set[int]:
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        found: set[int] = set()
+        offset = None
+        while True:
+            points, offset = client.scroll(
+                collection_name=collection,
+                limit=10_000,
+                offset=offset,
+                with_payload=False,
+                with_vectors=False,
+            )
+            found.update(int(p.id) for p in points)
+            if offset is None:
+                break
+        return found
+
+    return await asyncio.to_thread(_scroll)
+
+
 async def _reembed_candidates(
-    *, commit: bool, batch: int, limit: Optional[int], log_every: int
+    *,
+    commit: bool,
+    batch: int,
+    limit: Optional[int],
+    log_every: int,
+    only_missing: bool = False,
 ) -> tuple[int, int, int]:
     """Returns (processed, succeeded, failed). Batches Voyage calls (up to 128/req)."""
     processed = succeeded = failed = 0
+
+    # Ids first, rows later, one batch at a time. Loading whole ORM objects up
+    # front pulled every `raw_cv_text` on the box into memory at once (~56k rows
+    # on prod, 0.5-1.5 GB) — enough to OOM the container before the first Voyage
+    # call went out.
     async with AsyncSessionLocal() as db:
-        stmt = select(Candidate).order_by(Candidate.id.asc())
+        stmt = select(Candidate.id).order_by(Candidate.id.asc())
         if limit is not None:
             stmt = stmt.limit(limit)
-        rows = (await db.execute(stmt)).scalars().all()
+        all_ids = [cid for (cid,) in (await db.execute(stmt)).all()]
 
-    total = len(rows)
+    if only_missing:
+        indexed = await _qdrant_point_ids(_collection())
+        before = len(all_ids)
+        all_ids = [cid for cid in all_ids if cid not in indexed]
+        logger.info(
+            "[reembed candidates] --only-missing: %s of %s lack a vector "
+            "(%s already indexed in Qdrant)",
+            len(all_ids),
+            before,
+            len(indexed),
+        )
+
+    total = len(all_ids)
     logger.info(
         "Found %s candidates to re-embed (model=%s, batch=%s, commit=%s)",
         total,
@@ -89,7 +154,19 @@ async def _reembed_candidates(
         return total, 0, 0
 
     for i in range(0, total, batch):
-        chunk = rows[i : i + batch]
+        id_chunk = all_ids[i : i + batch]
+        async with AsyncSessionLocal() as db:
+            chunk = (
+                (
+                    await db.execute(
+                        select(Candidate)
+                        .where(Candidate.id.in_(id_chunk))
+                        .order_by(Candidate.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
         texts = [_build_candidate_text(c) for c in chunk]
         # Filter out blanks to align with embedding response.
         keep_idx = [j for j, t in enumerate(texts) if t and t.strip()]
@@ -153,17 +230,34 @@ async def _reembed_candidates(
 
 
 async def _reembed_jobs(
-    *, commit: bool, batch: int, limit: Optional[int], log_every: int
+    *,
+    commit: bool,
+    batch: int,
+    limit: Optional[int],
+    log_every: int,
+    only_missing: bool = False,
 ) -> tuple[int, int, int]:
     """Same batched pattern as candidates."""
     processed = succeeded = failed = 0
     async with AsyncSessionLocal() as db:
-        stmt = select(Job).order_by(Job.id.asc())
+        stmt = select(Job.id).order_by(Job.id.asc())
         if limit is not None:
             stmt = stmt.limit(limit)
-        rows = (await db.execute(stmt)).scalars().all()
+        all_ids = [jid for (jid,) in (await db.execute(stmt)).all()]
 
-    total = len(rows)
+    if only_missing:
+        indexed = await _qdrant_point_ids(_jobs_collection())
+        before = len(all_ids)
+        all_ids = [jid for jid in all_ids if jid not in indexed]
+        logger.info(
+            "[reembed jobs] --only-missing: %s of %s lack a vector "
+            "(%s already indexed in Qdrant)",
+            len(all_ids),
+            before,
+            len(indexed),
+        )
+
+    total = len(all_ids)
     logger.info(
         "Found %s jobs to re-embed (model=%s, batch=%s, commit=%s)",
         total,
@@ -175,7 +269,17 @@ async def _reembed_jobs(
         return total, 0, 0
 
     for i in range(0, total, batch):
-        chunk = rows[i : i + batch]
+        id_chunk = all_ids[i : i + batch]
+        async with AsyncSessionLocal() as db:
+            chunk = (
+                (
+                    await db.execute(
+                        select(Job).where(Job.id.in_(id_chunk)).order_by(Job.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
         texts = [_build_job_text(j) for j in chunk]
         keep_idx = [k for k, t in enumerate(texts) if t and t.strip()]
         if not keep_idx:
@@ -249,6 +353,16 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     p.add_argument("--limit", type=int, default=None, help="cap number of entities (testing)")
     p.add_argument("--log-every", type=int, default=100, help="progress log every N entities")
+    p.add_argument(
+        "--only-missing",
+        action="store_true",
+        help=(
+            "Embed only entities absent from Qdrant (set difference against a "
+            "scroll of the collection). Use this to close an indexing gap: a "
+            "full re-embed of every row costs the same Voyage spend as the "
+            "original import and is only needed after a model change."
+        ),
+    )
     args = p.parse_args(argv)
     if not args.commit and not args.dry_run:
         p.error("must pass --commit or --dry-run")
@@ -269,6 +383,7 @@ async def _main(args: argparse.Namespace) -> int:
             batch=args.batch,
             limit=args.limit,
             log_every=args.log_every,
+            only_missing=args.only_missing,
         )
     if args.target in ("jobs", "all"):
         await _reembed_jobs(
@@ -276,6 +391,7 @@ async def _main(args: argparse.Namespace) -> int:
             batch=args.batch,
             limit=args.limit,
             log_every=args.log_every,
+            only_missing=args.only_missing,
         )
     return 0
 
