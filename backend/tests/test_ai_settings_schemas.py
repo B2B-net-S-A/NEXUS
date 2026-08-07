@@ -33,7 +33,8 @@ from app.services.ai_quota import (
 
 class TestFeatureKeyEnum:
     def test_feature_keys_match_expected_set(self):
-        # Traffit-parity baseline (5) + order_parser (odczyt PDF zamówienia, 0214).
+        # Traffit-parity baseline (5) + order_parser (odczyt PDF zamówienia,
+        # 0214) + interaktywne CV: kafelki wymagań i chat klienta (0217).
         keys = {k.value for k in AIFeatureKey}
         assert keys == {
             "scoring",
@@ -42,6 +43,8 @@ class TestFeatureKeyEnum:
             "candidate_summary",
             "champion_draft",
             "order_parser",
+            "cv_requirement_map",
+            "cv_interactive_chat",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
