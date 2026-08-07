@@ -20,6 +20,16 @@ name: Deploy
 # Now we save the deployment UUID, poll its status, fail fast on
 # failed/cancelled with the server-side log tail, and only then health-check.
 #
+# 2026-08-07 (concurrent deployments): przy serii merge'y każdy push na main
+# odpalał osobny pełny rebuild Coolify, mimo że Coolify klonuje HEAD maina w
+# momencie budowy — pierwszy build z burstu wdraża więc także późniejsze
+# commity, a kolejne buildy tylko mielą kolejkę (429 "queue is full"
+# 2026-07-15/16, disk-fill 2026-05-22). Teraz deploy job najpierw pyta
+# /api/health: jeśli produkcja serwuje już TARGET_SHA lub jego potomka,
+# pomija trigger/rebuild i przechodzi wprost do smoke testu. Deep healthcheck
+# akceptuje potomka TARGET_SHA (tak jak pierwszy smoke od #965) — wcześniej
+# czerwienił się na wyprzedzonych deployach mimo udanego wdrożenia.
+#
 # Required GH secrets:
 #   COOLIFY_URL       e.g. https://coolify-compass.dynaminds.pl
 #   COOLIFY_TOKEN     Bearer token (Sanctum personal_access_tokens)
@@ -98,7 +108,52 @@ jobs:
     # (needs: deploy) też pominięty → workflow no-op bez dotykania produkcji.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
+      - name: Skip if target already live (burst coalescing)
+        id: precheck
+        # Ręczny workflow_dispatch NIGDY nie skipuje — to ścieżka świadomego
+        # redeployu (np. po zmianie env varów), gdzie rebuild jest celem.
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          # Coolify klonuje HEAD maina w momencie budowy, nie TARGET_SHA — przy
+          # burstach merge'y wcześniejszy deployment zwykle wdrożył już nasz
+          # commit razem z nowszymi. Kolejny pełny rebuild niczego wtedy nie
+          # zmienia na produkcji, a to właśnie rebuild-churn zapychał kolejkę
+          # Coolify (HTTP 429) i dysk serwera. Jeżeli /api/health serwuje już
+          # TARGET_SHA albo jego POTOMKA — skip=true i job przechodzi od razu
+          # do smoke testu. Każdy błąd tej sondy = fail-open do normalnego
+          # deployu (skip tylko przy twardym dowodzie, że kod już stoi).
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$APP_URL" ]; then
+            echo "APP_URL unset — deploying normally"
+            exit 0
+          fi
+          response=$(curl -fsSL --max-time 15 -A "$SMOKE_UA" "$APP_URL/api/health" 2>/dev/null || echo '')
+          version=$(echo "$response" | jq -r '.version // ""' 2>/dev/null || echo '')
+          if [ -z "$version" ] || [ ${#version} -lt 7 ]; then
+            echo "No usable live version — deploying normally"
+            exit 0
+          fi
+          if [ "$version" = "$TARGET_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Produkcja już serwuje $TARGET_SHA — pomijam redundantny rebuild."
+            exit 0
+          fi
+          rel=$(curl -fsSL \
+                -H "Authorization: Bearer ${{ github.token }}" \
+                -H "Accept: application/vnd.github+json" \
+                "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
+                2>/dev/null | jq -r '.status // "unknown"')
+          if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Produkcja serwuje $version (pokrewieństwo=$rel wobec targetu) — nasz kod już wdrożony, pomijam rebuild."
+          else
+            echo "Live=$version, target=$TARGET_SHA, pokrewieństwo=$rel — deploying normally"
+          fi
+
       - name: Ensure dedicated candidate identity fingerprint key
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
         env:
           COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
@@ -140,6 +195,7 @@ jobs:
 
       - name: Trigger deployment
         id: trigger
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
         run: |
           # One unified retry loop, 20 attempts × 30s ≈ 10 min ceiling:
           #  - HTTP 429 (queue full) needs to outlast an in-flight ARM build
@@ -180,6 +236,7 @@ jobs:
           echo "deployment_uuid=$deployment_uuid" >> $GITHUB_OUTPUT
 
       - name: Wait for deployment to finish (fail fast on server-side failure)
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
         run: |
           # Poll the exact deployment we queued instead of blind-sleeping.
           # Statuses: queued | in_progress | finished | failed | cancelled-by-user.
@@ -324,7 +381,26 @@ jobs:
               status=$(echo "$response" | jq -r '.status // "missing"')
               version=$(echo "$response" | jq -r '.version // "missing"')
               version_short=$(echo "$version" | cut -c1-7)
-              if [ "$version_short" != "$EXPECTED_SHA" ]; then
+              # Jak w pierwszym smoke tescie (#965): przy burście merge'y prod
+              # może już serwować POTOMKA naszego SHA — nasz kod (i migracje)
+              # tam są, więc deep health na nowszym buildzie to pełnoprawna
+              # weryfikacja. Bez tego deep step czerwienił wyprzedzone deploye,
+              # które pierwszy smoke właśnie uznał za sukces.
+              ok_version=false
+              if [ "$version_short" = "$EXPECTED_SHA" ]; then
+                ok_version=true
+              elif [ "$version" != "missing" ] && [ ${#version} -ge 7 ]; then
+                rel=$(curl -fsSL \
+                      -H "Authorization: Bearer ${{ github.token }}" \
+                      -H "Accept: application/vnd.github+json" \
+                      "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
+                      2>/dev/null | jq -r '.status // "unknown"')
+                if [ "$rel" = "ahead" ]; then
+                  ok_version=true
+                  echo "Attempt $i: prod serwuje $version_short — potomek $EXPECTED_SHA; sprawdzam deep health na nowszym buildzie."
+                fi
+              fi
+              if [ "$ok_version" != "true" ]; then
                 echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
               elif [ "$status" = "healthy" ]; then
                 echo "✅ Pass: all core modules healthy on $version_short"
