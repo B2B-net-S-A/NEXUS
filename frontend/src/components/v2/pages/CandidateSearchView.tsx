@@ -429,6 +429,24 @@ export function CandidateSearchView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
+  // How many results actually state a value for a chip that no longer excludes
+  // blanks. Built from `meta.soft_match_counts`, which the backend only fills
+  // when such a chip was sent — so this is null on an ordinary search.
+  const softMatchSummary = useMemo(() => {
+    const counts = data?.meta?.soft_match_counts;
+    if (!counts || !data) return null;
+    const total = data.total;
+    const parts: string[] = [];
+    if (typeof counts.experience === "number") {
+      parts.push(`${counts.experience} z podanym stażem w tym przedziale`);
+    }
+    if (typeof counts.location === "number") {
+      parts.push(`${counts.location} z podaną pasującą lokalizacją`);
+    }
+    if (parts.length === 0) return null;
+    return `Wśród ${total} wyników: ${parts.join(", ")}.`;
+  }, [data]);
+
   // Match scores (job context only): read-only cached hybrid scores for the
   // visible page. Best-effort — only candidates already scored (by kanban /
   // recommendations) get a badge; this never computes, so it can't be slow or
@@ -520,6 +538,23 @@ export function CandidateSearchView({
           </div>
         )}
       </header>
+
+      {/* Filtry doświadczenia i lokalizacji nie wycinają już kandydatów, u
+          których pole jest puste (NULL_POLICY po stronie backendu) — bo na tej
+          bazie taki filtr selekcjonował po kompletności rubryki, nie po
+          trafności: „2–6 lat” zwężało realnie trafną pulę 11 091 osób do 45,
+          przy 1,2% wypełnienia kolumny. Skutek uboczny jest taki, że wynik
+          skacze do tysięcy, a rekruter, który wpisał wąski przedział, ma pełne
+          prawo uznać że filtr się zepsuł. Ten pasek to wprost prostuje. */}
+      {softMatchSummary && (
+        <div
+          role="status"
+          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+        >
+          {softMatchSummary} Reszta nie ma tych danych uzupełnionych —
+          zostawiamy ich niżej w wynikach, zamiast ukrywać.
+        </div>
+      )}
 
       {data?.meta && data.meta.ai_status !== "ok" && (
         <AiStatusBanner status={data.meta.ai_status} />

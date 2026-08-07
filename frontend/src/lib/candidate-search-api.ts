@@ -129,6 +129,15 @@ export interface SearchMeta {
    *  trzech kolejnych awariach, więc pojedynczy zdegradowany request wyglądał
    *  dla użytkownika dokładnie jak komplet wyników. */
   search_degraded?: boolean;
+  /** Ile z `total` wyników faktycznie PODAJE wartość pasującą do chipa, który
+   *  nie wyklucza już kandydatów z pustym polem (patrz NULL_POLICY po stronie
+   *  backendu).
+   *
+   *  Bez tego zmiękczenie filtra czyta się jak jego awaria: „2–6 lat” zwraca
+   *  tysiące zamiast czterdziestu kilku, bo kolumna jest wypełniona u 1,2%
+   *  bazy — a rekruter widzi tylko, że wpisał wąski przedział i dostał wszystko.
+   *  Puste na zwykłym wyszukiwaniu. Klucze: `experience`, `location`. */
+  soft_match_counts?: Record<string, number>;
 }
 
 export interface CandidateSearchResponse {
