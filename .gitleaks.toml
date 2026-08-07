@@ -97,4 +97,13 @@ regexes = [
   # used in production: Coolify env vault overrides DATABASE_URL on every
   # deploy. Documented in backend/CLAUDE.md "Local dev" section.
   '''postgresql\+asyncpg://nexus:nexus@''',
+  # DSN kontenera usługowego postgresa w hostowanym CI. Hasło pochodzi z
+  # ``POSTGRES_PASSWORD`` ustawianego w tym samym pliku workflow i żyje tyle,
+  # co job; produkcyjny DATABASE_URL wstrzykuje Coolify.
+  #
+  # Po WARTOŚCI, nie po ścieżce — dokładnie z powodu opisanego wyżej przy
+  # wariancie synchronicznym: allowlistowanie ścieżki oślepia skaner na CAŁY
+  # plik. Wersja globalna ``nexus:nexus-ci-password`` w [allowlist].regexes
+  # nie wystarcza, bo ten per-regułowy blok ją nadpisuje.
+  '''postgresql\+asyncpg://nexus:nexus-ci-password@''',
 ]
