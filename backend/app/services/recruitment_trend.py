@@ -34,6 +34,7 @@ _TREND_SQL = text(
            count(*) AS cnt
     FROM credited
     WHERE reached_at >= :from_ts
+      AND reached_at < :to_ts
     GROUP BY 1, 2
     """
 )
@@ -94,6 +95,18 @@ def _window_start(now_warsaw: datetime, months: int) -> datetime:
     return datetime(y, m0 + 1, 1, tzinfo=WARSAW)
 
 
+def _window_end(now_warsaw: datetime) -> datetime:
+    """Pierwszy dzień miesiąca PO bieżącym, 00:00 Warsaw (granica exclusive).
+
+    Górna granica w SQL (review): bez niej wiersze z przyszłą datą (np.
+    przypadkowo zaseedowane) byłyby pobierane z bazy i dopiero po cichu
+    gubione w `_month_keys_window` — wykluczamy je na poziomie zapytania.
+    """
+    idx = now_warsaw.year * 12 + now_warsaw.month
+    y, m0 = divmod(idx, 12)
+    return datetime(y, m0 + 1, 1, tzinfo=WARSAW)
+
+
 async def monthly_milestone_trend(
     db: AsyncSession, *, months: int = 12, now: Optional[datetime] = None
 ) -> tuple[MonthlyTrendPoint, ...]:
@@ -110,7 +123,15 @@ async def monthly_milestone_trend(
     now_w = now.astimezone(WARSAW)
 
     rows = (
-        (await db.execute(_TREND_SQL, {"from_ts": _window_start(now_w, months)}))
+        (
+            await db.execute(
+                _TREND_SQL,
+                {
+                    "from_ts": _window_start(now_w, months),
+                    "to_ts": _window_end(now_w),
+                },
+            )
+        )
         .mappings()
         .all()
     )

@@ -166,6 +166,27 @@ async def test_current_month_delta_consistent_with_team_panel():
     assert row.weryfikacje == 1
 
 
+@pytest.mark.asyncio
+async def test_future_dated_rows_are_excluded_at_query_level():
+    """Wiersz z przyszłą datą (np. przypadkowy seed) nie wpada do żadnego
+    kubełka — wykluczony górną granicą w SQL, nie po cichu w Pythonie."""
+    async with AsyncSessionLocal() as db:
+        before = _month_map(await monthly_milestone_trend(db, months=2, now=T_NOW))
+
+    # Miesiąc PO oknie (T_NOW = 2026-08-20 → wiersz z września).
+    await _seed_stage(
+        PipelineStage.verified,
+        datetime(2026, 9, 10, 9, 0, tzinfo=timezone.utc),
+    )
+
+    async with AsyncSessionLocal() as db:
+        after = _month_map(await monthly_milestone_trend(db, months=2, now=T_NOW))
+
+    assert set(after.keys()) == {"2026-07", "2026-08"}
+    assert after["2026-08"].weryfikacje == before["2026-08"].weryfikacje
+    assert after["2026-07"].weryfikacje == before["2026-07"].weryfikacje
+
+
 def test_funnel_conversions_null_denominator_and_rounding():
     empty = funnel_conversions(
         weryfikacje=0, rekomendacje=0, interview=0, akceptacje=0, placementy=0

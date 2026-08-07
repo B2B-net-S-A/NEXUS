@@ -153,6 +153,12 @@ async def compute_team_panel(
 
     if bounds is not None:
         period_start, period_end = bounds
+        # Guard (review): naiwny datetime poszedłby do Postgresa jako
+        # `timestamp without time zone` i przy porównaniu z `reached_at`
+        # (timestamptz) zostałby po cichu potraktowany jak UTC — przesuwając
+        # granice okna o offset Warszawy (±1–2 h przy zmianie czasu).
+        if period_start.tzinfo is None or period_end.tzinfo is None:
+            raise ValueError("compute_team_panel: bounds wymagają datetime'ów tz-aware")
         label = period_label or "custom"
     elif period is not None:
         period_start, period_end = period_bounds(period, now)

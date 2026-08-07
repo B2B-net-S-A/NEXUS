@@ -154,3 +154,16 @@ async def test_requires_period_or_bounds():
     async with AsyncSessionLocal() as db:
         with pytest.raises(ValueError, match="period.*bounds|bounds.*period"):
             await compute_team_panel(db, now=T_NOW)
+
+
+@pytest.mark.asyncio
+async def test_naive_bounds_are_rejected():
+    """Naiwny datetime w bounds = ciche przesunięcie okna o offset Warszawy
+    (asyncpg wysłałby go jako timestamp-bez-strefy, Postgres założy UTC) —
+    fail-fast zamiast cichego błędu."""
+    naive = datetime(2026, 8, 1)
+    async with AsyncSessionLocal() as db:
+        with pytest.raises(ValueError, match="tz-aware"):
+            await compute_team_panel(db, bounds=(naive, T_NOW), now=T_NOW)
+        with pytest.raises(ValueError, match="tz-aware"):
+            await compute_team_panel(db, bounds=(CURR_MONTH_START, naive), now=T_NOW)
