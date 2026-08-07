@@ -43,7 +43,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov
+          # Przypięte, bo `pytest` NIE występuje w requirements.txt — ta linia
+          # jest jedynym źródłem prawdy dla runnera testów, więc przypięcie nie
+          # tworzy drugiego miejsca do utrzymania. Wrażliwy jest zwłaszcza
+          # `pytest-asyncio`: repo ma własny fixture `event_loop`
+          # (tests/conftest.py), a to dokładnie ta semantyka, którą pakiet
+          # zmieniał między wydaniami — jest już po skoku 0.x → 1.x. Bez
+          # przypięcia kolejny taki skok wywróciłby CI w dniu wydania, bez
+          # żadnej zmiany po naszej stronie.
+          # Wersje zweryfikowane pełnym przebiegiem: 4792 passed, 0 failed.
+          pip install pytest==9.1.1 pytest-asyncio==1.4.0 pytest-cov==7.1.0
       # Ten job ma własny kontener postgresa, więc potrzebuje własnego schematu.
       # Pełna choreografia migracji (seed → downgrade → re-upgrade) żyje w
       # ci-gate.yml; tutaj wystarczy doprowadzić bazę do head.

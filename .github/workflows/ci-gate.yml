@@ -61,8 +61,16 @@ jobs:
       # jest deterministyczny niezależnie od gier na base/HEAD ref PR-a.
       - name: Install gitleaks
         run: |
+          # Suma kontrolna z `gitleaks_8.21.2_checksums.txt` z tego samego
+          # release'u, zweryfikowana niezależnie przez policzenie sha256
+          # pobranego archiwum. Bez tego bramka — która decyduje o wdrożeniu —
+          # wykonywałaby binarkę pobraną bez żadnej weryfikacji.
+          # Przy podbiciu wersji trzeba podmienić OBIE wartości naraz.
           curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
-            | tar -xz -C /tmp gitleaks
+            -o /tmp/gitleaks.tar.gz
+          echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  /tmp/gitleaks.tar.gz" \
+            | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
       - name: Scan working tree
