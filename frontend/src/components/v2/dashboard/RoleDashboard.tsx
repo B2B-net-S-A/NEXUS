@@ -20,6 +20,7 @@ import { useAuthStore } from "@/store/auth"
 import { CompactGamification } from "./CompactGamification"
 import { DashboardShell } from "./DashboardShell"
 import { DashboardV2Preset } from "./DashboardV2Preset"
+import { RecruitmentStatsSection } from "./RecruitmentStatsSection"
 
 const LEGACY_VIEW_PRESET: Partial<Record<string, DashboardPreset>> = {
   operations: "admin-ops",
@@ -169,7 +170,13 @@ export function RoleDashboard() {
       }
       onPeriodChange={(nextPeriod) => updateParams(preset, nextPeriod)}
     >
-      {presetContent(preset, period)}
+      <div className="space-y-6">
+        {presetContent(preset, period)}
+        {/* Sekcja wspólna dla WSZYSTKICH presetów (także finance, gdy ogląda
+            ją admin multi-preset); role bez dostępu (finance-only, viewer)
+            nie montują jej wcale — zero requestów i 403 w konsoli. */}
+        <RecruitmentStatsSection />
+      </div>
     </DashboardShell>
   )
 }
