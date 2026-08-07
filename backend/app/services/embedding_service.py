@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 import httpx
@@ -79,6 +80,27 @@ def _get_qdrant_client():
         return None
 
 
+async def _run_qdrant(fn):
+    """Run a blocking Qdrant call off-thread and report it to provider health.
+
+    Qdrant previously reported only into the *global* matching window shared
+    with Voyage, so ``/api/health`` could not say which of the two was down —
+    and the indexing-side calls reported nothing at all. Routing the read paths
+    through here gives the healthcheck a Qdrant-specific signal without
+    instrumenting every call site.
+    """
+    from app.services.ai_health import record_provider_call
+
+    started = time.monotonic()
+    failed = True
+    try:
+        result = await asyncio.to_thread(fn)
+        failed = False
+        return result
+    finally:
+        record_provider_call("qdrant", int((time.monotonic() - started) * 1000), failed)
+
+
 def init_qdrant_collection() -> None:
     """
     Create Qdrant collections if missing:
@@ -145,6 +167,15 @@ async def _voyage_embed_batch(
         return []
     # Voyage accepts blank strings poorly; replace blanks with single space.
     payload_texts = [t if (t and t.strip()) else " " for t in texts]
+    # Report to the per-provider health window from the ONE place every Voyage
+    # embedding call funnels through. Instrumenting callers instead would leave
+    # the indexing path (embed_candidate / embed_job) unobserved, which is
+    # exactly where a silent Voyage outage stops producing vectors while every
+    # read path still looks fine because it is serving what was already indexed.
+    from app.services.ai_health import record_provider_call
+
+    started = time.monotonic()
+    failed = True
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -169,6 +200,7 @@ async def _voyage_embed_batch(
                 for item in data
                 if "embedding" in item
             }
+            failed = False
             return [by_idx.get(i) for i in range(len(texts))]
     except httpx.HTTPStatusError as e:
         logger.warning(
@@ -178,6 +210,8 @@ async def _voyage_embed_batch(
     except Exception as e:
         logger.warning("[Voyage] error: %s", e)
         return None
+    finally:
+        record_provider_call("voyage", int((time.monotonic() - started) * 1000), failed)
 
 
 async def _ollama_embed(text: str) -> Optional[list[float]]:
@@ -521,7 +555,7 @@ async def search_candidates_semantic(
             ]
 
         try:
-            return await asyncio.to_thread(_search)
+            return await _run_qdrant(_search)
         except Exception as e:
             timer.failed = True
             logger.error(f"[Search] Qdrant search error: {e}")
@@ -614,7 +648,7 @@ async def indexed_candidate_ids(candidate_ids: list[int]) -> Optional[set[int]]:
         return found
 
     try:
-        return await asyncio.to_thread(_retrieve)
+        return await _run_qdrant(_retrieve)
     except Exception as e:
         logger.error(f"[Search] indexed_candidate_ids error: {e}")
         return None
