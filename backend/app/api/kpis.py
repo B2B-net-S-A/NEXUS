@@ -11,13 +11,18 @@ delivery_leada) dodawane w kolejnych fazach.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, List
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser, RecruiterPlus, require_roles
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    OperationalUser,
+    RecruiterPlus,
+)
 from app.core.cache import cache_get, cache_set
 from app.core.config import settings
 from app.core.database import get_db
@@ -216,17 +221,11 @@ _PERIOD_MAP = {
     "month": KpiPeriod.month,
 }
 
-# Widok managerski — pełny per-person breakdown całego zespołu.
-TeamPanelViewer = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.head_of_recruitment,
-            UserRole.delivery_lead,
-        )
-    ),
-]
+# Widok zespołowy — pełny per-person breakdown dla KAŻDEJ roli operacyjnej.
+# Decyzja właściciela 2026-08-07 (sekcja „Statystyki rekrutacji" na /dashboard):
+# cały zespół widzi imienne wyniki wszystkich, jak w InfraReporterze. Finance
+# i legacy `user` pozostają odcięci (OperationalUser ich nie zawiera).
+TeamPanelViewer = OperationalUser
 
 
 def _team_to_schema(result: TeamPanelResult) -> TeamPanelSchema:

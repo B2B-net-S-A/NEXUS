@@ -25,7 +25,15 @@ ENTRYPOINT = BACKEND / "entrypoint.sh"
 DIRECTORY_MODEL = BACKEND / "app/models/client_directory.py"
 MSA_MODEL = BACKEND / "app/models/client_framework_contract.py"
 MODELS_INIT = BACKEND / "app/models/__init__.py"
-CI = ROOT / ".github/workflows/ci.yml"
+# Oba pliki hostowanego CI. Choreografia migracji mieszka dziś w ci-gate.yml
+# (szybka bramka, na której wisi deploy), ale kontrakt sprawdza ZACHOWANIE —
+# „hostowane CI przechodzi cykl upgrade/downgrade/re-upgrade" — a nie to, który
+# plik go zawiera. Dzięki temu przeniesienie kroku między workflow-ami nie
+# czerwieni testu, a usunięcie go z obu — owszem.
+CI_WORKFLOWS = (
+    ROOT / ".github/workflows/ci-gate.yml",
+    ROOT / ".github/workflows/ci.yml",
+)
 
 TABLES = {
     "client_import_runs",
@@ -355,8 +363,6 @@ def test_placement_override_columns_parity_across_layers() -> None:
 
 
 def test_hosted_ci_runs_fresh_retry_downgrade_and_reupgrade_cycle() -> None:
-    workflow = _normalise_sql(CI.read_text(encoding="utf-8"))
-
     # The PostgreSQL service starts empty. The first upgrade reaches 0205,
     # the immediate second run proves idempotency, then CI rolls back below
     # this revision and upgrades to heads again.
@@ -364,8 +370,29 @@ def test_hosted_ci_runs_fresh_retry_downgrade_and_reupgrade_cycle() -> None:
         "alembic -c alembic/alembic.ini upgrade heads "
         "alembic -c alembic/alembic.ini upgrade heads"
     )
-    assert double_upgrade in workflow
-    assert "alembic -c alembic/alembic.ini downgrade 0199_candidate_stage_removals" in (
-        workflow
+    downgrade = "alembic -c alembic/alembic.ini downgrade 0199_candidate_stage_removals"
+
+    # Każdy plik sprawdzany OSOBNO, nie na sklejce: `_normalise_sql` zwija także
+    # znaki nowej linii, więc konkatenacja mogłaby skleić ostatnią komendę
+    # jednego pliku z pierwszą komendą drugiego i sfabrykować `double_upgrade`,
+    # którego nigdzie nie ma.
+    hosts = []
+    for path in CI_WORKFLOWS:
+        if not path.exists():
+            continue
+        workflow = _normalise_sql(path.read_text(encoding="utf-8"))
+        if (
+            double_upgrade in workflow
+            and downgrade in workflow
+            and workflow.count("alembic -c alembic/alembic.ini upgrade heads") >= 3
+        ):
+            hosts.append(path.name)
+
+    assert hosts, (
+        "Żaden z workflow-ów "
+        f"{[p.name for p in CI_WORKFLOWS]} nie przechodzi pełnego cyklu "
+        "upgrade → ponowny upgrade (idempotencja) → downgrade poniżej 0205 → "
+        "upgrade heads. Bez niego migracja, która nie jest odtwarzalna na "
+        "czystej bazie ani odwracalna, przechodzi CI i wywraca się dopiero na "
+        "produkcji."
     )
-    assert workflow.count("alembic -c alembic/alembic.ini upgrade heads") >= 3

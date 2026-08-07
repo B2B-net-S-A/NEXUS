@@ -116,6 +116,40 @@ async def test_frozen_legacy_dashboards_are_admin_or_hor_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_team_kpi_panel_is_visible_to_every_operational_role() -> None:
+    """Decyzja właściciela 2026-08-07: pełna tabela imienna KPI zespołu dla
+    KAŻDEJ roli operacyjnej (sekcja „Statystyki rekrutacji" na /dashboard).
+    Finance (containment danych osobowych) i legacy `user` — twarde 403."""
+    from typing import get_args
+
+    from app.api.kpis import TeamPanelViewer
+
+    guard = get_args(TeamPanelViewer)[1].dependency
+
+    for role in (
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+    ):
+        user = _user(role)
+        assert await guard(current_user=user) is user
+
+    for role in (UserRole.finance, UserRole.user):
+        with pytest.raises(HTTPException) as exc:
+            await guard(current_user=_user(role))
+        assert exc.value.status_code == 403
+
+    hybrid = _user(
+        UserRole.delivery_lead,
+        roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
+    )
+    assert await guard(current_user=hybrid) is hybrid
+
+
+@pytest.mark.asyncio
 async def test_legacy_recruitment_report_follows_ranking_capability() -> None:
     for role in (
         UserRole.admin,

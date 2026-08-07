@@ -249,10 +249,32 @@ async def _seed_candidate_rate(contract_id: int, effective_from: date) -> None:
 
 
 async def _seed_b2b_generated(contract_number: str, year: int, seq: int) -> None:
+    """Wstaw wiersz sentinelowy — IDEMPOTENTNIE.
+
+    `b2b_generated_contracts` ma UNIQUE(year, seq), a wołający przekazuje tu
+    stałą parę (rok 9999 to sentinel „dane testowe"). Bez usunięcia
+    poprzednika drugi przebieg suite'u na tej samej bazie kończył się
+    `UniqueViolationError` — czyli suite dawał się uruchomić dokładnie raz.
+    W CI maskował to świeży kontener postgresa per job, więc widać to było
+    tylko lokalnie.
+
+    Kasowanie jest wąskie: dokładnie ta jedna para (year, seq), nigdy zakres.
+    `contract_number` celowo NIE jest tu kluczem — nie ma na nim UNIQUE
+    (patrz docstring modelu: legacy `seq` był licznikiem niezależnym od
+    numeru), a duplikat numeru jest właśnie tym, co ten test bada.
+    """
+    from sqlalchemy import delete
+
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_generated_contract import B2BGeneratedContract
 
     async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(B2BGeneratedContract).where(
+                B2BGeneratedContract.year == year,
+                B2BGeneratedContract.seq == seq,
+            )
+        )
         db.add(
             B2BGeneratedContract(
                 year=year,
@@ -283,6 +305,21 @@ async def _seed_invoice(contract_id: int, invoice_number: str) -> None:
 
 
 async def _contracts_count() -> int:
+    """Policz WSZYSTKIE kontrakty.
+
+    Pomiar globalny jest wiarygodny, dopóki suite backendu chodzi w JEDNYM
+    procesie — a tak jest dziś (`ci.yml` woła pytest bez `-n`). Łapie wtedy
+    zarówno dodanie, jak i skasowanie wiersza przez endpoint.
+
+    Gdyby ktoś wprowadzał `pytest-xdist`: ta asercja jest jedną z tych, które
+    się o to rozbijają. Przy WSPÓLNEJ bazie równoległy worker wstawiający
+    własny kontrakt jest nieodróżnialny od endpointu mutującego dane i test
+    zaczyna oskarżać endpoint o cudzy zapis (tak wywrócił się w CI 2026-08-07).
+    Zawężenie do znacznika `MAX(id)` ratuje przebieg, ale kosztuje wykrywanie
+    INSERT-u. Właściwym rozwiązaniem jest osobna baza per worker — wtedy ten
+    licznik zostaje bez zmian. Patrz gałąź `xdist-per-worker-db-wip` i
+    docs/ci-deploy-latency-completion-report.md.
+    """
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:

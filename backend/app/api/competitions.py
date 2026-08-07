@@ -148,75 +148,9 @@ async def monthly_races(
     Wyścig Rekomendacji + Wyścig Placementów. Każdy z warunkami kwal +
     oznaczeniem czyją nagrodę wyklucza lider kwartału.
     """
-    month_period = period or comp_service.current_month_period()
-    quarter_period = comp_service.current_quarter_period()
-
-    rec_ranked = await comp_service.monthly_most_recommendations(db, month_period)
-    pl_ranked = await comp_service.monthly_most_placements(db, month_period)
-
-    # Wykluczenie: lider kwartalny (rank 1 w quarterly_champions_recruiter)
-    # nie może wygrać wyścigu miesięcznego — tylko z ranking nie wypadamy.
-    quarterly = await comp_service.quarterly_champions_recruiter(db, quarter_period)
-    excluded_ids = {quarterly[0].user_id} if quarterly else set()
-
-    days_left = comp_service.days_left_in_month(date.today())
-
-    def _format(ranked, extra_reqs: list[str]) -> dict:
-        ranking = [
-            {
-                **r.to_dict(),
-                "rank": idx + 1,
-                "excluded": r.user_id in excluded_ids,
-            }
-            for idx, r in enumerate(ranked)
-        ]
-        # Zakwalifikowany lider = pierwszy spełniający warunki i niewykluczony.
-        qualified = next(
-            (
-                entry
-                for entry in ranking
-                if not entry["excluded"] and entry.get("qualified", True)
-            ),
-            None,
-        )
-        return {
-            "period": month_period,
-            "days_remaining": days_left,
-            "prize": {
-                "amount_pln": comp_service.MONTHLY_RACE_PRIZE_PLN,
-                "name": comp_service.MONTHLY_RACE_PRIZE_NAME,
-            },
-            "requirements": extra_reqs
-            + ["Lider kwartalny wykluczony z nagrody miesięcznej"],
-            "ranking": ranking,
-            "excluded_user_ids": list(excluded_ids),
-            "qualified_leader": qualified,
-        }
-
-    return {
-        "recommendations": _format(
-            rec_ranked,
-            [
-                (
-                    f"Wymóg: min. {comp_service.MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY} "
-                    "weryfikacji/dzień roboczy w tym miesiącu"
-                ),
-                (
-                    f"Wymóg: min. {int(comp_service.MONTHLY_RACE_MIN_PRECISION_PCT)}% "
-                    "precision rate (rekomendacje / weryfikacje)"
-                ),
-            ],
-        ),
-        "placements": _format(
-            pl_ranked,
-            [
-                (
-                    f"Minimum {comp_service.MONTHLY_RACE_MIN_PLACEMENTS} "
-                    "placementy do kwalifikacji"
-                )
-            ],
-        ),
-    }
+    # Kompozycja (rankingi + wykluczenie lidera kwartału) wyniesiona do
+    # serwisu — composite dashboardu używa dokładnie tej samej funkcji.
+    return await comp_service.compose_monthly_races(db, period)
 
 
 @router.get("/history")
