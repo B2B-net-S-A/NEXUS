@@ -187,6 +187,7 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.candidate_document import CandidateDocument
 from app.models.cv_share_token import CVShareToken
+from app.models.cv_generated_share import CvGeneratedShareToken, CvShareChatMessage
 from app.models.recruitment_priority import (  # noqa: F401
     PriorityAlertSeverity,
     PriorityBlockerCategory,
@@ -426,6 +427,8 @@ __all__ = [
     "CandidateStageRemoval",
     "CandidateDocument",
     "CVShareToken",
+    "CvGeneratedShareToken",
+    "CvShareChatMessage",
     "PriorityBlockerCategory",
     "PriorityAlertSeverity",
     "PriorityBlockerStatus",

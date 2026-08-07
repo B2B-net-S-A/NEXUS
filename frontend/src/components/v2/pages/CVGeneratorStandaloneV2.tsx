@@ -10,6 +10,7 @@ import {
   Download,
   Eye,
   FileText,
+  Link2,
   Loader2,
   Search,
   Sparkles,
@@ -50,6 +51,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
+import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api from "@/lib/api";
 import {
@@ -156,6 +158,7 @@ export function CVGeneratorStandaloneV2() {
 
   // „Wygenerowane CV" — server-side list, survives navigation/refresh.
   const [previewItem, setPreviewItem] = useState<GeneratedCvItem | null>(null);
+  const [shareItem, setShareItem] = useState<GeneratedCvItem | null>(null);
   const generatedQuery = useQuery({
     queryKey: ["cv-generated"],
     queryFn: async () => {
@@ -569,6 +572,7 @@ export function CVGeneratorStandaloneV2() {
                   item={item}
                   onPreview={setPreviewItem}
                   onDownload={handleDownloadGenerated}
+                  onShare={setShareItem}
                   onDelete={handleDeleteGenerated}
                 />
               ))}
@@ -581,6 +585,12 @@ export function CVGeneratorStandaloneV2() {
         item={previewItem}
         onClose={() => setPreviewItem(null)}
         onDownload={handleDownloadGenerated}
+      />
+
+      <CvGeneratedShareModal
+        generatedId={shareItem?.id ?? null}
+        candidateName={shareItem?.candidate_name}
+        onClose={() => setShareItem(null)}
       />
     </div>
   );
@@ -1008,6 +1018,7 @@ type GeneratedCvRowProps = {
   item: GeneratedCvItem;
   onPreview: (item: GeneratedCvItem) => void;
   onDownload: (item: GeneratedCvItem) => void;
+  onShare: (item: GeneratedCvItem) => void;
   onDelete: (item: GeneratedCvItem) => void;
 };
 
@@ -1015,6 +1026,7 @@ function GeneratedCvRow({
   item,
   onPreview,
   onDownload,
+  onShare,
   onDelete,
 }: GeneratedCvRowProps) {
   const [showWarnings, setShowWarnings] = useState(false);
@@ -1096,6 +1108,15 @@ function GeneratedCvRow({
                     title="Pobierz DOCX"
                   >
                     <Download className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!item.can_download}
+                    onClick={() => onShare(item)}
+                    title="Udostępnij klientowi (link)"
+                  >
+                    <Link2 className="h-4 w-4" />
                   </Button>
                 </>
               )}

@@ -150,6 +150,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/share/champion-card/abc123",
     "/sign/abc123",
     "/cv/abc123",
+    "/cv/i/abc123",
     "/engagement/abc123",
     "/preview/candidates",
     "/preview/candidate-profile",
