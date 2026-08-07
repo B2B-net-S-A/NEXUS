@@ -71,8 +71,12 @@ from app.api.deps import (
     TacPlus,
 )
 from app.services.auto_assign_owners import resolve_default_owners
-from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 from app.api.notifications import create_notification
+from app.api.recruitment_access import (
+    assert_delivery_lead_job_visible,
+    delivery_lead_job_pairs,
+    ensure_delivery_lead_job_visible,
+)
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
 from app.services.champion_profile_events import (
@@ -100,28 +104,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _delivery_lead_job_pairs(
-    current_user: User,
-    db: AsyncSession,
-) -> frozenset[tuple[int, int]] | None:
-    """Resolve the exact legacy Job scope for a Delivery Lead.
-
-    ``None`` means this caller uses an oversight or non-DL persona. An empty
-    set is deny-all and must never fall back to the organization.
-    """
-
-    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
-        return None
-    if not current_user.has_role(UserRole.delivery_lead):
-        return None
-
-    scope = await resolve_dashboard_scope(current_user, db)
-    if scope.kind is not ScopeKind.delivery_clients or scope.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Delivery scope belongs to a different user",
-        )
-    return scope.allowed_client_tac_pairs
+# Moved to `app.api.recruitment_access` so surfaces outside this router — a
+# Champion suggestion, a note linked to a job — can reach the same guard
+# without importing this 3 400-line module. Re-exported here so the 26 call
+# sites below stay untouched and, more importantly, so there is exactly ONE
+# implementation of "may this user see this job".
+_delivery_lead_job_pairs = delivery_lead_job_pairs
+_assert_delivery_lead_job_visible = assert_delivery_lead_job_visible
+_ensure_delivery_lead_job_visible = ensure_delivery_lead_job_visible
 
 
 def _apply_delivery_lead_job_scope(
@@ -135,19 +125,6 @@ def _apply_delivery_lead_job_scope(
     return query.where(
         tuple_(Job.client_id, Job.tac_id).in_(sorted(allowed_pairs) or [(-1, -1)])
     )
-
-
-def _assert_delivery_lead_job_visible(
-    job: Job,
-    allowed_pairs: frozenset[tuple[int, int]] | None,
-) -> None:
-    if allowed_pairs is None:
-        return
-    if (job.client_id, job.tac_id) not in allowed_pairs:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Job is outside the resolved Delivery Lead scope",
-        )
 
 
 def _assert_delivery_lead_client_visible(
@@ -193,17 +170,6 @@ def _assert_delivery_lead_finance_write(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Delivery Leads cannot manage recruitment budget fields",
         )
-
-
-async def _ensure_delivery_lead_job_visible(
-    job: Job,
-    current_user: User,
-    db: AsyncSession,
-) -> None:
-    _assert_delivery_lead_job_visible(
-        job,
-        await _delivery_lead_job_pairs(current_user, db),
-    )
 
 
 def _redact_delivery_lead_job_finance(payload: dict, current_user: User) -> dict:
