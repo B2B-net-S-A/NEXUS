@@ -287,20 +287,24 @@ async def _interactive_flags(
 ) -> tuple[bool, bool]:
     """(kafelki_dostępne, chat_dostępny) dla publicznego widoku.
 
-    Wersja interaktywna tylko dla trybu "new" (jest job → są wymagania) i
-    tylko gdy klient ma włączone `cv_interactive_enabled`. Chat dodatkowo
-    wymaga włączonych toggle'i AI (master + feature) — sam limit kwoty
-    egzekwuje endpoint chatu przy pytaniu.
+    Tryb "new": interaktywność gdy klient ma włączone `cv_interactive_enabled`
+    (kafelki dodatkowo wymagają wygenerowanej mapy). Tryb "upload": brak joba
+    i klienta — interaktywność (kafelki + chat) tylko gdy rekruter dał
+    wymagania przy generacji (ręczne pola albo plik championa → jest mapa);
+    bez mapy link zostaje classic-only. Chat zawsze dodatkowo wymaga
+    włączonych toggle'i AI (master + feature) — limit kwoty egzekwuje
+    endpoint chatu przy pytaniu.
     """
-    if doc.mode != "new" or doc.job_id is None:
-        return False, False
-    job = await db.scalar(select(Job).where(Job.id == doc.job_id))
-    if job is not None and job.client_id is not None:
-        client = await db.scalar(select(Client).where(Client.id == job.client_id))
-        if client is not None and not client.cv_interactive_enabled:
-            return False, False
-
     tiles = bool((doc.requirement_map or {}).get("items"))
+    if doc.mode == "new" and doc.job_id is not None:
+        job = await db.scalar(select(Job).where(Job.id == doc.job_id))
+        if job is not None and job.client_id is not None:
+            client = await db.scalar(select(Client).where(Client.id == job.client_id))
+            if client is not None and not client.cv_interactive_enabled:
+                return False, False
+    elif not tiles:
+        # Upload bez wymagań — świadomie classic-only (decyzja produktowa).
+        return False, False
 
     from app.models.ai_feature import AIFeatureKey
     from app.services.ai_quota import get_feature_config, get_master_enabled

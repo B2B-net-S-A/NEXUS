@@ -171,6 +171,12 @@ class UploadGenerationInput:
     champion_bytes: bytes | None = None
     champion_filename: str | None = None
     content_mode: ContentMode = DEFAULT_CONTENT_MODE
+    # Ręczne wymagania na kafelki interaktywnego CV (upload nie ma joba, więc
+    # nie ma skąd wziąć must/nice). Stringi rozdzielane przecinkami/nowymi
+    # liniami; parsowane w requirement_map.parse_manual_requirements. Puste +
+    # brak pliku championa = link classic-only (jak dotąd).
+    must_requirements: str = ""
+    nice_requirements: str = ""
 
 
 @dataclass(frozen=True)
