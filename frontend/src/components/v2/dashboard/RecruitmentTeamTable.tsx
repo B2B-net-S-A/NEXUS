@@ -50,6 +50,18 @@ const COLUMNS: { key: NumKey; label: string; hint: string }[] = [
   { key: "cv_to_base", label: "CV do bazy", hint: "Nowi kandydaci dodani do bazy" },
 ]
 
+// Na poziomie modułu (review): komponent definiowany wewnątrz renderu
+// dostaje nową tożsamość przy każdym renderze — React unmountuje i montuje
+// każdą instancję przy każdym sortowaniu/filtrze.
+function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  if (!active) return <ChevronDown className="h-3 w-3 opacity-25" aria-hidden />
+  return dir === "desc" ? (
+    <ChevronDown className="h-3 w-3" aria-hidden />
+  ) : (
+    <ChevronUp className="h-3 w-3" aria-hidden />
+  )
+}
+
 export function RecruitmentTeamTable({
   table,
   className,
@@ -75,7 +87,11 @@ export function RecruitmentTeamTable({
       "admin",
       "user",
     ]
-    return order.filter((r) => present.has(r))
+    const known = order.filter((r) => present.has(r))
+    // Review: role spoza znanej hierarchii (gdyby backend kiedyś dodał nową)
+    // też muszą być filtrowalne — doklejamy je na końcu zamiast gubić.
+    const unknown = [...present].filter((r) => !order.includes(r)).sort()
+    return [...known, ...unknown]
   }, [table.rows])
 
   const filtered = useMemo(() => {
@@ -115,9 +131,13 @@ export function RecruitmentTeamTable({
       base.v30 += r.precision_verified_30d
       base.s30 += r.precision_sent_30d
     }
+    // Stopka liczy precision z WIDOCZNYCH wierszy (po filtrach) — celowo nie
+    // bierzemy `table.totals.precision_pct` (pre-computed dla całego zespołu),
+    // bo po zafiltrowaniu obie liczby znaczą co innego. Zaokrąglenie do 0.1
+    // jak w backendzie (round(...,1)) — spójny format przy braku filtrów.
     const precision =
       base.v30 >= PRECISION_MIN_DENOM
-        ? Math.round((100 * base.s30) / base.v30)
+        ? Math.round((1000 * base.s30) / base.v30) / 10
         : null
     return { ...base, precision }
   }, [filtered])
@@ -129,16 +149,6 @@ export function RecruitmentTeamTable({
       s.key === key
         ? { key, dir: s.dir === "desc" ? "asc" : "desc" }
         : { key, dir: key === "name" ? "asc" : "desc" },
-    )
-  }
-
-  function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
-    if (!active)
-      return <ChevronDown className="h-3 w-3 opacity-25" aria-hidden />
-    return dir === "desc" ? (
-      <ChevronDown className="h-3 w-3" aria-hidden />
-    ) : (
-      <ChevronUp className="h-3 w-3" aria-hidden />
     )
   }
 
