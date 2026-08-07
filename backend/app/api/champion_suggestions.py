@@ -53,8 +53,12 @@ async def _load_scoped_suggestion(
     incrementing an integer — and ``apply`` does not merely read it, it MERGES
     the draft into that job's ``champion_profile``. A scope leak that writes.
 
-    404 (not 403) when the job is missing: an id that resolves to nothing must
-    not confirm that the suggestion exists.
+    Everything unreachable answers **404**, never 403. Suggestion ids are
+    sequential and the resource is addressed by that id alone, so a 403 for
+    "exists but not yours" versus a 404 for "does not exist" is an enumeration
+    oracle: it confirms which ids are real Champion drafts of other clients.
+    The three cases — no such suggestion, its job is gone, its job is outside
+    the caller's scope — are deliberately indistinguishable from outside.
     """
     suggestion = await db.scalar(
         select(ChampionProfileSuggestion).where(
@@ -67,7 +71,14 @@ async def _load_scoped_suggestion(
     job = await db.get(Job, suggestion.job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")
-    await ensure_delivery_lead_job_visible(job, current_user, db)
+    try:
+        await ensure_delivery_lead_job_visible(job, current_user, db)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(
+                status_code=404, detail="Suggestion not found"
+            ) from exc
+        raise
     return suggestion
 
 

@@ -232,3 +232,28 @@ def test_champion_suggestion_routes_all_go_through_one_loader() -> None:
             f"{handler.__name__} queries the suggestion directly, bypassing the "
             "scoped loader."
         )
+
+
+def test_champion_suggestion_loader_answers_404_for_every_unreachable_case() -> None:
+    """No enumeration oracle: 403 must never leak "this id is someone else's".
+
+    The resource is addressed by a sequential integer, so distinguishing
+    "out of your scope" (403) from "does not exist" (404) tells an attacker
+    exactly which ids are real Champion drafts belonging to other clients.
+    """
+    import inspect as _inspect
+
+    from app.api.champion_suggestions import _load_scoped_suggestion
+
+    source = _inspect.getsource(_load_scoped_suggestion)
+    assert "status_code=403" not in source, (
+        "the loader raises 403 directly — every unreachable case must answer 404"
+    )
+    assert "exc.status_code == 403" in source, (
+        "the 403 raised by ensure_delivery_lead_job_visible is no longer "
+        "translated to 404; out-of-scope ids become distinguishable again"
+    )
+    assert source.count("404") >= 3, (
+        "expected all three unreachable cases (no suggestion / no job / "
+        "out of scope) to answer 404"
+    )
