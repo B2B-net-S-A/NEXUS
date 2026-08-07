@@ -113,10 +113,13 @@ def _tiles_html(
             css = _STATUS_CLASS.get(status, "nodata")
             note = _esc(item.get("note")) if item.get("note") else ""
             evidence = item.get("evidence") or []
+            # experience_index: _sanitize_items gwarantuje None|int, ale ta
+            # inwariancja jest niewidoczna stąd — twardy cast na wypadek
+            # ręcznie wstawionego wiersza (defense-in-depth, atrybut HTML).
             ev_html = "".join(
                 (
                     f'<button type="button" class="quote" '
-                    f'data-exp="{ev.get("experience_index")}">'
+                    f'data-exp="{ev["experience_index"] if isinstance(ev.get("experience_index"), int) else ""}">'
                     f"„{_esc(ev.get('quote'))}”</button>"
                 )
                 for ev in evidence

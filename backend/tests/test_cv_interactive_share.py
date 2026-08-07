@@ -500,6 +500,16 @@ async def test_html_export_endpoint(app_client: AsyncClient, app_auth_headers):
     assert "Dopasowanie do wymagań" in r.text
 
 
+async def test_html_export_endpoint_not_ready_422(
+    app_client: AsyncClient, app_auth_headers
+):
+    doc_id = await _seed_generated_doc(status="processing")
+    r = await app_client.get(
+        f"/api/cv-generator/generated/{doc_id}/html", headers=app_auth_headers
+    )
+    assert r.status_code == 422, r.text
+
+
 # ── Chat: guardraile bez wywołania LLM ───────────────────────────────────────
 
 
