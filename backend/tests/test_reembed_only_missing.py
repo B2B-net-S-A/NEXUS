@@ -24,20 +24,33 @@ class _FakePoint:
 
 
 class _FakeClient:
-    """Minimal Qdrant stand-in that paginates like the real scroll API."""
+    """Minimal Qdrant stand-in that paginates like the real scroll API.
+
+    The cursor is the ID OF THE NEXT POINT, not a position index — verified
+    against the pinned client on live data (page of ids [1..5] returns
+    next_page_offset=6, and 6 is the first id of the following page). Modelling
+    it as an offset would let a scroll implementation that does arithmetic on
+    the cursor pass here and silently truncate against a real collection, where
+    ids are sparse after deletions.
+    """
 
     def __init__(self, ids: list[int], page: int = 3, **_kwargs) -> None:
-        self._ids = ids
+        self._ids = sorted(ids)
         self._page = page
         self.calls = 0
 
     def scroll(self, *, collection_name, limit, offset, with_payload, with_vectors):
         self.calls += 1
-        start = 0 if offset is None else int(offset)
+        if offset is None:
+            start = 0
+        else:
+            # Cursor is an ID: resume at that point. An implementation treating
+            # it as a position would land somewhere else entirely.
+            start = self._ids.index(offset)
         chunk = self._ids[start : start + self._page]
-        nxt = start + self._page
-        # Real client returns None for next_page_offset on the last page.
-        return [_FakePoint(i) for i in chunk], (nxt if nxt < len(self._ids) else None)
+        nxt_pos = start + self._page
+        nxt = self._ids[nxt_pos] if nxt_pos < len(self._ids) else None
+        return [_FakePoint(i) for i in chunk], nxt
 
 
 def _install(monkeypatch, client):
@@ -97,6 +110,18 @@ def test_scroll_terminates_for_various_page_sizes(monkeypatch, total, page):
     _install(monkeypatch, client)
 
     assert asyncio.run(reembed_collections._qdrant_point_ids("c")) == set(range(total))
+
+
+def test_scroll_handles_sparse_ids(monkeypatch):
+    """Ids are sparse after deletions — 1 932 candidate points on prod have no
+    row left. A scroll that treated the cursor as a position would skip or
+    repeat whole pages here while looking fine on dense test data."""
+    sparse = [3, 17, 42, 43, 900, 12345]
+    client = _FakeClient(sparse, page=2)
+    _install(monkeypatch, client)
+
+    assert asyncio.run(reembed_collections._qdrant_point_ids("c")) == set(sparse)
+    assert client.calls == 3
 
 
 # ── Orphan pruning ───────────────────────────────────────────────────────────

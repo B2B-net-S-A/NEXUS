@@ -178,7 +178,19 @@ async def _qdrant_point_ids(collection: str) -> set[int]:
                 break
         return found
 
-    return await asyncio.to_thread(_scroll)
+    try:
+        return await asyncio.to_thread(_scroll)
+    except Exception as exc:  # noqa: BLE001
+        # Fail loudly rather than with a raw traceback: without this the two
+        # modes that depend on the scroll (--only-missing, --prune-orphans)
+        # crash in a way that reads like a bug in the script rather than
+        # "Qdrant is not reachable from here".
+        raise RuntimeError(
+            f"Cannot read Qdrant collection {collection!r} at "
+            f"{settings.QDRANT_HOST}:{settings.QDRANT_PORT} — --only-missing "
+            f"and --prune-orphans both need it to compute a set difference. "
+            f"Original error: {exc}"
+        ) from exc
 
 
 async def _reembed_candidates(
@@ -198,7 +210,11 @@ async def _reembed_candidates(
     # call went out.
     async with AsyncSessionLocal() as db:
         stmt = select(Candidate.id).order_by(Candidate.id.asc())
-        if limit is not None:
+        # With --only-missing the cap is applied AFTER the set difference, so
+        # `--limit 1000` means "a thousand candidates that need a vector".
+        # Capping the DB query first would take the thousand lowest ids —
+        # nearly all already indexed — and report ~0 work to do.
+        if limit is not None and not only_missing:
             stmt = stmt.limit(limit)
         all_ids = [cid for (cid,) in (await db.execute(stmt)).all()]
 
@@ -206,6 +222,8 @@ async def _reembed_candidates(
         indexed = await _qdrant_point_ids(_collection())
         before = len(all_ids)
         all_ids = [cid for cid in all_ids if cid not in indexed]
+        if limit is not None:
+            all_ids = all_ids[:limit]
         logger.info(
             "[reembed candidates] --only-missing: %s of %s lack a vector "
             "(%s already indexed in Qdrant)",
@@ -313,7 +331,9 @@ async def _reembed_jobs(
     processed = succeeded = failed = 0
     async with AsyncSessionLocal() as db:
         stmt = select(Job.id).order_by(Job.id.asc())
-        if limit is not None:
+        # See `_reembed_candidates` — with --only-missing the cap applies after
+        # the diff, so it means "N that need a vector".
+        if limit is not None and not only_missing:
             stmt = stmt.limit(limit)
         all_ids = [jid for (jid,) in (await db.execute(stmt)).all()]
 
@@ -321,6 +341,8 @@ async def _reembed_jobs(
         indexed = await _qdrant_point_ids(_jobs_collection())
         before = len(all_ids)
         all_ids = [jid for jid in all_ids if jid not in indexed]
+        if limit is not None:
+            all_ids = all_ids[:limit]
         logger.info(
             "[reembed jobs] --only-missing: %s of %s lack a vector "
             "(%s already indexed in Qdrant)",

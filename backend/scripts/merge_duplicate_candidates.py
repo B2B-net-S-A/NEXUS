@@ -359,13 +359,15 @@ async def merge_pairs(db: AsyncSession, pairs: list[tuple[int, int]]) -> MergeSt
     # completed, consistent merge. The prune tool is the backstop.
     if dup_ids:
         try:
-            from app.services.embedding_service import delete_candidate_embedding
+            # One batched delete, not one call per duplicate: a tier-1 run merges
+            # ~1 884 rows, and `delete_candidate_embedding` would mean that many
+            # sequential Qdrant round-trips (minutes of wall clock inside the
+            # merge transaction's tail, for work that Qdrant does in one request).
+            from scripts.reembed_collections import _delete_qdrant_points
+            from app.services.embedding_service import _collection
 
-            dropped = 0
-            for dup_id in dup_ids:
-                if await delete_candidate_embedding(int(dup_id)):
-                    dropped += 1
-            logger.info("Dropped %s/%s duplicate vectors", dropped, len(dup_ids))
+            await _delete_qdrant_points(_collection(), [int(i) for i in dup_ids])
+            logger.info("Dropped %s duplicate vectors", len(dup_ids))
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Vector cleanup failed (%s) — merge itself is committed. Run "
