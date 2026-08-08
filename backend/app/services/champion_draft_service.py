@@ -50,7 +50,7 @@ from app.schemas.champion import (
     ChampionProfile,
     ChampionProjectContext,
     RecommendedSearch,
-    RecommendedSearchParams,
+    RecommendedSearchParamsIn,
     ScreeningQuestion,
     SourcingStrategy,
 )
@@ -984,7 +984,20 @@ async def generate_recommended_searches(
         if profile.get(k)
     }
 
+    # Measured density of every searchable column, injected into the prompt so
+    # the model stops proposing filters over columns nobody fills in. Best
+    # effort: a failure here must not block generating searches, it only makes
+    # them less informed.
+    try:
+        from app.services.candidate_column_coverage import candidate_column_coverage
+
+        coverage_block = (await candidate_column_coverage(db)).as_prompt_block()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("recommended_searches: column coverage unavailable: %s", exc)
+        coverage_block = ""
+
     prompt = CHAMPION_RECOMMENDED_SEARCHES.render(
+        column_coverage=coverage_block,
         job_title=job.title or "",
         client_name=client_name,
         requirements=(job.requirements or "")[:4000],
@@ -1008,24 +1021,43 @@ async def generate_recommended_searches(
 
     now = datetime.now(timezone.utc)
     fresh: list[RecommendedSearch] = []
+    dropped: list[str] = []
     for i, raw in enumerate((parsed.get("searches") or [])[:3]):
         if not isinstance(raw, dict):
+            dropped.append(f"#{i}: not an object")
             continue
         try:
             rs = RecommendedSearch(
                 id=f"rs-{int(now.timestamp())}-{i}",
                 name=str(raw.get("name") or "").strip()[:100] or f"Strategia {i + 1}",
                 rationale=str(raw.get("rationale") or "").strip(),
-                params=RecommendedSearchParams.model_validate(raw.get("params") or {}),
+                # Ingest schema: `extra="forbid"`, so a filter the LLM invented
+                # is a parse error we can see, not a field silently dropped.
+                params=RecommendedSearchParamsIn.model_validate(
+                    raw.get("params") or {}
+                ),
                 status="proposed",
                 generated_at=now,
             )
-        except Exception:  # noqa: BLE001 — drop malformed proposals silently
-            logger.warning("recommended_searches: dropped invalid proposal #%d", i)
+        except Exception as exc:  # noqa: BLE001
+            # Named, not counted: a prompt that starts hallucinating parameters
+            # used to look identical to one that simply returned fewer
+            # strategies. The reason has to reach the log or nobody finds out.
+            dropped.append(f"#{i}: {type(exc).__name__}: {str(exc)[:200]}")
             continue
         if rs.params.is_empty():
+            dropped.append(f"#{i}: every filter empty")
             continue
         fresh.append(rs)
+
+    if dropped:
+        logger.warning(
+            "recommended_searches job=%s: kept %d of %d proposals; dropped -> %s",
+            job_id,
+            len(fresh),
+            len(parsed.get("searches") or []),
+            "; ".join(dropped),
+        )
 
     # Keep decided history, replace pending proposals.
     existing: list[RecommendedSearch] = []

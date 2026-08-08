@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── Building blocks ──────────────────────────────────────────────────────────
@@ -172,33 +172,66 @@ class ChampionBriefingRequest(BaseModel):
 
 
 class RecommendedSearchParams(BaseModel):
-    """Whitelisted subset of CandidateSearchRequest the LLM may emit."""
+    """Whitelisted subset of CandidateSearchRequest the LLM may emit.
 
-    q_all: List[str] = Field(default_factory=list)
+    Tolerant on purpose (Pydantic's default ``extra="ignore"``): this shape is
+    also what gets read back out of ``jobs.champion_profile`` JSONB, where
+    proposals written by older prompt versions still carry fields that have
+    since been dropped. Validation of *fresh* LLM output goes through
+    :class:`RecommendedSearchParamsIn`, which forbids extras so a hallucinated
+    filter fails loudly instead of being silently discarded.
+
+    List caps mirror ``CandidateSearchRequest`` exactly. Without them the model
+    could emit 25 keywords, the proposal would store fine, and the recruiter
+    would get a 422 the moment they clicked it — an error surfacing three steps
+    away from its cause.
+    """
+
+    # Free-text query. Together with `search_mode="hybrid"` this is what lets a
+    # recommended search reach the semantic index at all: `/api/search/candidates`
+    # only takes the BM25+dense+rerank path when BOTH are set, and the default
+    # is "boolean". Without these two fields the one feature that turns a
+    # Champion into a candidate search was, by construction, the only surface
+    # that never touched the 47 921 vectors we maintain for exactly this.
+    q: Optional[str] = Field(default=None, max_length=500)
+    search_mode: Literal["boolean", "hybrid"] = "hybrid"
+
+    q_all: List[str] = Field(default_factory=list, max_length=20)
     # OR-groups that AND together: [["React","TS"],["Java"]] = (React OR TS) AND Java
-    q_any_groups: List[List[str]] = Field(default_factory=list)
-    q_none: List[str] = Field(default_factory=list)
-    skills_must: List[str] = Field(default_factory=list)
-    skills_any: List[str] = Field(default_factory=list)
-    skills_none: List[str] = Field(default_factory=list)
-    experience_years_min: Optional[int] = Field(default=None, ge=0, le=60)
-    experience_years_max: Optional[int] = Field(default=None, ge=0, le=60)
-    location_cities: List[str] = Field(default_factory=list)
+    q_any_groups: List[List[str]] = Field(default_factory=list, max_length=10)
+    q_none: List[str] = Field(default_factory=list, max_length=20)
+    skills_must: List[str] = Field(default_factory=list, max_length=20)
+    skills_any: List[str] = Field(default_factory=list, max_length=20)
+    skills_none: List[str] = Field(default_factory=list, max_length=20)
+    location_cities: List[str] = Field(default_factory=list, max_length=20)
 
     def is_empty(self) -> bool:
         return not any(
             [
+                (self.q or "").strip(),
                 self.q_all,
                 self.q_any_groups,
                 self.q_none,
                 self.skills_must,
                 self.skills_any,
                 self.skills_none,
-                self.experience_years_min is not None,
-                self.experience_years_max is not None,
                 self.location_cities,
             ]
         )
+
+
+class RecommendedSearchParamsIn(RecommendedSearchParams):
+    """Same shape, but for validating what the LLM just produced.
+
+    ``extra="forbid"`` so an invented filter is a loud parse failure instead of
+    a field quietly dropped on the floor. The generator previously swallowed
+    every validation error and skipped the proposal, so a prompt that started
+    hallucinating parameters looked exactly like a prompt that returned fewer
+    strategies — indistinguishable from outside, and silent for as long as it
+    took someone to notice the count.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class RecommendedSearch(BaseModel):
