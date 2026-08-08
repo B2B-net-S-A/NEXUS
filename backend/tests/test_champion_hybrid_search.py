@@ -173,3 +173,31 @@ def test_empty_database_renders_nothing_rather_than_zeroes():
     """On a fresh/empty DB every column reads 0% — telling the model that
     everything is unusable would be worse than saying nothing at all."""
     assert ColumnCoverage(total=0, pct={"skills": 0.0}).as_prompt_block() == ""
+
+
+# ── Preflight result count ───────────────────────────────────────────────────
+
+
+def test_estimated_results_defaults_to_none_not_zero():
+    """`None` means "not counted"; 0 means "counted, matches nobody". Conflating
+    them would make a failed count look like a dead strategy — and a dead
+    strategy look like a healthy one that simply had not been counted yet."""
+    from app.schemas.champion import RecommendedSearch
+
+    rs = RecommendedSearch(id="rs-1", name="x")
+    assert rs.estimated_results is None
+
+
+def test_estimated_results_survives_the_json_round_trip():
+    """The field lives in `jobs.champion_profile` JSONB, so it has to come back
+    out — otherwise the DL review UI reads a count that vanished on reload."""
+    from app.schemas.champion import ChampionProfile, RecommendedSearch
+
+    profile = ChampionProfile(
+        recommended_searches=[
+            RecommendedSearch(id="rs-1", name="x", estimated_results=0),
+            RecommendedSearch(id="rs-2", name="y", estimated_results=1234),
+        ]
+    )
+    reloaded = ChampionProfile.model_validate(profile.model_dump(mode="json"))
+    assert [r.estimated_results for r in reloaded.recommended_searches] == [0, 1234]

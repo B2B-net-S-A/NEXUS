@@ -945,6 +945,33 @@ async def reject_suggestion(
 # ── Recommended searches (AI-proposed sourcing strategies) ──────────────────
 
 
+async def _count_matching_candidates(db: AsyncSession, params) -> int:
+    """How many candidates the structured part of a proposal matches.
+
+    Deliberately ignores `q` / `search_mode`: the semantic leg would need a
+    Voyage embedding per proposal, and this number exists to catch the
+    "filters describe nobody" case, which is a property of the structured
+    chips alone. A hybrid search can only ever return MORE than this.
+    """
+    from sqlalchemy import func, select as _select
+
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.schemas.candidate_search import CandidateSearchRequest
+    from app.services.advanced_candidate_search import build_advanced_filter
+    from app.services.structured_candidate_search import build_structured_filter
+
+    req = CandidateSearchRequest(**params.model_dump(exclude_none=True))
+    clauses = list(build_structured_filter(req))
+    boolean = build_advanced_filter(req.q_all, req.q_any, req.q_none, req.q_any_groups)
+    if boolean is not None:
+        clauses.append(boolean)
+    # Mirror the endpoint: blacklisted candidates are never offered.
+    clauses.append(Candidate.status != CandidateStatus.blacklisted)
+
+    stmt = _select(func.count(Candidate.id)).select_from(Candidate).where(*clauses)
+    return int((await db.execute(stmt)).scalar() or 0)
+
+
 async def generate_recommended_searches(
     db: AsyncSession,
     *,
@@ -1049,6 +1076,22 @@ async def generate_recommended_searches(
             dropped.append(f"#{i}: every filter empty")
             continue
         fresh.append(rs)
+
+    # Count each surviving strategy BEFORE storing it. The DL review UI was
+    # always meant to show a live result count; taking it here means a strategy
+    # that matches nobody arrives labelled as such, instead of as an empty list
+    # the recruiter finds three clicks later and reads as "we have no such
+    # people". Structured filters only — the semantic leg needs an embedding
+    # call per proposal, which is not worth it for a preflight number.
+    for rs in fresh:
+        try:
+            rs.estimated_results = await _count_matching_candidates(db, rs.params)
+        except Exception as exc:  # noqa: BLE001
+            # None, never 0: an unavailable count must not read as "no matches".
+            logger.warning(
+                "recommended_searches: preflight count failed for %s: %s", rs.id, exc
+            )
+            rs.estimated_results = None
 
     if dropped:
         logger.warning(

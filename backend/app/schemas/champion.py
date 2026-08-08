@@ -241,6 +241,13 @@ class RecommendedSearch(BaseModel):
     params: RecommendedSearchParams = RecommendedSearchParams()
     status: Literal["proposed", "approved", "rejected"] = "proposed"
     saved_search_id: Optional[int] = None
+    # How many candidates this strategy actually matched at generation time.
+    # The module docstring above already promised the DL a "live result count";
+    # counting it BEFORE the proposal is stored is what makes a strategy that
+    # returns nobody visible as such, instead of as an empty list the recruiter
+    # discovers three clicks later and reads as "we have no such people".
+    # ``None`` = the count could not be taken (never "zero").
+    estimated_results: Optional[int] = None
     generated_at: Optional[datetime] = None
     decided_by_id: Optional[int] = None
     decided_by_name: Optional[str] = None
