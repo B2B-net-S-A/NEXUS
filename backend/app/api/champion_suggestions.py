@@ -14,8 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DeliveryLeadPlus
+from app.api.recruitment_access import ensure_delivery_lead_job_visible
 from app.core.database import get_db
 from app.models.champion_suggestion import ChampionProfileSuggestion
+from app.models.job import Job
+from app.models.user import User
 from app.schemas.champion_suggestion import (
     ApplyPayload,
     ChampionProfileSuggestionOut,
@@ -35,20 +38,55 @@ def _to_out(suggestion: ChampionProfileSuggestion) -> ChampionProfileSuggestionO
     return out
 
 
+async def _load_scoped_suggestion(
+    db: AsyncSession, suggestion_id: int, current_user: User
+) -> ChampionProfileSuggestion:
+    """Load a suggestion and verify the caller may see ITS JOB.
+
+    The single entry point for every route in this module — deliberately one
+    function rather than a guard repeated in four handlers, because the
+    repeated-guard shape is exactly what let this gap open: the twin routes in
+    the Jobs router call ``ensure_delivery_lead_job_visible``, these did not.
+
+    Until now the role check was the only check. Suggestion ids are sequential,
+    so any Delivery Lead could read another client's Champion draft by
+    incrementing an integer — and ``apply`` does not merely read it, it MERGES
+    the draft into that job's ``champion_profile``. A scope leak that writes.
+
+    Everything unreachable answers **404**, never 403. Suggestion ids are
+    sequential and the resource is addressed by that id alone, so a 403 for
+    "exists but not yours" versus a 404 for "does not exist" is an enumeration
+    oracle: it confirms which ids are real Champion drafts of other clients.
+    The three cases — no such suggestion, its job is gone, its job is outside
+    the caller's scope — are deliberately indistinguishable from outside.
+    """
+    suggestion = await db.scalar(
+        select(ChampionProfileSuggestion).where(
+            ChampionProfileSuggestion.id == suggestion_id
+        )
+    )
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+
+    job = await db.get(Job, suggestion.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    try:
+        await ensure_delivery_lead_job_visible(job, current_user, db)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=404, detail="Suggestion not found") from exc
+        raise
+    return suggestion
+
+
 @router.get("/{suggestion_id}", response_model=ChampionProfileSuggestionOut)
 async def get_suggestion(
     suggestion_id: int,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
-    result = await db.execute(
-        select(ChampionProfileSuggestion).where(
-            ChampionProfileSuggestion.id == suggestion_id
-        )
-    )
-    suggestion = result.scalar_one_or_none()
-    if not suggestion:
-        raise HTTPException(status_code=404, detail="Suggestion not found")
+    suggestion = await _load_scoped_suggestion(db, suggestion_id, current_user)
     return _to_out(suggestion)
 
 
@@ -64,6 +102,7 @@ async def apply_suggestion_endpoint(
     Invalid section names are silently ignored (treated as not accepted).
     Raises 404 / 409 / 500 on persistence failures.
     """
+    await _load_scoped_suggestion(db, suggestion_id, current_user)
     suggestion = await apply_suggestion(
         db,
         suggestion_id=suggestion_id,
@@ -79,6 +118,7 @@ async def reject_suggestion_endpoint(
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
+    await _load_scoped_suggestion(db, suggestion_id, current_user)
     suggestion = await reject_suggestion(
         db,
         suggestion_id=suggestion_id,
@@ -103,14 +143,7 @@ async def rate_suggestion_endpoint(
     """
     from app.models.champion_suggestion import SuggestionStatus
 
-    result = await db.execute(
-        select(ChampionProfileSuggestion).where(
-            ChampionProfileSuggestion.id == suggestion_id
-        )
-    )
-    suggestion = result.scalar_one_or_none()
-    if not suggestion:
-        raise HTTPException(status_code=404, detail="Suggestion not found")
+    suggestion = await _load_scoped_suggestion(db, suggestion_id, current_user)
     if suggestion.status == SuggestionStatus.pending:
         raise HTTPException(
             status_code=409,
