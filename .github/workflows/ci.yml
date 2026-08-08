@@ -12,8 +12,10 @@ on:
     branches: [main]
 
 jobs:
-  # Pytest podzielony na 3 shardy = 3 OSOBNE runnery, każdy z własnym
-  # postgresem i sekwencyjnym pytestem (~22 min → ~8 min ściany). To nie jest
+  # Pytest podzielony na 4 shardy = 4 OSOBNE runnery, każdy z własnym
+  # postgresem i sekwencyjnym pytestem. Pomiar na 3 shardach (run 31246862557):
+  # 7.7/11.9/7.1 min — round-robin nie wyrównuje czasów idealnie, stąd 4 shardy
+  # na cel ~10 min ściany (pełny suite jednym procesem: ~22 min). To nie jest
   # xdist (wdrożony i wycofany — równolegli workerzy na WSPÓLNEJ bazie psuli
   # testy z globalnymi agregatami, a runner ma 4 vCPU na wszystko): semantyka
   # per shard jest identyczna z dzisiejszą, po prostu mniej plików na proces.
@@ -29,7 +31,7 @@ jobs:
       # Jeden padnięty shard nie ubija pozostałych — pełny obraz w 1 przebiegu.
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
+        shard: [0, 1, 2, 3]
     defaults:
       run:
         working-directory: backend
@@ -95,7 +97,7 @@ jobs:
           M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
           # Shard realizowany w conftest (filtr po CAŁYCH plikach, round-robin
           # po posortowanej liście) — patrz komentarz nad jobem.
-          CI_SHARD_COUNT: "3"
+          CI_SHARD_COUNT: "4"
           CI_SHARD_INDEX: ${{ matrix.shard }}
         run: |
           # Auto-discovery: pytest collects EVERY module under tests/, minus the

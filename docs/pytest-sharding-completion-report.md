@@ -71,6 +71,24 @@ każdy shard dostaje własne 4 vCPU.
 - **Minuty GHA**: +2× setup (~5 min runner-time na przebieg CI) — pomijalne
   wobec 3000 min/mc.
 
+## Pomiar (run 31246862557, pierwszy przebieg na 3 shardach)
+
+Wszystkie shardy zielone przy pierwszym podejściu — **zero rezydualnych
+sprzężeń między plikami**; fan-in "Backend (pytest)" zaraportował wymagany
+kontekst poprawnie.
+
+| Shard | Pliki | Testy | Czas |
+|---|---|---|---|
+| 0 | 131/392 | 1556 | 7,7 min |
+| 1 | 131/392 | 1789 | **11,9 min** |
+| 2 | 130/392 | 1509 | 7,1 min |
+
+Partycja kompletna (131+131+130 = 392 pliki, 4854 testy). Ściana = najwolniejszy
+shard = 11,9 min (vs 22,3 min pełnego przebiegu) — round-robin nie wyrównał
+czasów, shard 1 dostał cięższe pliki. **Korekta: 4 shardy** (2 linie w ci.yml),
+cel ~10 min ściany; kolejny stopień w razie potrzeby to balansowanie po
+zmierzonych czasach (pinning najcięższych plików), świadomie odłożone.
+
 ## Weryfikacja
 
 - [x] `yaml.safe_load` na ci.yml
