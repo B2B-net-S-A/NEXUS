@@ -391,6 +391,40 @@ async def _run_generate_new_job(
             await ensure_requirement_map(db, generated_id, user_id=user_id)
 
 
+def _upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
+    """Wymagania na kafelki dla trybu upload (brak joba).
+
+    Pierwszeństwo mają RĘCZNE pola rekrutera; gdy puste, a wgrano plik
+    championa — sekcje MUST-HAVE/NICE-TO-HAVE z niego. Champion jest tu
+    parsowany DRUGI raz (pierwszy — w pipeline generacji): świadomie, to tani
+    regex na DOCX, a przewlekanie list przez ``GenerationResult`` wiązałoby
+    kontrakt wyniku generacji z feature'em kafelków. Zwraca [] gdy brak źródeł.
+    """
+    from app.services.cv_generator_b2b.requirement_map import (
+        parse_manual_requirements,
+    )
+
+    requirements = parse_manual_requirements(
+        payload.must_requirements, payload.nice_requirements
+    )
+    if not requirements and payload.champion_bytes:
+        try:
+            from app.services.cv_generator_b2b.champion_builder import (
+                parse_champion_from_docx_bytes,
+            )
+
+            champ = parse_champion_from_docx_bytes(
+                payload.champion_bytes,
+                payload.champion_filename or "champion.docx",
+            )
+            requirements = parse_manual_requirements(
+                ", ".join(champ.must_have), ", ".join(champ.nice_to_have)
+            )
+        except Exception as err:  # noqa: BLE001 — fallback nie psuje mapy
+            logger.warning("[cv_b2b] champion parse for requirements failed: %s", err)
+    return requirements
+
+
 async def _run_generate_upload_job(
     generated_id: int,
     *,
@@ -413,7 +447,8 @@ async def _run_generate_upload_job(
             await db.commit()
             return
 
-        if await _finalize_success(db, generated_id, result=result):
+        finalized = await _finalize_success(db, generated_id, result=result)
+        if finalized:
             # Upload mode has no candidate context — anchor the audit on the user.
             db.add(
                 Activity(
@@ -434,6 +469,21 @@ async def _run_generate_upload_job(
                 )
             )
         await db.commit()
+
+        # Interaktywne CV w trybie upload: kafelki powstają z RĘCZNYCH wymagań
+        # rekrutera, a gdy ich brak — z wgranego pliku championa (ma sekcje
+        # MUST-HAVE / NICE-TO-HAVE). Bez żadnego źródła = link classic-only.
+        # Fail-open jak w trybie "new" — mapa nigdy nie psuje generacji.
+        if finalized:
+            from app.services.cv_generator_b2b.requirement_map import (
+                ensure_requirement_map,
+            )
+
+            requirements = _upload_requirements(payload)
+            if requirements:
+                await ensure_requirement_map(
+                    db, generated_id, user_id=user_id, requirements=requirements
+                )
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -656,6 +706,11 @@ async def generate_from_upload(
     blind_cv: bool = Form(False),
     content_mode: Literal["basic", "polished", "tailored"] = Form(DEFAULT_CONTENT_MODE),
     screening_notes: str = Form(""),
+    # Ręczne wymagania na kafelki interaktywnego CV (przecinki/nowe linie).
+    # Upload nie ma joba, więc bez nich (i bez pliku championa) publiczny link
+    # pokaże sam widok classic.
+    must_requirements: str = Form("", max_length=2000),
+    nice_requirements: str = Form("", max_length=2000),
     champion_file: Annotated[
         Optional[UploadFile],
         File(description="Opcjonalny plik DOCX z Profilem Championa"),
@@ -687,6 +742,8 @@ async def generate_from_upload(
         champion_bytes=champion_bytes,
         champion_filename=champion_filename,
         content_mode=content_mode,
+        must_requirements=must_requirements or "",
+        nice_requirements=nice_requirements or "",
     )
 
     # Provisional label until Claude parses the real name out of the CV.
@@ -807,6 +864,51 @@ async def download_generated_cv(
     )
 
 
+@router.get("/generated/{generated_id}/html")
+async def download_generated_cv_html(
+    generated_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Interaktywne CV jako JEDEN samodzielny plik HTML — do wysyłki mailem.
+
+    Ten sam client-safe payload co publiczny link (bez warnings, blind
+    zamaskowany) + zapisana mapa wymagań, spakowane w plik z inline
+    stylami/JS: kafelki, przełącznik Klasyczne↔Interaktywne, druk = czysty
+    dokument. Bez mapy plik degraduje do samego widoku klasycznego. Chat
+    celowo nieobecny — wymaga serwera, żyje na linku /cv/i/{{token}}.
+    """
+    del current_user  # auth only — spójnie z /docx
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if row.status != "ready" or not row.render_payload:
+        raise HTTPException(
+            status_code=422,
+            detail="CV nie jest gotowe (brak zapisanych danych) — wygeneruj ponownie.",
+        )
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    html_str = render_interactive_html(
+        build_public_payload(row.render_payload),
+        (row.requirement_map or {}).get("items") or [],
+    )
+    filename = (Path(row.filename).stem or "CV") + ".html"
+    ascii_name = ascii_filename_fallback(filename)
+    disposition = f'attachment; filename="{ascii_name}"'
+    if filename != ascii_name:
+        disposition += f"; filename*=UTF-8''{quote(filename, safe='')}"
+    return Response(
+        content=html_str.encode("utf-8"),
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": disposition,
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
 @router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_generated_cv(
     generated_id: int,
@@ -870,20 +972,22 @@ class CvGeneratedShareListItem(BaseModel):
 async def _interactive_available(db: AsyncSession, row: CvGeneratedDocument) -> bool:
     """Czy publiczna strona pokaże wersję interaktywną dla tego CV.
 
-    Wymaga: trybu "new" (jest job → są wymagania), wygenerowanej mapy oraz
-    włączonej flagi `Client.cv_interactive_enabled` (domyślnie ON; flaga jest
-    niezależna od sufitu content_mode — kafelki to fakty z cytatami, nie
-    narracja sprzedażowa).
+    Wymaga wygenerowanej mapy wymagań (tryb "new": z joba; tryb "upload":
+    z ręcznych pól rekrutera albo pliku championa). Przy znanym kliencie
+    (tryb "new") dodatkowo flaga `Client.cv_interactive_enabled` (domyślnie
+    ON; niezależna od sufitu content_mode — kafelki to fakty z cytatami, nie
+    narracja sprzedażowa). Upload nie zna klienta, więc flagi nie ma czym
+    sprawdzić — świadomie, ta sama klasa luki co sufit content_mode w upload.
     """
-    if row.mode != "new" or row.job_id is None:
-        return False
     if not (row.requirement_map or {}).get("items"):
         return False
-    job = await db.get(Job, row.job_id)
-    if job is None or job.client_id is None:
-        return True
-    client = await db.get(Client, job.client_id)
-    return bool(client.cv_interactive_enabled) if client else True
+    if row.mode == "new" and row.job_id is not None:
+        job = await db.get(Job, row.job_id)
+        if job is not None and job.client_id is not None:
+            client = await db.get(Client, job.client_id)
+            if client is not None and not client.cv_interactive_enabled:
+                return False
+    return True
 
 
 @router.post(

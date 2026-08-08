@@ -9,6 +9,7 @@ import {
   ChevronsUpDown,
   Download,
   Eye,
+  FileCode2,
   FileText,
   Link2,
   Loader2,
@@ -139,6 +140,10 @@ export function CVGeneratorStandaloneV2() {
   // champion at all — reported as "the generator does not work with a champion".
   const [championError, setChampionError] = useState<string | null>(null);
   const [screeningNotes, setScreeningNotes] = useState("");
+  // Ręczne wymagania na kafelki interaktywnego CV (upload nie ma joba).
+  // Puste + brak pliku championa = link pokaże sam widok klasyczny.
+  const [mustRequirements, setMustRequirements] = useState("");
+  const [niceRequirements, setNiceRequirements] = useState("");
 
   // ── Shared options ──────────────────────────────────────────────────────
   const [language, setLanguage] = useState<"pl" | "en">("pl");
@@ -255,6 +260,10 @@ export function CVGeneratorStandaloneV2() {
       fd.append("blind_cv", String(blindCv));
       fd.append("content_mode", contentMode);
       if (screeningNotes.trim()) fd.append("screening_notes", screeningNotes);
+      if (mustRequirements.trim())
+        fd.append("must_requirements", mustRequirements);
+      if (niceRequirements.trim())
+        fd.append("nice_requirements", niceRequirements);
       if (championFile) fd.append("champion_file", championFile);
       const res = await api.post<EnqueuedResponse>(
         "/api/cv-generator/generate-upload",
@@ -325,6 +334,23 @@ export function CVGeneratorStandaloneV2() {
       downloadBlob(res.data as Blob, item.filename);
     } catch (err) {
       toast.showError((await extractErrorDetail(err)) || "Nie udało się pobrać CV.");
+    }
+  }
+
+  async function handleDownloadHtml(item: GeneratedCvItem) {
+    // Interaktywne CV jako JEDEN plik HTML — do wysyłki mailem jak DOCX.
+    try {
+      const res = await api.get(`/api/cv-generator/generated/${item.id}/html`, {
+        responseType: "blob",
+      });
+      downloadBlob(
+        res.data as Blob,
+        item.filename.replace(/\.docx$/i, "") + ".html",
+      );
+    } catch (err) {
+      toast.showError(
+        (await extractErrorDetail(err)) || "Nie udało się pobrać pliku HTML.",
+      );
     }
   }
 
@@ -459,10 +485,14 @@ export function CVGeneratorStandaloneV2() {
           championFile={championFile}
           championError={championError}
           screeningNotes={screeningNotes}
+          mustRequirements={mustRequirements}
+          niceRequirements={niceRequirements}
           setCvFile={handleCvFile}
           setChampionFile={handleChampionFile}
           onChampionEmptyDrop={handleChampionEmptyDrop}
           setScreeningNotes={setScreeningNotes}
+          setMustRequirements={setMustRequirements}
+          setNiceRequirements={setNiceRequirements}
         />
       )}
 
@@ -572,6 +602,7 @@ export function CVGeneratorStandaloneV2() {
                   item={item}
                   onPreview={setPreviewItem}
                   onDownload={handleDownloadGenerated}
+                  onDownloadHtml={handleDownloadHtml}
                   onShare={setShareItem}
                   onDelete={handleDeleteGenerated}
                 />
@@ -795,10 +826,14 @@ type OldModeFormProps = {
   championFile: File | null;
   championError: string | null;
   screeningNotes: string;
+  mustRequirements: string;
+  niceRequirements: string;
   setCvFile: (f: File | null) => void;
   setChampionFile: (f: File | null) => void;
   onChampionEmptyDrop: () => void;
   setScreeningNotes: (v: string) => void;
+  setMustRequirements: (v: string) => void;
+  setNiceRequirements: (v: string) => void;
 };
 
 function OldModeForm({
@@ -806,10 +841,14 @@ function OldModeForm({
   championFile,
   championError,
   screeningNotes,
+  mustRequirements,
+  niceRequirements,
   setCvFile,
   setChampionFile,
   onChampionEmptyDrop,
   setScreeningNotes,
+  setMustRequirements,
+  setNiceRequirements,
 }: OldModeFormProps) {
   return (
     <>
@@ -877,6 +916,46 @@ function OldModeForm({
             onChange={(e) => setScreeningNotes(e.target.value)}
             placeholder="Np. „Kandydat ma 3 lata doświadczenia z Kubernetes, prowadził migrację Jenkinsa do GitHub Actions w poprzedniej firmie…”"
           />
+        </CardContent>
+      </Card>
+
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>
+            Krok 4 — Wymagania na kafelki interaktywnego CV (opcjonalnie)
+          </CardTitle>
+          <CardDescription>
+            Z tych wymagań powstaną kafelki „Dopasowanie do wymagań" z
+            dowodami-cytatami na publicznym linku dla klienta. Bez nich (i bez
+            pliku championa, z którego wymagania biorą się automatycznie) link
+            pokaże sam widok klasyczny.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <Label htmlFor="cvgen-must-req" className="mb-1 block">
+              Must-have
+            </Label>
+            <Textarea
+              id="cvgen-must-req"
+              rows={2}
+              value={mustRequirements}
+              onChange={(e) => setMustRequirements(e.target.value)}
+              placeholder="Np. Kubernetes, AWS, Terraform (przecinki lub nowe linie, max 12)"
+            />
+          </div>
+          <div>
+            <Label htmlFor="cvgen-nice-req" className="mb-1 block">
+              Nice-to-have
+            </Label>
+            <Textarea
+              id="cvgen-nice-req"
+              rows={2}
+              value={niceRequirements}
+              onChange={(e) => setNiceRequirements(e.target.value)}
+              placeholder="Np. Grafana, GitOps (max 8)"
+            />
+          </div>
         </CardContent>
       </Card>
     </>
@@ -1018,6 +1097,7 @@ type GeneratedCvRowProps = {
   item: GeneratedCvItem;
   onPreview: (item: GeneratedCvItem) => void;
   onDownload: (item: GeneratedCvItem) => void;
+  onDownloadHtml: (item: GeneratedCvItem) => void;
   onShare: (item: GeneratedCvItem) => void;
   onDelete: (item: GeneratedCvItem) => void;
 };
@@ -1026,6 +1106,7 @@ function GeneratedCvRow({
   item,
   onPreview,
   onDownload,
+  onDownloadHtml,
   onShare,
   onDelete,
 }: GeneratedCvRowProps) {
@@ -1108,6 +1189,15 @@ function GeneratedCvRow({
                     title="Pobierz DOCX"
                   >
                     <Download className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!item.can_download}
+                    onClick={() => onDownloadHtml(item)}
+                    title="Pobierz interaktywny HTML (jeden plik: kafelki + widok klasyczny)"
+                  >
+                    <FileCode2 className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"
