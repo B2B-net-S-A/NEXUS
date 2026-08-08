@@ -42,6 +42,10 @@ _SCOPED_MODULES = {
     "app.api.candidate_stage_cv",  # CV snapshot + branded CV + share tokens
     "app.api.interview_feedback",  # candidate assessments per job
     "app.api.application_submissions",  # parked applications w/ candidate PII
+    # Champion drafts. Suggestion ids are sequential and `apply` MERGES the
+    # draft into `jobs.champion_profile`, so a missing scope check here was a
+    # write into another client's job, not just a read.
+    "app.api.champion_suggestions",
 }
 
 # Individual routes on shared routers that address one recruitment. Matched as
@@ -52,6 +56,11 @@ _SCOPED_PATHS = {
     "/api/candidates/{candidate_id}/recruitments/{job_id}",
     "/api/candidates/{candidate_id}/recruitments/{job_id}/client-rate",
     "/api/candidates/{candidate_id}/recruitments/{job_id}/expected-rate",
+    # `job_id` arrives in the BODY here, not the path — which is precisely why
+    # this route was missed: it is invisible to any audit that walks path
+    # parameters. Attaching a note also triggers a paid LLM enrichment that
+    # writes a Champion draft onto the target job.
+    "/api/notes/{note_id}/link-job",
 }
 
 # Callables that constitute a resource-scope decision. Helpers are included on
@@ -64,6 +73,8 @@ _SCOPE_MARKERS = (
     "_ensure_stage_membership",
     "_load_csv_for_stage",
     "require_dl_assigned_or_admin",
+    "ensure_delivery_lead_job_visible",
+    "_load_scoped_suggestion",
 )
 
 
@@ -134,10 +145,11 @@ def test_surface_is_not_silently_empty() -> None:
     contract keeps reporting success while checking nothing at all.
     """
     routes = _scoped_routes()
-    assert len(routes) >= 15, (
+    assert len(routes) >= 20, (
         f"Only {len(routes)} routes matched the per-recruitment surface; "
-        "expected at least 15 (11 CV + 5 feedback + 2 submissions + 5 explicit "
-        "paths). _SCOPED_MODULES or _SCOPED_PATHS has drifted from the code."
+        "expected at least 20 (11 CV + 5 feedback + 2 submissions + 5 explicit "
+        "paths + 4 champion-suggestion + 1 link-job). _SCOPED_MODULES or "
+        "_SCOPED_PATHS has drifted from the code."
     )
 
     modules_seen = {p.split("/")[2] for _, p, _ in routes}
@@ -168,4 +180,80 @@ def test_nullable_job_id_helper_is_distinct_from_the_strict_one() -> None:
     assert ensure_job_membership.__name__ in source, (
         "ensure_optional_job_membership no longer delegates to the strict "
         "guard — a non-null job_id would go unchecked"
+    )
+
+
+def test_job_visibility_guard_has_exactly_one_implementation() -> None:
+    """``jobs.py`` must re-export the guard, not keep its own copy.
+
+    The guard used to live in ``app/api/jobs.py`` only, so surfaces outside
+    that router (Champion suggestions, note→job linking) silently went
+    unguarded rather than importing a 3 400-line module for one function. It
+    now lives in ``recruitment_access``; if someone re-adds a local definition
+    here, the two will drift and only one of them will get the next fix.
+    """
+    from app.api import jobs
+    from app.api.recruitment_access import (
+        assert_delivery_lead_job_visible,
+        delivery_lead_job_pairs,
+        ensure_delivery_lead_job_visible,
+    )
+
+    assert jobs._ensure_delivery_lead_job_visible is ensure_delivery_lead_job_visible
+    assert jobs._assert_delivery_lead_job_visible is assert_delivery_lead_job_visible
+    assert jobs._delivery_lead_job_pairs is delivery_lead_job_pairs
+
+
+def test_champion_suggestion_routes_all_go_through_one_loader() -> None:
+    """Every route in the module must use ``_load_scoped_suggestion``.
+
+    Four handlers each doing their own ``select(...)`` is how the gap opened:
+    the guard has to be added four times and was added zero. Pinning the single
+    entry point means a fifth route cannot quietly reintroduce the pattern.
+    """
+    import inspect as _inspect
+
+    from app.api import champion_suggestions as mod
+
+    handlers = [
+        mod.get_suggestion,
+        mod.apply_suggestion_endpoint,
+        mod.reject_suggestion_endpoint,
+        mod.rate_suggestion_endpoint,
+    ]
+    for handler in handlers:
+        source = _inspect.getsource(handler)
+        assert "_load_scoped_suggestion" in source, (
+            f"{handler.__name__} loads a suggestion without resolving whose job "
+            "it belongs to — suggestion ids are sequential and `apply` writes "
+            "into `jobs.champion_profile`."
+        )
+        assert "select(ChampionProfileSuggestion)" not in source, (
+            f"{handler.__name__} queries the suggestion directly, bypassing the "
+            "scoped loader."
+        )
+
+
+def test_champion_suggestion_loader_answers_404_for_every_unreachable_case() -> None:
+    """No enumeration oracle: 403 must never leak "this id is someone else's".
+
+    The resource is addressed by a sequential integer, so distinguishing
+    "out of your scope" (403) from "does not exist" (404) tells an attacker
+    exactly which ids are real Champion drafts belonging to other clients.
+    """
+    import inspect as _inspect
+
+    from app.api.champion_suggestions import _load_scoped_suggestion
+
+    source = _inspect.getsource(_load_scoped_suggestion)
+    assert "status_code=403" not in source, (
+        "the loader raises 403 directly — every unreachable case must answer 404"
+    )
+    assert "exc.status_code == 403" in source, (
+        "the 403 raised by ensure_delivery_lead_job_visible is no longer "
+        "translated to 404; out-of-scope ids become distinguishable again"
+    )
+    assert source.count("404") >= 3, (
+        "expected all three unreachable cases (no suggestion / no job / "
+        "out of scope) to answer 404"
     )
