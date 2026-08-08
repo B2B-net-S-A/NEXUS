@@ -25,6 +25,9 @@ from app.services.note_mention_render import (
 )
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.api.deps import DeliveryLeadPlus
+from app.api.recruitment_access import ensure_delivery_lead_job_visible
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_quota import check_and_increment
 from app.services.mention_dispatch import (
     build_note_context_label,
     build_note_deep_link,
@@ -346,6 +349,19 @@ async def link_note_to_job(
     job = await db.scalar(select(Job).where(Job.id == body.job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # `job_id` arrives in the BODY, not the path — which is why a route-level
+    # scope guard was never applied here, and why an audit that walks path
+    # parameters would not have found it either. Without this, a Delivery Lead
+    # could attach a note to ANY client's job and, worse, trigger a paid LLM
+    # enrichment that writes a Champion draft onto it.
+    await ensure_delivery_lead_job_visible(job, current_user, db)
+
+    # Quota is charged here rather than inside `enrich_from_meeting`, because
+    # this route is one of the paths that reaches Claude without passing the
+    # feature gate at all — the master "turn AI off" switch did not stop it and
+    # `ai_usage_log` never saw it, so the usage report was incomplete by design.
+    await check_and_increment(db, AIFeatureKey.champion_draft, user_id=current_user.id)
 
     note.job_id = body.job_id
     await db.commit()
