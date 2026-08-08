@@ -116,6 +116,9 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' }}
         env:
           APP_URL: ${{ vars.APP_URL }}
+          # Token przez env, nie inline w skrypcie — interpolacja ${{ }} wkleja
+          # literal do run: (ryzyko przy set -x / echo), env tego unika.
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Coolify klonuje HEAD maina w momencie budowy, nie TARGET_SHA — przy
           # burstach merge'y wcześniejszy deployment zwykle wdrożył już nasz
@@ -142,7 +145,7 @@ jobs:
             exit 0
           fi
           rel=$(curl -fsSL \
-                -H "Authorization: Bearer ${{ github.token }}" \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
                 "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
                 2>/dev/null | jq -r '.status // "unknown"')
@@ -362,6 +365,7 @@ jobs:
       - name: Deep healthcheck (core modules not 503)
         env:
           APP_URL: ${{ vars.APP_URL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # /api/health only pings `SELECT 1`, so a core module can 503 for real
           # users while the deploy ships green (it never touched that endpoint).
@@ -402,11 +406,11 @@ jobs:
                 ok_version=true
               elif [ "$version" != "missing" ] && [ ${#version} -ge 7 ]; then
                 rel=$(curl -fsSL \
-                      -H "Authorization: Bearer ${{ github.token }}" \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
                       -H "Accept: application/vnd.github+json" \
                       "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
                       2>/dev/null | jq -r '.status // "unknown"')
-                if [ "$rel" = "ahead" ]; then
+                if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
                   ok_version=true
                   echo "Attempt $i: prod serwuje $version_short — potomek $EXPECTED_SHA; sprawdzam deep health na nowszym buildzie."
                 fi
