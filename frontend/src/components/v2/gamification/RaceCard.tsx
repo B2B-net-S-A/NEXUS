@@ -142,7 +142,7 @@ export function RaceCard({
  <div className="text-foreground truncate">
  {entry.name}
  {entry.excluded && (
- <span className="ml-2 text-[10px] uppercase text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+ <span className="ml-2 text-[10px] uppercase text-warning-muted-foreground bg-warning-muted px-1.5 py-0.5 rounded">
  lider Q — bez nagrody
  </span>
  )}
