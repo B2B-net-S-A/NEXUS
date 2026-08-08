@@ -150,6 +150,38 @@ limit→429. Zaktualizowany `test_ai_settings_schemas.py` (8 kluczy).
 Uruchomione lokalnie w obrazie prod na czystym Postgresie (migracje 0001→0217
 przechodzą): **10/10 + 206 testów generatora + kontrakt authz zielone**.
 
+## Follow-up: interaktywne CV jako JEDEN plik HTML (2026-08-07, doprecyzowanie)
+
+Pierwotna intencja Artura: interaktywna wersja **w pliku wysyłanym
+klientowi** (jak DOCX), nie tylko na hostowanym linku. Analiza nośników:
+DOCX nie wykonuje żadnej logiki (makra = nonstarter u klienta), PDF z JS
+działa wyłącznie w Acrobacie (Chrome/Preview wycinają) — jedyny niezawodny
+nośnik to **samodzielny HTML**: style + dane + wanilia JS inline, działa
+offline po podwójnym kliknięciu.
+
+`GET /api/cv-generator/generated/{id}/html` (przycisk „Pobierz interaktywny
+HTML" obok DOCX) → `html_export.render_interactive_html`: układ szablonu
+firmowego (kolory COLOR_HEADER/COLOR_TEXT, bolding technologii tymi samymi
+patternami co DOCX, RODO na dole), kafelki z dowodami (klik w cytat →
+scroll + podświetlenie pozycji doświadczenia), przełącznik
+Klasyczne↔Interaktywne; **druk (Ctrl+P) = czyste klasyczne CV**. Wejście =
+wyłącznie client-safe payload; każdy tekst przez `html.escape`. Chat
+celowo nieobecny w pliku (wymaga serwera — żyje na linku). Plik jest
+statyczny: bez revoke, bez licznika wyświetleń (tradeoff vs link).
+
+## Follow-up: ręczne wymagania w trybie upload (2026-08-07, decyzja Artura)
+
+Obserwacja ze smoke'a (ostatnie 200 wygenerowanych CV = 100% tryb upload)
+odwróciła wcześniejszą decyzję „interactive tylko z procesu". Tryb upload
+dostał **Krok 4 — Wymagania na kafelki**: dwa pola (must/nice, przecinki lub
+nowe linie, cap 12/8) → Form `must_requirements`/`nice_requirements` →
+`parse_manual_requirements` → `ensure_requirement_map(requirements=…)`.
+Gdy pola puste, a wgrano plik championa — wymagania biorą się automatycznie
+z jego sekcji MUST-HAVE/NICE-TO-HAVE. Bez żadnego źródła upload zostaje
+classic-only. Upload z mapą dostaje też chat. Uwaga: upload nie zna klienta,
+więc `Client.cv_interactive_enabled` go nie ogranicza (świadomie — ta sama
+klasa luki co sufit content_mode w upload).
+
 ## Znane ograniczenia / świadome decyzje
 
 * Mapa wymagań generuje się tylko dla NOWYCH generacji — historyczne CV mają
