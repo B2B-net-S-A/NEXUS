@@ -405,3 +405,62 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
         )
 
     return or_(*scope_clauses)
+
+
+# ── Delivery Lead resource scope ─────────────────────────────────────────────
+# These live here, not in ``app/api/jobs.py``, because they are needed by
+# surfaces OUTSIDE the Jobs router: a Champion suggestion carries its own
+# ``job_id``, and a note can be linked to a job. Importing them from
+# ``jobs.py`` would be the first cross-import of that module anywhere in the
+# codebase and would drag in 3 400 lines and ~25 dependencies to reach one
+# guard. ``jobs.py`` re-exports them so its 26 existing call sites are
+# untouched.
+
+
+async def delivery_lead_job_pairs(
+    current_user: User,
+    db: AsyncSession,
+) -> frozenset[tuple[int, int]] | None:
+    """Resolve the exact legacy Job scope for a Delivery Lead.
+
+    ``None`` means this caller uses an oversight or non-DL persona. An empty
+    set is deny-all and must never fall back to the organization.
+    """
+    from app.services.access_scope import ScopeKind, resolve_dashboard_scope
+
+    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+        return None
+    if not current_user.has_role(UserRole.delivery_lead):
+        return None
+
+    scope = await resolve_dashboard_scope(current_user, db)
+    if scope.kind is not ScopeKind.delivery_clients or scope.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Delivery scope belongs to a different user",
+        )
+    return scope.allowed_client_tac_pairs
+
+
+def assert_delivery_lead_job_visible(
+    job: Job,
+    allowed_pairs: frozenset[tuple[int, int]] | None,
+) -> None:
+    if allowed_pairs is None:
+        return
+    if (job.client_id, job.tac_id) not in allowed_pairs:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Job is outside the resolved Delivery Lead scope",
+        )
+
+
+async def ensure_delivery_lead_job_visible(
+    job: Job,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Fail closed when a Delivery Lead addresses a job outside their scope."""
+    assert_delivery_lead_job_visible(
+        job, await delivery_lead_job_pairs(current_user, db)
+    )
