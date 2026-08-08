@@ -97,8 +97,16 @@ jobs:
           M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
           # Shard realizowany w conftest (filtr po CAŁYCH plikach, round-robin
           # po posortowanej liście) — patrz komentarz nad jobem.
-          CI_SHARD_COUNT: "4"
-          CI_SHARD_INDEX: ${{ matrix.shard }}
+          #
+          # OBA parametry wyprowadzone z kontekstu `strategy`, żeby jedynym
+          # źródłem prawdy była lista w matrixie. Osobno hardcodowany count
+          # dryfowałby w jedną stronę CICHO: count=5 przy matrixie [0..3]
+          # zostawia pliki `pos % 5 == 4` w ŻADNYM shardzie — zielone CI,
+          # 1/5 testów nie istnieje (finding z review PR #1083). job-index
+          # jest 0-based w kolejności ekspansji matrixa; wartości `shard`
+          # w matrixie służą tylko do nazwy joba i liczności listy.
+          CI_SHARD_COUNT: ${{ strategy.job-total }}
+          CI_SHARD_INDEX: ${{ strategy.job-index }}
         run: |
           # Auto-discovery: pytest collects EVERY module under tests/, minus the
           # explicit exceptions below. This replaced a hand-enumerated list of ~285

@@ -57,6 +57,11 @@ każdy shard dostaje własne 4 vCPU.
   nie wieczne „oczekiwanie". Zielony ⇔ wszystkie shardy zielone.
 - Codecov: upload per shard (`backend-coverage-shard-N`), ta sama flaga
   `backend` — Codecov scala raporty per commit, pokrycie łączne bez zmian.
+- **Po review (finding zasadny):** `CI_SHARD_COUNT`/`CI_SHARD_INDEX` nie są
+  hardcodowane obok matrixa, tylko wyprowadzone z kontekstu `strategy`
+  (`job-total`/`job-index`) — hardcodowany count dryfował w jedną stronę
+  cicho (count=5 przy matrixie [0..3] = 1/5 plików w żadnym shardzie przy
+  zielonym CI). Jedyne źródło prawdy = długość listy w matrixie.
 
 ## Czego się spodziewać / ryzyka
 
