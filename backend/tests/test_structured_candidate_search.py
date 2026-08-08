@@ -19,8 +19,12 @@ from app.schemas.candidate_search import (
     LanguageRequirement,
 )
 from app.services.structured_candidate_search import (
+    NULL_POLICY,
+    NullPolicy,
     build_filter_groups,
     build_structured_filter,
+    experience_soft_rank,
+    location_soft_rank,
 )
 
 
@@ -88,9 +92,19 @@ class TestExperienceRange:
         assert "<=" in sql
 
     def test_both(self):
+        """Both bounds now live in ONE NULL-tolerant clause, not two.
+
+        Previously this asserted `len(clauses) == 2` — two bare comparisons.
+        They were merged into a single `nullable(col, >=min, <=max)` so a
+        candidate who never stated their experience is no longer dropped
+        (the column is filled for 1.2% of the base).
+        """
         req = CandidateSearchRequest(experience_years_min=5, experience_years_max=10)
         clauses = build_structured_filter(req)
-        assert len(clauses) == 2
+        assert len(clauses) == 1
+        sql = _compile(clauses)
+        assert "years_it_experience IS NULL" in sql
+        assert ">= 5" in sql and "<= 10" in sql
 
 
 class TestLanguages:
@@ -345,3 +359,163 @@ class TestCombined:
         # wzorcem wstawianym bez zmiany wielkości liter).
         assert "python" in sql.lower()
         assert "active" in sql
+
+
+# ── NULL policy contract ─────────────────────────────────────────────────────
+# These four tests are the actual fix. `nullable()` on its own stops nothing:
+# the next author writes `Candidate.x >= v` directly and the helper never sees
+# it. What prevents recurrence is that a filter group with no registry entry
+# fails the build — turning "someone forgot" into a red test instead of a
+# silent 99% cut that nobody notices for months.
+
+
+def _maximal_request() -> CandidateSearchRequest:
+    """A request that populates EVERY filter group, so none can hide."""
+    return CandidateSearchRequest(
+        competence_category_ids=[1],
+        skills_none=["COBOL"],
+        experience_years_min=2,
+        experience_years_max=6,
+        languages=[LanguageRequirement(code="en", min_level="B2")],
+        location_cities=["Kraków"],
+        location_countries=["PL"],
+        exclude_blacklisted=True,
+        status=[CandidateStatus.active],
+        availability_status=[AvailabilityStatus.unknown],
+        availability_date_before=date(2030, 1, 1),
+        notice_period_max=30,
+        rate_hourly_min=100,
+        rate_hourly_max=200,
+        sources=["traffit"],
+        tags=["vip"],
+        has_cv=True,
+    )
+
+
+def test_every_filter_group_declares_a_null_policy():
+    missing = [
+        g.key for g in build_filter_groups(_maximal_request()) if g.key not in NULL_POLICY
+    ]
+    assert not missing, (
+        f"Filter group(s) {missing} declare no NULL policy. Add an entry to "
+        "NULL_POLICY. The default is `include` — a candidate whose field is "
+        "empty stays in the results — because most structured columns on this "
+        "dataset are blank for the large majority of rows, so dropping NULLs "
+        "filters on bookkeeping rather than on relevance. Choosing `exclude` "
+        "requires a justification string saying why absence is real evidence."
+    )
+
+
+def test_exclude_policy_requires_a_justification():
+    offenders = [
+        key
+        for key, pol in NULL_POLICY.items()
+        if pol.policy is NullPolicy.exclude and not pol.justification.strip()
+    ]
+    assert not offenders, (
+        f"{offenders} exclude candidates with a missing value but give no "
+        "reason. Say why absence is evidence, not an accident of data entry."
+    )
+
+
+def test_registry_has_no_entries_for_groups_that_do_not_exist():
+    """Guard the guard: a stale entry would make the first test pass for a
+    group that no longer materialises, hiding a real gap."""
+    live = {g.key for g in build_filter_groups(_maximal_request())}
+    stale = set(NULL_POLICY) - live
+    assert not stale, (
+        f"NULL_POLICY has entries for non-existent groups: {sorted(stale)}. "
+        "Either _maximal_request no longer populates them, or they were removed."
+    )
+
+
+def _is_null_tolerant(clause) -> bool:
+    """Walk the SQLAlchemy expression for a disjunction containing IS NULL.
+
+    Deliberately not a substring check on the compiled SQL: `coalesce(col,'')
+    ILIKE '%x%'` contains no "IS NULL" yet excludes every NULL row, and that is
+    precisely the shape that made the location filter silently drop 85% of the
+    database while looking safe.
+    """
+    from sqlalchemy import BooleanClauseList
+    from sqlalchemy.sql.elements import UnaryExpression
+    from sqlalchemy.sql.operators import or_ as or_op
+
+    def _has_is_null(node) -> bool:
+        if isinstance(node, UnaryExpression) and node.operator is not None:
+            if "IS NULL" in str(node.compile(dialect=postgresql.dialect())).upper():
+                return True
+        if isinstance(node, BooleanClauseList):
+            return any(_has_is_null(c) for c in node.clauses)
+        try:
+            return "IS NULL" in str(
+                node.compile(dialect=postgresql.dialect())
+            ).upper()
+        except Exception:
+            return False
+
+    if isinstance(clause, BooleanClauseList) and clause.operator is or_op:
+        return any(_has_is_null(c) for c in clause.clauses)
+    return _has_is_null(clause)
+
+
+@pytest.mark.parametrize("group_key", ["experience", "location", "rate_hourly"])
+def test_include_policy_groups_keep_rows_with_a_missing_value(group_key):
+    groups = {g.key: g for g in build_filter_groups(_maximal_request())}
+    assert NULL_POLICY[group_key].policy is NullPolicy.include
+    group = groups[group_key]
+    assert all(_is_null_tolerant(c) for c in group.clauses), (
+        f"Group '{group_key}' is declared `include` but at least one of its "
+        f"clauses drops rows whose value is NULL:\n{_compile(group.clauses)}"
+    )
+
+
+def test_experience_bound_no_longer_excludes_unstated_experience():
+    req = CandidateSearchRequest(experience_years_min=2, experience_years_max=6)
+    sql = _compile(build_structured_filter(req))
+    assert "years_it_experience IS NULL" in sql
+    assert ">= 2" in sql and "<= 6" in sql
+
+
+def test_location_chip_keeps_candidates_with_no_location_at_all():
+    req = CandidateSearchRequest(location_cities=["Kraków"])
+    sql = _compile(build_structured_filter(req))
+    assert "city IS NULL" in sql and "location IS NULL" in sql
+
+
+def test_location_chip_still_drops_a_known_mismatching_city():
+    """Softening must not turn the filter off: a candidate who DID state a
+    different city is still excluded — only the unknowns are kept."""
+    req = CandidateSearchRequest(location_cities=["Kraków"])
+    sql = _compile(build_structured_filter(req))
+    # `literal_binds` doubles the wildcard (%% ), so match the operator and the
+    # city rather than a hand-written pattern.
+    assert "ILIKE" in sql and "Kraków" in sql
+
+
+# ── Soft ranking (the other half of softening a filter) ──────────────────────
+
+
+def test_experience_soft_rank_is_none_without_a_bound():
+    assert experience_soft_rank(CandidateSearchRequest()) is None
+
+
+def test_experience_soft_rank_rewards_a_stated_matching_range():
+    expr = experience_soft_rank(
+        CandidateSearchRequest(experience_years_min=2, experience_years_max=6)
+    )
+    sql = str(expr.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    # Must require a stated value: NULL scores 0, not 1, or the ranking is a
+    # no-op and the 45 real matches stay buried among 11 046 unknowns.
+    assert "IS NOT NULL" in sql
+    assert ">= 2" in sql and "<= 6" in sql
+
+
+def test_location_soft_rank_counts_matching_cities():
+    expr = location_soft_rank(CandidateSearchRequest(location_cities=["Kraków", "Wrocław"]))
+    sql = str(expr.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert sql.count("CASE") == 2
+
+
+def test_location_soft_rank_is_none_without_cities():
+    assert location_soft_rank(CandidateSearchRequest()) is None
