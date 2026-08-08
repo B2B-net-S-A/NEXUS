@@ -22,25 +22,18 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ai_feature import AIFeatureKey, AIUsageLog
+from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_justification import CandidateMatchJustification
-from app.services.ai_quota import (
-    AIQuotaExceeded,
-    get_feature_config,
-    get_master_enabled,
-    get_total_usage_for_period,
-)
+from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import MATCH_JUSTIFICATION
 from app.services.match_score_cache import get_cached_or_compute
 from app.services.scoring_service import ScoreBreakdown
@@ -339,47 +332,6 @@ async def _compute_breakdown(
     )
 
 
-async def _gate_and_count(db: AsyncSession, user_id: Optional[int]) -> None:
-    """Respect the AI kill-switch + `scoring` toggle/limit, then record 1 use.
-
-    Tolerant of a missing `ai_features` row: `AIFeatureConfig.enabled` defaults
-    to True, so an unseeded feature is treated as enabled (only an explicit
-    disable or the master toggle blocks). Raises ``AIQuotaExceeded`` if blocked.
-    """
-    if not await get_master_enabled(db):
-        raise AIQuotaExceeded(AIFeatureKey.scoring, "Funkcje AI są wyłączone globalnie")
-
-    config = await get_feature_config(db, AIFeatureKey.scoring)
-    if config is not None and not config.enabled:
-        raise AIQuotaExceeded(
-            AIFeatureKey.scoring, "Funkcja AI wyłączona w ustawieniach"
-        )
-
-    limit = config.monthly_limit if config else 0
-    period = datetime.now(timezone.utc).date().replace(day=1)
-    used = await get_total_usage_for_period(db, AIFeatureKey.scoring, period)
-    if limit > 0 and used >= limit:
-        raise AIQuotaExceeded(
-            AIFeatureKey.scoring, "Miesięczny limit wyczerpany", used=used, limit=limit
-        )
-
-    now = datetime.now(timezone.utc)
-    await db.execute(
-        pg_insert(AIUsageLog)
-        .values(
-            feature=AIFeatureKey.scoring,
-            user_id=user_id,
-            period_start=period,
-            count=1,
-            last_call_at=now,
-        )
-        .on_conflict_do_update(
-            constraint="uq_ai_usage_feature_user_period",
-            set_={"count": AIUsageLog.count + 1, "last_call_at": now},
-        )
-    )
-
-
 # ── Orchestration ───────────────────────────────────────────────────────────
 
 
@@ -442,9 +394,14 @@ async def get_or_generate(
     if row is not None and not force and row.input_hash == input_hash:
         return row
 
-    # Cache miss / forced refresh / stale inputs → paid LLM call (gated).
-    await _gate_and_count(db, user_id)
-    prose = await generate_prose(candidate, job, breakdown)
+    # Cache miss / forced refresh / stale inputs → paid LLM call.
+    #
+    # `_gate_and_count` used to live in this module: 40 lines duplicating
+    # `ai_quota.check_and_increment` with the OPPOSITE answer for a missing
+    # `ai_features` row (this one allowed, the other blocked). Which behaviour
+    # you got depended on which copy the request reached. Gone; one gate now.
+    async with ai_feature(db, AIFeatureKey.scoring, user_id=user_id):
+        prose = await generate_prose(candidate, job, breakdown)
 
     if row is None:
         row = CandidateMatchJustification(candidate_id=candidate_id, job_id=job_id)
