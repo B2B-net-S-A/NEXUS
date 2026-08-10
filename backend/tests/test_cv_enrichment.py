@@ -7,7 +7,7 @@ via test_candidates.py — here we stay schema-level.
 
 from __future__ import annotations
 
-from app.api.candidates import _apply_cv_enrichment
+from app.api.candidates import CvWritePolicy, _apply_cv_enrichment
 from app.models.candidate import Candidate
 
 
@@ -364,3 +364,140 @@ def test_apply_truncates_long_contact_values():
     assert len(c.email) <= 255
     assert len(c.phone) <= 30
     assert len(c.city) <= 120
+
+
+# ── Write policy: the fix for the silent-overwrite defect ───────────────────
+#
+# Until 2026-08-10 `skills`, `education`, `years_it_experience` and `ai_summary`
+# were written unconditionally, while this module's docstring promised
+# "Never clobbers recruiter-curated data". Every CV upload replaced whatever a
+# recruiter had typed. These tests pin the corrected behaviour so the regression
+# is a red build rather than silent data loss across the base.
+
+
+def _curated_candidate() -> Candidate:
+    c = _bare_candidate()
+    c.skills = [{"name": "Rust", "level": "expert", "years": 5}]
+    c.education = [{"school": "PW", "degree": "mgr", "field": "IT", "year": 2015}]
+    c.years_it_experience = 12
+    c.ai_summary = "Ręcznie napisane przez rekrutera."
+    return c
+
+
+_AI_PARSE = {
+    "years_it_experience": 3,
+    "skills": [{"name": "Python", "level": "junior", "years": 3}],
+    "education": [{"school": "UW", "degree": "lic", "field": "X", "year": 2020}],
+    "career_summary": "Trzy lata Pythona.",
+    "_source": "claude:cv_enrichment:v5",
+}
+
+
+def test_fill_empty_is_the_default_and_protects_curated_values():
+    """A caller that forgets the policy must degrade to backfill-only."""
+    c = _curated_candidate()
+
+    _apply_cv_enrichment(c, _AI_PARSE)  # no policy passed on purpose
+
+    assert c.skills == [{"name": "Rust", "level": "expert", "years": 5}]
+    assert c.education[0]["school"] == "PW"
+    assert c.years_it_experience == 12
+    assert c.ai_summary == "Ręcznie napisane przez rekrutera."
+
+
+def test_fill_empty_writes_into_empty_slots():
+    c = _bare_candidate()
+    c.skills, c.education, c.years_it_experience, c.ai_summary = None, None, None, None
+
+    _apply_cv_enrichment(c, _AI_PARSE, policy=CvWritePolicy.FILL_EMPTY)
+
+    assert c.skills[0]["name"] == "Python"
+    assert c.education[0]["school"] == "UW"
+    assert c.years_it_experience == 3
+    assert c.ai_summary
+
+
+def test_empty_list_counts_as_empty():
+    """Load-bearing: 33 625 prod rows hold `skills = []` against 273 real lists.
+
+    Treating `[]` as a value would make the backfill skip 99% of its targets.
+    """
+    c = _bare_candidate()
+    c.skills, c.education = [], []
+    c.years_it_experience, c.ai_summary = None, None
+
+    _apply_cv_enrichment(c, _AI_PARSE, policy=CvWritePolicy.FILL_EMPTY)
+
+    assert c.skills[0]["name"] == "Python"
+    assert c.education[0]["school"] == "UW"
+
+
+def test_zero_years_counts_as_empty():
+    c = _bare_candidate()
+    c.years_it_experience = 0
+
+    _apply_cv_enrichment(c, _AI_PARSE, policy=CvWritePolicy.FILL_EMPTY)
+
+    assert c.years_it_experience == 3
+
+
+def test_refresh_overwrites_but_still_honours_locks():
+    """The upload/re-parse paths keep their old behaviour — minus locked fields."""
+    c = _curated_candidate()
+    c.cv_extracted_data = {"_manual_override_skills": True}
+
+    _apply_cv_enrichment(c, _AI_PARSE, policy=CvWritePolicy.REFRESH)
+
+    assert c.skills == [{"name": "Rust", "level": "expert", "years": 5}], (
+        "a locked field must survive even an explicit REFRESH"
+    )
+    assert c.years_it_experience == 3, "unlocked fields are refreshed as before"
+
+
+def test_every_manual_override_flag_survives_not_just_a_hardcoded_list():
+    """`_manual_override_country` used to be dropped on every parse.
+
+    The old code copied only `_CV_CONTACT_FIELDS`, silently unlocking a field
+    that both importers set and the location writer reads. The fix is a prefix
+    rule, so an invented flag must survive too — that is the difference between
+    fixing one field and fixing the class.
+    """
+    c = _bare_candidate()
+    c.cv_extracted_data = {
+        "_manual_override_country": True,
+        "_manual_override_zzz_future_field": True,
+        "traffit_custom": "keep me",
+    }
+
+    _apply_cv_enrichment(c, _AI_PARSE)
+
+    assert c.cv_extracted_data["_manual_override_country"] is True
+    assert c.cv_extracted_data["_manual_override_zzz_future_field"] is True
+    assert c.cv_extracted_data["traffit_custom"] == "keep me"
+
+
+def test_provenance_recorded_only_for_fields_actually_written():
+    c = _bare_candidate()
+    c.skills = [{"name": "Rust"}]  # non-empty → must be skipped under FILL_EMPTY
+    c.years_it_experience = None  # empty → will be written
+
+    _apply_cv_enrichment(c, _AI_PARSE, policy=CvWritePolicy.FILL_EMPTY)
+
+    prov = c.cv_extracted_data["_field_provenance"]
+    assert "years_it_experience" in prov
+    assert "skills" not in prov, "a skipped field must not claim AI provenance"
+    assert prov["years_it_experience"]["source"] == "claude:cv_enrichment:v5"
+
+
+def test_provenance_merges_across_runs():
+    c = _bare_candidate()
+    c.years_it_experience = None
+    c.cv_extracted_data = {
+        "_field_provenance": {"city": {"source": "earlier-run", "at": "2026-01-01"}}
+    }
+
+    _apply_cv_enrichment(c, _AI_PARSE)
+
+    prov = c.cv_extracted_data["_field_provenance"]
+    assert prov["city"]["source"] == "earlier-run", "untouched fields keep their stamp"
+    assert "years_it_experience" in prov
