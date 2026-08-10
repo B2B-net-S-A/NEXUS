@@ -145,3 +145,74 @@ def test_call_claude_repeated_failures_trip_claude_down(monkeypatch):
                 max_retries=0,
             )
     assert provider_status("claude") == "down"
+
+
+# ── /api/health `ai_features` probe ──────────────────────────────────────────
+#
+# Both cases below were live defects on prod (2026-08-10), and both were
+# invisible: the probe answered `unknown` and `healthy` respectively, and
+# neither value looks like a bug to an operator.
+
+
+def _uncapped_from(limits: dict[str, int]) -> list[str]:
+    """Mirror of the probe's classification in `app/main.py`.
+
+    Kept as a pure function so the rule can be tested without standing up the
+    app; `test_probe_source_matches_this_rule` pins it to the real source.
+    """
+    from app.models.ai_feature import AIFeatureKey
+
+    return sorted(k.value for k in AIFeatureKey if limits.get(k.value, 0) <= 0)
+
+
+def test_zero_monthly_limit_counts_as_uncapped():
+    """`monthly_limit = 0` means unlimited — a row is not a ceiling.
+
+    Prod had all 19 features configured at 0 while the probe reported
+    `healthy`: a green light on a system with no spending ceiling anywhere.
+    """
+    from app.models.ai_feature import AIFeatureKey
+
+    all_zero = {k.value: 0 for k in AIFeatureKey}
+    assert _uncapped_from(all_zero) == sorted(k.value for k in AIFeatureKey)
+
+    all_capped = {k.value: 100 for k in AIFeatureKey}
+    assert _uncapped_from(all_capped) == []
+
+
+def test_missing_row_still_counts_as_uncapped():
+    """Fail-open: no row means no ceiling, so it must stay reported."""
+    from app.models.ai_feature import AIFeatureKey
+
+    keys = [k.value for k in AIFeatureKey]
+    limits = {k: 100 for k in keys[1:]}  # first key has no row at all
+    assert _uncapped_from(limits) == [keys[0]]
+
+
+def test_unknown_db_key_does_not_break_the_rule():
+    """Prod holds 11 rows whose key the enum no longer has (`embeddings`, …).
+
+    Reading the column as the enum type raised on those rows and turned the
+    whole probe into `unknown`. A drift detector must survive the drift.
+    """
+    from app.models.ai_feature import AIFeatureKey
+
+    limits = {k.value: 100 for k in AIFeatureKey}
+    limits.update({"embeddings": 0, "reranking": 0, "matching": 0})
+    assert _uncapped_from(limits) == []
+
+
+def test_probe_source_matches_this_rule():
+    """Guard the guard: the probe must read text + limit, not the enum type."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "app" / "main.py"
+    text = src.read_text(encoding="utf-8")
+    assert "cast(AIFeatureConfig.feature, Text)" in text, (
+        "probe stopped reading the feature column as text — an orphan row will "
+        "again turn the whole check into `unknown`"
+    )
+    assert "limits.get(k.value, 0) <= 0" in text, (
+        "probe stopped treating monthly_limit=0 as uncapped — it will report "
+        "healthy on a system with no ceiling"
+    )

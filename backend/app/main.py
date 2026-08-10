@@ -1597,20 +1597,39 @@ async def api_health_check():
     # recorded (see `_run_qdrant`) and feeds `meta.ai_status`, but publishing a
     # second, similarly-named key would only make this output ambiguous.
 
-    # AI features without a config row. Under the fail-open quota semantics a
-    # missing row means "no monthly ceiling", so this is a spend warning, not an
-    # outage — informational, never flips `overall`.
+    # AI features with no monthly ceiling. Under fail-open quota semantics that
+    # is a spend warning, not an outage — informational, never flips `overall`.
+    #
+    # "Uncapped" is BOTH a missing row and a row with `monthly_limit = 0`, which
+    # `ai_quota` documents as unlimited. Counting only missing rows made this
+    # probe report `healthy` on prod while all 19 configured features sat at 0 —
+    # a green light on a system with no ceiling anywhere.
+    #
+    # The feature column is read as text on purpose. Hydrating it into
+    # `AIFeatureKey` raises when a row holds a value the enum no longer has, and
+    # prod has 11 such rows (`embeddings`, `matching`, `reranking`, …) left from
+    # features that were renamed or dropped. A probe whose job is spotting
+    # config drift must not be killed by that drift — before this, one orphan row
+    # turned the whole check into a silent `unknown`.
     try:
+        from sqlalchemy import Text, cast
+
         from app.models.ai_feature import AIFeatureConfig, AIFeatureKey
 
         async with AsyncSessionLocal() as session:
             rows = await asyncio.wait_for(
-                session.execute(select(AIFeatureConfig.feature)), timeout=1.0
+                session.execute(
+                    select(
+                        cast(AIFeatureConfig.feature, Text),
+                        AIFeatureConfig.monthly_limit,
+                    )
+                ),
+                timeout=1.0,
             )
-        configured = {f.value if hasattr(f, "value") else str(f) for (f,) in rows.all()}
-        missing = sorted(k.value for k in AIFeatureKey if k.value not in configured)
+        limits = {str(f): (lim or 0) for f, lim in rows.all()}
+        uncapped = sorted(k.value for k in AIFeatureKey if limits.get(k.value, 0) <= 0)
         checks["ai_features"] = (
-            "healthy" if not missing else f"uncapped: {','.join(missing)}"
+            "healthy" if not uncapped else f"uncapped: {','.join(uncapped)}"
         )
     except Exception as exc:
         # Log it: this is the safety net for fail-open quota semantics (a missing
