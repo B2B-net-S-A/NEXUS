@@ -151,7 +151,7 @@ export function CommandPaletteV2({
               (j) => ({
                 type: "job" as const,
                 id: j.id,
-                title: j.title ?? `Oferta #${j.id}`,
+                title: j.title ?? `Rekrutacja #${j.id}`,
                 subtitle: j.client_name ?? null,
               }),
             );
@@ -215,7 +215,7 @@ export function CommandPaletteV2({
     () => [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/candidates", label: "Kandydaci", icon: Users, capability: "nav.candidates" },
-      { href: "/jobs", label: "Oferty", icon: Briefcase },
+      { href: "/jobs", label: "Rekrutacje", icon: Briefcase },
       { href: "/clients", label: "Klienci", icon: Building2, capability: "nav.clients" },
       { href: "/contracts", label: "Kontrakty", icon: FileText, capability: "nav.contracts" },
       { href: "/talents", label: "Talenty", icon: Star, capability: "nav.talents" },
@@ -232,7 +232,7 @@ export function CommandPaletteV2({
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
       <CommandInput
-        placeholder="Szukaj kandydatów, ofert, klientów, akcji…"
+        placeholder="Szukaj kandydatów, rekrutacji, klientów, akcji…"
         value={query}
         onValueChange={setQuery}
       />
@@ -299,7 +299,7 @@ export function CommandPaletteV2({
                   }}
                 >
                   <Briefcase className="h-4 w-4" />
-                  Nowa oferta
+                  Nowa rekrutacja
                   <CommandShortcut>J</CommandShortcut>
                 </CommandItem>
               )}

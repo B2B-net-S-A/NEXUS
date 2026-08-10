@@ -38,7 +38,7 @@ interface CommandDialogProps extends React.ComponentProps<typeof Dialog> {
  shouldFilter?: boolean;
 }
 
-const CommandDialog = ({ title ="Wyszukaj", description ="Szybki dostęp do kandydatów, ofert i akcji.", children, shouldFilter, ...props }: CommandDialogProps) => (
+const CommandDialog = ({ title ="Wyszukaj", description ="Szybki dostęp do kandydatów, rekrutacji i akcji.", children, shouldFilter, ...props }: CommandDialogProps) => (
  <Dialog {...props}>
  <DialogContent size="lg" className="p-0 overflow-hidden" hideClose>
  <div className="sr-only">

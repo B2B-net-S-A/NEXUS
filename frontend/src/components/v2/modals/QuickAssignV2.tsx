@@ -191,7 +191,7 @@ export function QuickAssignV2({
  <div className="flex-1 min-w-0">
  <div className="flex items-center gap-2 flex-wrap">
  <span className="font-medium text-sm text-foreground truncate">
- {job.title ?? `Oferta #${jobId}`}
+ {job.title ?? `Rekrutacja #${jobId}`}
  </span>
  {typeof score === "number" && (
  <Badge variant={scoreVariant(score)} size="sm">
@@ -296,7 +296,7 @@ export function QuickAssignV2({
  ) : matches.length === 0 ? (
  <div className="text-sm text-muted-foreground py-8 text-center">
  <Briefcase className="h-10 w-10 mx-auto mb-2 opacity-40" />
- Brak pasujących ofert. Upewnij się, że CV kandydata zostało wgrane.
+ Brak pasujących rekrutacji. Upewnij się, że CV kandydata zostało wgrane.
  </div>
  ) : (
  <div className="space-y-2">

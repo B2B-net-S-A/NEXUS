@@ -233,7 +233,7 @@ function OperationsView({ period }: { period: PeriodParams }) {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <Stat label="Kandydaci" value={d?.candidates.total ?? "—"} icon={Users} />
           <Stat
-            label="Oferty (otwarte)"
+            label="Rekrutacje (otwarte)"
             value={d ? `${d.jobs.open} / ${d.jobs.total}` : "—"}
             icon={Briefcase}
           />
@@ -255,7 +255,7 @@ function OperationsView({ period }: { period: PeriodParams }) {
         <Card>
           <CardHeader>
             <CardTitle>Lejek (pierwsze osiągnięcia)</CardTitle>
-            <CardDescription>raz per kandydat × oferta</CardDescription>
+            <CardDescription>raz per kandydat × rekrutacja</CardDescription>
           </CardHeader>
           <CardContent>
             <StatsBoundary state={funnel.boundary} onRetry={() => funnel.refetch()}>
@@ -282,7 +282,7 @@ function OperationsView({ period }: { period: PeriodParams }) {
         <Card>
           <CardHeader>
             <CardTitle>Aktualny pipeline</CardTitle>
-            <CardDescription>ostatni etap per kandydat × oferta</CardDescription>
+            <CardDescription>ostatni etap per kandydat × rekrutacja</CardDescription>
           </CardHeader>
           <CardContent>
             <StatsBoundary state={pipeline.boundary} onRetry={() => pipeline.refetch()}>
@@ -328,7 +328,7 @@ function RecruitmentView({ period }: { period: PeriodParams }) {
         <CardHeader>
           <CardTitle>Moje KPI (kanoniczne)</CardTitle>
           <CardDescription>
-            atrybucja: pierwszy weryfikator pary kandydat × oferta
+            atrybucja: pierwszy weryfikator pary kandydat × rekrutacja
           </CardDescription>
         </CardHeader>
         <CardContent>

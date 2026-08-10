@@ -160,7 +160,7 @@ export function ChampionProfileSourcesPanel({
       {/* Attached meetings */}
       <Section
         title="Powiązane rozmowy"
-        empty="Żadne meetingi nie są powiązane z tą ofertą."
+        empty="Żadne meetingi nie są powiązane z tą rekrutacją."
       >
         {(attached.data?.items ?? [])
           .filter((n) => n.note_type === "meeting")

@@ -117,7 +117,7 @@ export function ReassignOwnerV2({
  <SheetTitle>Zmień właściciela projektu</SheetTitle>
  </div>
  <SheetDescription>
- Oferta: <strong>{jobTitle}</strong>
+ Rekrutacja: <strong>{jobTitle}</strong>
  </SheetDescription>
  </SheetHeader>
 

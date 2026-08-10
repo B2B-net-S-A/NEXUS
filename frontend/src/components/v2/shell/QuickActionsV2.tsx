@@ -115,7 +115,7 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
           {can["job.create"] && (
             <DropdownMenuItem onSelect={() => openModal("job")}>
               <Briefcase className="h-4 w-4" />
-              Dodaj ofertę
+              Dodaj rekrutację
             </DropdownMenuItem>
           )}
           {can["client.create"] && (

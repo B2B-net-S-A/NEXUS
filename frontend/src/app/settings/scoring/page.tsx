@@ -26,7 +26,7 @@ const DEFAULT_WEIGHTS: Required<ScoringWeights> = {
 };
 
 const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
-  semantic: "Dopasowanie semantyczne (CV ↔ opis oferty)",
+  semantic: "Dopasowanie semantyczne (CV ↔ opis rekrutacji)",
   skills: "Umiejętności (must / nice)",
   salary: "Zarobki",
   location: "Lokalizacja / tryb pracy",

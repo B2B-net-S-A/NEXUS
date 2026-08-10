@@ -89,7 +89,7 @@ async def generate_prep_kit(
     job_result = await db.execute(select(Job).where(Job.id == request.job_id))
     job: Optional[Job] = job_result.scalar_one_or_none()
     if not job:
-        raise HTTPException(status_code=404, detail="Nie znaleziono oferty pracy")
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
 
     # The legacy client-access resolver deliberately grants every Delivery Lead
     # organization-wide access. Dashboard/RBAC v2 uses the authoritative

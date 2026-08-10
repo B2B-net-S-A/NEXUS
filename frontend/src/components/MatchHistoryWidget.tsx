@@ -67,7 +67,7 @@ export function MatchHistoryWidget({ jobId, candidateId }: Props) {
         </div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Brak zapisanej historii. Uruchom rekomendację z detalu oferty.
+          Brak zapisanej historii. Uruchom rekomendację z detalu rekrutacji.
         </p>
       ) : (
         <ul className="space-y-1.5 text-sm">

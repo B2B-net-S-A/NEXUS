@@ -163,7 +163,7 @@ export function CVDropzoneMatch() {
             />
           ) : (
             <div className="rounded bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
-              Nie znalazłem ofert powyżej progu jakości dla tego CV. Spróbuj
+              Nie znalazłem rekrutacji powyżej progu jakości dla tego CV. Spróbuj
               edytować profil ręcznie lub poluzuj próg.
             </div>
           )}

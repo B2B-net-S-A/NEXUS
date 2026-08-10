@@ -147,7 +147,7 @@ describe("AddJobModal — jawny owner requestu", () => {
 
     await user.selectOptions(owner, "7");
     expect(screen.getByText("✓ Owner requestu wybrany jawnie")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Dodaj ofertę" }));
+    await user.click(screen.getByRole("button", { name: "Dodaj rekrutację" }));
 
     await waitFor(() =>
       expect(mocks.post).toHaveBeenCalledWith(

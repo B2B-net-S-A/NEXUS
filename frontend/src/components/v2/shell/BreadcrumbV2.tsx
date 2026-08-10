@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 const SEGMENT_LABELS: Record<string, string> = {
   "": "Dashboard",
   candidates: "Kandydaci",
-  jobs: "Oferty pracy",
+  jobs: "Rekrutacje",
   clients: "Klienci",
   contacts: "Kontakty",
   contracts: "Kontrakty",

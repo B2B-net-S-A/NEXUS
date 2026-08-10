@@ -853,7 +853,7 @@ METRIC_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "name": "tender_outcome",
-        "definition": "Job.close_reason zamkniętych ofert; NULL = unknown",
+        "definition": "Job.close_reason zamkniętych rekrutacji; NULL = unknown",
         "unit": "count",
         "source": "live_ats",
     },

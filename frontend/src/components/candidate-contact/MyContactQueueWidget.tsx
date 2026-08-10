@@ -75,7 +75,7 @@ export function MyContactQueueWidget({
             Moja kolejka kontaktu
           </CardTitle>
           <CardDescription>
-            Kandydat pojawia się tylko raz, razem ze wszystkimi ofertami.
+            Kandydat pojawia się tylko raz, razem ze wszystkimi rekrutacjami.
           </CardDescription>
         </div>
         <span className="text-2xl font-semibold tabular-nums text-foreground">

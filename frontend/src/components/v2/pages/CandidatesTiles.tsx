@@ -194,7 +194,7 @@ export function CandidatesTiles({
  e.stopPropagation();
  onQuickAssign({ id: candidate.id, name: fullName });
  }}
- title="Przypisz do oferty"
+ title="Przypisz do rekrutacji"
  aria-label={`Przypisz ${fullName} do rekrutacji`}
  className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
  >
@@ -283,7 +283,7 @@ export function CandidatesTiles({
  score={topScore}
  size="sm"
  className="shrink-0 px-1.5 py-0 text-[10px]"
- title={`Match: ${Math.round(topScore)}% — ${candidate.match_stats?.open_count ?? 0}/${candidate.match_stats?.total_open ?? 0} otwartych ofert`}
+ title={`Match: ${Math.round(topScore)}% — ${candidate.match_stats?.open_count ?? 0}/${candidate.match_stats?.total_open ?? 0} otwartych rekrutacji`}
  />
  )}
  {!showMatch && updatedAt && (

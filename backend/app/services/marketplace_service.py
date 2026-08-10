@@ -57,7 +57,7 @@ _AUTO_ELIGIBLE_STATUSES = (
 MARKETPLACE_POOL_NAME = "Targ kandydatów"
 MARKETPLACE_POOL_DESC = (
     "Kandydaci aktywnie szukający lub świeżo schodzący z projektu. "
-    "AI monitoruje nowe oferty i alertuje o dopasowaniach (score ≥ {threshold}).".format(
+    "AI monitoruje nowe rekrutacje i alertuje o dopasowaniach (score ≥ {threshold}).".format(
         threshold=int(settings.MARKETPLACE_SCORE_THRESHOLD)
     )
 )
@@ -311,7 +311,7 @@ async def _emit_marketplace_notifications(
     score_int = int(round(score))
     message = (
         f"{candidate.name} {candidate.lastname} — score {score_int}/100 "
-        f'dopasowanie do nowej oferty „{job.title}".'
+        f'dopasowanie do nowej rekrutacji „{job.title}".'
     )
 
     for uid in recipients:

@@ -317,8 +317,8 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
         <MessageCircle className="w-10 h-10 text-muted-foreground" />
         <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
         <p className="text-sm text-muted-foreground max-w-sm">
-          Czat tej oferty jest dostępny tylko dla osób z jej zespołu (rekruter,
-          DL, TAC lub współpracownik oferty). To nie znaczy, że czat jest pusty.
+          Czat tej rekrutacji jest dostępny tylko dla osób z jej zespołu (rekruter,
+          DL, TAC lub współpracownik rekrutacji). To nie znaczy, że czat jest pusty.
         </p>
       </div>
     );

@@ -1214,7 +1214,7 @@ function CandidateCell({
  <div className="flex min-w-0 items-center gap-2">
  <MatchScoreBadge score={stats.top_score} size="sm" />
  <span className="truncate text-xs text-muted-foreground">
- {stats.open_count}/{stats.total_open} ofert
+ {stats.open_count}/{stats.total_open} rekrutacji
  </span>
  </div>
  );
@@ -3263,8 +3263,8 @@ export function CandidatesListV2() {
  e.stopPropagation();
  setAssignFor({ id: candidate.id, name: fullName });
  }}
- title="Przypisz do oferty"
- aria-label={`Przypisz ${fullName} do oferty`}
+ title="Przypisz do rekrutacji"
+ aria-label={`Przypisz ${fullName} do rekrutacji`}
  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
  >
  <Briefcase className="h-3.5 w-3.5" />

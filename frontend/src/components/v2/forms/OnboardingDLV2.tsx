@@ -110,12 +110,12 @@ export function OnboardingDLV2() {
  Krok 1 z 2 · Lista priorytetów
  </p>
  <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
- Które oferty są priorytetowe?
+ Które rekrutacje są priorytetowe?
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Zaznacz oferty, które mają pierwszeństwo w pipeline. Zostaną oznaczone jako{""}
+ Zaznacz rekrutacje, które mają pierwszeństwo w pipeline. Zostaną oznaczone jako{""}
  <strong className="text-foreground">priority=high</strong>.
- Zmienisz to później na liście ofert.
+ Zmienisz to później na liście rekrutacji.
  </p>
  </>
  ) : (
@@ -127,7 +127,7 @@ export function OnboardingDLV2() {
  Które wymagają aktywnego sourcingu?
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Zaznacz oferty, pod które trzeba aktywnie szukać kandydatów. Ustawi to flagę{""}
+ Zaznacz rekrutacje, pod które trzeba aktywnie szukać kandydatów. Ustawi to flagę{""}
  <strong className="text-foreground">needs_sourcing</strong>,
  widoczną dla sourcerów/rekruterów.
  </p>
@@ -166,13 +166,13 @@ export function OnboardingDLV2() {
  <div className="py-10 text-center">
  <Sparkles className="h-8 w-8 mx-auto text-primary opacity-50 mb-2" />
  <p className="text-sm text-muted-foreground">
- Nie masz jeszcze ofert w systemie. Możesz pominąć ten krok —
- uzupełnisz priorytety później z ekranu ofert.
+ Nie masz jeszcze rekrutacji w systemie. Możesz pominąć ten krok —
+ uzupełnisz priorytety później z ekranu rekrutacji.
  </p>
  </div>
  ) : filtered.length === 0 ? (
  <p className="py-10 text-center text-sm text-muted-foreground">
- Brak ofert pasujących do „{search}".
+ Brak rekrutacji pasujących do „{search}".
  </p>
  ) : (
  <ul className="divide-y divide-border">

@@ -193,7 +193,7 @@ export function StageFilterPanel({ value, onChange }: StageFilterPanelProps) {
             onChange={(clientIds) => onChange({ clientIds })}
           />
           <p className="text-[10px] text-muted-foreground mt-1">
-            Klient oferty, na której nastąpiło przejście na wybrany etap.
+            Klient rekrutacji, na której nastąpiło przejście na wybrany etap.
           </p>
         </div>
 

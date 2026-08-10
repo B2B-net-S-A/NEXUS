@@ -100,7 +100,7 @@ export function OnboardingRecruiterV2() {
  Którymi rekrutacjami aktualnie się zajmujesz?
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Zaznacz oferty, nad którymi aktywnie pracujesz. Zostaniesz dopisany
+ Zaznacz rekrutacje, nad którymi aktywnie pracujesz. Zostaniesz dopisany
  jako współpracownik — nie zmieni to głównego przypisania.
  </p>
  </div>
@@ -130,13 +130,13 @@ export function OnboardingRecruiterV2() {
  <div className="py-10 text-center">
  <Sparkles className="h-8 w-8 mx-auto text-primary opacity-50 mb-2" />
  <p className="text-sm text-muted-foreground">
- Nie ma jeszcze ofert w systemie. Możesz pominąć ten krok —
+ Nie ma jeszcze rekrutacji w systemie. Możesz pominąć ten krok —
  wrócisz do niego, gdy będzie co oznaczać.
  </p>
  </div>
  ) : filtered.length === 0 ? (
  <p className="py-10 text-center text-sm text-muted-foreground">
- Brak ofert pasujących do „{search}".
+ Brak rekrutacji pasujących do „{search}".
  </p>
  ) : (
  <ul className="divide-y divide-border">

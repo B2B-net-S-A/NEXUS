@@ -69,7 +69,7 @@ describe("areaPrefillDescription", () => {
     ).toBeNull();
   });
 
-  it("nie nadpisuje opisu dotkniętego (z oferty lub ręcznie)", () => {
+  it("nie nadpisuje opisu dotkniętego (z rekrutacji lub ręcznie)", () => {
     expect(
       areaPrefillDescription({
         role: role(),
@@ -135,12 +135,12 @@ describe("areaPrefillDescription", () => {
   // Regresja: wybór OFERTY (rekrutacji) nie jest już parametrem tej decyzji —
   // gdy opis nie został dotknięty, wybór obszaru wypełnia pole niezależnie od
   // tego, czy wskazano ofertę. Wcześniej warunek na ofercie zostawiał je puste.
-  it("wypełnia opis nawet w scenariuszu z wybraną ofertą bez opisu", () => {
+  it("wypełnia opis nawet w scenariuszu z wybraną rekrutacją bez opisu", () => {
     const out = areaPrefillDescription({
       role: role(),
       language: "pl",
       clientName: "",
-      descTouched: false, // oferta bez opisu → flaga nietknięta
+      descTouched: false, // rekrutacja bez opisu → flaga nietknięta
     });
     expect(out).not.toBeNull();
     expect((out ?? "").length).toBeGreaterThan(0);

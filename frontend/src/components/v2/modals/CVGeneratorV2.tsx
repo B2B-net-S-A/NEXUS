@@ -329,7 +329,7 @@ export function CVGeneratorV2({
                         {!selectedRecruitment.has_champion && (
                           <div>
                             Brakuje Profilu Championa na ofercie — uzupełnij go na
-                            karcie oferty.
+                            karcie rekrutacji.
                           </div>
                         )}
                         {!selectedRecruitment.has_notes && (

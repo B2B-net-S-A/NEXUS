@@ -111,7 +111,7 @@ const STAGE_LABELS: Record<string, string> = {
   candidate_withdrawn: "Kandydat się wycofał",
   offer_declined: "Oferta odrzucona",
   offer_expired: "Oferta wygasła",
-  job_cancelled: "Oferta pracy anulowana",
+  job_cancelled: "Rekrutacja anulowana",
   placement_failed: "Placement nieudany",
   unmapped: "Niezmapowany (kwarantanna)",
 }

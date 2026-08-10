@@ -121,7 +121,7 @@ export function ContractorMatchCard({ row }: Props) {
 
   const handleShortlist = async () => {
     if (row.top_matches.length === 0) {
-      alert("Brak ofert do wysłania w shortliście.");
+      alert("Brak rekrutacji do wysłania w shortliście.");
       return;
     }
     setActionLoading("shortlist");
@@ -219,7 +219,7 @@ export function ContractorMatchCard({ row }: Props) {
         <button
           onClick={handleShortlist}
           disabled={actionLoading !== null}
-          title="Wyślij do kandydata maila z listą tych ofert"
+          title="Wyślij do kandydata maila z listą tych rekrutacji"
           className="ml-2 text-xs flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded-md disabled:opacity-50"
           data-testid={`shortlist-${c.id}`}
         >
@@ -235,7 +235,7 @@ export function ContractorMatchCard({ row }: Props) {
       {/* Top matches */}
       {row.top_matches.length === 0 ? (
         <div className="rounded bg-muted dark:bg-card/40 p-3 text-sm text-muted-foreground text-center">
-          Brak ofert spełniających próg dopasowania.
+          Brak rekrutacji spełniających próg dopasowania.
         </div>
       ) : (
         <ul className="space-y-1.5" aria-label="Top dopasowania">
@@ -362,7 +362,7 @@ function BelowThresholdSection({ count }: { count: number }) {
       </button>
       {open && (
         <p className="mt-2 text-xs text-muted-foreground italic">
-          {count} {count === 1 ? "oferta wypadła" : "ofert wypadło"} poniżej progu
+          {count} {count === 1 ? "rekrutacja wypadła" : "rekrutacji wypadło"} poniżej progu
           jakości dopasowania i nie {count === 1 ? "jest pokazywana" : "są pokazywane"}.
           Obniż „Min. dopasowanie&rdquo; w filtrach, aby je zobaczyć.
         </p>

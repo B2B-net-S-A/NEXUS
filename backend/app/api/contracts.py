@@ -561,9 +561,9 @@ async def list_contracts(
     subcategory: Optional[list[str]] = Query(
         None,
         description=(
-            "Filtr po podkategorii kompetencyjnej powiązanej oferty "
+            "Filtr po podkategorii kompetencyjnej powiązanej rekrutacji "
             "(`Job.subcategory`, leżącej pod jej competence category). Powtarzalny "
-            "dla multi-select, OR-łączony. Kontrakty bez oferty są wykluczane."
+            "dla multi-select, OR-łączony. Kontrakty bez rekrutacji są wykluczane."
         ),
     ),
     rate_client_min: Optional[int] = Query(None, ge=0),
@@ -1061,7 +1061,7 @@ async def list_client_register_subcategories(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
-        ..., description="Klient, którego podkategorie ofert zwracamy — WYMAGANY."
+        ..., description="Klient, którego podkategorie rekrutacji zwracamy — WYMAGANY."
     ),
 ) -> RegisterSubcategoriesResponse:
     """Odrębne podkategorie (`Job.subcategory`) ofert powiązanych z kontraktami

@@ -12,7 +12,7 @@ export default function JobsPage() {
  setMounted(true);
  }, []);
  if (!mounted) {
- return <div className="p-8 text-sm text-muted-foreground">Ładowanie ofert…</div>;
+ return <div className="p-8 text-sm text-muted-foreground">Ładowanie rekrutacji…</div>;
  }
  // `JobsListV2` czyta `useSearchParams` (deep-linki z pulpitu), a Next
  // wymaga dla niego granicy Suspense — bez niej build wywala się na
@@ -20,7 +20,7 @@ export default function JobsPage() {
  return (
  <Suspense
  fallback={
- <div className="p-8 text-sm text-muted-foreground">Ładowanie ofert…</div>
+ <div className="p-8 text-sm text-muted-foreground">Ładowanie rekrutacji…</div>
  }
  >
  <JobsListV2 />

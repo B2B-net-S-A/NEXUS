@@ -392,7 +392,7 @@ async def test_generate_from_history_rejects_when_no_matches(
     suggestion = resp.json()
     assert suggestion["status"] == "rejected"
     assert suggestion["source_type"] == "historical_jobs"
-    assert "Za mało historycznych ofert" in (suggestion["error_message"] or "")
+    assert "Za mało historycznych rekrutacji" in (suggestion["error_message"] or "")
 
 
 @pytest.mark.asyncio

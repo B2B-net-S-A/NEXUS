@@ -79,7 +79,7 @@ sidebar pokazuje broken state. Recovery: `localStorage.clear()` + `navigate('/lo
 | Sekcja | Routes | Recommended depth |
 |---|---|---|
 | Sourcing | Dashboard, Kandydaci+filtry, Generator CV, Talenty, Targ | Filtry stage/company/talent_pool ZAWSZE; CV download flow ZAWSZE |
-| Pipeline | Oferty list+detail+8 tabów, Kalendarz | Tab AI Matching SKIP (sessio expiry trap); Profil Championa silently fails |
+| Pipeline | Rekrutacje list+detail+8 tabów, Kalendarz | Tab AI Matching SKIP (sessio expiry trap); Profil Championa silently fails |
 | Delivery | Klienci (158)+7 tabów, Moi/relacje, Kontrakty, Kontraktorzy | Sample 1 klient (Nordea) wszystkie taby |
 | Candidate profile | 10+ tabów per kandydat | Sample Adrian Pelc tabs Profil/Notatki/Pliki; reszta empty dla nowych |
 | Insights | 3 taby (Rekrutacja/Klienci/Zarząd) | URL `?tab=` pattern działa; date filtry mogą crashować (BUG #V tu znaleziony) |

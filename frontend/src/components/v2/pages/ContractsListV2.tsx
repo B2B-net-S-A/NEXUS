@@ -437,7 +437,7 @@ export function ContractsListV2() {
  />
  </TableHead>
  <TableHead>Kandydat</TableHead>
- <TableHead>Klient · Oferta</TableHead>
+ <TableHead>Klient · Rekrutacja</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Typ</TableHead>
  {canSeeFinance && (

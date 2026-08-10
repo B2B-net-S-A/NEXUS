@@ -263,7 +263,7 @@ function JobsTable({
  <Table>
  <TableHeader>
  <TableRow className="hover:bg-transparent">
- <TableHead>Oferta</TableHead>
+ <TableHead>Rekrutacja</TableHead>
  <TableHead>Klient</TableHead>
  <TableHead>Status</TableHead>
  <TableHead>Rekruter prowadzący</TableHead>
@@ -499,17 +499,17 @@ export function JobsListV2() {
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
  <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
- Pipeline · Oferty
+ Pipeline · Rekrutacje
  </p>
  <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
- Oferty pracy
+ Rekrutacje
  </h1>
  <p className="text-sm text-muted-foreground mt-1" aria-live="polite">
  {isLoading
  ?"Ładowanie…"
  : failed
  ?"Nie udało się pobrać listy"
- : `${total} ofert`}
+ : `${total} rekrutacji`}
  </p>
  </div>
  <div className="flex items-center gap-2">
@@ -517,7 +517,7 @@ export function JobsListV2() {
  <div
  className="flex items-center rounded-md border border-border overflow-hidden"
  role="group"
- aria-label="Widok ofert"
+ aria-label="Widok rekrutacji"
  >
  <button
  type="button"
@@ -549,7 +549,7 @@ export function JobsListV2() {
  {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
  {canCreateJob && (
  <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
- <Plus className="h-4 w-4" /> Nowa oferta
+ <Plus className="h-4 w-4" /> Nowa rekrutacja
  </Button>
  )}
  </div>
@@ -704,7 +704,7 @@ export function JobsListV2() {
  setNeedsSourcing((p) => !p);
  setPage(1);
  }}
- title="Tylko oferty oznaczone jako wymagające sourcingu"
+ title="Tylko rekrutacje oznaczone jako wymagające sourcingu"
  >
  Potrzebny search
  </FilterToggle>
@@ -714,7 +714,7 @@ export function JobsListV2() {
  setActiveInSearch((p) => !p);
  setPage(1);
  }}
- title="Tylko oferty z aktywnym rekruterem w sourcingu"
+ title="Tylko rekrutacje z aktywnym rekruterem w sourcingu"
  >
  Aktywni w searchu
  </FilterToggle>
@@ -754,7 +754,7 @@ export function JobsListV2() {
  state={viewState as "forbidden" | "not_found" | "error"}
  description={
  viewState === "forbidden"
- ?"Twoja rola nie ma dostępu do listy ofert. Lista NIE jest pusta — poproś administratora o uprawnienia."
+ ?"Twoja rola nie ma dostępu do listy rekrutacji. Lista NIE jest pusta — poproś administratora o uprawnienia."
  : undefined
  }
  onRetry={() => void refetch()}
@@ -763,7 +763,7 @@ export function JobsListV2() {
  <div className="py-12 text-center">
  <Briefcase className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
- Brak ofert.{" "}
+ Brak rekrutacji.{" "}
  {canCreateJob && (
  <>
  <button

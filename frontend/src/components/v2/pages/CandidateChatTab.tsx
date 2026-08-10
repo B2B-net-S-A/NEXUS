@@ -313,7 +313,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
         <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
         <p className="text-sm text-muted-foreground max-w-sm">
           Czat tego kandydata jest dostępny tylko dla osób zaangażowanych w jego
-          rekrutacje (twórca profilu, rekruter/DL/TAC oferty lub jej
+          rekrutacje (twórca profilu, rekruter/DL/TAC rekrutacji lub jej
           współpracownik).
         </p>
       </div>

@@ -470,7 +470,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive"
  title={[
- `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej oferty"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
+ `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej rekrutacji"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
  `Powód: ${item.hm_veto.rejection_reason_name}`,
  item.hm_veto.source_job_title
  ? `Rekrutacja: ${item.hm_veto.source_job_title}`
@@ -1730,7 +1730,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  <DialogDescription>
  {`${hiredConfirm.item.name ??""} ${hiredConfirm.item.lastname ??""}`.trim() ||"Kandydat"}{" "}
  trafi na etap „Zatrudniony”. System utworzy szkic kontraktu i
- zamówienia dla tej oferty.
+ zamówienia dla tej rekrutacji.
  </DialogDescription>
  </DialogHeader>
  <DialogFooter>
@@ -1815,7 +1815,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  <span className="font-medium text-foreground">
  {`${pendingRemoval.name ??""} ${pendingRemoval.lastname ??""}`.trim() ||"Kandydat"}
  </span>{" "}
- zostanie zdjęty z pipeline'u tej oferty. Usunięta zostanie cała
+ zostanie zdjęty z pipeline'u tej rekrutacji. Usunięta zostanie cała
  historia jego etapów wraz z powiązanymi snapshotami CV
  (oryginalne/brandowane) i linkami do udostępnień. Tej operacji nie
  można cofnąć — kandydata można jednak dodać do rekrutacji ponownie.

@@ -383,7 +383,7 @@ async def move_candidate(
             status_code=422,
             detail=(
                 f"Etap '{stage_def.name}' należy do innego template'u niż "
-                "template tej oferty."
+                "template tej rekrutacji."
             ),
         )
     if (
@@ -597,7 +597,7 @@ async def move_candidate(
         ):
             raise HTTPException(
                 status_code=422,
-                detail="Powód odrzucenia należy do innego template'u niż oferta.",
+                detail="Powód odrzucenia należy do innego template'u niż rekrutacja.",
             )
         expected_category = (
             stage_def.terminal_type.value
@@ -871,7 +871,7 @@ async def move_candidate(
                         ),
                         message=(
                             f"Kandydat {cand_name} został zatrudniony na "
-                            f"ofertę '{job.title}' (#{job.id}). Uzupełnij stawki, "
+                            f"rekrutację '{job.title}' (#{job.id}). Uzupełnij stawki, "
                             "daty i wgraj PDF zamówienia."
                         ),
                         link=f"/clients/{job.client_id}?tab=zamowienia",

@@ -128,7 +128,7 @@ async def rate_scoring_justification(
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail="Najpierw wygeneruj uzasadnienie dla tej pary kandydat–oferta.",
+            detail="Najpierw wygeneruj uzasadnienie dla tej pary kandydat–rekrutacja.",
         )
 
     if payload.rating == 0:

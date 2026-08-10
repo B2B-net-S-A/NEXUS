@@ -3648,7 +3648,7 @@ async def remove_candidate_from_recruitment(
     if not stage_rows:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Brak rekrutacji dla tego kandydata i tej oferty.",
+            detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
         )
 
     # Resource scope: to najbardziej destrukcyjna trasa w module — kasuje

@@ -149,7 +149,7 @@ export function DopasowanieTab({
           Brak rekrutacji do oceny
         </p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Przypisz kandydata do oferty (przycisk „Przypisz do oferty"), aby AI
+          Przypisz kandydata do rekrutacji (przycisk „Przypisz do rekrutacji"), aby AI
           mogło policzyć i uzasadnić dopasowanie.
         </p>
       </div>
@@ -172,7 +172,7 @@ export function DopasowanieTab({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex min-w-0 items-center gap-2 text-sm">
           <span className="shrink-0 font-medium text-muted-foreground">
-            Oferta:
+            Rekrutacja:
           </span>
           <select
             value={jobId ?? ""}
@@ -181,7 +181,7 @@ export function DopasowanieTab({
           >
             {jobs.map((j) => (
               <option key={j.job_id} value={j.job_id}>
-                {j.job_title || `Oferta #${j.job_id}`}
+                {j.job_title || `Rekrutacja #${j.job_id}`}
               </option>
             ))}
           </select>

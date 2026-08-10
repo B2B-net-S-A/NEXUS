@@ -135,7 +135,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  )}
  </div>
  <DialogDescription>
- Popraw sugestie AI zanim zapiszesz do oferty.
+ Popraw sugestie AI zanim zapiszesz do rekrutacji.
  </DialogDescription>
  </DialogHeader>
 

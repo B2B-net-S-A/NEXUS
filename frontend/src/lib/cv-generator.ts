@@ -54,17 +54,17 @@ export const CV_CONTENT_MODES: readonly CvContentModeOption[] = [
     value: "basic",
     label: "Przepisanie",
     description:
-      "Tylko fakty z CV kandydata, bez obróbki językowej i bez dopasowania do oferty.",
+      "Tylko fakty z CV kandydata, bez obróbki językowej i bez dopasowania do rekrutacji.",
   },
   {
     value: "polished",
     label: "Redakcja",
     description:
-      "Te same fakty, poprawiony język i uporządkowana terminologia. Bez dopasowania do oferty.",
+      "Te same fakty, poprawiony język i uporządkowana terminologia. Bez dopasowania do rekrutacji.",
   },
   {
     value: "tailored",
-    label: "Pod ofertę",
+    label: "Pod rekrutację",
     description:
       "Treść ułożona pod wymagania z ogłoszenia: kolejność, akcenty i wyróżnienia.",
     caution: "Nie używaj dla klientów wymagających profili nieprofilowanych.",

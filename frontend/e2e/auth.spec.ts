@@ -23,6 +23,6 @@ test.describe("Authentication", () => {
     await page.getByRole("button", { name: /zaloguj|sign in|login/i }).click();
     // After login should land on dashboard
     await expect(page).toHaveURL(/\/(?:$|dashboard)/, { timeout: 15_000 });
-    await expect(page.getByText(/Dashboard|Kandydaci|Oferty/).first()).toBeVisible();
+    await expect(page.getByText(/Dashboard|Kandydaci|Rekrutacje/).first()).toBeVisible();
   });
 });

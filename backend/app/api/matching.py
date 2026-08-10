@@ -248,7 +248,7 @@ async def get_ai_matches(
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
-        raise HTTPException(status_code=404, detail="Oferta pracy nie istnieje")
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
 
     query_text = _build_job_query(job)
     required_skills = _parse_required_skills(job)
