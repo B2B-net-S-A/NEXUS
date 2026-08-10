@@ -238,6 +238,12 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/embed-diagnostics"),
     ("GET", "/api/entity-schema/{entity_type}"),
     ("GET", "/api/fx"),
+    # Biblioteka linków do dokumentów firmowych (SharePoint) — odczyt dla
+    # każdego zalogowanego jest zamierzonym kontraktem, bliźniaczo do
+    # /api/procedures niżej. Brak PII; szkice (`is_published=false`) i tak są
+    # odcinane po stronie serwera, niezależnie od parametru klienta. Zapisy
+    # (POST/PUT/DELETE) mają pełną bramkę AdminUser.
+    ("GET", "/api/help-materials"),
     ("GET", "/api/interview-questions"),
     ("GET", "/api/interview-questions/{question_id}"),
     ("GET", "/api/invite-links"),

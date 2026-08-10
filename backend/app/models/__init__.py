@@ -118,6 +118,7 @@ from app.models.pipeline_template import (
 from app.models.saved_search import SavedSearch, MatchHistory
 from app.models.saved_search_alert_log import SavedSearchAlertLog  # noqa: F401
 from app.models.procedure import Procedure
+from app.models.help_material import HelpMaterial
 from app.models.proposal_snapshot import ProposalSnapshot
 from app.models.champion_suggestion import (
     ChampionProfileSuggestion,
@@ -366,6 +367,7 @@ __all__ = [
     "MatchHistory",
     "SavedSearchAlertLog",
     "Procedure",
+    "HelpMaterial",
     "ProposalSnapshot",
     "ChampionProfileSuggestion",
     "SuggestionSource",
