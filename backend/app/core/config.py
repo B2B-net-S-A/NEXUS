@@ -819,6 +819,13 @@ class Settings(BaseSettings):
     # POST /api/admin/traffit/sync?mode=full repeatedly instead of waiting a week
     # per slice. At the default the whole base is covered in ~5 full runs.
     TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 10000
+    # Same idea for the `"? ?"` name-recovery sweep, but a much tighter budget:
+    # every row costs an LLM call, and the selection is NOT self-clearing (a CV
+    # that yields no name stays `"?"`), so an unbounded pass would re-pay for the
+    # same `ORDER BY id` prefix forever and never reach the tail. Budgeted +
+    # resumable via an `after_id` cursor, full reconcile only — delta already
+    # scopes itself to the rows it just touched.
+    TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
 
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only

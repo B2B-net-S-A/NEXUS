@@ -313,6 +313,7 @@ async def backfill_missing_names(
     *,
     limit: Optional[int] = None,
     since: Optional[datetime] = None,
+    after_id: Optional[int] = None,
     dry_run: bool = False,
     prefer_llm: bool = True,
     progress: Optional[dict[str, Any]] = None,
@@ -322,12 +323,28 @@ async def backfill_missing_names(
     Commits per candidate so a long run is resumable and partial progress
     survives a container restart. ``since`` scopes to recently-touched rows
     (used by the sync prevention phase); omit it for a full backfill.
+
+    ``after_id`` resumes an unfinished sweep. It matters because this selection
+    is NOT self-clearing: a candidate whose CV yields no name stays ``"?"``
+    forever, so an unbounded ``ORDER BY id`` run re-pays for the same prefix on
+    every pass — one LLM call each — and never reaches the tail. Pair it with
+    ``limit`` and persist ``stats["last_id"]`` to walk the whole set across runs.
+
+    Returns ``last_id`` (highest id considered, for the caller's cursor) and
+    ``error_ids`` (rows that raised) so the caller can report attributable
+    per-row errors instead of an opaque count.
     """
     since_clause = "AND updated_at >= :since" if since is not None else ""
+    # `is not None`, not truthiness — and the param binding below must use the
+    # SAME test, or an explicit `after_id=0` would emit the clause with no bound
+    # parameter and blow up at execute time.
+    after_clause = "AND id > :after_id" if after_id is not None else ""
     limit_clause = "LIMIT :limit" if limit is not None else ""
     params: dict[str, Any] = {}
     if since is not None:
         params["since"] = since
+    if after_id is not None:
+        params["after_id"] = after_id
     if limit is not None:
         params["limit"] = limit
 
@@ -338,6 +355,7 @@ async def backfill_missing_names(
             WHERE external_source = 'traffit'
               AND (name = '?' OR lastname = '?')
               {since_clause}
+              {after_clause}
             ORDER BY id
             {limit_clause}
             """
@@ -352,6 +370,8 @@ async def backfill_missing_names(
         "resolved": 0,
         "unresolved": 0,
         "errors": 0,
+        "error_ids": [],
+        "last_id": ids[-1] if ids else None,
     }
     if progress is not None:
         progress.update(stats)
@@ -375,6 +395,10 @@ async def backfill_missing_names(
         except Exception as e:  # noqa: BLE001
             await db.rollback()
             stats["errors"] += 1
+            # Keep the id: the sync phase turns these into attributable
+            # per-row errors so the quarantine can park a permanently broken
+            # candidate instead of freezing the watermark for everyone.
+            stats["error_ids"].append(cand_id)
             logger.warning("[cv_backfill] candidate %s failed: %s", cand_id, e)
         stats["processed"] += 1
         if progress is not None:
