@@ -80,9 +80,11 @@ const CONTROL_CHARS_RE = /[\u0000-\u001F\u007F]/g;
 export function safeExternalHref(rawUrl: string): string | null {
   // Przeglądarki historycznie usuwały znaki sterujące z href PRZED
   // interpretacją schematu, więc "java\nscript:" potrafiło się wykonać.
-  // Schemat oceniamy na wersji oczyszczonej, renderujemy oryginał.
+  // Oceniamy i renderujemy TĘ SAMĄ wartość — oczyszczoną. Zwracanie oryginału
+  // znaczyłoby, że sprawdzamy jeden ciąg, a do DOM-u wkładamy inny; skoro seed
+  // wchodzi surowym SQL-em z pominięciem Pydantica, ta różnica jest nośna.
   const cleaned = rawUrl.trim().replace(CONTROL_CHARS_RE, "");
-  return /^https?:\/\//i.test(cleaned) ? rawUrl : null;
+  return /^https?:\/\//i.test(cleaned) ? cleaned : null;
 }
 
 /**
