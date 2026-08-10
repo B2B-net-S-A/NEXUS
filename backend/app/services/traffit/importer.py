@@ -96,6 +96,14 @@ _ERROR_REF_RE = re.compile(r"\b(\w+)\s+(?:ext|id)=([^\s:,]+)")
 # row and quarantine is the wrong tool anyway.
 _MAX_ERROR_REFS = 500
 
+# HTTP answers that mean "the record no longer exists upstream". Neither is a
+# failure: retrying cannot change either one, so both are counted into
+# `gone_upstream` and never recorded as errors. Traffit answers 404 today
+# (confirmed on prod); 410 is the status an API is supposed to use for a
+# deletion it still remembers, so a tenant that starts distinguishing the two
+# would otherwise start freezing watermarks the same way 404 used to.
+_GONE_STATUS_CODES = frozenset({404, 410})
+
 # Phase row that carries the files sweep's resume cursor. This is the
 # ORCHESTRATOR's phase-plan name (``app/tasks/traffit_sync.py::_phase_plan``),
 # deliberately not ``PhaseProgress.phase`` for this phase ("candidates_files") —
@@ -1851,7 +1859,7 @@ class TraffitImporter:
                 files_resp = await self.traffit._get_raw(  # noqa: SLF001
                     f"/employees/{traffit_id}/files", page=1, page_size=50
                 )
-                if files_resp.status_code == 404:
+                if files_resp.status_code in _GONE_STATUS_CODES:
                     # Deleted in Traffit. "Gone" is an ANSWER, not a failure —
                     # retrying cannot change it. Recording it as an error was
                     # doubly wrong: the old message carried no `ext=`/`id=`, so
@@ -1896,7 +1904,7 @@ class TraffitImporter:
                     url,
                     headers={"Authorization": f"Bearer {token}"},
                 )
-                if content_resp.status_code == 404:
+                if content_resp.status_code in _GONE_STATUS_CODES:
                     # File removed in Traffit between listing and fetch.
                     progress.gone_upstream += 1
                     continue
@@ -2278,7 +2286,7 @@ class TraffitImporter:
                 files_resp = await self.traffit._get_raw(  # noqa: SLF001
                     f"/employees/{traffit_id}/files", page=1, page_size=50
                 )
-                if files_resp.status_code == 404:
+                if files_resp.status_code in _GONE_STATUS_CODES:
                     # Deleted in Traffit. "Gone" is an ANSWER, not a failure —
                     # retrying cannot change it. Recording it as an error was
                     # doubly wrong: the old message carried no `ext=`/`id=`, so
@@ -2333,7 +2341,7 @@ class TraffitImporter:
                         url,
                         headers={"Authorization": f"Bearer {token}"},
                     )
-                    if content_resp.status_code == 404:
+                    if content_resp.status_code in _GONE_STATUS_CODES:
                         # File removed in Traffit between listing and fetch.
                         progress.gone_upstream += 1
                         continue

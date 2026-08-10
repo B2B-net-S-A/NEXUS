@@ -98,7 +98,8 @@ async def test_404_is_counted_not_errored(monkeypatch) -> None:
 
     monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 10)
     db = _FakeDB([(1, "6421"), (2, "50939"), (3, "777")])
-    traffit = _StatusTraffit({"6421": 404, "50939": 404})
+    # 410 must count the same as 404 — both mean "deleted at source".
+    traffit = _StatusTraffit({"6421": 404, "50939": 410})
 
     progress = await _importer(db, traffit).import_candidates_cv(since=None)
 
