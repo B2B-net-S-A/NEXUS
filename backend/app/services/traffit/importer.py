@@ -1868,6 +1868,13 @@ class TraffitImporter:
                 await self._write_sync_cursor(
                     cursor_phase, {"after_id": stats["last_id"]}
                 )
+            else:
+                # Unreachable with the current backfill (`last_id = ids[-1]` is
+                # always set once `total_source >= 1`), but leaving the cursor
+                # untouched here would park the sweep on a stale position
+                # forever — the exact no-op failure this phase is being fixed
+                # for. Clearing costs one re-swept pass; silence costs the tail.
+                await self._clear_sync_cursor(cursor_phase)
             await self.db.commit()
 
         progress.finished_at = datetime.now(timezone.utc)

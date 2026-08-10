@@ -335,12 +335,15 @@ async def backfill_missing_names(
     per-row errors instead of an opaque count.
     """
     since_clause = "AND updated_at >= :since" if since is not None else ""
-    after_clause = "AND id > :after_id" if after_id else ""
+    # `is not None`, not truthiness — and the param binding below must use the
+    # SAME test, or an explicit `after_id=0` would emit the clause with no bound
+    # parameter and blow up at execute time.
+    after_clause = "AND id > :after_id" if after_id is not None else ""
     limit_clause = "LIMIT :limit" if limit is not None else ""
     params: dict[str, Any] = {}
     if since is not None:
         params["since"] = since
-    if after_id:
+    if after_id is not None:
         params["after_id"] = after_id
     if limit is not None:
         params["limit"] = limit
