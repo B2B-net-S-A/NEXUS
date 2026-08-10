@@ -90,6 +90,24 @@ def test_record_marker_survives_a_list(monkeypatch) -> None:
     assert candidate.cv_extracted_data["_cv_text_extraction"]["outcome"] == "empty"
 
 
+def test_cv_enrichment_survives_a_list() -> None:
+    """`_apply_cv_enrichment` is on the sync path too — reached from the
+    `candidates_enrich_names` phase via `cv_backfill.backfill_missing_names`,
+    not by a direct import in `importer.py`. That phase targets rows whose name
+    is still "?", i.e. precisely the messiest records, so it is the LAST place
+    that should assume this column is an object."""
+    from app.services.cv_enrichment import _apply_cv_enrichment
+
+    candidate = Candidate(name="?", lastname="?")
+    candidate.cv_extracted_data = _LIST_PAYLOAD
+
+    _apply_cv_enrichment(candidate, {"first_name": "Jan", "last_name": "Kowalski"})
+
+    assert candidate.name == "Jan"
+    assert candidate.lastname == "Kowalski"
+    assert isinstance(candidate.cv_extracted_data, dict)
+
+
 class _OneEmployee:
     """Serves exactly one Traffit employee, with a city so the location writer
     (and therefore `_manual_lock`) is actually reached."""
