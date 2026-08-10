@@ -737,16 +737,34 @@ class TraffitImporter:
         )
         return {ext: nid for nid, ext in result.all() if ext is not None}
 
+    async def _probe_total(self, path: str, phase: str) -> int:
+        """Best-effort ``total_source`` probe. Never gates the phase.
+
+        ``total_source`` is INFORMATIONAL — it only feeds the progress
+        percentage in logs. Until 2026-08-10 nine phases wrapped this call in a
+        try/except that recorded an error and RETURNED, so one flaky count call
+        meant ZERO records imported that night for candidates, jobs, pipelines,
+        sources and the master-data phases alike.
+
+        Worse, the message carries no ``ext=``/``id=``, so it is unattributable:
+        ``_blocking_errors`` counts unattributable errors as blocking and the
+        quarantine has no row to park, which means a persistently failing probe
+        froze the delta watermark forever and pinned ``checks.traffit`` to
+        ``degraded`` — with no records to show for it. ``candidate_activities``
+        was already exempted from this trap (with that reasoning written out);
+        this helper extends the same rule to the remaining phases.
+        """
+        try:
+            return await self.traffit.total_count(path)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("%s total_count probe failed: %r", phase, e)
+            return 0
+
     # ── Phase: clients ──────────────────────────────────────────────────────
 
     async def import_clients(self) -> PhaseProgress:
         progress = PhaseProgress(phase="clients", started_at=datetime.now(timezone.utc))
-        try:
-            progress.total_source = await self.traffit.total_count("/clients/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/clients/", "Clients")
 
         async for raw in self.traffit.get_paginated(
             "/clients/", page_size=self.batch_size
@@ -790,12 +808,7 @@ class TraffitImporter:
         progress = PhaseProgress(
             phase="contacts", started_at=datetime.now(timezone.utc)
         )
-        try:
-            progress.total_source = await self.traffit.total_count("/crm_persons/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/crm_persons/", "Contacts")
 
         client_map = await self._build_client_external_id_map()
         orphan_id = await self._ensure_orphan_client()
@@ -913,12 +926,7 @@ class TraffitImporter:
         co umożliwia poprawną atrybucję re-runu activities/pipelines.
         """
         progress = PhaseProgress(phase="users", started_at=datetime.now(timezone.utc))
-        try:
-            progress.total_source = await self.traffit.total_count("/users/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/users/", "Users")
 
         # Pre-load istniejących Nexus users `email → id` (case-insensitive)
         result = await self.db.execute(
@@ -1010,12 +1018,7 @@ class TraffitImporter:
         progress = PhaseProgress(
             phase="workflows", started_at=datetime.now(timezone.utc)
         )
-        try:
-            progress.total_source = await self.traffit.total_count("/workflows/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/workflows/", "Workflows")
 
         async for raw in self.traffit.get_paginated(
             "/workflows/", page_size=self.batch_size
@@ -1144,12 +1147,7 @@ class TraffitImporter:
         progress = PhaseProgress(
             phase="candidates", started_at=datetime.now(timezone.utc)
         )
-        try:
-            progress.total_source = await self.traffit.total_count("/employees/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/employees/", "Candidates")
 
         user_map = await self.build_user_id_map()
         logger.info("Candidates: user_id_map size=%d", len(user_map))
@@ -1379,12 +1377,7 @@ class TraffitImporter:
 
     async def import_jobs(self, since: Optional[datetime] = None) -> PhaseProgress:
         progress = PhaseProgress(phase="jobs", started_at=datetime.now(timezone.utc))
-        try:
-            progress.total_source = await self.traffit.total_count("/recruitments/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/recruitments/", "Jobs")
 
         client_map = await self._build_client_external_id_map()
         workflow_map = await self._build_workflow_external_id_map()
@@ -1483,12 +1476,7 @@ class TraffitImporter:
 
     async def import_talents(self) -> PhaseProgress:
         progress = PhaseProgress(phase="talents", started_at=datetime.now(timezone.utc))
-        try:
-            progress.total_source = await self.traffit.total_count("/talents/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/talents/", "Talents")
 
         user_map = await self.build_user_id_map()
 
@@ -2201,14 +2189,9 @@ class TraffitImporter:
         progress = PhaseProgress(
             phase="pipelines", started_at=datetime.now(timezone.utc)
         )
-        try:
-            progress.total_source = await self.traffit.total_count(
-                "/employees/recruitment_history"
-            )
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total(
+            "/employees/recruitment_history", "Pipelines"
+        )
 
         cand_map = await self._build_candidate_external_id_map()
         job_map = await self._build_job_external_id_map()
@@ -2795,12 +2778,7 @@ class TraffitImporter:
         progress = PhaseProgress(
             phase="candidate_sources", started_at=datetime.now(timezone.utc)
         )
-        try:
-            progress.total_source = await self.traffit.total_count("/sources/")
-        except Exception as e:  # noqa: BLE001
-            progress.add_error(f"total_count failed: {e!r}")
-            progress.finished_at = datetime.now(timezone.utc)
-            return progress
+        progress.total_source = await self._probe_total("/sources/", "Sources")
 
         cand_map = await self._build_candidate_external_id_map()
 
