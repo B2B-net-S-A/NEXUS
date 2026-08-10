@@ -1038,7 +1038,7 @@ class JobScoringContext:
 
 
 async def build_job_scoring_context(
-    db, job, candidate_ids: Sequence[int]
+    db: AsyncSession, job: Job, candidate_ids: Sequence[int]
 ) -> JobScoringContext:
     """Fetch both per-pair inputs for a whole pool in two queries."""
     from app.models.recruitment_pipeline import CandidateStage
