@@ -229,6 +229,67 @@ async def test_search_matches_title_and_content(proc_client, admin_headers):
     assert any(f"Procedura płatności {unique}" in t for t in titles2)
 
 
+@pytest.mark.asyncio
+async def test_search_terms_may_match_different_fields(proc_client, admin_headers):
+    """Każde słowo musi trafić, ale nie muszą trafiać w to samo pole.
+
+    Rekruter pamięta „offboarding" z tytułu i „sprzęt" z treści — wpisuje oba
+    i musi dostać tę procedurę.
+    """
+    unique = uuid.uuid4().hex[:6]
+    created = await proc_client.post(
+        "/api/procedures",
+        headers=admin_headers,
+        json={
+            "title": f"Offboarding {unique}",
+            "content": "zwrot sprzętu i odcięcie dostępów",
+        },
+    )
+    assert created.status_code == 201
+
+    resp = await proc_client.get(
+        "/api/procedures",
+        headers=admin_headers,
+        params={"q": f"offboarding sprzętu {unique}"},
+    )
+    assert resp.status_code == 200
+    assert any(f"Offboarding {unique}" in p["title"] for p in resp.json())
+
+    # Słowo, którego nie ma w ŻADNYM polu, musi wykluczyć wiersz (AND, nie OR).
+    miss = await proc_client.get(
+        "/api/procedures",
+        headers=admin_headers,
+        params={"q": f"offboarding {unique} inwentaryzacja"},
+    )
+    assert miss.status_code == 200
+    assert not any(f"Offboarding {unique}" in p["title"] for p in miss.json())
+
+
+@pytest.mark.asyncio
+async def test_search_wildcards_are_literal_characters(proc_client, admin_headers):
+    """`%` i `_` z wejścia to ZNAKI, nie operatory LIKE.
+
+    Bez escapowania `%` dawało wzorzec pasujący do wszystkiego — użytkownik
+    zamiast pustego wyniku dostawał całą bazę i uznawał wyszukiwarkę za zepsutą.
+    """
+    unique = uuid.uuid4().hex[:6]
+    created = await proc_client.post(
+        "/api/procedures",
+        headers=admin_headers,
+        json={"title": f"Rekrutacja {unique}", "content": "bez znaków specjalnych"},
+    )
+    assert created.status_code == 201
+
+    for wildcard in ("%", "_"):
+        resp = await proc_client.get(
+            "/api/procedures", headers=admin_headers, params={"q": wildcard}
+        )
+        assert resp.status_code == 200
+        assert not any(f"Rekrutacja {unique}" in p["title"] for p in resp.json()), (
+            f"{wildcard!r} zadziałał jako operator LIKE, nie jako znak"
+        )
+
+
 # ── published_only ──────────────────────────────────────────────────────────
 
 

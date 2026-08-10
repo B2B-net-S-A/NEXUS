@@ -103,6 +103,34 @@ def _is_admin(user) -> bool:
     return user.has_role(UserRole.admin)
 
 
+def _escaped_like_pattern(value: str) -> str:
+    """Wzorzec ILIKE, w którym `%` i `_` z wejścia są ZNAKAMI, nie operatorami.
+
+    Bez tego wpisanie `%` dawało wzorzec pasujący do każdego wiersza — zamiast
+    „Brak wyników" użytkownik dostawał całą bazę i wnioskował, że wyszukiwarka
+    nie działa. Ta sama poprawka co w ``clients.py``, ``b2b_contract_generator.py``
+    i ``help_materials.py``.
+    """
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+# Zapytanie dłuższe niż to i tak nie zawęża wyników w sensowny sposób, a każdy
+# token to osobny ILIKE po skanowanej tabeli — ucinamy wklejone ściany tekstu.
+_MAX_SEARCH_TERMS = 10
+
+
+def _search_terms(q: str) -> list[str]:
+    """Dzieli zapytanie na słowa; każde musi trafić (AND), nie cała fraza.
+
+    Wyszukiwanie było dopasowaniem jednej frazy, więc „onboarding klienta"
+    znajdowało procedurę „Onboarding klienta X", ale „onboarding X" już nie —
+    słowo „klienta" w środku tytułu rozbijało dopasowanie. Użytkownik wpisujący
+    dwa pamiętane słowa dostawał pustkę i wnioskował, że procedury nie ma.
+    """
+    return q.split()[:_MAX_SEARCH_TERMS]
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -124,10 +152,14 @@ async def list_procedures(
         stmt = stmt.where(Procedure.is_published.is_(True))
 
     if q:
-        pattern = f"%{q.strip()}%"
-        stmt = stmt.where(
-            or_(Procedure.title.ilike(pattern), Procedure.content.ilike(pattern))
-        )
+        for term in _search_terms(q):
+            pattern = _escaped_like_pattern(term)
+            stmt = stmt.where(
+                or_(
+                    Procedure.title.ilike(pattern, escape="\\"),
+                    Procedure.content.ilike(pattern, escape="\\"),
+                )
+            )
 
     stmt = stmt.order_by(Procedure.sort_order.desc(), Procedure.updated_at.desc())
     result = await db.execute(stmt)

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from"react";
+import { useCallback, useEffect, useMemo, useState } from"react";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  BookOpen,
  Eye,
  EyeOff,
  HelpCircle,
+ Library,
  Pencil,
  Plus,
  Search,
@@ -25,9 +26,24 @@ import {
  proceduresApi,
 } from"@/lib/api/procedures";
 import { ProcedureEditorModal } from"@/components/v2/modals/ProcedureEditorModal";
+import { TabsContent } from"@/components/ui/tabs";
+import { TabbedNav, TabbedNavItem } from"@/components/ds/TabbedNav";
+import { HelpMaterial } from"@/lib/api/help-materials";
+import { HelpMaterialsSection } from"@/components/v2/pages/HelpMaterialsSection";
+import { HelpMaterialEditorModal } from"@/components/v2/modals/HelpMaterialEditorModal";
+
+type HelpTab ="procedures" |"materials";
+
+const HELP_TABS: TabbedNavItem[] = [
+ { value:"procedures", label:"Procedury", icon: BookOpen },
+ { value:"materials", label:"Materiały", icon: Library },
+];
 
 /**
- * Help / FAQ z procedurami — wewnętrzna baza wiedzy (SOP) dla zespołu.
+ * Pomoc — wewnętrzna baza wiedzy dla zespołu, dwie zakładki:
+ *  · Procedury (SOP) — treść trzymana i renderowana w NEXUSie,
+ *  · Materiały — biblioteka LINKÓW do dokumentów w SharePoincie (NEXUS ich
+ *    nie hostuje; tam są natywnie edytowalne w Word Online).
  * Widoczna dla wszystkich zalogowanych; edycja tylko dla roli `admin`.
  */
 export function HelpPageV2() {
@@ -41,6 +57,10 @@ export function HelpPageV2() {
  const [editorOpen, setEditorOpen] = useState(false);
  const [editorTarget, setEditorTarget] = useState<Procedure | null>(null);
  const [toast, setToast] = useState<string | null>(null);
+ const [activeTab, setActiveTab] = useState<HelpTab>("procedures");
+ const [materialEditorOpen, setMaterialEditorOpen] = useState(false);
+ const [materialEditorTarget, setMaterialEditorTarget] = useState<HelpMaterial | null>(null);
+ const [materialCategories, setMaterialCategories] = useState<string[]>([]);
 
  useEffect(() => {
  const handle = setTimeout(() => setDebouncedQuery(rawQuery), 250);
@@ -107,6 +127,16 @@ export function HelpPageV2() {
  deleteMutation.mutate(proc.id);
  };
 
+ const openMaterialEditor = (target: HelpMaterial | null) => {
+ setMaterialEditorTarget(target);
+ setMaterialEditorOpen(true);
+ };
+
+ // Stabilna referencja — sekcja woła to z useEffect.
+ const handleMaterialCategories = useCallback((categories: string[]) => {
+ setMaterialCategories(categories);
+ }, []);
+
  const statsText = useMemo(() => {
  if (listQuery.isLoading) return"Ładowanie…";
  if (items.length === 0) return"Brak procedur";
@@ -122,13 +152,15 @@ export function HelpPageV2() {
  System · Pomoc
  </p>
  <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
- FAQ z procedurami
+ Pomoc
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Wewnętrzna baza wiedzy: procedury (SOP), checklisty, FAQ zespołowe.
+ Wewnętrzna baza wiedzy: procedury (SOP), checklisty, FAQ zespołowe
+ oraz materiały firmowe.
  </p>
  </div>
- {isAdmin && (
+ {isAdmin &&
+ (activeTab ==="procedures" ? (
  <Button
  size="sm"
  variant="primary"
@@ -139,9 +171,24 @@ export function HelpPageV2() {
  >
  <Plus className="h-4 w-4" /> Dodaj procedurę
  </Button>
- )}
+ ) : (
+ <Button
+ size="sm"
+ variant="primary"
+ onClick={() => openMaterialEditor(null)}
+ >
+ <Plus className="h-4 w-4" /> Dodaj materiał
+ </Button>
+ ))}
  </div>
 
+ <TabbedNav
+ tabs={HELP_TABS}
+ value={activeTab}
+ onValueChange={(v) => setActiveTab(v as HelpTab)}
+ ariaLabel="Sekcje pomocy"
+ >
+ <TabsContent value="procedures">
  {/* Layout: list + content */}
  <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4">
  {/* Left: search + list */}
@@ -229,6 +276,18 @@ export function HelpPageV2() {
  )}
  </section>
  </div>
+ </TabsContent>
+
+ <TabsContent value="materials">
+ <HelpMaterialsSection
+ isAdmin={isAdmin}
+ onEdit={(material) => openMaterialEditor(material)}
+ onAdd={() => openMaterialEditor(null)}
+ onToast={showToast}
+ onCategoriesChange={handleMaterialCategories}
+ />
+ </TabsContent>
+ </TabbedNav>
 
  {editorOpen && (
  <ProcedureEditorModal
@@ -243,6 +302,25 @@ export function HelpPageV2() {
  setEditorTarget(null);
  setSelectedId(saved.id);
  showToast(editorTarget ?"Procedura zaktualizowana" :"Procedura dodana");
+ }}
+ />
+ )}
+
+ {materialEditorOpen && (
+ <HelpMaterialEditorModal
+ material={materialEditorTarget}
+ open={materialEditorOpen}
+ categorySuggestions={materialCategories}
+ onOpenChange={(v) => {
+ setMaterialEditorOpen(v);
+ if (!v) setMaterialEditorTarget(null);
+ }}
+ onSaved={() => {
+ setMaterialEditorOpen(false);
+ showToast(
+ materialEditorTarget ?"Materiał zaktualizowany" :"Materiał dodany"
+ );
+ setMaterialEditorTarget(null);
  }}
  />
  )}

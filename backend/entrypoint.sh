@@ -2830,6 +2830,31 @@ _COLUMN_STATEMENTS = [
     "ADD COLUMN IF NOT EXISTS input_fingerprint TEXT NULL",
     "ALTER TABLE proposal_snapshots "
     "ADD COLUMN IF NOT EXISTS stale BOOLEAN NOT NULL DEFAULT FALSE",
+    # 0218: materiały w zakładce Pomoc — biblioteka LINKÓW do dokumentów w
+    # SharePoincie (NEXUS ich nie hostuje). Bez tej tabeli GET
+    # /api/help-materials => UndefinedTableError (500).
+    """CREATE TABLE IF NOT EXISTS help_materials (
+        id SERIAL PRIMARY KEY,
+        slug VARCHAR(255) NOT NULL UNIQUE,
+        category VARCHAR(255) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        url TEXT NOT NULL,
+        description TEXT,
+        is_editable_template BOOLEAN NOT NULL DEFAULT FALSE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_published BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_help_materials_slug "
+    "ON help_materials (slug)",
+    "CREATE INDEX IF NOT EXISTS ix_help_materials_category "
+    "ON help_materials (category)",
+    "CREATE INDEX IF NOT EXISTS ix_help_materials_sort_order "
+    "ON help_materials (sort_order)",
+    "CREATE INDEX IF NOT EXISTS ix_help_materials_id ON help_materials (id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -3333,6 +3358,329 @@ _DATA_STATEMENTS = [
            WHERE display_name = 'Ministerstwo Sprawiedliwości'
              AND hidden = false
        )""",
+    # ─────────────────────────────────────────────────────────────────────
+    # 0218: seed materiałów w zakładce Pomoc (26 pozycji — lustro _SEED_ROWS
+    # z migracji 0218). To EFEKTYWNY kanał seedowania proda: leci przy każdym
+    # boocie i jest rerun-safe (ON CONFLICT (slug) DO NOTHING), w odróżnieniu
+    # od migracji, której alembic nie powtórzy po zastosowaniu. Zmieniasz tu —
+    # zmień też w migracji, żeby oba kanały nie rozjechały się.
+    #
+    # is_editable_template = TRUE mają DOKŁADNIE 3 wiersze (nasze wzory:
+    # szablon umowy, profil Championa, notatka po screeningu) — FE dokłada im
+    # skrót „Edytuj w Word Online". Formularze klientów zawsze FALSE.
+    # ─────────────────────────────────────────────────────────────────────
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'szablon-umowy-b2b-2026',
+           'Szablony i wzory',
+           'Nowy szablon do Umowy B2B 2026.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQBYCLTZTfqoQIw5DkZA-cO9AVTZkGhqkY4tfhq5AGXgv3E?e=HmRSwm',
+           'Szablon do umowy', TRUE, 10, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'profil-championa-wzor',
+           'Szablony i wzory',
+           'Profil_Championa_WZÓR.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQAXQ2XHDxDdTY-sIuR1URcmASEIat4mo1UbzjlPGtowpF4?e=gY6p9K',
+           'Profil championa', TRUE, 20, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'notatka-po-screeningu-wzor',
+           'Szablony i wzory',
+           'Notatka po screeningu_WZÓR.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQAH82MUIw8NQIA_awLVQa-OAa3Sp9NH3uuJ2--0Zh2w_Yk?e=B4d1Ee',
+           'Notatka po screeningu', TRUE, 30, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'nordea-appendix-3-confidentiality',
+           'Onboarding — NORDEA',
+           'Appendix 3 (Confidentiality undertaking template).docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQCNrQioV9HRW5Cg2hPDrkvmAaoRkll4bOvCRtM9DVrguJY?e=hWCrNJ',
+           NULL, FALSE, 100, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'nordea-oswiadczenie-krk-2026',
+           'Onboarding — NORDEA',
+           'OŚWIADCZENIE o niekaralności KRK_2026.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQDkqOfMK4lFQLBAP5nReg_xATO6ea46CcWlOG28H2GjoOo?e=AeHgut',
+           NULL, FALSE, 110, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'bnp-cardif-zgoda-dane-osobowe',
+           'Onboarding — BNP CARDIF',
+           'Zgoda na przetwarzanie danych osobowych przez BNP_CPL (1).doc',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQBQzJjtYMnlTo61T78myddsAcbI62g1FlkFgO2weFZ-acc?e=kLgtvU',
+           NULL, FALSE, 200, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'bnp-paribas-oswiadczenie-zdalny-dostep',
+           'Onboarding — BNP Paribas Bank Polska',
+           'Oświadczenie_zdalny dostęp_Kontraktor BNP.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQBYka4c_dUyXrtKfSyBKh3tARHMTWrB_E_j7LCY3O2I2iE?e=DROMA9',
+           NULL, FALSE, 300, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'bank-pocztowy-oswiadczenie-niekaralnosci',
+           'Onboarding — Bank Pocztowy',
+           'Oświadczenie o niekaralności Bank Pocztowy.doc',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQDGbFJOOMiEWJl6Q5mRjahnAf4P_hvVBiHxAhgDkn4jt8M?e=hSNYsc',
+           NULL, FALSE, 400, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'bank-pocztowy-oswiadczenie-poufnosci',
+           'Onboarding — Bank Pocztowy',
+           'Oświadczenie o zachowaniu poufności.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQC5Pk2IFiJmVJYq8Wbe3snAAUibIPmUIMhXdS4ITVMhVGo?e=Jpm70p',
+           NULL, FALSE, 410, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'ergo-oswiadczenia-folder',
+           'Onboarding — ERGO',
+           'Oświadczenia (folder)',
+           'https://b2bnetsa.sharepoint.com/:f:/s/B2B_ALL/IgB4aG8FiGNCWIkwKfKEfFRQAalrkypJlOnZx5nf1QI9-_s?e=7DoJ7E',
+           NULL, FALSE, 500, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'ergo-opis-dokumentow-onboarding',
+           'Onboarding — ERGO',
+           'ERGO_opis dokumentów do podpisania przed onboardingiem.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQDlucxDIrS-Wo2W4VxrFLqUARzxom-pr3tedyLsaOd7Jw0?e=cfUxnJ',
+           NULL, FALSE, 510, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'pfron-oswiadczenie-bhp',
+           'Onboarding — PFRON',
+           'oswiadczenie bhp.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQBh6_04XLdNQKGgyoztq3nuAVscjlXYUdX3rtDDzHY08Ag?e=SuVP2a',
+           NULL, FALSE, 600, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'pfron-oswiadczenie-wzor',
+           'Onboarding — PFRON',
+           'oświadczenie_wzór.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQCSIrWRj3NfSr6qJqvUsosyARbm-LGN9VFG2ShtUpCx7fs?e=6ERa0W',
+           NULL, FALSE, 610, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'pfron-zalacznik-polityka-oswiadczenie',
+           'Onboarding — PFRON',
+           'załącznik do Polityki - oświadczenie.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQBh8IMyyPqGT5jG1rWpqPr-AdOkcdtDAhQRaFbz5pHsYqo?e=PYyXZi',
+           NULL, FALSE, 620, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'polkomtel-informacja-przetwarzanie-danych',
+           'Onboarding — POLKOMTEL',
+           'Informacja o przetwarzaniu danych osobowych.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQDoSxX3OKNiU7MK4E8bzIWfAfn7Fe6YDFBmo1NBesju4AY?e=8bGTaA',
+           NULL, FALSE, 700, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-zalacznik-1-zakres-uslug',
+           'Onboarding — TAURON',
+           'ZAŁĄCZNIK NR 1 Zakres usług.pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQBTNdLh2w4ISZoJmXNOee50AfWL8fNj-R9pBWsSANPbZL4?e=8xgiVe',
+           NULL, FALSE, 800, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-draft-umowy',
+           'Onboarding — TAURON',
+           'draft umowy Tauron.pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQCsLARwCnQ5Qbp0xKlhZRDJAUvCkm6RxKF7oc1ubBfOKOc?e=id9xUp',
+           NULL, FALSE, 810, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-zalacznik-2-raport-miesieczny',
+           'Onboarding — TAURON',
+           'ZAŁĄCZNIK NR 2 Raport Miesięczny — uproszczony.pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQDxLFIyvELvTajgG7nVN0HcAfWrBK2oS6ce460XAA00RMY?e=LYdn9h',
+           NULL, FALSE, 820, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-zalacznik-3-upowaznienie-dane-osobowe',
+           'Onboarding — TAURON',
+           'ZAŁĄCZNIK NR 3 Upoważnienie szczególne do Przetwarzania Danych Osobowych.pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQCrCdKO5SFZQqGZ9Sm861fmAXSv0DJeI3a8BtcOVv-CxsA?e=jizscN',
+           NULL, FALSE, 830, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-zalacznik-4-vpn',
+           'Onboarding — TAURON',
+           'ZAŁĄCZNIK NR 4 Zasady Zdalnego Dostępu VPN dla Wykonawcy.pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQAigsT1LENsQIk3IZ-AH79kAccTfb7jIJa4MTrODwKv0vc?e=cimF4u',
+           NULL, FALSE, 840, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-zalacznik-5a-porozumienie-przesylanie-dokumentow',
+           'Onboarding — TAURON',
+           'ZAŁĄCZNIK NR 5a Porozumienie przesyłanie dokumentów (1).pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQC4sflP6q8eSabZNsID3c_mAeq-_iwcTWpnWEk65cGTsd8?e=DNhDsP',
+           NULL, FALSE, 850, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-zalacznik-5b-ksef',
+           'Onboarding — TAURON',
+           'ZAŁĄCZNIK NR 5b Zasady przesyłania faktur i załączników za pośrednictwem Krajowego Systemu e-Faktur (KSeF).pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQCc79RRqqAPRLt0h8St_5OtAfVBGgrWjhNTdNLqqZA1-B0?e=FtKyx8',
+           NULL, FALSE, 860, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'tauron-zalacznik-6-incydenty-bezpieczenstwa',
+           'Onboarding — TAURON',
+           'ZAŁĄCZNIK NR 6 Wymagania dot. zgłaszania i obsługi incydentów bezpieczeństwa.pdf',
+           'https://b2bnetsa.sharepoint.com/:b:/s/B2B_ALL/IQCwHFWV-XG6RpjNCDW6_ebmAeG4-jyaM9YSknnsjjNqp_A?e=bOhHjT',
+           NULL, FALSE, 870, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'velobank-dokumenty-etat-umowa-ramowa',
+           'Onboarding — VeloBank',
+           'Dokumenty_Etat_VeloBank_umowa ramowa.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQCj4OMyTYoIQKqTu5r0GlsTAfAVb6np3ZmEDei0lQhCzew?e=DX5iEM',
+           NULL, FALSE, 900, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'velobank-dokumenty-podwykonawcy-nowy',
+           'Onboarding — VeloBank',
+           'Dokumenty_Podwykonawcy_VeloBank NOWY.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQAiRlr-0uFzVp_uqPTdh724AX5H89ZunbnOxy-5w_zrLAU?e=heH4fX',
+           NULL, FALSE, 910, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'velobank-dokumenty-podwykonawcy-instrukcja',
+           'Onboarding — VeloBank',
+           'Dokumenty_Podwykonawcy_VeloBank+Instrukcja.docx',
+           'https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQBQwWFCXgP-QJhd4B43CxucAfoTp9f5T6MGOkJWA_nr-M8?e=IpwtCU',
+           NULL, FALSE, 920, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
 ]
 
 
