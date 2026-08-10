@@ -236,3 +236,25 @@ def test_reconcile_is_last_in_the_phase_plan() -> None:
     ]
 
     assert names[-1] == "reconcile"  # nothing depends on it; it only observes
+
+
+@pytest.mark.asyncio
+async def test_reconcile_failure_never_freezes_the_watermark() -> None:
+    """The phase is observational; a flaky Traffit call must not be the reason a
+    nightly run in which every real import phase succeeded refuses to advance."""
+    from app.tasks.traffit_sync import _reconcile_phase, _summarize
+
+    class _Boom:
+        async def reconcile(self):
+            raise RuntimeError("traffit 503")
+
+    result = await _reconcile_phase(_Boom())
+
+    assert result.errors == 0
+    summary = _summarize(result.as_dict())
+    # The orchestrator flips `any_error` on a top-level "error" key or on
+    # blocking_errors — neither is present, so the watermark still advances…
+    assert "error" not in summary
+    assert not summary.get("blocking_errors")
+    # …while the failure is still visible to an operator in /sync/status.
+    assert "traffit 503" in summary["drift"]["reconcile"]["error"]

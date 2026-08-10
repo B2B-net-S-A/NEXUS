@@ -245,7 +245,20 @@ async def _reconcile_phase(importer: TraffitImporter) -> _ReconcilePhaseResult:
     wpięcie jest tanie i czyni rozjazd widocznym w `/sync/status`.
     """
     started = datetime.now(timezone.utc)
-    report = await importer.reconcile()
+    try:
+        report = await importer.reconcile()
+    except Exception as exc:  # noqa: BLE001
+        # Six Traffit API calls live here. `errors = 0` on the adapter protects
+        # the watermark from DRIFT, but not from a RAISE: the orchestrator's
+        # generic handler would stamp this phase `error`, flip `any_error`, and
+        # a nightly run in which every real import phase succeeded would refuse
+        # to advance its watermark — because the last, purely observational
+        # phase hiccuped. Swallow it here instead.
+        logger.warning("Traffit reconcile phase failed (informational): %r", exc)
+        # Shaped per-entity on purpose: `as_dict()`'s drift filter expects
+        # ``{entity: {...}}`` and drops non-dict values, so a bare
+        # ``{"error": "..."}`` would vanish instead of surfacing.
+        report = {"reconcile": {"error": repr(exc)[:200]}}
     return _ReconcilePhaseResult(report, started, datetime.now(timezone.utc))
 
 
