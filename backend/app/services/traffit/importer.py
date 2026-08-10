@@ -111,6 +111,7 @@ _ENRICH_NAMES_CURSOR_PHASE = "candidates_enrich_names"
 _CV_CURSOR_PHASE = "candidates_cv"
 _ACTIVITIES_CURSOR_PHASE = "candidate_activities"
 _PIPELINES_CURSOR_PHASE = "pipelines"
+_CANDIDATES_CURSOR_PHASE = "candidates"
 
 
 @dataclass
@@ -125,6 +126,11 @@ class PhaseProgress:
     # Notes promoted from activities → notes table (only set by the activities
     # phase). Surfaced so the daily sync can report "no notatka missing".
     notes_promoted: int = 0
+    # Whole pages dropped by `skip_on_5xx` (only /sources/ uses it). Counted
+    # rather than raised: the endpoint's 5xx are a known, recurring server-side
+    # bug, so an unattributable error would pin the watermark and `degraded`
+    # forever — but the loss must still be countable somewhere.
+    skipped_pages: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -165,6 +171,7 @@ class PhaseProgress:
             "errors": self.errors,
             "total_source": self.total_source,
             "notes_promoted": self.notes_promoted,
+            "skipped_pages": self.skipped_pages,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1197,154 +1204,196 @@ class TraffitImporter:
         # pewno nie ma wektora; zmieniony przeważnie ma nadal poprawny.
         new_candidate_ids: list[int] = []
 
-        async for raw in self.traffit.get_paginated(
+        # Resumable page cursor — the largest feed (~49k) and the phase every
+        # later one depends on. Without it a Coolify restart (every push to
+        # main) threw the run away and re-scanned from page 1 next time.
+        # Per-mode slots: delta pages are filtered by `since`, full's are not.
+        since_iso = since.isoformat() if since else None
+        start_page = 1
+        _cursor = await self._read_mode_cursor(_CANDIDATES_CURSOR_PHASE, since_iso)
+        if (
+            _cursor is not None
+            and _cursor.get("since") == since_iso
+            and _cursor.get("page_size") == self.batch_size
+        ):
+            start_page = max(1, int(_cursor.get("page") or 1))
+            logger.info("Candidates: resuming from page %d", start_page)
+
+        current_page = start_page
+        saw_fallback = False
+        prev_page = start_page
+
+        async for page_no, items in self.traffit.get_pages(
             "/employees/",
             page_size=self.batch_size,
             filter_=self._delta_filter("updated_at", since),
+            start_page=start_page,
         ):
-            progress.processed += 1
-            try:
-                payload = traffit_employee_to_candidate(raw, user_map)
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map employee id={raw.get('id')}: {e!r}")
-                continue
-            if self.dry_run:
-                progress.inserted += 1
-                continue
+            if page_no < prev_page:
+                # Filter rejected (HTTP 400) → client restarted unfiltered from
+                # page 1, so page numbers no longer map to `since`.
+                saw_fallback = True
+            prev_page = page_no
+            current_page = page_no
+            for raw in items:
+                progress.processed += 1
+                try:
+                    payload = traffit_employee_to_candidate(raw, user_map)
+                except Exception as e:  # noqa: BLE001
+                    progress.add_error(f"map employee id={raw.get('id')}: {e!r}")
+                    continue
+                if self.dry_run:
+                    progress.inserted += 1
+                    continue
 
-            email_lc = (payload.get("email") or "").strip().lower()
-            existing_id = email_to_id.get(email_lc) if email_lc else None
-            owner_id = ext_to_id.get(str(payload["external_id"]))
-            if (
-                existing_id is not None
-                and owner_id is not None
-                and owner_id != existing_id
-            ):
-                # external_id ma już właściciela — adoptuj JEGO, nie wiersz
-                # dopasowany po mailu. _UPDATE_CANDIDATE_ADOPT nie rusza
-                # kolumny email, więc żaden unique index nie jest naruszany.
-                if collisions < 5:
-                    logger.warning(
-                        "Candidates ext=%s: email pasuje do id=%s, ale "
-                        "external_id należy do id=%s — aktualizuję właściciela",
-                        payload["external_id"],
-                        existing_id,
-                        owner_id,
-                    )
-                collisions += 1
-                existing_id = owner_id
+                email_lc = (payload.get("email") or "").strip().lower()
+                existing_id = email_to_id.get(email_lc) if email_lc else None
+                owner_id = ext_to_id.get(str(payload["external_id"]))
+                if (
+                    existing_id is not None
+                    and owner_id is not None
+                    and owner_id != existing_id
+                ):
+                    # external_id ma już właściciela — adoptuj JEGO, nie wiersz
+                    # dopasowany po mailu. _UPDATE_CANDIDATE_ADOPT nie rusza
+                    # kolumny email, więc żaden unique index nie jest naruszany.
+                    if collisions < 5:
+                        logger.warning(
+                            "Candidates ext=%s: email pasuje do id=%s, ale "
+                            "external_id należy do id=%s — aktualizuję właściciela",
+                            payload["external_id"],
+                            existing_id,
+                            owner_id,
+                        )
+                    collisions += 1
+                    existing_id = owner_id
 
-            try:
-                if existing_id is not None:
-                    # Adopt existing candidate (e.g. from talent_radar).
-                    params = {
-                        "nexus_id": existing_id,
-                        "external_id": payload["external_id"],
-                        "external_source": payload["external_source"],
-                        "name": payload["name"],
-                        "lastname": payload["lastname"],
-                        "phone": payload.get("phone"),
-                        "linkedin": payload.get("linkedin"),
-                        "status": payload["status"],
-                        "profile_about": payload.get("profile_about"),
-                        "cv_filename": payload.get("cv_filename"),
-                        "cv_extracted_data": json.dumps(payload["cv_extracted_data"]),
-                    }
-                    result = await self.db.execute(_UPDATE_CANDIDATE_ADOPT, params)
-                    row = result.fetchone()
-                    if row is None:
-                        continue
-                    candidate_id = row[0]
-                    progress.updated += 1
-                    adopted += 1
-                else:
-                    params = dict(payload)
-                    params["cv_extracted_data"] = json.dumps(
-                        payload["cv_extracted_data"]
-                    )
-                    result = await self.db.execute(_UPSERT_CANDIDATE, params)
-                    row = result.fetchone()
-                    if row is None:
-                        continue
-                    candidate_id = row[0]
-                    if row[1]:
-                        progress.inserted += 1
-                        # Newly inserted — record its email so subsequent
-                        # Traffit candidates with the same email adopt it.
-                        if email_lc:
-                            email_to_id[email_lc] = row[0]
-                        # ...i jego external_id, żeby kolejny rekord o tym
-                        # samym ext nie próbował go ukraść innemu wierszowi.
-                        ext_to_id[str(payload["external_id"])] = row[0]
-                        # Kandydat, którego jeszcze nie było w Nexusie, nie ma
-                        # też wektora — a bez wektora nie istnieje w
-                        # rekomendacjach, hybrid searchu ani w Marketplace.
-                        # Zapisujemy INTENCJĘ (tani INSERT), nie embedujemy tu:
-                        # jedno wywołanie Voyage na wiersz zamieniłoby import
-                        # 55 tys. kandydatów w 55 tys. sekwencyjnych calli.
-                        new_candidate_ids.append(row[0])
-                    else:
+                try:
+                    if existing_id is not None:
+                        # Adopt existing candidate (e.g. from talent_radar).
+                        params = {
+                            "nexus_id": existing_id,
+                            "external_id": payload["external_id"],
+                            "external_source": payload["external_source"],
+                            "name": payload["name"],
+                            "lastname": payload["lastname"],
+                            "phone": payload.get("phone"),
+                            "linkedin": payload.get("linkedin"),
+                            "status": payload["status"],
+                            "profile_about": payload.get("profile_about"),
+                            "cv_filename": payload.get("cv_filename"),
+                            "cv_extracted_data": json.dumps(
+                                payload["cv_extracted_data"]
+                            ),
+                        }
+                        result = await self.db.execute(_UPDATE_CANDIDATE_ADOPT, params)
+                        row = result.fetchone()
+                        if row is None:
+                            continue
+                        candidate_id = row[0]
                         progress.updated += 1
-                if payload.get("languages"):
-                    from app.services.candidate_language_writer import (
-                        sync_candidate_languages_from_source,
-                    )
+                        adopted += 1
+                    else:
+                        params = dict(payload)
+                        params["cv_extracted_data"] = json.dumps(
+                            payload["cv_extracted_data"]
+                        )
+                        result = await self.db.execute(_UPSERT_CANDIDATE, params)
+                        row = result.fetchone()
+                        if row is None:
+                            continue
+                        candidate_id = row[0]
+                        if row[1]:
+                            progress.inserted += 1
+                            # Newly inserted — record its email so subsequent
+                            # Traffit candidates with the same email adopt it.
+                            if email_lc:
+                                email_to_id[email_lc] = row[0]
+                            # ...i jego external_id, żeby kolejny rekord o tym
+                            # samym ext nie próbował go ukraść innemu wierszowi.
+                            ext_to_id[str(payload["external_id"])] = row[0]
+                            # Kandydat, którego jeszcze nie było w Nexusie, nie ma
+                            # też wektora — a bez wektora nie istnieje w
+                            # rekomendacjach, hybrid searchu ani w Marketplace.
+                            # Zapisujemy INTENCJĘ (tani INSERT), nie embedujemy tu:
+                            # jedno wywołanie Voyage na wiersz zamieniłoby import
+                            # 55 tys. kandydatów w 55 tys. sekwencyjnych calli.
+                            new_candidate_ids.append(row[0])
+                        else:
+                            progress.updated += 1
+                    if payload.get("languages"):
+                        from app.services.candidate_language_writer import (
+                            sync_candidate_languages_from_source,
+                        )
 
-                    await sync_candidate_languages_from_source(
-                        self.db,
-                        candidate_id=candidate_id,
-                        raw_languages=payload["languages"],
-                        provenance="traffit",
-                        source_ref=f"traffit:{payload['external_id']}",
-                    )
-                if payload.get("city") or payload.get("country"):
-                    from app.services.candidate_location_writer import (
-                        sync_candidate_location_from_source,
-                    )
+                        await sync_candidate_languages_from_source(
+                            self.db,
+                            candidate_id=candidate_id,
+                            raw_languages=payload["languages"],
+                            provenance="traffit",
+                            source_ref=f"traffit:{payload['external_id']}",
+                        )
+                    if payload.get("city") or payload.get("country"):
+                        from app.services.candidate_location_writer import (
+                            sync_candidate_location_from_source,
+                        )
 
-                    await sync_candidate_location_from_source(
-                        self.db,
-                        candidate_id=candidate_id,
-                        city=payload.get("city"),
-                        country=payload.get("country"),
-                        overwrite_existing=True,
-                    )
-                since_commit += 1
-                if since_commit >= commit_every:
-                    await self._record_new_candidate_index_intent(
-                        new_candidate_ids, progress
-                    )
-                    await self.db.commit()
+                        await sync_candidate_location_from_source(
+                            self.db,
+                            candidate_id=candidate_id,
+                            city=payload.get("city"),
+                            country=payload.get("country"),
+                            overwrite_existing=True,
+                        )
+                    since_commit += 1
+                    if since_commit >= commit_every:
+                        await self._record_new_candidate_index_intent(
+                            new_candidate_ids, progress
+                        )
+                        if not saw_fallback:
+                            await self._write_mode_cursor(
+                                _CANDIDATES_CURSOR_PHASE,
+                                since_iso,
+                                {
+                                    "page": current_page,
+                                    "since": since_iso,
+                                    "page_size": self.batch_size,
+                                },
+                            )
+                        await self.db.commit()
+                        since_commit = 0
+                        logger.info(
+                            "Candidates progress: %d/%d "
+                            "(inserted=%d updated=%d adopted=%d ext_collisions=%d "
+                            "errors=%d)",
+                            progress.processed,
+                            progress.total_source,
+                            progress.inserted,
+                            progress.updated,
+                            adopted,
+                            collisions,
+                            progress.errors,
+                        )
+                except Exception as e:  # noqa: BLE001
+                    msg = f"upsert candidate ext={payload.get('external_id')}: {e!r}"
+                    progress.add_error(msg)
+                    if progress.errors <= 5 or progress.errors % 200 == 0:
+                        logger.warning("Candidates upsert error: %s", msg[:300])
+                    await self.db.rollback()
                     since_commit = 0
-                    logger.info(
-                        "Candidates progress: %d/%d "
-                        "(inserted=%d updated=%d adopted=%d ext_collisions=%d "
-                        "errors=%d)",
-                        progress.processed,
-                        progress.total_source,
-                        progress.inserted,
-                        progress.updated,
-                        adopted,
-                        collisions,
-                        progress.errors,
-                    )
-            except Exception as e:  # noqa: BLE001
-                msg = f"upsert candidate ext={payload.get('external_id')}: {e!r}"
-                progress.add_error(msg)
-                if progress.errors <= 5 or progress.errors % 200 == 0:
-                    logger.warning("Candidates upsert error: %s", msg[:300])
-                await self.db.rollback()
-                since_commit = 0
 
         if not self.dry_run:
-            # `_record_new_candidate_index_intent` czyści listę w `finally`,
-            # więc sprawdzamy PRZED wywołaniem — inaczej warunek po nim jest
-            # zawsze fałszywy i ostatnia partia intencji nie zostaje
-            # zacommitowana.
-            had_intents = bool(new_candidate_ids)
             await self._record_new_candidate_index_intent(new_candidate_ids, progress)
-            if since_commit > 0 or had_intents:
-                await self.db.commit()
+            # Reached the end of the feed → retire this mode's slot so the next
+            # run starts a fresh pass.
+            await self._clear_mode_cursor(_CANDIDATES_CURSOR_PHASE, since_iso)
+            # Unconditional. It used to be `if since_commit > 0 or had_intents`,
+            # with `had_intents` captured BEFORE the call above because that
+            # helper clears the list in a `finally` (checking after it always
+            # read False and dropped the last batch of intents). The retire now
+            # always needs persisting, so the guard — and the trap it carried —
+            # is gone: committing with nothing staged is a no-op transaction.
+            await self.db.commit()
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Candidates import done: %s",
@@ -3059,13 +3108,35 @@ class TraffitImporter:
         # losowe HTTP 500 na specyficznych stronach (np. p6, p8, p11 przy size=10),
         # nawet przy page_size=10. Cap do 10 (mniej "złych" stron) + skip_on_5xx
         # żeby nie ubić importu z powodu chwiejnego endpoint'u Traffita.
-        # Tracimy ~10 records per failed page, akceptowalne dla audit-log danych.
+        #
+        # Ta strata jest teraz WIDOCZNA. Do 2026-08-10 pominięta strona nie
+        # zostawiała żadnego śladu: brak `add_error` → brak `error_refs` → brak
+        # kwarantanny → orkiestrator stemplował `ok` i PRZESUWAŁ watermark, a
+        # ~10 źródeł znikało bez jednej liczby gdziekolwiek. Liczymy je do
+        # `skipped_pages`, widocznego w `/sync/status`.
+        #
+        # Świadomie NIE jest to `add_error`: komunikat nie ma `ext=`/`id=`, więc
+        # byłby nieatrybutowalny, a `_blocking_errors` liczy takie jako blokujące
+        # i kwarantanna nie ma czego zaparkować — znany, powtarzalny bug
+        # endpointu przypiąłby `checks.traffit=degraded` na stałe. Widoczność
+        # tak, zamrożenie nie.
         sources_page_size = min(self.batch_size, 10)
+
+        def _note_skipped_page(page: int, status: int) -> None:
+            progress.skipped_pages += 1
+            logger.warning(
+                "Sources: page %d dropped (HTTP %d) — ~%d records lost this run",
+                page,
+                status,
+                sources_page_size,
+            )
+
         async for raw in self.traffit.get_paginated(
             "/sources/",
             page_size=sources_page_size,
             skip_on_5xx=True,
             filter_=self._delta_filter("created_at", since),
+            on_page_skipped=_note_skipped_page,
         ):
             progress.processed += 1
             try:

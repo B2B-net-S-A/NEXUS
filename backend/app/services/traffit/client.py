@@ -19,7 +19,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Callable, Optional
 
 import httpx
 
@@ -265,6 +265,7 @@ class TraffitClient:
         filter_: Optional[dict] = None,
         fallback_on_filter_rejection: bool = True,
         start_page: int = 1,
+        on_page_skipped: Optional[Callable[[int, int], None]] = None,
     ) -> AsyncIterator[tuple[int, list[dict]]]:
         """Yield ``(page_number, items)`` for each page. Sorts on `id ASC`.
 
@@ -283,6 +284,12 @@ class TraffitClient:
             raising. Useful for /sources/ on b2bnetwork tenant which has random
             HTTP 500s on specific pages — losing the failed page is preferable
             to aborting the whole import.
+
+        on_page_skipped: called as ``(page, status_code)`` for each page dropped
+            by ``skip_on_5xx``. Without it the loss is invisible to the caller:
+            the phase reports no error, the orchestrator stamps ``ok`` and
+            advances the watermark, and the records on that page are gone with
+            nothing anywhere saying so. Callers should surface the count.
 
         filter_: optional Traffit ``X-Request-Filter`` dict, e.g.
             ``{"updated_at": {"value": "2026-06-15", "comparison": ">="}}``.
@@ -351,6 +358,8 @@ class TraffitClient:
                         page,
                         resp.status_code,
                     )
+                    if on_page_skipped is not None:
+                        on_page_skipped(page, resp.status_code)
                     if total_pages_known and page >= total_pages_known:
                         return
                     page += 1
@@ -408,6 +417,7 @@ class TraffitClient:
         skip_on_5xx: bool = False,
         filter_: Optional[dict] = None,
         fallback_on_filter_rejection: bool = True,
+        on_page_skipped: Optional[Callable[[int, int], None]] = None,
     ) -> AsyncIterator[dict]:
         """Yield each item across all pages — thin wrapper over :meth:`get_pages`."""
         async for _page, items in self.get_pages(
@@ -416,6 +426,7 @@ class TraffitClient:
             skip_on_5xx=skip_on_5xx,
             filter_=filter_,
             fallback_on_filter_rejection=fallback_on_filter_rejection,
+            on_page_skipped=on_page_skipped,
         ):
             for item in items:
                 yield item
