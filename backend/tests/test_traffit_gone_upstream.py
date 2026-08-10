@@ -68,22 +68,55 @@ class _FakeDB:
 
 
 class _StatusTraffit:
-    """Answers each employee's file listing with a caller-chosen status code."""
+    """Answers each employee's file listing with a caller-chosen status code.
 
-    def __init__(self, by_emp: dict[str, int]):
+    `content_by_emp` opts a candidate into the SECOND hop: its listing then
+    returns one file and the `/content` fetch answers with the given status.
+    That hop is the TOCTOU case — Traffit listed the file, then deleted it
+    before we downloaded it — and it has its own `gone` branch in the importer.
+
+    Opt-in on purpose. Handing every candidate a file would silently convert
+    the listing-only tests below into download tests and stop proving what
+    their names claim.
+    """
+
+    def __init__(
+        self, by_emp: dict[str, int], content_by_emp: dict[str, int] | None = None
+    ):
         self.by_emp = by_emp
-        self._http = object()
+        self.content_by_emp = content_by_emp or {}
+        self.config = SimpleNamespace(api_base="https://traffit.test/api")
+        self._http = self
 
     async def _get_raw(self, path, page=1, page_size=50):
         emp = path.split("/")[2]
         code = self.by_emp.get(emp, 200)
+        files = [{"id": "f1", "name": "cv.pdf"}] if emp in self.content_by_emp else []
 
         class _R:
             status_code = code
 
             @staticmethod
             def json():
-                return []
+                return files
+
+        return _R()
+
+    async def _ensure_token(self):
+        return "token"
+
+    async def _throttle(self):
+        return None
+
+    async def get(self, url, headers=None):
+        """Stands in for `traffit._http.get` on the `/content` download."""
+        emp = url.split("/employees/", 1)[1].split("/", 1)[0]
+        code = self.content_by_emp.get(emp, 200)
+
+        class _R:
+            status_code = code
+            content = b""
+            headers: dict[str, str] = {}
 
         return _R()
 
@@ -150,6 +183,57 @@ async def test_files_phase_treats_404_the_same_way(monkeypatch) -> None:
     progress = await _importer(db, traffit).import_candidate_files(since=None)
 
     assert progress.gone_upstream == 1
+    assert progress.errors == 0
+
+
+@pytest.mark.asyncio
+async def test_content_fetch_gone_is_counted_not_errored(monkeypatch) -> None:
+    """The TOCTOU hop: Traffit listed the file, then deleted it before we
+    downloaded it. Same answer as a missing listing — the record is gone, so
+    retrying is pointless and an error here would freeze the watermark exactly
+    as the listing 404 used to."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 10)
+    db = _FakeDB([(1, "6421"), (2, "50939")])
+    traffit = _StatusTraffit({}, content_by_emp={"6421": 404, "50939": 410})
+
+    progress = await _importer(db, traffit).import_candidates_cv(since=None)
+
+    assert progress.gone_upstream == 2
+    assert progress.errors == 0
+
+
+@pytest.mark.asyncio
+async def test_content_fetch_500_stays_an_attributable_error(monkeypatch) -> None:
+    """…while a genuinely failed download is still an error — and still keyed,
+    so the quarantine can park it."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 10)
+    db = _FakeDB([(1, "6421")])
+    traffit = _StatusTraffit({}, content_by_emp={"6421": 500})
+
+    progress = await _importer(db, traffit).import_candidates_cv(since=None)
+
+    assert progress.gone_upstream == 0
+    assert progress.errors == 1
+    assert progress.error_refs == {"candidate:6421"}
+
+
+@pytest.mark.asyncio
+async def test_files_phase_content_fetch_gone_is_counted_too(monkeypatch) -> None:
+    """`import_candidate_files` has its own copy of the branch — a fix applied
+    to only one of the two phases would pass every test above."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 10)
+    db = _FakeDB([(1, "6421"), (2, "50939")])
+    traffit = _StatusTraffit({}, content_by_emp={"6421": 404, "50939": 410})
+
+    progress = await _importer(db, traffit).import_candidate_files(since=None)
+
+    assert progress.gone_upstream == 2
     assert progress.errors == 0
 
 
