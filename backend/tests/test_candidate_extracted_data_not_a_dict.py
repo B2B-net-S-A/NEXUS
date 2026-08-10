@@ -108,14 +108,18 @@ def test_no_caller_reintroduces_the_or_dict_idiom() -> None:
     import re
 
     app_dir = pathlib.Path(__file__).resolve().parent.parent / "app"
-    banned = re.compile(r"cv_extracted_data\s+or\s+\{\}")
+    # Scanned against whole-file text rather than line by line: `\s` matches
+    # newlines, so a parenthesised continuation —
+    # `(candidate.cv_extracted_data\n    or {})` — is caught by the same
+    # pattern. `dict()` is the other spelling of the same mistake.
+    banned = re.compile(r"cv_extracted_data\s+or\s+(?:\{\}|dict\(\))")
 
-    offenders = [
-        f"{path.relative_to(app_dir)}:{lineno}"
-        for path in app_dir.rglob("*.py")
-        for lineno, line in enumerate(path.read_text().splitlines(), 1)
-        if banned.search(line)
-    ]
+    offenders = []
+    for path in sorted(app_dir.rglob("*.py")):
+        text_ = path.read_text()
+        for match in banned.finditer(text_):
+            lineno = text_.count("\n", 0, match.start()) + 1
+            offenders.append(f"{path.relative_to(app_dir)}:{lineno}")
 
     assert offenders == [], (
         "`cv_extracted_data` is a JSON column that really does hold lists on "
@@ -158,14 +162,17 @@ class _OneEmployee:
         yield  # pragma: no cover — makes this an async generator
 
     async def get_pages(self, path, *, page_size=100, filter_=None, start_page=1, **kw):
-        yield 1, [
-            {
-                "id": self.ext,
-                "name": "Jan",
-                "lastname": "Kowalski",
-                "candidate_location": "Warszawa",
-            }
-        ]
+        yield (
+            1,
+            [
+                {
+                    "id": self.ext,
+                    "name": "Jan",
+                    "lastname": "Kowalski",
+                    "candidate_location": "Warszawa",
+                }
+            ],
+        )
 
 
 @pytest.mark.asyncio
