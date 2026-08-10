@@ -557,6 +557,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
     from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
+    from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.priority_work import priority_work_loop
     from app.services.fx_service import fx_refresh_loop
@@ -596,6 +597,7 @@ async def lifespan(app: FastAPI):
         "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
         "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
         "index_outbox": asyncio.create_task(index_outbox_loop()),
+        "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
     }
 

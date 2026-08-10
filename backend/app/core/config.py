@@ -79,6 +79,21 @@ class Settings(BaseSettings):
     AI_INDEX_WORKER_BATCH: int = 50
     AI_INDEX_MAX_ATTEMPTS: int = 5
 
+    # ── Index drift reconciler ────────────────────────────────────────────────
+    # Periodic sweep comparing each entity's DESIRED embedding hash with the one
+    # the outbox recorded as actually indexed, enqueueing the difference. Exists
+    # because three Traffit import phases change embedding-text fields and
+    # record no reindex intent — patching those three fixes three, not the next
+    # one somebody adds.
+    #
+    # OFF by default and MUST NOT be enabled before the provider health probes:
+    # with AI_INDEX_MAX_ATTEMPTS=5, a Voyage outage plus a reconciler feeding
+    # the worker burns the whole backlog into dead rows behind a green
+    # healthcheck.
+    AI_INDEX_RECONCILER_ENABLED: bool = False
+    AI_INDEX_RECONCILER_INTERVAL_SECONDS: int = 300
+    AI_INDEX_RECONCILER_BATCH: int = 500
+
     # ── AI canonical text schema v2 (plan PR7) ────────────────────────────────
     # OFF by default → the legacy embedding text is used unchanged. When ON, the
     # embedding document is built from labeled, PII-free canonical sections
