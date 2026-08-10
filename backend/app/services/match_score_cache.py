@@ -37,6 +37,7 @@ from app.models.match_score import CandidateJobMatchScore
 from app.models.match_score_invalidation import MatchScoreInvalidation
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
+    build_job_scoring_context,
     scoring_algorithm_version,
     LayerResult,
     ScoreBreakdown,
@@ -338,13 +339,25 @@ async def bulk_get_or_compute(
 
     results: list[ScoreBreakdown] = []
     pending_writes: list[ScoreBreakdown] = []
+    # The cache read above is batched, but the cold path below was not: each miss
+    # issued two more SELECTs inside `score_candidate_job`, so a fully cold pool
+    # of N cost 2N round-trips regardless of this function's bulk read. Build the
+    # per-job context once for the misses only — a fully warm call still does no
+    # extra work.
+    misses = [c.id for c in candidates if c.id not in cached_by_cid]
+    context = await build_job_scoring_context(db, job, misses) if misses else None
     for c in candidates:
         row = cached_by_cid.get(c.id)
         if row is not None:
             results.append(_breakdown_from_row(row))
             continue
         breakdown = await score_candidate_job(
-            c, job, db, semantic_similarity=sims.get(c.id), profile=profile
+            c,
+            job,
+            db,
+            semantic_similarity=sims.get(c.id),
+            profile=profile,
+            context=context,
         )
         results.append(breakdown)
         pending_writes.append(breakdown)

@@ -24,7 +24,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Sequence
+from typing import Any, Iterable, List, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1015,11 +1015,82 @@ def _score_availability(
     )
 
 
+# ── Batched per-job context (kills the N+1) ─────────────────────────────────
+
+
+@dataclass(frozen=True)
+class JobScoringContext:
+    """Everything ``score_candidate_job`` would otherwise fetch per pair.
+
+    Two layers issue one SELECT each per (candidate, job): champion_fit reads the
+    newest screened stage, and the penalty check reads the active client
+    conflict. Scoring a cold pool is therefore 2N round-trips — 400 for today's
+    pool of 200, and 2 000 for the 1 000-row pool the retrieval ceiling calls
+    for. Building this once turns 2N into 2.
+
+    ``None`` is a valid argument everywhere: single-pair callers
+    (``marketplace_service``, ``match_justification_service``) keep the old path
+    untouched.
+    """
+
+    screening_by_candidate: dict[int, Any]
+    conflicted_candidate_ids: frozenset[int]
+
+
+async def build_job_scoring_context(
+    db, job, candidate_ids: Sequence[int]
+) -> JobScoringContext:
+    """Fetch both per-pair inputs for a whole pool in two queries."""
+    from app.models.recruitment_pipeline import CandidateStage
+
+    ids = [int(c) for c in candidate_ids]
+    if not ids:
+        return JobScoringContext({}, frozenset())
+
+    # DISTINCT ON reproduces `ORDER BY moved_at DESC LIMIT 1` per candidate
+    # exactly. Anything looser (a GROUP BY, a join on max(moved_at)) would pick a
+    # different row when a candidate has several screened stages, and scores
+    # would shift silently rather than fail.
+    stage_rows = (
+        await db.execute(
+            select(CandidateStage.candidate_id, CandidateStage.screening_answers)
+            .where(
+                CandidateStage.job_id == job.id,
+                CandidateStage.candidate_id.in_(ids),
+                CandidateStage.screening_answers.is_not(None),
+            )
+            .distinct(CandidateStage.candidate_id)
+            .order_by(CandidateStage.candidate_id, CandidateStage.moved_at.desc())
+        )
+    ).all()
+
+    conflicted: set[int] = set()
+    if job.client_id:
+        conflicted = {
+            row[0]
+            for row in (
+                await db.execute(
+                    select(CandidateConflict.candidate_id).where(
+                        CandidateConflict.candidate_id.in_(ids),
+                        CandidateConflict.client_id == job.client_id,
+                        CandidateConflict.active.is_(True),
+                    )
+                )
+            ).all()
+        }
+
+    return JobScoringContext(
+        screening_by_candidate={cid: answers for cid, answers in stage_rows},
+        conflicted_candidate_ids=frozenset(conflicted),
+    )
+
+
 async def _score_champion_fit(
     candidate: Candidate,
     job: Job,
     db: AsyncSession,
     profile: "WeightProfile" = None,  # type: ignore[assignment]
+    context: Optional[JobScoringContext] = None,
 ) -> LayerResult:
     """Read the candidate's latest screening answers (if any) for this job
     and convert its `match_percent` to layer points.
@@ -1038,18 +1109,24 @@ async def _score_champion_fit(
         profile = DEFAULT_PROFILE
     max_pts = profile.champion_fit
 
-    # Most recent stage with screening answers for this (candidate, job)
-    stage = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == candidate.id,
-            CandidateStage.job_id == job.id,
-            CandidateStage.screening_answers.is_not(None),
+    # Most recent stage with screening answers for this (candidate, job).
+    # Prebuilt context short-circuits the query; without one we fall back to the
+    # per-pair SELECT so single-pair callers are untouched.
+    if context is not None:
+        raw_answers = context.screening_by_candidate.get(candidate.id)
+    else:
+        stage = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == candidate.id,
+                CandidateStage.job_id == job.id,
+                CandidateStage.screening_answers.is_not(None),
+            )
+            .order_by(CandidateStage.moved_at.desc())
+            .limit(1)
         )
-        .order_by(CandidateStage.moved_at.desc())
-        .limit(1)
-    )
-    if stage is None or not stage.screening_answers:
+        raw_answers = stage.screening_answers if stage is not None else None
+    if not raw_answers:
         # No screening yet → neutral (same knob as salary/location/availability)
         # so unscreened candidates stay competitive. Was hardcoded 0.5.
         return LayerResult(
@@ -1058,7 +1135,7 @@ async def _score_champion_fit(
             reason="brak screeningu",
         )
     try:
-        answers = ScreeningAnswers.model_validate(stage.screening_answers)
+        answers = ScreeningAnswers.model_validate(raw_answers)
     except Exception:
         return LayerResult(
             points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
@@ -1078,7 +1155,10 @@ async def _score_champion_fit(
 
 
 async def _check_penalties(
-    candidate: Candidate, job: Job, db: AsyncSession
+    candidate: Candidate,
+    job: Job,
+    db: AsyncSession,
+    context: Optional[JobScoringContext] = None,
 ) -> List[str]:
     penalties: List[str] = []
 
@@ -1094,14 +1174,19 @@ async def _check_penalties(
 
     # Active conflict for this (candidate, client)
     if job.client_id:
-        active_conflict = await db.scalar(
-            select(CandidateConflict.id).where(
-                CandidateConflict.candidate_id == candidate.id,
-                CandidateConflict.client_id == job.client_id,
-                CandidateConflict.active.is_(True),
+        if context is not None:
+            has_conflict = candidate.id in context.conflicted_candidate_ids
+        else:
+            has_conflict = bool(
+                await db.scalar(
+                    select(CandidateConflict.id).where(
+                        CandidateConflict.candidate_id == candidate.id,
+                        CandidateConflict.client_id == job.client_id,
+                        CandidateConflict.active.is_(True),
+                    )
+                )
             )
-        )
-        if active_conflict:
+        if has_conflict:
             penalties.append("active_conflict")
 
     return penalties
@@ -1141,6 +1226,7 @@ async def score_candidate_job(
     *,
     semantic_similarity: Optional[float] = None,
     profile: WeightProfile = DEFAULT_PROFILE,
+    context: Optional[JobScoringContext] = None,
 ) -> ScoreBreakdown:
     """Compute the full ScoreBreakdown for one (candidate, job) pair."""
     import time as _time
@@ -1153,8 +1239,10 @@ async def score_candidate_job(
     salary = _score_salary(candidate, job, profile)
     location = _score_location(candidate, job, profile)
     availability = _score_availability(candidate, job, profile)
-    champion_fit = await _score_champion_fit(candidate, job, db, profile)
-    penalties = await _check_penalties(candidate, job, db)
+    champion_fit = await _score_champion_fit(
+        candidate, job, db, profile, context=context
+    )
+    penalties = await _check_penalties(candidate, job, db, context=context)
 
     if penalties:
         total = 0.0
@@ -1222,12 +1310,14 @@ async def rank_candidates_for_job(
 ) -> List[ScoreBreakdown]:
     """Convenience: score each candidate and return list sorted by total desc."""
     sims = similarity_map or {}
+    # One context for the whole pool instead of two SELECTs per candidate.
+    context = await build_job_scoring_context(db, job, [c.id for c in candidates])
     results: List[ScoreBreakdown] = []
     for c in candidates:
         sim = sims.get(c.id)
         results.append(
             await score_candidate_job(
-                c, job, db, semantic_similarity=sim, profile=profile
+                c, job, db, semantic_similarity=sim, profile=profile, context=context
             )
         )
     results.sort(key=lambda r: -r.total)
