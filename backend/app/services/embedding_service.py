@@ -575,6 +575,51 @@ async def similarity_for_candidate_ids(
         return {}
 
 
+async def indexed_candidate_ids(candidate_ids: list[int]) -> Optional[set[int]]:
+    """Subset of ``candidate_ids`` that actually has a vector in Qdrant.
+
+    A candidate without a vector is not "ranked badly" — it can never be
+    returned by any semantic path at all, while still looking perfectly normal
+    in the candidate list. Retrieval-quality measurements are meaningless
+    without this: a job whose ground truth is 40% unindexed has a hard recall
+    ceiling that no ranking change can lift, and reading that as "the engine
+    missed them" sends you tuning weights to fix a data-pipeline hole.
+
+    Returns ``None`` — not an empty set — when Qdrant cannot answer, so that an
+    outage cannot masquerade as "none of them are indexed". An empty set is a
+    real answer meaning "none of these ids are in the collection"; conflating
+    the two would turn a five-minute Qdrant blip into a report claiming the
+    whole index is gone.
+    """
+    ids = [int(c) for c in candidate_ids]
+    if not ids:
+        return set()
+
+    def _retrieve() -> set[int]:
+        client = _get_qdrant_client()
+        if client is None:
+            raise RuntimeError("Qdrant client unavailable")
+        found: set[int] = set()
+        # Chunked: a job's ground truth can reach ~200 ids on this dataset, and
+        # retrieve() puts them all in one request payload.
+        for start in range(0, len(ids), 256):
+            chunk = ids[start : start + 256]
+            points = client.retrieve(
+                collection_name=_collection(),
+                ids=chunk,
+                with_payload=False,
+                with_vectors=False,
+            )
+            found.update(int(p.id) for p in points)
+        return found
+
+    try:
+        return await asyncio.to_thread(_retrieve)
+    except Exception as e:
+        logger.error(f"[Search] indexed_candidate_ids error: {e}")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Phase 2: Job embedding (reverse matching)
 # ---------------------------------------------------------------------------
