@@ -267,6 +267,7 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "skipped",
         "errors",
         "notes_promoted",
+        "skipped_pages",
         "total_source",
     )
     out = {k: progress_dict.get(k) for k in keys if k in progress_dict}
