@@ -227,6 +227,22 @@ def _escaped_like_pattern(value: str) -> str:
     return f"%{escaped}%"
 
 
+# Patrz ``procedures.py`` — obie wyszukiwarki żyją na jednym ekranie (Pomoc),
+# więc muszą dopasowywać tak samo. Rozjazd semantyki między zakładkami czyta
+# się jak awaria jednej z nich.
+_MAX_SEARCH_TERMS = 10
+
+
+def _search_terms(q: str) -> list[str]:
+    """Dzieli zapytanie na słowa; każde musi trafić (AND), nie cała fraza.
+
+    „tauron załącznik" ma znaleźć „ZAŁĄCZNIK NR 4 … dla Wykonawcy" w kategorii
+    „Onboarding — TAURON" — przy dopasowaniu jednej frazy nie znalazłoby nic,
+    bo słowa są w różnych polach.
+    """
+    return q.split()[:_MAX_SEARCH_TERMS]
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -250,14 +266,15 @@ async def list_help_materials(
         stmt = stmt.where(HelpMaterial.is_published.is_(True))
 
     if q and q.strip():
-        pattern = _escaped_like_pattern(q.strip())
-        stmt = stmt.where(
-            or_(
-                HelpMaterial.title.ilike(pattern, escape="\\"),
-                HelpMaterial.category.ilike(pattern, escape="\\"),
-                HelpMaterial.description.ilike(pattern, escape="\\"),
+        for term in _search_terms(q):
+            pattern = _escaped_like_pattern(term)
+            stmt = stmt.where(
+                or_(
+                    HelpMaterial.title.ilike(pattern, escape="\\"),
+                    HelpMaterial.category.ilike(pattern, escape="\\"),
+                    HelpMaterial.description.ilike(pattern, escape="\\"),
+                )
             )
-        )
 
     stmt = stmt.order_by(HelpMaterial.sort_order.asc(), HelpMaterial.title.asc())
     result = await db.execute(stmt)
