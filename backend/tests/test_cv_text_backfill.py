@@ -187,3 +187,31 @@ def test_unconfigured_storage_is_distinguishable_from_nothing_to_do():
     broken = BackfillStats()
     broken.storage_available = False
     assert broken.as_dict()["storage_available"] is False
+
+
+def test_terminal_rows_are_excluded_in_sql_not_just_in_the_loop():
+    """Skipping in Python left the tranche re-reading its own failures forever.
+
+    A row that can never yield text still matches the predicate, so
+    `ORDER BY id LIMIT N` kept handing back the same failures and each successive
+    tranche spent more of its budget re-fetching them. Measured on the first
+    production run: 2 494 of 2 500 rows scanned were already-marked skips — the
+    tranche did about 0.2% useful work.
+    """
+    # Compile with literal binds: the marker key travels as a bound parameter,
+    # so a plain str() of the statement shows `:param_1` and would pass this
+    # assertion even with the filter removed.
+    sql = str(
+        svc._pending_candidates_stmt(3000).compile(
+            compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "_cv_text_extraction" in sql, (
+        "scope no longer filters on the extraction marker — tranches will stall "
+        "on rows that can never succeed"
+    )
+    assert "legacy_doc" in sql, "terminal outcomes are not part of the predicate"
+    # The retryable outcomes must NOT be excluded, or a transient S3 blip would
+    # permanently drop the candidate.
+    for retryable in ("download_failed", "error"):
+        assert retryable not in svc._TERMINAL_OUTCOMES
