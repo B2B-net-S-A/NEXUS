@@ -83,9 +83,19 @@ def test_ungated_call_is_only_logged_by_default(monkeypatch, caplog):
     deploy would 500 every path we happened to miss — and paths being missed is
     the entire reason this exists."""
     monkeypatch.setattr(settings, "AI_QUOTA_STRICT", False)
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("WARNING"):
         claude_client._assert_declared("claude-sonnet-5")
-    assert any("UNGATED" in r.message for r in caplog.records)
+    ungated = [r for r in caplog.records if "UNGATED" in r.message]
+    assert ungated, "an undeclared call must still leave a trace"
+    # WARNING, not ERROR, and that is load-bearing: `LoggingIntegration` turns
+    # every `error` into a Sentry event, so one forgotten call site would emit
+    # one per invocation and bury real errors for the whole observation window
+    # — the window whose entire purpose is spotting forgotten call sites.
+    # Promoting this back to `error` should fail here and be argued for.
+    assert all(r.levelname == "WARNING" for r in ungated), (
+        "UNGATED notice raised above WARNING — floods Sentry during the "
+        "deliberate log-only cycle (AI_QUOTA_STRICT=false)"
+    )
 
 
 def test_declared_call_passes_in_strict_mode(monkeypatch):
