@@ -105,6 +105,10 @@ _MAX_ERROR_REFS = 500
 # shows up in GET /sync/status forever and never gets a status or stats.
 _FILES_CURSOR_PHASE = "candidate_files"
 
+# Same rule as above: the orchestrator's phase-plan name, so the cursor lands on
+# the row that already carries this phase's status and stats.
+_ENRICH_NAMES_CURSOR_PHASE = "candidates_enrich_names"
+
 
 @dataclass
 class PhaseProgress:
@@ -1815,12 +1819,57 @@ class TraffitImporter:
 
         from app.services.cv_backfill import backfill_missing_names
 
-        stats = await backfill_missing_names(self.db, since=since, prefer_llm=True)
+        # Full reconcile only: budget + resume cursor. The `"?"` selection does
+        # NOT shrink on its own — a candidate whose CV yields no name stays `"?"`
+        # forever — so an unbounded `ORDER BY id` sweep re-pays for the same
+        # prefix every pass (one LLM call per row) and never reaches the tail.
+        # Delta keeps its narrow `since` scope and needs neither.
+        cursor_phase: Optional[str] = None
+        scan_limit: Optional[int] = None
+        after_id = 0
+        if since is None:
+            cursor_phase = _ENRICH_NAMES_CURSOR_PHASE
+            scan_limit = max(1, int(settings.TRAFFIT_SYNC_ENRICH_NAMES_LIMIT))
+            _cursor = await self._read_sync_cursor(cursor_phase)
+            after_id = int((_cursor or {}).get("after_id") or 0)
+
+        stats = await backfill_missing_names(
+            self.db,
+            since=since,
+            after_id=after_id or None,
+            limit=scan_limit,
+            prefer_llm=True,
+        )
         progress.total_source = stats.get("total", 0)
         progress.processed = stats.get("processed", 0)
         progress.inserted = stats.get("resolved", 0)
         progress.skipped = stats.get("unresolved", 0)
-        progress.errors = stats.get("errors", 0)
+        # Report failures as ATTRIBUTABLE per-row errors. Assigning
+        # `progress.errors` directly (as this did until 2026-08-10) leaves
+        # `error_refs` empty, and `_blocking_errors` treats every unattributable
+        # error as blocking with nothing for the quarantine to park — so a single
+        # permanently unparseable CV froze the GLOBAL daily watermark forever and
+        # pinned `checks.traffit=degraded`. The entity word is deliberately not
+        # bare "candidate": the candidates phase keys its refs on the Traffit
+        # external id, and these are Nexus ids, so sharing the word would merge
+        # two different id spaces into one quarantine entry.
+        for cand_id in stats.get("error_ids") or []:
+            progress.add_error(f"enrich candidate_name id={cand_id}: backfill failed")
+        leftover = int(stats.get("errors") or 0) - len(stats.get("error_ids") or [])
+        if leftover > 0:  # defensive: keep the count honest if ids go missing
+            progress.errors += leftover
+
+        if cursor_phase is not None:
+            # Short batch = swept to the end → retire the cursor so the next full
+            # run starts a fresh pass (otherwise it parks at the tail forever).
+            if scan_limit is None or progress.total_source < scan_limit:
+                await self._clear_sync_cursor(cursor_phase)
+            elif stats.get("last_id") is not None:
+                await self._write_sync_cursor(
+                    cursor_phase, {"after_id": stats["last_id"]}
+                )
+            await self.db.commit()
+
         progress.finished_at = datetime.now(timezone.utc)
         logger.info("Enrich missing names done: %s", stats)
         return progress
