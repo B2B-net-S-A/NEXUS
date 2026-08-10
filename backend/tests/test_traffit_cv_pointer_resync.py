@@ -8,9 +8,10 @@
    pointed at the old one, so recruiters downloaded a STALE CV while the current
    one sat in the same database.
 
-   The resync runs against a real Postgres here, not a fake: it is an UPDATE
-   against production rows, and the conservative EXISTS guard (never clobber a
-   CV uploaded directly in Nexus) is the part worth proving.
+   These run against a real Postgres AND through the real phase method: it is
+   an UPDATE against production rows, and the conservative EXISTS guard (never
+   clobber a CV uploaded directly in Nexus) is the part worth proving. Testing
+   a copy of the SQL would stay green while the importer stopped running it.
 
 2. `reconcile()` existed since the migration but was never wired into
    `_phase_plan`, so it never ran in the scheduled sync — drift in the other
@@ -79,45 +80,40 @@ async def _mk_doc(
     )
 
 
-def _importer(db) -> TraffitImporter:
-    imp = TraffitImporter.__new__(TraffitImporter)
-    imp.db = db
-    imp.dry_run = False
-    return imp
+class _NoFilesTraffit:
+    """Lists zero files for every candidate — the resync is what we are testing,
+    not the download path."""
+
+    def __init__(self):
+        self._http = object()
+
+    async def _get_raw(self, path, page=1, page_size=50):
+        class _R:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return []
+
+        return _R()
 
 
-async def _run_resync(db) -> None:
-    """Execute just the resync statement the full-mode phase runs first."""
-    await db.execute(
-        text(
-            """
-            UPDATE candidates c
-            SET cv_storage_key = d.storage_key,
-                cv_filename    = d.filename,
-                updated_at     = NOW()
-            FROM candidate_documents d
-            WHERE d.candidate_id = c.id
-              AND d.external_source = 'traffit'
-              AND d.document_kind = 'cv'
-              AND d.is_primary IS TRUE
-              AND d.source_deleted_at IS NULL
-              AND c.external_source = 'traffit'
-              AND c.cv_storage_key IS NOT NULL
-              AND c.cv_storage_key IS DISTINCT FROM d.storage_key
-              AND EXISTS (
-                  SELECT 1 FROM candidate_documents d2
-                  WHERE d2.candidate_id = c.id
-                    AND d2.external_source = 'traffit'
-                    AND d2.storage_key = c.cv_storage_key
-              )
-            """
-        )
-    )
-    await db.commit()
+async def _run_phase(db, monkeypatch) -> None:
+    """Drive the REAL phase, not a copy of its SQL.
+
+    Importing the statement would only prove the test and production share a
+    string; it would not prove `import_candidates_cv` still executes it. Going
+    through the phase means a refactor that drops the resync fails here.
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 1)
+    imp = TraffitImporter(_NoFilesTraffit(), db, dry_run=False, batch_size=100)
+    await imp.import_candidates_cv(since=None)
 
 
 @pytest.mark.asyncio
-async def test_stale_pointer_is_moved_to_the_current_primary(db) -> None:
+async def test_stale_pointer_is_moved_to_the_current_primary(db, monkeypatch) -> None:
     u = uuid.uuid4().hex[:8]
     cid = await _mk_candidate(db, ext=f"c-{u}", storage_key=f"s3://old-{u}")
     # The old file is still on record (that is what makes the pointer Traffit's)…
@@ -140,7 +136,7 @@ async def test_stale_pointer_is_moved_to_the_current_primary(db) -> None:
     )
     await db.commit()
 
-    await _run_resync(db)
+    await _run_phase(db, monkeypatch)
 
     row = await db.execute(
         text("SELECT cv_storage_key, cv_filename FROM candidates WHERE id = :i"),
@@ -150,7 +146,7 @@ async def test_stale_pointer_is_moved_to_the_current_primary(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_nexus_uploaded_cv_is_never_clobbered(db) -> None:
+async def test_nexus_uploaded_cv_is_never_clobbered(db, monkeypatch) -> None:
     """A CV uploaded directly in Nexus is newer by definition — Traffit's copy
     must not overwrite it. The pointer matches no Traffit document, so the
     EXISTS guard excludes the row."""
@@ -168,7 +164,7 @@ async def test_nexus_uploaded_cv_is_never_clobbered(db) -> None:
     )
     await db.commit()
 
-    await _run_resync(db)
+    await _run_phase(db, monkeypatch)
 
     row = await db.execute(
         text("SELECT cv_storage_key, cv_filename FROM candidates WHERE id = :i"),
@@ -178,7 +174,7 @@ async def test_nexus_uploaded_cv_is_never_clobbered(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_already_current_pointer_is_left_alone(db) -> None:
+async def test_already_current_pointer_is_left_alone(db, monkeypatch) -> None:
     u = uuid.uuid4().hex[:8]
     cid = await _mk_candidate(
         db, ext=f"c-{u}", storage_key=f"s3://cur-{u}", filename="cur.pdf"
@@ -198,7 +194,7 @@ async def test_already_current_pointer_is_left_alone(db) -> None:
     )
     stamp = before.scalar_one()
 
-    await _run_resync(db)
+    await _run_phase(db, monkeypatch)
 
     after = await db.execute(
         text("SELECT updated_at FROM candidates WHERE id = :i"), {"i": cid}
@@ -226,6 +222,8 @@ def test_reconcile_adapter_reports_drift_without_errors() -> None:
     d = result.as_dict()
     assert result.errors == 0  # informational only — never freezes the watermark
     assert d["errors"] == 0
+    assert d["drifted_entities"] == 2  # entity TYPES, deliberately not "skipped"
+    assert "skipped" not in d  # that field means records everywhere else
     assert set(d["drift"]) == {"candidates", "jobs"}
     assert d["drift"]["candidates"]["nexus"] > d["drift"]["candidates"]["traffit"]
 

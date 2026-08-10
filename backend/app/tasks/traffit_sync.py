@@ -225,7 +225,9 @@ class _ReconcilePhaseResult:
         }
         return {
             "processed": len(self._report),
-            "skipped": len(drift),
+            # NOT `skipped`: that field means "records skipped" in every other
+            # phase, and this counts entity TYPES out of sync (0-6).
+            "drifted_entities": len(drift),
             "errors": 0,
             "note": "counters only — Nexus>Traffit means rows deleted in Traffit",
             **({"drift": drift} if drift else {}),
@@ -318,6 +320,9 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "errors",
         "notes_promoted",
         "skipped_pages",
+        "resynced_pointers",
+        "drifted_entities",
+        "drift",
         "total_source",
     )
     out = {k: progress_dict.get(k) for k in keys if k in progress_dict}
