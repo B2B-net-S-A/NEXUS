@@ -108,6 +108,8 @@ _FILES_CURSOR_PHASE = "candidate_files"
 # Same rule as above: the orchestrator's phase-plan name, so the cursor lands on
 # the row that already carries this phase's status and stats.
 _ENRICH_NAMES_CURSOR_PHASE = "candidates_enrich_names"
+_CV_CURSOR_PHASE = "candidates_cv"
+_ACTIVITIES_CURSOR_PHASE = "candidate_activities"
 
 
 @dataclass
@@ -1668,6 +1670,25 @@ class TraffitImporter:
 
         since_clause = "AND updated_at >= :since" if since is not None else ""
         cv_params: dict[str, Any] = {"since": since} if since is not None else {}
+
+        # Full reconcile only: budget + resume cursor, same shape as the files
+        # phase. This selection is only PARTLY self-clearing — a successful
+        # download fills `cv_storage_key` and drops out, but a candidate with no
+        # CV in Traffit at all is counted `skipped` and stays a target forever.
+        # So an unbounded pass re-pays for the same `ORDER BY id` prefix (one
+        # /files call each) on every run and never reaches the tail, and a
+        # Coolify restart mid-sweep loses the position entirely.
+        cursor_phase: Optional[str] = None
+        scan_limit: Optional[int] = None
+        if since is None:
+            cursor_phase = _CV_CURSOR_PHASE
+            scan_limit = max(1, int(settings.TRAFFIT_SYNC_FULL_FILES_LIMIT))
+            _cursor = await self._read_sync_cursor(cursor_phase)
+            after_id = int((_cursor or {}).get("after_id") or 0)
+            cv_params["after_id"] = after_id
+            cv_params["limit"] = scan_limit
+            since_clause += " AND id > :after_id"
+
         result = await self.db.execute(
             text(
                 f"""
@@ -1678,13 +1699,18 @@ class TraffitImporter:
                   AND cv_storage_key IS NULL
                   {since_clause}
                 ORDER BY id
+                {"LIMIT :limit" if scan_limit is not None else ""}
                 """
             ),
             cv_params,
         )
         targets = list(result)
         progress.total_source = len(targets)
+        exhausted = scan_limit is None or len(targets) < scan_limit
         if not targets:
+            if cursor_phase is not None and not self.dry_run:
+                await self._clear_sync_cursor(cursor_phase)
+                await self.db.commit()
             progress.finished_at = datetime.now(timezone.utc)
             return progress
 
@@ -1771,6 +1797,11 @@ class TraffitImporter:
                 progress.inserted += 1
                 since_commit += 1
                 if since_commit >= commit_every:
+                    if cursor_phase is not None:
+                        # Same transaction as the rows it accounts for.
+                        await self._write_sync_cursor(
+                            cursor_phase, {"after_id": row.id}
+                        )
                     await self.db.commit()
                     since_commit = 0
                     logger.info(
@@ -1783,8 +1814,17 @@ class TraffitImporter:
                 await self.db.rollback()
                 since_commit = 0
 
-        if not self.dry_run and since_commit > 0:
-            await self.db.commit()
+        if not self.dry_run:
+            if cursor_phase is not None:
+                if exhausted:
+                    await self._clear_sync_cursor(cursor_phase)
+                else:
+                    await self._write_sync_cursor(
+                        cursor_phase, {"after_id": targets[-1].id}
+                    )
+                await self.db.commit()
+            elif since_commit > 0:
+                await self.db.commit()
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Candidates CV done: %s",
@@ -2563,6 +2603,53 @@ class TraffitImporter:
             {"p": phase, "cp": json.dumps(payload)},
         )
 
+    # ── Activities cursor: one row, one slot per mode ───────────────────────
+    #
+    # Delta and full both resume `candidate_activities` by page number, but the
+    # page numbering only means anything within a mode (delta pages are filtered
+    # by `since`, full pages are not). They used to share ONE flat payload, so a
+    # nightly delta both overwrote the parked full cursor mid-run and then
+    # cleared it on a clean finish — the weekly full restarted from page 1 every
+    # time and resume in full mode was mechanically present but practically
+    # dead. Keeping a named slot per mode fixes both halves; guarding only the
+    # clear would not, because the overwrite happens first.
+
+    @staticmethod
+    def _cursor_mode(since_iso: Optional[str]) -> str:
+        return "full" if since_iso is None else "delta"
+
+    @staticmethod
+    def _split_legacy_cursor(payload: dict[str, Any]) -> dict[str, Any]:
+        """Migrate a pre-split flat cursor into its owning mode's slot."""
+        if "page" not in payload:
+            return payload
+        mode = "full" if payload.get("since") is None else "delta"
+        return {mode: payload}
+
+    async def _read_activities_cursor(
+        self, since_iso: Optional[str]
+    ) -> Optional[dict[str, Any]]:
+        payload = await self._read_sync_cursor(_ACTIVITIES_CURSOR_PHASE) or {}
+        return self._split_legacy_cursor(payload).get(self._cursor_mode(since_iso))
+
+    async def _write_activities_cursor(
+        self, since_iso: Optional[str], entry: dict[str, Any]
+    ) -> None:
+        payload = await self._read_sync_cursor(_ACTIVITIES_CURSOR_PHASE) or {}
+        payload = self._split_legacy_cursor(payload)
+        payload[self._cursor_mode(since_iso)] = entry
+        await self._write_sync_cursor(_ACTIVITIES_CURSOR_PHASE, payload)
+
+    async def _clear_activities_cursor(self, since_iso: Optional[str]) -> None:
+        """Retire only THIS mode's slot; the other mode keeps its position."""
+        payload = await self._read_sync_cursor(_ACTIVITIES_CURSOR_PHASE) or {}
+        payload = self._split_legacy_cursor(payload)
+        payload.pop(self._cursor_mode(since_iso), None)
+        if payload:
+            await self._write_sync_cursor(_ACTIVITIES_CURSOR_PHASE, payload)
+        else:
+            await self._clear_sync_cursor(_ACTIVITIES_CURSOR_PHASE)
+
     async def _clear_sync_cursor(self, phase: str) -> None:
         """Clear the resume cursor (no-op if the row does not exist yet)."""
         await self.db.execute(
@@ -2612,7 +2699,7 @@ class TraffitImporter:
         # interruptions and the catch-up completes across runs.
         since_iso = since.isoformat() if since else None
         start_page = 1
-        _cursor = await self._read_sync_cursor("candidate_activities")
+        _cursor = await self._read_activities_cursor(since_iso)
         if (
             _cursor is not None
             and _cursor.get("since") == since_iso
@@ -2715,8 +2802,8 @@ class TraffitImporter:
                     # cursor). Skip once the filter was dropped (page numbers no
                     # longer map to since_iso).
                     if not saw_fallback:
-                        await self._write_sync_cursor(
-                            "candidate_activities",
+                        await self._write_activities_cursor(
+                            since_iso,
                             {
                                 "page": current_page,
                                 "since": since_iso,
@@ -2740,8 +2827,8 @@ class TraffitImporter:
 
         if not self.dry_run and since_commit > 0:
             if not saw_fallback:
-                await self._write_sync_cursor(
-                    "candidate_activities",
+                await self._write_activities_cursor(
+                    since_iso,
                     {
                         "page": current_page,
                         "since": since_iso,
@@ -2767,7 +2854,18 @@ class TraffitImporter:
             # the watermark advances → a different `since`) starts fresh. Row
             # errors do NOT block clearing: they freeze the watermark separately
             # and the next full re-scan (fresh cursor) re-covers them.
-            await self._clear_sync_cursor("candidate_activities")
+            #
+            # But clear ONLY a cursor belonging to THIS run's mode. Delta and
+            # full share one phase row while resuming on different keys (delta
+            # carries a `since` timestamp, full carries None), and this used to
+            # clear whatever it found: an interrupted full reconcile parked its
+            # page, then the very next clean nightly delta wiped it, so the
+            # following week's full restarted from page 1 — resume in full mode
+            # was mechanically present and practically dead. Matching on
+            # "is this the same mode" (rather than the exact `since`) also
+            # retires a stale cursor left by an older window of the same mode,
+            # instead of letting it linger unreadable forever.
+            await self._clear_activities_cursor(since_iso)
             await self.db.commit()
 
         # Promote candidate notes (Notatka/Email/Reply/Rozmowa/Spotkanie) from

@@ -152,7 +152,9 @@ async def test_run1_interrupt_persists_page_cursor(monkeypatch) -> None:
     assert progress.errors >= 1
     assert progress.error_refs == set()
     # Cursor persisted at the last committed page, keyed to this run's filter.
-    assert db.written_cursor == {"page": 5, "since": _SINCE_ISO, "page_size": 100}
+    assert db.written_cursor == {
+        "delta": {"page": 5, "since": _SINCE_ISO, "page_size": 100}
+    }
 
 
 @pytest.mark.asyncio
@@ -197,6 +199,37 @@ async def test_cursor_invalidated_on_page_size_mismatch(monkeypatch) -> None:
     await imp.import_candidate_activities(since=_SINCE)
 
     assert traffit.start_pages == [1]
+
+
+@pytest.mark.asyncio
+async def test_clean_delta_does_not_clear_a_full_mode_cursor(monkeypatch) -> None:
+    """Delta and full share this phase row but resume on different keys (delta
+    carries a `since`, full carries None). A clean run used to clear whatever
+    cursor it found, so an interrupted full reconcile was wiped by the very next
+    nightly delta and the following week's full restarted from page 1 — resume
+    in full mode was mechanically present and practically dead."""
+    full_cursor = {"page": 412, "since": None, "page_size": 100}
+    db = _FakeDB(seeded_cursor=full_cursor)
+    traffit = _FakeTraffit(_pages(2), raise_at_page=None)
+    imp = _make_importer(db, traffit, monkeypatch)
+
+    await imp.import_candidate_activities(since=_SINCE)
+
+    assert traffit.start_pages == [1]  # not resumable from another mode's key…
+    # Survives, re-homed into its own slot so delta can no longer touch it.
+    assert db.cursor["full"] == full_cursor
+
+
+@pytest.mark.asyncio
+async def test_clean_full_does_not_clear_a_delta_cursor(monkeypatch) -> None:
+    delta_cursor = {"page": 7, "since": _SINCE_ISO, "page_size": 100}
+    db = _FakeDB(seeded_cursor=delta_cursor)
+    traffit = _FakeTraffit(_pages(2), raise_at_page=None)
+    imp = _make_importer(db, traffit, monkeypatch)
+
+    await imp.import_candidate_activities(since=None)
+
+    assert db.cursor["delta"] == delta_cursor
 
 
 @pytest.mark.asyncio
