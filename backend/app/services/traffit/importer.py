@@ -1115,90 +1115,35 @@ class TraffitImporter:
                 progress.inserted += 1
                 continue
             try:
-                tmpl_result = await self.db.execute(
-                    _UPSERT_PIPELINE_TEMPLATE, template_payload
-                )
-                tmpl_row = tmpl_result.fetchone()
-                if tmpl_row is None:
-                    continue
-                template_id = tmpl_row[0]
-                if tmpl_row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
-
-                # Stage defs — sortuj po `order`, potem mapuj kolejność 0..N
-                states = detail.get("states") or []
-                states_sorted = sorted(
-                    states, key=lambda s: (s.get("order") or 0, s.get("id") or 0)
-                )
-                # Idempotent UPSERT per stage_def (was DELETE+INSERT but that
-                # broke FK from candidate_stages.stage_def_id on daily re-runs).
-                # ON CONFLICT (external_source, external_id) DO UPDATE keeps
-                # FK references intact while updating order/category/etc.
-                # Traffit workflows can have duplicate state names within one
-                # workflow (e.g. B2B has two "Zaakceptowany" states). The Nexus
-                # constraint uq_stage_name_in_template forbids that, so suffix
-                # later occurrences with the source state id to keep names unique.
-                seen_names: set[str] = set()
-                for idx, state in enumerate(states_sorted):
-                    sd = traffit_workflow_state_to_stage_def(state, idx)
-                    base = sd["name"]
-                    if base in seen_names:
-                        sd["name"] = f"{base} (#{sd['traffit_state_id']})"[:100]
-                    seen_names.add(sd["name"])
-                    await self.db.execute(
-                        text(
-                            """
-                            INSERT INTO pipeline_stage_defs (
-                                template_id, name, "order",
-                                category, is_terminal, terminal_type,
-                                legacy_enum_value,
-                                external_id, external_source,
-                                tracker_enabled, scorecard_schema,
-                                created_at, updated_at
-                            ) VALUES (
-                                CAST(:template_id AS integer),
-                                CAST(:name AS varchar(100)),
-                                CAST(:order AS integer),
-                                CAST(:category AS stagecategoryenum),
-                                CAST(:is_terminal AS boolean),
-                                CAST(:terminal_type AS terminaltype),
-                                CAST(:legacy_enum_value AS varchar(50)),
-                                CAST(:external_id AS varchar(100)),
-                                'traffit',
-                                false, '{}'::jsonb,
-                                NOW(), NOW()
-                            )
-                            ON CONFLICT (external_source, external_id)
-                            WHERE external_id IS NOT NULL
-                            DO UPDATE SET
-                                template_id       = EXCLUDED.template_id,
-                                name              = EXCLUDED.name,
-                                "order"           = EXCLUDED."order",
-                                category          = EXCLUDED.category,
-                                is_terminal       = EXCLUDED.is_terminal,
-                                terminal_type     = EXCLUDED.terminal_type,
-                                legacy_enum_value = EXCLUDED.legacy_enum_value,
-                                updated_at        = NOW()
-                            """
-                        ),
-                        {
-                            "template_id": template_id,
-                            "name": sd["name"],
-                            "order": sd["order"],
-                            "category": sd["category"],
-                            "is_terminal": sd["is_terminal"],
-                            "terminal_type": sd.get("terminal_type"),
-                            "legacy_enum_value": sd["legacy_enum_value"],
-                            "external_id": sd["traffit_state_id"],
-                        },
+                # SAVEPOINT per workflow. The old handler called
+                # `self.db.rollback()`, which rolls back the SESSION — and this
+                # phase commits once at the very end, so a single bad workflow
+                # discarded every workflow already written in the same run.
+                # On prod that turned `processed: 2, updated: 2, errors: 1`
+                # into "0 of 2 persisted", 23 runs in a row.
+                async with self.db.begin_nested():
+                    tmpl_result = await self.db.execute(
+                        _UPSERT_PIPELINE_TEMPLATE, template_payload
                     )
+                    tmpl_row = tmpl_result.fetchone()
+                    if tmpl_row is None:
+                        continue
+                    template_id = tmpl_row[0]
+                    if tmpl_row[1]:
+                        progress.inserted += 1
+                    else:
+                        progress.updated += 1
+
+                    # Stage defs — sortuj po `order`, potem mapuj kolejność 0..N
+                    states = detail.get("states") or []
+                    states_sorted = sorted(
+                        states, key=lambda s: (s.get("order") or 0, s.get("id") or 0)
+                    )
+                    await self._rewrite_template_stage_defs(template_id, states_sorted)
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert workflow ext={template_payload.get('external_id')}: {e!r}"
                 )
-                await self.db.rollback()
 
         if not self.dry_run:
             await self.db.commit()
@@ -1208,6 +1153,152 @@ class TraffitImporter:
             json.dumps(progress.as_dict(), default=str)[:500],
         )
         return progress
+
+    async def _rewrite_template_stage_defs(
+        self, template_id: int, states_sorted: list[dict[str, Any]]
+    ) -> None:
+        """Re-lay a template's stage defs to match Traffit, collision-free.
+
+        `pipeline_stage_defs` carries two SET-WIDE unique constraints —
+        `uq_stage_order_in_template (template_id, "order")` and
+        `uq_stage_name_in_template (template_id, name)` — while rows are
+        written ONE AT A TIME, keyed on `(external_source, external_id)`.
+        Rewriting a set row by row under a set-wide constraint only works if
+        no INTERMEDIATE state collides, and a reorder in Traffit guarantees
+        one: state B claims order 3 while state A, which still holds order 3,
+        has not been rewritten yet. Postgres rejects it mid-loop. That is the
+        prod failure — `duplicate key ... "uq_stage_order_in_template"`,
+        `Key (template_id, "order")=(15, 0) already exists` — and no cyclic
+        swap has a safe write order, so sequencing cannot fix it.
+
+        Neither constraint is DEFERRABLE (entrypoint.sh already works around
+        the same edge with a shift trick), so we park first: every row of the
+        template goes to `("order" = -id, name = '~<id>')`. Both are unique
+        per row because `id` is the PK, negative orders can never meet the
+        final layout (all >= 0), and the sentinel name is not a shape a real
+        Traffit state has. The band is then empty and the real layout applies
+        in any order.
+
+        Rows Traffit no longer sends are NOT deleted — `candidate_stages.
+        stage_def_id` points at them — so they are re-homed after the live
+        ones instead, keeping their relative order and their names.
+        """
+        existing = list(
+            await self.db.execute(
+                text(
+                    """
+                    SELECT id, external_id, name, "order"
+                    FROM pipeline_stage_defs
+                    WHERE template_id = CAST(:t AS integer)
+                    ORDER BY "order"
+                    """
+                ),
+                {"t": template_id},
+            )
+        )
+
+        # Traffit workflows can have duplicate state names within one workflow
+        # (e.g. B2B has two "Zaakceptowany" states). uq_stage_name_in_template
+        # forbids that, so suffix later occurrences with the source state id.
+        seen_names: set[str] = set()
+        incoming: list[dict[str, Any]] = []
+        for idx, state in enumerate(states_sorted):
+            sd = traffit_workflow_state_to_stage_def(state, idx)
+            base = sd["name"]
+            if base in seen_names:
+                sd["name"] = f"{base} (#{sd['traffit_state_id']})"[:100]
+            seen_names.add(sd["name"])
+            incoming.append(sd)
+
+        live_ext = {sd["traffit_state_id"] for sd in incoming}
+        stale = [r for r in existing if r.external_id not in live_ext]
+
+        if existing:
+            # Park. `id` is the PK, so both parked values are unique per row.
+            await self.db.execute(
+                text(
+                    """
+                    UPDATE pipeline_stage_defs
+                       SET "order" = -id, name = '~' || id::text
+                     WHERE template_id = CAST(:t AS integer)
+                    """
+                ),
+                {"t": template_id},
+            )
+
+        for sd in incoming:
+            # Idempotent UPSERT per stage_def (was DELETE+INSERT but that broke
+            # the FK from candidate_stages.stage_def_id on daily re-runs).
+            # ON CONFLICT (external_source, external_id) DO UPDATE keeps FK
+            # references intact while updating order/category/etc.
+            await self.db.execute(
+                text(
+                    """
+                    INSERT INTO pipeline_stage_defs (
+                        template_id, name, "order",
+                        category, is_terminal, terminal_type,
+                        legacy_enum_value,
+                        external_id, external_source,
+                        tracker_enabled, scorecard_schema,
+                        created_at, updated_at
+                    ) VALUES (
+                        CAST(:template_id AS integer),
+                        CAST(:name AS varchar(100)),
+                        CAST(:order AS integer),
+                        CAST(:category AS stagecategoryenum),
+                        CAST(:is_terminal AS boolean),
+                        CAST(:terminal_type AS terminaltype),
+                        CAST(:legacy_enum_value AS varchar(50)),
+                        CAST(:external_id AS varchar(100)),
+                        'traffit',
+                        false, '{}'::jsonb,
+                        NOW(), NOW()
+                    )
+                    ON CONFLICT (external_source, external_id)
+                    WHERE external_id IS NOT NULL
+                    DO UPDATE SET
+                        template_id       = EXCLUDED.template_id,
+                        name              = EXCLUDED.name,
+                        "order"           = EXCLUDED."order",
+                        category          = EXCLUDED.category,
+                        is_terminal       = EXCLUDED.is_terminal,
+                        terminal_type     = EXCLUDED.terminal_type,
+                        legacy_enum_value = EXCLUDED.legacy_enum_value,
+                        updated_at        = NOW()
+                    """
+                ),
+                {
+                    "template_id": template_id,
+                    "name": sd["name"],
+                    "order": sd["order"],
+                    "category": sd["category"],
+                    "is_terminal": sd["is_terminal"],
+                    "terminal_type": sd.get("terminal_type"),
+                    "legacy_enum_value": sd["legacy_enum_value"],
+                    "external_id": sd["traffit_state_id"],
+                },
+            )
+
+        # Re-home the rows Traffit no longer sends, after the live ones. Their
+        # names go back untouched unless a live state has taken one — the live
+        # state is the current truth, so the retired row yields and is suffixed.
+        for offset, row in enumerate(stale):
+            name = row.name
+            if name in seen_names:
+                name = f"{name} (#{row.external_id or row.id})"[:100]
+            seen_names.add(name)
+            await self.db.execute(
+                text(
+                    """
+                    UPDATE pipeline_stage_defs
+                       SET "order" = CAST(:o AS integer),
+                           name = CAST(:n AS varchar(100)),
+                           updated_at = NOW()
+                     WHERE id = CAST(:i AS integer)
+                    """
+                ),
+                {"o": len(incoming) + offset, "n": name, "i": row.id},
+            )
 
     # ── Faza 5: candidates ──────────────────────────────────────────────────
 
