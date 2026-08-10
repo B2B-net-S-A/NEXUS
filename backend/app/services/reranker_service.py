@@ -17,12 +17,13 @@ flag in callers (this module does not gate; it always tries when called).
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional, Sequence
 
 import httpx
 
 from app.core.config import settings
-from app.services.ai_health import AiCallTimer
+from app.services.ai_health import AiCallTimer, record_provider_call
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ async def rerank(
     if top_k is not None:
         payload["top_k"] = int(top_k)
 
+    started = time.monotonic()
     with AiCallTimer() as timer:
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:
@@ -93,6 +95,15 @@ async def rerank(
             timer.failed = True
             logger.warning("[rerank] error: %s", e)
             return None
+        finally:
+            # Rerank degrades silently to passthrough on failure — retrieval
+            # keeps working, so nothing else in the system notices it stopped.
+            # Its own health window is the only way that becomes visible.
+            # Timed independently of AiCallTimer: that one only fills in
+            # elapsed_ms on __exit__, which has not run yet inside this block.
+            record_provider_call(
+                "reranker", int((time.monotonic() - started) * 1000), timer.failed
+            )
 
     # Voyage returns: [{"index": <int>, "relevance_score": <float>, ...}, ...]
     # already sorted desc by relevance_score.
