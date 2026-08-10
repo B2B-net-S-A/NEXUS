@@ -358,20 +358,28 @@ class TraffitClient:
                 raise RuntimeError(
                     f"GET {path} page={page}: HTTP {resp.status_code} {resp.text[:200]}"
                 )
+            # A malformed page ALWAYS raises. Until 2026-08-10 the default path
+            # (``fallback_on_filter_rejection=True``, i.e. every daily-sync
+            # phase) only logged and `return`ed — which ends this generator
+            # exactly like a clean last page. The consuming phase then saw no
+            # error at all, the orchestrator stamped `last_status="ok"` and
+            # ADVANCED the watermark, so every record behind that page was
+            # dropped silently and, once the delta window moved past it,
+            # unrecoverably. Raising instead lets the orchestrator freeze the
+            # watermark and re-cover the tail on the next run.
+            #
+            # Note this used to hang off `fallback_on_filter_rejection`, a flag
+            # about HTTP 400 filter rejection that has nothing to do with
+            # payload validity; only the strict poller passed False and thus got
+            # correct behaviour by accident.
             try:
                 items = resp.json()
             except (json.JSONDecodeError, ValueError) as exc:
-                message = f"Bad JSON from {path} page={page}"
-                if not fallback_on_filter_rejection:
-                    raise RuntimeError(message) from exc
-                logger.error("%s", message)
-                return
+                raise RuntimeError(f"Bad JSON from {path} page={page}") from exc
             if not isinstance(items, list):
-                message = f"Expected list, got {type(items)} from {path} page={page}"
-                if not fallback_on_filter_rejection:
-                    raise RuntimeError(message)
-                logger.error("%s", message)
-                return
+                raise RuntimeError(
+                    f"Expected list, got {type(items)} from {path} page={page}"
+                )
             if not items:
                 return
             yield page, items
