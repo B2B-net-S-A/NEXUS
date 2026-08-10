@@ -40,7 +40,7 @@ import { AutoAssignedCollaborators } from "@/components/jobs/AutoAssignedCollabo
 const SEGMENT_LABELS: Record<string, string> = {
   "": "Dashboard",
   candidates: "Kandydaci",
-  jobs: "Oferty pracy",
+  jobs: "Rekrutacje",
   clients: "Klienci",
   contacts: "Kontakty",
   contracts: "Kontrakty",
@@ -1510,7 +1510,7 @@ export function AddJobModal({
 
   return (
     <Modal
-      title={fromJobId != null ? "Skopiuj jako template" : "Dodaj ofertę pracy"}
+      title={fromJobId != null ? "Skopiuj jako template" : "Dodaj rekrutację"}
       onClose={onClose}
       wide
     >
@@ -1588,7 +1588,7 @@ export function AddJobModal({
         />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-          <SaveButton saving={saving} label="Dodaj ofertę" />
+          <SaveButton saving={saving} label="Dodaj rekrutację" />
         </div>
       </form>
     </Modal>
@@ -1664,7 +1664,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         // `undefined` pominąłby pole w PATCH i zachował wartość DB.
         train_name: form.train_name.trim() ? form.train_name.trim() : null,
       });
-      onSuccess("Oferta zaktualizowana");
+      onSuccess("Rekrutacja zaktualizowana");
       onClose();
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
@@ -2145,7 +2145,7 @@ function QuickActionsButton({
 
   const QUICK_ACTIONS: { label: string; icon: React.ComponentType<{ className?: string }>; modal: ModalType }[] = [
     { label: "Dodaj kandydata", icon: UserPlus, modal: "candidate" },
-    { label: "Dodaj ofertę", icon: Briefcase, modal: "job" },
+    { label: "Dodaj rekrutację", icon: Briefcase, modal: "job" },
     { label: "Dodaj firmę", icon: Building2, modal: "client" },
     { label: "Zaplanuj spotkanie", icon: CalendarPlus, modal: "meeting" },
   ];

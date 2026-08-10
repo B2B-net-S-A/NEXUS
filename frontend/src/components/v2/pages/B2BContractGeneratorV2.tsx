@@ -1719,7 +1719,7 @@ function GeneratorForm() {
     prefilledJob.current = selectedRecruitment.job_id;
     if (j.description) {
       setProjectDescription(j.description);
-      descTouched.current = true; // opis z oferty ma priorytet nad smart-prefillem
+      descTouched.current = true; // opis z rekrutacji ma priorytet nad smart-prefillem
     }
     if (j.location) setProjectCity(j.location);
     if (j.client_name) setClientName(j.client_name);
@@ -2246,7 +2246,7 @@ function GeneratorForm() {
 
             <div>
               <Label className="mb-1.5 block">
-                Rekrutacja (klient z oferty){" "}
+                Rekrutacja (klient z rekrutacji){" "}
                 <span className="text-destructive">*</span>
               </Label>
               <Select
@@ -2509,7 +2509,7 @@ function GeneratorForm() {
                 // tylko przy ponownym kliknięciu „Sprawdź…" (onMutate uopMut).
               }}
               rows={4}
-              placeholder="Auto z obszaru/oferty — możesz nadpisać. Po wklejeniu sprawdź AI…"
+              placeholder="Auto z obszaru/rekrutacji — możesz nadpisać. Po wklejeniu sprawdź AI…"
             />
             <div className="mt-2">
               <Button

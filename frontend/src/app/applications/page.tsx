@@ -242,7 +242,7 @@ export default function ApplicationsQueuePage() {
                       href={`/jobs/${s.job_id}`}
                       className="rounded-full border border-border px-2.5 py-0.5 text-muted-foreground hover:text-foreground"
                     >
-                      oferta #{s.job_id}
+                      rekrutacja #{s.job_id}
                     </a>
                   )}
                   <span

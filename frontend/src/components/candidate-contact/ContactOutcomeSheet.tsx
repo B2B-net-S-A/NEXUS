@@ -55,7 +55,7 @@ const OUTCOMES: Array<{
   {
     value: "connected",
     label: "Rozmowa odbyta",
-    description: "Zapisz decyzję osobno dla każdej przedstawionej oferty.",
+    description: "Zapisz decyzję osobno dla każdej przedstawionej rekrutacji.",
     icon: CheckCircle2,
   },
   {

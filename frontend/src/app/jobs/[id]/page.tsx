@@ -541,7 +541,7 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
         const r = await phase3Api.embedAllJobs(500);
         const d = r.data as { requested: number; embedded: number; failed: number };
         setLast(
-          `Embedding ofert: requested=${d.requested}, embedded=${d.embedded}, failed=${d.failed}`
+          `Embedding rekrutacji: requested=${d.requested}, embedded=${d.embedded}, failed=${d.failed}`
         );
       }
       onDone();
@@ -591,7 +591,7 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
           disabled={!!busy}
           className="text-xs px-3 py-1.5 rounded-md bg-slate-600 text-white hover:bg-slate-700 disabled:opacity-50"
           data-testid="embed-all-jobs"
-          title="Jednorazowo: wylicza embeddingi dla wszystkich ofert bez vector ID"
+          title="Jednorazowo: wylicza embeddingi dla wszystkich rekrutacji bez vector ID"
         >
           {busy === "embed-all" ? "Embedduję…" : "🗂 Embed all jobs"}
         </button>
@@ -1127,7 +1127,7 @@ export default function JobDetailPage() {
           state={jobViewState === "empty" ? "not_found" : jobViewState}
           description={
             jobViewState === "forbidden"
-              ? "Nie masz uprawnień do tej oferty. Oferta istnieje — poproś o dodanie Cię do jej zespołu albo o rozszerzenie roli."
+              ? "Nie masz uprawnień do tej rekrutacji. Rekrutacja istnieje — poproś o dodanie Cię do jej zespołu albo o rozszerzenie roli."
               : undefined
           }
           onRetry={() => void refetchJob()}
@@ -1145,7 +1145,7 @@ export default function JobDetailPage() {
               {job.reference_number && (
                 <span
                   className="font-mono text-xs px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border"
-                  title="Numer referencyjny oferty"
+                  title="Numer referencyjny rekrutacji"
                 >
                   {job.reference_number}
                 </span>
@@ -1205,7 +1205,7 @@ export default function JobDetailPage() {
                   <button
                     onClick={() => setShowInviteLink(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-xs"
-                    title="Wygeneruj indywidualny link aplikacyjny dla tej oferty"
+                    title="Wygeneruj indywidualny link aplikacyjny dla tej rekrutacji"
                   >
                     <Link2 className="w-3.5 h-3.5 text-primary" />
                     Wygeneruj link
@@ -1230,7 +1230,7 @@ export default function JobDetailPage() {
               className="flex items-center justify-center w-8 h-8 rounded-lg border border-border dark:border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               aria-expanded={!headerCollapsed}
               data-testid="toggle-job-header"
-              title={headerCollapsed ? "Rozwiń nagłówek oferty" : "Zwiń nagłówek — więcej miejsca na pipeline"}
+              title={headerCollapsed ? "Rozwiń nagłówek rekrutacji" : "Zwiń nagłówek — więcej miejsca na pipeline"}
             >
               {headerCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </button>

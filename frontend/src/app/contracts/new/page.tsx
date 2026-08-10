@@ -298,7 +298,7 @@ function NewContractForm() {
           <CardHeader>
             <CardTitle className="text-base">Strony umowy</CardTitle>
             <CardDescription>
-              Kandydat i klient są wymagane. Ofertę możesz dobrać z rekrutacji
+              Kandydat i klient są wymagane. Rekrutację możesz dobrać z listy
               kandydata.
             </CardDescription>
           </CardHeader>
@@ -474,7 +474,7 @@ function NewContractForm() {
 
             {/* Rekrutacja (opcjonalna, daje job_id) */}
             <div>
-              <Label className="mb-1.5 block">Oferta / rekrutacja (opcjonalnie)</Label>
+              <Label className="mb-1.5 block">Rekrutacja (opcjonalnie)</Label>
               <Select value={stageId} onValueChange={setStageId} disabled={!candidate}>
                 <SelectTrigger>
                   <SelectValue

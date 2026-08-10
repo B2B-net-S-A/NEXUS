@@ -119,7 +119,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Pipeline",
     icon: GitBranch,
     items: [
-      { href: "/jobs", label: "Oferty", icon: Briefcase, badgeKey: "jobs" },
+      { href: "/jobs", label: "Rekrutacje", icon: Briefcase, badgeKey: "jobs" },
       { href: "/calendar", label: "Kalendarz", icon: Calendar },
     ],
   },

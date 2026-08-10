@@ -73,7 +73,7 @@ function MarketplacePageContent() {
           <p className="text-sm text-muted-foreground max-w-3xl">
             Konsultanci z kontraktami kończącymi się w wybranym horyzoncie
             oraz tacy, którzy zaznaczyli „aktywnie szuka" lub „otwarty na
-            oferty". Dla każdego AI dobiera top dopasowania z otwartych
+            rekrutacje". Dla każdego AI dobiera top dopasowania z otwartych
             rekrutacji.
           </p>
           <SeekingContractorsBoard />

@@ -1073,10 +1073,10 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  disabled={!candidate}
  >
  <UserPlus className="h-4 w-4" />
- Przypisz do oferty
+ Przypisz do rekrutacji
  </Button>
  {/* Utility cluster — secondary actions collapse into "Więcej" so only the
- primary "Przypisz do oferty" task stays visible in the strip. */}
+ primary "Przypisz do rekrutacji" task stays visible in the strip. */}
  <div className="mx-0.5 hidden h-5 w-px bg-border sm:block" />
  {candidate && (
  <PinButton
@@ -3582,7 +3582,7 @@ function RekrutacjaCard({
  href={`/jobs/${job.job_id ?? job.id}`}
  className="font-medium text-foreground hover:underline"
  >
- {job.job_title ?? `Oferta #${job.job_id ?? job.id}`}
+ {job.job_title ?? `Rekrutacja #${job.job_id ?? job.id}`}
  </Link>
  <div className="text-xs text-muted-foreground">
  {job.latest_stage ??"—"}
@@ -3766,7 +3766,7 @@ function RekrutacjaCard({
  Usunąć kandydata z tej rekrutacji?
  </h3>
  <p className="text-sm text-muted-foreground">
- Kandydat zostanie zdjęty z pipeline'u oferty{" "}
+ Kandydat zostanie zdjęty z pipeline'u rekrutacji{" "}
  <span className="font-medium text-foreground">
  {job.job_title ?? `#${jobId}`}
  </span>
@@ -3901,7 +3901,7 @@ function NoteComposer({
  const m = new Map<number, string>();
  for (const r of recList) {
  if (r.job_id != null)
- m.set(Number(r.job_id), r.job_title ?? `Oferta #${r.job_id}`);
+ m.set(Number(r.job_id), r.job_title ?? `Rekrutacja #${r.job_id}`);
  }
  return m;
  }, [recList]);
@@ -3966,7 +3966,7 @@ function NoteComposer({
  <option value="">Notatka ogólna (bez rekrutacji)</option>
  {recList.map((r: any) => (
  <option key={r.job_id} value={r.job_id}>
- {r.job_title ?? `Oferta #${r.job_id}`}
+ {r.job_title ?? `Rekrutacja #${r.job_id}`}
  </option>
  ))}
  </select>
@@ -4206,7 +4206,7 @@ function NotatkiTab({
  const jobTitleById = useMemo(() => {
  const m = new Map<number, string>();
  for (const r of recList) {
- if (r.job_id != null) m.set(Number(r.job_id), r.job_title ?? `Oferta #${r.job_id}`);
+ if (r.job_id != null) m.set(Number(r.job_id), r.job_title ?? `Rekrutacja #${r.job_id}`);
  }
  return m;
  }, [recList]);

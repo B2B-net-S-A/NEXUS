@@ -217,7 +217,7 @@ export function GlobalSearchBar() {
   if (results) {
     const defs = [
       { key: "candidates", label: "Kandydaci", icon: <Users className="w-3.5 h-3.5" />, allHref: "/candidates", items: results.candidates.slice(0, 3) },
-      { key: "jobs", label: "Oferty pracy", icon: <Briefcase className="w-3.5 h-3.5" />, allHref: "/jobs", items: results.jobs.slice(0, 3) },
+      { key: "jobs", label: "Rekrutacje", icon: <Briefcase className="w-3.5 h-3.5" />, allHref: "/jobs", items: results.jobs.slice(0, 3) },
       { key: "clients", label: "Klienci", icon: <Building2 className="w-3.5 h-3.5" />, allHref: "/clients", items: results.clients.slice(0, 3) },
     ];
     for (const d of defs) {
@@ -252,7 +252,7 @@ export function GlobalSearchBar() {
             placeholder={
               aiMode
                 ? "AI Search — opisz kandydata... (⌘K)"
-                : "Szukaj kandydatów, ofert, klientów... (⌘K)"
+                : "Szukaj kandydatów, rekrutacji, klientów... (⌘K)"
             }
             data-global-search="true"
             className={`w-full pl-9 pr-9 py-2.5 border rounded-xl text-sm focus:outline-hidden bg-card dark:bg-muted dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground shadow-xs transition-all ${

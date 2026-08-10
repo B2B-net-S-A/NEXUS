@@ -538,7 +538,7 @@ export function DashboardV2() {
  </Link>
  <Link href="/jobs">
  <Button variant="primary" size="sm">
- Oferty <ArrowRight className="h-3.5 w-3.5" />
+ Rekrutacje <ArrowRight className="h-3.5 w-3.5" />
  </Button>
  </Link>
  </div>
@@ -590,7 +590,7 @@ export function DashboardV2() {
  href="/candidates"
  />
  <StatCardV2
- title="Otwarte oferty"
+ title="Otwarte rekrutacje"
  value={stats?.jobs?.open ??"—"}
  subtitle={
  stats?.jobs?.total != null ? `${stats.jobs.total} łącznie` : undefined
@@ -758,7 +758,7 @@ export function DashboardV2() {
  wiersze Fireflies/Voyage — udawały monitoring. Pełny widget
  na bazie /api/health wróci z Analytics v1 (PR 5). */}
  <HealthRow
- label="Publikacje ofert"
+ label="Publikacje rekrutacji"
  detail={
  postingsStats?.total != null
  ? `${postingsStats.total} aktywnych`

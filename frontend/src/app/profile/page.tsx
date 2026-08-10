@@ -102,7 +102,7 @@ const ACTIVITY_ICONS: Record<string, React.ReactNode> = {
 
 const ACTIVITY_LABELS: Record<string, string> = {
   candidate_added: "Dodanych kandydatów",
-  job_added: "Dodanych ofert",
+  job_added: "Dodanych rekrutacji",
   note_added: "Dodanych notatek",
   status_changed: "Zmiany statusu",
 };

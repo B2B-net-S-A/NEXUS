@@ -290,7 +290,7 @@ async def _lock_latest_stage(
     if stage is None:
         raise HTTPException(
             status_code=404,
-            detail="Brak rekrutacji dla tego kandydata i tej oferty.",
+            detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
         )
     return stage
 

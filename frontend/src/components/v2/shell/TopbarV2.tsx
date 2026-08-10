@@ -128,7 +128,7 @@ export function TopbarV2({
         )}
       >
         <Search className="h-4 w-4 shrink-0" />
-        <span className="truncate">Szukaj kandydatów, ofert, klientów…</span>
+        <span className="truncate">Szukaj kandydatów, rekrutacji, klientów…</span>
         <div className="ml-auto flex items-center gap-1 shrink-0">
           <Kbd>{isMac ? "⌘" : "Ctrl"}</Kbd>
           <Kbd>K</Kbd>

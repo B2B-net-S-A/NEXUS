@@ -90,7 +90,7 @@ export function MyJobsWidget() {
  href="/jobs?mine=0&status=published"
  className="inline-flex items-center gap-1 text-primary hover:underline text-xs mt-1"
  >
- Przeglądaj otwarte oferty <ArrowRight className="h-3 w-3" />
+ Przeglądaj otwarte rekrutacje <ArrowRight className="h-3 w-3" />
  </Link>
  </div>
  }

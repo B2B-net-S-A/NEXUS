@@ -229,7 +229,7 @@ async def create_question(
     if payload.job_id is not None:
         job_exists = await db.execute(select(Job.id).where(Job.id == payload.job_id))
         if not job_exists.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Nie znaleziono oferty pracy")
+            raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
         await _pin_to_job_impl(
             db=db,
             job_id=payload.job_id,
@@ -425,7 +425,7 @@ async def pin_question_to_job(
 ) -> JobQuestionOut:
     job = await db.get(Job, job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Nie znaleziono oferty pracy")
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
     iq = await db.get(InterviewQuestion, payload.question_id)
     if not iq:
         raise HTTPException(status_code=404, detail="Nie znaleziono pytania")
@@ -490,7 +490,7 @@ async def reorder_job_questions(
 ) -> list[JobQuestionOut]:
     job = await db.get(Job, job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Nie znaleziono oferty pracy")
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
 
     q_ids = [item.question_id for item in payload.items]
     result = await db.execute(
@@ -589,7 +589,7 @@ async def get_suggested_questions(
     """
     job = await db.get(Job, job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Nie znaleziono oferty pracy")
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
 
     suggestions = await suggest_questions_for_prep(
         db=db, job=job, target_count=target_count

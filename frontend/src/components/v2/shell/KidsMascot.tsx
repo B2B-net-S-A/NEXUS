@@ -76,7 +76,7 @@ const RECRUITER_TIPS = [
   "Mów o zespole i projekcie, nie tylko o widełkach.",
   "Follow-up po 2-3 dniach ciszy — większość hire'ów żyje w follow-upie.",
   "Zbieraj referencje od zadowolonych kandydatów — to najlepszy sourcing.",
-  "Ustaw realny timeline z klientem na starcie — unikniesz spalonych ofert.",
+  "Ustaw realny timeline z klientem na starcie — unikniesz spalonych rekrutacji.",
   "Jeden dobrze dopasowany kandydat to więcej niż pięciu 'może pasuje'.",
   "Pytaj kandydata, kogo poleca — talenty znają talenty.",
   "Aktualizuj etap od razu po zmianie — pipeline to Twoja mapa.",

@@ -173,7 +173,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
         <label className="flex flex-col">
           <span
             className="text-xs text-muted-foreground dark:text-muted-foreground mb-1"
-            title="Oferty z dopasowaniem poniżej progu trafiają do zwiniętej sekcji „Słabe dopasowania” zamiast na listę."
+            title="Rekrutacje z dopasowaniem poniżej progu trafiają do zwiniętej sekcji „Słabe dopasowania” zamiast na listę."
           >
             Min. dopasowanie (0–100)
           </span>

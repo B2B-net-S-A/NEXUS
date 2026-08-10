@@ -29,16 +29,16 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs", clientId] });
-      showSuccess("Oferta zamknięta jako przegrana");
+      showSuccess("Rekrutacja zamknięta jako przegrana");
       onClose();
     },
-    onError: () => showError("Nie udało się zamknąć oferty"),
+    onError: () => showError("Nie udało się zamknąć rekrutacji"),
   });
 
   return (
     <ModalShell onClose={onClose} title="Zamknij jako przegraną">
       <p className="text-xs text-muted-foreground dark:text-muted-foreground">
-        Oferta:{" "}
+        Rekrutacja:{" "}
         <span className="font-medium text-foreground dark:text-muted-foreground">{jobTitle}</span>
       </p>
 

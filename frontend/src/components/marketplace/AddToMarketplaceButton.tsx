@@ -149,7 +149,7 @@ export function AddToMarketplaceButton({
                     "Kandydat zostanie dodany na targ."
                   )}{" "}
                   AI od razu przeszuka otwarte projekty i pokaże te, do których
-                  pasuje najlepiej — a następnie będzie monitorować nowe oferty i
+                  pasuje najlepiej — a następnie będzie monitorować nowe rekrutacje i
                   alertować o dopasowaniach (score ≥ {threshold}).
                 </p>
                 <div>
@@ -207,7 +207,7 @@ export function AddToMarketplaceButton({
                   <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
                     AI przeszukał otwarte projekty i wybrał te, do których{" "}
                     {candidateName ? <strong>{candidateName}</strong> : "kandydat"}{" "}
-                    pasuje najlepiej. Kliknij projekt, aby przejść do oferty.
+                    pasuje najlepiej. Kliknij projekt, aby przejść do rekrutacji.
                   </p>
                   <CandidateMatchesExpansion candidateId={candidateId} />
                 </div>

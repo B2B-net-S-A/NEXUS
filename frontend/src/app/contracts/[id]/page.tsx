@@ -835,7 +835,7 @@ export default function ContractDetailPage() {
                     `#${contract.client_id}`
                   )}
                 </InfoRow>
-                <InfoRow icon={Briefcase} label="Oferta pracy">
+                <InfoRow icon={Briefcase} label="Rekrutacja">
                   {contract.job_title ? (
                     <Link
                       href={`/jobs/${contract.job_id}`}

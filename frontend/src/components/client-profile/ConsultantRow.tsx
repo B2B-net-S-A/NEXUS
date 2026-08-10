@@ -75,7 +75,7 @@ export function ConsultantRow({ consultant, actions }: Props) {
                   <span>{consultant.job_title}</span>
                 )
               ) : (
-                <span className="italic">brak powiązanej oferty</span>
+                <span className="italic">brak powiązanej rekrutacji</span>
               )}
               <span>
                 {formatDate(consultant.start_date)}

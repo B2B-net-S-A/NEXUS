@@ -116,7 +116,7 @@ const ADVANCED_LINKS: Array<{
   {
     href: "/settings/pipeline-templates",
     title: "Procesy rekrutacyjne",
-    description: "Pipeline templates: definicje stagey i przepływów per ofertę.",
+    description: "Pipeline templates: definicje stagey i przepływów per rekrutację.",
     icon: <Workflow className="w-5 h-5" />,
     roles: ["admin", "delivery_lead"],
   },
@@ -640,7 +640,7 @@ function OnboardingSettings() {
             <kbd className="font-mono bg-card dark:bg-gray-600 px-1.5 py-0.5 rounded border border-border dark:border-gray-500">⌘⇧C</kbd>
           </div>
           <div className="flex justify-between p-2 bg-muted dark:bg-muted rounded-lg">
-            <span>Dodaj ofertę</span>
+            <span>Dodaj rekrutację</span>
             <kbd className="font-mono bg-card dark:bg-gray-600 px-1.5 py-0.5 rounded border border-border dark:border-gray-500">⌘⇧J</kbd>
           </div>
           <div className="flex justify-between p-2 bg-muted dark:bg-muted rounded-lg">

@@ -164,7 +164,7 @@ export function ScreeningSheet({
  <SheetBody>
  <div className="py-8 text-center text-sm text-muted-foreground">
  <AlertTriangle className="h-10 w-10 mx-auto mb-2 opacity-40" />
- Ta oferta nie ma skonfigurowanego Champion Profile — poproś TAC
+ Ta rekrutacja nie ma skonfigurowanego Champion Profile — poproś TAC
  o uzupełnienie pytań screeningowych.
  </div>
  </SheetBody>

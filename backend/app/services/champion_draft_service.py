@@ -672,7 +672,7 @@ async def generate_from_historical_jobs(
     if len(matches) < MIN_MATCHES_FOR_GENERATION:
         status_val = SuggestionStatus.rejected
         error_message = (
-            f"Za mało historycznych ofert do porównania "
+            f"Za mało historycznych rekrutacji do porównania "
             f"(znaleziono {len(matches)}, wymagane co najmniej "
             f"{MIN_MATCHES_FOR_GENERATION})."
         )

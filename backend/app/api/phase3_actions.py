@@ -93,7 +93,9 @@ async def send_candidate_shortlist_email(
             ),
         )
     if not body.job_ids:
-        raise HTTPException(status_code=400, detail="Lista ofert nie może być pusta.")
+        raise HTTPException(
+            status_code=400, detail="Lista rekrutacji nie może być pusta."
+        )
 
     jobs_res = await db.execute(
         select(Job).where(Job.id.in_(body.job_ids), Job.status == JobStatus.published)
@@ -102,7 +104,7 @@ async def send_candidate_shortlist_email(
     if not jobs:
         raise HTTPException(
             status_code=400,
-            detail="Żadna z wybranych ofert nie jest opublikowana.",
+            detail="Żadna z wybranych rekrutacji nie jest opublikowana.",
         )
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     for job in jobs:
@@ -222,7 +224,7 @@ async def prepare_client_proposal(
         raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
     job = await db.scalar(select(Job).where(Job.id == body.job_id))
     if not job:
-        raise HTTPException(status_code=404, detail="Oferta nie istnieje")
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
     assert_delivery_lead_client_visible(
         job.client_id,
         await resolve_delivery_lead_client_ids(current_user, db),

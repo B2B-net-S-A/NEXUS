@@ -28,7 +28,7 @@ export function SystemTab() {
 
   const statCards = [
     { label: "Kandydaci", value: stats.counts.candidates, icon: "👥" },
-    { label: "Oferty pracy", value: stats.counts.jobs, icon: "💼" },
+    { label: "Rekrutacje", value: stats.counts.jobs, icon: "💼" },
     { label: "Klienci", value: stats.counts.clients, icon: "🏢" },
     { label: "Kontrakty", value: stats.counts.contracts, icon: "📄" },
     { label: "Użytkownicy", value: stats.counts.users, icon: "🔑" },

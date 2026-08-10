@@ -436,7 +436,7 @@ export function ClientContractRegister({
 
       {/* Panel filtrów (logika AND, server-side) + eksport. Wyszukiwarka filtruje
           po nazwisku konsultanta; „Status", „Okres" (overlap) i „Podkategoria"
-          (podkategoria oferty) zawężają listę w czasie rzeczywistym. Eksport
+          (podkategoria rekrutacji) zawężają listę w czasie rzeczywistym. Eksport
           bierze dokładnie to, co widać na liście. */}
       <FilterBar
         search={{
@@ -484,7 +484,7 @@ export function ClientContractRegister({
                 className="h-9 w-[150px]"
               />
             </div>
-            {/* Podkategoria — tylko gdy klient ma jakiekolwiek podkategorie ofert
+            {/* Podkategoria — tylko gdy klient ma jakiekolwiek podkategorie rekrutacji
                 (pusty dropdown byłby martwym filtrem). */}
             {subcategoryOptions.length > 0 && (
               <MultiSelectFilter<string>

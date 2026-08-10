@@ -201,7 +201,7 @@ export function ContractorsListV2() {
  <TableHeader>
  <TableRow>
  <TableHead>Kandydat</TableHead>
- <TableHead>Klient · Oferta</TableHead>
+ <TableHead>Klient · Rekrutacja</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Tryb</TableHead>
  {canManageFinance && (

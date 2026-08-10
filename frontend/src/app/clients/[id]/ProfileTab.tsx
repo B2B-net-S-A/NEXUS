@@ -235,7 +235,7 @@ function LostJobsSection({
       />
       {lostJobs.length === 0 ? (
         <EmptyState icon={<XCircle className="w-8 h-8" />}>
-          Świetnie — żadna oferta u tego klienta nie została przegrana.
+          Świetnie — żadna rekrutacja u tego klienta nie została przegrana.
         </EmptyState>
       ) : (
         <div className="space-y-2">

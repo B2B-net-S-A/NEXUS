@@ -314,7 +314,7 @@ export function PipelineTemplatesTab() {
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
             Zdefiniuj strukturę pipeline&apos;ów używanych w rekrutacjach. Domyślny proces
-            zostaje automatycznie przypisany do nowych ofert.
+            zostaje automatycznie przypisany do nowych rekrutacji.
           </p>
         </div>
         <button

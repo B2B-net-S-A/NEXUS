@@ -797,7 +797,7 @@ function NewModeForm({
                     {!selectedRecruitment.has_champion && (
                       <div>
                         Brakuje Profilu Championa (must-have, nice-to-have,
-                        kontekst projektu). Uzupełnij go na karcie oferty zanim
+                        kontekst projektu). Uzupełnij go na karcie rekrutacji zanim
                         wygenerujesz CV.
                       </div>
                     )}

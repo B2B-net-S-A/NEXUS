@@ -17,13 +17,13 @@ const SHORTCUTS: Array<{
   capability?: Capability;
 }> = [
   { keys: ["n"], description: "Nowy kandydat", capability: "candidate.create" },
-  { keys: ["j"], description: "Nowa oferta pracy", capability: "job.create" },
+  { keys: ["j"], description: "Nowa rekrutacja", capability: "job.create" },
   { keys: ["/"], description: "Szukaj" },
   { keys: ["?"], description: "Pokaż skróty klawiszowe" },
   { keys: ["Esc"], description: "Zamknij modal / anuluj" },
   { keys: ["⌘", "K"], description: "Globalne wyszukiwanie" },
   { keys: ["⌘", "N"], description: "Szybki nowy kandydat", capability: "candidate.create" },
-  { keys: ["⌘", "J"], description: "Szybka nowa oferta", capability: "job.create" },
+  { keys: ["⌘", "J"], description: "Szybka nowa rekrutacja", capability: "job.create" },
   { keys: ["↑ / ↓"], description: "Nawigacja w wynikach wyszukiwania" },
   { keys: ["Enter"], description: "Wybierz wynik wyszukiwania" },
 ];

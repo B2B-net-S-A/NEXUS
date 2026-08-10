@@ -71,9 +71,9 @@ export function AddCandidateToJobModal({
   });
 
   return (
-    <ModalShell onClose={onClose} title="Dodaj kandydata do oferty">
+    <ModalShell onClose={onClose} title="Dodaj kandydata do rekrutacji">
       <p className="text-xs text-muted-foreground dark:text-muted-foreground">
-        Oferta:{" "}
+        Rekrutacja:{" "}
         <span className="font-medium text-foreground dark:text-muted-foreground">{jobTitle}</span>
       </p>
 

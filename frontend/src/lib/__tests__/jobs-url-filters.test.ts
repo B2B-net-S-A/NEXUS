@@ -46,7 +46,7 @@ describe("initialStatusFromUrl", () => {
 });
 
 describe("initialMineFromUrl", () => {
-  it("„mine=1” włącza filtr moich ofert", () => {
+  it("„mine=1” włącza filtr moich rekrutacji", () => {
     expect(initialMineFromUrl(new URLSearchParams("mine=1"))).toBe(true);
   });
 

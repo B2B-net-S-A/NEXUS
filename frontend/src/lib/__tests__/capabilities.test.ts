@@ -372,7 +372,7 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
     }
   })
 
-  it("recruiter/sourcer nie tworzą kontraktów, ofert, firm ani kontaktów", () => {
+  it("recruiter/sourcer nie tworzą kontraktów, rekrutacji, firm ani kontaktów", () => {
     for (const role of ["recruiter", "sourcer"] as UserRole[]) {
       expect(hasCapability(mkUser(role), "contract.create")).toBe(false)
       expect(hasCapability(mkUser(role), "job.create")).toBe(false)
@@ -381,7 +381,7 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
     }
   })
 
-  it("kontrakt, oferta i firma dzielą tę samą bramkę (TacPlus)", () => {
+  it("kontrakt, rekrutacja i firma dzielą tę samą bramkę (TacPlus)", () => {
     for (const role of ALL_ROLES) {
       const contract = hasCapability(mkUser(role), "contract.create")
       expect(hasCapability(mkUser(role), "job.create")).toBe(contract)

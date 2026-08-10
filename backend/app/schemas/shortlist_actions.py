@@ -18,7 +18,7 @@ class CandidateShortlistEmailRequest(BaseModel):
     candidate_id: int = Field(
         ..., description="ID kandydata, do którego idzie shortlist"
     )
-    job_ids: List[int] = Field(..., description="Lista ID ofert do zaproponowania")
+    job_ids: List[int] = Field(..., description="Lista ID rekrutacji do zaproponowania")
 
 
 class ClientProposalRequest(BaseModel):

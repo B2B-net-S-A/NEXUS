@@ -100,7 +100,7 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.cv_requirement_map: [
         "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
-        "Wymagania must/nice-have oferty",
+        "Wymagania must/nice-have rekrutacji",
     ],
     AIFeatureKey.cv_interactive_chat: [
         "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
