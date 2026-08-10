@@ -165,6 +165,11 @@ async def test_one_bad_workflow_does_not_discard_the_others(db) -> None:
     assert progress.errors == 1
     # The healthy workflow survived the unhealthy one.
     assert await _stage_rows(db, ok) == [(f"{ok}-a", "Rozmowa", 0)]
+    # …and the stats describe WRITES, not attempts. Counting inside the
+    # savepoint is how prod came to report `updated: 2` for a run that
+    # persisted nothing.
+    assert progress.inserted + progress.updated == 1
+    assert await _stage_rows(db, bad) == []
 
 
 @pytest.mark.asyncio

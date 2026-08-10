@@ -1129,10 +1129,7 @@ class TraffitImporter:
                     if tmpl_row is None:
                         continue
                     template_id = tmpl_row[0]
-                    if tmpl_row[1]:
-                        progress.inserted += 1
-                    else:
-                        progress.updated += 1
+                    was_insert = bool(tmpl_row[1])
 
                     # Stage defs — sortuj po `order`, potem mapuj kolejność 0..N
                     states = detail.get("states") or []
@@ -1144,6 +1141,15 @@ class TraffitImporter:
                 progress.add_error(
                     f"upsert workflow ext={template_payload.get('external_id')}: {e!r}"
                 )
+                continue
+
+            # Counted only once the savepoint actually held. Incrementing
+            # inside it is how prod came to report `updated: 2` for a run that
+            # persisted nothing — the stats described attempts, not writes.
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
 
         if not self.dry_run:
             await self.db.commit()
