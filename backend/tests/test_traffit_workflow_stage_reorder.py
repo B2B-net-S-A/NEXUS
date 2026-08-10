@@ -232,6 +232,41 @@ async def test_live_state_reclaiming_a_retired_name_wins(db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_live_state_named_like_the_suffix_still_resolves(db) -> None:
+    """The suffix is not guaranteed free either — a live state can be named
+    exactly like the suffixed form. Retrying the suffix cannot converge (past
+    100 chars the truncation returns the same string), so the row falls back to
+    the parked sentinel, which the PK makes unique."""
+    wf = f"wf-{uuid.uuid4().hex[:8]}"
+    a, b = f"{wf}-a", f"{wf}-b"
+
+    await TraffitImporter(
+        _WorkflowTraffit({wf: [_state(a, "Etap", 1), _state(b, "Etap II", 2)]}),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_workflows()
+
+    # B retires. A takes "Etap II", and a second live state takes the exact
+    # name the retiring row would be suffixed to.
+    c = f"{wf}-c"
+    p2 = await TraffitImporter(
+        _WorkflowTraffit(
+            {wf: [_state(a, "Etap II", 1), _state(c, f"Etap II (#{b})", 2)]}
+        ),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_workflows()
+
+    assert p2.errors == 0, f"suffix collision still fails: {p2.error_samples}"
+    rows = await _stage_rows(db, wf)
+    assert [(r[0], r[2]) for r in rows] == [(a, 0), (c, 1), (b, 2)]
+    # Names stayed unique, which is all `uq_stage_name_in_template` asks.
+    assert len({r[1] for r in rows}) == 3
+
+
+@pytest.mark.asyncio
 async def test_rerunning_an_unchanged_workflow_is_a_no_op(db) -> None:
     """The park/apply rewrite runs on EVERY sync, so it must be idempotent —
     otherwise the nightly delta would churn orders or names forever."""

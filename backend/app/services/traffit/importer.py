@@ -693,10 +693,28 @@ WHERE a.external_source = 'traffit'
       ''
   ) <> ''
   /*SINCE*/
+  -- Dedup on the SOURCE ROW's identity, with the old timestamp match kept as
+  -- a fallback. `source_ref` is what actually identifies the activity; the
+  -- timestamp did not, and matching on it alone was wrong twice over:
+  --
+  --   * two activities of one candidate sharing a `created_at` (an email and
+  --     its logged reply, a bulk import stamped in one second) collapsed into
+  --     ONE note — the second was suppressed permanently by the first. That is
+  --     the exact "notatka missing" class this phase exists to prevent.
+  --   * an activity whose `created_at` was later edited in Traffit stopped
+  --     matching its own note and got promoted AGAIN, as a duplicate.
+  --
+  -- The `source_ref IS NULL` arm is not legacy clutter: migration 0077 wrote
+  -- these rows WITHOUT a `source_ref`, so keying purely on it would re-promote
+  -- every note 0077 created — a duplicate for all ~49k candidates on the next
+  -- sync. Those rows stay matched by timestamp until they are backfilled.
   AND NOT EXISTS (
       SELECT 1 FROM notes n
       WHERE n.candidate_id = a.entity_id
-        AND n.created_at = a.created_at
+        AND (
+            n.source_ref = 'traffit:activity:' || a.external_id
+            OR (n.source_ref IS NULL AND n.created_at = a.created_at)
+        )
   )
 """
 
@@ -1292,6 +1310,13 @@ class TraffitImporter:
             name = row.name
             if name in seen_names:
                 name = f"{name} (#{row.external_id or row.id})"[:100]
+            if name in seen_names:
+                # A live state is literally named like the suffixed form.
+                # Retrying the suffix cannot converge — past 100 chars the
+                # truncation returns the same string and the loop spins — so
+                # fall back to the parked sentinel, which `id` makes unique by
+                # construction.
+                name = f"~{row.id}"
             seen_names.add(name)
             await self.db.execute(
                 text(
