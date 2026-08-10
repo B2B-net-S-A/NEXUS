@@ -182,6 +182,15 @@ def _pending_candidates_stmt(limit: Optional[int], *, random_sample: bool = Fals
     the id-ordered sample would have argued for adding LibreOffice to the image
     to rescue 133 people. Use it for any estimate; never for the real run.
     """
+    # Terminal rows are excluded in SQL, not in the loop. Skipping them in Python
+    # was not enough: a row that can never yield text keeps matching the
+    # predicate, so `ORDER BY id LIMIT N` kept re-selecting the same failures and
+    # each successive tranche spent more of its budget re-reading them. Measured
+    # on the first production run: 2 494 of 2 500 rows scanned were already-marked
+    # skips, i.e. the tranche did ~0.2% useful work.
+    marker_outcome = Candidate.cv_extracted_data[_EXTRACTION_MARKER_KEY][
+        "outcome"
+    ].astext
     stmt = select(Candidate.id, Candidate.cv_storage_key, Candidate.cv_filename).where(
         Candidate.cv_storage_key.is_not(None),
         Candidate.cv_storage_key != "",
@@ -189,6 +198,10 @@ def _pending_candidates_stmt(limit: Optional[int], *, random_sample: bool = Fals
             Candidate.raw_cv_text.is_(None),
             func.char_length(func.btrim(Candidate.raw_cv_text))
             <= MIN_USEFUL_TEXT_CHARS,
+        ),
+        or_(
+            marker_outcome.is_(None),
+            marker_outcome.notin_(sorted(_TERMINAL_OUTCOMES)),
         ),
     )
     stmt = stmt.order_by(func.random() if random_sample else Candidate.id.asc())

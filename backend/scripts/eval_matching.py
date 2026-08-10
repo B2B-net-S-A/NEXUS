@@ -549,11 +549,16 @@ async def evaluate_profile(
     db: AsyncSession,
     *,
     with_historical_boost: bool = False,
+    pool_cap: int = 200,
 ) -> ProfileEval:
     result = ProfileEval(profile=profile, with_boost=with_historical_boost)
     for job, gt_ids, relevance in job_records:
         ranked_ids, pool_size, boost_map = await _score_job_candidates(
-            job, db, profile=profile, with_historical_boost=with_historical_boost
+            job,
+            db,
+            profile=profile,
+            with_historical_boost=with_historical_boost,
+            pool_cap=pool_cap,
         )
         p5, r20, r20n, mrr, ndcg = _metrics(ranked_ids, relevance)
         hhr = _historical_hit_rate(ranked_ids, boost_map, k=10)
@@ -571,7 +576,12 @@ async def evaluate_profile(
                 job_id=job.id,
                 job_title=job.title or f"Job {job.id}",
                 ground_truth_ids=gt_ids,
-                ranked_candidate_ids=ranked_ids[:20],
+                # Full list, not `[:20]`. The truncated version made any
+                # recall computed from the artefact silently mean recall@20 —
+                # I read "recall@200 = 2.1%" off this field during the baseline
+                # and it was recall@20. It also fed "Error analysis", so `missed`
+                # meant "outside the top 20", not "never retrieved".
+                ranked_candidate_ids=ranked_ids,
                 relevance_map={str(k): v for k, v in relevance.items()},  # type: ignore[misc]
                 precision_at_5=p5,
                 recall_at_20=r20,
@@ -894,6 +904,7 @@ async def _run(args: argparse.Namespace) -> int:
                 job_records,
                 db,
                 with_historical_boost=args.with_historical_boost,
+                pool_cap=args.pool,
             )
             profile_results.append(res)
 
@@ -906,6 +917,7 @@ async def _run(args: argparse.Namespace) -> int:
                 job_records,
                 db,
                 with_historical_boost=True,
+                pool_cap=args.pool,
             )
             # Rename for unambiguous output.
             delta_res = ProfileEval(
@@ -1038,6 +1050,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=3,
         help="Minimum ground-truth candidates per job (default: 3).",
+    )
+    parser.add_argument(
+        "--pool",
+        type=int,
+        default=200,
+        help=(
+            "Retrieval pool pulled from Qdrant before scoring (default 200 = the "
+            "pre-2026-08-10 production value, kept so a run without this flag "
+            "still reproduces the baseline). The recall ceiling is set HERE, not "
+            "by the weights: measured 1.8%% at 20, 4.1%% at 50, 13.6%% at 200, "
+            "22.8%% at 500, 32.6%% at 1000. Sweep it before touching a weight."
+        ),
     )
 
     def _int_list(raw: str) -> list[int]:

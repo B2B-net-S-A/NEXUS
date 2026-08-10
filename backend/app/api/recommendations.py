@@ -286,7 +286,13 @@ async def _recommend_candidates_core(
     # (~17% of candidates have any location) isn't starved by the top-200
     # semantic cut — only the matched subset is actually scored (pre-filter
     # below), so the extra retrieval doesn't multiply scoring cost.
-    pool_size = min(top_k * 4, 200)
+    # Pool size is independent of `top_k` on purpose. The old `top_k * 4`
+    # heuristic tied "how many we retrieve" to "how many we show", so a request
+    # for the top 20 retrieved 80 and capped its own recall ceiling at ~4%
+    # (measured 2026-08-10: ceiling is 1.8% at pool 20, 13.6% at 200, 32.6% at
+    # 1000). `top_k` still caps what comes back — it just no longer decides what
+    # scoring is allowed to see.
+    pool_size = settings.MATCH_POOL_SIZE
     if location_active:
         pool_size = max(pool_size, settings.RECOMMENDATION_LOCATION_POOL_SIZE)
     hits = await search_candidates_semantic(query_text, top_k=pool_size)
@@ -318,7 +324,7 @@ async def _recommend_candidates_core(
         fallback = await db.execute(
             select(Candidate.id)
             .where(Candidate.status != CandidateStatus.blacklisted)
-            .limit(200)
+            .limit(settings.MATCH_POOL_SIZE)
         )
         candidate_ids = [c for (c,) in fallback.all()]
 
