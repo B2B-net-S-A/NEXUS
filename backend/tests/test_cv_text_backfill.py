@@ -159,3 +159,31 @@ def test_random_sample_changes_ordering_not_scope():
     # Same population either way — only the draw order differs.
     for clause in ("cv_storage_key IS NOT NULL", "LIMIT"):
         assert clause in by_id and clause in random_
+
+
+def test_no_improvement_is_terminal_and_separately_counted():
+    """Two distinct failures the first cut of this module conflated.
+
+    (a) It incremented `stats.empty` for "file had text, ours was worse" — the
+        exact conflation the taxonomy exists to prevent, and it would have made
+        the reported `empty=48` unreadable.
+    (b) It wrote a `no_improvement` marker that `_terminal_marker` did not
+        recognise, so those rows re-entered the scope on every run and burned an
+        S3 GET plus OCR each time, forever.
+    """
+    assert "no_improvement" in svc._TERMINAL_OUTCOMES
+
+    c = _candidate(cv_extracted_data={})
+    _record_marker(c, "no_improvement", 150)
+    assert _terminal_marker(c) == "no_improvement"
+
+    assert "no_improvement" in BackfillStats().as_dict()
+    assert BackfillStats().no_improvement == 0
+
+
+def test_unconfigured_storage_is_distinguishable_from_nothing_to_do():
+    """`scanned == 0` is also what a finished backlog looks like."""
+    assert BackfillStats().storage_available is True
+    broken = BackfillStats()
+    broken.storage_available = False
+    assert broken.as_dict()["storage_available"] is False

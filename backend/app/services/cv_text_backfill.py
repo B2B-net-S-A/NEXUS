@@ -52,7 +52,9 @@ _EXTRACTION_MARKER_KEY = "_cv_text_extraction"
 # skipped, so a rerun spends its time on the unknowns instead of re-burning OCR
 # on the same corrupt PDFs. `error` and `download_failed` are NOT terminal —
 # those are worth another attempt.
-_TERMINAL_OUTCOMES = frozenset({"legacy_doc", "unsupported_format", "junk", "empty"})
+_TERMINAL_OUTCOMES = frozenset(
+    {"legacy_doc", "unsupported_format", "junk", "empty", "no_improvement"}
+)
 
 
 @dataclass
@@ -68,6 +70,11 @@ class BackfillStats:
     extracted: int = 0
     improved: int = 0
     empty: int = 0
+    # Distinct from `empty`: the file DID yield text, we simply already hold
+    # something longer. Folding the two together would hide whether a bucket
+    # means "nothing readable in the file" or "nothing better than we have" —
+    # the exact conflation this taxonomy exists to prevent.
+    no_improvement: int = 0
     junk: int = 0
     legacy_doc: int = 0
     unsupported_format: int = 0
@@ -76,6 +83,9 @@ class BackfillStats:
     error: int = 0
     skipped_terminal: int = 0
     reindex_enqueued: int = 0
+    # False when object storage is unconfigured. Without it the caller cannot
+    # tell "nothing to do" from "could not even look" — both leave scanned=0.
+    storage_available: bool = True
     candidate_ids_written: list[int] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -227,6 +237,7 @@ async def run_backfill(
     stats = BackfillStats()
     if not is_available():
         logger.error("Object storage not configured — nothing to download from")
+        stats.storage_available = False
         return stats
 
     async with AsyncSessionLocal() as db:
@@ -280,7 +291,7 @@ async def run_backfill(
                 # worse extraction could replace a better one and the run would
                 # stop being safe to repeat.
                 if len(result.text) <= len(previous):
-                    stats.empty += 1
+                    stats.no_improvement += 1
                     if commit:
                         _record_marker(candidate, "no_improvement", len(previous))
                     continue

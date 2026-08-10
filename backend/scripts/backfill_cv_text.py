@@ -85,6 +85,10 @@ def main() -> int:
             random_sample=args.random_sample,
         )
     )
+    if not stats.storage_available:
+        # Misconfigured storage must not look like a clean run: scanned==0 is
+        # also what "nothing left to do" looks like, and a cron would swallow it.
+        return 1
     return 0 if stats.scanned == 0 or stats.error < stats.scanned else 1
 
 
