@@ -2413,7 +2413,9 @@ class TraffitImporter:
                         )
                     continue
                 try:
-                    was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
+                    was_insert = await self._upsert_stage_row(
+                        payload, rejection_reason_id
+                    )
                 except Exception as e:  # noqa: BLE001
                     msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
                     progress.add_error(msg)

@@ -76,9 +76,7 @@ class _FakeTraffit:
     async def total_count(self, path):
         return 99999
 
-    async def get_pages(
-        self, path, *, page_size=100, filter_=None, start_page=1, **kw
-    ):
+    async def get_pages(self, path, *, page_size=100, filter_=None, start_page=1, **kw):
         self.start_pages.append(start_page)
         for page_no, items in self.pages:
             if page_no < start_page:
@@ -140,9 +138,7 @@ async def test_interrupt_persists_the_last_flushed_page(monkeypatch) -> None:
     with pytest.raises(httpx.ReadTimeout):
         await imp.import_pipelines(since=_SINCE)
 
-    assert db.cursor == {
-        "delta": {"page": 2, "since": _SINCE_ISO, "page_size": 100}
-    }
+    assert db.cursor == {"delta": {"page": 2, "since": _SINCE_ISO, "page_size": 100}}
 
 
 @pytest.mark.asyncio
