@@ -96,13 +96,32 @@ def test_fallback_unresolvable_only_without_any_seed():
 
 
 class _FakeTraffit:
-    """Minimalny stub — importer używa tylko total_count + get_paginated."""
+    """Minimalny stub — `import_pipelines` używa `total_count` + `get_pages`.
+
+    `get_pages` (nie `get_paginated`) od czasu, gdy faza dostała kursor
+    wznawiania: numer strony jest tym, co kursor utrwala, a `get_paginated`
+    go nie wystawia.
+    """
 
     def __init__(self, records: list[dict[str, Any]]) -> None:
         self._records = records
 
     async def total_count(self, path: str) -> int:
         return len(self._records)
+
+    async def get_pages(
+        self,
+        path: str,
+        *,
+        page_size: int = 100,
+        skip_on_5xx: bool = False,
+        filter_: Optional[dict] = None,
+        start_page: int = 1,
+    ) -> AsyncIterator[tuple[int, list[dict[str, Any]]]]:
+        # Jedna strona wystarczy — te testy sprawdzają mapowanie `withdrawn`,
+        # nie paginację; `start_page > 1` oznaczałoby, że wszystko już przeszło.
+        if start_page <= 1 and self._records:
+            yield 1, list(self._records)
 
     async def get_paginated(
         self,
@@ -112,6 +131,9 @@ class _FakeTraffit:
         skip_on_5xx: bool = False,
         filter_: Optional[dict] = None,
     ) -> AsyncIterator[dict[str, Any]]:
+        # Nadal potrzebne: `import_pipelines` woła `build_user_id_map`, które
+        # ciągnie /users/ tą metodą. Zwraca te same rekordy co `get_pages` —
+        # dla /users/ mapowanie po emailu i tak nic z nich nie dopasuje.
         for record in self._records:
             yield record
 
@@ -388,9 +410,7 @@ def test_unresolvable_withdrawn_counts_as_skip_not_error():
     assert "INSERT INTO candidate_stages" in inspect.getsource(
         TraffitImporter._upsert_stage_row
     )
-    assert src.index("_fallback_rejection_reason_id") < src.index(
-        "_upsert_stage_row("
-    )
+    assert src.index("_fallback_rejection_reason_id") < src.index("_upsert_stage_row(")
 
 
 # ── Regresja bug #2: adopt nie może kraść cudzego external_id ────────────────

@@ -110,6 +110,7 @@ _FILES_CURSOR_PHASE = "candidate_files"
 _ENRICH_NAMES_CURSOR_PHASE = "candidates_enrich_names"
 _CV_CURSOR_PHASE = "candidates_cv"
 _ACTIVITIES_CURSOR_PHASE = "candidate_activities"
+_PIPELINES_CURSOR_PHASE = "pipelines"
 
 
 @dataclass
@@ -2330,82 +2331,167 @@ class TraffitImporter:
         # niego nieudany wsad nie da się odtworzyć wiersz po wierszu.
         pending_rows: list[tuple[dict[str, Any], Optional[int], bool]] = []
 
-        async for raw in self.traffit.get_paginated(
+        # Resumable page cursor. This is the second-largest feed (~166k stage
+        # moves) and it sits 12th of 14 in the phase plan, so a Coolify restart —
+        # which happens on every push to main — used to throw away the whole run
+        # and start again from page 1 the following week. With deploys more
+        # frequent than the weekly full reconcile, the tail of this feed could
+        # never be reached, and the tail is candidate stages: the recruitment
+        # history itself. Slots are per mode for the same reason as activities —
+        # delta page numbers are filtered by `since`, full's are not, so sharing
+        # one slot means the nightly delta overwrites and then clears the full
+        # sweep's parked position.
+        since_iso = since.isoformat() if since else None
+        start_page = 1
+        _cursor = await self._read_mode_cursor(_PIPELINES_CURSOR_PHASE, since_iso)
+        if (
+            _cursor is not None
+            # The mode slot separates delta from full, NOT one delta window from
+            # the next: `since` moves every night. Without this check an
+            # interrupted run at page 5 for `since=Day1` would resume at page 5
+            # of the `since=Day2` feed and silently skip its pages 1-4 — and a
+            # clean finish then advances the watermark, so those rows are gone
+            # until a full reconcile.
+            and _cursor.get("since") == since_iso
+            and _cursor.get("page_size") == self.batch_size
+        ):
+            # Inclusive resume: re-fetch the last committed page (upserts are
+            # idempotent) rather than page+1, so a mid-page commit never skips.
+            start_page = max(1, int(_cursor.get("page") or 1))
+            logger.info("Pipelines: resuming from page %d", start_page)
+
+        current_page = start_page
+        # If the tenant rejects the filter (HTTP 400) the client drops it and
+        # restarts UNFILTERED from page 1, so page numbers stop mapping to
+        # `since` — stop persisting the cursor for this run once that happens.
+        saw_fallback = False
+        prev_page = start_page
+
+        async for page_no, items in self.traffit.get_pages(
             "/employees/recruitment_history",
             page_size=self.batch_size,
             filter_=self._delta_filter("created_at", since),
+            start_page=start_page,
         ):
-            progress.processed += 1
-            try:
-                payload = traffit_recruitment_history_to_stage(
-                    raw, cand_map, job_map, sd_id_map, sd_legacy_map, user_map
-                )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map history id={raw.get('id')}: {e!r}")
-                continue
-            if payload is None:
-                progress.skipped += 1
-                continue
-            if self.dry_run:
-                # Dry-run nie zasiewa legacy_unknown, więc nie ma sensu liczyć
-                # fallbacku — zachowujemy dotychczasowe zachowanie 1:1.
-                progress.inserted += 1
-                continue
-            # withdrawn wymaga powodu (constraint 0068); fallback
-            # 'legacy_unknown' — patrz WithdrawnReasonFallback.
-            rejection_reason_id = self._fallback_rejection_reason_id(
-                payload["stage_legacy_enum"],
-                payload["job_id"],
-                payload["stage_def_id"],
-                withdrawn_fallback,
-            )
-            if payload["stage_legacy_enum"] == "withdrawn" and (
-                rejection_reason_id is None
-            ):
-                # Nierozwiązywalne tylko gdy baza nie ma ANI JEDNEGO
-                # pipeline_template (a wtedy nie ma też stage_defs, więc ten
-                # ruch i tak nie byłby 'withdrawn'). Świadomy skip z jawnym
-                # powodem — NIE błąd: wiersz i tak padłby na constraincie,
-                # a `errors>0` blokuje watermark i trzyma health=degraded.
-                progress.skipped += 1
-                unresolved_withdrawn += 1
-                # Własny licznik, nie progress.skipped — ten drugi zbiera też
-                # rekordy spoza Nexusa (na prodzie 224), więc guard na nim
-                # nigdy by nie wypuścił tego logu.
-                if unresolved_withdrawn <= 5:
-                    logger.warning(
-                        "Pipelines skip ext=%s: withdrawn bez fallback reason "
-                        "(brak seeda legacy_unknown w rejection_reasons)",
-                        payload["external_id"],
+            if page_no < prev_page:
+                saw_fallback = True
+            prev_page = page_no
+            current_page = page_no
+            for raw in items:
+                progress.processed += 1
+                try:
+                    payload = traffit_recruitment_history_to_stage(
+                        raw, cand_map, job_map, sd_id_map, sd_legacy_map, user_map
                     )
-                continue
-            try:
-                was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
-            except Exception as e:  # noqa: BLE001
-                msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
-                progress.add_error(msg)
-                if progress.errors <= 5 or progress.errors % 500 == 0:
-                    logger.warning("Pipelines upsert error: %s", msg[:300])
-                continue
-
-            if was_insert is None:
-                continue
-            pending_rows.append((payload, rejection_reason_id, was_insert))
-            if len(pending_rows) >= commit_every:
-                await self._flush_stage_batch(progress, pending_rows)
-                pending_rows.clear()
-                logger.info(
-                    "Pipelines progress: %d/%d (inserted=%d updated=%d errors=%d)",
-                    progress.processed,
-                    progress.total_source,
-                    progress.inserted,
-                    progress.updated,
-                    progress.errors,
+                except Exception as e:  # noqa: BLE001
+                    progress.add_error(f"map history id={raw.get('id')}: {e!r}")
+                    continue
+                if payload is None:
+                    progress.skipped += 1
+                    continue
+                if self.dry_run:
+                    # Dry-run nie zasiewa legacy_unknown, więc nie ma sensu liczyć
+                    # fallbacku — zachowujemy dotychczasowe zachowanie 1:1.
+                    progress.inserted += 1
+                    continue
+                # withdrawn wymaga powodu (constraint 0068); fallback
+                # 'legacy_unknown' — patrz WithdrawnReasonFallback.
+                rejection_reason_id = self._fallback_rejection_reason_id(
+                    payload["stage_legacy_enum"],
+                    payload["job_id"],
+                    payload["stage_def_id"],
+                    withdrawn_fallback,
                 )
+                if payload["stage_legacy_enum"] == "withdrawn" and (
+                    rejection_reason_id is None
+                ):
+                    # Nierozwiązywalne tylko gdy baza nie ma ANI JEDNEGO
+                    # pipeline_template (a wtedy nie ma też stage_defs, więc ten
+                    # ruch i tak nie byłby 'withdrawn'). Świadomy skip z jawnym
+                    # powodem — NIE błąd: wiersz i tak padłby na constraincie,
+                    # a `errors>0` blokuje watermark i trzyma health=degraded.
+                    progress.skipped += 1
+                    unresolved_withdrawn += 1
+                    # Własny licznik, nie progress.skipped — ten drugi zbiera też
+                    # rekordy spoza Nexusa (na prodzie 224), więc guard na nim
+                    # nigdy by nie wypuścił tego logu.
+                    if unresolved_withdrawn <= 5:
+                        logger.warning(
+                            "Pipelines skip ext=%s: withdrawn bez fallback reason "
+                            "(brak seeda legacy_unknown w rejection_reasons)",
+                            payload["external_id"],
+                        )
+                    continue
+                try:
+                    was_insert = await self._upsert_stage_row(
+                        payload, rejection_reason_id
+                    )
+                except Exception as e:  # noqa: BLE001
+                    msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
+                    progress.add_error(msg)
+                    if progress.errors <= 5 or progress.errors % 500 == 0:
+                        logger.warning("Pipelines upsert error: %s", msg[:300])
+                    continue
+
+                if was_insert is None:
+                    continue
+                pending_rows.append((payload, rejection_reason_id, was_insert))
+                if len(pending_rows) >= commit_every:
+                    if not saw_fallback:
+                        # Staged BEFORE the flush so it lands in the same
+                        # transaction as the rows it accounts for — the flush
+                        # is what commits. A failed batch rolls both back,
+                        # leaving the last good cursor in place.
+                        await self._write_mode_cursor(
+                            _PIPELINES_CURSOR_PHASE,
+                            since_iso,
+                            {
+                                "page": current_page,
+                                "since": since_iso,
+                                "page_size": self.batch_size,
+                            },
+                        )
+                    await self._flush_stage_batch(progress, pending_rows)
+                    pending_rows.clear()
+                    logger.info(
+                        "Pipelines progress: %d/%d (inserted=%d updated=%d errors=%d)",
+                        progress.processed,
+                        progress.total_source,
+                        progress.inserted,
+                        progress.updated,
+                        progress.errors,
+                    )
 
         if not self.dry_run and pending_rows:
+            if not saw_fallback:
+                await self._write_mode_cursor(
+                    _PIPELINES_CURSOR_PHASE,
+                    since_iso,
+                    {
+                        "page": current_page,
+                        "since": since_iso,
+                        "page_size": self.batch_size,
+                    },
+                )
             await self._flush_stage_batch(progress, pending_rows)
             pending_rows.clear()
+
+        if not self.dry_run:
+            # Reached the end of the feed — retire this mode's slot so the next
+            # run starts a fresh pass. Row-level errors do NOT block retiring:
+            # they freeze the watermark separately, and the next full scan
+            # re-covers them from page 1.
+            #
+            # Deliberately NOT followed by `self.db.commit()`. This phase owes
+            # its batch durability to `_flush_stage_batch` (a bare commit here
+            # once cost ~18k stages on the first run, which is why a guard test
+            # asserts this function contains no such call). The orchestrator
+            # commits right after the phase returns when it records the phase
+            # state, and that carries this retire with it; if the phase instead
+            # unwinds, the rollback simply leaves the cursor in place and the
+            # next run resumes from it.
+            await self._clear_mode_cursor(_PIPELINES_CURSOR_PHASE, since_iso)
+
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Pipelines import done: %s",
@@ -2640,7 +2726,7 @@ class TraffitImporter:
             # produced both, wrapping the whole dict would silently discard the
             # nested slots. Say so rather than lose a resume position quietly.
             logger.warning(
-                "Activities cursor has a flat 'page' AND mode slot(s) %s — "
+                "Resume cursor has a flat 'page' AND mode slot(s) %s — "
                 "format drift; keeping the flat cursor under %r, dropping %s",
                 stray,
                 mode,
@@ -2648,34 +2734,34 @@ class TraffitImporter:
             )
         return {mode: payload}
 
-    async def _read_activities_cursor(
-        self, since_iso: Optional[str]
+    async def _read_mode_cursor(
+        self, phase: str, since_iso: Optional[str]
     ) -> Optional[dict[str, Any]]:
-        payload = await self._read_sync_cursor(_ACTIVITIES_CURSOR_PHASE) or {}
+        payload = await self._read_sync_cursor(phase) or {}
         return self._split_legacy_cursor(payload).get(self._cursor_mode(since_iso))
 
-    async def _write_activities_cursor(
-        self, since_iso: Optional[str], entry: dict[str, Any]
+    async def _write_mode_cursor(
+        self, phase: str, since_iso: Optional[str], entry: dict[str, Any]
     ) -> None:
-        # Re-reads on every page commit so the OTHER mode's slot survives this
-        # write. That is one extra local round-trip per ~100 activities (~3.7k
-        # per full sweep) — negligible next to the throttled API call that
+        # Re-reads before every write so the OTHER mode's slot survives it. That
+        # is one extra local round-trip per committed batch (~3.7k on a full
+        # activities sweep) — negligible next to the throttled API call that
         # produced the page, and the alternative (caching the other slot for the
         # phase's lifetime) trades correctness for nothing measurable.
-        payload = await self._read_sync_cursor(_ACTIVITIES_CURSOR_PHASE) or {}
+        payload = await self._read_sync_cursor(phase) or {}
         payload = self._split_legacy_cursor(payload)
         payload[self._cursor_mode(since_iso)] = entry
-        await self._write_sync_cursor(_ACTIVITIES_CURSOR_PHASE, payload)
+        await self._write_sync_cursor(phase, payload)
 
-    async def _clear_activities_cursor(self, since_iso: Optional[str]) -> None:
+    async def _clear_mode_cursor(self, phase: str, since_iso: Optional[str]) -> None:
         """Retire only THIS mode's slot; the other mode keeps its position."""
-        payload = await self._read_sync_cursor(_ACTIVITIES_CURSOR_PHASE) or {}
+        payload = await self._read_sync_cursor(phase) or {}
         payload = self._split_legacy_cursor(payload)
         payload.pop(self._cursor_mode(since_iso), None)
         if payload:
-            await self._write_sync_cursor(_ACTIVITIES_CURSOR_PHASE, payload)
+            await self._write_sync_cursor(phase, payload)
         else:
-            await self._clear_sync_cursor(_ACTIVITIES_CURSOR_PHASE)
+            await self._clear_sync_cursor(phase)
 
     async def _clear_sync_cursor(self, phase: str) -> None:
         """Clear the resume cursor (no-op if the row does not exist yet)."""
@@ -2726,7 +2812,7 @@ class TraffitImporter:
         # interruptions and the catch-up completes across runs.
         since_iso = since.isoformat() if since else None
         start_page = 1
-        _cursor = await self._read_activities_cursor(since_iso)
+        _cursor = await self._read_mode_cursor(_ACTIVITIES_CURSOR_PHASE, since_iso)
         if (
             _cursor is not None
             and _cursor.get("since") == since_iso
@@ -2829,7 +2915,8 @@ class TraffitImporter:
                     # cursor). Skip once the filter was dropped (page numbers no
                     # longer map to since_iso).
                     if not saw_fallback:
-                        await self._write_activities_cursor(
+                        await self._write_mode_cursor(
+                            _ACTIVITIES_CURSOR_PHASE,
                             since_iso,
                             {
                                 "page": current_page,
@@ -2854,7 +2941,8 @@ class TraffitImporter:
 
         if not self.dry_run and since_commit > 0:
             if not saw_fallback:
-                await self._write_activities_cursor(
+                await self._write_mode_cursor(
+                    _ACTIVITIES_CURSOR_PHASE,
                     since_iso,
                     {
                         "page": current_page,
@@ -2892,7 +2980,7 @@ class TraffitImporter:
             # "is this the same mode" (rather than the exact `since`) also
             # retires a stale cursor left by an older window of the same mode,
             # instead of letting it linger unreadable forever.
-            await self._clear_activities_cursor(since_iso)
+            await self._clear_mode_cursor(_ACTIVITIES_CURSOR_PHASE, since_iso)
             await self.db.commit()
 
         # Promote candidate notes (Notatka/Email/Reply/Rozmowa/Spotkanie) from
