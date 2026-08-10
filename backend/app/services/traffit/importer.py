@@ -2163,6 +2163,22 @@ class TraffitImporter:
             if cursor_phase is not None:
                 # Advance (or retire) the sweep cursor in the closing
                 # transaction, which also flushes any rows still staged.
+                #
+                # NOTE: this advances past candidates that FAILED this run —
+                # `targets[-1].id` is the batch's last id, not the last success.
+                # Deliberate. Parking the cursor on a failure instead would make
+                # every later run re-scan from that row, so one permanently
+                # broken candidate would stall the sweep forever — the exact
+                # poison-row freeze that TRAFFIT_MAX_ROW_ATTEMPTS/quarantine
+                # exists to prevent, reintroduced one layer down. Failures are
+                # not swallowed: `add_error` puts them in `error_refs`, the
+                # orchestrator quarantines them and stamps the phase
+                # `last_status='errors'`, so they surface in GET /sync/status.
+                # Their retry is the next fresh pass (after `exhausted` clears
+                # the cursor), which is also why a batch of listing errors keeps
+                # `since_commit` below `commit_every` and delays the mid-run
+                # cursor writes above — an interrupted error-heavy run simply
+                # re-covers more ground next time.
                 if exhausted:
                     await self._clear_sync_cursor(cursor_phase)
                 else:

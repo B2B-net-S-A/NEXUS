@@ -88,6 +88,14 @@ class _FakeDB:
             self.cursor = None
             self.cursor_writes.append(None)
             return _Result([])
+        if "traffit_sync_state" in sql:
+            # Routing above is substring-matched against the cursor helpers'
+            # current SQL. Anything else touching the cursor row means those
+            # helpers were refactored out from under this fake (e.g. a clear
+            # rewritten as `SET cursor_payload = :cp` with None). Falling
+            # through silently would leave `self.cursor` stale and turn the
+            # resume/clear assertions into false greens, so trip loudly instead.
+            raise AssertionError(f"unrecognised traffit_sync_state SQL: {sql!r}")
 
         if "FROM candidates c" in sql:
             self.scan_sql.append(sql)
