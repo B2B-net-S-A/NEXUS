@@ -1,7 +1,7 @@
 """AI-P0-06 — cache invalidation on the dimensions the key ignores.
 
 The match-score cache key is (candidate, job, profile) + a global
-``SCORING_ALGORITHM_VERSION`` string. That string tracks the scoring contract
+``scoring_algorithm_version()`` string. That string tracks the scoring contract
 flag but not: per-profile weights, a candidate's re-embedding, or the embedding
 model. Three gaps closed:
 
@@ -9,7 +9,7 @@ model. Three gaps closed:
     every cached score for that profile_id (else old-weight scores keep serving);
 (b) an outbox re-embed of a candidate → ``mark_stale_for_candidate`` (else the
     cached semantic layer goes stale);
-(c) the embedding model is folded into ``SCORING_ALGORITHM_VERSION`` so a
+(c) the embedding model is folded into ``scoring_algorithm_version()`` so a
     VOYAGE_MODEL swap invalidates everything.
 
 The invalidation mechanism is proven behaviourally against a real Postgres; the
@@ -31,7 +31,7 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.match_score import CandidateJobMatchScore
 from app.services.match_score_cache import mark_stale_for_profile
-from app.services.scoring_service import SCORING_ALGORITHM_VERSION
+from app.services.scoring_service import scoring_algorithm_version
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -40,8 +40,8 @@ def test_scoring_version_includes_embedding_model() -> None:
     """A VOYAGE_MODEL swap must change the version → full cache invalidation."""
     from app.core.config import settings
 
-    assert f"emb-{settings.VOYAGE_MODEL}" in SCORING_ALGORITHM_VERSION, (
-        "embedding model no longer folded into SCORING_ALGORITHM_VERSION (AI-P0-06 c)"
+    assert f"emb-{settings.VOYAGE_MODEL}" in scoring_algorithm_version(), (
+        "embedding model no longer folded into the scoring version (AI-P0-06 c)"
     )
 
 

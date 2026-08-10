@@ -946,9 +946,10 @@ async def _run(args: argparse.Namespace) -> int:
             "manifest": {
                 # Explicit legacy placeholders until later plan PRs introduce
                 # real runtime versioning (PR4 scoring, PR6 index, PR10 taxonomy).
-                "scoring_algorithm_version": getattr(
-                    scoring_service, "SCORING_ALGORITHM_VERSION", "scoring-v1-legacy"
-                ),
+                # Call it, never read a module constant: the version has to
+                # reflect the knobs this run actually scored with, otherwise the
+                # report claims a provenance it does not have.
+                "scoring_algorithm_version": scoring_service.scoring_algorithm_version(),
                 "embedding_model": os.environ.get(
                     "EMBEDDING_MODEL", "voyage-3-large"
                 ),

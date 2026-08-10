@@ -110,8 +110,15 @@ async def reconcile_once(
     """Scan one batch of entities and enqueue those whose hash has drifted.
 
     ``cursor`` is the last id examined, so a caller can walk the whole table
-    across ticks without holding a transaction open or loading it into memory.
-    Returns ``next_cursor=None`` once the end is reached.
+    across ticks without holding a transaction open, and without loading the
+    *whole table* at once. Returns ``next_cursor=None`` once the end is reached.
+
+    One batch is not free, though: ``desired_state`` hashes the same text that
+    gets embedded, so these are full ORM objects including ``raw_cv_text`` —
+    several KB per candidate. At the default 500 that is a few hundred MB of
+    peak transient memory per tick, and ~95 ticks to cross the candidate table.
+    Lower ``AI_INDEX_RECONCILER_BATCH`` (100–200) to trade passes for headroom;
+    this is worth checking before flipping the reconciler on in production.
     """
     model = _model_for(entity_type)
     rows = (

@@ -111,7 +111,12 @@ def _assert_declared(model: str) -> None:
                 f"LLM call (model={model}) outside `async with ai_feature(...)` — "
                 "it would spend money the quota system cannot see"
             )
-        logger.error(
+        # `warning`, not `error`, on purpose. This branch only runs while
+        # AI_QUOTA_STRICT is off — the deliberate log-only observation cycle. With
+        # LoggingIntegration every `error` becomes a Sentry event, so a single
+        # forgotten call site would emit one per invocation and bury real errors
+        # for the whole window. Under STRICT the call raises instead of logging.
+        logger.warning(
             "[ai-quota] UNGATED LLM call model=%s — not wrapped in "
             "`async with ai_feature(...)`; invisible to the master toggle, the "
             "monthly limit and ai_usage_log. Stack: %s",

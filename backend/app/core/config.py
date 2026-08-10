@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # resolved weight profile is normalised so its six layers sum to EXACTLY 100
     # (fixes the champion-budget-110 bug: the 5-weight API + a default
     # champion_fit=10 could yield a 110-point budget). The active version string
-    # (scoring_service.SCORING_ALGORITHM_VERSION) derives from this flag, so
+    # (scoring_service.scoring_algorithm_version()) derives from this flag, so
     # flipping it auto-invalidates the match-score cache — no manual sweep.
     AI_SCORING_CONTRACT_V2: bool = False
 

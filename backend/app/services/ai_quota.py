@@ -247,10 +247,17 @@ async def ai_feature(
 ):
     """Charge the quota and mark the surrounding block as a declared AI call.
 
-    Charge-before-spend on purpose: a failed provider call still consumed a
-    slot in the sense that matters (it may have reached the API), and the
-    alternative makes retries free. Callers still need `await db.commit()` for
-    the increment to persist along with their unit of work.
+    Charge-before-spend on purpose: the increment happens before the provider
+    is called, so a call that reaches the API and then fails cannot come back
+    for a free retry.
+
+    That intent only survives if the caller commits. The increment lives in the
+    caller's session, so a handler that lets the exception propagate — or wraps
+    this in `async with db.begin()` — rolls the charge back with everything
+    else, and the failed call ends up free after all. This matches the previous
+    `_gate_and_count` behaviour and is not a regression, but do not read the
+    paragraph above as a guarantee: to actually charge a failed call, the caller
+    has to commit the increment on the error path itself.
 
     The context propagates into `run_in_threadpool` — `anyio.to_thread.run_sync`
     copies the contextvars — so the synchronous `call_claude` sees it.

@@ -1612,7 +1612,12 @@ async def api_health_check():
         checks["ai_features"] = (
             "healthy" if not missing else f"uncapped: {','.join(missing)}"
         )
-    except Exception:
+    except Exception as exc:
+        # Log it: this is the safety net for fail-open quota semantics (a missing
+        # config row means uncapped spend), and operators are told to treat
+        # `ai_features` as informational. A silent `unknown` would hide the
+        # warning at exactly the moment it matters most.
+        logger.warning("[health] ai_features check failed: %s", exc)
         checks["ai_features"] = "unknown"
 
     # Disk usage — informational only (never flips `overall` → no false outages).

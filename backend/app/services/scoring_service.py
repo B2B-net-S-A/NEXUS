@@ -236,9 +236,12 @@ def scoring_algorithm_version() -> str:
     return f"{base}+emb-{getattr(settings, 'VOYAGE_MODEL', 'unknown')}+{digest}"
 
 
-# Kept for import compatibility; prefer calling the function so a runtime knob
-# change is reflected. Column is VARCHAR(64) — this shape is ~45 chars.
-SCORING_ALGORITHM_VERSION: str = scoring_algorithm_version()
+# NO module-level `SCORING_ALGORITHM_VERSION` constant on purpose. Freezing the
+# version at import time is the exact bug this function exists to kill: a knob
+# patched after import (tests, a runtime override) would leave the constant
+# stale, so cached rows computed under the new weights would keep the old
+# version string and never be invalidated. Call `scoring_algorithm_version()`.
+# Column is VARCHAR(64) — this shape is ~45 chars.
 
 
 DEFAULT_PROFILE = WeightProfile()
