@@ -148,7 +148,7 @@ jobs:
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
                 "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
-                2>/dev/null | jq -r '.status // "unknown"')
+                2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
           if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "✅ Produkcja serwuje $version (pokrewieństwo=$rel wobec targetu) — nasz kod już wdrożony, pomijam rebuild."
@@ -338,7 +338,7 @@ jobs:
                         -H "Authorization: Bearer ${{ github.token }}" \
                         -H "Accept: application/vnd.github+json" \
                         "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
-                        2>/dev/null | jq -r '.status // "unknown"')
+                        2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
                   if [ "$rel" = "ahead" ]; then
                     echo "✅ Pass: na produkcji $version_short — potomek $EXPECTED_SHA."
                     echo "   Deploy wyprzedzony przez nowszy merge; nasz kod jest wdrożony."
@@ -409,7 +409,7 @@ jobs:
                       -H "Authorization: Bearer ${GH_TOKEN}" \
                       -H "Accept: application/vnd.github+json" \
                       "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
-                      2>/dev/null | jq -r '.status // "unknown"')
+                      2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
                 if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
                   ok_version=true
                   echo "Attempt $i: prod serwuje $version_short — potomek $EXPECTED_SHA; sprawdzam deep health na nowszym buildzie."
