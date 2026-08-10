@@ -1721,6 +1721,55 @@ class TraffitImporter:
         since_clause = "AND updated_at >= :since" if since is not None else ""
         cv_params: dict[str, Any] = {"since": since} if since is not None else {}
 
+        # Full reconcile only: re-point `candidates.cv_*` at the CURRENT primary
+        # CV before downloading anything.
+        #
+        # The scan below only ever fills a NULL pointer, so once a candidate has
+        # one it is exempt for good — including after Traffit REPLACES the CV.
+        # The new file does arrive (import_candidate_files stores it under a new
+        # file_id), but `candidates.cv_storage_key`/`cv_filename` stay pinned to
+        # the first one forever, and those two columns are what the bulk CV
+        # download reads. Net effect: the recruiter downloads a STALE CV while
+        # the current one sits in the same database.
+        #
+        # Conservative on purpose: only re-points when the existing pointer is
+        # itself a Traffit-sourced file (the EXISTS below). A CV uploaded
+        # directly in Nexus is newer by definition and must never be clobbered
+        # by Traffit's copy.
+        if since is None and not self.dry_run:
+            resynced = await self.db.execute(
+                text(
+                    """
+                    UPDATE candidates c
+                    SET cv_storage_key = d.storage_key,
+                        cv_filename    = d.filename,
+                        updated_at     = NOW()
+                    FROM candidate_documents d
+                    WHERE d.candidate_id = c.id
+                      AND d.external_source = 'traffit'
+                      AND d.document_kind = 'cv'
+                      AND d.is_primary IS TRUE
+                      AND d.source_deleted_at IS NULL
+                      AND c.external_source = 'traffit'
+                      AND c.cv_storage_key IS NOT NULL
+                      AND c.cv_storage_key IS DISTINCT FROM d.storage_key
+                      AND EXISTS (
+                          SELECT 1 FROM candidate_documents d2
+                          WHERE d2.candidate_id = c.id
+                            AND d2.external_source = 'traffit'
+                            AND d2.storage_key = c.cv_storage_key
+                      )
+                    """
+                )
+            )
+            if resynced.rowcount:
+                await self.db.commit()
+                progress.updated += resynced.rowcount
+                logger.info(
+                    "Candidates CV: re-pointed %d stale primary-CV pointer(s)",
+                    resynced.rowcount,
+                )
+
         # Full reconcile only: budget + resume cursor, same shape as the files
         # phase. This selection is only PARTLY self-clearing — a successful
         # download fills `cv_storage_key` and drops out, but a candidate with no

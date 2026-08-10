@@ -199,6 +199,54 @@ async def _cortex_phase(since: Optional[datetime]) -> _CortexPhaseResult:
     return _CortexPhaseResult(stats, started, datetime.now(timezone.utc))
 
 
+class _ReconcilePhaseResult:
+    """Adapter raportu `reconcile()` na kontrakt fazy.
+
+    CELOWO `errors = 0`: to sonda obserwacyjna, nie import. Rozjazd liczników
+    jest informacją dla operatora, a nie powodem, żeby zamrozić watermark —
+    zamrożenie wstrzymałoby wszystkie pozostałe fazy z powodu czegoś, czego ta
+    faza i tak nie potrafi naprawić.
+    """
+
+    def __init__(
+        self, report: dict[str, Any], started_at: datetime, finished_at: datetime
+    ):
+        self._report = report
+        self.started_at = started_at
+        self.finished_at = finished_at
+        self.errors = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        drift = {
+            entity: row
+            for entity, row in self._report.items()
+            if isinstance(row, dict)
+            and (row.get("error") or row.get("traffit") != row.get("nexus"))
+        }
+        return {
+            "processed": len(self._report),
+            "skipped": len(drift),
+            "errors": 0,
+            "note": "counters only — Nexus>Traffit means rows deleted in Traffit",
+            **({"drift": drift} if drift else {}),
+        }
+
+
+async def _reconcile_phase(importer: TraffitImporter) -> _ReconcilePhaseResult:
+    """Porównanie liczników Traffit vs Nexus jako faza raportowa.
+
+    `TraffitImporter.reconcile()` istniał od migracji, ale NIE był wpięty w
+    `_phase_plan`, więc w zaplanowanym syncu nie biegł nigdy. Skutek: dryf w
+    drugą stronę — rekordy obecne w Nexusie, a usunięte w Traffit — był
+    całkowicie niewidoczny (brak obsługi tombstone'ów to osobna, większa
+    sprawa). Sześć wywołań `total_count` + sześć lokalnych `count(*)`, więc
+    wpięcie jest tanie i czyni rozjazd widocznym w `/sync/status`.
+    """
+    started = datetime.now(timezone.utc)
+    report = await importer.reconcile()
+    return _ReconcilePhaseResult(report, started, datetime.now(timezone.utc))
+
+
 # ── Phase plan ───────────────────────────────────────────────────────────────
 
 
@@ -249,6 +297,8 @@ def _phase_plan(
             lambda: importer.import_candidate_activities(since=since),
         ),
         ("candidate_sources", lambda: importer.import_candidate_sources(since=since)),
+        # Ostatnia i wyłącznie raportowa — nic nie zapisuje, nic nie blokuje.
+        ("reconcile", lambda: _reconcile_phase(importer)),
     ]
 
 
