@@ -187,8 +187,17 @@ def apply_candidate_location_from_source(
         if overwrite_existing or not _country_code(candidate.country):
             candidate.country = incoming.country
 
-    # Never author the compatibility field independently.
-    candidate.location = project_candidate_location(candidate.city, candidate.country)
+    # Never author the compatibility field independently — but never destroy it
+    # either. When `city`/`country` are both empty the projection is None, and
+    # blindly assigning it wipes any free-text `location` the recruiter typed or
+    # an importer carried over. That mattered little while this ran per upload;
+    # it matters a lot now that a bulk CV backfill calls it tens of thousands of
+    # times, aimed at exactly the rows where `location` is the only signal there
+    # is. So: reproject when we have something to project, otherwise leave the
+    # existing value alone.
+    projected = project_candidate_location(candidate.city, candidate.country)
+    if projected or not candidate.location:
+        candidate.location = projected
     return before != (candidate.city, candidate.country, candidate.location)
 
 
