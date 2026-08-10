@@ -96,6 +96,14 @@ _ERROR_REF_RE = re.compile(r"\b(\w+)\s+(?:ext|id)=([^\s:,]+)")
 # row and quarantine is the wrong tool anyway.
 _MAX_ERROR_REFS = 500
 
+# HTTP answers that mean "the record no longer exists upstream". Neither is a
+# failure: retrying cannot change either one, so both are counted into
+# `gone_upstream` and never recorded as errors. Traffit answers 404 today
+# (confirmed on prod); 410 is the status an API is supposed to use for a
+# deletion it still remembers, so a tenant that starts distinguishing the two
+# would otherwise start freezing watermarks the same way 404 used to.
+_GONE_STATUS_CODES = frozenset({404, 410})
+
 # Phase row that carries the files sweep's resume cursor. This is the
 # ORCHESTRATOR's phase-plan name (``app/tasks/traffit_sync.py::_phase_plan``),
 # deliberately not ``PhaseProgress.phase`` for this phase ("candidates_files") —
@@ -173,6 +181,10 @@ class PhaseProgress:
     # Stale `candidates.cv_*` pointers moved to the current primary CV. Its own
     # counter because it is not an import: no row was fetched, only re-aimed.
     resynced_pointers: int = 0
+    # Records Traffit answered 404 for — deleted at source, not a transient
+    # failure. Counted, never `add_error`: see the call sites for why treating
+    # "it is gone" as an error froze phases indefinitely.
+    gone_upstream: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -215,6 +227,7 @@ class PhaseProgress:
             "notes_promoted": self.notes_promoted,
             "skipped_pages": self.skipped_pages,
             "resynced_pointers": self.resynced_pointers,
+            "gone_upstream": self.gone_upstream,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -680,10 +693,28 @@ WHERE a.external_source = 'traffit'
       ''
   ) <> ''
   /*SINCE*/
+  -- Dedup on the SOURCE ROW's identity, with the old timestamp match kept as
+  -- a fallback. `source_ref` is what actually identifies the activity; the
+  -- timestamp did not, and matching on it alone was wrong twice over:
+  --
+  --   * two activities of one candidate sharing a `created_at` (an email and
+  --     its logged reply, a bulk import stamped in one second) collapsed into
+  --     ONE note — the second was suppressed permanently by the first. That is
+  --     the exact "notatka missing" class this phase exists to prevent.
+  --   * an activity whose `created_at` was later edited in Traffit stopped
+  --     matching its own note and got promoted AGAIN, as a duplicate.
+  --
+  -- The `source_ref IS NULL` arm is not legacy clutter: migration 0077 wrote
+  -- these rows WITHOUT a `source_ref`, so keying purely on it would re-promote
+  -- every note 0077 created — a duplicate for all ~49k candidates on the next
+  -- sync. Those rows stay matched by timestamp until they are backfilled.
   AND NOT EXISTS (
       SELECT 1 FROM notes n
       WHERE n.candidate_id = a.entity_id
-        AND n.created_at = a.created_at
+        AND (
+            n.source_ref = 'traffit:activity:' || a.external_id
+            OR (n.source_ref IS NULL AND n.created_at = a.created_at)
+        )
   )
 """
 
@@ -1102,90 +1133,41 @@ class TraffitImporter:
                 progress.inserted += 1
                 continue
             try:
-                tmpl_result = await self.db.execute(
-                    _UPSERT_PIPELINE_TEMPLATE, template_payload
-                )
-                tmpl_row = tmpl_result.fetchone()
-                if tmpl_row is None:
-                    continue
-                template_id = tmpl_row[0]
-                if tmpl_row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
-
-                # Stage defs — sortuj po `order`, potem mapuj kolejność 0..N
-                states = detail.get("states") or []
-                states_sorted = sorted(
-                    states, key=lambda s: (s.get("order") or 0, s.get("id") or 0)
-                )
-                # Idempotent UPSERT per stage_def (was DELETE+INSERT but that
-                # broke FK from candidate_stages.stage_def_id on daily re-runs).
-                # ON CONFLICT (external_source, external_id) DO UPDATE keeps
-                # FK references intact while updating order/category/etc.
-                # Traffit workflows can have duplicate state names within one
-                # workflow (e.g. B2B has two "Zaakceptowany" states). The Nexus
-                # constraint uq_stage_name_in_template forbids that, so suffix
-                # later occurrences with the source state id to keep names unique.
-                seen_names: set[str] = set()
-                for idx, state in enumerate(states_sorted):
-                    sd = traffit_workflow_state_to_stage_def(state, idx)
-                    base = sd["name"]
-                    if base in seen_names:
-                        sd["name"] = f"{base} (#{sd['traffit_state_id']})"[:100]
-                    seen_names.add(sd["name"])
-                    await self.db.execute(
-                        text(
-                            """
-                            INSERT INTO pipeline_stage_defs (
-                                template_id, name, "order",
-                                category, is_terminal, terminal_type,
-                                legacy_enum_value,
-                                external_id, external_source,
-                                tracker_enabled, scorecard_schema,
-                                created_at, updated_at
-                            ) VALUES (
-                                CAST(:template_id AS integer),
-                                CAST(:name AS varchar(100)),
-                                CAST(:order AS integer),
-                                CAST(:category AS stagecategoryenum),
-                                CAST(:is_terminal AS boolean),
-                                CAST(:terminal_type AS terminaltype),
-                                CAST(:legacy_enum_value AS varchar(50)),
-                                CAST(:external_id AS varchar(100)),
-                                'traffit',
-                                false, '{}'::jsonb,
-                                NOW(), NOW()
-                            )
-                            ON CONFLICT (external_source, external_id)
-                            WHERE external_id IS NOT NULL
-                            DO UPDATE SET
-                                template_id       = EXCLUDED.template_id,
-                                name              = EXCLUDED.name,
-                                "order"           = EXCLUDED."order",
-                                category          = EXCLUDED.category,
-                                is_terminal       = EXCLUDED.is_terminal,
-                                terminal_type     = EXCLUDED.terminal_type,
-                                legacy_enum_value = EXCLUDED.legacy_enum_value,
-                                updated_at        = NOW()
-                            """
-                        ),
-                        {
-                            "template_id": template_id,
-                            "name": sd["name"],
-                            "order": sd["order"],
-                            "category": sd["category"],
-                            "is_terminal": sd["is_terminal"],
-                            "terminal_type": sd.get("terminal_type"),
-                            "legacy_enum_value": sd["legacy_enum_value"],
-                            "external_id": sd["traffit_state_id"],
-                        },
+                # SAVEPOINT per workflow. The old handler called
+                # `self.db.rollback()`, which rolls back the SESSION — and this
+                # phase commits once at the very end, so a single bad workflow
+                # discarded every workflow already written in the same run.
+                # On prod that turned `processed: 2, updated: 2, errors: 1`
+                # into "0 of 2 persisted", 23 runs in a row.
+                async with self.db.begin_nested():
+                    tmpl_result = await self.db.execute(
+                        _UPSERT_PIPELINE_TEMPLATE, template_payload
                     )
+                    tmpl_row = tmpl_result.fetchone()
+                    if tmpl_row is None:
+                        continue
+                    template_id = tmpl_row[0]
+                    was_insert = bool(tmpl_row[1])
+
+                    # Stage defs — sortuj po `order`, potem mapuj kolejność 0..N
+                    states = detail.get("states") or []
+                    states_sorted = sorted(
+                        states, key=lambda s: (s.get("order") or 0, s.get("id") or 0)
+                    )
+                    await self._rewrite_template_stage_defs(template_id, states_sorted)
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert workflow ext={template_payload.get('external_id')}: {e!r}"
                 )
-                await self.db.rollback()
+                continue
+
+            # Counted only once the savepoint actually held. Incrementing
+            # inside it is how prod came to report `updated: 2` for a run that
+            # persisted nothing — the stats described attempts, not writes.
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
 
         if not self.dry_run:
             await self.db.commit()
@@ -1195,6 +1177,159 @@ class TraffitImporter:
             json.dumps(progress.as_dict(), default=str)[:500],
         )
         return progress
+
+    async def _rewrite_template_stage_defs(
+        self, template_id: int, states_sorted: list[dict[str, Any]]
+    ) -> None:
+        """Re-lay a template's stage defs to match Traffit, collision-free.
+
+        `pipeline_stage_defs` carries two SET-WIDE unique constraints —
+        `uq_stage_order_in_template (template_id, "order")` and
+        `uq_stage_name_in_template (template_id, name)` — while rows are
+        written ONE AT A TIME, keyed on `(external_source, external_id)`.
+        Rewriting a set row by row under a set-wide constraint only works if
+        no INTERMEDIATE state collides, and a reorder in Traffit guarantees
+        one: state B claims order 3 while state A, which still holds order 3,
+        has not been rewritten yet. Postgres rejects it mid-loop. That is the
+        prod failure — `duplicate key ... "uq_stage_order_in_template"`,
+        `Key (template_id, "order")=(15, 0) already exists` — and no cyclic
+        swap has a safe write order, so sequencing cannot fix it.
+
+        Neither constraint is DEFERRABLE (entrypoint.sh already works around
+        the same edge with a shift trick), so we park first: every row of the
+        template goes to `("order" = -id, name = '~<id>')`. Both are unique
+        per row because `id` is the PK, negative orders can never meet the
+        final layout (all >= 0), and the sentinel name is not a shape a real
+        Traffit state has. The band is then empty and the real layout applies
+        in any order.
+
+        Rows Traffit no longer sends are NOT deleted — `candidate_stages.
+        stage_def_id` points at them — so they are re-homed after the live
+        ones instead, keeping their relative order and their names.
+        """
+        existing = list(
+            await self.db.execute(
+                text(
+                    """
+                    SELECT id, external_id, name, "order"
+                    FROM pipeline_stage_defs
+                    WHERE template_id = CAST(:t AS integer)
+                    ORDER BY "order"
+                    """
+                ),
+                {"t": template_id},
+            )
+        )
+
+        # Traffit workflows can have duplicate state names within one workflow
+        # (e.g. B2B has two "Zaakceptowany" states). uq_stage_name_in_template
+        # forbids that, so suffix later occurrences with the source state id.
+        seen_names: set[str] = set()
+        incoming: list[dict[str, Any]] = []
+        for idx, state in enumerate(states_sorted):
+            sd = traffit_workflow_state_to_stage_def(state, idx)
+            base = sd["name"]
+            if base in seen_names:
+                sd["name"] = f"{base} (#{sd['traffit_state_id']})"[:100]
+            seen_names.add(sd["name"])
+            incoming.append(sd)
+
+        live_ext = {sd["traffit_state_id"] for sd in incoming}
+        stale = [r for r in existing if r.external_id not in live_ext]
+
+        if existing:
+            # Park. `id` is the PK, so both parked values are unique per row.
+            await self.db.execute(
+                text(
+                    """
+                    UPDATE pipeline_stage_defs
+                       SET "order" = -id, name = '~' || id::text
+                     WHERE template_id = CAST(:t AS integer)
+                    """
+                ),
+                {"t": template_id},
+            )
+
+        for sd in incoming:
+            # Idempotent UPSERT per stage_def (was DELETE+INSERT but that broke
+            # the FK from candidate_stages.stage_def_id on daily re-runs).
+            # ON CONFLICT (external_source, external_id) DO UPDATE keeps FK
+            # references intact while updating order/category/etc.
+            await self.db.execute(
+                text(
+                    """
+                    INSERT INTO pipeline_stage_defs (
+                        template_id, name, "order",
+                        category, is_terminal, terminal_type,
+                        legacy_enum_value,
+                        external_id, external_source,
+                        tracker_enabled, scorecard_schema,
+                        created_at, updated_at
+                    ) VALUES (
+                        CAST(:template_id AS integer),
+                        CAST(:name AS varchar(100)),
+                        CAST(:order AS integer),
+                        CAST(:category AS stagecategoryenum),
+                        CAST(:is_terminal AS boolean),
+                        CAST(:terminal_type AS terminaltype),
+                        CAST(:legacy_enum_value AS varchar(50)),
+                        CAST(:external_id AS varchar(100)),
+                        'traffit',
+                        false, '{}'::jsonb,
+                        NOW(), NOW()
+                    )
+                    ON CONFLICT (external_source, external_id)
+                    WHERE external_id IS NOT NULL
+                    DO UPDATE SET
+                        template_id       = EXCLUDED.template_id,
+                        name              = EXCLUDED.name,
+                        "order"           = EXCLUDED."order",
+                        category          = EXCLUDED.category,
+                        is_terminal       = EXCLUDED.is_terminal,
+                        terminal_type     = EXCLUDED.terminal_type,
+                        legacy_enum_value = EXCLUDED.legacy_enum_value,
+                        updated_at        = NOW()
+                    """
+                ),
+                {
+                    "template_id": template_id,
+                    "name": sd["name"],
+                    "order": sd["order"],
+                    "category": sd["category"],
+                    "is_terminal": sd["is_terminal"],
+                    "terminal_type": sd.get("terminal_type"),
+                    "legacy_enum_value": sd["legacy_enum_value"],
+                    "external_id": sd["traffit_state_id"],
+                },
+            )
+
+        # Re-home the rows Traffit no longer sends, after the live ones. Their
+        # names go back untouched unless a live state has taken one — the live
+        # state is the current truth, so the retired row yields and is suffixed.
+        for offset, row in enumerate(stale):
+            name = row.name
+            if name in seen_names:
+                name = f"{name} (#{row.external_id or row.id})"[:100]
+            if name in seen_names:
+                # A live state is literally named like the suffixed form.
+                # Retrying the suffix cannot converge — past 100 chars the
+                # truncation returns the same string and the loop spins — so
+                # fall back to the parked sentinel, which `id` makes unique by
+                # construction.
+                name = f"~{row.id}"
+            seen_names.add(name)
+            await self.db.execute(
+                text(
+                    """
+                    UPDATE pipeline_stage_defs
+                       SET "order" = CAST(:o AS integer),
+                           name = CAST(:n AS varchar(100)),
+                           updated_at = NOW()
+                     WHERE id = CAST(:i AS integer)
+                    """
+                ),
+                {"o": len(incoming) + offset, "n": name, "i": row.id},
+            )
 
     # ── Faza 5: candidates ──────────────────────────────────────────────────
 
@@ -1846,9 +1981,23 @@ class TraffitImporter:
                 files_resp = await self.traffit._get_raw(  # noqa: SLF001
                     f"/employees/{traffit_id}/files", page=1, page_size=50
                 )
+                if files_resp.status_code in _GONE_STATUS_CODES:
+                    # Deleted in Traffit. "Gone" is an ANSWER, not a failure —
+                    # retrying cannot change it. Recording it as an error was
+                    # doubly wrong: the old message carried no `ext=`/`id=`, so
+                    # `_ERROR_REF_RE` could not key it, `_blocking_errors`
+                    # counted it as unattributable-and-blocking, and the
+                    # quarantine had no ref to park. Four candidates deleted
+                    # upstream therefore froze this phase's watermark forever.
+                    progress.gone_upstream += 1
+                    continue
                 if files_resp.status_code != 200:
+                    # Everything else IS retryable — and now attributable, so a
+                    # persistently failing row can be quarantined instead of
+                    # blocking the other 49k.
                     progress.add_error(
-                        f"emp {traffit_id} files HTTP {files_resp.status_code}"
+                        f"list files candidate ext={traffit_id}: "
+                        f"HTTP {files_resp.status_code}"
                     )
                     continue
                 files = files_resp.json()
@@ -1877,10 +2026,14 @@ class TraffitImporter:
                     url,
                     headers={"Authorization": f"Bearer {token}"},
                 )
+                if content_resp.status_code in _GONE_STATUS_CODES:
+                    # File removed in Traffit between listing and fetch.
+                    progress.gone_upstream += 1
+                    continue
                 if content_resp.status_code != 200:
                     progress.add_error(
-                        f"emp {traffit_id} file {file_id} HTTP "
-                        f"{content_resp.status_code}"
+                        f"fetch file {file_id} candidate ext={traffit_id}: "
+                        f"HTTP {content_resp.status_code}"
                     )
                     continue
 
@@ -2255,9 +2408,23 @@ class TraffitImporter:
                 files_resp = await self.traffit._get_raw(  # noqa: SLF001
                     f"/employees/{traffit_id}/files", page=1, page_size=50
                 )
+                if files_resp.status_code in _GONE_STATUS_CODES:
+                    # Deleted in Traffit. "Gone" is an ANSWER, not a failure —
+                    # retrying cannot change it. Recording it as an error was
+                    # doubly wrong: the old message carried no `ext=`/`id=`, so
+                    # `_ERROR_REF_RE` could not key it, `_blocking_errors`
+                    # counted it as unattributable-and-blocking, and the
+                    # quarantine had no ref to park. Four candidates deleted
+                    # upstream therefore froze this phase's watermark forever.
+                    progress.gone_upstream += 1
+                    continue
                 if files_resp.status_code != 200:
+                    # Everything else IS retryable — and now attributable, so a
+                    # persistently failing row can be quarantined instead of
+                    # blocking the other 49k.
                     progress.add_error(
-                        f"emp {traffit_id} files HTTP {files_resp.status_code}"
+                        f"list files candidate ext={traffit_id}: "
+                        f"HTTP {files_resp.status_code}"
                     )
                     continue
                 files_raw = files_resp.json()
@@ -2296,10 +2463,14 @@ class TraffitImporter:
                         url,
                         headers={"Authorization": f"Bearer {token}"},
                     )
+                    if content_resp.status_code in _GONE_STATUS_CODES:
+                        # File removed in Traffit between listing and fetch.
+                        progress.gone_upstream += 1
+                        continue
                     if content_resp.status_code != 200:
                         progress.add_error(
-                            f"emp {traffit_id} file {file_id} HTTP "
-                            f"{content_resp.status_code}"
+                            f"fetch file {file_id} candidate ext={traffit_id}: "
+                            f"HTTP {content_resp.status_code}"
                         )
                         continue
 

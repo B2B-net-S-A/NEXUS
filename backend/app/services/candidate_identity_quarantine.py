@@ -166,7 +166,11 @@ async def _clear_quarantined_cv_projection(
         if document is None:
             return {"cleared_fields": 0, "tombstoned_languages": 0}
 
-    extracted = dict(candidate.cv_extracted_data or {})
+    # `cv_extracted_data` is not guaranteed to be an object — a non-empty list
+    # is truthy, so `or {}` lets it through and `dict(<list>)` raises. Same
+    # column, same trap as `_manual_lock` in candidate_location_writer.py.
+    _extracted_raw = candidate.cv_extracted_data
+    extracted = dict(_extracted_raw) if isinstance(_extracted_raw, dict) else {}
     highlights = (
         extracted.get("cv_highlights")
         if isinstance(extracted.get("cv_highlights"), dict)
