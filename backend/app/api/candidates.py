@@ -4240,6 +4240,7 @@ async def delete_candidate(
 # from here; public_share imports `_enrich_candidate_cv_task` which uses it).
 from app.services.cv_enrichment import (  # noqa: E402
     _CV_PLACEHOLDER_NAME,
+    CvWritePolicy,
     _apply_cv_enrichment,
 )
 from app.services.candidate_language_writer import (  # noqa: E402
@@ -4549,6 +4550,10 @@ async def _enrich_candidate_from_document_task(
                 parsed,
                 source_document_id=document.id,
                 source_hash=document.content_sha256,
+                # A recruiter just uploaded this file: "use this CV" is an
+                # explicit instruction, so refreshing existing values is the
+                # intent. Manual locks still win.
+                policy=CvWritePolicy.REFRESH,
             )
             if parsed.get("languages"):
                 await sync_candidate_languages_from_source(
@@ -4691,6 +4696,9 @@ async def _enrich_candidate_cv_task(
                 parsed,
                 source_document_id=source_document_id,
                 source_hash=source_hash,
+                # Explicit re-parse requested by a user — same reasoning as the
+                # upload path above.
+                policy=CvWritePolicy.REFRESH,
             )
             if parsed.get("languages"):
                 await sync_candidate_languages_from_source(
