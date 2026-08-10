@@ -208,8 +208,6 @@ _FAILING = {
     # 3 fails — production calls accept(subprotocol=...), the test's
     # FakeWebSocket.accept() takes no such keyword.
     "test_presence_manager.py",
-    # 1 fail — test_search_matches_title_and_content finds no match.
-    "test_procedures.py",
     # 6 fails — must_skills.level is now an enum ('junior'..'expert'), the test
     # still sends the integer 4 and gets 422.
     "test_proposals.py",
