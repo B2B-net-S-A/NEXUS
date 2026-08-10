@@ -49,7 +49,7 @@ class CandidateJobMatchScore(Base):
     total_score: Mapped[float] = mapped_column(Float, nullable=False)
     breakdown: Mapped[dict] = mapped_column(JSONB, nullable=False)
     # Scoring formula version in effect when this row was computed. A row whose
-    # version != scoring_service.SCORING_ALGORITHM_VERSION is treated as a cache
+    # version != scoring_service.scoring_algorithm_version() is treated as a cache
     # miss, so a formula/flag change (AI_SCORING_CONTRACT_V2) auto-invalidates
     # without a manual stale sweep. Existing rows backfill to 'score-v1-legacy'.
     scoring_algorithm_version: Mapped[str] = mapped_column(

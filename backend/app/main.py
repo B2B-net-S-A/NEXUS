@@ -557,6 +557,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
     from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
+    from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.priority_work import priority_work_loop
     from app.services.fx_service import fx_refresh_loop
@@ -596,6 +597,7 @@ async def lifespan(app: FastAPI):
         "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
         "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
         "index_outbox": asyncio.create_task(index_outbox_loop()),
+        "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
     }
 
@@ -1571,6 +1573,52 @@ async def api_health_check():
             "degraded": "degraded",
             "down": "unhealthy",
         }[provider_status("claude")]
+
+    # Voyage (embeddings + rerank) and Qdrant. Before this, a dead Voyage looked
+    # identical to a healthy one from here: `generate_embedding` returns None,
+    # search returns an empty list, and the healthcheck stayed green while the
+    # index quietly stopped being written. `unknown` means the provider has not
+    # been exercised since this process started — deliberately NOT a pass, so a
+    # dependency wired up wrong cannot masquerade as working.
+    from app.services.ai_health import provider_health_label
+
+    if not settings.VOYAGE_API_KEY:
+        checks["voyage"] = "unconfigured"
+        checks["reranker"] = "unconfigured"
+    else:
+        checks["voyage"] = provider_health_label("voyage")
+        checks["reranker"] = (
+            provider_health_label("reranker")
+            if settings.RERANKER_ENABLED
+            else "disabled"
+        )
+    # Qdrant deliberately gets no key here: `checks["qdrant"]` above is an
+    # active probe that issues a real query. Its per-provider window is still
+    # recorded (see `_run_qdrant`) and feeds `meta.ai_status`, but publishing a
+    # second, similarly-named key would only make this output ambiguous.
+
+    # AI features without a config row. Under the fail-open quota semantics a
+    # missing row means "no monthly ceiling", so this is a spend warning, not an
+    # outage — informational, never flips `overall`.
+    try:
+        from app.models.ai_feature import AIFeatureConfig, AIFeatureKey
+
+        async with AsyncSessionLocal() as session:
+            rows = await asyncio.wait_for(
+                session.execute(select(AIFeatureConfig.feature)), timeout=1.0
+            )
+        configured = {f.value if hasattr(f, "value") else str(f) for (f,) in rows.all()}
+        missing = sorted(k.value for k in AIFeatureKey if k.value not in configured)
+        checks["ai_features"] = (
+            "healthy" if not missing else f"uncapped: {','.join(missing)}"
+        )
+    except Exception as exc:
+        # Log it: this is the safety net for fail-open quota semantics (a missing
+        # config row means uncapped spend), and operators are told to treat
+        # `ai_features` as informational. A silent `unknown` would hide the
+        # warning at exactly the moment it matters most.
+        logger.warning("[health] ai_features check failed: %s", exc)
+        checks["ai_features"] = "unknown"
 
     # Disk usage — informational only (never flips `overall` → no false outages).
     # `shutil.disk_usage("/")` inside the container reflects the host's backing
