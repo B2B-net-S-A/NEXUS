@@ -68,9 +68,11 @@ def _is_empty_value(value) -> bool:
     against 273 with a real list. Treating ``[]`` as a value would make the
     backfill skip 99% of the rows it exists to fill.
 
-    ``years_it_experience == 0`` also counts as empty — 35 rows, and "0 years of
-    IT experience" recorded as a fact is a parse artefact rather than something a
-    recruiter typed on purpose.
+    For integers, ``<= 0`` counts as empty — both zero and negatives. On prod
+    that is 35 rows at 0 and none below it, but the rule covers both on purpose:
+    "0 years of IT experience" is a parse artefact rather than something a
+    recruiter typed, and a negative (a bad LLM parse) is corrupt outright. Either
+    way the next backfill is free to replace it.
     """
     if value is None:
         return True
@@ -263,9 +265,13 @@ def _apply_cv_enrichment(
         written_fields.append("ai_summary")
 
     next_extracted = dict(parsed)
+    # `cv_highlights` is refreshed even when `ai_summary` was blocked above, and
+    # that asymmetry is deliberate: `resolve_cv_highlights` exists precisely to
+    # "return only CV-provenanced facts; never trust generic ai_summary". The two
+    # are separate channels — highlights are what the newest CV says, `ai_summary`
+    # is prose a recruiter may have rewritten. Freezing highlights alongside a
+    # curated summary would stale the one field guaranteed to come from the CV.
     next_extracted["cv_highlights"] = cv_highlights
-    if manual_override:
-        next_extracted["_manual_override_experience"] = True
     # Preserve EVERY manual-override flag, not a hand-maintained list. The old
     # code copied only `_CV_CONTACT_FIELDS`, so `_manual_override_country` — set
     # by both importers and read by the location writer — was silently dropped on
