@@ -173,6 +173,10 @@ class PhaseProgress:
     # Stale `candidates.cv_*` pointers moved to the current primary CV. Its own
     # counter because it is not an import: no row was fetched, only re-aimed.
     resynced_pointers: int = 0
+    # Records Traffit answered 404 for — deleted at source, not a transient
+    # failure. Counted, never `add_error`: see the call sites for why treating
+    # "it is gone" as an error froze phases indefinitely.
+    gone_upstream: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -215,6 +219,7 @@ class PhaseProgress:
             "notes_promoted": self.notes_promoted,
             "skipped_pages": self.skipped_pages,
             "resynced_pointers": self.resynced_pointers,
+            "gone_upstream": self.gone_upstream,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1846,9 +1851,23 @@ class TraffitImporter:
                 files_resp = await self.traffit._get_raw(  # noqa: SLF001
                     f"/employees/{traffit_id}/files", page=1, page_size=50
                 )
+                if files_resp.status_code == 404:
+                    # Deleted in Traffit. "Gone" is an ANSWER, not a failure —
+                    # retrying cannot change it. Recording it as an error was
+                    # doubly wrong: the old message carried no `ext=`/`id=`, so
+                    # `_ERROR_REF_RE` could not key it, `_blocking_errors`
+                    # counted it as unattributable-and-blocking, and the
+                    # quarantine had no ref to park. Four candidates deleted
+                    # upstream therefore froze this phase's watermark forever.
+                    progress.gone_upstream += 1
+                    continue
                 if files_resp.status_code != 200:
+                    # Everything else IS retryable — and now attributable, so a
+                    # persistently failing row can be quarantined instead of
+                    # blocking the other 49k.
                     progress.add_error(
-                        f"emp {traffit_id} files HTTP {files_resp.status_code}"
+                        f"list files candidate ext={traffit_id}: "
+                        f"HTTP {files_resp.status_code}"
                     )
                     continue
                 files = files_resp.json()
@@ -1877,10 +1896,14 @@ class TraffitImporter:
                     url,
                     headers={"Authorization": f"Bearer {token}"},
                 )
+                if content_resp.status_code == 404:
+                    # File removed in Traffit between listing and fetch.
+                    progress.gone_upstream += 1
+                    continue
                 if content_resp.status_code != 200:
                     progress.add_error(
-                        f"emp {traffit_id} file {file_id} HTTP "
-                        f"{content_resp.status_code}"
+                        f"fetch file {file_id} candidate ext={traffit_id}: "
+                        f"HTTP {content_resp.status_code}"
                     )
                     continue
 
@@ -2255,9 +2278,23 @@ class TraffitImporter:
                 files_resp = await self.traffit._get_raw(  # noqa: SLF001
                     f"/employees/{traffit_id}/files", page=1, page_size=50
                 )
+                if files_resp.status_code == 404:
+                    # Deleted in Traffit. "Gone" is an ANSWER, not a failure —
+                    # retrying cannot change it. Recording it as an error was
+                    # doubly wrong: the old message carried no `ext=`/`id=`, so
+                    # `_ERROR_REF_RE` could not key it, `_blocking_errors`
+                    # counted it as unattributable-and-blocking, and the
+                    # quarantine had no ref to park. Four candidates deleted
+                    # upstream therefore froze this phase's watermark forever.
+                    progress.gone_upstream += 1
+                    continue
                 if files_resp.status_code != 200:
+                    # Everything else IS retryable — and now attributable, so a
+                    # persistently failing row can be quarantined instead of
+                    # blocking the other 49k.
                     progress.add_error(
-                        f"emp {traffit_id} files HTTP {files_resp.status_code}"
+                        f"list files candidate ext={traffit_id}: "
+                        f"HTTP {files_resp.status_code}"
                     )
                     continue
                 files_raw = files_resp.json()
@@ -2296,10 +2333,14 @@ class TraffitImporter:
                         url,
                         headers={"Authorization": f"Bearer {token}"},
                     )
+                    if content_resp.status_code == 404:
+                        # File removed in Traffit between listing and fetch.
+                        progress.gone_upstream += 1
+                        continue
                     if content_resp.status_code != 200:
                         progress.add_error(
-                            f"emp {traffit_id} file {file_id} HTTP "
-                            f"{content_resp.status_code}"
+                            f"fetch file {file_id} candidate ext={traffit_id}: "
+                            f"HTTP {content_resp.status_code}"
                         )
                         continue
 

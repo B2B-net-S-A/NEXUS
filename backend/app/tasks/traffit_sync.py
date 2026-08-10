@@ -334,6 +334,7 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "notes_promoted",
         "skipped_pages",
         "resynced_pointers",
+        "gone_upstream",
         "drifted_entities",
         "drift",
         "total_source",
