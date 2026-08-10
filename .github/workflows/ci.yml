@@ -156,7 +156,6 @@ jobs:
                  --ignore=tests/test_pending_verification.py \
                  --ignore=tests/test_pipeline.py \
                  --ignore=tests/test_presence_manager.py \
-                 --ignore=tests/test_procedures.py \
                  --ignore=tests/test_proposals.py \
                  --ignore=tests/test_recommendation_filters.py \
                  --ignore=tests/test_shortlist_and_proposal.py \
