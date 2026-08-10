@@ -2344,7 +2344,17 @@ class TraffitImporter:
         since_iso = since.isoformat() if since else None
         start_page = 1
         _cursor = await self._read_mode_cursor(_PIPELINES_CURSOR_PHASE, since_iso)
-        if _cursor is not None and _cursor.get("page_size") == self.batch_size:
+        if (
+            _cursor is not None
+            # The mode slot separates delta from full, NOT one delta window from
+            # the next: `since` moves every night. Without this check an
+            # interrupted run at page 5 for `since=Day1` would resume at page 5
+            # of the `since=Day2` feed and silently skip its pages 1-4 — and a
+            # clean finish then advances the watermark, so those rows are gone
+            # until a full reconcile.
+            and _cursor.get("since") == since_iso
+            and _cursor.get("page_size") == self.batch_size
+        ):
             # Inclusive resume: re-fetch the last committed page (upserts are
             # idempotent) rather than page+1, so a mid-page commit never skips.
             start_page = max(1, int(_cursor.get("page") or 1))

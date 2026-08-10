@@ -174,6 +174,30 @@ async def test_clean_run_retires_only_its_own_slot(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_since_window_ignores_the_cursor(monkeypatch) -> None:
+    """The mode slot separates delta from full, NOT one delta window from the
+    next — `since` moves every night. A cursor parked at page 5 for Day 1 must
+    not resume at page 5 of the Day 2 feed: that silently skips its pages 1-4,
+    and a clean finish then advances the watermark, so those rows are gone until
+    a full reconcile."""
+    db = _FakeDB(
+        seeded_cursor={
+            "delta": {
+                "page": 5,
+                "since": "2026-08-09T02:00:00+00:00",  # yesterday's window
+                "page_size": 100,
+            }
+        }
+    )
+    traffit = _FakeTraffit(_pages(2))
+    imp = _make_importer(db, traffit, monkeypatch)
+
+    await imp.import_pipelines(since=_SINCE)
+
+    assert traffit.start_pages == [1]
+
+
+@pytest.mark.asyncio
 async def test_page_size_mismatch_ignores_the_cursor(monkeypatch) -> None:
     db = _FakeDB(
         seeded_cursor={"delta": {"page": 9, "since": _SINCE_ISO, "page_size": 50}}
