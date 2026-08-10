@@ -809,6 +809,16 @@ class Settings(BaseSettings):
     # and any NEW failure was invisible behind it. 5 runs ≈ 5 days at the daily
     # cadence — long enough that a real outage recovers on its own first.
     TRAFFIT_MAX_ROW_ATTEMPTS: int = 5
+    # How many candidates the weekly full reconcile sweeps for missing files in
+    # ONE run. The sweep visits every Traffit candidate (not just those with no
+    # files at all), which is one /files call each — ~49k at
+    # TRAFFIT_THROTTLE_RPS=5 is ~2.7 h, far too long to finish before a Coolify
+    # redeploy kills the run. So the scan is budgeted and resumable: the phase
+    # persists an `after_id` cursor and the next run continues from there, which
+    # also means an operator can close a backlog faster by triggering
+    # POST /api/admin/traffit/sync?mode=full repeatedly instead of waiting a week
+    # per slice. At the default the whole base is covered in ~5 full runs.
+    TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 10000
 
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only

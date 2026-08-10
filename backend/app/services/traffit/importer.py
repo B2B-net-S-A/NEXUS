@@ -35,6 +35,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.client import Client
 from app.services.candidate_contact_hooks import (
     maybe_close_contact_opportunity,
@@ -94,6 +95,15 @@ _ERROR_REF_RE = re.compile(r"\b(\w+)\s+(?:ext|id)=([^\s:,]+)")
 # stats JSONB. Past this many distinct failing rows the problem is not a poison
 # row and quarantine is the wrong tool anyway.
 _MAX_ERROR_REFS = 500
+
+# Phase row that carries the files sweep's resume cursor. This is the
+# ORCHESTRATOR's phase-plan name (``app/tasks/traffit_sync.py::_phase_plan``),
+# deliberately not ``PhaseProgress.phase`` for this phase ("candidates_files") —
+# the two have differed since the phase was written. The cursor has to land on
+# the row the orchestrator already owns, because `_write_sync_cursor` UPSERTs:
+# keying it on the progress name would INSERT a second, phantom phase row that
+# shows up in GET /sync/status forever and never gets a status or stats.
+_FILES_CURSOR_PHASE = "candidate_files"
 
 
 @dataclass
@@ -1906,34 +1916,66 @@ class TraffitImporter:
         4. UPSERT do candidate_documents
 
         Tryby:
-        - **full** (`since=None`): bierze kandydatów którzy NIE mają jeszcze
-          żadnych traffit-sourced plików (HAVING count = 0) — szybki bo pomija
-          już zaimportowanych.
+        - **full** (`since=None`): przemiata WSZYSTKICH kandydatów Traffita —
+          także tych, którzy mają już jakieś pliki — bo brakujący plik u
+          kandydata z jednym plikiem był wcześniej nie do odzyskania (patrz
+          komentarz przy zapytaniu). Skan jest budżetowany
+          (`TRAFFIT_SYNC_FULL_FILES_LIMIT`) i wznawialny kursorem `after_id`,
+          więc kolejne biegi kontynuują sweep zamiast startować od zera.
         - **delta** (`since`): bierze kandydatów zmienionych od ostatniego syncu
-          (`updated_at >= since`) NAWET jeśli mają już pliki, ale pobiera tylko
-          te file_id których jeszcze nie ma (po external_id) — łapie nowe/podmienione
-          CV bez re-downloadu istniejących.
+          (`updated_at >= since`) NAWET jeśli mają już pliki.
+
+        Oba tryby pobierają wyłącznie te `file_id`, których jeszcze nie ma (po
+        `external_id`) — nowe/podmienione CV bez re-downloadu istniejących.
         """
         progress = PhaseProgress(
             phase="candidates_files", started_at=datetime.now(timezone.utc)
         )
 
+        # Full mode only: resumable sweep bookkeeping (see the block below).
+        cursor_phase: Optional[str] = None
+        scan_limit: Optional[int] = None
         if since is None:
-            # Full mode: skip candidates that already have any traffit files.
+            # Full reconcile sweeps EVERY Traffit candidate — not only those
+            # holding zero documents, which is what the old
+            # ``HAVING count(cd.id) = 0`` gate did. That gate turned "has at
+            # least one file" into a PERMANENT exemption: a candidate whose
+            # migration pulled 2 of 5 files (the rest lost to a /content
+            # non-200 or a timeout) was never revisited, because delta only
+            # looks at candidates Traffit itself changed and those historical
+            # rows never change again. That is the path by which Nexus ends up
+            # holding fewer CVs than Traffit, and no amount of daily syncing
+            # could ever close it.
+            #
+            # Sweeping everyone costs one /files call per candidate (~49k at
+            # TRAFFIT_THROTTLE_RPS=5 ≈ 2.7 h) — longer than the gap between
+            # Coolify redeploys, so an unbudgeted sweep would be killed
+            # mid-run and restart from the first candidate every Sunday,
+            # never reaching the tail. Hence: a per-run budget plus an
+            # ``after_id`` cursor that carries the sweep across runs. Downloads
+            # stay rare — only file_ids missing locally are fetched below.
+            cursor_phase = _FILES_CURSOR_PHASE
+            scan_limit = max(1, int(settings.TRAFFIT_SYNC_FULL_FILES_LIMIT))
+            _cursor = await self._read_sync_cursor(cursor_phase)
+            after_id = int((_cursor or {}).get("after_id") or 0)
+            logger.info(
+                "Candidates files: full sweep from candidate id > %d (limit %d)",
+                after_id,
+                scan_limit,
+            )
             result = await self.db.execute(
                 text(
                     """
                     SELECT c.id, c.external_id
                     FROM candidates c
-                    LEFT JOIN candidate_documents cd
-                      ON cd.candidate_id = c.id AND cd.external_source = 'traffit'
                     WHERE c.external_source = 'traffit'
                       AND c.external_id IS NOT NULL
-                    GROUP BY c.id, c.external_id
-                    HAVING count(cd.id) = 0
+                      AND c.id > :after_id
                     ORDER BY c.id
+                    LIMIT :limit
                     """
-                )
+                ),
+                {"after_id": after_id, "limit": scan_limit},
             )
         else:
             # Delta mode: recently-changed candidates regardless of existing
@@ -1953,13 +1995,24 @@ class TraffitImporter:
             )
         targets = list(result)
         progress.total_source = len(targets)
+        # A short batch means the sweep reached the last candidate: the pass is
+        # complete and the cursor must be cleared, so the NEXT full run starts a
+        # fresh pass from the beginning. Without this the cursor would park at
+        # the end of the table and the files phase would silently become a
+        # permanent no-op — the exact failure mode this fix exists to remove.
+        exhausted = scan_limit is None or len(targets) < scan_limit
         if not targets:
+            if cursor_phase is not None and not self.dry_run:
+                await self._clear_sync_cursor(cursor_phase)
+                await self.db.commit()
             progress.finished_at = datetime.now(timezone.utc)
-            logger.info("Candidates files: nothing to do (already imported)")
+            logger.info("Candidates files: nothing to do (sweep complete)")
             return progress
 
         # Pre-load existing traffit doc external_ids for the target candidates so
-        # delta runs don't re-download files we already have.
+        # neither mode re-downloads files we already have. This is what keeps the
+        # full sweep cheap now that it visits candidates who DO have documents:
+        # they cost one /files listing and no /content transfers at all.
         existing_docs: dict[int, set[str]] = {}
         target_ids = [r.id for r in targets]
         if target_ids:
@@ -2082,6 +2135,14 @@ class TraffitImporter:
 
                 since_commit += 1
                 if since_commit >= commit_every:
+                    if cursor_phase is not None:
+                        # Stage the sweep cursor in the SAME transaction as the
+                        # documents it accounts for. Committing them separately
+                        # would let an interrupted run claim progress over
+                        # candidates whose files were rolled back.
+                        await self._write_sync_cursor(
+                            cursor_phase, {"after_id": row.id}
+                        )
                     await self.db.commit()
                     since_commit = 0
                     logger.info(
@@ -2098,8 +2159,19 @@ class TraffitImporter:
                 await self.db.rollback()
                 since_commit = 0
 
-        if not self.dry_run and since_commit > 0:
-            await self.db.commit()
+        if not self.dry_run:
+            if cursor_phase is not None:
+                # Advance (or retire) the sweep cursor in the closing
+                # transaction, which also flushes any rows still staged.
+                if exhausted:
+                    await self._clear_sync_cursor(cursor_phase)
+                else:
+                    await self._write_sync_cursor(
+                        cursor_phase, {"after_id": targets[-1].id}
+                    )
+                await self.db.commit()
+            elif since_commit > 0:
+                await self.db.commit()
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Candidates files done: %s",
