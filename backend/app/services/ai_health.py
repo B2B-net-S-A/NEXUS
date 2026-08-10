@@ -154,6 +154,37 @@ def provider_status(provider: str) -> AiStatus:
     return tracker.status() if tracker is not None else "ok"
 
 
+def provider_observed(provider: str) -> bool:
+    """Whether this provider has reported at least one call in this process.
+
+    ``provider_status`` answers ``ok`` for a provider nobody ever called, which
+    is indistinguishable from a provider that is genuinely healthy. That is the
+    shape of every false-green outage: the probe reports success because it has
+    nothing to report. Callers that surface health to humans must pair the two
+    and say "unknown" when this is False, so a dependency that is silently never
+    exercised — or wired up wrong — cannot pass as working.
+    """
+    with _PROVIDER_REGISTRY_LOCK:
+        tracker = _PROVIDER_TRACKERS.get(provider)
+    if tracker is None:
+        return False
+    with tracker._lock:  # noqa: SLF001 — same module, deliberate
+        return bool(tracker._samples)
+
+
+def provider_health_label(provider: str) -> str:
+    """Health of one provider as the string ``/api/health`` publishes.
+
+    ``unknown`` means "not exercised since this process started" — not a
+    failure, but explicitly not a pass either.
+    """
+    if not provider_observed(provider):
+        return "unknown"
+    return {"ok": "healthy", "degraded": "degraded", "down": "unhealthy"}[
+        provider_status(provider)
+    ]
+
+
 def reset_providers_for_tests() -> None:
     """Test-only: drop all per-provider samples."""
     with _PROVIDER_REGISTRY_LOCK:

@@ -66,8 +66,11 @@ logger = logging.getLogger(__name__)
 SEMANTIC_CALIBRATION_GAMMA: float = float(
     getattr(settings, "SEMANTIC_CALIBRATION_GAMMA", 0.6)
 )
+# Fallback matches `config.py` (0.65). It read 0.5 here, so any environment
+# where the setting was absent scored every unknown-data layer lower than the
+# documented default — a silent second calibration nobody chose.
 UNKNOWN_NEUTRAL_FRACTION: float = float(
-    getattr(settings, "SCORE_UNKNOWN_NEUTRAL_FRACTION", 0.5)
+    getattr(settings, "SCORE_UNKNOWN_NEUTRAL_FRACTION", 0.65)
 )
 
 
@@ -173,12 +176,69 @@ class WeightProfile:
 # is only comparable within one embedding space, so swapping VOYAGE_MODEL must
 # invalidate every cached score. Weight-profile edits are handled separately by
 # mark_stale_for_profile (parts a/b) — those don't change this global string.
-SCORING_ALGORITHM_VERSION: str = (
-    "score-v2-budget100"
-    if getattr(settings, "AI_SCORING_CONTRACT_V2", False)
-    else "score-v1-legacy"
-) + f"+emb-{getattr(settings, 'VOYAGE_MODEL', 'unknown')}"
-SCORING_ALGORITHM_VERSION += "+candidate-rate-hourly-v2"
+# Every input that changes a produced score, listed once and exhaustively.
+# Explicit, not `settings.model_dump()`: hashing the whole config would make an
+# unrelated setting invalidate the cache on every deploy.
+#
+# The two calibration knobs used to be missing from here, so `config.py` could
+# promise "full rollback without a redeploy: set 1.0 / 0.0" while flipping them
+# left every cached score in place — mixing values from two calibrations with
+# no way to tell them apart. It was patched twice by hand (migrations 0143 and
+# 0150 did a mass invalidation); a third time was only a matter of when.
+_SCORING_CACHE_INPUTS: tuple[str, ...] = (
+    "AI_SCORING_CONTRACT_V2",
+    "VOYAGE_MODEL",
+    "SEMANTIC_CALIBRATION_GAMMA",
+    "SCORE_UNKNOWN_NEUTRAL_FRACTION",
+    # Changes the embedding TEXT, hence the similarity, hence the score.
+    "AI_TEXT_SCHEMA_V2",
+)
+
+
+def scoring_algorithm_version() -> str:
+    """Cache key for a produced score: readable prefix + digest of the inputs.
+
+    A function, not a constant, because the calibration knobs are module
+    globals that tests and offline tooling monkeypatch at call time — a value
+    frozen at import would disagree with the score actually being computed.
+
+    Weight-profile edits are deliberately NOT folded in: those are handled by
+    `mark_stale_for_profile`, which invalidates only the affected rows instead
+    of the whole table.
+    """
+    import hashlib
+    import json
+
+    payload = {
+        key: (
+            UNKNOWN_NEUTRAL_FRACTION
+            if key == "SCORE_UNKNOWN_NEUTRAL_FRACTION"
+            else SEMANTIC_CALIBRATION_GAMMA
+            if key == "SEMANTIC_CALIBRATION_GAMMA"
+            else getattr(settings, key, None)
+        )
+        for key in _SCORING_CACHE_INPUTS
+    }
+    # Round the floats: a 1e-16 difference in how a value was parsed must not
+    # invalidate a hundred thousand cached scores.
+    for k, v in payload.items():
+        if isinstance(v, float):
+            payload[k] = round(v, 4)
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[
+        :12
+    ]
+
+    base = (
+        "score-v2-budget100"
+        if getattr(settings, "AI_SCORING_CONTRACT_V2", False)
+        else "score-v1-legacy"
+    )
+    return f"{base}+emb-{getattr(settings, 'VOYAGE_MODEL', 'unknown')}+{digest}"
+
+
+# Kept for import compatibility; prefer calling the function so a runtime knob
+# change is reflected. Column is VARCHAR(64) — this shape is ~45 chars.
+SCORING_ALGORITHM_VERSION: str = scoring_algorithm_version()
 
 
 DEFAULT_PROFILE = WeightProfile()

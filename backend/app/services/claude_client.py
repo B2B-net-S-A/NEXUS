@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+import traceback
 from typing import Any
 
 import anthropic
@@ -90,6 +91,37 @@ def _record_health(started: float, *, failed: bool) -> None:
         pass
 
 
+def _assert_declared(model: str) -> None:
+    """Refuse (or at least log) an LLM call nobody charged a quota for.
+
+    The gate cannot live on the route: `fireflies_sync` is a background loop,
+    CV enrichment is a BackgroundTask and `enrich_from_call` is a webhook —
+    none of them is a request handler, and all three reached Claude without a
+    quota check while every *handler* looked correctly wrapped. Standing here,
+    at the provider boundary, is the only position that sees all of them.
+    """
+    try:
+        from app.core.config import settings
+        from app.services.ai_quota import AIQuotaUngated, current_ai_call
+
+        if current_ai_call() is not None:
+            return
+        if getattr(settings, "AI_QUOTA_STRICT", False):
+            raise AIQuotaUngated(
+                f"LLM call (model={model}) outside `async with ai_feature(...)` — "
+                "it would spend money the quota system cannot see"
+            )
+        logger.error(
+            "[ai-quota] UNGATED LLM call model=%s — not wrapped in "
+            "`async with ai_feature(...)`; invisible to the master toggle, the "
+            "monthly limit and ai_usage_log. Stack: %s",
+            model,
+            "".join(traceback.format_stack(limit=8)),
+        )
+    except ImportError:  # pragma: no cover — keeps the client importable alone
+        return
+
+
 def call_claude(
     *,
     messages: list[dict[str, Any]],
@@ -119,6 +151,8 @@ def call_claude(
         **kwargs: forwarded verbatim to ``messages.create`` (``system``,
             ``thinking``, etc.).
     """
+    _assert_declared(model)
+
     key = api_key if api_key is not None else settings.ANTHROPIC_API_KEY
     request_timeout = (
         timeout if timeout is not None else settings.ANTHROPIC_TIMEOUT_SECONDS

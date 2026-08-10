@@ -6,6 +6,8 @@ import pytest
 
 from app.services import claude_client
 from app.services.ai_health import (
+    provider_health_label,
+    provider_observed,
     provider_status,
     record_provider_call,
     reset_providers_for_tests,
@@ -41,6 +43,49 @@ def test_providers_are_isolated():
         record_provider_call("a", 10, failed=True)
     assert provider_status("a") == "down"
     assert provider_status("b") == "ok"
+
+
+# ── "never called" must not read as "healthy" ────────────────────────────────
+
+
+def test_never_called_provider_is_not_observed():
+    """`provider_status` says "ok" for a provider nobody ever called.
+
+    That is the shape of every false-green outage — the probe reports success
+    because it has nothing to report. `provider_observed` is what lets the
+    healthcheck tell the two apart.
+    """
+    assert provider_status("never-seen") == "ok"
+    assert provider_observed("never-seen") is False
+    assert provider_health_label("never-seen") == "unknown"
+
+
+def test_health_label_reports_unknown_until_first_call():
+    assert provider_health_label("voyage") == "unknown"
+    record_provider_call("voyage", 10, failed=False)
+    assert provider_health_label("voyage") == "healthy"
+
+
+def test_health_label_reports_unhealthy_after_failure_streak():
+    for _ in range(3):
+        record_provider_call("voyage", 10, failed=True)
+    assert provider_observed("voyage") is True
+    assert provider_health_label("voyage") == "unhealthy"
+
+
+def test_health_label_reports_degraded_on_slow_streak():
+    for _ in range(3):
+        record_provider_call("qdrant", 6000, failed=False)
+    assert provider_health_label("qdrant") == "degraded"
+
+
+def test_observation_survives_recovery():
+    """Recovering to healthy must not reset "has been observed" — otherwise a
+    provider would flip back to `unknown` the moment it started working."""
+    record_provider_call("reranker", 10, failed=True)
+    record_provider_call("reranker", 10, failed=False)
+    assert provider_observed("reranker") is True
+    assert provider_health_label("reranker") == "healthy"
 
 
 # ── call_claude wiring ───────────────────────────────────────────────────────

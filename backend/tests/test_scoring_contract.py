@@ -130,15 +130,71 @@ def test_from_record_explicit_champion_used_regardless_of_flag(monkeypatch):
 
 
 def test_scoring_algorithm_version_is_known_string():
-    # The version now folds in the embedding model (AI-P0-06):
-    #   "<base>+emb-<VOYAGE_MODEL>". The base must still be a known contract.
-    version = ss.SCORING_ALGORITHM_VERSION
+    version = ss.scoring_algorithm_version()
     base = version.split("+emb-")[0]
     assert base in {"score-v1-legacy", "score-v2-budget100"}, version
     assert "+emb-" in version, "embedding model no longer folded in (AI-P0-06)"
     # Must fit the DB column (VARCHAR(64), migration 0185) — else cache INSERTs
     # fail silently and the whole match-score cache stops persisting.
     assert len(version) <= 64, f"version {version!r} exceeds column width"
+
+
+def test_calibration_knobs_are_part_of_the_cache_key(monkeypatch):
+    """`config.py` promises "full rollback without a redeploy: set 1.0 / 0.0".
+
+    That was untrue in both directions: the knobs were absent from the version
+    string, so flipping them left every cached score in place and the list
+    silently mixed two calibrations. It had to be patched by hand twice
+    (migrations 0143, 0150).
+    """
+    before = ss.scoring_algorithm_version()
+
+    monkeypatch.setattr(ss, "SEMANTIC_CALIBRATION_GAMMA", 1.0)
+    assert ss.scoring_algorithm_version() != before, (
+        "changing the semantic calibration does not invalidate cached scores"
+    )
+
+    monkeypatch.setattr(ss, "SEMANTIC_CALIBRATION_GAMMA", 0.6)
+    monkeypatch.setattr(ss, "UNKNOWN_NEUTRAL_FRACTION", 0.0)
+    assert ss.scoring_algorithm_version() != before, (
+        "changing the unknown-data fraction does not invalidate cached scores"
+    )
+
+
+def test_embedding_text_schema_is_part_of_the_cache_key(monkeypatch):
+    """`AI_TEXT_SCHEMA_V2` rewrites the embedded text, hence the similarity,
+    hence the score — a cached value from the other schema is not comparable."""
+    before = ss.scoring_algorithm_version()
+    monkeypatch.setattr(
+        settings, "AI_TEXT_SCHEMA_V2", not getattr(settings, "AI_TEXT_SCHEMA_V2", False)
+    )
+    assert ss.scoring_algorithm_version() != before
+
+
+def test_unrelated_settings_do_not_churn_the_cache(monkeypatch):
+    """The input list is explicit rather than a dump of the whole config, so a
+    setting that has nothing to do with scoring cannot invalidate 100k rows on
+    an ordinary deploy."""
+    before = ss.scoring_algorithm_version()
+    monkeypatch.setattr(settings, "QDRANT_PORT", 9999)
+    assert ss.scoring_algorithm_version() == before
+
+
+def test_float_noise_does_not_invalidate_the_cache(monkeypatch):
+    """0.6 parsed slightly differently must not read as a new calibration."""
+    monkeypatch.setattr(ss, "SEMANTIC_CALIBRATION_GAMMA", 0.6)
+    a = ss.scoring_algorithm_version()
+    monkeypatch.setattr(ss, "SEMANTIC_CALIBRATION_GAMMA", 0.6 + 1e-9)
+    assert ss.scoring_algorithm_version() == a
+
+
+def test_unknown_neutral_fraction_default_matches_config():
+    """The module fell back to 0.5 while `config.py` documented 0.65, so any
+    environment missing the setting quietly ran a second, unchosen calibration."""
+    import inspect
+
+    src = inspect.getsource(ss)
+    assert 'getattr(settings, "SCORE_UNKNOWN_NEUTRAL_FRACTION", 0.65)' in src
 
 
 def test_weights_payload_accepts_legacy_five(monkeypatch):

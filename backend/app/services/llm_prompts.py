@@ -408,7 +408,11 @@ CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
 
 CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
     name="champion_recommended_searches",
-    version=1,
+    # v2: added `q` + `search_mode` (the only way a recommended search reaches
+    # the semantic index), dropped `experience_years_*` from the emittable set,
+    # and started injecting measured column density instead of hard-coding
+    # which fields to avoid.
+    version=2,
     expected_format="json",
     system_prompt=(
         "Jesteś senior sourcerem IT w polskiej agencji staffing. "
@@ -424,7 +428,14 @@ CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
         "(must-have), druga szersza (synonimy/alternatywy technologii), "
         "opcjonalna trzecia eksperymentalna (np. ludzie z firm docelowych). "
         "(5) Nie wymyślaj wymagań, których nie ma w profilu/opisie. "
-        "(6) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
+        "(6) `q` to zapytanie SEMANTYCZNE (nie słowa kluczowe): 1-2 zdania "
+        "opisujące szukaną osobę jej własnym językiem — rola, technologie, "
+        "kontekst branżowy. To ono trafia do wyszukiwania wektorowego i jako "
+        "jedyne czyta CV ze zrozumieniem, więc wypełniaj je ZAWSZE. "
+        "(7) Sygnały, których nie da się wyrazić filtrem po dobrze wypełnionej "
+        "kolumnie (staż, seniority, branża, typ projektu), wpisuj do `q`, nie "
+        "wymyślaj do nich filtrów strukturalnych. "
+        "(8) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
     ),
     template=(
         "Rekrutacja:\n"
@@ -437,6 +448,7 @@ CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
         "---\n"
         "{champion_profile_json}\n"
         "---\n\n"
+        "{column_coverage}\n\n"
         "Zaprojektuj 2-3 wyszukiwania. Zwróć JSON:\n"
         "{{\n"
         '  "searches": [\n'
@@ -444,14 +456,14 @@ CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
         '      "name": "krótka nazwa strategii (po polsku, max 80 znaków)",\n'
         '      "rationale": "1-2 zdania: czemu ten zestaw filtrów (po polsku)",\n'
         '      "params": {{\n'
+        '        "q": "zapytanie semantyczne, 1-2 zdania — WYPEŁNIJ ZAWSZE",\n'
+        '        "search_mode": "hybrid",\n'
         '        "q_all": ["fraza wymagana w CV", ...],\n'
         '        "q_any_groups": [["wariant A", "wariant B"], ...],\n'
         '        "q_none": ["fraza wykluczająca", ...],\n'
         '        "skills_must": ["Skill1", ...],\n'
         '        "skills_any": ["SkillAlt1", ...],\n'
         '        "skills_none": [],\n'
-        '        "experience_years_min": int|null,\n'
-        '        "experience_years_max": int|null,\n'
         '        "location_cities": ["Miasto", ...]\n'
         "      }}\n"
         "    }}\n"
