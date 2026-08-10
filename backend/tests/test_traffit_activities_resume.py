@@ -221,6 +221,26 @@ async def test_clean_delta_does_not_clear_a_full_mode_cursor(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_clearing_one_slot_leaves_the_other_live_one_intact(monkeypatch) -> None:
+    """Both modes parked at once — the state after an interrupted full and an
+    interrupted delta. A clean delta must retire only its own slot and leave
+    full's position untouched; the two directions were covered separately, this
+    pins the combined read → pop → write path."""
+    db = _FakeDB(
+        seeded_cursor={
+            "full": {"page": 412, "since": None, "page_size": 100},
+            "delta": {"page": 3, "since": _SINCE_ISO, "page_size": 100},
+        }
+    )
+    traffit = _FakeTraffit(_pages(2), raise_at_page=None)
+    imp = _make_importer(db, traffit, monkeypatch)
+
+    await imp.import_candidate_activities(since=_SINCE)
+
+    assert db.cursor == {"full": {"page": 412, "since": None, "page_size": 100}}
+
+
+@pytest.mark.asyncio
 async def test_clean_full_does_not_clear_a_delta_cursor(monkeypatch) -> None:
     delta_cursor = {"page": 7, "since": _SINCE_ISO, "page_size": 100}
     db = _FakeDB(seeded_cursor=delta_cursor)

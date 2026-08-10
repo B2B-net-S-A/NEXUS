@@ -1799,6 +1799,15 @@ class TraffitImporter:
                 if since_commit >= commit_every:
                     if cursor_phase is not None:
                         # Same transaction as the rows it accounts for.
+                        #
+                        # `row.id` is the candidate this iteration just stored,
+                        # and the scan is `ORDER BY id`, so everything below it
+                        # has already been considered — including the ones that
+                        # came back `skipped` (no CV in Traffit). Moving the
+                        # cursor past those is correct, not a miss: they were
+                        # examined this run, and because they keep
+                        # `cv_storage_key IS NULL` they re-enter the target set
+                        # on the next full pass anyway.
                         await self._write_sync_cursor(
                             cursor_phase, {"after_id": row.id}
                         )
@@ -2624,6 +2633,19 @@ class TraffitImporter:
         if "page" not in payload:
             return payload
         mode = "full" if payload.get("since") is None else "delta"
+        stray = sorted(payload.keys() & {"delta", "full"})
+        if stray:
+            # Unreachable via the current write path (a flat payload and mode
+            # slots are mutually exclusive), but if some future format ever
+            # produced both, wrapping the whole dict would silently discard the
+            # nested slots. Say so rather than lose a resume position quietly.
+            logger.warning(
+                "Activities cursor has a flat 'page' AND mode slot(s) %s — "
+                "format drift; keeping the flat cursor under %r, dropping %s",
+                stray,
+                mode,
+                stray,
+            )
         return {mode: payload}
 
     async def _read_activities_cursor(
@@ -2635,6 +2657,11 @@ class TraffitImporter:
     async def _write_activities_cursor(
         self, since_iso: Optional[str], entry: dict[str, Any]
     ) -> None:
+        # Re-reads on every page commit so the OTHER mode's slot survives this
+        # write. That is one extra local round-trip per ~100 activities (~3.7k
+        # per full sweep) — negligible next to the throttled API call that
+        # produced the page, and the alternative (caching the other slot for the
+        # phase's lifetime) trades correctness for nothing measurable.
         payload = await self._read_sync_cursor(_ACTIVITIES_CURSOR_PHASE) or {}
         payload = self._split_legacy_cursor(payload)
         payload[self._cursor_mode(since_iso)] = entry
