@@ -50,7 +50,7 @@ from app.schemas.champion import (
     ChampionProfile,
     ChampionProjectContext,
     RecommendedSearch,
-    RecommendedSearchParams,
+    RecommendedSearchParamsIn,
     ScreeningQuestion,
     SourcingStrategy,
 )
@@ -945,6 +945,33 @@ async def reject_suggestion(
 # ── Recommended searches (AI-proposed sourcing strategies) ──────────────────
 
 
+async def _count_matching_candidates(db: AsyncSession, params) -> int:
+    """How many candidates the structured part of a proposal matches.
+
+    Deliberately ignores `q` / `search_mode`: the semantic leg would need a
+    Voyage embedding per proposal, and this number exists to catch the
+    "filters describe nobody" case, which is a property of the structured
+    chips alone. A hybrid search can only ever return MORE than this.
+    """
+    from sqlalchemy import func, select as _select
+
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.schemas.candidate_search import CandidateSearchRequest
+    from app.services.advanced_candidate_search import build_advanced_filter
+    from app.services.structured_candidate_search import build_structured_filter
+
+    req = CandidateSearchRequest(**params.model_dump(exclude_none=True))
+    clauses = list(build_structured_filter(req))
+    boolean = build_advanced_filter(req.q_all, req.q_any, req.q_none, req.q_any_groups)
+    if boolean is not None:
+        clauses.append(boolean)
+    # Mirror the endpoint: blacklisted candidates are never offered.
+    clauses.append(Candidate.status != CandidateStatus.blacklisted)
+
+    stmt = _select(func.count(Candidate.id)).select_from(Candidate).where(*clauses)
+    return int((await db.execute(stmt)).scalar() or 0)
+
+
 async def generate_recommended_searches(
     db: AsyncSession,
     *,
@@ -984,7 +1011,20 @@ async def generate_recommended_searches(
         if profile.get(k)
     }
 
+    # Measured density of every searchable column, injected into the prompt so
+    # the model stops proposing filters over columns nobody fills in. Best
+    # effort: a failure here must not block generating searches, it only makes
+    # them less informed.
+    try:
+        from app.services.candidate_column_coverage import candidate_column_coverage
+
+        coverage_block = (await candidate_column_coverage(db)).as_prompt_block()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("recommended_searches: column coverage unavailable: %s", exc)
+        coverage_block = ""
+
     prompt = CHAMPION_RECOMMENDED_SEARCHES.render(
+        column_coverage=coverage_block,
         job_title=job.title or "",
         client_name=client_name,
         requirements=(job.requirements or "")[:4000],
@@ -1008,24 +1048,59 @@ async def generate_recommended_searches(
 
     now = datetime.now(timezone.utc)
     fresh: list[RecommendedSearch] = []
+    dropped: list[str] = []
     for i, raw in enumerate((parsed.get("searches") or [])[:3]):
         if not isinstance(raw, dict):
+            dropped.append(f"#{i}: not an object")
             continue
         try:
             rs = RecommendedSearch(
                 id=f"rs-{int(now.timestamp())}-{i}",
                 name=str(raw.get("name") or "").strip()[:100] or f"Strategia {i + 1}",
                 rationale=str(raw.get("rationale") or "").strip(),
-                params=RecommendedSearchParams.model_validate(raw.get("params") or {}),
+                # Ingest schema: `extra="forbid"`, so a filter the LLM invented
+                # is a parse error we can see, not a field silently dropped.
+                params=RecommendedSearchParamsIn.model_validate(
+                    raw.get("params") or {}
+                ),
                 status="proposed",
                 generated_at=now,
             )
-        except Exception:  # noqa: BLE001 — drop malformed proposals silently
-            logger.warning("recommended_searches: dropped invalid proposal #%d", i)
+        except Exception as exc:  # noqa: BLE001
+            # Named, not counted: a prompt that starts hallucinating parameters
+            # used to look identical to one that simply returned fewer
+            # strategies. The reason has to reach the log or nobody finds out.
+            dropped.append(f"#{i}: {type(exc).__name__}: {str(exc)[:200]}")
             continue
         if rs.params.is_empty():
+            dropped.append(f"#{i}: every filter empty")
             continue
         fresh.append(rs)
+
+    # Count each surviving strategy BEFORE storing it. The DL review UI was
+    # always meant to show a live result count; taking it here means a strategy
+    # that matches nobody arrives labelled as such, instead of as an empty list
+    # the recruiter finds three clicks later and reads as "we have no such
+    # people". Structured filters only — the semantic leg needs an embedding
+    # call per proposal, which is not worth it for a preflight number.
+    for rs in fresh:
+        try:
+            rs.estimated_results = await _count_matching_candidates(db, rs.params)
+        except Exception as exc:  # noqa: BLE001
+            # None, never 0: an unavailable count must not read as "no matches".
+            logger.warning(
+                "recommended_searches: preflight count failed for %s: %s", rs.id, exc
+            )
+            rs.estimated_results = None
+
+    if dropped:
+        logger.warning(
+            "recommended_searches job=%s: kept %d of %d proposals; dropped -> %s",
+            job_id,
+            len(fresh),
+            len(parsed.get("searches") or []),
+            "; ".join(dropped),
+        )
 
     # Keep decided history, replace pending proposals.
     existing: list[RecommendedSearch] = []

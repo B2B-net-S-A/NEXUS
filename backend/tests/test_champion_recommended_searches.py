@@ -20,15 +20,17 @@ SAMPLE_SEARCHES_OUTPUT = {
             "name": "Precyzyjna: Java + Kafka",
             "rationale": "Must-have z profilu championa.",
             "params": {
+                "q": "senior Java developer z Kafką, doświadczenie w bankowości",
+                "search_mode": "hybrid",
                 "skills_must": ["Java", "Kafka"],
                 "q_any_groups": [["system bankowy", "bankowość"]],
-                "experience_years_min": 5,
             },
         },
         {
             "name": "Szeroka: alternatywy messagingu",
             "rationale": "Kafka zamienna z RabbitMQ wg konsultanta.",
             "params": {
+                "q": "backend Java, dowolny broker wiadomości",
                 "skills_must": ["Java"],
                 "skills_any": ["Kafka", "RabbitMQ"],
             },
