@@ -34,7 +34,7 @@ def current_version_trace() -> VersionTrace:
     """Resolve the live version trace from the running configuration."""
     from app.core.config import settings
     from app.services.canonical_text import TEXT_SCHEMA_V1, TEXT_SCHEMA_V2
-    from app.services.scoring_service import SCORING_ALGORITHM_VERSION
+    from app.services.scoring_service import scoring_algorithm_version
 
     text_schema = (
         TEXT_SCHEMA_V2
@@ -42,7 +42,7 @@ def current_version_trace() -> VersionTrace:
         else TEXT_SCHEMA_V1
     )
     return VersionTrace(
-        ranker_version=SCORING_ALGORITHM_VERSION,
+        ranker_version=scoring_algorithm_version(),
         index_version="index-legacy-v1",
         text_schema_version=text_schema,
         taxonomy_version="taxonomy-legacy-v1",

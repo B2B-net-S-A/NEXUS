@@ -37,7 +37,7 @@ from app.models.match_score import CandidateJobMatchScore
 from app.models.match_score_invalidation import MatchScoreInvalidation
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
-    SCORING_ALGORITHM_VERSION,
+    scoring_algorithm_version,
     LayerResult,
     ScoreBreakdown,
     WeightProfile,
@@ -185,7 +185,7 @@ async def _upsert_breakdown(
         total_score=breakdown.total,
         breakdown=breakdown.as_dict(),
         stale=stale_on_insert,
-        scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
+        scoring_algorithm_version=scoring_algorithm_version(),
     )
     # Unqualified column refs in an ON CONFLICT DO UPDATE SET/predicate resolve to
     # the EXISTING row, so this reads the invalidated_at written by any mark_stale
@@ -205,7 +205,7 @@ async def _upsert_breakdown(
             "breakdown": stmt.excluded.breakdown,
             "scored_at": func.now(),
             "stale": case((not_invalidated_mid_compute, False), else_=True),
-            "scoring_algorithm_version": SCORING_ALGORITHM_VERSION,
+            "scoring_algorithm_version": scoring_algorithm_version(),
         },
     )
     await db.execute(stmt)
@@ -274,7 +274,7 @@ async def get_cached_or_compute(
     if (
         row is not None
         and not row.stale
-        and row.scoring_algorithm_version == SCORING_ALGORITHM_VERSION
+        and row.scoring_algorithm_version == scoring_algorithm_version()
     ):
         return _breakdown_from_row(row)
 
@@ -321,7 +321,7 @@ async def bulk_get_or_compute(
                     CandidateJobMatchScore.profile_id == profile.id,
                     CandidateJobMatchScore.stale.is_(False),
                     CandidateJobMatchScore.scoring_algorithm_version
-                    == SCORING_ALGORITHM_VERSION,
+                    == scoring_algorithm_version(),
                 )
             )
         )
