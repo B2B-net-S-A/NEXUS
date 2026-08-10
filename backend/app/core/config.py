@@ -138,8 +138,20 @@ class Settings(BaseSettings):
     # hybrydowe /recommendations + proposals (skala 0-100). Po recalibracji
     # (2026-06-23) skala jest realistyczna, więc próg podniesiony z 25 → 40.
     RECOMMENDATION_MIN_SCORE: float = 40.0
-    # twardy bezpiecznik rozmiaru wyniku (oba silniki)
+    # twardy bezpiecznik rozmiaru WYNIKU (oba silniki) — ile pozycji wraca do
+    # klienta. To NIE jest rozmiar puli pobieranej z Qdranta; mylenie tych dwóch
+    # zmieniłoby wielkość odpowiedzi na czterech powierzchniach naraz.
     MATCH_MAX_RESULTS: int = 200
+    # Rozmiar puli pobieranej z Qdranta przed scoringiem. Zmierzone 2026-08-10 na
+    # 40 ofertach i 960 pozytywach: przy puli 200 do warstwy scoringu trafia
+    # 13,6% ground truth, przy 500 — 22,8%, przy 1000 — 32,6%. Sufit recall jest
+    # więc ustawiany TUTAJ, nie przez wagi; do 2026-08-10 stała 200 była wpisana
+    # na sztywno w czterech miejscach.
+    #
+    # Podniesienie do 1000 jest bezpieczne dopiero po zbatchowaniu zapytań
+    # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
+    # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
+    MATCH_POOL_SIZE: int = 1000
     # Gdy filtr lokalizacji jest aktywny na /recommendations, poszerzamy pulę
     # retrieve z Qdrant do tej wartości — tylko ~17% kandydatów ma jakąkolwiek
     # lokalizację, więc domyślny semantic cut (top-200) głodzi zlokalizowany
