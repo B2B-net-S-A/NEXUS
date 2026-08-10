@@ -20,6 +20,16 @@ name: Deploy
 # Now we save the deployment UUID, poll its status, fail fast on
 # failed/cancelled with the server-side log tail, and only then health-check.
 #
+# 2026-08-07 (concurrent deployments): przy serii merge'y każdy push na main
+# odpalał osobny pełny rebuild Coolify, mimo że Coolify klonuje HEAD maina w
+# momencie budowy — pierwszy build z burstu wdraża więc także późniejsze
+# commity, a kolejne buildy tylko mielą kolejkę (429 "queue is full"
+# 2026-07-15/16, disk-fill 2026-05-22). Teraz deploy job najpierw pyta
+# /api/health: jeśli produkcja serwuje już TARGET_SHA lub jego potomka,
+# pomija trigger/rebuild i przechodzi wprost do smoke testu. Deep healthcheck
+# akceptuje potomka TARGET_SHA (tak jak pierwszy smoke od #965) — wcześniej
+# czerwienił się na wyprzedzonych deployach mimo udanego wdrożenia.
+#
 # Required GH secrets:
 #   COOLIFY_URL       e.g. https://coolify-compass.dynaminds.pl
 #   COOLIFY_TOKEN     Bearer token (Sanctum personal_access_tokens)
@@ -29,31 +39,41 @@ name: Deploy
 #   APP_URL           Production URL for smoke test (e.g. https://compass.dynaminds.pl)
 
 on:
-  # P1-CI-01: gate the deploy on the SAME-SHA CI passing.
+  # P1-CI-01: bramkuj deploy na przejściu weryfikacji dla TEGO SAMEGO SHA.
   #
-  # Previously this workflow triggered directly on `push: branches: [main]`,
-  # INDEPENDENTLY of ci.yml. Nothing coupled them, so a red post-merge push-CI
-  # (branch protection only gates the PR, not the post-merge push to main) did
-  # NOT stop the deploy — a broken main could still ship to prod.
+  # Pierwotnie ten workflow odpalał się wprost na `push: branches: [main]`,
+  # NIEZALEŻNIE od ci.yml. Nic ich nie łączyło, więc czerwone post-merge CI
+  # (branch protection bramkuje PR, nie push na main) NIE zatrzymywało deployu —
+  # zepsuty main mógł pojechać na prod. Dlatego deploy został wtedy podpięty
+  # przez `workflow_run` pod workflow "CI".
   #
-  # Now the deploy is chained to ci.yml (workflow name "CI") via `workflow_run`:
-  #   push to main → "CI" runs → on its completion this workflow fires →
-  #   the deploy job runs ONLY if that run's conclusion == success (see the
-  #   `if:` guard on the deploy job). Red CI → deploy job skipped → no deploy.
+  # 2026-08-07: bramka przeniesiona z "CI" na "CI Gate". Powód — `workflow_run`
+  # czeka na CAŁY workflow, a nie na konkretny job, więc deploy wisiał na
+  # najwolniejszym jobie w ci.yml. Zmierzone na b4af6c58 (zmiana jednej stałej):
+  # CI na main 24 min 24 s, z czego 22 min 20 s to sam pytest; z deployem
+  # ~28 min od merge'u do produkcji. Te 22 min to POWTÓRKA — `strict: true`
+  # gwarantuje, że gałąź była aktualna z main, więc pytest przeszedł już na PR
+  # na tym samym kodzie.
   #
-  # `workflow_run` always uses the workflow file from the default branch (main)
-  # and carries the triggering run's commit as
-  # `github.event.workflow_run.head_sha` — the SHA whose CI we just verified —
-  # exposed below as TARGET_SHA and asserted by the smoke test.
+  # Teraz łańcuch to: push na main → "CI Gate" (gitleaks + ruff + alembic +
+  # import smoke, ~2 min) → ten workflow → deploy. Pełne "CI" (pytest, frontend,
+  # Trivy) leci na main RÓWNOLEGLE i nadal jest wymagane na PR przed merge'em.
   #
-  # ROLLBACK: revert this `on:` block to the ungated form —
-  #     on:
-  #       push:
-  #         branches: [main]
-  #       workflow_dispatch:
-  # and drop the `if:` guard + TARGET_SHA env added alongside it.
+  # Świadomy kompromis: produkcja może żyć ~6 min zanim pytest na main się
+  # skończy. To okno kryje przypadek dwóch PR-ów zmergowanych blisko siebie,
+  # które osobno są zielone, a razem nie. Sygnałem jest wtedy czerwone "CI" na
+  # main → rollback (deployment-runbook §2). Deep healthcheck poniżej łapie
+  # osobną, częstszą klasę: migrację, która nie weszła.
+  #
+  # `workflow_run` zawsze bierze plik workflow z gałęzi domyślnej (main) i niesie
+  # commit wyzwalającego przebiegu jako `github.event.workflow_run.head_sha` —
+  # SHA, którego bramkę właśnie zweryfikowaliśmy — wystawiony niżej jako
+  # TARGET_SHA i asertowany przez smoke test.
+  #
+  # ROLLBACK (przywrócenie bramki na pełnym CI): zmień `workflows: ["CI Gate"]`
+  # z powrotem na `workflows: ["CI"]`. Deploy znowu poczeka na pytest.
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["CI Gate"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -78,17 +98,66 @@ env:
 
 jobs:
   deploy:
-    name: Trigger Coolify deploy
+    name: Deploy + smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Deploy ONLY when the same-SHA CI passed on main. A manual
-    # workflow_dispatch (no workflow_run payload) is kept as an escape hatch for
-    # redeploys/rollbacks (deployment-runbook §4). A red — or non-main — CI run
-    # leaves this false → this job is skipped → smoke-test (needs: deploy) is
-    # skipped too → the whole workflow no-ops without touching prod.
+    # Deploy TYLKO gdy "CI Gate" dla tego samego SHA przeszła na main. Ręczny
+    # workflow_dispatch (brak payloadu workflow_run) zostaje jako furtka na
+    # redeploy/rollback (deployment-runbook §4). Czerwony — lub spoza main —
+    # przebieg bramki zostawia to jako false → job pominięty razem ze
+    # smoke-testem, który od 2026-08-07 jest jego częścią → workflow no-op
+    # bez dotykania produkcji.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
+      - name: Skip if target already live (burst coalescing)
+        id: precheck
+        # Ręczny workflow_dispatch NIGDY nie skipuje — to ścieżka świadomego
+        # redeployu (np. po zmianie env varów), gdzie rebuild jest celem.
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          # Token przez env, nie inline w skrypcie — interpolacja ${{ }} wkleja
+          # literal do run: (ryzyko przy set -x / echo), env tego unika.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Coolify klonuje HEAD maina w momencie budowy, nie TARGET_SHA — przy
+          # burstach merge'y wcześniejszy deployment zwykle wdrożył już nasz
+          # commit razem z nowszymi. Kolejny pełny rebuild niczego wtedy nie
+          # zmienia na produkcji, a to właśnie rebuild-churn zapychał kolejkę
+          # Coolify (HTTP 429) i dysk serwera. Jeżeli /api/health serwuje już
+          # TARGET_SHA albo jego POTOMKA — skip=true i job przechodzi od razu
+          # do smoke testu. Każdy błąd tej sondy = fail-open do normalnego
+          # deployu (skip tylko przy twardym dowodzie, że kod już stoi).
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$APP_URL" ]; then
+            echo "APP_URL unset — deploying normally"
+            exit 0
+          fi
+          response=$(curl -fsSL --max-time 15 -A "$SMOKE_UA" "$APP_URL/api/health" 2>/dev/null || echo '')
+          version=$(echo "$response" | jq -r '.version // ""' 2>/dev/null || echo '')
+          if [ -z "$version" ] || [ ${#version} -lt 7 ]; then
+            echo "No usable live version — deploying normally"
+            exit 0
+          fi
+          if [ "$version" = "$TARGET_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Produkcja już serwuje $TARGET_SHA — pomijam redundantny rebuild."
+            exit 0
+          fi
+          rel=$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
+                2>/dev/null | jq -r '.status // "unknown"')
+          if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Produkcja serwuje $version (pokrewieństwo=$rel wobec targetu) — nasz kod już wdrożony, pomijam rebuild."
+          else
+            echo "Live=$version, target=$TARGET_SHA, pokrewieństwo=$rel — deploying normally"
+          fi
+
       - name: Ensure dedicated candidate identity fingerprint key
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
         env:
           COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
@@ -130,6 +199,7 @@ jobs:
 
       - name: Trigger deployment
         id: trigger
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
         run: |
           # One unified retry loop, 20 attempts × 30s ≈ 10 min ceiling:
           #  - HTTP 429 (queue full) needs to outlast an in-flight ARM build
@@ -170,13 +240,17 @@ jobs:
           echo "deployment_uuid=$deployment_uuid" >> $GITHUB_OUTPUT
 
       - name: Wait for deployment to finish (fail fast on server-side failure)
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
         run: |
           # Poll the exact deployment we queued instead of blind-sleeping.
           # Statuses: queued | in_progress | finished | failed | cancelled-by-user.
-          # 60 × 15s = 15 min ceiling (cold ARM build with heavy native deps).
+          # 180 × 5s = 15 min ceiling — ten sam sufit co wcześniej (60 × 15s),
+          # ale drobniejsza ziarnistość. Coolify kończy w losowym momencie
+          # względem pętli, więc przy 15 s marnowaliśmy średnio ~7 s na samo
+          # niezauważenie, że już skończył. Odpytanie API jest tanie.
           DEPLOYMENT_UUID="${{ steps.trigger.outputs.deployment_uuid }}"
           status=""
-          for i in $(seq 1 60); do
+          for i in $(seq 1 180); do
             resp=$(curl -sS \
               -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
               -H "Accept: application/json" \
@@ -184,7 +258,7 @@ jobs:
             status=$(echo "$resp" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
             case "$status" in
               finished)
-                echo "✅ Deployment $DEPLOYMENT_UUID finished after ~$((i * 15))s"
+                echo "✅ Deployment $DEPLOYMENT_UUID finished after ~$((i * 5))s"
                 exit 0
                 ;;
               failed|cancelled*|cancelled-by-user)
@@ -202,20 +276,27 @@ jobs:
                 exit 1
                 ;;
               *)
-                echo "Attempt $i/60: status=$status, retrying in 15s..."
-                sleep 15
+                # Log co 6. próbę (~30 s), żeby 5-sekundowa ziarnistość nie
+                # zalała logu 180 liniami. `if`, nie `[ … ] && echo`: kroki
+                # `run:` chodzą pod `bash -e`, więc fałszywy test jako ostatnia
+                # komenda iteracji wywaliłby krok.
+                if [ $(( (i - 1) % 6 )) -eq 0 ]; then
+                  echo "Attempt $i/180: status=$status, retrying every 5s..."
+                fi
+                sleep 5
                 ;;
             esac
           done
           echo "::error::Deployment $DEPLOYMENT_UUID still '$status' after 15 min — treating as failed. Run the 'Coolify Ops' workflow to inspect/cancel it."
           exit 1
 
-  smoke-test:
-    name: Smoke test /api/health
-    needs: deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
+      # ── Smoke test scalony z jobem deploy (2026-08-07) ──────────────
+      # Był osobnym jobem z `needs: deploy`. Same testy trwają ~5 s, a
+      # GitHub kolejkował pod nie DRUGI runner: zmierzone 10 s luki między
+      # jobami + ~7 s setupu, czyli narzut ~3x dłuższy niż praca. Scalenie
+      # nic nie zmienia w kolejności (i tak biegły sekwencyjnie) ani
+      # w bramkowaniu — `if:` joba deploy obejmuje teraz również te kroki,
+      # a wcześniej `needs: deploy` dawał dokładnie ten sam efekt.
       - name: Healthcheck (standard shape + version match)
         env:
           APP_URL: ${{ vars.APP_URL }}
@@ -284,6 +365,7 @@ jobs:
       - name: Deep healthcheck (core modules not 503)
         env:
           APP_URL: ${{ vars.APP_URL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # /api/health only pings `SELECT 1`, so a core module can 503 for real
           # users while the deploy ships green (it never touched that endpoint).
@@ -314,7 +396,26 @@ jobs:
               status=$(echo "$response" | jq -r '.status // "missing"')
               version=$(echo "$response" | jq -r '.version // "missing"')
               version_short=$(echo "$version" | cut -c1-7)
-              if [ "$version_short" != "$EXPECTED_SHA" ]; then
+              # Jak w pierwszym smoke tescie (#965): przy burście merge'y prod
+              # może już serwować POTOMKA naszego SHA — nasz kod (i migracje)
+              # tam są, więc deep health na nowszym buildzie to pełnoprawna
+              # weryfikacja. Bez tego deep step czerwienił wyprzedzone deploye,
+              # które pierwszy smoke właśnie uznał za sukces.
+              ok_version=false
+              if [ "$version_short" = "$EXPECTED_SHA" ]; then
+                ok_version=true
+              elif [ "$version" != "missing" ] && [ ${#version} -ge 7 ]; then
+                rel=$(curl -fsSL \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
+                      2>/dev/null | jq -r '.status // "unknown"')
+                if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
+                  ok_version=true
+                  echo "Attempt $i: prod serwuje $version_short — potomek $EXPECTED_SHA; sprawdzam deep health na nowszym buildzie."
+                fi
+              fi
+              if [ "$ok_version" != "true" ]; then
                 echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
               elif [ "$status" = "healthy" ]; then
                 echo "✅ Pass: all core modules healthy on $version_short"

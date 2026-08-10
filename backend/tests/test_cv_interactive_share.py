@@ -261,8 +261,10 @@ def test_build_public_payload_strips_internal_fields():
 # ── Gating interaktywności ───────────────────────────────────────────────────
 
 
-async def test_upload_mode_is_classic_only(app_client: AsyncClient, app_auth_headers):
-    doc_id = await _seed_generated_doc(mode="upload")
+async def test_upload_without_requirements_is_classic_only(
+    app_client: AsyncClient, app_auth_headers
+):
+    doc_id = await _seed_generated_doc(mode="upload", with_map=False)
     created = await _create_share(app_client, app_auth_headers, doc_id)
     assert created["interactive_available"] is False
     pub = await app_client.get(f"/api/public/cv-i/{created['token']}")
@@ -270,6 +272,92 @@ async def test_upload_mode_is_classic_only(app_client: AsyncClient, app_auth_hea
     body = pub.json()
     assert body["requirements"] is None
     assert body["chat_enabled"] is False
+
+
+async def test_upload_with_manual_requirements_gets_interactive(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Ręczne wymagania w trybie upload → mapa istnieje → kafelki + chat
+    działają mimo braku joba/klienta."""
+    doc_id = await _seed_generated_doc(mode="upload", with_map=True)
+    created = await _create_share(app_client, app_auth_headers, doc_id)
+    assert created["interactive_available"] is True
+    pub = await app_client.get(f"/api/public/cv-i/{created['token']}")
+    assert pub.status_code == 200, pub.text
+    body = pub.json()
+    assert body["requirements"][0]["requirement"] == "Kubernetes"
+    assert body["chat_enabled"] is True
+
+
+def test_upload_requirements_champion_docx_fallback():
+    """Puste pola ręczne + plik championa → wymagania z sekcji MUST/NICE-HAVE;
+    pola ręczne mają pierwszeństwo nad plikiem."""
+    from io import BytesIO
+
+    from docx import Document
+
+    from app.api.cv_generator_b2b import _upload_requirements
+    from app.services.cv_generator_b2b.standalone_service import (
+        UploadGenerationInput,
+    )
+
+    doc = Document()
+    doc.add_paragraph("MUST-HAVE:")
+    doc.add_paragraph("Kubernetes, AWS")
+    doc.add_paragraph("NICE-TO-HAVE:")
+    doc.add_paragraph("Grafana")
+    buf = BytesIO()
+    doc.save(buf)
+    champion_bytes = buf.getvalue()
+
+    fallback = _upload_requirements(
+        UploadGenerationInput(
+            cv_bytes=b"x",
+            cv_filename="cv.pdf",
+            champion_bytes=champion_bytes,
+            champion_filename="champion.docx",
+        )
+    )
+    by_kind = {
+        kind: {r["name"].casefold() for r in fallback if r["kind"] == kind}
+        for kind in ("must", "nice")
+    }
+    assert {"kubernetes", "aws"} <= by_kind["must"]
+    assert "grafana" in by_kind["nice"]
+
+    manual_wins = _upload_requirements(
+        UploadGenerationInput(
+            cv_bytes=b"x",
+            cv_filename="cv.pdf",
+            must_requirements="Python",
+            champion_bytes=champion_bytes,
+            champion_filename="champion.docx",
+        )
+    )
+    assert manual_wins == [{"name": "Python", "kind": "must"}]
+
+    assert (
+        _upload_requirements(UploadGenerationInput(cv_bytes=b"x", cv_filename="c.pdf"))
+        == []
+    )
+
+
+def test_parse_manual_requirements():
+    from app.services.cv_generator_b2b.requirement_map import (
+        parse_manual_requirements,
+    )
+
+    reqs = parse_manual_requirements(
+        "Kubernetes, AWS;Terraform\nkubernetes,  ",  # dubel + puste człony
+        "Grafana, aws",  # aws już w must — nie dubluje się jako nice
+    )
+    assert reqs == [
+        {"name": "Kubernetes", "kind": "must"},
+        {"name": "AWS", "kind": "must"},
+        {"name": "Terraform", "kind": "must"},
+        {"name": "Grafana", "kind": "nice"},
+    ]
+    assert parse_manual_requirements("", "") == []
 
 
 async def test_client_flag_disables_interactive(
@@ -363,6 +451,65 @@ def test_requirement_map_keeps_verbatim_quotes_and_fills_missing():
     assert terraform["evidence"] == []
 
 
+# ── Interaktywny HTML — jeden plik do wysyłki mailem ─────────────────────────
+
+
+def test_html_export_renders_sections_tiles_and_escapes():
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    payload = _render_payload()
+    payload["why_points"].append("<script>alert('xss')</script>")
+    out = render_interactive_html(
+        build_public_payload(payload), _REQUIREMENT_MAP["items"]
+    )
+    # Sekcje szablonu + kafelki + RODO.
+    assert "DLACZEGO NASZ KANDYDAT?" in out
+    assert "DOŚWIADCZENIE" in out
+    assert "Zarządzanie klastrami Kubernetes na EKS" in out  # cytat-dowód
+    assert "Dopasowanie do wymagań" in out
+    assert "B2B.net S.A." in out  # klauzula RODO
+    # Wstrzyknięty skrypt MUSI być zescapowany (plik otwiera hiring manager).
+    assert "<script>alert" not in out
+    assert "&lt;script&gt;" in out
+    # Bezpiecznik fabrykacji nie wycieka do pliku.
+    assert "WERYFIKUJ" not in out
+
+
+def test_html_export_blind_masks_and_degrades_without_map():
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    out = render_interactive_html(build_public_payload(_render_payload(blind=True)), [])
+    assert "Jan Interaktywny" not in out
+    assert "Acme" not in out
+    assert "Firma z branży fintech" in out
+    # Bez mapy: brak sekcji kafelków i przełącznika, domyślny widok klasyczny.
+    assert 'id="tiles"' not in out
+    assert 'class="classic"' in out
+
+
+async def test_html_export_endpoint(app_client: AsyncClient, app_auth_headers):
+    doc_id = await _seed_generated_doc()
+    r = await app_client.get(
+        f"/api/cv-generator/generated/{doc_id}/html", headers=app_auth_headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/html")
+    assert "attachment" in r.headers.get("content-disposition", "")
+    assert "Dopasowanie do wymagań" in r.text
+
+
+async def test_html_export_endpoint_not_ready_422(
+    app_client: AsyncClient, app_auth_headers
+):
+    doc_id = await _seed_generated_doc(status="processing")
+    r = await app_client.get(
+        f"/api/cv-generator/generated/{doc_id}/html", headers=app_auth_headers
+    )
+    assert r.status_code == 422, r.text
+
+
 # ── Chat: guardraile bez wywołania LLM ───────────────────────────────────────
 
 
@@ -382,6 +529,34 @@ async def test_chat_injection_refused_without_llm(
     )
     assert r.status_code == 200, r.text
     assert "opiekunem procesu" in r.json()["answer"]
+
+
+def test_chat_output_scan_allows_finance_topics_blocks_amounts():
+    """Fałszywy pozytyw ze smoke na prod (2026-08-07): CV data engineera
+    zawiera „rekordów finansowych", a topic-scan odrzucał każdą odpowiedź
+    cytującą to doświadczenie. Skan wyjścia chatu ma łapać wyłącznie
+    KONKRETNE kwoty."""
+    from app.services.cv_generator_b2b.interactive_chat import (
+        _contains_concrete_financial_amount,
+    )
+
+    # Legalna treść z CV — NIE może być odrzucana (topic-słowa, lata, "B2B"
+    # z cyfrą w środku, liczby bez waluty).
+    assert not _contains_concrete_financial_amount(
+        "Kandydat przetwarzał miliardy rekordów finansowych w architekturze "
+        "medallion i optymalizował koszty infrastruktury B2B."
+    )
+    assert not _contains_concrete_financial_amount(
+        "Od 2019 do 2024 pracował jako Data Architect — 9 lat doświadczenia, "
+        "kontrakt B2B, projekty w sektorze finansowym."
+    )
+    # Konkretne kwoty — muszą być odrzucane.
+    assert _contains_concrete_financial_amount("Stawka kandydata to 180 PLN/h.")
+    assert _contains_concrete_financial_amount("Oczekuje około 25 000 zł netto.")
+    assert _contains_concrete_financial_amount("Around $90/h for this profile.")
+    # Trzecia gałąź _STRICT_AMOUNT_RE: skrót tysięcy bez waluty.
+    assert _contains_concrete_financial_amount("Oczekiwania w okolicach 40k.")
+    assert _contains_concrete_financial_amount("Około 25 tys. miesięcznie.")
 
 
 async def test_chat_daily_limit_returns_429(app_client: AsyncClient, app_auth_headers):

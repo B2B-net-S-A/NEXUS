@@ -40,6 +40,8 @@ from app.services.client_identity import (
 from app.services.structured_candidate_search import (
     build_filter_groups,
     build_structured_filter,
+    experience_soft_rank,
+    location_soft_rank,
     skills_soft_rank,
 )
 
@@ -337,6 +339,29 @@ async def advanced_candidate_search(
         count_query = count_query.params(q=q_text)
     total = (await db.execute(count_query)).scalar() or 0
 
+    # === Soft-chip breakdown =================================================
+    # Experience and location no longer cut candidates whose field is blank
+    # (NULL_POLICY), so the result count jumps from "45" to "11 091" and a
+    # recruiter who typed a narrow band reasonably concludes the filter broke.
+    # Report how many results actually state a matching value, so the UI can say
+    # "45 with a stated 2-6 years, 11 046 unspecified" instead of leaving the
+    # jump unexplained. One extra COUNT, and only when such a chip was sent.
+    soft_counts: dict[str, int] = {}
+    for key, expr in (
+        ("experience", experience_soft_rank(body)),
+        ("location", location_soft_rank(body)),
+    ):
+        if expr is None:
+            continue
+        soft_query = (
+            select(func.count(Candidate.id))
+            .select_from(Candidate)
+            .where(where_clause, expr > 0)
+        )
+        if q_text:
+            soft_query = soft_query.params(q=q_text)
+        soft_counts[key] = (await db.execute(soft_query)).scalar() or 0
+
     # === Sort ================================================================
     if use_hybrid:
         # Hybrid path: respect the orchestrator's RRF/rerank ordering. Load
@@ -359,9 +384,16 @@ async def advanced_candidate_search(
         # rank matchers to the top. Leads the sort whenever skill chips are
         # present (a skill search wants skill-relevant results first); the
         # requested sort is the tie-break below.
-        skill_rank = skills_soft_rank(body)
-        if skill_rank is not None:
-            order_cols.append(skill_rank.desc())
+        # Soft signals lead the sort, strongest first: an explicit skill chip is
+        # a stronger statement of intent than a location or seniority band.
+        # Each is None when its chip was not sent, so nothing is added then.
+        for soft in (
+            skills_soft_rank(body),
+            experience_soft_rank(body),
+            location_soft_rank(body),
+        ):
+            if soft is not None:
+                order_cols.append(soft.desc())
         if body.sort == "relevance" and q_text:
             order_cols.extend([_fts_rank_order(), Candidate.updated_at.desc()])
         elif body.sort == "name":
@@ -397,7 +429,10 @@ async def advanced_candidate_search(
         items=items,
         facets=facets,
         meta=SearchMeta(
-            ai_status=ai_status(), took_ms=took_ms, search_degraded=search_degraded
+            ai_status=ai_status(),
+            took_ms=took_ms,
+            search_degraded=search_degraded,
+            soft_match_counts=soft_counts,
         ),
     )
 

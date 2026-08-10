@@ -17,9 +17,9 @@ import {
 import type { FinanceDashboardTab } from "@/lib/dashboard-v2-api"
 import { useAuthStore } from "@/store/auth"
 
-import { CompactGamification } from "./CompactGamification"
 import { DashboardShell } from "./DashboardShell"
 import { DashboardV2Preset } from "./DashboardV2Preset"
+import { RecruitmentStatsSection } from "./RecruitmentStatsSection"
 
 const LEGACY_VIEW_PRESET: Partial<Record<string, DashboardPreset>> = {
   operations: "admin-ops",
@@ -50,14 +50,10 @@ function FinancePreset({ period }: { period: DashboardPeriod }) {
 function presetContent(preset: DashboardPreset, period: DashboardPeriod) {
   if (preset === "finance") return <FinancePreset period={period} />
 
-  return (
-    <div className="space-y-6">
-      <DashboardV2Preset preset={preset} period={period} />
-      {preset === "head-of-recruitment" || preset === "my-work" ? (
-        <CompactGamification types={["quarterly_champions_recruiter"]} />
-      ) : null}
-    </div>
-  )
+  // CompactGamification usunięty — pełny blok rywalizacji (hero ligi,
+  // wyścigi, Hall of Fame) renderuje RecruitmentStatsSection pod każdym
+  // presetem; skrót dublowałby requesty do /api/competitions.
+  return <DashboardV2Preset preset={preset} period={period} />
 }
 
 export function RoleDashboard() {
@@ -169,7 +165,13 @@ export function RoleDashboard() {
       }
       onPeriodChange={(nextPeriod) => updateParams(preset, nextPeriod)}
     >
-      {presetContent(preset, period)}
+      <div className="space-y-6">
+        {presetContent(preset, period)}
+        {/* Sekcja wspólna dla WSZYSTKICH presetów (także finance, gdy ogląda
+            ją admin multi-preset); role bez dostępu (finance-only, viewer)
+            nie montują jej wcale — zero requestów i 403 w konsoli. */}
+        <RecruitmentStatsSection />
+      </div>
     </DashboardShell>
   )
 }

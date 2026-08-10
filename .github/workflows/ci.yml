@@ -1,5 +1,10 @@
 name: CI
 
+# Ciężka warstwa weryfikacji. Szybkie bramki (gitleaks, ruff, alembic, import
+# smoke) mieszkają w ci-gate.yml — to na NIE jest podpięty deploy, żeby wdrożenie
+# nie czekało 22 min na pytest. Ten workflow nadal leci na każdym PR-ze i na main,
+# i nadal jest wymagany przez branch protection przed merge'em.
+
 on:
   push:
     branches: [main]
@@ -7,44 +12,26 @@ on:
     branches: [main]
 
 jobs:
-  secret-scan:
-    name: Gitleaks secret scan
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      # Replaced ``gitleaks/gitleaks-action@v2`` with a direct CLI install:
-      # the action started returning failure with no retrievable logs (the
-      # log blob 404s from Azure storage) so debugging was impossible.
-      # Native install + ``--no-git`` scans the working tree so the result
-      # is deterministic regardless of PR base/HEAD ref games.
-      - name: Install gitleaks
-        run: |
-          curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
-            | tar -xz -C /tmp gitleaks
-          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
-          gitleaks version
-      - name: Scan working tree
-        run: |
-          gitleaks detect \
-            --no-git \
-            --config .gitleaks.toml \
-            --redact \
-            --verbose \
-            --exit-code 1
-
+  # Pytest podzielony na 4 shardy = 4 OSOBNE runnery, każdy z własnym
+  # postgresem i sekwencyjnym pytestem. Pomiar na 3 shardach (run 31246862557):
+  # 7.7/11.9/7.1 min — round-robin nie wyrównuje czasów idealnie, stąd 4 shardy
+  # na cel ~10 min ściany (pełny suite jednym procesem: ~22 min). To nie jest
+  # xdist (wdrożony i wycofany — równolegli workerzy na WSPÓLNEJ bazie psuli
+  # testy z globalnymi agregatami, a runner ma 4 vCPU na wszystko): semantyka
+  # per shard jest identyczna z dzisiejszą, po prostu mniej plików na proces.
+  # Podział robi conftest.pytest_collection_modifyitems po env
+  # CI_SHARD_COUNT/CI_SHARD_INDEX — komenda pytest zostaje nietknięta, więc
+  # kontrakt pokrycia (test_ci_coverage_contract) parsuje ją jak dotąd.
+  # Branch protection wymaga kontekstu "Backend (pytest)" — dostarcza go job
+  # zbiorczy backend-pytest-gate poniżej, NIE shardy.
   backend-lint-test:
-    name: Backend (ruff + pytest)
+    name: "Backend (pytest, shard ${{ matrix.shard }})"
     runs-on: ubuntu-latest
-    # Decoupled from secret-scan in PR #118 — GH Actions hosted runners
-    # have been refusing to pick up the gitleaks job (runner stays
-    # "waiting" for ~9s then job fails with no log). We still run the
-    # secret scan, but its failure no longer blocks other CI lanes.
-    # Re-couple once the upstream runner queue stabilises.
+    strategy:
+      # Jeden padnięty shard nie ubija pozostałych — pełny obraz w 1 przebiegu.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     defaults:
       run:
         working-directory: backend
@@ -73,36 +60,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff==0.15.22 pytest pytest-asyncio pytest-cov
-      - name: Ruff lint
-        run: ruff check app/
-      - name: Ruff format check
-        run: ruff format --check app/
-      - name: Alembic legacy-row, retry, and contact-queue rollback probe
+          # Przypięte, bo `pytest` NIE występuje w requirements.txt — ta linia
+          # jest jedynym źródłem prawdy dla runnera testów, więc przypięcie nie
+          # tworzy drugiego miejsca do utrzymania. Wrażliwy jest zwłaszcza
+          # `pytest-asyncio`: repo ma własny fixture `event_loop`
+          # (tests/conftest.py), a to dokładnie ta semantyka, którą pakiet
+          # zmieniał między wydaniami — jest już po skoku 0.x → 1.x. Bez
+          # przypięcia kolejny taki skok wywróciłby CI w dniu wydania, bez
+          # żadnej zmiany po naszej stronie.
+          # Wersje zweryfikowane pełnym przebiegiem: 4792 passed, 0 failed.
+          pip install pytest==9.1.1 pytest-asyncio==1.4.0 pytest-cov==7.1.0
+      # Ten job ma własny kontener postgresa, więc potrzebuje własnego schematu.
+      # Pełna choreografia migracji (seed → downgrade → re-upgrade) żyje w
+      # ci-gate.yml; tutaj wystarczy doprowadzić bazę do head.
+      - name: Apply migrations
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
           CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
-        run: |
-          alembic -c alembic/alembic.ini upgrade 0195_candidate_document_kind
-          python scripts/verify_b2b_signature_migration.py seed
-          # Stop at the last reversible revision for the legacy rollback probe.
-          # 0208 intentionally strips retired saved-search criteria and refuses
-          # downgrade because those user choices cannot be reconstructed.
-          alembic -c alembic/alembic.ini upgrade 0207_candidate_summary_security
-          alembic -c alembic/alembic.ini upgrade 0207_candidate_summary_security
-          python scripts/verify_b2b_signature_migration.py verify
-          alembic -c alembic/alembic.ini downgrade 0199_candidate_stage_removals
-          alembic -c alembic/alembic.ini upgrade 0201_candidate_contact_coordination
-          alembic -c alembic/alembic.ini upgrade heads
-          alembic -c alembic/alembic.ini upgrade heads
-          alembic -c alembic/alembic.ini upgrade heads
-      - name: Import smoke check
-        env:
-          DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
-          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
-          CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
-        run: python -c "from app.main import app; print('app importable:', app.title)"
+        run: alembic -c alembic/alembic.ini upgrade heads
       - name: Pytest (unit + in-process integration)
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
@@ -119,6 +95,18 @@ jobs:
           # tests/test_ci_token_encryption_parity.py fails if this line is
           # dropped or the value stops being a usable key.
           M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
+          # Shard realizowany w conftest (filtr po CAŁYCH plikach, round-robin
+          # po posortowanej liście) — patrz komentarz nad jobem.
+          #
+          # OBA parametry wyprowadzone z kontekstu `strategy`, żeby jedynym
+          # źródłem prawdy była lista w matrixie. Osobno hardcodowany count
+          # dryfowałby w jedną stronę CICHO: count=5 przy matrixie [0..3]
+          # zostawia pliki `pos % 5 == 4` w ŻADNYM shardzie — zielone CI,
+          # 1/5 testów nie istnieje (finding z review PR #1083). job-index
+          # jest 0-based w kolejności ekspansji matrixa; wartości `shard`
+          # w matrixie służą tylko do nazwy joba i liczności listy.
+          CI_SHARD_COUNT: ${{ strategy.job-total }}
+          CI_SHARD_INDEX: ${{ strategy.job-index }}
         run: |
           # Auto-discovery: pytest collects EVERY module under tests/, minus the
           # explicit exceptions below. This replaced a hand-enumerated list of ~285
@@ -131,6 +119,22 @@ jobs:
           # backend/tests asserts it matches the categorised exceptions declared
           # there, so an entry cannot appear without a written reason, nor linger
           # once the debt is paid.
+          #
+          # BEZ pytest-xdist — świadomie, po pomiarze. Zrównoleglenie zostało
+          # wdrożone i wycofane: 25 plików testowych porównuje globalne agregaty
+          # (`COUNT(*)`, `total` z listy), więc przy wspólnej bazie workery
+          # oskarżają się nawzajem o mutacje — w CI wywróciły się przez to
+          # `test_engagement_inventory` i `test_contracts_search`, a łatanie ich
+          # osłabia asercje. Izolacja bazy per worker (`CREATE DATABASE …
+          # TEMPLATE` w conftest) rozwiązuje poprawność, ale lokalnie wydłużyła
+          # pełny suite z 5 min 35 s do 39 min 46 s — cztery bazy przekraczają
+          # domyślne `shared_buffers` postgresa. Praca zachowana na gałęzi
+          # `xdist-per-worker-db-wip`; szczegóły i liczby w
+          # docs/ci-deploy-latency-completion-report.md.
+          #
+          # Czas tego joba NIE bramkuje już wdrożenia — deploy wisi na
+          # „CI Gate" (~1,5 min), więc pytest wpływa wyłącznie na czas
+          # oczekiwania na PR-ze.
           pytest tests/ \
                  --ignore=tests/test_auth.py \
                  --ignore=tests/test_backfill_candidate_experience.py \
@@ -165,9 +169,32 @@ jobs:
         with:
           files: backend/coverage.xml
           flags: backend
-          name: backend-coverage
+          # Codecov scala raporty per commit po fladze `backend`; nazwa tylko
+          # rozróżnia uploady shardów w UI.
+          name: backend-coverage-shard-${{ matrix.shard }}
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  backend-pytest-gate:
+    # Branch protection wymaga kontekstu o nazwie DOKŁADNIE "Backend (pytest)".
+    # Shardy raportują się jako "Backend (pytest, shard N)", więc wymagany
+    # status dostarcza ten job zbiorczy: zielony wyłącznie gdy KAŻDY shard
+    # przeszedł. `if: always()` jest load-bearing — bez niego anulowane/
+    # pominięte shardy zostawiłyby kontekst wiecznie „oczekujący" zamiast
+    # jawnej czerwieni.
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    needs: backend-lint-test
+    if: ${{ always() }}
+    steps:
+      - name: Zbierz wyniki shardów
+        run: |
+          result="${{ needs.backend-lint-test.result }}"
+          echo "Łączny wynik shardów: $result"
+          if [ "$result" != "success" ]; then
+            echo "::error::Co najmniej jeden shard pytest nie przeszedł (result=$result)"
+            exit 1
+          fi
 
   frontend-lint-build:
     name: Frontend (typecheck + build)

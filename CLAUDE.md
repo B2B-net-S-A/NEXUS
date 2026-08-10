@@ -80,6 +80,7 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Lint warnings cap:** `next lint --max-warnings=300` — historyczny dług, nie failować na obecnych warningach.
 - **`npm ci --legacy-peer-deps`** w FE (React 19 + niektóre pakiety jeszcze RC).
 - **40+ feature branches w remote** — przy `git checkout` weryfikuj że `main` pociągnięty (`git fetch && git log origin/main..HEAD`).
+- **Wiele PR-ów naraz = merge train, nie ręczne klikanie.** Branch protection `strict=true` + ~22-min CI → każdy merge flipuje resztę PR-ów w `BEHIND`, a auto-merge NIE aktualizuje gałęzi sam; GitHub merge queue niedostępny (repo prywatne na koncie osobistym). Użyj `scripts/merge-train.sh <pr> <pr>...` (lokalnie — update z PAT-a triggeruje CI, z GITHUB_TOKEN by nie triggerował): uzbraja auto-merge i aktualizuje JEDEN PR na raz, sekwencyjnie. NIE zdejmuj `strict` — squash stalej gałęzi cicho cofa cudze merge'e (incydent 27.07: -6 merge'y na prodzie). Deploye z burstu koalesują się same: deploy job skipuje rebuild, gdy prod serwuje już TARGET_SHA/potomka (deploy.yml 2026-08-07) — to gasi dawne zapychanie kolejki Coolify (429).
 
 ## Manual ops cheat sheet
 
@@ -186,10 +187,22 @@ w entrypoint.sh). Pełny opis: `docs/cv-interactive-share-completion-report.md`.
   renderuje widok classic, jest WEJŚCIEM generacji mapy wymagań i CAŁYM
   kontekstem chatu — model fizycznie nie widzi notatek/stawek/transkryptów.
 - **Kafelki = precompute**: 1 dodatkowy call Claude na końcu background-joba
-  generacji (mode="new" only; upload = classic-only). Walidator odrzuca cytaty
-  niebędące substringiem payloadu; „met" bez dowodów degraduje do „partial".
-  Fail-open — kwota/błąd LLM nie psuje generacji CV. Publiczny endpoint
-  serwuje wyłącznie cache.
+  generacji. Źródło wymagań: mode="new" → Job (must/nice, fallback
+  champion/JD); mode="upload" → ręczne pola `must_requirements`/
+  `nice_requirements` (Form, przecinki/nowe linie) albo sekcje MUST/NICE
+  wgranego pliku championa — bez żadnego źródła upload zostaje classic-only.
+  Walidator odrzuca cytaty niebędące substringiem payloadu; „met" bez dowodów
+  degraduje do „partial". Fail-open — kwota/błąd LLM nie psuje generacji CV.
+  Publiczny endpoint serwuje wyłącznie cache. Uwaga: upload nie zna klienta,
+  więc flaga `cv_interactive_enabled` go nie ogranicza (ta sama klasa luki co
+  sufit content_mode w upload — świadoma).
+- **Jeden plik HTML** (doprecyzowanie Artura — wersja do wysyłki mailem jak
+  DOCX): `GET /api/cv-generator/generated/{id}/html` → samodzielny plik
+  (style/dane/JS inline, offline) z układem szablonu firmowego + kafelkami +
+  przełącznikiem; druk = czyste klasyczne CV. Renderer:
+  `cv_generator_b2b/html_export.py` (wejście = ten sam client-safe payload;
+  wszystko przez html.escape). DOCX nie wykonuje logiki, PDF z JS działa
+  tylko w Acrobacie — stąd HTML. Chat NIE działa w pliku (wymaga serwera).
 - **Chat**: `POST /api/public/cv-i/{token}/chat` — dzienny limit per link
   (`CV_INTERACTIVE_CHAT_DAILY_LIMIT`=30 → 429) + kwota
   `AIFeatureKey.cv_interactive_chat` (→ 503) + rate limit 5/min; injection →

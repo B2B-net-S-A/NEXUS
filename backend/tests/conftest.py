@@ -214,15 +214,57 @@ async def app_auth_headers(app_client: AsyncClient) -> dict[str, str]:
 
 
 # Skip live-server tests when RUN_LIVE_TESTS is not set
+def _apply_ci_shard_filter(config, items) -> None:
+    """CI-only podział kolekcji na shardy: całe PLIKI, round-robin po
+    posortowanej liście ścieżek.
+
+    Sterowane wyłącznie przez env (CI_SHARD_COUNT/CI_SHARD_INDEX ustawia
+    matrix w ci.yml); bez nich twardy no-op, więc lokalny `pytest tests/`
+    zachowuje się jak dotąd. Dzielimy po plikach, nie po testach — testy
+    wewnątrz pliku bywają zależne od kolejności. Identyczna posortowana
+    lista w każdym shardzie + modulo = partycja zupełna i rozłączna
+    z konstrukcji, bez żadnej koordynacji między jobami.
+
+    To NIE jest xdist (wdrożony i wycofany — patrz komentarz przy pytest
+    w ci.yml): każdy shard to osobny runner z własnym postgresem
+    i sekwencyjnym pytestem, więc klasa „równolegli workerzy na wspólnej
+    bazie psują globalne agregaty" tu nie istnieje.
+    """
+    count = int(os.environ.get("CI_SHARD_COUNT", "1") or "1")
+    if count <= 1:
+        return
+    index = int(os.environ.get("CI_SHARD_INDEX", "0") or "0")
+    if not 0 <= index < count:
+        raise pytest.UsageError(f"CI_SHARD_INDEX={index} poza zakresem 0..{count - 1}")
+    ordered_files = sorted({str(item.path) for item in items})
+    shard_of = {path: pos % count for pos, path in enumerate(ordered_files)}
+    kept = [item for item in items if shard_of[str(item.path)] == index]
+    if not kept:
+        raise pytest.UsageError(
+            f"Shard {index}/{count} nie dostał żadnego pliku — błędna konfiguracja"
+        )
+    deselected = [item for item in items if shard_of[str(item.path)] != index]
+    if deselected:
+        items[:] = kept
+        config.hook.pytest_deselected(items=deselected)
+    reporter = config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        kept_files = len({str(item.path) for item in kept})
+        reporter.write_line(
+            f"[ci-shard] shard {index}/{count}: "
+            f"{kept_files}/{len(ordered_files)} plików, {len(kept)} testów"
+        )
+
+
 def pytest_collection_modifyitems(config, items):
     run_live = os.environ.get("RUN_LIVE_TESTS", "").lower() in ("1", "true", "yes")
-    if run_live:
-        return
-    skip_live = pytest.mark.skip(
-        reason="Live-server test; set RUN_LIVE_TESTS=1 to enable"
-    )
-    for item in items:
-        # The legacy tests use `client` (not `app_client`)
-        fixtures = getattr(item, "fixturenames", ())
-        if "client" in fixtures and "app_client" not in fixtures:
-            item.add_marker(skip_live)
+    if not run_live:
+        skip_live = pytest.mark.skip(
+            reason="Live-server test; set RUN_LIVE_TESTS=1 to enable"
+        )
+        for item in items:
+            # The legacy tests use `client` (not `app_client`)
+            fixtures = getattr(item, "fixturenames", ())
+            if "client" in fixtures and "app_client" not in fixtures:
+                item.add_marker(skip_live)
+    _apply_ci_shard_filter(config, items)

@@ -44,13 +44,18 @@ _PRECISION_TARGET_PCT = 75
 
 # Team funnel: ten sam CTE atrybucji co per-user, ale GROUP BY (osoba, etap).
 # Dla każdej osoby i etapu zwracamy licznik w wybranym oknie (`period_cnt`)
-# oraz w oknie kroczącym 30 dni (`r30_cnt`, do precision).
+# oraz w oknie kroczącym 30 dni (`r30_cnt`, do precision). Okno jest half-open
+# `[period_start, period_end)` — dla okresów „na żywo" end = teraz (identycznie
+# jak dawny brak górnej granicy), a jawna granica pozwala liczyć zamknięte
+# okna (kwartał/rok/custom) w sekcji „Statystyki rekrutacji".
 _TEAM_FUNNEL_SQL = text(
     VERIFIER_ANCHORED_CTE
     + """
     SELECT credit_user AS uid, stage,
-           count(*) FILTER (WHERE reached_at >= :period_start) AS period_cnt,
-           count(*) FILTER (WHERE reached_at >= :rolling30)    AS r30_cnt
+           count(*) FILTER (
+               WHERE reached_at >= :period_start AND reached_at < :period_end
+           ) AS period_cnt,
+           count(*) FILTER (WHERE reached_at >= :rolling30) AS r30_cnt
     FROM credited
     WHERE credit_user IS NOT NULL
     GROUP BY credit_user, stage
@@ -63,7 +68,9 @@ _TEAM_CV_SQL = text(
     """
     SELECT created_by AS uid, count(*) AS cnt
     FROM candidates
-    WHERE created_by IS NOT NULL AND created_at >= :period_start
+    WHERE created_by IS NOT NULL
+      AND created_at >= :period_start
+      AND created_at < :period_end
     GROUP BY created_by
     """
 )
@@ -122,13 +129,43 @@ def _role_value(role) -> str:
 
 
 async def compute_team_panel(
-    db: AsyncSession, *, period: KpiPeriod, now: Optional[datetime] = None
+    db: AsyncSession,
+    *,
+    period: KpiPeriod | None = None,
+    bounds: tuple[datetime, datetime] | None = None,
+    period_label: str | None = None,
+    now: Optional[datetime] = None,
 ) -> TeamPanelResult:
-    """Lejek per osoba dla całego zespołu w oknie `period` (day/week/month)."""
+    """Lejek per osoba dla całego zespołu w oknie czasu.
+
+    Okno podaje się na dwa sposoby (dokładnie jeden wymagany):
+    - `period` (day/week/month) — legacy kontrakt `/api/kpis/team/panel`;
+      end = teraz, identycznie jak przed wprowadzeniem `bounds`,
+    - `bounds=(start, end)` — jawne okno half-open `[start, end)` dla
+      dowolnego zakresu (kwartał/rok/custom); `period_label` opisuje okno
+      w polu `period` wyniku (default "custom").
+
+    Precision pozostaje ZAWSZE rolling-30d względem `now` — niezależnie od
+    okna (to wskaźnik jakości bieżącej pracy, nie okresu).
+    """
     if now is None:
         now = datetime.now(WARSAW)
 
-    period_start, _ = period_bounds(period, now)
+    if bounds is not None:
+        period_start, period_end = bounds
+        # Guard (review): naiwny datetime poszedłby do Postgresa jako
+        # `timestamp without time zone` i przy porównaniu z `reached_at`
+        # (timestamptz) zostałby po cichu potraktowany jak UTC — przesuwając
+        # granice okna o offset Warszawy (±1–2 h przy zmianie czasu).
+        if period_start.tzinfo is None or period_end.tzinfo is None:
+            raise ValueError("compute_team_panel: bounds wymagają datetime'ów tz-aware")
+        label = period_label or "custom"
+    elif period is not None:
+        period_start, period_end = period_bounds(period, now)
+        label = period_label or period.value
+    else:
+        raise ValueError("compute_team_panel: podaj `period` albo `bounds`")
+
     rolling30 = now - timedelta(days=_PRECISION_WINDOW_DAYS)
 
     funnel_rows = (
@@ -137,6 +174,7 @@ async def compute_team_panel(
                 _TEAM_FUNNEL_SQL,
                 {
                     "period_start": period_start,
+                    "period_end": period_end,
                     "rolling30": rolling30,
                 },
             )
@@ -154,7 +192,12 @@ async def compute_team_panel(
         }
 
     cv_rows = (
-        (await db.execute(_TEAM_CV_SQL, {"period_start": period_start}))
+        (
+            await db.execute(
+                _TEAM_CV_SQL,
+                {"period_start": period_start, "period_end": period_end},
+            )
+        )
         .mappings()
         .all()
     )
@@ -272,7 +315,7 @@ async def compute_team_panel(
     )
 
     return TeamPanelResult(
-        period=period.value,
+        period=label,
         precision_target_pct=_PRECISION_TARGET_PCT,
         rows=tuple(rows),
         totals=totals,
