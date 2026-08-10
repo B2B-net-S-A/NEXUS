@@ -152,7 +152,14 @@ def test_no_phase_still_gates_on_the_total_count_probe() -> None:
     `total_count failed` error and returned before importing anything. Behaviour
     tests would need every phase's DB fixtures to catch a reintroduction, so
     assert on the source — the marker string is unique to that dead pattern."""
-    src = Path(importer_mod.__file__).read_text(encoding="utf-8")
+    # `__file__` is the .py source under pytest, but a sourceless/optimised
+    # import could hand back a .pyc — decoding that as text would fail the
+    # sentinel for the wrong reason. Failing loud is still the right direction
+    # for a guard (never a false green), so this only sharpens the message.
+    src_path = Path(importer_mod.__file__)
+    if src_path.suffix == ".pyc":
+        src_path = src_path.with_suffix(".py")
+    src = src_path.read_text(encoding="utf-8")
 
     assert "total_count failed" not in src
     assert "_probe_total" in src
