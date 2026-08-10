@@ -157,7 +157,18 @@ def project_candidate_location(city: Any, country: Any) -> str | None:
 
 
 def _manual_lock(candidate: Candidate, field: str) -> bool:
-    value = (candidate.cv_extracted_data or {}).get(f"_manual_override_{field}")
+    # `cv_extracted_data` is a JSON column and does NOT always hold an object.
+    # `or {}` rescues only FALSY values, so `None` and `[]` were fine while a
+    # non-empty list sailed through and `.get()` blew up on it. On prod that
+    # was 39 candidates failing the Traffit sync with
+    # `AttributeError: 'list' object has no attribute 'get'` — and because the
+    # phase counts them as blocking, the whole `candidates` watermark stopped
+    # advancing. `_terminal_marker` in cv_text_backfill.py already guards this
+    # column the right way.
+    extracted = candidate.cv_extracted_data
+    if not isinstance(extracted, dict):
+        return False
+    value = extracted.get(f"_manual_override_{field}")
     if isinstance(value, str):
         return value.strip().casefold() in {"1", "true", "yes"}
     return value is True or value == 1
