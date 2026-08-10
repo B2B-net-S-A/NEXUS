@@ -199,6 +199,69 @@ async def _cortex_phase(since: Optional[datetime]) -> _CortexPhaseResult:
     return _CortexPhaseResult(stats, started, datetime.now(timezone.utc))
 
 
+class _ReconcilePhaseResult:
+    """Adapter raportu `reconcile()` na kontrakt fazy.
+
+    CELOWO `errors = 0`: to sonda obserwacyjna, nie import. Rozjazd liczników
+    jest informacją dla operatora, a nie powodem, żeby zamrozić watermark —
+    zamrożenie wstrzymałoby wszystkie pozostałe fazy z powodu czegoś, czego ta
+    faza i tak nie potrafi naprawić.
+    """
+
+    def __init__(
+        self, report: dict[str, Any], started_at: datetime, finished_at: datetime
+    ):
+        self._report = report
+        self.started_at = started_at
+        self.finished_at = finished_at
+        self.errors = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        drift = {
+            entity: row
+            for entity, row in self._report.items()
+            if isinstance(row, dict)
+            and (row.get("error") or row.get("traffit") != row.get("nexus"))
+        }
+        return {
+            "processed": len(self._report),
+            # NOT `skipped`: that field means "records skipped" in every other
+            # phase, and this counts entity TYPES out of sync (0-6).
+            "drifted_entities": len(drift),
+            "errors": 0,
+            "note": "counters only — Nexus>Traffit means rows deleted in Traffit",
+            **({"drift": drift} if drift else {}),
+        }
+
+
+async def _reconcile_phase(importer: TraffitImporter) -> _ReconcilePhaseResult:
+    """Porównanie liczników Traffit vs Nexus jako faza raportowa.
+
+    `TraffitImporter.reconcile()` istniał od migracji, ale NIE był wpięty w
+    `_phase_plan`, więc w zaplanowanym syncu nie biegł nigdy. Skutek: dryf w
+    drugą stronę — rekordy obecne w Nexusie, a usunięte w Traffit — był
+    całkowicie niewidoczny (brak obsługi tombstone'ów to osobna, większa
+    sprawa). Sześć wywołań `total_count` + sześć lokalnych `count(*)`, więc
+    wpięcie jest tanie i czyni rozjazd widocznym w `/sync/status`.
+    """
+    started = datetime.now(timezone.utc)
+    try:
+        report = await importer.reconcile()
+    except Exception as exc:  # noqa: BLE001
+        # Six Traffit API calls live here. `errors = 0` on the adapter protects
+        # the watermark from DRIFT, but not from a RAISE: the orchestrator's
+        # generic handler would stamp this phase `error`, flip `any_error`, and
+        # a nightly run in which every real import phase succeeded would refuse
+        # to advance its watermark — because the last, purely observational
+        # phase hiccuped. Swallow it here instead.
+        logger.warning("Traffit reconcile phase failed (informational): %r", exc)
+        # Shaped per-entity on purpose: `as_dict()`'s drift filter expects
+        # ``{entity: {...}}`` and drops non-dict values, so a bare
+        # ``{"error": "..."}`` would vanish instead of surfacing.
+        report = {"reconcile": {"error": repr(exc)[:200]}}
+    return _ReconcilePhaseResult(report, started, datetime.now(timezone.utc))
+
+
 # ── Phase plan ───────────────────────────────────────────────────────────────
 
 
@@ -249,6 +312,8 @@ def _phase_plan(
             lambda: importer.import_candidate_activities(since=since),
         ),
         ("candidate_sources", lambda: importer.import_candidate_sources(since=since)),
+        # Ostatnia i wyłącznie raportowa — nic nie zapisuje, nic nie blokuje.
+        ("reconcile", lambda: _reconcile_phase(importer)),
     ]
 
 
@@ -268,6 +333,9 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "errors",
         "notes_promoted",
         "skipped_pages",
+        "resynced_pointers",
+        "drifted_entities",
+        "drift",
         "total_source",
     )
     out = {k: progress_dict.get(k) for k in keys if k in progress_dict}

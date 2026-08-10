@@ -32,8 +32,11 @@ class _Row(SimpleNamespace):
 
 
 class _Result:
-    def __init__(self, rows):
+    def __init__(self, rows, rowcount: int = 0):
         self._rows = list(rows)
+        # The full-mode phase now also issues a stale-CV-pointer resync UPDATE
+        # and reads `.rowcount` off it; nothing is staged in this fake, so 0.
+        self.rowcount = rowcount
 
     def __iter__(self):
         return iter(self._rows)

@@ -110,6 +110,45 @@ _FILES_CURSOR_PHASE = "candidate_files"
 _ENRICH_NAMES_CURSOR_PHASE = "candidates_enrich_names"
 _CV_CURSOR_PHASE = "candidates_cv"
 _ACTIVITIES_CURSOR_PHASE = "candidate_activities"
+
+# Re-point `candidates.cv_*` at the candidate's CURRENT active primary CV.
+#
+# Module-level so the test exercises THIS statement rather than a copy of it —
+# a duplicated query drifts from production silently and then proves nothing.
+#
+# The EXISTS guard is what makes this safe: it fires only when the pointer is
+# already a Traffit-owned CV. A CV uploaded directly in Nexus is newer by
+# definition and must never be overwritten by Traffit's copy (those rows carry a
+# different `external_source`, so they are excluded twice over). `document_kind`
+# is repeated inside EXISTS deliberately: the claim being proved is "the current
+# pointer is a Traffit CV", not "some Traffit document happens to share this
+# storage key". It errs strict — a pointer at a Traffit file classified `other`
+# is left alone rather than re-pointed, which is the status quo, not a
+# regression.
+_RESYNC_STALE_CV_POINTER = text(
+    """
+    UPDATE candidates c
+    SET cv_storage_key = d.storage_key,
+        cv_filename    = d.filename,
+        updated_at     = NOW()
+    FROM candidate_documents d
+    WHERE d.candidate_id = c.id
+      AND d.external_source = 'traffit'
+      AND d.document_kind = 'cv'
+      AND d.is_primary IS TRUE
+      AND d.source_deleted_at IS NULL
+      AND c.external_source = 'traffit'
+      AND c.cv_storage_key IS NOT NULL
+      AND c.cv_storage_key IS DISTINCT FROM d.storage_key
+      AND EXISTS (
+          SELECT 1 FROM candidate_documents d2
+          WHERE d2.candidate_id = c.id
+            AND d2.external_source = 'traffit'
+            AND d2.document_kind = 'cv'
+            AND d2.storage_key = c.cv_storage_key
+      )
+    """
+)
 _PIPELINES_CURSOR_PHASE = "pipelines"
 _CANDIDATES_CURSOR_PHASE = "candidates"
 
@@ -131,6 +170,9 @@ class PhaseProgress:
     # bug, so an unattributable error would pin the watermark and `degraded`
     # forever — but the loss must still be countable somewhere.
     skipped_pages: int = 0
+    # Stale `candidates.cv_*` pointers moved to the current primary CV. Its own
+    # counter because it is not an import: no row was fetched, only re-aimed.
+    resynced_pointers: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -172,6 +214,7 @@ class PhaseProgress:
             "total_source": self.total_source,
             "notes_promoted": self.notes_promoted,
             "skipped_pages": self.skipped_pages,
+            "resynced_pointers": self.resynced_pointers,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1720,6 +1763,34 @@ class TraffitImporter:
 
         since_clause = "AND updated_at >= :since" if since is not None else ""
         cv_params: dict[str, Any] = {"since": since} if since is not None else {}
+
+        # Full reconcile only: re-point `candidates.cv_*` at the CURRENT primary
+        # CV before downloading anything.
+        #
+        # The scan below only ever fills a NULL pointer, so once a candidate has
+        # one it is exempt for good — including after Traffit REPLACES the CV.
+        # The new file does arrive (import_candidate_files stores it under a new
+        # file_id), but `candidates.cv_storage_key`/`cv_filename` stay pinned to
+        # the first one forever, and those two columns are what the bulk CV
+        # download reads. Net effect: the recruiter downloads a STALE CV while
+        # the current one sits in the same database.
+        #
+        # Conservative on purpose: only re-points when the existing pointer is
+        # itself a Traffit-sourced file (the EXISTS below). A CV uploaded
+        # directly in Nexus is newer by definition and must never be clobbered
+        # by Traffit's copy.
+        if since is None and not self.dry_run:
+            resynced = await self.db.execute(_RESYNC_STALE_CV_POINTER)
+            if resynced.rowcount:
+                await self.db.commit()
+                # NOT `progress.updated` — that means "CV downloaded" in this
+                # phase, and `/sync/status` showing `updated: 120` for 120 fixed
+                # pointers and zero downloads would be a lie by aggregation.
+                progress.resynced_pointers += resynced.rowcount
+                logger.info(
+                    "Candidates CV: re-pointed %d stale primary-CV pointer(s)",
+                    resynced.rowcount,
+                )
 
         # Full reconcile only: budget + resume cursor, same shape as the files
         # phase. This selection is only PARTLY self-clearing — a successful
