@@ -139,7 +139,13 @@ async def compute_proposal_for_job(
             input_fingerprint = hashlib.sha256(query_text.encode("utf-8")).hexdigest()
 
             # Mirror recommendations.py: pull a wider pool, then re-rank.
-            pool_size = min(top_k * 4, 200)
+            # Pool size is independent of `top_k` on purpose. The old `top_k * 4`
+            # heuristic tied "how many we retrieve" to "how many we show", so a request
+            # for the top 20 retrieved 80 and capped its own recall ceiling at ~4%
+            # (measured 2026-08-10: ceiling is 1.8% at pool 20, 13.6% at 200, 32.6% at
+            # 1000). `top_k` still caps what comes back — it just no longer decides what
+            # scoring is allowed to see.
+            pool_size = settings.MATCH_POOL_SIZE
             hits = await search_candidates_semantic(query_text, top_k=pool_size)
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())
@@ -154,7 +160,7 @@ async def compute_proposal_for_job(
                 fallback = await session.execute(
                     select(Candidate.id)
                     .where(Candidate.status != CandidateStatus.blacklisted)
-                    .limit(200)
+                    .limit(settings.MATCH_POOL_SIZE)
                 )
                 candidate_ids = [c for (c,) in fallback.all()]
 
