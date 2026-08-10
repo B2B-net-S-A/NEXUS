@@ -162,3 +162,70 @@ zdjęcia obecnego `degraded` (Stage 1 wystarcza: po pierwszym pełnym biegu okno
 2. `POST /api/admin/traffit/sync?mode=delta` (admin) → obserwuj `GET /sync/status` aż
    `candidate_activities` ma `errors=0`.
 3. `GET /api/health.checks.traffit` → `healthy` (po pełnym biegu). `notes_promoted > 0`.
+
+---
+
+## Fix 2026-08-10: „w Nexusie mniej CV niż w Traffit" — full reconcile omijał kandydatów z plikami
+
+### Objaw
+Pytanie Artura: skoro sync chodzi codziennie, czemu w Nexusie jest wyraźnie mniej CV
+niż w Traffit? Prod `/api/health.checks.traffit` = **`healthy`** — czyli sync NIE był
+zepsuty. Health mierzy wyłącznie świeżość ostatniego `__daily__`
+(`last_run_finished_at` < 36 h + `last_status='ok'`, `main.py`), **nie kompletność
+plików** — dlatego zielona sonda i realna luka współistniały bez alarmu.
+
+### Root cause (potwierdzony w kodzie)
+`import_candidate_files` w trybie **full** wybierał kandydatów bramką
+`HAVING count(cd.id) = 0` — czyli **tylko tych z zerem plików**. Posiadanie
+jakiegokolwiek dokumentu było więc **trwałym zwolnieniem ze sweepu**:
+
+- kandydat, któremu migracja (maj 2026) pobrała 2 z 5 plików — reszta padła na
+  `/content` non-200 albo timeoucie — **nigdy nie był oglądany ponownie**;
+- **delta** go nie ratuje, bo jej scope to kandydaci zmienieni w Traffit
+  (`updated_at >= run_start`), a rekordy historyczne się nie zmieniają;
+- **full** go nie ratuje, bo ma ≥1 plik → wypada z `HAVING count=0`.
+
+Luka była więc **strukturalnie niedomykalna** — żadna częstotliwość syncu jej nie
+zasypie. Dodatkowo full reconcile bywał historycznie blokowany (ReadTimeout na
+`candidate_activities` do 2026-08-03, kolizja primary-CV), a wielogodzinny bieg
+ubija każdy redeploy Coolify — wtedy start dopiero w kolejną niedzielę.
+
+### Zmiana — `backend/app/services/traffit/importer.py`
+- Full przemiata **wszystkich** kandydatów Traffita (`c.id > :after_id ORDER BY c.id
+  LIMIT :limit`), bez bramki na liczbę dokumentów. Pobiera nadal **wyłącznie
+  brakujące `file_id`** (preload `existing_docs` po `external_id`), więc kandydat
+  kompletny kosztuje jeden listing `/files` i **zero** transferów `/content`.
+- Pełny sweep to ~49k calli `/files` (~2,7 h przy `TRAFFIT_THROTTLE_RPS=5`) — dłużej
+  niż odstęp między redeployami, więc skan jest **budżetowany**
+  (`TRAFFIT_SYNC_FULL_FILES_LIMIT`, default 10000) i **wznawialny**: kursor
+  `{"after_id": N}` w `traffit_sync_state.cursor_payload`, na wierszu fazy
+  `candidate_files` (nazwa z `_phase_plan`, **nie** `PhaseProgress.phase`
+  = `candidates_files` — inaczej UPSERT założyłby drugi, widmowy wiersz w
+  `/sync/status`). Reużyte helpery `_read/_write/_clear_sync_cursor` (Stage 3).
+- Kursor zapisywany **w tej samej transakcji** co dokumenty, które rozlicza (co 50
+  kandydatów + w transakcji zamykającej) — przerwany bieg nie zgłasza postępu,
+  którego nie utrwalił.
+- **Krótszy batch niż budżet ⇒ koniec przebiegu ⇒ kursor kasowany** (także przy
+  pustym batchu). Bez tego kursor zaparkowałby na końcu tabeli i faza stałaby się
+  trwałym no-opem — dokładnie ta klasa błędu, którą fix usuwa.
+- Delta **bez zmian** i bez dostępu do kursora (redeploy-driven delta nie może
+  przewinąć reconcile'u ponad kandydatów, których nie obejrzała).
+
+### Konsekwencja operacyjna
+Zaległość domyka się szybciej **wielokrotnym** `POST /api/admin/traffit/sync?mode=full`
+— każdy bieg przesuwa kursor o kolejny budżet, zamiast czekać tydzień na jeden slice.
+
+### Testy
+`backend/tests/test_traffit_files_full_sweep.py` (nowy, 6 przypadków): regresja
+(kandydat z plikiem JEST odwiedzany, dociągany tylko brakujący plik), budżet +
+zapis kursora, wznowienie z kursora i skasowanie po domknięciu przebiegu, kursor
+za ostatnim kandydatem też kasowany, staging kursora w trakcie biegu (co 50),
+delta nie rusza kursora.
+
+### Uwaga na przyszłość
+`checks.traffit=healthy` **nie jest** dowodem kompletności — to sonda świeżości.
+Kompletność mierzy się porównaniem liczników, np.
+`count(candidates WHERE cv_storage_key IS NOT NULL)` + `candidate_documents` vs
+Traffit. Uwaga przy liczeniu: **primary CV siedzi w `candidates.cv_storage_key`**,
+a nie w `candidate_documents` — liczenie samych wierszy `candidate_documents`
+zaniża wynik i samo w sobie potrafi wyglądać jak „brakujące CV".
