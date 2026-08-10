@@ -90,6 +90,40 @@ def test_record_marker_survives_a_list(monkeypatch) -> None:
     assert candidate.cv_extracted_data["_cv_text_extraction"]["outcome"] == "empty"
 
 
+def test_no_caller_reintroduces_the_or_dict_idiom() -> None:
+    """Ban the idiom repo-wide instead of testing each caller.
+
+    Six call sites had it, in two shapes, and the incident only surfaced
+    because one of them sat on the busiest path in the app. Pinning each
+    caller with its own test would cover the six that are already fixed and
+    nothing that gets written tomorrow — and two of them (the PATCH handlers)
+    would need a full TestClient + auth fixture to reach, which is a lot of
+    machinery to defend a one-line guard.
+
+    `or {}` is not a type check. On a JSON column it silently means "unless
+    the value is falsy", which is not the invariant any of these callers
+    actually wanted.
+    """
+    import pathlib
+    import re
+
+    app_dir = pathlib.Path(__file__).resolve().parent.parent / "app"
+    banned = re.compile(r"cv_extracted_data\s+or\s+\{\}")
+
+    offenders = [
+        f"{path.relative_to(app_dir)}:{lineno}"
+        for path in app_dir.rglob("*.py")
+        for lineno, line in enumerate(path.read_text().splitlines(), 1)
+        if banned.search(line)
+    ]
+
+    assert offenders == [], (
+        "`cv_extracted_data` is a JSON column that really does hold lists on "
+        "prod. Use `isinstance(value, dict)`, as `_terminal_marker` in "
+        f"cv_text_backfill.py does. Offenders: {offenders}"
+    )
+
+
 def test_cv_enrichment_survives_a_list() -> None:
     """`_apply_cv_enrichment` is on the sync path too — reached from the
     `candidates_enrich_names` phase via `cv_backfill.backfill_missing_names`,
