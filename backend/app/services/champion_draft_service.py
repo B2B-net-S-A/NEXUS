@@ -38,6 +38,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_quota import ai_feature
 from app.models.champion_suggestion import (
     ChampionProfileSuggestion,
     SuggestionSource,
@@ -475,29 +477,38 @@ async def enrich_from_meeting(
     user_id: Optional[int] = None,
 ) -> ChampionProfileSuggestion:
     """Generate enrichment suggestion from a Fireflies meeting transcript."""
-    job = await _load_job_with_client(db, job_id)
-    client_name = await _client_name(db, job.client_id)
-    current_profile_json = json.dumps(job.champion_profile or {}, ensure_ascii=False)
+    # Declared HERE, not at the callers: this reaches Claude from a background
+    # sync loop, a note-linking endpoint and a job endpoint, and only one of the
+    # three ever charged a quota. Gating the service covers every entry point,
+    # including the next one somebody adds.
+    async with ai_feature(db, AIFeatureKey.champion_draft, user_id=user_id):
+        job = await _load_job_with_client(db, job_id)
+        client_name = await _client_name(db, job.client_id)
+        current_profile_json = json.dumps(
+            job.champion_profile or {}, ensure_ascii=False
+        )
 
-    # Long transcripts (>MAX_TRANSCRIPT_CHARS) go through map-reduce so we
-    # don't silently lose context past the cutoff.
-    transcript_text = await _summarize_transcript_for_champion(meeting_transcript or "")
-    return await _generate_enrichment_suggestion(
-        db,
-        template=CHAMPION_PROFILE_ENRICH_FROM_MEETING,
-        template_vars={
-            "current_profile_json": current_profile_json,
-            "job_title": job.title or "bez tytułu",
-            "client_name": client_name,
-            "meeting_title": meeting_title or "brak tytułu",
-            "meeting_summary": meeting_summary or "brak podsumowania",
-            "meeting_transcript": transcript_text,
-        },
-        job_id=job_id,
-        source_type=SuggestionSource.fireflies_meeting,
-        source_ref=source_ref,
-        user_id=user_id,
-    )
+        # Long transcripts (>MAX_TRANSCRIPT_CHARS) go through map-reduce so we
+        # don't silently lose context past the cutoff.
+        transcript_text = await _summarize_transcript_for_champion(
+            meeting_transcript or ""
+        )
+        return await _generate_enrichment_suggestion(
+            db,
+            template=CHAMPION_PROFILE_ENRICH_FROM_MEETING,
+            template_vars={
+                "current_profile_json": current_profile_json,
+                "job_title": job.title or "bez tytułu",
+                "client_name": client_name,
+                "meeting_title": meeting_title or "brak tytułu",
+                "meeting_summary": meeting_summary or "brak podsumowania",
+                "meeting_transcript": transcript_text,
+            },
+            job_id=job_id,
+            source_type=SuggestionSource.fireflies_meeting,
+            source_ref=source_ref,
+            user_id=user_id,
+        )
 
 
 async def enrich_from_call(
@@ -511,27 +522,33 @@ async def enrich_from_call(
     user_id: Optional[int] = None,
 ) -> ChampionProfileSuggestion:
     """Generate enrichment suggestion from a CloudTalk call transcript."""
-    job = await _load_job_with_client(db, job_id)
-    client_name = await _client_name(db, job.client_id)
-    current_profile_json = json.dumps(job.champion_profile or {}, ensure_ascii=False)
+    # Reached from a webhook, so no route guard would ever have covered it.
+    async with ai_feature(db, AIFeatureKey.champion_draft, user_id=user_id):
+        job = await _load_job_with_client(db, job_id)
+        client_name = await _client_name(db, job.client_id)
+        current_profile_json = json.dumps(
+            job.champion_profile or {}, ensure_ascii=False
+        )
 
-    transcript_text = await _summarize_transcript_for_champion(call_transcript or "")
-    return await _generate_enrichment_suggestion(
-        db,
-        template=CHAMPION_PROFILE_ENRICH_FROM_CALL,
-        template_vars={
-            "current_profile_json": current_profile_json,
-            "job_title": job.title or "bez tytułu",
-            "client_name": client_name,
-            "call_participants": call_participants or "nieznani",
-            "call_summary": call_summary or "brak podsumowania",
-            "call_transcript": transcript_text,
-        },
-        job_id=job_id,
-        source_type=SuggestionSource.cloudtalk_call,
-        source_ref=source_ref,
-        user_id=user_id,
-    )
+        transcript_text = await _summarize_transcript_for_champion(
+            call_transcript or ""
+        )
+        return await _generate_enrichment_suggestion(
+            db,
+            template=CHAMPION_PROFILE_ENRICH_FROM_CALL,
+            template_vars={
+                "current_profile_json": current_profile_json,
+                "job_title": job.title or "bez tytułu",
+                "client_name": client_name,
+                "call_participants": call_participants or "nieznani",
+                "call_summary": call_summary or "brak podsumowania",
+                "call_transcript": transcript_text,
+            },
+            job_id=job_id,
+            source_type=SuggestionSource.cloudtalk_call,
+            source_ref=source_ref,
+            user_id=user_id,
+        )
 
 
 # ── Historical-jobs source (Phase 15) ───────────────────────────────────────

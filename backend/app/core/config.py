@@ -163,6 +163,15 @@ class Settings(BaseSettings):
     SEMANTIC_CALIBRATION_GAMMA: float = 0.6
     SCORE_UNKNOWN_NEUTRAL_FRACTION: float = 0.65
 
+    # ── AI quota enforcement at the provider boundary ────────────────────────
+    # False = log every ungated LLM call but let it through; True = refuse it.
+    #
+    # Ships as False deliberately. Turning it on in the same deploy that adds
+    # the gate would 500 every AI feature whose path we happened to miss — and
+    # the whole reason this exists is that some paths were missed for months.
+    # Run log-only for a cycle, read the UNGATED lines, then flip.
+    AI_QUOTA_STRICT: bool = False
+
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"

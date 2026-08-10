@@ -20,7 +20,9 @@ Atomicity:
 
 from __future__ import annotations
 
+import contextvars
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Optional
@@ -150,20 +152,33 @@ async def check_and_increment(
     if not master:
         raise AIQuotaExceeded(feature, "Funkcje AI są wyłączone globalnie")
 
-    # 2. Per-feature toggle + limit
+    # 2. Per-feature toggle + limit.
+    #
+    # A MISSING row means "enabled, no ceiling" — fail-open, matching
+    # `AIFeatureConfig.enabled`'s own default. This module used to fail-closed
+    # while `match_justification_service._gate_and_count` failed open on the
+    # same question, so whether an unseeded feature worked depended on which of
+    # two copies of this logic the request happened to reach. That second copy
+    # is gone; this is the one behaviour.
+    #
+    # Fail-open has a real cost: a feature nobody seeded also has no monthly
+    # ceiling, and nothing in the product says so. `/api/health.checks.ai_features`
+    # lists the missing keys for exactly that reason — it is a spend warning,
+    # not an outage.
     config = await get_feature_config(db, feature)
-    if config is None or not config.enabled:
+    if config is not None and not config.enabled:
         raise AIQuotaExceeded(feature, "Funkcja AI wyłączona w ustawieniach")
 
+    limit = config.monthly_limit if config is not None else 0
     period = _current_period_start()
     total_used = await get_total_usage_for_period(db, feature, period)
 
-    if config.monthly_limit > 0 and total_used >= config.monthly_limit:
+    if limit > 0 and total_used >= limit:
         raise AIQuotaExceeded(
             feature,
             "Miesięczny limit wyczerpany",
             used=total_used,
-            limit=config.monthly_limit,
+            limit=limit,
         )
 
     # 3. Upsert per-user counter for this period.
@@ -189,6 +204,77 @@ async def check_and_increment(
 
     return QuotaState(
         used=total_used + 1,
-        limit=config.monthly_limit,
+        limit=limit,
         period_start=period,
     )
+
+
+# ── Provider-boundary gate ───────────────────────────────────────────────────
+#
+# A decorator on the route was the obvious design and would not have worked:
+# three of the five paths that reach Claude without a quota check are not
+# routes at all — `fireflies_sync` is a background loop, CV enrichment is a
+# `BackgroundTask`, and `enrich_from_call` sits in a CloudTalk webhook. A
+# route decorator never touches any of them, which is precisely how they came
+# to be ungated while every handler looked correctly wrapped.
+#
+# So the gate stands at the provider boundary instead: `call_claude` is the one
+# place nearly all traffic funnels through, and it can ask "was this call
+# declared?" regardless of what kind of caller made it.
+
+_AI_CALL_CONTEXT: contextvars.ContextVar[Optional["AiCallContext"]] = (
+    contextvars.ContextVar("ai_call_context", default=None)
+)
+
+
+@dataclass(frozen=True)
+class AiCallContext:
+    feature: AIFeatureKey
+    user_id: Optional[int]
+    state: QuotaState
+
+
+class AIQuotaUngated(RuntimeError):
+    """An LLM call was made outside `async with ai_feature(...)`."""
+
+
+@asynccontextmanager
+async def ai_feature(
+    db: AsyncSession,
+    feature: AIFeatureKey,
+    *,
+    user_id: Optional[int] = None,
+):
+    """Charge the quota and mark the surrounding block as a declared AI call.
+
+    Charge-before-spend on purpose: a failed provider call still consumed a
+    slot in the sense that matters (it may have reached the API), and the
+    alternative makes retries free. Callers still need `await db.commit()` for
+    the increment to persist along with their unit of work.
+
+    The context propagates into `run_in_threadpool` — `anyio.to_thread.run_sync`
+    copies the contextvars — so the synchronous `call_claude` sees it.
+    """
+    # Nested declarations of the SAME feature do not charge twice. A handler
+    # may declare the call and then hand off to a service that declares it
+    # again — one user action is one unit, and making the count depend on how
+    # deep the call stack happens to be would be a quota that drifts with
+    # refactors rather than with usage.
+    active = _AI_CALL_CONTEXT.get()
+    if active is not None and active.feature == feature:
+        yield active.state
+        return
+
+    state = await check_and_increment(db, feature, user_id=user_id)
+    token = _AI_CALL_CONTEXT.set(
+        AiCallContext(feature=feature, user_id=user_id, state=state)
+    )
+    try:
+        yield state
+    finally:
+        _AI_CALL_CONTEXT.reset(token)
+
+
+def current_ai_call() -> Optional[AiCallContext]:
+    """The declared AI call in scope, if any."""
+    return _AI_CALL_CONTEXT.get()
