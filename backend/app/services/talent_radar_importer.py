@@ -8,14 +8,14 @@ Cross-source dedup (added 2026-06): before inserting we check whether the
 person already exists in Nexus — by `external_id` (TalentRadar carries the
 Traffit id, so a TalentRadar row maps onto its `traffit` twin), by unique
 `email`, or by a corroborated dedup hit — and if so we **merge the CV into the
-existing row** instead of creating a parallel `talent_radar` record. This is
+existing row** instead of creating a parallel `tr_legacy` record. This is
 what prevents the double-import that previously produced ~1 884 duplicates
 (`('traffit', id)` and `('talent_radar', id)` coexisting). Only genuinely-new
-people get inserted as `external_source='talent_radar'`. Re-runs stay
+people get inserted as `external_source='tr_legacy'`. Re-runs stay
 idempotent (the per-source ON CONFLICT still covers same-source re-imports).
 
 Mapping (source → Nexus):
-  traffit_id              → external_id (string), external_source='talent_radar'
+  traffit_id              → external_id (string), external_source='tr_legacy'
   email                   → email
   name, lastname          → name, lastname
   raw_cv_text             → raw_cv_text
@@ -140,7 +140,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         ),
         :uploaded_at,
         :external_id,
-        SOURCE_VALUE,
+        :external_source,
         :content_sha256,
         NOW(),
         NOW()
@@ -714,6 +714,7 @@ class TalentRadarImporter:
                 "size_bytes": len(content) if content else None,
                 "uploaded_at": payload.get("cv_parsed_at"),
                 "external_id": f"candidate-{external_part}"[:100],
+                "external_source": SOURCE_VALUE,
                 "content_sha256": content_sha256,
             },
         )
