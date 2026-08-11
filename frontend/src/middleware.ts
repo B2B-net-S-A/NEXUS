@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server";
 
-import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt"
+import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 
 /**
  * Next.js middleware — gate routing based on role-based access control (RBAC).
@@ -35,9 +35,9 @@ type UserRole =
   | "tac"
   | "recruiter"
   | "sourcer"
-  | "user"
+  | "user";
 
-const COOKIE_NAME = "nexus_access"
+const COOKIE_NAME = "nexus_access";
 
 // Trasy wymagające KONKRETNYCH ról. Każda inna (niepubliczna) trasa wymaga
 // wyłącznie ważnego tokenu — patrz deny-by-default w nagłówku pliku.
@@ -61,7 +61,10 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // dane finansowe (VIEW_FINANCE). HoR nie ma tej capability → admin-only,
   // spójnie z backendem /api/admin/clients-overview (AdminUser).
   { prefix: "/settings/clients-overview", roles: ["admin"] },
-  { prefix: "/settings/hiring-managers", roles: ["admin", "head_of_recruitment"] },
+  {
+    prefix: "/settings/hiring-managers",
+    roles: ["admin", "head_of_recruitment"],
+  },
   // Cortex — dane kompetencyjne kandydatów (RODO gate, parytet z backendowym
   // CortexUser i zakładką Insights → Klienci & Delivery).
   {
@@ -80,15 +83,43 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // przekierowując na /403 zamiast pokazywać puste ekrany z błędami.
   {
     prefix: "/candidates",
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+    roles: [
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "tac",
+      "recruiter",
+      "sourcer",
+    ],
   },
   {
     prefix: "/talents",
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+    roles: [
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "tac",
+      "recruiter",
+      "sourcer",
+    ],
+  },
+  {
+    // Wyszukiwarka po całej bazie kandydatów — te same role co backendowy
+    // require_candidate_write (bez head_of_recruitment). Bez tego wpisu viewer
+    // wchodzi na stronę i dostaje 403 z API renderowane jako pusta lista.
+    prefix: "/talent-radar",
+    roles: ["admin", "delivery_lead", "tac", "recruiter", "sourcer"],
   },
   {
     prefix: "/sourcing",
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+    roles: [
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "tac",
+      "recruiter",
+      "sourcer",
+    ],
   },
   // Kolejka zgłoszeń z publicznych aplikacji — dane osobowe aplikanta
   // (imię, e-mail, telefon, LinkedIn, CV). Backend gatuje ją przez
@@ -96,12 +127,19 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // viewer dostał /403 zamiast pustego ekranu z błędem z API.
   {
     prefix: "/applications",
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+    roles: [
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "tac",
+      "recruiter",
+      "sourcer",
+    ],
   },
   // `/jobs`, `/contracts`, `/clients`, `/calendar`, `/profile`, `/insights`,
   // `/settings` (i każda inna trasa) nie muszą tu być — deny-by-default już
   // wymaga od nich zalogowania. Dopisuj tutaj WYŁĄCZNIE zawężenia ról.
-]
+];
 
 // Ścieżki jawnie publiczne — jedyne, które przechodzą bez tokenu.
 // Dopisanie czegokolwiek tutaj otwiera trasę na świat, więc każdy wpis musi być
@@ -122,7 +160,8 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 //                  engagementu). Ukośnik na końcu jest obowiązkowy: samo "/cv"
 //                  łapałoby przez `startsWith` także wewnętrzny `/cv-generator`
 //                  i wystawiło go publicznie.
-//   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`
+//   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`,
+//   `/preview/talent-radar`
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
 //                  Renderują wyłącznie zahardkodowane mocki i nie wołają
@@ -151,20 +190,21 @@ const PUBLIC_PATHS = [
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",
-]
+  "/preview/talent-radar",
+];
 
 function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
 function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
   // Sortuj po długości prefiksu malejąco — /candidates/123/edit pasuje do /candidates,
   // ale /admin/users pasuje do /admin (a nie do /, gdyby taki był).
   const sorted = [...ROLE_ROUTES].sort(
-    (a, b) => b.prefix.length - a.prefix.length
-  )
-  const match = sorted.find((r) => pathname.startsWith(r.prefix))
-  return match ? match.roles : undefined
+    (a, b) => b.prefix.length - a.prefix.length,
+  );
+  const match = sorted.find((r) => pathname.startsWith(r.prefix));
+  return match ? match.roles : undefined;
 }
 
 // Dekodowanie payloadu JWT (bez weryfikacji podpisu) współdzielone z warstwą
@@ -173,33 +213,33 @@ function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
 // backendu (backend/app/api/deps.py::get_current_user). Tu tylko UX-guard.
 
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {
-    return NextResponse.next()
+    return NextResponse.next();
   }
 
-  const token = request.cookies.get(COOKIE_NAME)?.value
+  const token = request.cookies.get(COOKIE_NAME)?.value;
 
   // Deny by default: wszystko poza PUBLIC_PATHS wymaga tokenu. `undefined`
   // oznacza tu tylko „brak zawężenia ról", a NIE „trasa niechroniona".
-  const allowedRoles = resolveAllowedRoles(pathname)
+  const allowedRoles = resolveAllowedRoles(pathname);
 
   // Brak tokena na chronionej trasie → login.
   if (!token) {
-    const loginUrl = new URL("/login", request.url)
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname)
-    return NextResponse.redirect(loginUrl)
+    const loginUrl = new URL("/login", request.url);
+    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  const payload = decodeJwtPayload(token)
+  const payload = decodeJwtPayload(token);
   if (!payload || isJwtExpired(payload.exp) || !payload.role) {
-    const loginUrl = new URL("/login", request.url)
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname)
-    const response = NextResponse.redirect(loginUrl)
+    const loginUrl = new URL("/login", request.url);
+    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    const response = NextResponse.redirect(loginUrl);
     // Wyczyść zepsute cookie — żeby unknąć pętli redirectów.
-    response.cookies.delete(COOKIE_NAME)
-    return response
+    response.cookies.delete(COOKIE_NAME);
+    return response;
   }
 
   // Rola OK? (null = zalogowany wystarczy). Sprawdzamy UNIĘ ról (primary +
@@ -210,9 +250,9 @@ export function middleware(request: NextRequest) {
     const userRoles = new Set<string>([
       payload.role as string,
       ...(payload.roles ?? []),
-    ])
+    ]);
     if (!allowedRoles.some((r) => userRoles.has(r as string))) {
-      return NextResponse.redirect(new URL("/403", request.url))
+      return NextResponse.redirect(new URL("/403", request.url));
     }
   }
 
@@ -221,18 +261,16 @@ export function middleware(request: NextRequest) {
   // może hasło zmienić). Backend czyści flagę po POST /api/auth/change-password
   // i nowy login dostarcza JWT bez `fpc`.
   if (payload.fpc === true && !pathname.startsWith("/profile")) {
-    const profileUrl = new URL("/profile", request.url)
-    profileUrl.searchParams.set("force_password_change", "1")
-    return NextResponse.redirect(profileUrl)
+    const profileUrl = new URL("/profile", request.url);
+    profileUrl.searchParams.set("force_password_change", "1");
+    return NextResponse.redirect(profileUrl);
   }
 
-  return NextResponse.next()
+  return NextResponse.next();
 }
 
 export const config = {
   // Matcher wykluczający API, assety Next.js, pliki statyczne.
   // Dopasowane zasady: wszystkie pathy pod "/" OPRÓCZ listy poniżej.
-  matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)",
-  ],
-}
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+};
