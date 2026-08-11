@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,12 +129,21 @@ def _salary_in_window(
     return True
 
 
-def _competence_category_matches(job: Job, targets: Sequence[str]) -> bool:
+def _competence_category_matches(job: Job, targets: Union[str, Sequence[str]]) -> bool:
     """Match job against any of the target categories (OR-combined, case-insensitive).
 
     Each target is matched against job.subcategory / job.industry / job.title.
     Empty `targets` (or empty strings only) → True (no filter).
+
+    A bare string counts as ONE category. `Sequence[str]` also matches `str`,
+    whose elements are single CHARACTERS — so `targets="frontend"` would search
+    for 'f', 'r', 'o', … and `any()` would fire on almost any job title. That is
+    not a crash but a plausible-looking wrong answer, which is why it went
+    unnoticed: it made `("Backend Engineer", "frontend")` match. Normalising
+    here means the obvious reading of the call is also the correct one.
     """
+    if isinstance(targets, str):
+        targets = [targets]
     needles = [t.lower().strip() for t in targets if t and t.strip()]
     if not needles:
         return True
