@@ -304,6 +304,19 @@ class Candidate(Base, TimestampMixin):
     external_source: Mapped[Optional[str]] = mapped_column(
         String(50), default="manual", index=True
     )
+    # Kiedy źródło (Traffit) odpowiedziało, że tego rekordu już u niego nie ma.
+    #
+    # To znacznik faktu U ŹRÓDŁA, nie kasowanie u nas: wiersz zostaje ze
+    # wszystkim, co do niego dopisaliśmy (notatki, etapy, ślady RODO). Usunięcie
+    # rekordu w Traffitcie nie jest zgodą na usunięcie NASZYCH danych — to
+    # osobna decyzja i podejmuje ją człowiek.
+    #
+    # Samoleczący się: gdy kandydat wróci w żywym feedzie `/employees/`,
+    # znacznik jest czyszczony przy upsercie. Bez tego pojedyncze 404 (np.
+    # chwilowa awaria po stronie Traffita) zostawiałoby trwałe kłamstwo.
+    external_deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     cv_file_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
     # Klucz w Hetzner Object Storage (audit-2026-05-07 round 2, migracja 0080).
     # Po finalize-delete-bytea cv_file_content = NULL dla zmigrowanych rekordów.

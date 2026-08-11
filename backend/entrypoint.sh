@@ -229,6 +229,14 @@ _ENUM_STATEMENTS = [
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS regon VARCHAR(32)",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS business_address TEXT",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS business_form VARCHAR(64)",
+    # Nagrobek: Traffit odpowiedział, że tego rekordu u niego nie ma
+    # (migracja 0221). Indeks CZĘŚCIOWY — nagrobki są rzadkie, więc pełny
+    # kosztowałby tyle co skan 57 tys. wierszy.
+    """ALTER TABLE candidates
+        ADD COLUMN IF NOT EXISTS external_deleted_at TIMESTAMP WITH TIME ZONE NULL""",
+    """CREATE INDEX IF NOT EXISTS ix_candidates_external_deleted_at
+        ON candidates (external_deleted_at)
+        WHERE external_deleted_at IS NOT NULL""",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255)",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS nip VARCHAR(32)",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS regon VARCHAR(32)",

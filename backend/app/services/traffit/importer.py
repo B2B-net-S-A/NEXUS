@@ -133,6 +133,25 @@ _ACTIVITIES_CURSOR_PHASE = "candidate_activities"
 # storage key". It errs strict — a pointer at a Traffit file classified `other`
 # is left alone rather than re-pointed, which is the status quo, not a
 # regression.
+# Postaw nagrobek na kandydacie, którego Traffit już nie zna.
+#
+# Wołane WYŁĄCZNIE dla 404/410 na LIŚCIE plików (`/employees/{id}/files`), bo
+# to odpowiedź o osobie. 404 na pobraniu pojedynczego pliku znaczy tylko „nie
+# ma tego pliku" i nagrobka NIE stawia — pomylenie tych dwóch oznaczałoby
+# skasowanie profilu z powodu jednego nieudanego załącznika.
+#
+# `IS NULL` w warunku sprawia, że znacznik zapamiętuje PIERWSZĄ obserwację
+# zniknięcia i nie przesuwa się przy każdym kolejnym biegu — inaczej data
+# mówiłaby „kiedy ostatnio sprawdzaliśmy", a nie „od kiedy nie ma".
+_TOMBSTONE_CANDIDATE = text(
+    """
+    UPDATE candidates
+       SET external_deleted_at = NOW(), updated_at = NOW()
+     WHERE id = CAST(:id AS integer)
+       AND external_deleted_at IS NULL
+    """
+)
+
 _RESYNC_STALE_CV_POINTER = text(
     """
     UPDATE candidates c
@@ -196,6 +215,11 @@ class PhaseProgress:
     # CELOWO osobny licznik, nie `skipped`: to są wiersze ZAPISANE — zlanie
     # ich ze `skipped` (= pominięte) mówiłoby coś przeciwnego do prawdy.
     unresolved_client: int = 0
+    # Kandydaci, którym w TYM biegu postawiono nagrobek. Liczy PIERWSZE
+    # oznaczenie (UPDATE ma `external_deleted_at IS NULL`), więc po domknięciu
+    # tematu spada do zera — inaczej rósłby w nieskończoność i przestałby
+    # odpowiadać na pytanie „czy coś nowego zniknęło".
+    tombstoned: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -240,6 +264,7 @@ class PhaseProgress:
             "resynced_pointers": self.resynced_pointers,
             "gone_upstream": self.gone_upstream,
             "unresolved_client": self.unresolved_client,
+            "tombstoned": self.tombstoned,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -442,7 +467,12 @@ _UPSERT_CANDIDATE = text(
                                  )
                                  ELSE '{}'::jsonb
                                END,
-        updated_at        = NOW()
+        updated_at        = NOW(),
+        -- Kandydat jest w żywym feedzie `/employees/`, więc ewentualny
+        -- nagrobek jest nieaktualny. Bez tego czyszczenia pojedyncze 404
+        -- (chwilowa awaria Traffita, rekord przywrócony z kosza) zostawiałoby
+        -- trwałe „usunięty u źródła" na wskroś żywym profilu.
+        external_deleted_at = NULL
     RETURNING id, (xmax = 0) AS was_insert
     """
 )
@@ -2071,6 +2101,15 @@ class TraffitImporter:
                     # quarantine had no ref to park. Four candidates deleted
                     # upstream therefore froze this phase's watermark forever.
                     progress.gone_upstream += 1
+                    # Licznik znika razem ze statystykami biegu, więc sam w
+                    # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
+                    # Nagrobek zostaje na wierszu.
+                    if not self.dry_run:
+                        res = await self.db.execute(
+                            _TOMBSTONE_CANDIDATE, {"id": row.id}
+                        )
+                        if res.rowcount:
+                            progress.tombstoned += 1
                     continue
                 if files_resp.status_code != 200:
                     # Everything else IS retryable — and now attributable, so a
@@ -2498,6 +2537,15 @@ class TraffitImporter:
                     # quarantine had no ref to park. Four candidates deleted
                     # upstream therefore froze this phase's watermark forever.
                     progress.gone_upstream += 1
+                    # Licznik znika razem ze statystykami biegu, więc sam w
+                    # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
+                    # Nagrobek zostaje na wierszu.
+                    if not self.dry_run:
+                        res = await self.db.execute(
+                            _TOMBSTONE_CANDIDATE, {"id": row.id}
+                        )
+                        if res.rowcount:
+                            progress.tombstoned += 1
                     continue
                 if files_resp.status_code != 200:
                     # Everything else IS retryable — and now attributable, so a
