@@ -12,6 +12,7 @@ GET /api/jobs/{id}/ai-matches
 import json
 import logging
 import re
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -21,6 +22,7 @@ from app.api.deps import get_db, OperationalUser
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.pipeline_eligibility import filter_eligible_candidates
 from app.services.location_utils import (
     location_matches as _location_matches,
     location_tokens as _location_tokens,
@@ -288,16 +290,22 @@ async def get_ai_matches(
             )
             candidates_by_id = {c.id: c for c in cand_result.scalars().all()}
 
-            # Preserve Qdrant ranking order while filtering missing/blacklisted.
-            ordered: list[Candidate] = []
-            for cid in candidate_ids:
-                c = candidates_by_id.get(cid)
-                if not c:
-                    continue
-                status = c.status.value if c.status else None
-                if status == "blacklisted":
-                    continue
-                ordered.append(c)
+            # Preserve Qdrant ranking order while dropping anyone the recruiter
+            # could not actually assign.
+            #
+            # This used to check the GLOBAL blacklist only, while the sibling
+            # `/recommendations` ran the full eligibility filter. The difference
+            # is not cosmetic: an active client blacklist, an NDA, a competitor
+            # conflict and a standing hiring-manager veto all passed straight
+            # through to a list the job page renders with an "add to pipeline"
+            # button next to every row. Same engine, same page, two different
+            # containment rules — and the weaker one was the default view.
+            ordered: list[Candidate] = [
+                c for cid in candidate_ids if (c := candidates_by_id.get(cid))
+            ]
+            ordered = await filter_eligible_candidates(
+                db, job=job, candidates=ordered, now=datetime.now(timezone.utc)
+            )
 
             search_type = "semantic"
             scores_by_idx: dict[int, float] = {
