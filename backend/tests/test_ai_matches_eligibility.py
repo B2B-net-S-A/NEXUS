@@ -38,11 +38,30 @@ def _calls_in(module_rel: str, func_name: str) -> set[str]:
     assert target is not None, f"{func_name} not found in {module_rel}"
 
     def direct(node) -> set[str]:
-        return {
-            n.func.id
-            for n in ast.walk(node)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-        }
+        """Names of functions called directly by `node`, in BOTH call forms.
+
+        `filter_eligible_candidates(...)` and the module-qualified
+        `pipeline_eligibility.filter_eligible_candidates(...)` must count the
+        same. Matching only the bare name (`ast.Name`) ties this guard to one
+        call SYNTAX rather than to the property it exists to protect.
+
+        The failure that buys is a false ALARM, not a false pass: the assertion
+        reads "the name appears among the calls", so an unrecognised call form
+        makes it fail while the filter is demonstrably still there. That is the
+        more corrosive direction. A guard that goes red on a safe refactor gets
+        "fixed" by whoever is mid-refactor — and the cheapest fix is to weaken
+        or delete the assertion. The guard then dies quietly on a day when
+        nothing was actually wrong, and is missing on the day something is.
+        """
+        names: set[str] = set()
+        for n in ast.walk(node):
+            if not isinstance(n, ast.Call):
+                continue
+            if isinstance(n.func, ast.Name):
+                names.add(n.func.id)
+            elif isinstance(n.func, ast.Attribute):
+                names.add(n.func.attr)
+        return names
 
     calls = direct(target)
     for name in list(calls):
