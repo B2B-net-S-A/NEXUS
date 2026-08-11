@@ -76,7 +76,12 @@ def test_location_matches_rejects_unrelated():
 
 
 def test_salary_passes_when_user_has_no_bounds():
-    assert rf._salary_in_window(make_job(salary_min=10000, salary_max=20000), None, None, 0.20) is True
+    assert (
+        rf._salary_in_window(
+            make_job(salary_min=10000, salary_max=20000), None, None, 0.20
+        )
+        is True
+    )
 
 
 def test_salary_passes_when_job_has_no_bounds():
@@ -106,26 +111,56 @@ def test_salary_user_min_above_job_max_padded_rejected():
 
 def test_cc_matches_via_subcategory():
     j = make_job(subcategory="Backend", title="Software Engineer")
-    assert rf._competence_category_matches(j, "Backend") is True
+    assert rf._competence_category_matches(j, ["Backend"]) is True
 
 
 def test_cc_matches_via_industry():
     j = make_job(industry="Fintech", title="Engineer")
-    assert rf._competence_category_matches(j, "fintech") is True
+    assert rf._competence_category_matches(j, ["fintech"]) is True
 
 
 def test_cc_matches_via_title_fallback():
     j = make_job(title="Senior DevOps Engineer")
-    assert rf._competence_category_matches(j, "devops") is True
+    assert rf._competence_category_matches(j, ["devops"]) is True
 
 
 def test_cc_no_target_passes():
-    assert rf._competence_category_matches(make_job(), "") is True
+    assert rf._competence_category_matches(make_job(), []) is True
+    assert rf._competence_category_matches(make_job(), [""]) is True
 
 
 def test_cc_unrelated_rejected():
     j = make_job(title="Backend Engineer")
+    assert rf._competence_category_matches(j, ["frontend"]) is False
+
+
+def test_cc_or_combines_multiple_targets():
+    """The live call site passes a LIST (`list(filters.competence_category)`),
+    so the multi-target OR is the shape that actually ships — and until now no
+    test exercised it."""
+    j = make_job(title="Backend Engineer")
+    assert rf._competence_category_matches(j, ["frontend", "backend"]) is True
+    assert rf._competence_category_matches(j, ["frontend", "devops"]) is False
+
+
+def test_cc_bare_string_is_one_category_not_a_bag_of_letters():
+    """Regression guard for the trap that hid the whole file from CI.
+
+    `Sequence[str]` also matches `str`, and iterating a string yields single
+    CHARACTERS. Every test above used to pass a bare string, so they asserted
+    things like "is 'b' somewhere in 'backend software engineer'" — four of them
+    were green for that reason alone, and the one honest negative assertion was
+    red. Because that red was read as a production behaviour change, the ENTIRE
+    file (28 tests) was --ignore'd in CI and stopped protecting anything.
+
+    The failure mode is what made it survive: not a crash, just a wrong answer
+    that looks right.
+    """
+    j = make_job(title="Backend Engineer")
     assert rf._competence_category_matches(j, "frontend") is False
+    assert rf._competence_category_matches(j, "backend") is True
+    # 'e' occurs in "backend engineer"; a per-character search would say True.
+    assert rf._competence_category_matches(j, "e-commerce") is False
 
 
 # ── _conflict_decision ───────────────────────────────────────────────────────
@@ -179,7 +214,10 @@ def test_matches_availability_no_filter_passes():
 def test_matches_availability_in_set():
     c = make_candidate(availability_status=AvailabilityStatus.actively_looking)
     flt = rf.RecommendationFilters(
-        availability=[AvailabilityStatus.actively_looking, AvailabilityStatus.open_to_offers]
+        availability=[
+            AvailabilityStatus.actively_looking,
+            AvailabilityStatus.open_to_offers,
+        ]
     )
     assert rf.matches_availability(c, flt) is True
 
@@ -221,7 +259,9 @@ async def test_apply_user_filters_drops_by_salary():
         kept, stats = await rf.apply_user_filters(
             candidate,
             jobs,
-            rf.RecommendationFilters(salary_min=18000, salary_max=22000, industry_blocklist=False),
+            rf.RecommendationFilters(
+                salary_min=18000, salary_max=22000, industry_blocklist=False
+            ),
             db,
         )
         # Job 1 overlaps the user range; job 2 lies far below even with tolerance.

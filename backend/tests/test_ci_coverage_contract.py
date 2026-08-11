@@ -211,9 +211,6 @@ _FAILING = {
     # 6 fails — must_skills.level is now an enum ('junior'..'expert'), the test
     # still sends the integer 4 and gets 422.
     "test_proposals.py",
-    # 1 fail — _competence_category_matches is now True for a case the test
-    # expects False.
-    "test_recommendation_filters.py",
     # 7 fails (whole file) — fixture inserts jobs without client_id, now NOT NULL.
     "test_shortlist_and_proposal.py",
     # 1 fail — diacritic dedup returns 2 rows, the test expects 1.
