@@ -1,3 +1,5 @@
+import logging
+from dataclasses import dataclass
 from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, Request, status
@@ -6,14 +8,26 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import client_ip_key
 from app.core.security import (
     decode_token,
     token_authorization_version_matches,
     token_is_revoked,
 )
+from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
 from app.services.onboarding_access import onboarding_persona_for_user
+from app.services.service_account_auth import (
+    API_KEY_HEADER,
+    ServiceKeyError,
+    ServicePrincipal,
+    authenticate_api_key,
+    stamp_key_usage,
+)
+
+logger = logging.getLogger(__name__)
 
 # ``auto_error=False`` — świadomie, NIE domyślne zachowanie.
 #
@@ -394,3 +408,204 @@ async def require_dl_assigned_or_admin(
 
 
 DlAssignedOrAdmin = Annotated[User, Depends(require_dl_assigned_or_admin)]
+
+
+# ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────────
+#
+# Druga, RÓWNOLEGŁA klasa poświadczeń obok JWT użytkownika. Automatyzacja
+# (cron, CI, skrypt operacyjny) nie ma jak trzymać sesji: JWT żyje 8 h i umiera
+# przy zmianie hasła właściciela oraz bumpie ``authorization_version``.
+# Wydłużenie ``ACCESS_TOKEN_EXPIRE_MINUTES`` jest GLOBALNE, więc płaciliby za
+# nie wszyscy rekruterzy w systemie z danymi kandydatów pod RODO.
+#
+# Dlaczego osobny nagłówek, a nie ``Authorization: Bearer``:
+#
+# 1. Na ``Authorization`` jadą już trzy różne poświadczenia (access JWT,
+#    refresh JWT, token OAuth klienta), rozróżniane wyłącznie claimem ``type``
+#    PO zdekodowaniu. Klucz API nie jest JWT, więc czwarty typ zmusiłby parser
+#    do zgadywania kształtu poświadczenia przed weryfikacją — a zgadywanie
+#    przed weryfikacją to dokładnie ta klasa błędu, przez którą powstają
+#    pomyłki typu tokenu.
+# 2. Frontend dokleja ``Authorization`` automatycznie do KAŻDEGO wywołania
+#    (interceptor w ``frontend/src/lib/api.ts``, token z ``localStorage``).
+#    Klucz API, który przypadkiem tam wyląduje, byłby wysyłany wszędzie —
+#    także do endpointów, dla których nie ma scope'u. Osobny nagłówek nie
+#    powstaje przez przypadek.
+# 3. Repo ma już precedens nagłówka maszynowego: ``X-Snapshot-Token``
+#    w ``/api/admin/snapshot``. Ten mechanizm jest jego uogólnieniem —
+#    tamten to jeden globalny sekret z env-a, bez terminu ważności, bez
+#    rotacji, bez rewokacji i bez możliwości ustalenia, KTO go użył.
+#
+# Koszt: to nie jest nagłówek z RFC. Świadomy — wąskość i jednoznaczność
+# wygrywają z konwencją przy poświadczeniu bez wygasania sesji.
+
+_UNAUTHENTICATED_SERVICE = HTTPException(
+    # Jeden komunikat na wszystkie porażki uwierzytelnienia kluczem. Rozróżnianie
+    # „nie ma takiego klucza" / „zły sekret" / „odwołany" powiedziałoby sondującemu,
+    # które identyfikatory istnieją i które konta warto atakować dalej.
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Nieprawidłowy klucz API",
+)
+
+
+@dataclass(frozen=True)
+class Caller:
+    """Kto stoi za requestem: człowiek z JWT albo konto serwisowe z kluczem.
+
+    Endpointy dostające ``Caller`` obsługują obie ścieżki bez rozgałęziania się
+    na typ poświadczenia; ``audit_label`` daje jednolity zapis „kto to zrobił"
+    niezależnie od tego, którędy przyszedł.
+    """
+
+    user: Optional[User] = None
+    service: Optional[ServicePrincipal] = None
+
+    @property
+    def is_service_account(self) -> bool:
+        return self.service is not None
+
+    @property
+    def audit_label(self) -> str:
+        if self.service is not None:
+            return self.service.audit_label
+        if self.user is not None:
+            return f"user:{self.user.id}"
+        return "unknown"
+
+
+async def _authenticate_service_key(
+    request: Request,
+    raw_key: str,
+    db: AsyncSession,
+) -> ServicePrincipal:
+    """Zweryfikuj ``X-API-Key`` i odnotuj użycie. 401 na każdej porażce."""
+    if not settings.SERVICE_ACCOUNTS_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Konta serwisowe są wyłączone (SERVICE_ACCOUNTS_ENABLED=false)",
+        )
+
+    client_ip = client_ip_key(request)
+    try:
+        principal, key = await authenticate_api_key(db, raw_key)
+    except ServiceKeyError as exc:
+        # Loguje się POWÓD i IP, nigdy poświadczenie. ``exc.reason`` to zamknięty
+        # zbiór etykiet z ``service_account_auth``, więc do logu nie trafia nic
+        # sterowanego przez klienta.
+        logger.warning(
+            "service_account.auth_failed",
+            extra={
+                "reason": exc.reason,
+                "client_ip": client_ip,
+                "path": request.url.path,
+            },
+        )
+        raise _UNAUTHENTICATED_SERVICE from exc
+
+    # Konto serwisowe NIE MOŻE podszywać się pod użytkownika. Impersonacja jest
+    # narzędziem admina do oglądania aplikacji cudzymi oczami i zakłada człowieka,
+    # który świadomie ją włączył i którego da się o to zapytać. Klucz w cronie
+    # nie ma takiej odpowiedzialności, a połączenie „poświadczenie bez wygasania
+    # sesji" z „widzę dane dowolnego użytkownika" znosi cały sens wąskich
+    # scope'ów: klucz do syncu Traffita zobaczyłby kandydatów oczami rekrutera.
+    if request.headers.get(IMPERSONATION_HEADER):
+        logger.warning(
+            "service_account.impersonation_rejected",
+            extra={"service_account": principal.slug, "key_id": principal.key_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Konto serwisowe nie może podszywać się pod użytkownika",
+        )
+
+    await stamp_key_usage(db, key.key_id, client_ip)
+    return principal
+
+
+def require_service_scope(*required: ServiceScope, allow_admin_jwt: bool = True):
+    """Zależność: klucz API z KOMPLETEM podanych scope'ów albo (opcjonalnie) admin.
+
+    ``allow_admin_jwt=True`` (domyślnie) zostawia dotychczasową ścieżkę
+    przeglądarkową nietkniętą: endpoint, który dotąd wymagał ``AdminUser``,
+    po podmianie na tę zależność nadal działa dla admina z JWT, a dodatkowo
+    przyjmuje klucz. Dzięki temu wpięcie kluczy nie jest zmianą zrywającą
+    i nie trzeba duplikować endpointów.
+
+    Fail-closed w każdym rozgałęzieniu: brak obu poświadczeń → 401, klucz bez
+    scope'u → 403, JWT nie-admina → 403. Nie ma ścieżki, w której brakujący
+    scope przechodzi.
+    """
+    required_scopes = frozenset(scope.value for scope in required)
+    if not required_scopes:
+        # Zależność bez wymaganych scope'ów przepuszczałaby każdy ważny klucz
+        # na dowolny endpoint. To błąd programisty, więc pęka przy imporcie
+        # modułu (start aplikacji), a nie przy pierwszym requeście na produkcji.
+        raise ValueError("require_service_scope wymaga co najmniej jednego scope'u")
+
+    async def _check(
+        request: Request,
+        credentials: Annotated[
+            Optional[HTTPAuthorizationCredentials], Depends(security)
+        ],
+        db: AsyncSession = Depends(get_db),
+    ) -> Caller:
+        raw_key = request.headers.get(API_KEY_HEADER)
+        if raw_key:
+            principal = await _authenticate_service_key(request, raw_key, db)
+            missing = required_scopes - principal.scopes
+            if missing:
+                logger.warning(
+                    "service_account.scope_denied",
+                    extra={
+                        "service_account": principal.slug,
+                        "key_id": principal.key_id,
+                        "missing": sorted(missing),
+                        "path": request.url.path,
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "insufficient_scope",
+                        "required": sorted(required_scopes),
+                        "missing": sorted(missing),
+                    },
+                )
+            logger.info(
+                "service_account.authorized",
+                extra={
+                    "service_account": principal.slug,
+                    "key_id": principal.key_id,
+                    "scopes": sorted(required_scopes),
+                    "method": request.method,
+                    "path": request.url.path,
+                },
+            )
+            return Caller(service=principal)
+
+        if not allow_admin_jwt:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Wymagany nagłówek {API_KEY_HEADER}",
+            )
+
+        user = await get_current_user(request, credentials, db)
+        if not user.has_role(UserRole.admin):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Requires one of roles: ['admin']",
+            )
+        return Caller(user=user)
+
+    return _check
+
+
+# Gotowe zależności dla powierzchni operacyjnych. Każda nazywa dokładnie jeden
+# scope — endpoint nie ma jak dostać szerszego uprawnienia niż to, którego
+# faktycznie potrzebuje.
+TraffitSyncCaller = Annotated[
+    Caller, Depends(require_service_scope(ServiceScope.traffit_sync))
+]
+TraffitReadCaller = Annotated[
+    Caller, Depends(require_service_scope(ServiceScope.traffit_read))
+]
