@@ -25,6 +25,7 @@ LanguageProvenance = Literal[
     "cv",
     "traffit",
     "talent_radar",
+    "tr_legacy",
     "csv",
     "legacy",
     "unknown",
