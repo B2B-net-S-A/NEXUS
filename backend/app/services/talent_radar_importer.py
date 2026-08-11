@@ -53,6 +53,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.candidate_location_writer import normalize_candidate_location
 from app.services.dedup_service import find_candidate_duplicates
 
+# Wartość zapisywana w `external_source` / `provenance`. Nazwa „Talent Radar"
+# należy od 2026-08-11 do modułu wyszukiwania (`/api/talent-radar/search`);
+# system źródłowy, z którego jednorazowo zaciągnięto ludzi, nazywa się tu
+# `tr_legacy`. Migracja 0222 przepisała istniejące wiersze (było ich 15 —
+# importer scala ludzi w istniejące rekordy, więc nie 40 tys. jak sugeruje
+# docstring o liczbie POBRANYCH wierszy).
+SOURCE_VALUE = "tr_legacy"
+
 logger = logging.getLogger(__name__)
 
 # Reasons from dedup_service that are *hard* corroborators (a shared identity
@@ -132,7 +140,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         ),
         :uploaded_at,
         :external_id,
-        'talent_radar',
+        SOURCE_VALUE,
         :content_sha256,
         NOW(),
         NOW()
@@ -366,7 +374,7 @@ class TalentRadarImporter:
         return {
             "talent_radar_source_id": int(row["id"]),
             "external_id": str(row["traffit_id"]),
-            "external_source": "talent_radar",
+            "external_source": SOURCE_VALUE,
             "email": (row["email"] or "").strip() or None,
             "name": (row["name"] or "").strip() or "?",
             "lastname": (row["lastname"] or "").strip() or "?",
@@ -389,7 +397,7 @@ class TalentRadarImporter:
             "availability_date": parse_availability(row["availability"]),
             "cv_language": row["cv_language"],
             "cv_parsed_at": to_datetime_utc(row["cv_date"]),
-            "source": "talent_radar",
+            "source": SOURCE_VALUE,
             "status": "active",
         }
 
@@ -607,7 +615,7 @@ class TalentRadarImporter:
                         self.target_db,
                         candidate_id=existing_id,
                         raw_languages=p["languages"],
-                        provenance="talent_radar",
+                        provenance=SOURCE_VALUE,
                         source_ref=f"talent-radar:{p.get('external_id') or existing_id}",
                     )
                 if p.get("city") or p.get("country"):
@@ -648,7 +656,7 @@ class TalentRadarImporter:
                     self.target_db,
                     candidate_id=new_id,
                     raw_languages=p["languages"],
-                    provenance="talent_radar",
+                    provenance=SOURCE_VALUE,
                     source_ref=f"talent-radar:{p.get('external_id') or new_id}",
                 )
             if p.get("city") or p.get("country"):

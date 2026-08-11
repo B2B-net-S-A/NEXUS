@@ -57,7 +57,7 @@ class IdentityQuarantineOverride(BaseModel):
 
 class IdentityReviewOut(BaseModel):
     candidate_id: int
-    source_kind: Literal["note", "document", "legacy_cv", "talent_radar_cv"]
+    source_kind: Literal["note", "document", "legacy_cv", "talent_radar_cv", "tr_legacy_cv"]
     source_id: int
     decision: Literal[
         "confirmed_match",
@@ -138,7 +138,9 @@ async def _require_source(
         exists_row = await db.scalar(
             select(CandidateSourceIdentityReview.id).where(
                 CandidateSourceIdentityReview.candidate_id == candidate_id,
-                CandidateSourceIdentityReview.source_kind == "talent_radar_cv",
+                CandidateSourceIdentityReview.source_kind.in_(
+                        ("talent_radar_cv", "tr_legacy_cv")
+                    ),
                 CandidateSourceIdentityReview.source_id == source_id,
             )
         )
@@ -152,7 +154,7 @@ async def _require_source(
 )
 async def get_candidate_source_identity_review(
     candidate_id: int,
-    source_kind: Literal["note", "document", "legacy_cv", "talent_radar_cv"],
+    source_kind: Literal["note", "document", "legacy_cv", "talent_radar_cv", "tr_legacy_cv"],
     source_id: int,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
@@ -216,7 +218,7 @@ async def quarantine_candidate_source_identity(
 )
 async def override_candidate_source_identity_quarantine(
     candidate_id: int,
-    source_kind: Literal["note", "document", "legacy_cv", "talent_radar_cv"],
+    source_kind: Literal["note", "document", "legacy_cv", "talent_radar_cv", "tr_legacy_cv"],
     source_id: int,
     payload: IdentityQuarantineOverride,
     current_user: CandidateIdentityQuarantineOverrideAccess,

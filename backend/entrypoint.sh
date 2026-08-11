@@ -3927,6 +3927,24 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0222 — Talent Radar: nazwa przechodzi na moduł wyszukiwania, a źródło
+    # importu dostaje `tr_legacy`. Oba CHECK-i przyjmują starą I nową wartość,
+    # żeby rollback (redeploy poprzedniego obrazu, który wciąż pisze
+    # `talent_radar`) nie wywalał się na naruszeniu constraintu.
+    "ALTER TABLE candidate_languages DROP CONSTRAINT IF EXISTS ck_candidate_languages_provenance",
+    """DO $$ BEGIN
+        ALTER TABLE candidate_languages
+            ADD CONSTRAINT ck_candidate_languages_provenance
+            CHECK (provenance IN ('manual', 'cv', 'traffit', 'talent_radar',
+                                  'tr_legacy', 'csv', 'legacy', 'unknown'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE candidate_source_identity_reviews DROP CONSTRAINT IF EXISTS ck_candidate_source_identity_review_kind",
+    """DO $$ BEGIN
+        ALTER TABLE candidate_source_identity_reviews
+            ADD CONSTRAINT ck_candidate_source_identity_review_kind
+            CHECK (source_kind IN ('note', 'document', 'legacy_cv',
+                                   'talent_radar_cv', 'tr_legacy_cv'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE user_competence_categories ALTER COLUMN priority SET DEFAULT 2",
     "ALTER TABLE user_competence_categories ALTER COLUMN priority SET NOT NULL",
     "ALTER TABLE user_competence_categories DROP CONSTRAINT IF EXISTS ck_user_cc_priority",

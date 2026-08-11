@@ -59,7 +59,7 @@ class CandidateLanguage(Base, TimestampMixin):
         CheckConstraint(
             """
             provenance IN (
-                'manual', 'cv', 'traffit', 'talent_radar',
+                'manual', 'cv', 'traffit', 'talent_radar', 'tr_legacy',
                 'csv', 'legacy', 'unknown'
             )
             """,
