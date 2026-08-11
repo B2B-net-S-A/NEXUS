@@ -185,12 +185,17 @@ class PhaseProgress:
     # failure. Counted, never `add_error`: see the call sites for why treating
     # "it is gone" as an error froze phases indefinitely.
     gone_upstream: int = 0
-    # Rekrutacje przypięte do `__traffit_orphans`, bo Traffit nie podał
-    # klienta (albo podał skasowanego). CELOWO osobny licznik, nie
-    # `skipped`: to są wiersze ZAPISANE, tylko z zastępczym klientem —
-    # zlanie ich ze `skipped` (= pominięte) mówiłoby operatorowi coś
-    # przeciwnego do tego, co się stało.
-    orphaned: int = 0
+    # Rekrutacje, dla których Traffit nie podał rozwiązywalnego klienta.
+    #
+    # Nazwa opisuje FAKT U ŹRÓDŁA, nie naszą reakcję — tak jak `gone_upstream`
+    # obok. `orphaned` obiecywałoby „tyle wierszy siedzi u zastępczego
+    # klienta", a to nieprawda w jednym przypadku: gdy rekrutacja ma już
+    # poprawnego klienta w Nexusie i zniknęło samo MAPOWANIE, zostawiamy jej
+    # tego klienta. Operator zobaczyłby wtedy 3 i znalazł 2 w kubełku.
+    #
+    # CELOWO osobny licznik, nie `skipped`: to są wiersze ZAPISANE — zlanie
+    # ich ze `skipped` (= pominięte) mówiłoby coś przeciwnego do prawdy.
+    unresolved_client: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -234,7 +239,7 @@ class PhaseProgress:
             "skipped_pages": self.skipped_pages,
             "resynced_pointers": self.resynced_pointers,
             "gone_upstream": self.gone_upstream,
-            "orphaned": self.orphaned,
+            "unresolved_client": self.unresolved_client,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1737,7 +1742,7 @@ class TraffitImporter:
                 # dokładnie ten wzorzec, który ta seria poprawek likwiduje:
                 # zielona liczba nad realną luką. Tak licznik jest stabilny
                 # między biegami i widać po nim, czy zjawisko rośnie.
-                progress.orphaned += 1
+                progress.unresolved_client += 1
 
             # Disambiguate duplicate reference_number (Traffit allows it,
             # Nexus has uq_jobs_reference_number). First occurrence keeps the

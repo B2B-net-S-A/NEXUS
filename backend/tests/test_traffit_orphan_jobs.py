@@ -109,7 +109,7 @@ async def test_recruitment_without_a_client_is_imported_under_the_orphan(db) -> 
     ).import_jobs()
 
     assert progress.errors == 0
-    assert progress.orphaned == 1
+    assert progress.unresolved_client == 1
     # NIE `skipped` — to wiersz ZAPISANY, tylko z zastępczym klientem.
     # Zlanie obu liczników mówiłoby operatorowi coś przeciwnego do prawdy.
     assert progress.skipped == 0
@@ -130,7 +130,7 @@ async def test_recruitment_pointing_at_an_unknown_client_also_lands(db) -> None:
         traffit, db, dry_run=False, batch_size=10
     ).import_jobs()
 
-    assert progress.orphaned == 1
+    assert progress.unresolved_client == 1
     row = await _job_row(db, ext)
     assert row is not None
     assert row[1] == ORPHAN_CLIENT_NAME
@@ -151,7 +151,7 @@ async def test_recruitment_with_a_known_client_is_untouched(db) -> None:
         traffit, db, dry_run=False, batch_size=10
     ).import_jobs()
 
-    assert progress.orphaned == 0
+    assert progress.unresolved_client == 0
     row = await _job_row(db, ext)
     assert row is not None
     assert row[1] == f"Klient {cext}"
@@ -202,7 +202,7 @@ async def test_orphan_never_takes_a_client_away_from_an_existing_job(db) -> None
     # rozwiązywalnego klienta), a nie to, co z tym zrobiliśmy — więc rośnie
     # także tutaj. Dowodem, że sierota niczego nie przejęła, jest przypisanie
     # w bazie, nie licznik.
-    assert progress.orphaned == 1
+    assert progress.unresolved_client == 1
     assert (await _job_row(db, ext))[1] == f"Klient {cext}", (
         "sierota przejęła rekrutację, która miała już poprawnego klienta"
     )
@@ -237,7 +237,7 @@ async def test_orphan_client_is_created_lazily(db, monkeypatch) -> None:
 
     progress = await imp.import_jobs()
 
-    assert progress.orphaned == 0
+    assert progress.unresolved_client == 0
     assert progress.errors == 0
 
 
@@ -263,7 +263,7 @@ async def test_reimport_does_not_duplicate_or_multiply_the_orphan(db) -> None:
     third = await TraffitImporter(
         traffit, db, dry_run=False, batch_size=10
     ).import_jobs()
-    assert third.orphaned == 1
+    assert third.unresolved_client == 1
 
     orphans = await db.execute(
         text("SELECT count(*) FROM clients WHERE name = :n"), {"n": ORPHAN_CLIENT_NAME}
@@ -272,7 +272,7 @@ async def test_reimport_does_not_duplicate_or_multiply_the_orphan(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_orphaned_count_reaches_sync_status(db) -> None:
+async def test_unresolved_client_count_reaches_sync_status(db) -> None:
     """Licznik ma być widoczny operatorowi — inaczej sierota jest cichym
     pomijaniem pod inną nazwą."""
     from app.tasks.traffit_sync import _summarize
@@ -285,4 +285,8 @@ async def test_orphaned_count_reaches_sync_status(db) -> None:
         batch_size=10,
     ).import_jobs()
 
-    assert _summarize(progress.as_dict())["orphaned"] == progress.orphaned == 1
+    assert (
+        _summarize(progress.as_dict())["unresolved_client"]
+        == progress.unresolved_client
+        == 1
+    )
