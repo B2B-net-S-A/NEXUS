@@ -1,0 +1,94 @@
+"""POST /api/talent-radar/search — ad-hoc role → ranked candidates.
+
+The recruiter-facing entry point for Talent Radar. Composition and the reasoning
+behind its two constraints (mandatory client, no LLM call) live in
+``app.services.talent_radar_search``; this module is transport only.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.candidate_access import require_candidate_write
+from app.api.deps import get_db
+from app.core.rate_limit import limiter
+from app.models.user import User
+from app.services.talent_radar_search import (
+    RadarQuery,
+    TalentRadarError,
+    search,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+class TalentRadarSearchRequest(BaseModel):
+    """A role to look for, plus who it is for.
+
+    `client_id` is required rather than optional: the eligibility filter checks
+    the client blacklist, NDA, competitor conflicts and the hiring-manager veto
+    against it. Making it optional would produce a list that silently skipped
+    those checks — the defect fixed in `/ai-matches` on 2026-08-11.
+    """
+
+    client_id: int
+    text: Optional[str] = Field(
+        default=None,
+        max_length=20_000,
+        description="Treść zapytania / opisu roli, wklejona jak leci.",
+    )
+    champion_profile: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Profil Championa — używany zamiast lub obok treści.",
+    )
+    title: Optional[str] = Field(default=None, max_length=300)
+    location: Optional[str] = Field(default=None, max_length=200)
+    top_k: int = Field(default=20, ge=1, le=100)
+    min_score: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+
+
+@router.post("/talent-radar/search")
+@limiter.limit("20/minute")
+async def talent_radar_search(
+    request: Request,
+    payload: TalentRadarSearchRequest,
+    current_user: User = Depends(require_candidate_write),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Rank the candidate base against a pasted request. Creates no Job."""
+    try:
+        result = await search(
+            db,
+            RadarQuery(
+                client_id=payload.client_id,
+                text=payload.text,
+                champion_profile=payload.champion_profile,
+                title=payload.title,
+                location=payload.location,
+                top_k=payload.top_k,
+                min_score=payload.min_score,
+            ),
+        )
+    except TalentRadarError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if result.degraded:
+        # A degraded retrieval must not render as "nobody matches". The UI reads
+        # `meta.degraded` and shows a failure notice instead of an empty state.
+        logger.warning(
+            "[talent-radar] degraded search for client=%s: %s",
+            payload.client_id,
+            result.reason,
+        )
+
+    return {
+        "results": [b.as_dict() for b in result.breakdowns],
+        "meta": result.as_meta(),
+    }
