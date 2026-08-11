@@ -23,34 +23,50 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 
 def test_ephemeral_job_sets_every_attribute_the_scoring_path_reads():
-    """A missing attribute would surface as AttributeError mid-search.
+    """Derived from the source, not hand-listed — a hand list rots silently.
 
-    The scoring and embedding paths read these off `job` directly; a
-    SimpleNamespace only has what we put on it, so the list is enumerated rather
-    than assumed.
+    `build_ephemeral_job` returns a SimpleNamespace, so it has exactly what we
+    put on it and nothing more. A missing attribute is an `AttributeError` in
+    the middle of a live search, not a startup failure.
+
+    The first version of this test enumerated the attributes by hand. That is
+    the weaker guard: the day scoring starts reading `job.something_new`, a hand
+    list still passes and only production finds out. So the expected set is
+    walked out of the modules the radar actually calls. Extra attributes on the
+    namespace are fine; missing ones are not.
     """
-    job = build_ephemeral_job(RadarQuery(client_id=7, text="Senior Python"))
 
-    for attr in (
-        "id",
-        "client_id",
-        "title",
-        "description",
-        "requirements",
-        "champion_profile",
-        "must_skills",
-        "nice_skills",
-        "location",
-        "remote_policy",
-        "salary_min",
-        "salary_max",
-        "deadline",
-        "seniority",
-        "subcategory",
-        "industry",
-        "embedding_id",
+    import ast
+
+    backend = Path(__file__).resolve().parents[1]
+    required: set[str] = set()
+    for module in (
+        "app/services/scoring_service.py",
+        "app/services/embedding_service.py",
+        "app/services/pipeline_eligibility.py",
     ):
-        assert hasattr(job, attr), f"scoring reads job.{attr} — it must exist"
+        tree = ast.parse((backend / module).read_text(encoding="utf-8"))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            params = {a.arg for a in [*fn.args.args, *fn.args.kwonlyargs]}
+            if "job" not in params:
+                continue
+            required |= {
+                node.attr
+                for node in ast.walk(fn)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "job"
+            }
+
+    assert required, "derivation found nothing — the walk is broken, not the code"
+
+    job = build_ephemeral_job(RadarQuery(client_id=7, text="Senior Python"))
+    missing = sorted(attr for attr in required if not hasattr(job, attr))
+    assert not missing, (
+        f"scoring reads job.{{{','.join(missing)}}} — set it in build_ephemeral_job"
+    )
 
 
 def test_ephemeral_job_has_no_id_so_it_cannot_touch_pipeline_history():
