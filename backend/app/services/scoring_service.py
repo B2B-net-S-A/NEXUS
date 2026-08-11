@@ -192,6 +192,8 @@ _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "SCORE_UNKNOWN_NEUTRAL_FRACTION",
     # Changes the embedding TEXT, hence the similarity, hence the score.
     "AI_TEXT_SCHEMA_V2",
+    # Changes how a no-signal layer contributes — i.e. the composite itself.
+    "SCORE_RENORMALIZE_UNSCORED_LAYERS",
 )
 
 
@@ -297,6 +299,11 @@ class LayerResult:
     max_points: float
     reason: str = ""
     status: Optional[str] = None
+    # False when the layer had nothing to judge — no `nice_skills` on the job, no
+    # rate to compare, no screening answers. Such a layer is dropped from the
+    # budget and the composite renormalised, instead of handing every candidate
+    # the same constant. A constant cannot rank anyone; it only shifts the floor.
+    scored: bool = True
 
 
 @dataclass
@@ -827,8 +834,20 @@ def _score_skills(
 
     must_max = profile.skills_must
     nice_max = profile.skills_nice
-    must_pts = (len(must_match) / len(must) * must_max) if must else must_max
+    # Brak listy = brak sygnału, po OBU stronach tak samo. Stara reguła robiła
+    # to w przeciwne strony: pusta `must` dawała pełne punkty, pusta `nice` —
+    # zero. Zmierzone na prodzie: 90% ofert nie ma `nice_skills`, 13% nie ma
+    # `must_skills`, więc obie gałęzie trafiały w większość korpusu i żadna
+    # nikogo nie różnicowała.
+    if must:
+        must_pts = len(must_match) / len(must) * must_max
+    else:
+        # Legacy handed out the full must budget here — a free 20 points on the
+        # 13% of jobs with no must_skills. Under renormalisation the half simply
+        # leaves the budget instead.
+        must_pts = 0.0 if _renormalizing() else must_max
     nice_pts = (len(nice_match) / len(nice) * nice_max) if nice else 0.0
+    scored_max = (must_max if must else 0.0) + (nice_max if nice else 0.0)
 
     total = must_pts + nice_pts
     reason_bits = []
@@ -846,7 +865,13 @@ def _score_skills(
 
     return (
         LayerResult(
-            points=total, max_points=profile.skills, reason=", ".join(reason_bits)
+            points=total
+            if scored_max > 0
+            else (0.0 if _renormalizing() else profile.skills_must),
+            max_points=scored_max if scored_max > 0 else profile.skills,
+            reason=", ".join(reason_bits),
+            status=None if scored_max > 0 else "unknown",
+            scored=scored_max > 0,
         ),
         must_match,
         must_gap,
@@ -879,29 +904,20 @@ def _score_salary(
     )
 
     if cand_rate is not None and not is_canonical_profile_rate_currency(cand_currency):
-        return LayerResult(
-            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
-            max_points=max_pts,
-            reason=(
-                "not_comparable: historyczna stawka ma niekanoniczną walutę "
-                "i wymaga ręcznej korekty"
-            ),
-            status="not_comparable",
+        return _unscored(
+            max_pts,
+            "not_comparable: historyczna stawka ma niekanoniczną walutę "
+            "i wymaga ręcznej korekty",
+            "not_comparable",
         )
 
     if cand_rate is None or (job_min is None and job_max is None):
-        return LayerResult(
-            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
-            max_points=max_pts,
-            reason="brak danych (neutralnie)",
-            status="unknown",
-        )
+        return _unscored(max_pts, "brak danych")
 
-    return LayerResult(
-        points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
-        max_points=max_pts,
-        reason="not_comparable: kandydat PLN netto/h, budżet joba PLN/mies.",
-        status="not_comparable",
+    return _unscored(
+        max_pts,
+        "not_comparable: kandydat PLN netto/h, budżet joba PLN/mies.",
+        "not_comparable",
     )
 
 
@@ -993,13 +1009,11 @@ def _score_availability(
     """Availability fit. Full points before deadline, decay 30 days post."""
     max_pts = profile.availability
     if not candidate.availability_date:
-        # No signal → benefit-of-the-doubt neutral (same knob as
-        # salary/location/champion_fit). Was a hardcoded 0.5 before 2026-06-30.
-        return LayerResult(
-            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
-            max_points=max_pts,
-            reason="brak daty",
-        )
+        # No signal → out of the budget, like every other layer that has
+        # nothing to judge. Awarding a neutral share here ranked nobody: ~99%
+        # of imported candidates have no availability date, so the constant
+        # landed on almost the whole corpus.
+        return _unscored(max_pts, "brak daty")
     if not job.deadline:
         return LayerResult(points=max_pts, max_points=max_pts, reason="brak deadline")
 
@@ -1085,6 +1099,27 @@ async def build_job_scoring_context(
     )
 
 
+def _renormalizing() -> bool:
+    return bool(getattr(settings, "SCORE_RENORMALIZE_UNSCORED_LAYERS", False))
+
+
+def _unscored(max_points: float, reason: str, status: str = "unknown") -> LayerResult:
+    """A layer that had nothing to judge.
+
+    With renormalisation ON it contributes to neither numerator nor denominator,
+    so its points are 0. With it OFF it keeps paying the neutral constant — that
+    is the pre-2026-08-10 behaviour, and "off" has to mean EXACTLY that, or the
+    flag stops being a rollback.
+    """
+    return LayerResult(
+        points=0.0 if _renormalizing() else max_points * UNKNOWN_NEUTRAL_FRACTION,
+        max_points=max_points,
+        reason=reason,
+        status=status,
+        scored=False,
+    )
+
+
 async def _score_champion_fit(
     candidate: Candidate,
     job: Job,
@@ -1129,19 +1164,14 @@ async def _score_champion_fit(
     if not raw_answers:
         # No screening yet → neutral (same knob as salary/location/availability)
         # so unscreened candidates stay competitive. Was hardcoded 0.5.
-        return LayerResult(
-            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
-            max_points=max_pts,
-            reason="brak screeningu",
-        )
+        # Not a rare edge: the recommendation pool excludes candidates already in
+        # the pipeline, and screening answers exist only for those — so this
+        # layer has no signal for essentially every candidate it scores.
+        return _unscored(max_pts, "brak screeningu")
     try:
         answers = ScreeningAnswers.model_validate(raw_answers)
     except Exception:
-        return LayerResult(
-            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
-            max_points=max_pts,
-            reason="screening niepoprawny",
-        )
+        return _unscored(max_pts, "screening niepoprawny")
 
     pct = answers.match_percent()
     pts = pct / 100.0 * max_pts
@@ -1244,17 +1274,19 @@ async def score_candidate_job(
     )
     penalties = await _check_penalties(candidate, job, db, context=context)
 
+    layers = (semantic, skills, salary, location, availability, champion_fit)
     if penalties:
         total = 0.0
+    elif _renormalizing():
+        # Score only on what could actually be judged, then rescale to 100:
+        # "of what we could assess, this candidate is X%". A layer with no
+        # signal contributes to neither numerator nor denominator, so it can no
+        # longer inflate or deflate everyone equally.
+        earned = sum(layer.points for layer in layers if layer.scored)
+        available = sum(layer.max_points for layer in layers if layer.scored)
+        total = (earned / available * 100.0) if available > 0 else 0.0
     else:
-        total = (
-            semantic.points
-            + skills.points
-            + salary.points
-            + location.points
-            + availability.points
-            + champion_fit.points
-        )
+        total = sum(layer.points for layer in layers)
 
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
     # Structured event for log aggregation (JSON formatter reshapes extras).
