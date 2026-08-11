@@ -412,6 +412,24 @@ PHASE_NAMES: tuple[str, ...] = (
 )
 
 
+def active_phase_names() -> tuple[str, ...]:
+    """Fazy, które plan wyprodukuje PRZY OBECNYCH USTAWIENIACH.
+
+    `PHASE_NAMES` to słownik pisowni; ta funkcja mówi, co realnie pobiegnie.
+    Różnią się o fazy warunkowe — dziś `cortex`, gasnący przy
+    `CORTEX_SYNC_ENABLED=false`.
+
+    Rozdzielenie jest konieczne, bo bez niego `?phases=cortex` z wyłączonym
+    cortexem przechodzi walidację pisowni, bieg startuje, filtr nie dopasowuje
+    NICZEGO i operator dostaje „started" po biegu, który nie zrobił nic. To ta
+    sama cicha porażka, przed którą broni odrzucanie literówek — tylko wchodząca
+    tylnymi drzwiami przez nazwę poprawną, ale nieaktywną.
+    """
+    if settings.CORTEX_SYNC_ENABLED:
+        return PHASE_NAMES
+    return tuple(p for p in PHASE_NAMES if p != "cortex")
+
+
 def validate_phases(phases: Sequence[str]) -> frozenset[str]:
     """Sprawdź nazwy faz i zwróć je jako zbiór. Wspólne dla API i orkiestratora.
 
@@ -428,6 +446,17 @@ def validate_phases(phases: Sequence[str]) -> frozenset[str]:
         raise ValueError(
             f"unknown phase(s): {', '.join(sorted(unknown))}. "
             f"Known: {', '.join(PHASE_NAMES)}"
+        )
+    # Nazwa poprawna, ale wyłączona ustawieniem, kończy się tak samo jak
+    # literówka: filtr nie dopasowuje niczego, bieg nie robi nic i raportuje
+    # sukces. Odrzucamy dopiero, gdy CAŁY wybór jest nieaktywny — mieszanka
+    # `candidate_files,cortex` przy wyłączonym cortexie ma sens i ma pobiec.
+    active = frozenset(active_phase_names())
+    if not (frozenset(requested) & active):
+        inactive = sorted(set(requested) - active)
+        raise ValueError(
+            f"phase(s) not active in this configuration: {', '.join(inactive)}. "
+            f"Active now: {', '.join(active_phase_names())}"
         )
     return frozenset(requested)
 
@@ -576,9 +605,11 @@ async def run_traffit_sync(
 
                 importer = TraffitImporter(traffit, db, dry_run=False, batch_size=100)
 
+                executed = 0
                 for name, factory in _phase_plan(importer, since, files_since):
                     if selected is not None and name not in selected:
                         continue
+                    executed += 1
                     try:
                         progress = await factory()
                         pd = progress.as_dict()
@@ -663,6 +694,25 @@ async def run_traffit_sync(
                             last_status="error",
                             stats={"error": repr(exc)[:500]},
                         )
+
+                # Bieg, który nie wykonał ŻADNEJ fazy, nie może zgłaszać sukcesu.
+                # `validate_phases` odrzuca to na wejściu API, ale ta funkcja ma
+                # też wywołujących spoza endpointu (pętla, testy, przyszły CLI),
+                # a fazy warunkowe mogą przybyć — kolejna równie cicha ścieżka do
+                # „started" po biegu, który nic nie zrobił.
+                if selected is not None and executed == 0:
+                    logger.warning(
+                        "Traffit run matched NO phases (requested: %s; active: %s)",
+                        ", ".join(sorted(selected)),
+                        ", ".join(active_phase_names()),
+                    )
+                    return {
+                        "skipped": True,
+                        "reason": "no_phases_matched",
+                        "mode": mode,
+                        "requested_phases": sorted(selected),
+                        "active_phases": list(active_phase_names()),
+                    }
 
                 finished = datetime.now(timezone.utc)
                 # Same definition as the per-phase gate above: a quarantined row

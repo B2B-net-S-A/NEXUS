@@ -91,14 +91,20 @@ async def trigger_traffit_sync(
     # poprawnym wywołaniu. Ten sam trap opisuje CLAUDE.md.
     selected: Optional[list[str]] = None
     if phases is not None:
-        selected = [p.strip() for p in phases.split(",") if p.strip()]
         try:
-            validate_phases(selected)
+            validated = validate_phases(
+                [p.strip() for p in phases.split(",") if p.strip()]
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=str(exc),
             ) from exc
+        # Z WALIDATORA, nie z surowego wejścia. Bieg i tak filtruje po zbiorze,
+        # więc echo surowej listy pokazywałoby `?phases=a,a` jako dwie pozycje
+        # przy jednym realnym przebiegu fazy — odpowiedź jest dla operatora
+        # potwierdzeniem tego, co się uruchomi, i ma się z tym zgadzać.
+        selected = sorted(validated)
 
     # Fire-and-forget: a full reconcile can take minutes/hours; don't block the
     # request. Progress is observable via GET /sync/status.
