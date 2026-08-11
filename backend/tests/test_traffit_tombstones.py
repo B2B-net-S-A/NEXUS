@@ -266,3 +266,47 @@ def test_tombstoned_reaches_sync_status() -> None:
     p = PhaseProgress(phase="candidate_files")
     p.tombstoned = 3
     assert _summarize(p.as_dict())["tombstoned"] == 3
+
+
+def test_the_index_is_partial_in_all_three_places() -> None:
+    """Indeks jest CZĘŚCIOWY i musi być taki w każdym z trzech miejsc, które go
+    opisują: metadanych ORM, migracji `0221` i lustra DDL w `entrypoint.sh`.
+
+    Pierwsza wersja tego PR-a deklarowała go na kolumnie przez `index=True`,
+    co rejestruje w metadanych indeks PEŁNY — o dokładnie tej samej nazwie,
+    którą migracja nadaje częściowemu. Taka para nie wybucha: baza dostaje
+    poprawny indeks, testy przechodzą, a rozjazd siedzi cicho w katalogu, aż
+    `/api/admin/schema-drift` zacznie go raportować na prodzie albo
+    `alembic --autogenerate` wystawi DROP + CREATE gubiący predykat — czyli
+    zamieni indeks na pełny na ~57 tys. wierszy, po cichu i bez błędu.
+
+    Rozjazd między metadanymi a DDL jest niewidoczny dla każdego testu
+    zachowania, bo obie strony *działają*. Dlatego jest osobno przypięty tutaj.
+    """
+    import re
+    from pathlib import Path
+
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateIndex
+
+    from app.models.candidate import Candidate
+
+    name = "ix_candidates_external_deleted_at"
+    predicate = "where external_deleted_at is not null"
+
+    def _flat(s: str) -> str:
+        return re.sub(r"\s+", " ", s).strip().lower()
+
+    idx = [i for i in Candidate.__table__.indexes if i.name == name]
+    assert len(idx) == 1, f"ORM nie zna indeksu {name}"
+    orm_ddl = _flat(str(CreateIndex(idx[0]).compile(dialect=postgresql.dialect())))
+    assert predicate in orm_ddl, f"metadane ORM opisują indeks PEŁNY: {orm_ddl}"
+
+    backend = Path(__file__).resolve().parents[1]
+    for path in (
+        backend / "alembic/versions/0221_candidate_external_deleted.py",
+        backend / "entrypoint.sh",
+    ):
+        body = _flat(path.read_text(encoding="utf-8"))
+        assert name in body, f"{path.name} nie tworzy {name}"
+        assert predicate in body, f"{path.name} tworzy indeks PEŁNY, nie częściowy"
