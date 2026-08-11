@@ -26,13 +26,10 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import create_async_engine
 
 BACKEND = Path(__file__).resolve().parents[1]
-
-# `::cast` must not be read as a bind parameter: the character after ':' has to
-# be a letter, and the one before must not be another ':'.
-_BIND = re.compile(r"(?<!:):([a-zA-Z_]\w*)")
 
 # PREPARE accepts only these. Anything else in the corpus is a SQL *fragment*
 # (a server_default, an order_by expression) rather than a statement.
@@ -65,17 +62,29 @@ def _statements() -> list[tuple[str, int, str]]:
 
 
 def _to_positional(sql: str) -> str:
-    """Rewrite `:name` to `$n`, reusing the slot when a name repeats."""
+    """Render the statement exactly as asyncpg will receive it.
 
-    slots: dict[str, str] = {}
+    An earlier version rewrote `:name` to `$n` with its own regex. That regex
+    guarded only against a preceding ':' (so `::cast` survived) — but
+    SQLAlchemy's own rule also rejects a preceding *word* character. The two
+    disagree on any SQL holding a literal like `'traffit:activity:'`:
 
-    def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if name not in slots:
-            slots[name] = f"${len(slots) + 1}"
-        return slots[name]
+        my regex   → ['activity', 'Email', 'since']
+        SQLAlchemy → ['since']
 
-    return _BIND.sub(replace, sql)
+    Which means the gate was planning a *different string* than the one that
+    reaches PostgreSQL. Green would have been green for text nobody executes,
+    and the phantoms could punch a hole in the parameter numbering — `$1` never
+    appearing is itself an error (`42P18`), so the gate could equally invent a
+    failure that production never has.
+
+    Compiling with SQLAlchemy's PostgreSQL dialect removes the whole class:
+    there is no second implementation left to disagree with.
+    """
+
+    return str(
+        text(sql).compile(dialect=postgresql.dialect(paramstyle="numeric_dollar"))
+    )
 
 
 @pytest_asyncio.fixture
@@ -212,3 +221,41 @@ async def test_overlong_filename_is_rejected_rather_than_silently_truncated(engi
             )
         finally:
             await transaction.rollback()
+
+
+def test_the_gate_plans_exactly_what_sqlalchemy_would_send():
+    """The gate must not re-implement bind-parameter parsing.
+
+    A colon inside a string literal is not a bind parameter, but only if the
+    rule says so. SQLAlchemy's does (`(?<![:\\w\\\\]):(\\w+)(?!:)` — no preceding
+    word character); the gate's first hand-rolled version guarded against a
+    preceding ':' alone, so `'traffit:activity:'` yielded a phantom `:activity`.
+
+    Two ways that bites, both silent:
+
+    * the gate plans a string PostgreSQL will never see, so a pass says nothing
+      about the statement that actually runs;
+    * every phantom consumes a `$n`, and a gap in the numbering is itself an
+      error — `$1` never appearing raises `42P18`. The gate can therefore
+      invent a failure the production path does not have, which is how a real
+      statement in `traffit/importer.py` looked broken while executing fine.
+
+    Delegating to SQLAlchemy leaves no second implementation to disagree with.
+    """
+
+    sql = (
+        "SELECT 'traffit:activity:' || a.external_id, 'traffit:Email' "
+        "FROM candidates AS a WHERE a.created_at >= :since"
+    )
+
+    assert list(text(sql)._bindparams) == ["since"], (
+        "SQLAlchemy binds only `since` here — the rest are literal text"
+    )
+
+    rendered = _to_positional(sql)
+    assert "'traffit:activity:'" in rendered and "'traffit:Email'" in rendered, (
+        f"literals must survive untouched, got: {rendered}"
+    )
+    assert rendered.count("$") == 1 and "$1" in rendered, (
+        f"exactly one parameter, numbered from 1, got: {rendered}"
+    )
