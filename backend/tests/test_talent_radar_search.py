@@ -154,3 +154,25 @@ def test_module_makes_no_llm_call():
             f"{forbidden} would add per-search spend and a quota gate to a "
             "module that currently needs neither"
         )
+
+
+def test_endpoint_module_has_no_future_annotations_import():
+    """PEP 563 turns the body model into a ForwardRef and FastAPI then resolves
+    it as a *Query* parameter, which fails while building the OpenAPI schema.
+
+    `cv_match_preview` carries the same warning in its own docstring; this module
+    was written by copying that pattern and adding the import anyway, so the
+    guard lives here as well as in prose.
+    """
+    # Parsed, not grepped: the module docstring *mentions* the import in order
+    # to warn about it, so a substring check fails on its own warning.
+    tree = ast.parse((BACKEND / "app/api/talent_radar.py").read_text(encoding="utf-8"))
+    future_imports = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        for alias in node.names
+    }
+    assert "annotations" not in future_imports, (
+        "PEP 563 breaks FastAPI body resolution on this endpoint"
+    )

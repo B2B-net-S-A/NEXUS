@@ -3,9 +3,14 @@
 The recruiter-facing entry point for Talent Radar. Composition and the reasoning
 behind its two constraints (mandatory client, no LLM call) live in
 ``app.services.talent_radar_search``; this module is transport only.
-"""
 
-from __future__ import annotations
+
+Deliberately WITHOUT ``from __future__ import annotations``. With PEP 563 on,
+FastAPI sees the body model as a ForwardRef and resolves it as a *Query*
+parameter, which blows up while building the OpenAPI schema. ``cv_match_preview``
+carries the same warning in its own docstring — and I added the import here
+anyway, so it is repeated where the next person will look.
+"""
 
 import logging
 from typing import Any, Optional
