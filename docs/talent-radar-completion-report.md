@@ -12,6 +12,7 @@ kandydatów. Nie zakłada rekrutacji.
 | #1117 | Naprawa SQL-a, który nie wykonywał się od 24.07, + bramka `PREPARE` w CI |
 | #1119 | UI: sekcja `/talent-radar`, tożsamość kandydata w wynikach, harness stanów |
 | #1120 | Casty w imporcie Traffita przestają po cichu ucinać (+ savepoint) |
+| #1122 | Naprawa regresji z #1120 — utrata połączenia też wymaga rollbacku sesji |
 
 ## Decyzje, które nie są kosmetyczne
 
@@ -64,6 +65,38 @@ adversarialnego audytu i zostało zamrożone testem.
 dopiero w przeglądarce, po zielonym `tsc`: `<Button asChild>` wywalał stronę w
 runtime (Radix `Slot` dostawał dwoje dzieci), a picker klienta zapraszał do
 wyboru, którego nie wolno dokonać.
+
+## Najdroższy błąd dnia: poprawka, która wprowadziła gorszą awarię
+
+#1120 słusznie przestał rollbackować SESJĘ przy błędzie wiersza — savepoint już
+go cofa, a rollback wyrzucał całą niezacommitowaną paczkę. Uzasadnienie brzmiało:
+„awaria zapisu jest cofnięta przez savepoint, więc transakcja zewnętrzna żyje".
+
+Jest prawdziwe **wyłącznie dla błędu instrukcji**. Gdy znika samo POŁĄCZENIE
+(restart Postgresa, failover, `idle_in_transaction_session_timeout`, reaper OOM),
+`ROLLBACK TO SAVEPOINT` nie ma dokąd pójść: sesja wpada w `PendingRollbackError`,
+a flaga jest wtedy False, więc kod świadomie pomijał jedyną rzecz, która ją
+podnosi. Faza kandydatów trzyma transakcję otwartą godzinami między pobraniami
+stron, więc jeden przelotny blip połączenia kosztował RESZTĘ nocnego importu,
+a nie jedną paczkę — zmierzone: przed #1120 zapisanych 9 wierszy i faza kończy
+się normalnie, po #1120 zero wierszy i wyjątek wychodzący z fazy.
+
+Trzy rzeczy warte zapamiętania:
+
+1. **Nie złapało tego CI ani mój własny test** — złapał adversarialny przegląd,
+   którego jedynym zadaniem było obalić moją pracę.
+2. **`is_active` i `in_transaction()` kłamią**: przy martwym połączeniu
+   raportują dokładnie to samo co przy zdrowym. Dyskryminatorem jest
+   `connection_invalidated`.
+3. **Mój pierwszy test tej poprawki był teatrem** — asertował obecność stringu
+   w źródle i przechodził po cofnięciu poprawki, bo string został w linii obok.
+   Wyszło to tylko dlatego, że mam nawyk sprawdzania testu przez cofnięcie
+   pilnowanej własności. Decyzja jest teraz osobną funkcją
+   `needs_session_rollback`, testowaną wprost.
+
+Wzorzec całego dnia: pięć zmian weszło, ale **trzy z nich naprawiały defekty
+w rzeczach wypuszczonych wcześniej tego samego dnia** — i każdy z tych defektów
+przeszedł przez zielone CI.
 
 ## Otwarte
 
