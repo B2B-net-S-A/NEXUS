@@ -94,6 +94,26 @@ export function TalentRadarClientPicker({ value, onChange }: Props) {
               <div className="p-3 text-sm text-muted-foreground">
                 Ładowanie…
               </div>
+            ) : clientsQuery.isError ? (
+              // Awaria pobrania NIE może wyglądać jak pusta lista. Bez tej
+              // gałęzi `isError` przechodzi do `CommandEmpty` i użytkownik czyta
+              // „Brak wyników", czyli „ta organizacja nie ma klientów" — zamiast
+              // „nie udało się sprawdzić". To ta sama pomyłka, przed którą
+              // ostrzega docstring workspace'u przy `meta.degraded`, tylko piętro
+              // niżej: cisza po awarii jest nieodróżnialna od prawdziwego zera.
+              <div className="flex flex-col gap-2 p-3">
+                <p className="text-sm text-destructive">
+                  Nie udało się załadować listy klientów.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => clientsQuery.refetch()}
+                >
+                  Spróbuj ponownie
+                </Button>
+              </div>
             ) : (
               <CommandEmpty>Brak wyników.</CommandEmpty>
             )}
