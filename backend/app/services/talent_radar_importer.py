@@ -8,14 +8,14 @@ Cross-source dedup (added 2026-06): before inserting we check whether the
 person already exists in Nexus — by `external_id` (TalentRadar carries the
 Traffit id, so a TalentRadar row maps onto its `traffit` twin), by unique
 `email`, or by a corroborated dedup hit — and if so we **merge the CV into the
-existing row** instead of creating a parallel `talent_radar` record. This is
+existing row** instead of creating a parallel `tr_legacy` record. This is
 what prevents the double-import that previously produced ~1 884 duplicates
 (`('traffit', id)` and `('talent_radar', id)` coexisting). Only genuinely-new
-people get inserted as `external_source='talent_radar'`. Re-runs stay
+people get inserted as `external_source='tr_legacy'`. Re-runs stay
 idempotent (the per-source ON CONFLICT still covers same-source re-imports).
 
 Mapping (source → Nexus):
-  traffit_id              → external_id (string), external_source='talent_radar'
+  traffit_id              → external_id (string), external_source='tr_legacy'
   email                   → email
   name, lastname          → name, lastname
   raw_cv_text             → raw_cv_text
@@ -52,6 +52,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.candidate_location_writer import normalize_candidate_location
 from app.services.dedup_service import find_candidate_duplicates
+
+# Wartość zapisywana w `external_source` / `provenance`. Nazwa „Talent Radar"
+# należy od 2026-08-11 do modułu wyszukiwania (`/api/talent-radar/search`);
+# system źródłowy, z którego jednorazowo zaciągnięto ludzi, nazywa się tu
+# `tr_legacy`. Migracja 0222 przepisała istniejące wiersze (było ich 15 —
+# importer scala ludzi w istniejące rekordy, więc nie 40 tys. jak sugeruje
+# docstring o liczbie POBRANYCH wierszy).
+SOURCE_VALUE = "tr_legacy"
 
 logger = logging.getLogger(__name__)
 
@@ -116,28 +124,31 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         updated_at
     )
     SELECT
-        :candidate_id,
-        :filename,
-        :file_content,
-        :storage_key,
-        :size_bytes,
+        CAST(:candidate_id AS integer),
+        CAST(:filename AS text),
+        CAST(:file_content AS bytea),
+        CAST(:storage_key AS text),
+        CAST(:size_bytes AS integer),
         CAST('cv' AS candidatedocumentkind),
         NOT EXISTS (
             SELECT 1
             FROM candidate_documents AS current
-            WHERE current.candidate_id = :candidate_id
+            WHERE current.candidate_id = CAST(:candidate_id AS integer)
               AND current.document_kind = 'cv'
               AND current.is_primary IS TRUE
               AND current.source_deleted_at IS NULL
         ),
-        :uploaded_at,
-        :external_id,
-        'talent_radar',
-        :content_sha256,
+        CAST(:uploaded_at AS timestamptz),
+        CAST(:external_id AS text),
+        CAST(:external_source AS text),
+        CAST(:content_sha256 AS text),
         NOW(),
         NOW()
-    WHERE :filename IS NOT NULL
-      AND (:storage_key IS NOT NULL OR :file_content IS NOT NULL)
+    WHERE CAST(:filename AS text) IS NOT NULL
+      AND (
+          CAST(:storage_key AS text) IS NOT NULL
+          OR CAST(:file_content AS bytea) IS NOT NULL
+      )
     ON CONFLICT (external_source, external_id)
     WHERE external_id IS NOT NULL
     DO UPDATE SET
@@ -366,7 +377,7 @@ class TalentRadarImporter:
         return {
             "talent_radar_source_id": int(row["id"]),
             "external_id": str(row["traffit_id"]),
-            "external_source": "talent_radar",
+            "external_source": SOURCE_VALUE,
             "email": (row["email"] or "").strip() or None,
             "name": (row["name"] or "").strip() or "?",
             "lastname": (row["lastname"] or "").strip() or "?",
@@ -389,7 +400,7 @@ class TalentRadarImporter:
             "availability_date": parse_availability(row["availability"]),
             "cv_language": row["cv_language"],
             "cv_parsed_at": to_datetime_utc(row["cv_date"]),
-            "source": "talent_radar",
+            "source": SOURCE_VALUE,
             "status": "active",
         }
 
@@ -607,7 +618,7 @@ class TalentRadarImporter:
                         self.target_db,
                         candidate_id=existing_id,
                         raw_languages=p["languages"],
-                        provenance="talent_radar",
+                        provenance=SOURCE_VALUE,
                         source_ref=f"talent-radar:{p.get('external_id') or existing_id}",
                     )
                 if p.get("city") or p.get("country"):
@@ -648,7 +659,7 @@ class TalentRadarImporter:
                     self.target_db,
                     candidate_id=new_id,
                     raw_languages=p["languages"],
-                    provenance="talent_radar",
+                    provenance=SOURCE_VALUE,
                     source_ref=f"talent-radar:{p.get('external_id') or new_id}",
                 )
             if p.get("city") or p.get("country"):
@@ -706,6 +717,7 @@ class TalentRadarImporter:
                 "size_bytes": len(content) if content else None,
                 "uploaded_at": payload.get("cv_parsed_at"),
                 "external_id": f"candidate-{external_part}"[:100],
+                "external_source": SOURCE_VALUE,
                 "content_sha256": content_sha256,
             },
         )

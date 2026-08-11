@@ -391,9 +391,9 @@ _UPSERT_PIPELINE_TEMPLATE = text(
         external_id, external_source, name, description, is_default,
         archived, created_at, updated_at
     ) VALUES (
-        CAST(:external_id AS varchar(100)),
-        CAST(:external_source AS varchar(50)),
-        CAST(:name AS varchar(100)),
+        CAST(:external_id AS text),
+        CAST(:external_source AS text),
+        CAST(:name AS text),
         CAST(:description AS text),
         CAST(:is_default AS boolean),
         false, NOW(), NOW()
@@ -485,18 +485,18 @@ _UPSERT_CANDIDATE = text(
 _UPDATE_CANDIDATE_ADOPT = text(
     """
     UPDATE candidates
-    SET external_source = CAST(:external_source AS varchar(50)),
-        external_id     = CAST(:external_id AS varchar(100)),
-        name            = CAST(:name AS varchar(100)),
-        lastname        = CAST(:lastname AS varchar(100)),
-        phone           = COALESCE(CAST(:phone AS varchar(50)), candidates.phone),
-        linkedin        = COALESCE(CAST(:linkedin AS varchar(255)), candidates.linkedin),
+    SET external_source = CAST(:external_source AS text),
+        external_id     = CAST(:external_id AS text),
+        name            = CAST(:name AS text),
+        lastname        = CAST(:lastname AS text),
+        phone           = COALESCE(CAST(:phone AS text), candidates.phone),
+        linkedin        = COALESCE(CAST(:linkedin AS text), candidates.linkedin),
         status          = CAST(:status AS candidatestatus),
         profile_about   = COALESCE(
             CAST(:profile_about AS text),
             candidates.profile_about
         ),
-        cv_filename     = COALESCE(CAST(:cv_filename AS varchar(255)),
+        cv_filename     = COALESCE(CAST(:cv_filename AS text),
                                    candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
                             || CAST(:cv_extracted_data AS JSONB)
@@ -606,13 +606,13 @@ _UPSERT_USER = text(
         is_active, password_hash, profile_completed,
         created_at, updated_at
     ) VALUES (
-        CAST(:external_id AS varchar(100)),
-        CAST(:external_source AS varchar(50)),
-        CAST(:email AS varchar(255)),
-        CAST(:name AS varchar(255)),
+        CAST(:external_id AS text),
+        CAST(:external_source AS text),
+        CAST(:email AS text),
+        CAST(:name AS text),
         CAST(:role AS userrole),
         CAST(:is_active AS boolean),
-        CAST(:password_hash AS varchar(255)),
+        CAST(:password_hash AS text),
         true,
         NOW(), NOW()
     )
@@ -631,8 +631,8 @@ _UPSERT_USER = text(
 _UPDATE_USER_ADOPT = text(
     """
     UPDATE users
-    SET external_id     = CAST(:external_id AS varchar(100)),
-        external_source = CAST(:external_source AS varchar(50)),
+    SET external_id     = CAST(:external_id AS text),
+        external_source = CAST(:external_source AS text),
         updated_at      = NOW()
     WHERE id = :nexus_id
     RETURNING id
@@ -656,15 +656,15 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         created_at, updated_at
     ) VALUES (
         CAST(:candidate_id AS integer),
-        CAST(:filename AS varchar(500)),
-        CAST(:storage_key AS varchar(500)),
-        CAST(:content_type AS varchar(100)),
+        CAST(:filename AS text),
+        CAST(:storage_key AS text),
+        CAST(:content_type AS text),
         CAST(:size_bytes AS integer),
         CAST(:document_kind AS candidatedocumentkind),
         CAST(:is_primary AS boolean),
         :uploaded_at,
-        CAST(:external_id AS varchar(100)),
-        CAST(:external_source AS varchar(50)),
+        CAST(:external_id AS text),
+        CAST(:external_source AS text),
         NOW(), NOW()
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
@@ -1327,13 +1327,13 @@ class TraffitImporter:
                         created_at, updated_at
                     ) VALUES (
                         CAST(:template_id AS integer),
-                        CAST(:name AS varchar(100)),
+                        CAST(:name AS text),
                         CAST(:order AS integer),
                         CAST(:category AS stagecategoryenum),
                         CAST(:is_terminal AS boolean),
                         CAST(:terminal_type AS terminaltype),
-                        CAST(:legacy_enum_value AS varchar(50)),
-                        CAST(:external_id AS varchar(100)),
+                        CAST(:legacy_enum_value AS text),
+                        CAST(:external_id AS text),
                         'traffit',
                         false, '{}'::jsonb,
                         NOW(), NOW()
@@ -1383,7 +1383,7 @@ class TraffitImporter:
                     """
                     UPDATE pipeline_stage_defs
                        SET "order" = CAST(:o AS integer),
-                           name = CAST(:n AS varchar(100)),
+                           name = CAST(:n AS text),
                            updated_at = NOW()
                      WHERE id = CAST(:i AS integer)
                     """
@@ -1506,83 +1506,101 @@ class TraffitImporter:
                     collisions += 1
                     existing_id = owner_id
 
+                # Rozróżnia dwie ścieżki błędu w tym samym `except`: awaria
+                # ZAPISU WIERSZA jest już cofnięta przez savepoint, więc transakcja
+                # zewnętrzna żyje i sesji rollbackować NIE wolno — to właśnie ten
+                # rollback wyrzucał paczkę. Awaria ŚCIEŻKI COMMITA zostawia sesję
+                # w stanie nie do użytku i rollbacku wymaga.
+                row_committed_to_savepoint = False
                 try:
-                    if existing_id is not None:
-                        # Adopt existing candidate (e.g. from talent_radar).
-                        params = {
-                            "nexus_id": existing_id,
-                            "external_id": payload["external_id"],
-                            "external_source": payload["external_source"],
-                            "name": payload["name"],
-                            "lastname": payload["lastname"],
-                            "phone": payload.get("phone"),
-                            "linkedin": payload.get("linkedin"),
-                            "status": payload["status"],
-                            "profile_about": payload.get("profile_about"),
-                            "cv_filename": payload.get("cv_filename"),
-                            "cv_extracted_data": json.dumps(
-                                payload["cv_extracted_data"]
-                            ),
-                        }
-                        result = await self.db.execute(_UPDATE_CANDIDATE_ADOPT, params)
-                        row = result.fetchone()
-                        if row is None:
-                            continue
-                        candidate_id = row[0]
-                        progress.updated += 1
-                        adopted += 1
-                    else:
-                        params = dict(payload)
-                        params["cv_extracted_data"] = json.dumps(
-                            payload["cv_extracted_data"]
-                        )
-                        result = await self.db.execute(_UPSERT_CANDIDATE, params)
-                        row = result.fetchone()
-                        if row is None:
-                            continue
-                        candidate_id = row[0]
-                        if row[1]:
-                            progress.inserted += 1
-                            # Newly inserted — record its email so subsequent
-                            # Traffit candidates with the same email adopt it.
-                            if email_lc:
-                                email_to_id[email_lc] = row[0]
-                            # ...i jego external_id, żeby kolejny rekord o tym
-                            # samym ext nie próbował go ukraść innemu wierszowi.
-                            ext_to_id[str(payload["external_id"])] = row[0]
-                            # Kandydat, którego jeszcze nie było w Nexusie, nie ma
-                            # też wektora — a bez wektora nie istnieje w
-                            # rekomendacjach, hybrid searchu ani w Marketplace.
-                            # Zapisujemy INTENCJĘ (tani INSERT), nie embedujemy tu:
-                            # jedno wywołanie Voyage na wiersz zamieniłoby import
-                            # 55 tys. kandydatów w 55 tys. sekwencyjnych calli.
-                            new_candidate_ids.append(row[0])
-                        else:
+                    # Savepoint, nie goły zapis: bez niego błąd JEDNEGO wiersza
+                    # przewraca całą transakcję, a handler ratuje się
+                    # `db.rollback()` — czyli rollbackiem SESJI, który wyrzuca
+                    # wszystko zapisane od ostatniego commita (do `commit_every`
+                    # kandydatów). Ta sama pułapka co przy workflowach wyżej.
+                    # Ma to znaczenie zwłaszcza teraz, gdy casty przestały po
+                    # cichu ucinać za długie wartości i zaczęły je odrzucać:
+                    # pojedynczy zbyt długi rekord ma kosztować SIEBIE, nie paczkę.
+                    async with self.db.begin_nested():
+                        if existing_id is not None:
+                            # Adopt existing candidate (e.g. from talent_radar).
+                            params = {
+                                "nexus_id": existing_id,
+                                "external_id": payload["external_id"],
+                                "external_source": payload["external_source"],
+                                "name": payload["name"],
+                                "lastname": payload["lastname"],
+                                "phone": payload.get("phone"),
+                                "linkedin": payload.get("linkedin"),
+                                "status": payload["status"],
+                                "profile_about": payload.get("profile_about"),
+                                "cv_filename": payload.get("cv_filename"),
+                                "cv_extracted_data": json.dumps(
+                                    payload["cv_extracted_data"]
+                                ),
+                            }
+                            result = await self.db.execute(
+                                _UPDATE_CANDIDATE_ADOPT, params
+                            )
+                            row = result.fetchone()
+                            if row is None:
+                                continue
+                            candidate_id = row[0]
                             progress.updated += 1
-                    if payload.get("languages"):
-                        from app.services.candidate_language_writer import (
-                            sync_candidate_languages_from_source,
-                        )
+                            adopted += 1
+                        else:
+                            params = dict(payload)
+                            params["cv_extracted_data"] = json.dumps(
+                                payload["cv_extracted_data"]
+                            )
+                            result = await self.db.execute(_UPSERT_CANDIDATE, params)
+                            row = result.fetchone()
+                            if row is None:
+                                continue
+                            candidate_id = row[0]
+                            if row[1]:
+                                progress.inserted += 1
+                                # Newly inserted — record its email so subsequent
+                                # Traffit candidates with the same email adopt it.
+                                if email_lc:
+                                    email_to_id[email_lc] = row[0]
+                                # ...i jego external_id, żeby kolejny rekord o tym
+                                # samym ext nie próbował go ukraść innemu wierszowi.
+                                ext_to_id[str(payload["external_id"])] = row[0]
+                                # Kandydat, którego jeszcze nie było w Nexusie, nie ma
+                                # też wektora — a bez wektora nie istnieje w
+                                # rekomendacjach, hybrid searchu ani w Marketplace.
+                                # Zapisujemy INTENCJĘ (tani INSERT), nie embedujemy tu:
+                                # jedno wywołanie Voyage na wiersz zamieniłoby import
+                                # 55 tys. kandydatów w 55 tys. sekwencyjnych calli.
+                                new_candidate_ids.append(row[0])
+                            else:
+                                progress.updated += 1
+                        if payload.get("languages"):
+                            from app.services.candidate_language_writer import (
+                                sync_candidate_languages_from_source,
+                            )
 
-                        await sync_candidate_languages_from_source(
-                            self.db,
-                            candidate_id=candidate_id,
-                            raw_languages=payload["languages"],
-                            provenance="traffit",
-                            source_ref=f"traffit:{payload['external_id']}",
-                        )
-                    if payload.get("city") or payload.get("country"):
-                        from app.services.candidate_location_writer import (
-                            sync_candidate_location_from_source,
-                        )
+                            await sync_candidate_languages_from_source(
+                                self.db,
+                                candidate_id=candidate_id,
+                                raw_languages=payload["languages"],
+                                provenance="traffit",
+                                source_ref=f"traffit:{payload['external_id']}",
+                            )
+                        if payload.get("city") or payload.get("country"):
+                            from app.services.candidate_location_writer import (
+                                sync_candidate_location_from_source,
+                            )
 
-                        await sync_candidate_location_from_source(
-                            self.db,
-                            candidate_id=candidate_id,
-                            city=payload.get("city"),
-                            country=payload.get("country"),
-                            overwrite_existing=True,
-                        )
+                            await sync_candidate_location_from_source(
+                                self.db,
+                                candidate_id=candidate_id,
+                                city=payload.get("city"),
+                                country=payload.get("country"),
+                                overwrite_existing=True,
+                            )
+                    row_committed_to_savepoint = True
                     since_commit += 1
                     if since_commit >= commit_every:
                         await self._record_new_candidate_index_intent(
@@ -1617,8 +1635,9 @@ class TraffitImporter:
                     progress.add_error(msg)
                     if progress.errors <= 5 or progress.errors % 200 == 0:
                         logger.warning("Candidates upsert error: %s", msg[:300])
-                    await self.db.rollback()
-                    since_commit = 0
+                    if row_committed_to_savepoint:
+                        await self.db.rollback()
+                        since_commit = 0
 
         if not self.dry_run:
             await self._record_new_candidate_index_intent(new_candidate_ids, progress)

@@ -579,6 +579,7 @@ export type CandidateLanguageProvenance =
   | "cv"
   | "traffit"
   | "talent_radar"
+  | "tr_legacy"
   | "csv"
   | "legacy"
   | "unknown";
