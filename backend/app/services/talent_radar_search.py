@@ -26,7 +26,7 @@ query embedding and nothing else — no quota gate, no per-search spend.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Optional, Sequence
@@ -71,6 +71,11 @@ class RadarResult:
     eligible_size: int
     degraded: bool
     reason: Optional[str] = None
+    # `ScoreBreakdown` carries `candidate_id` and nothing else about the person.
+    # A search that answers with opaque integers is not a search a recruiter can
+    # read, and making the browser resolve each id would be an N+1 over the
+    # network on a list this endpoint already holds in memory.
+    candidates_by_id: dict[int, Any] = field(default_factory=dict)
 
     def as_meta(self) -> dict[str, Any]:
         return {
@@ -80,6 +85,30 @@ class RadarResult:
             "degraded": self.degraded,
             "reason": self.reason,
         }
+
+
+def shape_radar_candidate(candidate: Any) -> dict[str, Any]:
+    """Identity fields a result row needs — and no more.
+
+    Mirrors `_shape_seek_candidate` in `recommendations.py`, minus `email`.
+    A ranked list is a triage surface: the recruiter reads it to decide whom to
+    open. Contact details belong on the profile behind that click, so shipping
+    them in every search response would widen the exposure of personal data
+    without changing a single decision made on this screen.
+    """
+
+    availability = getattr(candidate, "availability_status", None)
+    return {
+        "id": candidate.id,
+        "name": candidate.name,
+        "lastname": candidate.lastname,
+        "location": getattr(candidate, "location", None),
+        "competence_category": getattr(candidate, "competence_category", None),
+        "years_it_experience": getattr(candidate, "years_it_experience", None),
+        "availability_status": availability.value if availability else None,
+        "champion": bool(getattr(candidate, "champion", False)),
+        "avatar_url": getattr(candidate, "avatar_url", None),
+    }
 
 
 def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
@@ -190,9 +219,13 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     )
     ranked = [b for b in breakdowns if b.total >= threshold][: query.top_k]
 
+    # Only the rows that survived ranking — the eligible pool can be a thousand
+    # wide, and shipping all of it would undo the trimming done above.
+    kept = {b.candidate_id for b in ranked}
     return RadarResult(
         breakdowns=ranked,
         pool_size=pool_size,
         eligible_size=eligible_size,
         degraded=False,
+        candidates_by_id={c.id: c for c in candidates if c.id in kept},
     )
