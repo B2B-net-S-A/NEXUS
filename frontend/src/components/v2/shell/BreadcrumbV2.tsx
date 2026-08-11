@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const SEGMENT_LABELS: Record<string, string> = {
+  "talent-radar": "Talent Radar",
   "": "Dashboard",
   candidates: "Kandydaci",
   jobs: "Rekrutacje",
@@ -60,7 +61,9 @@ function DynamicLabel({ entityType, id }: { entityType: string; id: string }) {
   const isCandidate = entityType === "candidates";
   const fetcher = ENTITY_NAME_FETCHERS[entityType];
   const { data, isLoading } = useQuery<any>({
-    queryKey: isCandidate ? ["candidate", Number(id)] : ["breadcrumb-v2", entityType, id],
+    queryKey: isCandidate
+      ? ["candidate", Number(id)]
+      : ["breadcrumb-v2", entityType, id],
     queryFn: isCandidate
       ? () => api.get(`/api/candidates/${id}`).then((r) => r.data)
       : () => fetcher(id),
@@ -87,7 +90,9 @@ export function BreadcrumbV2({ className }: { className?: string }) {
     );
   }
 
-  const crumbs: { label: React.ReactNode; href: string }[] = [{ label: "Dashboard", href: "/" }];
+  const crumbs: { label: React.ReactNode; href: string }[] = [
+    { label: "Dashboard", href: "/" },
+  ];
 
   let path = "";
   for (let i = 0; i < segments.length; i++) {
@@ -100,7 +105,8 @@ export function BreadcrumbV2({ className }: { className?: string }) {
         href: path,
       });
     } else if (!isNumeric(seg)) {
-      const label = SEGMENT_LABELS[seg] ?? (seg.length > 14 ? seg.slice(0, 12) + "…" : seg);
+      const label =
+        SEGMENT_LABELS[seg] ?? (seg.length > 14 ? seg.slice(0, 12) + "…" : seg);
       crumbs.push({ label, href: path });
     }
   }
