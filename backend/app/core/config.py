@@ -821,16 +821,29 @@ class Settings(BaseSettings):
     # and any NEW failure was invisible behind it. 5 runs ≈ 5 days at the daily
     # cadence — long enough that a real outage recovers on its own first.
     TRAFFIT_MAX_ROW_ATTEMPTS: int = 5
-    # How many candidates the weekly full reconcile sweeps for missing files in
-    # ONE run. The sweep visits every Traffit candidate (not just those with no
-    # files at all), which is one /files call each — ~49k at
-    # TRAFFIT_THROTTLE_RPS=5 is ~2.7 h, far too long to finish before a Coolify
-    # redeploy kills the run. So the scan is budgeted and resumable: the phase
-    # persists an `after_id` cursor and the next run continues from there, which
-    # also means an operator can close a backlog faster by triggering
-    # POST /api/admin/traffit/sync?mode=full repeatedly instead of waiting a week
-    # per slice. At the default the whole base is covered in ~5 full runs.
-    TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 10000
+    # How many candidates the full reconcile sweeps for missing files in ONE
+    # run. The sweep visits every Traffit candidate (not just those with no
+    # files at all), which is one /files call each — ~57k at
+    # TRAFFIT_THROTTLE_RPS=5 is ~3.2 h. Budgeted and resumable: the phase
+    # persists an `after_id` cursor and the next run continues from there, and
+    # an operator can close a backlog faster by triggering
+    # POST /api/admin/traffit/sync?mode=full repeatedly.
+    #
+    # The budget is NOT free to raise to "cover everything in one pass", and
+    # not for the obvious reason. A killed run resumes from its cursor, so the
+    # sweep itself loses nothing — but a full run re-scans the UNBUDGETED
+    # phases too (candidates ~57k, pipelines ~185k, activities ~397k) every
+    # time, and those have no per-slice budget to skip. So each extra run costs
+    # a full re-scan of everything else, which argues for a LARGER budget,
+    # while a run still going during the workday is likelier to be killed
+    # mid-sweep by a redeploy, which argues for a smaller one.
+    #
+    # 25k balances the two: the files phase runs ~1.4 h, a whole run lands
+    # around 05:00 UTC (07:00 local) — before pushes to main start — and the
+    # base is covered in ~3 runs instead of ~6. Combined with the nightly
+    # catch-up in `should_run_full`, a backlog closes in about three nights
+    # rather than a month and a half.
+    TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 25000
     # Same idea for the `"? ?"` name-recovery sweep, but a much tighter budget:
     # every row costs an LLM call, and the selection is NOT self-clearing (a CV
     # that yields no name stays `"?"`), so an unbounded pass would re-pay for the
