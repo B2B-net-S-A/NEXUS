@@ -107,3 +107,100 @@ async def test_overlong_value_costs_its_own_row_not_the_batch():
     finally:
         await engine.dispose()
         await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_session_recovers_when_the_connection_dies_not_just_the_statement():
+    """Savepoint nie cofnie się, jeśli nie ma czego pytać.
+
+    Pierwsza wersja bramki rollbackowała sesję tylko wtedy, gdy błąd przyszedł
+    ze ścieżki commita — bo „awaria zapisu jest już cofnięta przez savepoint,
+    więc transakcja zewnętrzna żyje". To prawda dla błędu INSTRUKCJI i fałsz dla
+    utraty POŁĄCZENIA: gdy backend Postgresa znika (restart, failover,
+    `idle_in_transaction_session_timeout`, reaper), `ROLLBACK TO SAVEPOINT` nie
+    ma dokąd pójść, sesja wpada w `PendingRollbackError`, a jedynym, co ją
+    podnosi, jest `rollback()` — którego warunek właśnie pomijał.
+
+    Kosztowało to nie jedną paczkę, tylko RESZTĘ fazy: każdy kolejny wiersz padał
+    i `import_candidates` rzucało zamiast zwrócić `PhaseProgress`.
+
+    `is_active` i `in_transaction()` raportują to samo przy martwym i zdrowym
+    połączeniu — dyskryminatorem jest `connection_invalidated`.
+    """
+
+    import os
+
+    import asyncpg
+
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        pytest.skip("DATABASE_URL not set")
+
+    raw_url = url.replace("postgresql+asyncpg://", "postgresql://")
+    engine = create_async_engine(url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_factory() as db:
+            await db.begin()
+            pid = await db.scalar(text("SELECT pg_backend_pid()"))
+
+            killer = await asyncpg.connect(raw_url)
+            try:
+                await killer.execute("SELECT pg_terminate_backend($1)", pid)
+            finally:
+                await killer.close()
+
+            invalidated = None
+            try:
+                async with db.begin_nested():
+                    await db.execute(text("SELECT 1"))
+            except Exception as exc:  # noqa: BLE001 - to jest badany przypadek
+                invalidated = getattr(exc, "connection_invalidated", False)
+
+            assert invalidated is True, (
+                "utrata połączenia musi być rozpoznawalna po `connection_invalidated` "
+                f"— dostałem {invalidated!r}; bez tego handler nie wie, że musi "
+                "podnieść sesję"
+            )
+
+            await db.rollback()
+            assert await db.scalar(text("SELECT 1")) == 1, (
+                "po rollbacku sesja musi znów działać — inaczej jeden blip "
+                "połączenia kosztuje resztę fazy importu"
+            )
+    finally:
+        await engine.dispose()
+        await asyncio.sleep(0)
+
+
+def test_rollback_decision_covers_connection_loss_not_only_the_commit_path():
+    """Decyzja jest osobną funkcją właśnie po to, żeby dało się ją tak przetestować.
+
+    Pierwsza wersja tego testu asertowała obecność stringu `connection_invalidated`
+    w źródle — i przechodziła po cofnięciu poprawki, bo string został w linii obok.
+    Test, który nie pada po usunięciu pilnowanej własności, nie jest testem.
+    """
+
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.traffit.importer import needs_session_rollback
+
+    statement_error = DBAPIError("stmt", None, Exception("boom"))
+    statement_error.connection_invalidated = False
+    connection_error = DBAPIError("stmt", None, Exception("gone"))
+    connection_error.connection_invalidated = True
+
+    # Błąd instrukcji: savepoint już go cofnął, sesji ruszać NIE wolno —
+    # rollback wyrzuciłby całą niezacommitowaną paczkę.
+    assert needs_session_rollback(statement_error, past_savepoint=False) is False
+
+    # Utrata połączenia: savepoint nie miał się jak wycofać, tylko rollback
+    # podnosi sesję. Bez tego padnie każdy kolejny wiersz fazy.
+    assert needs_session_rollback(connection_error, past_savepoint=False) is True
+
+    # Awaria ścieżki commita: savepoint zamknięty, rollback konieczny niezależnie
+    # od rodzaju błędu.
+    assert needs_session_rollback(statement_error, past_savepoint=True) is True
+
+    # Wyjątek bez atrybutu (nie-DBAPI) nie może wywrócić decyzji.
+    assert needs_session_rollback(ValueError("x"), past_savepoint=False) is False
