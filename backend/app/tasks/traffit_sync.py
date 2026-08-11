@@ -84,16 +84,85 @@ def should_run_full(
     hour_utc: int,
     *,
     min_gap_days: int = 6,
+    sweep_pending: bool = False,
 ) -> bool:
-    """Weekly full reconcile is due? Only on the configured weekday at/after the
-    hour — never fires immediately on enable (it's a heavy full scan)."""
-    if now_utc.weekday() != weekday:
-        return False
+    """Full reconcile is due? Weekly on the configured weekday — unless a
+    budgeted sweep is still mid-flight, in which case NIGHTLY until it lands.
+
+    The budgeted phases (`candidate_files`, `candidates_cv`,
+    `candidates_enrich_names`) cover a slice per run and park an `after_id`
+    cursor for the rest. On a weekly cadence the tail is reached one slice per
+    WEEK — ~57k candidates at the old 10k budget is over a month, and that
+    assumes nothing interrupts. Coolify restarts the container on every push to
+    main, so in practice a sweep needing several uninterrupted Sundays may
+    never reach the tail at all. That is not hypothetical: it is how the files
+    gap survived for months behind a green health probe.
+
+    `sweep_pending` is derived from the cursors themselves, not from a calendar
+    or a manual flag, so this is self-limiting — the extra runs stop the night
+    the sweep completes and clears its cursor. Nothing to remember to turn off.
+    """
     if now_utc.hour < hour_utc:
         return False
     if last_finished is None:
-        return True
+        # Never fires immediately on enable — it's a heavy full scan. And with
+        # no prior run there is no sweep of ours to resume anyway.
+        return now_utc.weekday() == weekday
+    if sweep_pending:
+        # Catching up: any day, but still at most one run per night — the loop
+        # ticks every 30 min and would otherwise restack a multi-hour scan.
+        return (now_utc - last_finished) >= timedelta(hours=20)
+    if now_utc.weekday() != weekday:
+        return False
     return (now_utc - last_finished) >= timedelta(days=min_gap_days)
+
+
+# Phases that cover a budgeted slice per full run and park the rest behind an
+# `after_id` cursor. A cursor on any of them means the last full sweep stopped
+# short of the tail. Names are the orchestrator's phase-plan names, i.e. the
+# rows `traffit_sync_state` actually carries.
+_BUDGETED_SWEEP_PHASES = (
+    "candidate_files",
+    "candidates_cv",
+    "candidates_enrich_names",
+)
+
+
+async def full_sweep_pending(db) -> bool:
+    """Did the last full run leave a budgeted sweep unfinished?
+
+    Reads the cursors rather than any elapsed-time heuristic: the cursor IS the
+    record of "there is more to sweep", and the phase clears it itself on a
+    clean pass.
+    """
+    rows = await db.execute(
+        text(
+            "SELECT cursor_payload FROM traffit_sync_state "
+            "WHERE phase = ANY(:phases) AND cursor_payload IS NOT NULL"
+        ),
+        {"phases": list(_BUDGETED_SWEEP_PHASES)},
+    )
+    for (payload,) in rows:
+        if not isinstance(payload, dict) or not payload:
+            continue
+        if payload.keys() & {"delta", "full"}:
+            # Per-mode shape. Only the full slot is ours; a delta-only slot is
+            # a different phase's business and must not trigger nightly full
+            # scans. Testing `"full" in payload` alone got this wrong — a
+            # delta-only payload fell through to the legacy branch below.
+            #
+            # Falsy slot == cleared, and that is an invariant of the writer, not
+            # an assumption: `_clear_mode_cursor` POPS the key rather than
+            # blanking it, and every `_write_mode_cursor` call passes a
+            # populated entry. If a future write path ever parks an empty slot
+            # as an intermediate state, it would read as "sweep finished" here
+            # and silently drop the catch-up — treat that as a reason to change
+            # this check, not to leave both behaviours in place.
+            if payload.get("full"):
+                return True
+            continue
+        return True  # legacy flat shape — a full-run cursor by construction
+    return False
 
 
 # ── Watermark state helpers ──────────────────────────────────────────────────
@@ -335,6 +404,8 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "skipped_pages",
         "resynced_pointers",
         "gone_upstream",
+        "unresolved_client",
+        "tombstoned",
         "drifted_entities",
         "drift",
         "total_source",
@@ -612,6 +683,7 @@ async def traffit_daily_sync_loop() -> None:
             async with AsyncSessionLocal() as db:
                 daily = await _get_state(db, DAILY_MARKER)
                 full = await _get_state(db, FULL_MARKER)
+                sweep_pending = await full_sweep_pending(db)
             daily_done = daily.last_run_finished_at if daily else None
             full_done = full.last_run_finished_at if full else None
 
@@ -620,8 +692,14 @@ async def traffit_daily_sync_loop() -> None:
                 full_done,
                 settings.TRAFFIT_SYNC_FULL_WEEKDAY,
                 settings.TRAFFIT_SYNC_HOUR_UTC,
+                sweep_pending=sweep_pending,
             ):
-                logger.info("Traffit: weekly full reconcile is due")
+                logger.info(
+                    "Traffit: full reconcile is due (%s)",
+                    "catching up — sweep cursor still set"
+                    if sweep_pending
+                    else "weekly schedule",
+                )
                 await run_traffit_sync("full")
             elif should_run_daily(now, daily_done, settings.TRAFFIT_SYNC_HOUR_UTC):
                 logger.info("Traffit: daily delta is due")

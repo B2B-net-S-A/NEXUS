@@ -54,6 +54,18 @@ description = "Voyage AI API key"
 regex = '''pa-[A-Za-z0-9_-]{30,}'''
 tags = ["voyage", "api-key"]
 
+# Klucz API konta serwisowego NEXUS-a (nagłówek X-API-Key).
+# Format ``nxs_v2_<24 hex>_<sekret>`` ma rozpoznawalny prefiks WŁAŚNIE po to,
+# żeby dało się go tu złapać: klucz wklejony do repo (skrypt operacyjny,
+# workflow, notatka) zapala CI zamiast leżeć w historii gita. Sekret jest
+# pokazywany raz i nie da się go odczytać z bazy, więc bez tej reguły wyciek
+# do repo byłby wykrywalny dopiero po fakcie.
+[[rules]]
+id = "nexus-service-account-key"
+description = "NEXUS service account API key (X-API-Key)"
+regex = '''nxs_v2_[0-9a-f]{24}_[A-Za-z0-9_-]{32,}'''
+tags = ["nexus", "api-key", "service-account"]
+
 [[rules]]
 id = "fireflies-api-key"
 description = "Fireflies API key (UUID format used for bearer tokens)"

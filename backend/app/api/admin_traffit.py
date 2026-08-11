@@ -5,32 +5,59 @@
   without waiting for the 02:00 UTC window.
 - ``GET  /api/admin/traffit/sync/status`` — watermark + last-run stats per phase.
 
-RBAC: admin only (``AdminUser`` dependency).
+RBAC: admin z JWT **albo** konto serwisowe z odpowiednim scope'em
+(``traffit:sync`` / ``traffit:read``) w nagłówku ``X-API-Key``.
+
+To są endpointy odpalane operacyjnie poza przeglądarką — dokumentacja aktywacji
+w CLAUDE.md każe „odpalić ``POST /api/admin/traffit/sync``", a pełny reconcile
+domyka się przez kilkukrotne wywołanie. Robienie tego tokenem wyklikanym
+w przeglądarce znaczyło, że automatyzacja podszywa się pod człowieka
+poświadczeniem, które i tak umiera po 8 h. Scope'y są rozdzielone celowo:
+klucz monitoringu czytający status nie ma prawa uruchomić pełnego importu.
 """
 
-from __future__ import annotations
+# UWAGA: bez `from __future__ import annotations` — PEP 563 zamienia adnotacje
+# FastAPI w ForwardRef, a `@limiter.limit` (slowapi #579) rozwiązuje je już
+# w SWOICH globalsach, więc `TraffitSyncCaller` przestaje być rozpoznawany
+# i ląduje jako wymagany parametr QUERY. Ten sam trap co w
+# `candidate_activity_summary.py`.
 
 import asyncio
-from typing import Any
+from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser
+from app.api.deps import TraffitReadCaller, TraffitSyncCaller
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.tasks.traffit_sync import run_traffit_sync, sync_is_running
 
 router = APIRouter()
 
 
+def _service_rate_limit() -> str:
+    """Limit czytany przy KAŻDYM requeście, nie w chwili importu modułu.
+
+    slowapi przyjmuje tu callable, więc zmiana ``SERVICE_ACCOUNT_RATE_LIMIT``
+    w Coolify działa po restarcie procesu, a nie dopiero po przebudowie obrazu.
+    """
+    return settings.SERVICE_ACCOUNT_RATE_LIMIT
+
+
 @router.post("/sync")
+@limiter.limit(_service_rate_limit)
 async def trigger_traffit_sync(
-    _admin: AdminUser,
+    request: Request,
+    _caller: TraffitSyncCaller,
     mode: str = Query("delta", pattern="^(delta|full)$"),
-) -> dict[str, Any]:
-    """Trigger a Traffit sync run in the background. Admin only."""
+) -> Dict[str, Any]:
+    """Trigger a Traffit sync run in the background. Admin JWT or ``traffit:sync``.
+
+    ``request`` jest w sygnaturze, bo wymaga go slowapi (kubełek limitu per IP).
+    """
     if not settings.TRAFFIT_SYNC_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -48,10 +75,12 @@ async def trigger_traffit_sync(
 
 
 @router.get("/sync/status")
+@limiter.limit(_service_rate_limit)
 async def traffit_sync_status(
-    _admin: AdminUser,
+    request: Request,
+    _caller: TraffitReadCaller,
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Current watermark + last-run stats for every phase + scheduler markers."""
     rows = await db.execute(
         text(

@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
@@ -60,6 +61,24 @@ class Candidate(Base, TimestampMixin):
     """
 
     __tablename__ = "candidates"
+    __table_args__ = (
+        # Indeks CZĘŚCIOWY — nagrobki są (i mają pozostać) rzadkie, więc pełny
+        # indeks na ~57 tys. wierszy kosztowałby tyle co skan, a interesuje nas
+        # wyłącznie garstka z wartością niepustą.
+        #
+        # Deklarowany TUTAJ, a nie przez `index=True` na kolumnie: `index=True`
+        # rejestruje w metadanych indeks PEŁNY o tej samej nazwie, którą
+        # migracja `0221` nadaje częściowemu. Raport `/api/admin/schema-drift`
+        # porównuje metadane z katalogiem bazy, więc taka para znaczyłaby
+        # trwały rozjazd na prodzie, a `alembic --autogenerate` wystawiłby
+        # DROP + CREATE gubiący predykat. Wzorzec z `call.py` /
+        # `client_framework_contract.py`.
+        Index(
+            "ix_candidates_external_deleted_at",
+            "external_deleted_at",
+            postgresql_where=text("external_deleted_at IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
@@ -303,6 +322,20 @@ class Candidate(Base, TimestampMixin):
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
     external_source: Mapped[Optional[str]] = mapped_column(
         String(50), default="manual", index=True
+    )
+    # Kiedy źródło (Traffit) odpowiedziało, że tego rekordu już u niego nie ma.
+    #
+    # To znacznik faktu U ŹRÓDŁA, nie kasowanie u nas: wiersz zostaje ze
+    # wszystkim, co do niego dopisaliśmy (notatki, etapy, ślady RODO). Usunięcie
+    # rekordu w Traffitcie nie jest zgodą na usunięcie NASZYCH danych — to
+    # osobna decyzja i podejmuje ją człowiek.
+    #
+    # Samoleczący się: gdy kandydat wróci w żywym feedzie `/employees/`,
+    # znacznik jest czyszczony przy upsercie. Bez tego pojedyncze 404 (np.
+    # chwilowa awaria po stronie Traffita) zostawiałoby trwałe kłamstwo.
+    # Indeks (częściowy) siedzi w `__table_args__` — patrz komentarz tam.
+    external_deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     cv_file_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
     # Klucz w Hetzner Object Storage (audit-2026-05-07 round 2, migracja 0080).
