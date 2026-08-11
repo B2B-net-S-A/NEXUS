@@ -82,13 +82,18 @@ const poppins = localFont({
 // words like "Rekrutację" or "Ścieżka" rendered with single letters in a
 // different typeface, weight and width. Baloo 2 keeps the same chunky rounded
 // character and covers Polish completely (verified glyph-by-glyph).
+// Jeden wpis z ZAKRESEM wag, nie cztery kopie tej samej ścieżki. Cztery wpisy
+// generują cztery bloki @font-face na ten sam plik i — co ważniejsze — ucinają
+// oś na najwyższej zadeklarowanej wadze.
+//
+// Zakres sięga 800, a nie 700, bo tryb kids podmienia także `--font-poppins`,
+// zadeklarowanego do 800. `font-extrabold` występuje w 22 plikach, m.in.
+// w `HeroLigaMistrzow` i `ChampionsPodium` — czyli dokładnie na ekranach
+// gamifikacji, gdzie ten motyw jest używany. Przy suficie 700 te nagłówki
+// cicho spadały o dwie wagi. Oś Baloo 2 to `400..800`, więc pełny zakres jest
+// tu darmowy.
 const baloo2 = localFont({
-  src: [
-    { path: "./fonts/Baloo2-Variable.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/Baloo2-Variable.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/Baloo2-Variable.woff2", weight: "600", style: "normal" },
-    { path: "./fonts/Baloo2-Variable.woff2", weight: "700", style: "normal" },
-  ],
+  src: [{ path: "./fonts/Baloo2-Variable.woff2", weight: "400 800", style: "normal" }],
   variable: "--font-kids",
   display: "swap",
 });
