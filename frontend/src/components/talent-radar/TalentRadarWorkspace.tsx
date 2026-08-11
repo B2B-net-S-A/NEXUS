@@ -97,7 +97,20 @@ export function TalentRadarWorkspace() {
             <Label htmlFor="tr-client">
               Klient <span className="text-destructive">*</span>
             </Label>
-            <TalentRadarClientPicker value={client} onChange={setClient} />
+            <TalentRadarClientPicker
+              value={client}
+              onChange={(picked) => {
+                setClient(picked);
+                // Wyniki są prawdziwe WYŁĄCZNIE dla klienta, dla którego
+                // policzono filtr dopuszczalności. Zostawienie ich po zmianie
+                // klienta pokazywałoby listę odsianą przez blacklistę, NDA i
+                // weto klienta A pod zdaniem „…wolno zaproponować TEMU
+                // klientowi", wskazującym już na klienta B — czyli fałszywe
+                // zapewnienie zgodności, dokładnie to, czemu obowiązkowy klient
+                // ma zapobiegać.
+                setResponse(null);
+              }}
+            />
             <p className="text-xs text-muted-foreground">
               Wymagany — względem niego sprawdzamy blacklistę, NDA, konflikty
               konkurencyjne i weto hiring managera.
