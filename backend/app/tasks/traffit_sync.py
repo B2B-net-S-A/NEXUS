@@ -150,6 +150,14 @@ async def full_sweep_pending(db) -> bool:
             # a different phase's business and must not trigger nightly full
             # scans. Testing `"full" in payload` alone got this wrong — a
             # delta-only payload fell through to the legacy branch below.
+            #
+            # Falsy slot == cleared, and that is an invariant of the writer, not
+            # an assumption: `_clear_mode_cursor` POPS the key rather than
+            # blanking it, and every `_write_mode_cursor` call passes a
+            # populated entry. If a future write path ever parks an empty slot
+            # as an intermediate state, it would read as "sweep finished" here
+            # and silently drop the catch-up — treat that as a reason to change
+            # this check, not to leave both behaviours in place.
             if payload.get("full"):
                 return True
             continue

@@ -47,9 +47,19 @@ def test_pending_sweep_makes_it_due_on_a_weekday() -> None:
 
 def test_catch_up_still_respects_the_hour_and_one_run_per_night() -> None:
     """Catching up is not "run continuously" — the 30-min loop tick would
-    otherwise re-trigger a multi-hour full scan on top of itself."""
+    otherwise re-trigger a multi-hour full scan on top of itself.
+
+    Both cases carry a real `last_finished`. Passing `None` would land in the
+    first-run branch instead of the catch-up branch, so the assertion would
+    hold even if catch-up ignored the hour entirely — green for a reason that
+    has nothing to do with the name on the test. The gap is measured from
+    `before_hour`, not from `_WEDNESDAY`: anchoring it to the latter leaves
+    only 19 h, so the 20-h gate would be what returns False and the hour gate
+    would again go unexercised.
+    """
     before_hour = _WEDNESDAY.replace(hour=1)
-    assert not should_run_full(before_hour, None, 6, 2, sweep_pending=True)
+    long_enough_ago = before_hour - timedelta(hours=21)  # past the 20-h gate
+    assert not should_run_full(before_hour, long_enough_ago, 6, 2, sweep_pending=True)
 
     just_finished = _WEDNESDAY - timedelta(hours=2)
     assert not should_run_full(_WEDNESDAY, just_finished, 6, 2, sweep_pending=True)
@@ -117,8 +127,14 @@ async def test_legacy_flat_cursor_counts_as_pending() -> None:
 @pytest.mark.asyncio
 async def test_no_cursors_means_not_pending() -> None:
     assert await full_sweep_pending(_FakeDB([])) is False
-    # An empty/None slot is a cleared cursor, not an unfinished sweep.
+    # A falsy slot is a CLEARED cursor, not an unfinished sweep. That is the
+    # writer's invariant, not a guess: `_clear_mode_cursor` pops the key rather
+    # than blanking it, and every `_write_mode_cursor` call passes a populated
+    # entry — so `{"full": {}}` is unreachable today. Pinned here so that if
+    # someone later parks an empty slot as an intermediate state, this test
+    # states what the reader will conclude from it.
     assert await full_sweep_pending(_FakeDB([{"full": None}, {}])) is False
+    assert await full_sweep_pending(_FakeDB([{"full": {}}])) is False
 
 
 def test_budget_covers_the_base_in_a_handful_of_runs() -> None:
