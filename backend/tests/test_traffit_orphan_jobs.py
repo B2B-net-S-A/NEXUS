@@ -198,8 +198,14 @@ async def test_orphan_never_takes_a_client_away_from_an_existing_job(db) -> None
         batch_size=10,
     ).import_jobs()
 
-    assert progress.orphaned == 0, "sierota przejęła rekrutację, która miała klienta"
-    assert (await _job_row(db, ext))[1] == f"Klient {cext}"
+    # `orphaned` liczy to, CO PRZYSZŁO z Traffita (rekrutacja bez
+    # rozwiązywalnego klienta), a nie to, co z tym zrobiliśmy — więc rośnie
+    # także tutaj. Dowodem, że sierota niczego nie przejęła, jest przypisanie
+    # w bazie, nie licznik.
+    assert progress.orphaned == 1
+    assert (await _job_row(db, ext))[1] == f"Klient {cext}", (
+        "sierota przejęła rekrutację, która miała już poprawnego klienta"
+    )
 
 
 @pytest.mark.asyncio
@@ -243,14 +249,21 @@ async def test_reimport_does_not_duplicate_or_multiply_the_orphan(db) -> None:
     traffit = _JobsTraffit([_recruitment(ext, client=None)])
 
     for _ in range(2):
-        await TraffitImporter(
-            traffit, db, dry_run=False, batch_size=10
-        ).import_jobs()
+        await TraffitImporter(traffit, db, dry_run=False, batch_size=10).import_jobs()
 
     jobs = await db.execute(
         text("SELECT count(*) FROM jobs WHERE external_id = :e"), {"e": ext}
     )
     assert jobs.scalar_one() == 1
+
+    # Licznik jest STABILNY między biegami — drugi przebieg nadal raportuje tę
+    # sierotę. Gdyby liczył tylko pierwsze przypisanie, `/sync/status` po
+    # pierwszym biegu pokazywałby 0 przy rekrutacjach wciąż siedzących u
+    # zastępczego klienta: zielona liczba nad realną luką.
+    third = await TraffitImporter(
+        traffit, db, dry_run=False, batch_size=10
+    ).import_jobs()
+    assert third.orphaned == 1
 
     orphans = await db.execute(
         text("SELECT count(*) FROM clients WHERE name = :n"), {"n": ORPHAN_CLIENT_NAME}

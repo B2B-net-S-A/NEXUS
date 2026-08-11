@@ -1729,7 +1729,15 @@ class TraffitImporter:
                     if orphan_client_id is None:
                         orphan_client_id = await self._ensure_orphan_client()
                     payload["client_id"] = orphan_client_id
-                    progress.orphaned += 1
+                # Liczone w OBU gałęziach, bo licznik opisuje to, co przyszło z
+                # Traffita („rekrutacja bez rozwiązywalnego klienta"), a nie to,
+                # co z nią zrobiliśmy. Gdyby rósł tylko przy pierwszym
+                # przypisaniu, po pierwszym biegu wskazywałby 0, podczas gdy
+                # rekrutacje dalej siedziałyby u zastępczego klienta — czyli
+                # dokładnie ten wzorzec, który ta seria poprawek likwiduje:
+                # zielona liczba nad realną luką. Tak licznik jest stabilny
+                # między biegami i widać po nim, czy zjawisko rośnie.
+                progress.orphaned += 1
 
             # Disambiguate duplicate reference_number (Traffit allows it,
             # Nexus has uq_jobs_reference_number). First occurrence keeps the
