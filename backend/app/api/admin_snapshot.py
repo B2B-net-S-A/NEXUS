@@ -69,6 +69,14 @@ async def _snapshot_auth(
     if raw_api_key:
         # Ta sama zależność co przy Traffit — jedno miejsce, w którym zapada
         # decyzja o kluczu, wliczając blokadę impersonacji i stempel użycia.
+        #
+        # UWAGA: wołane BEZPOŚREDNIO, nie przez DI FastAPI. `_check` deklaruje
+        # `db: AsyncSession = Depends(get_db)`, ale tutaj `Depends` jest tylko
+        # metadanymi — sesję podajemy ręcznie. Działa, bo to jedyny parametr
+        # z `Depends`. Jeśli `_check` kiedykolwiek dostanie kolejny, NIE
+        # rozwiąże się sam i trzeba go tu dołożyć albo przejść na prawdziwe DI.
+        # Ten endpoint ma trzy ścieżki uwierzytelnienia w jednej funkcji, więc
+        # nie da się tego zrobić deklaratywnie bez rozbicia go na trzy.
         await _require_snapshot_scope(request=request, credentials=None, db=db)
         return "service_account"
 

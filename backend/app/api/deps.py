@@ -460,6 +460,17 @@ class Caller:
     user: Optional[User] = None
     service: Optional[ServicePrincipal] = None
 
+    def __post_init__(self) -> None:
+        # Niezmiennik: DOKŁADNIE jedno z dwóch. `_check` zawsze ustawia jedno,
+        # ale `Caller` jest publiczną dataklasą i nic nie broni komuś zbudować
+        # pustej. Wtedy `audit_label` zwraca "unknown" — czyli wpis audytowy
+        # bez sprawcy, co jest gorsze niż wyjątek, bo wygląda na dane.
+        if (self.user is None) == (self.service is None):
+            raise ValueError(
+                "Caller wymaga dokładnie jednego: user albo service "
+                f"(user={self.user is not None}, service={self.service is not None})"
+            )
+
     @property
     def is_service_account(self) -> bool:
         return self.service is not None
@@ -518,6 +529,19 @@ async def _authenticate_service_key(
             detail="Konto serwisowe nie może podszywać się pod użytkownika",
         )
 
+    # Stempel leci po UWIERZYTELNIENIU, a przed sprawdzeniem scope'u — czyli
+    # request odrzucony 403 za brak uprawnienia też odświeża `last_used_at`.
+    # To jest wybór, nie przeoczenie: `last_used_at` odpowiada na pytanie „czy
+    # ktoś jeszcze tego klucza używa", a nie „czy używa go skutecznie".
+    #
+    # Odwrotnie byłoby gorzej. Klucz strzelający co minutę ze źle dobranym
+    # scope'em wyglądałby na kompletnie nieużywany, więc operator uznałby go za
+    # martwy i skasował — zamiast zobaczyć, że jakaś integracja żyje i jest
+    # źle skonfigurowana. Samo odrzucenie i tak jest widoczne w logach
+    # audytowych, więc informacja „strzela, ale bez uprawnień" nie ginie.
+    #
+    # Zachowanie jest przypięte testem (`test_scope_denied_still_stamps_usage`),
+    # żeby nie zmieniło się po cichu przy refaktorze.
     await stamp_key_usage(db, key.key_id, client_ip)
     return principal
 

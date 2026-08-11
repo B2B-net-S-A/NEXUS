@@ -193,6 +193,7 @@ async def _account_with_key(
 # ``GET /api/admin/traffit/sync/status`` to konkretny przypadek użycia, który
 # wywołał całą funkcję: endpoint operacyjny odpalany poza przeglądarką.
 TRAFFIT_STATUS = "/api/admin/traffit/sync/status"
+TRAFFIT_SYNC = "/api/admin/traffit/sync"
 
 
 class TestApiKeyAuthorization:
@@ -455,6 +456,39 @@ class TestApiKeyAuthorization:
                 )
             )
             assert row.last_used_at is None
+
+    async def test_scope_denied_still_stamps_usage(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        """Odrzucenie za BRAK SCOPE'U stempluje — i to jest wybór, nie luka.
+
+        `last_used_at` odpowiada na pytanie „czy ktoś jeszcze tego klucza
+        używa", nie „czy używa go skutecznie". Gdyby 403 nie stemplował, klucz
+        strzelający co minutę ze źle dobranym scope'em wyglądałby na
+        kompletnie nieużywany — operator uznałby go za martwy i skasował,
+        zamiast zobaczyć, że jakaś integracja żyje i jest źle skonfigurowana.
+
+        Odwrotnie niż przy BŁĘDNYM SEKRECIE (test wyżej), gdzie stempla być nie
+        może: tam nie wiadomo nawet, czy dzwoni właściciel klucza.
+
+        Test istnieje po to, żeby ta różnica nie zniknęła po cichu przy
+        refaktorze — sama w sobie jest niewidoczna w kodzie, bo wynika z
+        KOLEJNOŚCI dwóch operacji w różnych funkcjach.
+        """
+        _, api_key, key = await _account_with_key(
+            app_client, app_auth_headers, ["traffit:read"]
+        )
+        # Klucz poprawny, ale bez `traffit:sync` wymaganego przez ten endpoint.
+        resp = await app_client.post(TRAFFIT_SYNC, headers={"X-API-Key": api_key})
+        assert resp.status_code == 403
+
+        async with AsyncSessionLocal() as db:
+            row = await db.scalar(
+                select(ServiceAccountKey).where(
+                    ServiceAccountKey.key_id == key["key_id"]
+                )
+            )
+            assert row.last_used_at is not None
 
 
 # ── 4. Powierzchnia administracyjna ──────────────────────────────────────────
