@@ -124,28 +124,31 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
         updated_at
     )
     SELECT
-        :candidate_id,
-        :filename,
-        :file_content,
-        :storage_key,
-        :size_bytes,
+        CAST(:candidate_id AS integer),
+        CAST(:filename AS text),
+        CAST(:file_content AS bytea),
+        CAST(:storage_key AS text),
+        CAST(:size_bytes AS integer),
         CAST('cv' AS candidatedocumentkind),
         NOT EXISTS (
             SELECT 1
             FROM candidate_documents AS current
-            WHERE current.candidate_id = :candidate_id
+            WHERE current.candidate_id = CAST(:candidate_id AS integer)
               AND current.document_kind = 'cv'
               AND current.is_primary IS TRUE
               AND current.source_deleted_at IS NULL
         ),
-        :uploaded_at,
-        :external_id,
-        :external_source,
-        :content_sha256,
+        CAST(:uploaded_at AS timestamptz),
+        CAST(:external_id AS text),
+        CAST(:external_source AS text),
+        CAST(:content_sha256 AS text),
         NOW(),
         NOW()
-    WHERE :filename IS NOT NULL
-      AND (:storage_key IS NOT NULL OR :file_content IS NOT NULL)
+    WHERE CAST(:filename AS text) IS NOT NULL
+      AND (
+          CAST(:storage_key AS text) IS NOT NULL
+          OR CAST(:file_content AS bytea) IS NOT NULL
+      )
     ON CONFLICT (external_source, external_id)
     WHERE external_id IS NOT NULL
     DO UPDATE SET
