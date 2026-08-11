@@ -1,0 +1,194 @@
+"""Talent Radar — ad-hoc role in, ranked candidates out.
+
+The composition is thin; what these tests guard are the constraints that make it
+safe, because each of them is a defect this codebase has already shipped once.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+from app.services import talent_radar_search as tr
+from app.services.talent_radar_search import (
+    RadarQuery,
+    RadarResult,
+    TalentRadarError,
+    build_ephemeral_job,
+)
+
+BACKEND = Path(__file__).resolve().parents[1]
+
+
+def test_ephemeral_job_sets_every_attribute_the_scoring_path_reads():
+    """Derived from the source, not hand-listed — a hand list rots silently.
+
+    `build_ephemeral_job` returns a SimpleNamespace, so it has exactly what we
+    put on it and nothing more. A missing attribute is an `AttributeError` in
+    the middle of a live search, not a startup failure.
+
+    The first version of this test enumerated the attributes by hand. That is
+    the weaker guard: the day scoring starts reading `job.something_new`, a hand
+    list still passes and only production finds out. So the expected set is
+    walked out of the modules the radar actually calls. Extra attributes on the
+    namespace are fine; missing ones are not.
+    """
+
+    import ast
+
+    backend = Path(__file__).resolve().parents[1]
+    required: set[str] = set()
+    for module in (
+        "app/services/scoring_service.py",
+        "app/services/embedding_service.py",
+        "app/services/pipeline_eligibility.py",
+    ):
+        tree = ast.parse((backend / module).read_text(encoding="utf-8"))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            params = {a.arg for a in [*fn.args.args, *fn.args.kwonlyargs]}
+            if "job" not in params:
+                continue
+            required |= {
+                node.attr
+                for node in ast.walk(fn)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "job"
+            }
+
+    assert required, "derivation found nothing — the walk is broken, not the code"
+
+    job = build_ephemeral_job(RadarQuery(client_id=7, text="Senior Python"))
+    missing = sorted(attr for attr in required if not hasattr(job, attr))
+    assert not missing, (
+        f"scoring reads job.{{{','.join(missing)}}} — set it in build_ephemeral_job"
+    )
+
+
+def test_ephemeral_job_has_no_id_so_it_cannot_touch_pipeline_history():
+    """`id=None` is load-bearing, not a placeholder.
+
+    `build_job_scoring_context` filters `CandidateStage.job_id == job.id`; a real
+    id would pull another job's screening answers into an unrelated search.
+    """
+    job = build_ephemeral_job(RadarQuery(client_id=7, text="x"))
+    assert job.id is None
+
+
+def test_client_is_carried_onto_the_job_or_conflicts_cannot_be_checked():
+    job = build_ephemeral_job(RadarQuery(client_id=42, text="x"))
+    assert job.client_id == 42, (
+        "the eligibility filter reads client_id — losing it here would silently "
+        "skip NDA, competitor and veto checks"
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_query_is_refused_before_any_paid_call():
+    class _DB:
+        async def scalar(self, *_a, **_k):  # pragma: no cover - must not be reached
+            raise AssertionError("no DB work before the input is validated")
+
+    with pytest.raises(TalentRadarError):
+        await tr.search(_DB(), RadarQuery(client_id=1))
+
+
+@pytest.mark.asyncio
+async def test_unknown_client_is_refused_rather_than_searched_unfiltered():
+    """The whole point of the mandatory client.
+
+    Answering without one would produce a list whose NDA / competitor / veto
+    checks silently passed — the `/ai-matches` defect, rebuilt on a new surface.
+    """
+
+    class _DB:
+        async def scalar(self, *_a, **_k):
+            return None  # no such client
+
+    with pytest.raises(TalentRadarError) as exc:
+        await tr.search(_DB(), RadarQuery(client_id=999, text="Senior Python"))
+
+    assert "klienta" in str(exc.value).lower()
+
+
+def test_degraded_retrieval_is_reported_not_rendered_as_no_matches():
+    result = RadarResult(
+        breakdowns=[], pool_size=0, eligible_size=0, degraded=True, reason="x"
+    )
+    meta = result.as_meta()
+    assert meta["degraded"] is True, (
+        "an empty list from a broken provider must be distinguishable from "
+        "'we have nobody like that'"
+    )
+
+
+def _calls_in(module_rel: str, func_name: str) -> set[str]:
+    tree = ast.parse((BACKEND / module_rel).read_text(encoding="utf-8"))
+    target = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name == func_name
+    )
+    return {
+        n.func.id
+        for n in ast.walk(target)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+
+
+def test_search_enforces_eligibility():
+    assert "filter_eligible_candidates" in _calls_in(
+        "app/services/talent_radar_search.py", "search"
+    ), "Talent Radar would surface candidates the recruiter cannot assign"
+
+
+def test_search_does_not_write_the_score_cache():
+    """The cache key is (candidate, job, profile) and this job has no id.
+
+    Using `bulk_get_or_compute` here would either collide across unrelated
+    ad-hoc searches or write rows keyed on a null job.
+    """
+    calls = _calls_in("app/services/talent_radar_search.py", "search")
+    assert "rank_candidates_for_job" in calls
+    assert "bulk_get_or_compute" not in calls
+
+
+def test_module_makes_no_llm_call():
+    """One Voyage query embedding, nothing else — so the module is free to use.
+
+    Implicit must-skills come from `_score_skills`' existing JD/Champion
+    fallback, which is why no parse step is needed.
+    """
+    src = (BACKEND / "app/services/talent_radar_search.py").read_text(encoding="utf-8")
+    for forbidden in ("parse_cv", "call_claude", "ai_feature"):
+        assert forbidden not in src, (
+            f"{forbidden} would add per-search spend and a quota gate to a "
+            "module that currently needs neither"
+        )
+
+
+def test_endpoint_module_has_no_future_annotations_import():
+    """PEP 563 turns the body model into a ForwardRef and FastAPI then resolves
+    it as a *Query* parameter, which fails while building the OpenAPI schema.
+
+    `cv_match_preview` carries the same warning in its own docstring; this module
+    was written by copying that pattern and adding the import anyway, so the
+    guard lives here as well as in prose.
+    """
+    # Parsed, not grepped: the module docstring *mentions* the import in order
+    # to warn about it, so a substring check fails on its own warning.
+    tree = ast.parse((BACKEND / "app/api/talent_radar.py").read_text(encoding="utf-8"))
+    future_imports = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        for alias in node.names
+    }
+    assert "annotations" not in future_imports, (
+        "PEP 563 breaks FastAPI body resolution on this endpoint"
+    )
