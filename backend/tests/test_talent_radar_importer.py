@@ -1,6 +1,7 @@
 """Unit tests for TalentRadarImporter normalizers (Phase 7a)."""
 
 from datetime import date, datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -227,3 +228,59 @@ async def test_talent_radar_dry_run_never_uploads_cv(monkeypatch):
         [{"talent_radar_source_id": 1, "cv_file_content": b"private"}]
     ) == (0, 0)
     storage_work.assert_not_awaited()
+
+
+def test_no_python_constant_leaks_into_a_non_f_string_sql_body():
+    """A bare Python name inside ``text("...")`` reaches Postgres as an identifier.
+
+    ``_UPSERT_CANDIDATE_DOCUMENT`` shipped with a bare ``SOURCE_VALUE`` where the
+    original had the SQL literal ``'talent_radar'``. The body is a plain string,
+    not an f-string, so Postgres would have parsed it as a column reference and
+    failed with ``column "source_value" does not exist`` on every CV upsert.
+
+    CI stayed green over it because every test in this module replaces
+    ``db.execute`` with an ``AsyncMock`` — the statement is asserted on, never
+    parsed. So the guard cannot be "does this one line look right"; it has to be
+    the shape of the mistake, checked across the whole backend. Renaming the
+    constant, or repeating the slip in another module, still trips it.
+    """
+
+    import ast
+    import re
+
+    app_root = Path(__file__).resolve().parents[1] / "app"
+    leaks: list[str] = []
+
+    for path in sorted(app_root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - app/ must import anyway
+            continue
+        constants = {
+            target.id
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name) and target.id.isupper()
+        }
+        if not constants:
+            continue
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "text"
+                and node.args
+            ):
+                continue
+            body = node.args[0]
+            if not (isinstance(body, ast.Constant) and isinstance(body.value, str)):
+                continue  # f-strings interpolate; only plain bodies can leak
+            for name in constants:
+                # Not preceded by ':' — that is a bind parameter, which is fine.
+                if re.search(rf"(?<![\w:]){re.escape(name)}(?![\w])", body.value):
+                    leaks.append(
+                        f"{path.relative_to(app_root.parent)}:{node.lineno} → {name}"
+                    )
+
+    assert not leaks, "Python name(s) embedded in SQL text: " + "; ".join(leaks)

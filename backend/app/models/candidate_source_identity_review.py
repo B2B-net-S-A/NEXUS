@@ -42,7 +42,8 @@ class CandidateSourceIdentityReview(Base, TimestampMixin):
             name="uq_candidate_source_identity_review",
         ),
         CheckConstraint(
-            "source_kind IN ('note', 'document', 'legacy_cv', 'talent_radar_cv')",
+            "source_kind IN ('note', 'document', 'legacy_cv', "
+            "'talent_radar_cv', 'tr_legacy_cv')",
             name="ck_candidate_source_identity_review_kind",
         ),
         CheckConstraint(
