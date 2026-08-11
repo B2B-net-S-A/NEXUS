@@ -152,6 +152,40 @@ class Settings(BaseSettings):
     # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
     # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
     MATCH_POOL_SIZE: int = 1000
+    # Warstwa bez sygnału jest USUWANA z budżetu zamiast dostawać stałą liczbę
+    # punktów. Zmierzone na prodzie 2026-08-10, dlaczego to nie jest kosmetyka:
+    #   * 90% ofert nie ma `nice_skills` → stara reguła dawała tam WSZYSTKIM 0/10,
+    #   * 13% ofert nie ma `must_skills` → dawała WSZYSTKIM 20/20,
+    #   * wszystkie trzy ścieżki `_score_salary` zwracały tę samą stałą 7,8,
+    #   * `champion_fit` czyta screening, który pula z definicji wyklucza, więc
+    #     każdy dostawał 6,5.
+    # Żadna z tych liczb nikogo nie różnicuje — to ~28 pkt szumu na 100, który
+    # windował podłogę powyżej progu RECOMMENDATION_MIN_SCORE=40 i sprawiał, że
+    # próg przestawał cokolwiek znaczyć. Renormalizacja liczy wynik z warstw,
+    # które REALNIE miały co ocenić, i skaluje do 100: „z tego, co dało się
+    # ocenić, kandydat ma X%".
+    #
+    # DOMYŚLNIE WYŁĄCZONE — i to jest wynik pomiaru, nie ostrożność.
+    #
+    # Zmierzone 2026-08-10 na tych samych 40 ofertach, pula 1000, boost włączony:
+    #   bez renormalizacji: P@5 0,110 · R@20n 0,090 · MRR 0,273 · nDCG 0,088
+    #   z renormalizacją:   P@5 0,110 · R@20n 0,091 · MRR 0,282 · nDCG 0,083
+    # Czyli ZERO poprawy rankingu — i to jest logiczne: stała dodana wszystkim
+    # nie zmienia KOLEJNOŚCI, a P@5/R@20/MRR/nDCG zależą wyłącznie od kolejności.
+    # Teza „22 pkt szumu psuje ranking" była błędna; szum jest realny, ale psuje
+    # co innego.
+    #
+    # Co ta zmiana naprawia naprawdę: ZNACZENIE liczby. Kandydat pokazany jako
+    # „43/100", gdzie 22 pkt to stałe za brak danych, wprowadza rekrutera w błąd,
+    # a próg RECOMMENDATION_MIN_SCORE=40 przestaje cokolwiek odsiewać. Tego
+    # jednak harness nie mierzy — on rankuje, nie filtruje.
+    #
+    # Włączenie zmienia skalę każdego widocznego wyniku i wymaga rekalibracji
+    # progu 40, więc czeka na osobny eksperyment mierzący efekt PROGU, nie
+    # kolejności. Mechanizm jest gotowy i przetestowany; brakuje dowodu, że
+    # warto go włączyć. Flaga wchodzi do klucza cache, więc flip przelicza
+    # wyniki leniwie, bez migracji.
+    SCORE_RENORMALIZE_UNSCORED_LAYERS: bool = False
     # Gdy filtr lokalizacji jest aktywny na /recommendations, poszerzamy pulę
     # retrieve z Qdrant do tej wartości — tylko ~17% kandydatów ma jakąkolwiek
     # lokalizację, więc domyślny semantic cut (top-200) głodzi zlokalizowany

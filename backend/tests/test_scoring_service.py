@@ -126,7 +126,8 @@ def test_score_skills_no_must_returns_full_must_fallback():
     job = make_job(must_skills=[], nice_skills=["Docker"])
     cand = make_candidate(skills=["Docker"])
     result, *_ = ss._score_skills(cand, job)
-    # must=20 (n/a fallback) + nice=10 = 30
+    # Default path unchanged: empty `must` still falls back to full must points
+    # on top of the matched nice half.
     assert result.points == pytest.approx(ss.SKILLS_MAX)
 
 
@@ -291,6 +292,10 @@ def test_cross_unit_rate_is_not_comparable_and_scored_neutrally():
     cand = make_candidate(expected_rate_hourly=150)
     r = ss._score_salary(cand, job)
     assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    # New marker, same points: the layer had nothing to compare. Under the
+    # default (renormalisation off) it still pays the neutral constant, so this
+    # path is byte-for-byte the pre-2026-08-10 behaviour.
+    assert r.scored is False
     assert r.points < ss.SALARY_MAX
     assert r.status == "not_comparable"
     assert "not_comparable" in r.reason
@@ -304,6 +309,7 @@ def test_zero_hourly_rate_is_still_a_known_cross_unit_value():
 
     assert result.status == "not_comparable"
     assert result.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert result.scored is False
 
 
 def test_salary_missing_data_gets_neutral():
@@ -313,6 +319,10 @@ def test_salary_missing_data_gets_neutral():
     cand = make_candidate(expected_rate_hourly=None)
     r = ss._score_salary(cand, job)
     assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    # New marker, same points: the layer had nothing to compare. Under the
+    # default (renormalisation off) it still pays the neutral constant, so this
+    # path is byte-for-byte the pre-2026-08-10 behaviour.
+    assert r.scored is False
     assert "brak" in r.reason
 
 
@@ -322,6 +332,10 @@ def test_salary_missing_job_range_gets_neutral():
     cand = make_candidate(expected_rate_hourly=150)
     r = ss._score_salary(cand, job)
     assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    # New marker, same points: the layer had nothing to compare. Under the
+    # default (renormalisation off) it still pays the neutral constant, so this
+    # path is byte-for-byte the pre-2026-08-10 behaviour.
+    assert r.scored is False
 
 
 def test_not_comparable_and_unknown_are_both_neutral():
@@ -337,6 +351,7 @@ def test_not_comparable_and_unknown_are_both_neutral():
     neutral = ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION
     assert not_comparable.points == pytest.approx(neutral)
     assert unknown.points == pytest.approx(neutral)
+    assert not_comparable.scored is False and unknown.scored is False
     assert not_comparable.status == "not_comparable"
     assert unknown.status == "unknown"
 
@@ -484,6 +499,7 @@ def test_availability_no_date_neutral():
     cand = make_candidate(availability_date=None)
     r = ss._score_availability(cand, job)
     assert r.points == pytest.approx(ss.AVAILABILITY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert r.scored is False
 
 
 def test_availability_late_decays():
@@ -550,6 +566,7 @@ async def test_champion_fit_no_screening_gives_neutral_half():
     job = make_job(id=2)
     r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
     assert r.points == pytest.approx(ss.CHAMPION_FIT_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert r.scored is False
     assert r.max_points == ss.CHAMPION_FIT_MAX
     assert "brak screening" in r.reason
 
@@ -748,10 +765,9 @@ def test_summarize_match_stats_rounds_top_score():
 
 @pytest.mark.asyncio
 async def test_ranking_preserved_for_same_unknown_cohort():
-    """For candidates that share the SAME unknown-metadata set (no salary, no
-    location, no availability, no screening), neutral-fill is a constant additive
-    shift, so ranking is driven purely by the (monotonic) semantic layer and the
-    composite delta between any two equals their semantic delta exactly."""
+    """Default path: neutral-fill is a constant additive shift, so ranking is
+    driven purely by the (monotonic) semantic layer and the composite delta
+    between any two candidates equals their semantic delta exactly."""
     db = _FakeScalarDB(None)  # no screening, no conflict
     job = make_job(id=1, must_skills=["Python"], client_id=None)
 
@@ -763,6 +779,10 @@ async def test_ranking_preserved_for_same_unknown_cohort():
     lo = await ss.score_candidate_job(cohort(3), job, db, semantic_similarity=0.3)
 
     assert hi.total > mid.total > lo.total
+    # DEFAULT path: the no-signal layers add the same constant to everyone, so
+    # the composite delta equals the semantic delta exactly. The amplification
+    # property belongs to the renormalised path and is asserted there — putting
+    # it here passed only on a 1e-16 float error, which is worse than failing.
     assert (hi.total - mid.total) == pytest.approx(
         hi.semantic.points - mid.semantic.points
     )
@@ -773,11 +793,12 @@ async def test_ranking_preserved_for_same_unknown_cohort():
 
 @pytest.mark.asyncio
 async def test_sparse_traffit_job_metadata_all_neutral():
-    """End-to-end guard for the 2026-06-30 lift. On a sparse Traffit-style job
-    (no location, no deadline, no salary range, no champion) with an unscreened
-    candidate carrying no metadata — the ~99% case — all FOUR metadata layers
-    award the neutral fraction (no hard 0 on location, no hardcoded 0.5 on
-    availability/champion). The composite is lifted well above the old ~55 cap."""
+    """End-to-end guard for the 2026-06-30 lift — DEFAULT path, unchanged.
+
+    Renormalisation (2026-08-10) is off by default, so this must still assert the
+    behaviour that decision introduced. The only addition is the `scored` marker,
+    which renormalisation keys off when someone turns it on.
+    """
     db = _FakeScalarDB(None)  # no screening, no conflict
     job = make_job(
         id=1,
@@ -807,6 +828,10 @@ async def test_sparse_traffit_job_metadata_all_neutral():
     assert b.champion_fit.points == pytest.approx(ss.CHAMPION_FIT_MAX * frac)
     # Lifted past the old deflated ceiling (top sparse-job match used to cap ~55).
     assert b.total > 60.0
+    # New: each of those layers now also carries the "nothing to judge" marker,
+    # which is what renormalisation keys off when it is enabled.
+    for layer in (b.salary, b.availability, b.champion_fit):
+        assert layer.scored is False
 
 
 def test_legacy_reproduced_with_gamma_1_and_neutral_0(monkeypatch):
@@ -826,3 +851,92 @@ def test_legacy_reproduced_with_gamma_1_and_neutral_0(monkeypatch):
     )
     cand_loc = make_candidate(location=None, preferences={})
     assert ss._score_location(cand_loc, job_loc).points == 0.0
+
+
+# ── Renormalisation of no-signal layers (SCORE_RENORMALIZE_UNSCORED_LAYERS) ──
+#
+# OFF by default, and that is a measured decision rather than caution. On the
+# same 40 jobs, pool 1000, boost on:
+#     off: P@5 0.110 · R@20n 0.090 · MRR 0.273 · nDCG 0.088
+#     on:  P@5 0.110 · R@20n 0.091 · MRR 0.282 · nDCG 0.083
+# i.e. no ranking gain — which follows: a constant added to everyone does not
+# change the ORDER, and every one of those metrics depends only on order.
+# What it does change is what the number MEANS, and therefore what the
+# RECOMMENDATION_MIN_SCORE=40 cut-off actually cuts. That needs its own
+# experiment, so the mechanism ships dormant.
+
+
+@pytest.fixture
+def renormalising(monkeypatch):
+    monkeypatch.setattr(ss.settings, "SCORE_RENORMALIZE_UNSCORED_LAYERS", True)
+    return True
+
+
+def test_renormalisation_drops_unjudgeable_layers_from_the_budget(renormalising):
+    job = make_job(salary_min=None, salary_max=None)
+    cand = make_candidate(expected_rate_hourly=None)
+
+    r = ss._score_salary(cand, job)
+
+    assert r.scored is False
+    assert r.points == pytest.approx(0.0), (
+        "an excluded layer must not also contribute points, or the breakdown "
+        "shows the recruiter points for something we did not assess"
+    )
+
+
+def test_flag_off_is_an_exact_rollback():
+    """'Off' has to mean the pre-change behaviour, or the flag is not a rollback."""
+    job = make_job(salary_min=None, salary_max=None)
+    cand = make_candidate(expected_rate_hourly=None)
+
+    r = ss._score_salary(cand, job)
+
+    assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert r.scored is False, "the marker is present in both modes"
+
+
+@pytest.mark.asyncio
+async def test_renormalisation_preserves_order_and_widens_the_spread(renormalising):
+    """Order is the invariant; spread is the point.
+
+    Measured on this cohort: 13.6 points of spread became 21.6. Amplification is
+    the intended effect — the old constants compressed everyone toward the same
+    number while ranking nobody.
+    """
+    db = _FakeScalarDB(None)
+    job = make_job(id=1, must_skills=["Python"], client_id=None)
+
+    def cohort(cid):
+        return make_candidate(id=cid, skills=[], verified_tech=[], tags=[])
+
+    hi = await ss.score_candidate_job(cohort(1), job, db, semantic_similarity=0.8)
+    lo = await ss.score_candidate_job(cohort(3), job, db, semantic_similarity=0.3)
+
+    assert hi.total > lo.total
+    assert 0.0 <= lo.total <= 100.0 and 0.0 <= hi.total <= 100.0, (
+        "renormalised composite must stay on the 0-100 scale the threshold uses"
+    )
+    factor = (hi.total - lo.total) / (hi.semantic.points - lo.semantic.points)
+    assert factor > 1.0, (
+        "renormalisation should spread the cohort, not compress it — the old "
+        "constants moved everyone by the same amount and ranked nobody"
+    )
+
+
+@pytest.mark.asyncio
+async def test_renormalisation_never_divides_by_zero(renormalising):
+    """Every layer unjudgeable → 0, not a crash."""
+    db = _FakeScalarDB(None)
+    job = make_job(
+        id=1, location=None, deadline=None, salary_min=None, salary_max=None,
+        must_skills=[], nice_skills=[], client_id=None,
+    )
+    cand = make_candidate(
+        id=1, skills=[], verified_tech=[], tags=[], location=None,
+        availability_date=None, expected_rate_hourly=None, preferences={},
+    )
+
+    b = await ss.score_candidate_job(cand, job, db, semantic_similarity=None)
+
+    assert 0.0 <= b.total <= 100.0
