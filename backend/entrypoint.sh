@@ -2855,6 +2855,45 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_help_materials_sort_order "
     "ON help_materials (sort_order)",
     "CREATE INDEX IF NOT EXISTS ix_help_materials_id ON help_materials (id)",
+    # 0220: konta serwisowe + klucze API (nagłówek X-API-Key). Bez tych tabel
+    # zależność ``require_service_scope`` wywala UndefinedTable na KAŻDYM
+    # requeście z kluczem, a Ustawienia → API zwracają 500. Kolejność ma
+    # znaczenie: klucze mają FK na konta.
+    """CREATE TABLE IF NOT EXISTS service_accounts (
+        id SERIAL PRIMARY KEY,
+        slug VARCHAR(64) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        description TEXT,
+        scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_service_accounts_scopes_array
+            CHECK (jsonb_typeof(scopes) = 'array')
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_service_accounts_slug "
+    "ON service_accounts (slug)",
+    # PK = nie-sekretny revoke-key ``v2$<hex>``; sekret istnieje wyłącznie jako
+    # SHA-256 w ``secret_sha256``. ``expires_at`` bez DEFAULT-u świadomie —
+    # termin wylicza aplikacja, klucz bez terminu nie ma prawa powstać.
+    """CREATE TABLE IF NOT EXISTS service_account_keys (
+        key_id VARCHAR(64) PRIMARY KEY,
+        service_account_id INTEGER NOT NULL
+            REFERENCES service_accounts(id) ON DELETE CASCADE,
+        secret_sha256 VARCHAR(64) NOT NULL,
+        label VARCHAR(120) NOT NULL,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        revoked_at TIMESTAMPTZ,
+        revoked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        revoke_reason VARCHAR(255),
+        last_used_at TIMESTAMPTZ,
+        last_used_ip VARCHAR(64)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_service_account_keys_service_account_id "
+    "ON service_account_keys (service_account_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

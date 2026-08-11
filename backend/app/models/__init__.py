@@ -244,6 +244,11 @@ from app.models.ai_feature import (
     AIUsageLog,
 )
 from app.models.oauth_client import OAuthClient, OAuthScope
+from app.models.service_account import (  # noqa: F401
+    ServiceAccount,
+    ServiceAccountKey,
+    ServiceScope,
+)
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,

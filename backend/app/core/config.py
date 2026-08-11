@@ -234,6 +234,32 @@ class Settings(BaseSettings):
     # Code. Empty = token auth disabled, JWT-admin still works as fallback.
     SNAPSHOT_TOKEN: str = ""
 
+    # ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────
+    # Kill-switch całego mechanizmu. Domyślnie WŁĄCZONY, inaczej niż przy
+    # integracjach zewnętrznych (CloudTalk, Traffit sync): tamte gadają z obcym
+    # systemem i bez sekretów i tak nie działają, a tu włącznik nie chroni przed
+    # niczym — bez założonego konta i wydanego klucza żadne poświadczenie nie
+    # istnieje, więc powierzchnia ataku przy pustej tabeli jest zerowa. Flaga
+    # zostaje jako awaryjne odcięcie CAŁEJ klasy poświadczeń jednym env-em,
+    # gdyby klucz wyciekł i trzeba było zamknąć drzwi szybciej, niż idzie
+    # wyklikać rewokację.
+    SERVICE_ACCOUNTS_ENABLED: bool = True
+
+    # Domyślny okres ważności nowego klucza i twardy sufit. Klucz bez terminu
+    # nie jest nigdy oglądany ponownie, więc terminu nie da się tu pominąć —
+    # żądanie dłuższego niż sufit jest PRZYCINANE do sufitu (patrz
+    # ``service_account_auth.default_expires_at``).
+    SERVICE_ACCOUNT_KEY_DEFAULT_TTL_DAYS: int = 90
+    SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS: int = 365
+
+    # Co ile sekund najwyżej stemplujemy ``last_used_at`` klucza. Zapis przy
+    # każdym requeście zamieniłby każdy odczyt przez API w zapis do jednego,
+    # gorącego wiersza.
+    SERVICE_ACCOUNT_LAST_USED_THROTTLE_SECONDS: int = 60
+
+    # Limit tempa dla wywołań uwierzytelnianych kluczem API (slowapi, klucz = IP).
+    SERVICE_ACCOUNT_RATE_LIMIT: str = "60/minute"
+
     # CORS — tight by default; widen via env CORS_ORIGINS='["https://app"]'
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
