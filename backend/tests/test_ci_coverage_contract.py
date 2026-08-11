@@ -22,7 +22,13 @@ written reason, nor linger in the baseline after the debt is paid. Categories:
   stale: the test never ran, so nobody noticed when a schema column went NOT
   NULL or a request contract gained a required field underneath it.
 
-Status 2026-07-27: 318 test modules on disk, 26 excluded, 292 run.
+Status 2026-08-11: 439 test modules on disk, 23 excluded, 416 run — measured
+with this file's own `_disk_files()` / `_ci_ignored_files()`, not counted by
+hand. The line before it read "2026-07-27: 318 on disk, 26 excluded, 292 run"
+and had drifted on every figure; entries had left the baseline without anyone
+restating the total. A stale headline number is the one defect this file cannot
+afford, because the burn-down it advertises is the only thing that says whether
+the debt is shrinking.
 (An earlier revision said 313 on disk / 281 wired; the real figures were 317 and
 285 — 317 = 285 enumerated + the then 32-file baseline. Corrected rather than
 carried forward, since the whole point of the number is to be measurable.)
@@ -42,6 +48,20 @@ History of the burn-down:
                  expired. The preconditions now match on the digest and assert
                  their own rowcount, so a setup that silently touches nothing
                  fails loudly instead of masquerading as a product bug.
+   23 excluded → `test_recommendation_filters.py` left FAILING. Its one red was
+                 recorded here as "_competence_category_matches is now True for
+                 a case the test expects False" — read as production drifting
+                 under the test. It was the opposite: all five `test_cc_*` cases
+                 passed a BARE STRING where the function takes `Sequence[str]`,
+                 and `str` satisfies that, iterating single CHARACTERS. Four of
+                 them were green because 'b' occurs in "backend software
+                 engineer"; the negative one was red because 'e' occurs in
+                 "backend engineer". Production was correct throughout — it
+                 passes `list(...)`. So one mistyped test argument cost the
+                 whole 28-test file its place in CI, including the entire
+                 conflict matrix (blacklist / competitor / NDA). Worth noting
+                 for the remaining entries: "the test is red so production
+                 changed" is an assumption, and here it was wrong.
    26 excluded → the SUITE_INTERFERENCE category is retired. Those four files
                  (test_contract_analytics, test_contracts_expansion,
                  test_contracts_filters_multi, test_contracts_search) were green

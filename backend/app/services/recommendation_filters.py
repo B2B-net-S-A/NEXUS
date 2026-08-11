@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,7 +129,7 @@ def _salary_in_window(
     return True
 
 
-def _competence_category_matches(job: Job, targets: Sequence[str]) -> bool:
+def _competence_category_matches(job: Job, targets: Union[str, Sequence[str]]) -> bool:
     """Match job against any of the target categories (OR-combined, case-insensitive).
 
     Each target is matched against job.subcategory / job.industry / job.title.
