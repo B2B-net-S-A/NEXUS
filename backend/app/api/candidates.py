@@ -4157,7 +4157,12 @@ async def update_candidate(
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.
     if "experience" in updates:
-        current_extracted = dict(candidate.cv_extracted_data or {})
+        # A non-empty list is truthy, so `or {}` does not catch it and `dict()`
+        # raises — a 500 on exactly the rows that already broke the sync.
+        _raw_extracted = candidate.cv_extracted_data
+        current_extracted = (
+            dict(_raw_extracted) if isinstance(_raw_extracted, dict) else {}
+        )
         current_extracted["_manual_override_experience"] = True
         updates["cv_extracted_data"] = current_extracted
 
@@ -5782,7 +5787,9 @@ async def update_candidate_location(
             country=candidate.country,
         ).projection
 
-    extracted = dict(candidate.cv_extracted_data or {})
+    # Same guard as above: `or {}` misses a non-empty list.
+    _raw_extracted = candidate.cv_extracted_data
+    extracted = dict(_raw_extracted) if isinstance(_raw_extracted, dict) else {}
     for field in updates:
         extracted[f"_manual_override_{field}"] = True
     candidate.cv_extracted_data = extracted

@@ -268,6 +268,32 @@ class Settings(BaseSettings):
     # Code. Empty = token auth disabled, JWT-admin still works as fallback.
     SNAPSHOT_TOKEN: str = ""
 
+    # ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────
+    # Kill-switch całego mechanizmu. Domyślnie WŁĄCZONY, inaczej niż przy
+    # integracjach zewnętrznych (CloudTalk, Traffit sync): tamte gadają z obcym
+    # systemem i bez sekretów i tak nie działają, a tu włącznik nie chroni przed
+    # niczym — bez założonego konta i wydanego klucza żadne poświadczenie nie
+    # istnieje, więc powierzchnia ataku przy pustej tabeli jest zerowa. Flaga
+    # zostaje jako awaryjne odcięcie CAŁEJ klasy poświadczeń jednym env-em,
+    # gdyby klucz wyciekł i trzeba było zamknąć drzwi szybciej, niż idzie
+    # wyklikać rewokację.
+    SERVICE_ACCOUNTS_ENABLED: bool = True
+
+    # Domyślny okres ważności nowego klucza i twardy sufit. Klucz bez terminu
+    # nie jest nigdy oglądany ponownie, więc terminu nie da się tu pominąć —
+    # żądanie dłuższego niż sufit jest PRZYCINANE do sufitu (patrz
+    # ``service_account_auth.default_expires_at``).
+    SERVICE_ACCOUNT_KEY_DEFAULT_TTL_DAYS: int = 90
+    SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS: int = 365
+
+    # Co ile sekund najwyżej stemplujemy ``last_used_at`` klucza. Zapis przy
+    # każdym requeście zamieniłby każdy odczyt przez API w zapis do jednego,
+    # gorącego wiersza.
+    SERVICE_ACCOUNT_LAST_USED_THROTTLE_SECONDS: int = 60
+
+    # Limit tempa dla wywołań uwierzytelnianych kluczem API (slowapi, klucz = IP).
+    SERVICE_ACCOUNT_RATE_LIMIT: str = "60/minute"
+
     # CORS — tight by default; widen via env CORS_ORIGINS='["https://app"]'
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
@@ -855,16 +881,29 @@ class Settings(BaseSettings):
     # and any NEW failure was invisible behind it. 5 runs ≈ 5 days at the daily
     # cadence — long enough that a real outage recovers on its own first.
     TRAFFIT_MAX_ROW_ATTEMPTS: int = 5
-    # How many candidates the weekly full reconcile sweeps for missing files in
-    # ONE run. The sweep visits every Traffit candidate (not just those with no
-    # files at all), which is one /files call each — ~49k at
-    # TRAFFIT_THROTTLE_RPS=5 is ~2.7 h, far too long to finish before a Coolify
-    # redeploy kills the run. So the scan is budgeted and resumable: the phase
-    # persists an `after_id` cursor and the next run continues from there, which
-    # also means an operator can close a backlog faster by triggering
-    # POST /api/admin/traffit/sync?mode=full repeatedly instead of waiting a week
-    # per slice. At the default the whole base is covered in ~5 full runs.
-    TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 10000
+    # How many candidates the full reconcile sweeps for missing files in ONE
+    # run. The sweep visits every Traffit candidate (not just those with no
+    # files at all), which is one /files call each — ~57k at
+    # TRAFFIT_THROTTLE_RPS=5 is ~3.2 h. Budgeted and resumable: the phase
+    # persists an `after_id` cursor and the next run continues from there, and
+    # an operator can close a backlog faster by triggering
+    # POST /api/admin/traffit/sync?mode=full repeatedly.
+    #
+    # The budget is NOT free to raise to "cover everything in one pass", and
+    # not for the obvious reason. A killed run resumes from its cursor, so the
+    # sweep itself loses nothing — but a full run re-scans the UNBUDGETED
+    # phases too (candidates ~57k, pipelines ~185k, activities ~397k) every
+    # time, and those have no per-slice budget to skip. So each extra run costs
+    # a full re-scan of everything else, which argues for a LARGER budget,
+    # while a run still going during the workday is likelier to be killed
+    # mid-sweep by a redeploy, which argues for a smaller one.
+    #
+    # 25k balances the two: the files phase runs ~1.4 h, a whole run lands
+    # around 05:00 UTC (07:00 local) — before pushes to main start — and the
+    # base is covered in ~3 runs instead of ~6. Combined with the nightly
+    # catch-up in `should_run_full`, a backlog closes in about three nights
+    # rather than a month and a half.
+    TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 25000
     # Same idea for the `"? ?"` name-recovery sweep, but a much tighter budget:
     # every row costs an LLM call, and the selection is NOT self-clearing (a CV
     # that yields no name stays `"?"`), so an unbounded pass would re-pay for the

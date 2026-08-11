@@ -205,7 +205,13 @@ def _apply_cv_enrichment(
       * Records `_field_provenance` in `cv_extracted_data` for the fields this
         call actually wrote, so the UI can mark them as AI-derived.
     """
-    existing_extracted = dict(candidate.cv_extracted_data or {})
+    # `cv_extracted_data` is not guaranteed to be an object: `or {}` rescues
+    # only falsy values, so a non-empty list reaches `dict()` and raises. This
+    # runs inside the Traffit `candidates_enrich_names` phase (via
+    # `cv_backfill.backfill_missing_names`), aimed precisely at the messiest
+    # rows — the ones most likely to hold a non-dict there.
+    _existing_raw = candidate.cv_extracted_data
+    existing_extracted = dict(_existing_raw) if isinstance(_existing_raw, dict) else {}
     manual_override = bool(existing_extracted.get("_manual_override_experience", False))
     provenance_stamp = _provenance_stamp(parsed)
     written_fields: list[str] = []

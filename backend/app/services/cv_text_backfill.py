@@ -220,7 +220,13 @@ def _terminal_marker(candidate: Candidate) -> Optional[str]:
 
 
 def _record_marker(candidate: Candidate, outcome: str, chars: int) -> None:
-    extracted = dict(candidate.cv_extracted_data or {})
+    # Same column, same trap as `_manual_lock`: a non-empty list is truthy, so
+    # `or {}` does not catch it and `dict(<list>)` raises. `_terminal_marker`
+    # above already reads this column with an `isinstance` guard; writing it
+    # needs the same. A non-dict value carries no marker to preserve, so it is
+    # replaced rather than merged.
+    existing = candidate.cv_extracted_data
+    extracted = dict(existing) if isinstance(existing, dict) else {}
     extracted[_EXTRACTION_MARKER_KEY] = {
         "at": datetime.now(timezone.utc).isoformat(),
         "outcome": outcome,

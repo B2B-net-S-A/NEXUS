@@ -3,8 +3,16 @@
 Combines health + KPI counts + lifespan task status + alembic head + Sentry release
 into one JSON response. Replaces 5+ round-trips that ops would otherwise make.
 
-Auth: prefer X-Snapshot-Token header (machine-to-machine); fall back to admin JWT
-(browser/manual debug). Cached 30s to absorb cron + manual reads without DB load.
+Auth, w kolejności sprawdzania:
+
+1. ``X-API-Key`` — konto serwisowe ze scope'em ``ops:snapshot`` (**preferowane**;
+   ma termin ważności, rotację, rewokację i mówi KTO wywołał),
+2. ``X-Snapshot-Token`` — legacy: JEDEN globalny sekret z env-a, bez terminu,
+   bez rotacji, bez rewokacji i bez atrybucji. Zostaje, bo używa go dziś cron
+   i ops-skille; do wycofania, gdy konsumenci przejdą na klucze API,
+3. ``Authorization: Bearer`` z JWT admina — przeglądarka / ręczny debug.
+
+Cached 30s to absorb cron + manual reads without DB load.
 """
 
 from __future__ import annotations
@@ -20,17 +28,26 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_service_scope
 from app.core.cache import cache_get, cache_set
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
+from app.models.service_account import ServiceScope
 from app.models.user import UserRole
 from app.services.dashboard_metrics import compute_kpi_snapshot
+from app.services.service_account_auth import API_KEY_HEADER
 
 router = APIRouter()
 
 _CACHE_TTL_SECONDS = 30
 _CACHE_KEY = "admin:snapshot"
+
+# Zbudowane raz przy imporcie. ``require_service_scope`` waliduje listę scope'ów
+# w momencie wywołania fabryki, więc pusta lista pęka przy starcie aplikacji,
+# a nie przy pierwszym requeście na produkcji.
+_require_snapshot_scope = require_service_scope(
+    ServiceScope.ops_snapshot, allow_admin_jwt=False
+)
 
 
 async def _snapshot_auth(
@@ -42,7 +59,27 @@ async def _snapshot_auth(
     ] = None,
     db: AsyncSession = Depends(get_db),
 ) -> str:
-    """Token-first auth. Returns mode ("token" | "jwt") on success, raises 401 otherwise."""
+    """Zwraca tryb ("service_account" | "token" | "jwt") albo rzuca 401/403.
+
+    Klucz API jest sprawdzany PIERWSZY, żeby konsument, który już przeszedł na
+    konta serwisowe, nie wpadał przypadkiem na legacy token, gdyby oba nagłówki
+    poleciały w jednym requeście (tak wygląda migracja w praktyce).
+    """
+    raw_api_key = request.headers.get(API_KEY_HEADER)
+    if raw_api_key:
+        # Ta sama zależność co przy Traffit — jedno miejsce, w którym zapada
+        # decyzja o kluczu, wliczając blokadę impersonacji i stempel użycia.
+        #
+        # UWAGA: wołane BEZPOŚREDNIO, nie przez DI FastAPI. `_check` deklaruje
+        # `db: AsyncSession = Depends(get_db)`, ale tutaj `Depends` jest tylko
+        # metadanymi — sesję podajemy ręcznie. Działa, bo to jedyny parametr
+        # z `Depends`. Jeśli `_check` kiedykolwiek dostanie kolejny, NIE
+        # rozwiąże się sam i trzeba go tu dołożyć albo przejść na prawdziwe DI.
+        # Ten endpoint ma trzy ścieżki uwierzytelnienia w jednej funkcji, więc
+        # nie da się tego zrobić deklaratywnie bez rozbicia go na trzy.
+        await _require_snapshot_scope(request=request, credentials=None, db=db)
+        return "service_account"
+
     if x_snapshot_token and settings.SNAPSHOT_TOKEN:
         if hmac.compare_digest(x_snapshot_token, settings.SNAPSHOT_TOKEN):
             return "token"
@@ -66,7 +103,7 @@ async def _snapshot_auth(
         )
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Snapshot requires X-Snapshot-Token header or admin JWT",
+        detail="Snapshot requires X-API-Key, X-Snapshot-Token header or admin JWT",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
