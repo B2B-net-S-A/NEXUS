@@ -765,15 +765,9 @@ def test_summarize_match_stats_rounds_top_score():
 
 @pytest.mark.asyncio
 async def test_ranking_preserved_for_same_unknown_cohort():
-    """Ranking must survive renormalisation — that is the property that matters.
-
-    Before 2026-08-10 the no-signal layers added a constant, so the composite
-    delta between two candidates EQUALLED their semantic delta. Under
-    renormalisation the composite is rescaled to the layers that actually had
-    something to judge, so deltas are AMPLIFIED rather than equal (measured on
-    this cohort: 13.6 points of spread became 21.6). Amplification is the point —
-    a constant ranks nobody. What must not change is the order.
-    """
+    """Default path: neutral-fill is a constant additive shift, so ranking is
+    driven purely by the (monotonic) semantic layer and the composite delta
+    between any two candidates equals their semantic delta exactly."""
     db = _FakeScalarDB(None)  # no screening, no conflict
     job = make_job(id=1, must_skills=["Python"], client_id=None)
 
@@ -785,13 +779,16 @@ async def test_ranking_preserved_for_same_unknown_cohort():
     lo = await ss.score_candidate_job(cohort(3), job, db, semantic_similarity=0.3)
 
     assert hi.total > mid.total > lo.total
-
-    # Deltas stay strictly proportional to the semantic deltas — the rescale is
-    # one shared factor, not a per-candidate distortion.
-    factor_hi = (hi.total - mid.total) / (hi.semantic.points - mid.semantic.points)
-    factor_lo = (mid.total - lo.total) / (mid.semantic.points - lo.semantic.points)
-    assert factor_hi == pytest.approx(factor_lo)
-    assert factor_hi > 1.0, "renormalisation should spread the cohort, not compress it"
+    # DEFAULT path: the no-signal layers add the same constant to everyone, so
+    # the composite delta equals the semantic delta exactly. The amplification
+    # property belongs to the renormalised path and is asserted there — putting
+    # it here passed only on a 1e-16 float error, which is worse than failing.
+    assert (hi.total - mid.total) == pytest.approx(
+        hi.semantic.points - mid.semantic.points
+    )
+    assert (mid.total - lo.total) == pytest.approx(
+        mid.semantic.points - lo.semantic.points
+    )
 
 
 @pytest.mark.asyncio
@@ -919,6 +916,11 @@ async def test_renormalisation_preserves_order_and_widens_the_spread(renormalisi
     assert hi.total > lo.total
     assert 0.0 <= lo.total <= 100.0 and 0.0 <= hi.total <= 100.0, (
         "renormalised composite must stay on the 0-100 scale the threshold uses"
+    )
+    factor = (hi.total - lo.total) / (hi.semantic.points - lo.semantic.points)
+    assert factor > 1.0, (
+        "renormalisation should spread the cohort, not compress it — the old "
+        "constants moved everyone by the same amount and ranked nobody"
     )
 
 

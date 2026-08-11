@@ -904,15 +904,11 @@ def _score_salary(
     )
 
     if cand_rate is not None and not is_canonical_profile_rate_currency(cand_currency):
-        return LayerResult(
-            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
-            max_points=max_pts,
-            reason=(
-                "not_comparable: historyczna stawka ma niekanoniczną walutę "
-                "i wymaga ręcznej korekty"
-            ),
-            status="not_comparable",
-            scored=False,
+        return _unscored(
+            max_pts,
+            "not_comparable: historyczna stawka ma niekanoniczną walutę "
+            "i wymaga ręcznej korekty",
+            "not_comparable",
         )
 
     if cand_rate is None or (job_min is None and job_max is None):
@@ -1281,7 +1277,7 @@ async def score_candidate_job(
     layers = (semantic, skills, salary, location, availability, champion_fit)
     if penalties:
         total = 0.0
-    elif getattr(settings, "SCORE_RENORMALIZE_UNSCORED_LAYERS", True):
+    elif _renormalizing():
         # Score only on what could actually be judged, then rescale to 100:
         # "of what we could assess, this candidate is X%". A layer with no
         # signal contributes to neither numerator nor denominator, so it can no
