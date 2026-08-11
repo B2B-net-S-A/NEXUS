@@ -125,9 +125,9 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
     )
     SELECT
         CAST(:candidate_id AS integer),
-        CAST(:filename AS varchar(500)),
+        CAST(:filename AS text),
         CAST(:file_content AS bytea),
-        CAST(:storage_key AS varchar(500)),
+        CAST(:storage_key AS text),
         CAST(:size_bytes AS integer),
         CAST('cv' AS candidatedocumentkind),
         NOT EXISTS (
@@ -139,14 +139,14 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
               AND current.source_deleted_at IS NULL
         ),
         CAST(:uploaded_at AS timestamptz),
-        CAST(:external_id AS varchar(100)),
-        CAST(:external_source AS varchar(50)),
-        CAST(:content_sha256 AS varchar(64)),
+        CAST(:external_id AS text),
+        CAST(:external_source AS text),
+        CAST(:content_sha256 AS text),
         NOW(),
         NOW()
-    WHERE CAST(:filename AS varchar(500)) IS NOT NULL
+    WHERE CAST(:filename AS text) IS NOT NULL
       AND (
-          CAST(:storage_key AS varchar(500)) IS NOT NULL
+          CAST(:storage_key AS text) IS NOT NULL
           OR CAST(:file_content AS bytea) IS NOT NULL
       )
     ON CONFLICT (external_source, external_id)

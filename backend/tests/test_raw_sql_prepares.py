@@ -164,3 +164,51 @@ def test_no_python_name_leaks_into_a_non_f_string_sql_body():
                     leaks.append(f"{path.relative_to(BACKEND)}:{node.lineno} → {name}")
 
     assert not leaks, "Python name(s) embedded in SQL text: " + "; ".join(leaks)
+
+
+@pytest.mark.asyncio
+async def test_overlong_filename_is_rejected_rather_than_silently_truncated(engine):
+    """`CAST(:p AS varchar(n))` truncates; the column constraint refuses.
+
+    The casts that make this statement plannable were first written as
+    `CAST(:filename AS varchar(500))`, mirroring the Traffit importer. That is a
+    worse bug than the one it fixed: an explicit cast to a length-bounded type
+    silently cuts the value to fit, whereas assigning an over-long value to the
+    column raises `value too long`. A truncated `filename` is cosmetic; a
+    truncated `storage_key` points at a file that cannot be fetched again — and
+    nothing anywhere would say so.
+
+    `CAST(:p AS text)` supplies the same type context (which is all Postgres
+    needed) without imposing a length, so the column stays the authority.
+    """
+
+    from app.services.talent_radar_importer import _UPSERT_CANDIDATE_DOCUMENT
+
+    async with engine.connect() as conn:
+        transaction = await conn.begin()
+        try:
+            candidate_id = await conn.scalar(
+                text(
+                    "INSERT INTO candidates (name, lastname, created_at, updated_at) "
+                    "VALUES ('T', 'T', NOW(), NOW()) RETURNING id"
+                )
+            )
+            params = {
+                "candidate_id": candidate_id,
+                "filename": "x" * 900 + ".pdf",  # column is varchar(500)
+                "file_content": b"x",
+                "storage_key": None,
+                "size_bytes": 1,
+                "uploaded_at": None,
+                "external_id": f"c-{candidate_id}",
+                "external_source": "tr_legacy",
+                "content_sha256": "a" * 64,
+            }
+            with pytest.raises(Exception) as excinfo:
+                await conn.execute(_UPSERT_CANDIDATE_DOCUMENT, params)
+            assert "too long" in str(excinfo.value).lower(), (
+                "an over-long filename must be refused, not quietly cut to fit: "
+                f"got {excinfo.value}"
+            )
+        finally:
+            await transaction.rollback()
