@@ -185,6 +185,17 @@ class PhaseProgress:
     # failure. Counted, never `add_error`: see the call sites for why treating
     # "it is gone" as an error froze phases indefinitely.
     gone_upstream: int = 0
+    # Rekrutacje, dla których Traffit nie podał rozwiązywalnego klienta.
+    #
+    # Nazwa opisuje FAKT U ŹRÓDŁA, nie naszą reakcję — tak jak `gone_upstream`
+    # obok. `orphaned` obiecywałoby „tyle wierszy siedzi u zastępczego
+    # klienta", a to nieprawda w jednym przypadku: gdy rekrutacja ma już
+    # poprawnego klienta w Nexusie i zniknęło samo MAPOWANIE, zostawiamy jej
+    # tego klienta. Operator zobaczyłby wtedy 3 i znalazł 2 w kubełku.
+    #
+    # CELOWO osobny licznik, nie `skipped`: to są wiersze ZAPISANE — zlanie
+    # ich ze `skipped` (= pominięte) mówiłoby coś przeciwnego do prawdy.
+    unresolved_client: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -228,6 +239,7 @@ class PhaseProgress:
             "skipped_pages": self.skipped_pages,
             "resynced_pointers": self.resynced_pointers,
             "gone_upstream": self.gone_upstream,
+            "unresolved_client": self.unresolved_client,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -778,6 +790,23 @@ class TraffitImporter:
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
+    async def _build_job_client_map(self) -> dict[str, int]:
+        """`jobs.external_id` (Traffit) → obecny `client_id` w Nexusie.
+
+        Czytane RAZ na fazę: alternatywą byłby SELECT per bezklientowa
+        rekrutacja, a ta gałąź z definicji dotyczy rekordów, których w
+        Traffitcie jest garść — ale mapa i tak jest mała (jeden wiersz na
+        rekrutację), więc jeden przebieg jest tańszy niż warunkowe zapytania.
+        """
+        result = await self.db.execute(
+            text(
+                "SELECT external_id, client_id FROM jobs "
+                "WHERE external_source = 'traffit' AND external_id IS NOT NULL "
+                "AND client_id IS NOT NULL"
+            )
+        )
+        return {row[0]: row[1] for row in result}
+
     async def _ensure_orphan_client(self) -> int:
         """Get-or-create the `__traffit_orphans` client. Returns its Nexus id."""
         result = await self.db.execute(
@@ -805,8 +834,9 @@ class TraffitImporter:
                 "status": "inactive",
                 "notes": (
                     "Auto-utworzony przez Traffit importer dla osób kontaktowych "
-                    "bez przypisanego klienta. Po migracji można je ręcznie "
-                    "przenieść do właściwych klientów lub usunąć cały bucket."
+                    "ORAZ rekrutacji bez przypisanego klienta. Po migracji można "
+                    "je ręcznie przenieść do właściwych klientów lub usunąć cały "
+                    "bucket."
                 ),
             },
         )
@@ -1615,6 +1645,13 @@ class TraffitImporter:
 
         client_map = await self._build_client_external_id_map()
         workflow_map = await self._build_workflow_external_id_map()
+        # Zakładany LENIWIE — dopiero gdy pojawi się pierwsza sierota. Bez tego
+        # każda instalacja dostawałaby pustego `__traffit_orphans` w liście
+        # klientów, także ta, w której każda rekrutacja ma klienta.
+        orphan_client_id: Optional[int] = None
+        # Bieżące przypisania w Nexusie — po to, żeby sierota nie odbierała
+        # klienta rekrutacji, która już go ma (patrz komentarz przy użyciu).
+        existing_job_clients = await self._build_job_client_map()
         user_map = await self.build_user_id_map()
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
@@ -1652,16 +1689,60 @@ class TraffitImporter:
                 progress.add_error(f"map recruitment id={raw.get('id')}: {e!r}")
                 continue
 
-            # Skip jobs bez znanego klienta — DB ma NOT NULL constraint
-            # na `client_id` od migracji 0120 (2026-05-27), więc bezklientowy
-            # INSERT i tak by się wywalił. Logujemy jako skipped dla audit.
+            # Rekrutacje bez znanego klienta lądują u sieroty, nie w koszu.
+            #
+            # `jobs.client_id` ma NOT NULL od migracji 0120, więc bezklientowy
+            # INSERT i tak by się wywalił — ale pominięcie wiersza NIE jest
+            # przez to jedyną opcją, tylko najgorszą z możliwych. Kosztowało
+            # to na prodzie 28 rekrutacji (`external_id` 38…95, czyli
+            # najstarsze rekordy: klient skasowany w Traffit albo nigdy nie
+            # przypisany).
+            #
+            # I nie chodzi o 28 pustych wierszy. `traffit_recruitment_history_
+            # to_stage` zwraca None, gdy `job_id` nie ma w mapie, więc razem
+            # z rekrutacją przepadała CAŁA historia kandydatów, którzy przez
+            # nią przechodzili — a to jest dokładnie ten rodzaj cichej straty,
+            # której ten importer ma zapobiegać.
+            #
+            # Wzorzec nie jest nowy: kontakty robią dokładnie to od zawsze
+            # (`import_contacts` → `_ensure_orphan_client`), co opisuje nawet
+            # nagłówek tego pliku. Ta sama sytuacja miała dotąd dwa różne
+            # rozstrzygnięcia zależnie od fazy; to była asymetria, nie decyzja.
             if payload.get("client_id") is None:
-                progress.skipped += 1
-                if len(progress.error_samples) < 20:
-                    progress.error_samples.append(
-                        f"skip job ext={payload['external_id']}: no client mapping"
-                    )
-                continue
+                # Sierota obsługuje BRAK przypisania, nie odbiera istniejącego.
+                #
+                # UPSERT robi `client_id = COALESCE(EXCLUDED.client_id,
+                # jobs.client_id)`. Dopóki bezklientowe rekrutacje były
+                # pomijane, ta gałąź nigdy się nie wykonywała i przypisanie w
+                # Nexusie było bezpieczne z definicji. Odkąd zawsze podajemy
+                # niepustego klienta, COALESCE zawsze bierze wartość
+                # przychodzącą — więc rekrutacja zaimportowana kiedyś z realnym
+                # klientem zostałaby po cichu przeniesiona do sierot, gdyby
+                # tylko jej klient wypadł z `client_map`.
+                #
+                # To nie jest scenariusz z kasowania klienta (FK na
+                # `jobs.client_id` na to nie pozwala), lecz z utraty samego
+                # MAPOWANIA: ktoś czyści `external_id`, zmienia
+                # `external_source`, scala duplikaty klientów. Klient w Nexusie
+                # wtedy dalej istnieje i jest poprawny — gubimy tylko powiązanie
+                # z Traffitem, co jest najgorszym możliwym momentem na
+                # przepięcie rekrutacji na zastępczego klienta.
+                existing_client_id = existing_job_clients.get(payload["external_id"])
+                if existing_client_id is not None:
+                    payload["client_id"] = existing_client_id
+                else:
+                    if orphan_client_id is None:
+                        orphan_client_id = await self._ensure_orphan_client()
+                    payload["client_id"] = orphan_client_id
+                # Liczone w OBU gałęziach, bo licznik opisuje to, co przyszło z
+                # Traffita („rekrutacja bez rozwiązywalnego klienta"), a nie to,
+                # co z nią zrobiliśmy. Gdyby rósł tylko przy pierwszym
+                # przypisaniu, po pierwszym biegu wskazywałby 0, podczas gdy
+                # rekrutacje dalej siedziałyby u zastępczego klienta — czyli
+                # dokładnie ten wzorzec, który ta seria poprawek likwiduje:
+                # zielona liczba nad realną luką. Tak licznik jest stabilny
+                # między biegami i widać po nim, czy zjawisko rośnie.
+                progress.unresolved_client += 1
 
             # Disambiguate duplicate reference_number (Traffit allows it,
             # Nexus has uq_jobs_reference_number). First occurrence keeps the
