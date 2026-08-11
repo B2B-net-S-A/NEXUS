@@ -158,6 +158,51 @@ async def test_recruitment_with_a_known_client_is_untouched(db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_orphan_never_takes_a_client_away_from_an_existing_job(db) -> None:
+    """Sierota obsługuje BRAK przypisania — nie odbiera istniejącego.
+
+    Regresja wprowadzona razem z tą poprawką i złapana w review. UPSERT robi
+    `client_id = COALESCE(EXCLUDED.client_id, jobs.client_id)`. Dopóki
+    bezklientowe rekrutacje były pomijane, ta gałąź nigdy się nie wykonywała.
+    Odkąd zawsze podajemy niepustego klienta, COALESCE zawsze bierze wartość
+    przychodzącą — więc rekrutacja zaimportowana kiedyś z realnym klientem
+    zostałaby po cichu przeniesiona do sierot, gdyby jej klient wypadł z mapy.
+
+    Realny scenariusz to nie skasowanie klienta (FK na to nie pozwala), tylko
+    utrata MAPOWANIA: wyczyszczony `external_id`, zmieniony `external_source`,
+    scalone duplikaty. Klient dalej istnieje i jest poprawny.
+    """
+    cext = f"c{uuid.uuid4().hex[:8]}"
+    client_id = await _mk_client(db, ext=cext)
+    await db.commit()
+
+    ext = f"o{uuid.uuid4().hex[:10]}"
+    await TraffitImporter(
+        _JobsTraffit([_recruitment(ext, client={"id": cext})]),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_jobs()
+    assert (await _job_row(db, ext))[1] == f"Klient {cext}"
+
+    # Mapowanie znika (ktoś wyczyścił external_id), sam klient zostaje.
+    await db.execute(
+        text("UPDATE clients SET external_id = NULL WHERE id = :i"), {"i": client_id}
+    )
+    await db.commit()
+
+    progress = await TraffitImporter(
+        _JobsTraffit([_recruitment(ext, client={"id": cext})]),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_jobs()
+
+    assert progress.orphaned == 0, "sierota przejęła rekrutację, która miała klienta"
+    assert (await _job_row(db, ext))[1] == f"Klient {cext}"
+
+
+@pytest.mark.asyncio
 async def test_orphan_client_is_created_lazily(db, monkeypatch) -> None:
     """Instalacja, w której każda rekrutacja ma klienta, nie powinna dostać
     pustego `__traffit_orphans` w liście klientów.

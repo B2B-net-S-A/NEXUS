@@ -785,6 +785,23 @@ class TraffitImporter:
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
+    async def _build_job_client_map(self) -> dict[str, int]:
+        """`jobs.external_id` (Traffit) → obecny `client_id` w Nexusie.
+
+        Czytane RAZ na fazę: alternatywą byłby SELECT per bezklientowa
+        rekrutacja, a ta gałąź z definicji dotyczy rekordów, których w
+        Traffitcie jest garść — ale mapa i tak jest mała (jeden wiersz na
+        rekrutację), więc jeden przebieg jest tańszy niż warunkowe zapytania.
+        """
+        result = await self.db.execute(
+            text(
+                "SELECT external_id, client_id FROM jobs "
+                "WHERE external_source = 'traffit' AND external_id IS NOT NULL "
+                "AND client_id IS NOT NULL"
+            )
+        )
+        return {row[0]: row[1] for row in result}
+
     async def _ensure_orphan_client(self) -> int:
         """Get-or-create the `__traffit_orphans` client. Returns its Nexus id."""
         result = await self.db.execute(
@@ -812,8 +829,9 @@ class TraffitImporter:
                 "status": "inactive",
                 "notes": (
                     "Auto-utworzony przez Traffit importer dla osób kontaktowych "
-                    "bez przypisanego klienta. Po migracji można je ręcznie "
-                    "przenieść do właściwych klientów lub usunąć cały bucket."
+                    "ORAZ rekrutacji bez przypisanego klienta. Po migracji można "
+                    "je ręcznie przenieść do właściwych klientów lub usunąć cały "
+                    "bucket."
                 ),
             },
         )
@@ -1626,6 +1644,9 @@ class TraffitImporter:
         # każda instalacja dostawałaby pustego `__traffit_orphans` w liście
         # klientów, także ta, w której każda rekrutacja ma klienta.
         orphan_client_id: Optional[int] = None
+        # Bieżące przypisania w Nexusie — po to, żeby sierota nie odbierała
+        # klienta rekrutacji, która już go ma (patrz komentarz przy użyciu).
+        existing_job_clients = await self._build_job_client_map()
         user_map = await self.build_user_id_map()
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
@@ -1683,10 +1704,32 @@ class TraffitImporter:
             # nagłówek tego pliku. Ta sama sytuacja miała dotąd dwa różne
             # rozstrzygnięcia zależnie od fazy; to była asymetria, nie decyzja.
             if payload.get("client_id") is None:
-                if orphan_client_id is None:
-                    orphan_client_id = await self._ensure_orphan_client()
-                payload["client_id"] = orphan_client_id
-                progress.orphaned += 1
+                # Sierota obsługuje BRAK przypisania, nie odbiera istniejącego.
+                #
+                # UPSERT robi `client_id = COALESCE(EXCLUDED.client_id,
+                # jobs.client_id)`. Dopóki bezklientowe rekrutacje były
+                # pomijane, ta gałąź nigdy się nie wykonywała i przypisanie w
+                # Nexusie było bezpieczne z definicji. Odkąd zawsze podajemy
+                # niepustego klienta, COALESCE zawsze bierze wartość
+                # przychodzącą — więc rekrutacja zaimportowana kiedyś z realnym
+                # klientem zostałaby po cichu przeniesiona do sierot, gdyby
+                # tylko jej klient wypadł z `client_map`.
+                #
+                # To nie jest scenariusz z kasowania klienta (FK na
+                # `jobs.client_id` na to nie pozwala), lecz z utraty samego
+                # MAPOWANIA: ktoś czyści `external_id`, zmienia
+                # `external_source`, scala duplikaty klientów. Klient w Nexusie
+                # wtedy dalej istnieje i jest poprawny — gubimy tylko powiązanie
+                # z Traffitem, co jest najgorszym możliwym momentem na
+                # przepięcie rekrutacji na zastępczego klienta.
+                existing_client_id = existing_job_clients.get(payload["external_id"])
+                if existing_client_id is not None:
+                    payload["client_id"] = existing_client_id
+                else:
+                    if orphan_client_id is None:
+                        orphan_client_id = await self._ensure_orphan_client()
+                    payload["client_id"] = orphan_client_id
+                    progress.orphaned += 1
 
             # Disambiguate duplicate reference_number (Traffit allows it,
             # Nexus has uq_jobs_reference_number). First occurrence keeps the
