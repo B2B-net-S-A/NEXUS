@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from collections.abc import Sequence
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -386,6 +387,51 @@ def _phase_plan(
     ]
 
 
+# Nazwy faz w kolejności planu. Trzymane osobno, bo walidacja `phases=` musi
+# działać BEZ budowania importera i klienta HTTP — a 422 za literówkę ma paść
+# zanim cokolwiek ruszy. `test_traffit_sync_phases` pilnuje, żeby ta krotka nie
+# rozjechała się z `_phase_plan`; rozjazd znaczyłby albo odrzucanie poprawnej
+# nazwy, albo przepuszczenie nazwy, której plan nie zna (a wtedy filtr cicho
+# nie uruchamia NICZEGO i bieg wygląda na udany).
+PHASE_NAMES: tuple[str, ...] = (
+    "users",
+    "clients",
+    "contacts",
+    "workflows",
+    "candidates",
+    "cortex",
+    "jobs",
+    "talents",
+    "candidates_cv",
+    "candidate_files",
+    "candidates_enrich_names",
+    "pipelines",
+    "candidate_activities",
+    "candidate_sources",
+    "reconcile",
+)
+
+
+def validate_phases(phases: Sequence[str]) -> frozenset[str]:
+    """Sprawdź nazwy faz i zwróć je jako zbiór. Wspólne dla API i orkiestratora.
+
+    Wydzielone, bo obie strony muszą odrzucać dokładnie to samo. Gdyby endpoint
+    miał własną kopię listy, rozjazd oznaczałby 422 za poprawną nazwę albo — co
+    gorsza — przepuszczenie nazwy, której plan nie zna: filtr nie uruchomiłby
+    wtedy ŻADNEJ fazy, a bieg zakończyłby się statusem "ok".
+    """
+    requested = tuple(phases)
+    if not requested:
+        raise ValueError("phases must not be empty")
+    unknown = [p for p in requested if p not in PHASE_NAMES]
+    if unknown:
+        raise ValueError(
+            f"unknown phase(s): {', '.join(sorted(unknown))}. "
+            f"Known: {', '.join(PHASE_NAMES)}"
+        )
+    return frozenset(requested)
+
+
 def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
     """Compact per-phase summary for the watermark stats JSONB.
 
@@ -461,14 +507,35 @@ def _blocking_errors(
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
 
-async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
-    """Run all phases once. ``mode`` = "delta" (incremental) | "full" (reconcile).
+async def run_traffit_sync(
+    mode: str = "delta", phases: Optional[Sequence[str]] = None
+) -> dict[str, Any]:
+    """Run the phase plan once. ``mode`` = "delta" (incremental) | "full" (reconcile).
+
+    ``phases`` zawęża bieg do wskazanych faz. Powstało, bo `candidate_files`
+    jest DZIEWIĄTĄ z piętnastu faz, a `candidates` przed nią trwa godzinami:
+    Coolify restartuje kontener przy każdym pushu na main, więc bieg ginie,
+    zanim dojdzie do zamiatania plików. Na prodzie 11.08 kursor plików nie
+    drgnął przez 2,5 h mimo trzech uruchomionych biegów, a `__full__` stał na
+    19 lipca. Bez tego parametru domknięcie zaległości wymaga okna dłuższego
+    niż odstęp między deployami — czyli w praktyce nie następuje.
+
+    Bieg CZĘŚCIOWY nie stempluje znaczników `__daily__`/`__full__`. To nie jest
+    ostrożność, tylko warunek poprawności: `__daily__` wyznacza `since` kolejnej
+    delty, więc przesunięcie go po biegu, który pominął fazy, przeskoczyłoby
+    dane, których nikt nie zaimportował — cicha strata, dokładnie ta, której
+    zakazuje M2-IMP-01. `__full__` z kolei znaczy „pełny reconcile się
+    zakończył" i karmi sondę świeżości w `/api/health`. Znaczniki per faza
+    aktualizują się normalnie, bo one mówią prawdę o swojej fazie.
 
     Returns a summary dict. Safe to call from the loop or the admin endpoint —
     the module lock serializes overlapping calls (the second one is skipped).
     """
     if mode not in ("delta", "full"):
         raise ValueError(f"mode must be 'delta' or 'full', got {mode!r}")
+
+    # Literówka MUSI wybuchnąć — patrz `validate_phases`.
+    selected = validate_phases(phases) if phases is not None else None
 
     if _sync_lock.locked():
         logger.info("Traffit sync already running — skipping %s request", mode)
@@ -510,6 +577,8 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                 importer = TraffitImporter(traffit, db, dry_run=False, batch_size=100)
 
                 for name, factory in _phase_plan(importer, since, files_since):
+                    if selected is not None and name not in selected:
+                        continue
                     try:
                         progress = await factory()
                         pd = progress.as_dict()
@@ -624,23 +693,36 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                 # A full run also advances the daily watermark (it covers
                 # everything) so the next delta computes its cutoff from here and
                 # the daily gate resets.
-                await _upsert_state(
-                    db,
-                    FULL_MARKER if mode == "full" else DAILY_MARKER,
-                    last_synced_at=watermark,
-                    last_run_started_at=run_start,
-                    last_run_finished_at=finished,
-                    last_status=status,
-                    stats=results,
-                )
-                if mode == "full":
+                #
+                # …ale TYLKO gdy bieg objął cały plan. Bieg zawężony przez
+                # `phases=` przesunąłby `__daily__` ponad danymi, których nie
+                # dotknął — kolejna delta liczyłaby `since` od tego momentu
+                # i pominięte rekordy wypadłyby z okna na zawsze. `__full__`
+                # kłamałby o zakończonym reconcile i uciszał sondę świeżości.
+                if selected is None:
                     await _upsert_state(
                         db,
-                        DAILY_MARKER,
+                        FULL_MARKER if mode == "full" else DAILY_MARKER,
                         last_synced_at=watermark,
+                        last_run_started_at=run_start,
                         last_run_finished_at=finished,
                         last_status=status,
-                        stats={"via": "full_reconcile"},
+                        stats=results,
+                    )
+                    if mode == "full":
+                        await _upsert_state(
+                            db,
+                            DAILY_MARKER,
+                            last_synced_at=watermark,
+                            last_run_finished_at=finished,
+                            last_status=status,
+                            stats={"via": "full_reconcile"},
+                        )
+                else:
+                    logger.info(
+                        "Traffit partial run (%s) — markers NOT advanced; phases: %s",
+                        mode,
+                        ", ".join(sorted(selected)),
                     )
 
         notes = sum(
