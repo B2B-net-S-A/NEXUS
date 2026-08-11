@@ -185,6 +185,12 @@ class PhaseProgress:
     # failure. Counted, never `add_error`: see the call sites for why treating
     # "it is gone" as an error froze phases indefinitely.
     gone_upstream: int = 0
+    # Rekrutacje przypięte do `__traffit_orphans`, bo Traffit nie podał
+    # klienta (albo podał skasowanego). CELOWO osobny licznik, nie
+    # `skipped`: to są wiersze ZAPISANE, tylko z zastępczym klientem —
+    # zlanie ich ze `skipped` (= pominięte) mówiłoby operatorowi coś
+    # przeciwnego do tego, co się stało.
+    orphaned: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -228,6 +234,7 @@ class PhaseProgress:
             "skipped_pages": self.skipped_pages,
             "resynced_pointers": self.resynced_pointers,
             "gone_upstream": self.gone_upstream,
+            "orphaned": self.orphaned,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1615,6 +1622,10 @@ class TraffitImporter:
 
         client_map = await self._build_client_external_id_map()
         workflow_map = await self._build_workflow_external_id_map()
+        # Zakładany LENIWIE — dopiero gdy pojawi się pierwsza sierota. Bez tego
+        # każda instalacja dostawałaby pustego `__traffit_orphans` w liście
+        # klientów, także ta, w której każda rekrutacja ma klienta.
+        orphan_client_id: Optional[int] = None
         user_map = await self.build_user_id_map()
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
@@ -1652,16 +1663,30 @@ class TraffitImporter:
                 progress.add_error(f"map recruitment id={raw.get('id')}: {e!r}")
                 continue
 
-            # Skip jobs bez znanego klienta — DB ma NOT NULL constraint
-            # na `client_id` od migracji 0120 (2026-05-27), więc bezklientowy
-            # INSERT i tak by się wywalił. Logujemy jako skipped dla audit.
+            # Rekrutacje bez znanego klienta lądują u sieroty, nie w koszu.
+            #
+            # `jobs.client_id` ma NOT NULL od migracji 0120, więc bezklientowy
+            # INSERT i tak by się wywalił — ale pominięcie wiersza NIE jest
+            # przez to jedyną opcją, tylko najgorszą z możliwych. Kosztowało
+            # to na prodzie 28 rekrutacji (`external_id` 38…95, czyli
+            # najstarsze rekordy: klient skasowany w Traffit albo nigdy nie
+            # przypisany).
+            #
+            # I nie chodzi o 28 pustych wierszy. `traffit_recruitment_history_
+            # to_stage` zwraca None, gdy `job_id` nie ma w mapie, więc razem
+            # z rekrutacją przepadała CAŁA historia kandydatów, którzy przez
+            # nią przechodzili — a to jest dokładnie ten rodzaj cichej straty,
+            # której ten importer ma zapobiegać.
+            #
+            # Wzorzec nie jest nowy: kontakty robią dokładnie to od zawsze
+            # (`import_contacts` → `_ensure_orphan_client`), co opisuje nawet
+            # nagłówek tego pliku. Ta sama sytuacja miała dotąd dwa różne
+            # rozstrzygnięcia zależnie od fazy; to była asymetria, nie decyzja.
             if payload.get("client_id") is None:
-                progress.skipped += 1
-                if len(progress.error_samples) < 20:
-                    progress.error_samples.append(
-                        f"skip job ext={payload['external_id']}: no client mapping"
-                    )
-                continue
+                if orphan_client_id is None:
+                    orphan_client_id = await self._ensure_orphan_client()
+                payload["client_id"] = orphan_client_id
+                progress.orphaned += 1
 
             # Disambiguate duplicate reference_number (Traffit allows it,
             # Nexus has uq_jobs_reference_number). First occurrence keeps the
