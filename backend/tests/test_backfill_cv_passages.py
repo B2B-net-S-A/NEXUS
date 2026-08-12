@@ -96,3 +96,57 @@ def test_backfill_is_resumable():
     assert "last_id" in backfill and "--after-id" in source, (
         "zapis musi raportować, od czego wznowić"
     )
+
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_embedding_slices_never_exceed_the_voyage_limit():
+    """`_voyage_embed_batch` przyjmuje NAJWYŻEJ 128 tekstów i nie tnie sam.
+
+    Bufor skryptu przekracza próg przy każdym flushu, a pomiar na produkcji
+    znalazł CV z 261 pasażami — bez cięcia plastrami KAŻDE wywołanie Voyage
+    byłoby za duże i cały zapis padłby hurtowo, zanim cokolwiek by zapisał.
+    """
+
+    import sys
+
+    sys.path.insert(0, str(SCRIPT.parent.parent))
+    from scripts.backfill_cv_passages import VOYAGE_MAX_BATCH, embed_in_slices
+
+    calls: list[int] = []
+
+    async def fake_embed(texts, *, input_type):
+        calls.append(len(texts))
+        return [[0.0]] * len(texts)
+
+    vectors = await embed_in_slices([f"t{i}" for i in range(300)], fake_embed)
+
+    assert all(size <= VOYAGE_MAX_BATCH for size in calls), calls
+    assert sum(calls) == 300
+    assert vectors is not None and len(vectors) == 300, "wyrównanie z wejściem"
+
+
+@pytest.mark.asyncio
+async def test_partial_slice_failure_rejects_the_whole_batch():
+    """Częściowy wynik przesunąłby wektory między kandydatami.
+
+    Brakujący plaster w środku oznacza, że pasaże jednego kandydata dostają
+    wektory innego — lepiej pominąć paczkę i dobrać ją przy wznowieniu.
+    """
+
+    import sys
+
+    sys.path.insert(0, str(SCRIPT.parent.parent))
+    from scripts.backfill_cv_passages import embed_in_slices
+
+    calls = {"n": 0}
+
+    async def flaky_embed(texts, *, input_type):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return None  # drugi plaster pada
+        return [[0.0]] * len(texts)
+
+    assert await embed_in_slices([f"t{i}" for i in range(300)], flaky_embed) is None

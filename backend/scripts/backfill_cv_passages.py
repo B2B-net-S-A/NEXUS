@@ -49,6 +49,33 @@ VECTOR_DIM = 1024
 QDRANT_LIMIT_MB = 2048
 CANDIDATES_COLLECTION_MB = 260
 
+# Twardy limit Voyage: jedno wywołanie przyjmuje najwyżej 128 tekstów, a
+# `_voyage_embed_batch` NIE tnie wewnętrznie — nadmiar to odrzucona paczka.
+# Bufor skryptu przekracza próg przy każdym flushu (ostatni kandydat dokłada
+# swoje pasaże PO przekroczeniu progu), a pomiar na produkcji znalazł CV z 261
+# pasażami, które samo jedno rozsadza dowolny rozmiar bufora. Stąd cięcie tutaj.
+VOYAGE_MAX_BATCH = 128
+
+
+async def embed_in_slices(texts: list[str], embed_fn) -> list | None:
+    """Zaembeduj listę dowolnej długości plastrami po `VOYAGE_MAX_BATCH`.
+
+    Zwraca listę wektorów wyrównaną z wejściem albo None, gdy KTÓRYKOLWIEK
+    plaster padł — częściowy wynik przesunąłby przypisanie wektorów do pasaży
+    o długość brakującego plastra i pasaże jednego kandydata dostałyby wektory
+    innego. Wyrównanie jest tu ważniejsze niż ratowanie części paczki; wołający
+    pomija paczkę i idzie dalej, a wznowienie po `--after-id` ją dobierze.
+    """
+
+    vectors: list = []
+    for offset in range(0, len(texts), VOYAGE_MAX_BATCH):
+        piece = texts[offset : offset + VOYAGE_MAX_BATCH]
+        got = await embed_fn(piece, input_type="document")
+        if not got or len(got) != len(piece):
+            return None
+        vectors.extend(got)
+    return vectors
+
 
 async def _iter_candidates(db, *, after_id: int, limit: int | None, page: int = 500):
     """Keyset pagination po `id` — NIE `.all()` na całym zakresie.
@@ -186,11 +213,11 @@ async def backfill(after_id: int, limit: int | None, batch: int) -> None:
             if not pending:
                 return
             texts = [p.text for _, passages in pending for p in passages]
-            vectors = await _voyage_embed_batch(texts, input_type="document")
-            if not vectors or len(vectors) != len(texts):
+            vectors = await embed_in_slices(texts, _voyage_embed_batch)
+            if vectors is None:
                 logger.warning(
-                    "Voyage zwrócił %s wektorów na %s tekstów — pomijam paczkę.",
-                    len(vectors) if vectors else 0,
+                    "Voyage nie zwrócił kompletu dla %s tekstów — pomijam paczkę "
+                    "(wznowienie po --after-id ją dobierze).",
                     len(texts),
                 )
                 skipped += len(pending)
