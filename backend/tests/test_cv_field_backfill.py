@@ -249,3 +249,92 @@ def test_bulk_prompt_asks_for_country_and_apply_consumes_it():
     assert candidate.location == "Kraków, PL", (
         "projekcja location musi nieść też kraj — dotąd kończyła się na mieście"
     )
+
+
+@pytest.mark.asyncio
+async def test_updated_candidates_are_enqueued_for_reembedding(monkeypatch):
+    """Praca Claude'a musi DOTRZEĆ do Voyage — inaczej jest niewidzialna.
+
+    Tekst embeddingu kandydata zawiera skills/kategorię; wypełnienie pól bez
+    oznaczenia do re-embeddingu zostawia wektory stare. Ta luka zjadła Falę 1
+    (naprawa w #1096) — i wróciła w pierwszej wersji tego runnera; wyszła przy
+    pytaniu „jak wykorzystać Claude'a, żeby Voyage działał lepiej".
+    """
+
+    from app.services import cv_field_backfill as runner
+
+    class _OkFeature:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def fake_parse(cv_text, *, model, template):
+        return {"city": "Kraków", "_confidence": {}}
+
+    enqueued: list[list[int]] = []
+
+    async def fake_reindex(db, entity, ids):
+        enqueued.append(list(ids))
+        return len(ids)
+
+    monkeypatch.setattr(runner, "ai_feature", _OkFeature)
+    monkeypatch.setattr(runner, "_parse_with_claude", fake_parse)
+    import app.services.index_outbox_service as outbox
+
+    monkeypatch.setattr(outbox, "record_bulk_reindex", fake_reindex)
+    monkeypatch.setattr(runner, "SLEEP_BETWEEN_CALLS_S", 0)
+
+    candidate = SimpleNamespace(
+        id=11,
+        skills=None,
+        city=None,
+        country=None,
+        location=None,
+        years_it_experience=None,
+        raw_cv_text="x" * 300,
+        first_name=None,
+        last_name=None,
+        email=None,
+        phone=None,
+        education=None,
+        ai_summary=None,
+        experience=None,
+        cv_extracted_data=None,
+        current_position=None,
+        languages=None,
+    )
+
+    class _FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self._rows
+
+    class _FakeDb:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, *_a, **_k):
+            self.calls += 1
+            return _FakeResult([candidate] if self.calls == 1 else [])
+
+        async def commit(self):
+            pass
+
+    stats = await runner.backfill_cv_fields(_FakeDb())
+
+    assert stats["updated"] == 1
+    assert stats["reindex_enqueued"] == 1
+    assert enqueued == [[11]], (
+        "zaktualizowany kandydat musi trafić do outboxu reindeksu — bez tego "
+        "jego wektor zostaje stary i Voyage nie widzi nowych pól"
+    )

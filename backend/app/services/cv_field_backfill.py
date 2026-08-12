@@ -22,6 +22,11 @@ Zasady, które nie są kosmetyką:
   a regex nie wypełnia pól celu. Wiersz bez wyniku = pominięty, nie blokujący.
 * **`message.usage` jest zbierane** — bieg kalibracyjny ma zmierzyć realny
   koszt jednostkowy zamiast szacunku; sumy tokenów są w statusie.
+* **Zaktualizowani trafiają do outboxu reindeksu** — tekst embeddingu kandydata
+  zawiera skills/kategorię, więc wypełnienie pól BEZ oznaczenia do re-embeddingu
+  zostawiłoby wektory stare i praca Claude'a nigdy nie dotarłaby do Voyage.
+  Dokładnie ta luka zjadła Falę 1 (naprawa w #1096); tu oznaczamy w rytmie
+  commitów, żeby przerwany bieg nie gubił oznaczeń.
 """
 
 from __future__ import annotations
@@ -130,6 +135,7 @@ async def backfill_cv_fields(
     stats.setdefault("errors", 0)
     stats.setdefault("fields_filled", {f: 0 for f in TARGET_FIELDS})
     stats.setdefault("usage", {"input_tokens": 0, "output_tokens": 0, "calls": 0})
+    stats.setdefault("reindex_enqueued", 0)
     stats["last_id"] = after_id
     stats["stopped_reason"] = None
 
@@ -141,6 +147,17 @@ async def backfill_cv_fields(
         if calibration_log_path
         else None
     )
+
+    from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
+
+    pending_reindex: list[int] = []
+
+    async def _flush_reindex() -> None:
+        if not pending_reindex:
+            return
+        enqueued = await record_bulk_reindex(db, CANDIDATE, pending_reindex)
+        stats["reindex_enqueued"] += int(enqueued or 0)
+        pending_reindex.clear()
 
     try:
         since_commit = 0
@@ -228,9 +245,14 @@ async def backfill_cv_fields(
                     stats["updated"] += 1
                     for field in filled:
                         stats["fields_filled"][field] += 1
+                    pending_reindex.append(candidate.id)
 
                 since_commit += 1
                 if since_commit >= COMMIT_EVERY:
+                    # Oznaczenia reindeksu jadą w TEJ SAMEJ transakcji co pola —
+                    # commit zapisuje oba naraz albo żadnego, więc restart nie
+                    # zostawia wierszy z nowymi polami i starym wektorem.
+                    await _flush_reindex()
                     await db.commit()
                     since_commit = 0
                     logger.info(
@@ -248,6 +270,7 @@ async def backfill_cv_fields(
         stats["stopped_reason"] = stats["stopped_reason"] or "done"
         return stats
     finally:
+        await _flush_reindex()
         await db.commit()
         if calibration_handle is not None:
             calibration_handle.close()
