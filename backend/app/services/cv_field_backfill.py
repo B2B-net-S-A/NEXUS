@@ -141,6 +141,7 @@ async def backfill_cv_fields(
     stats.setdefault("updated", 0)
     stats.setdefault("skipped_no_result", 0)
     stats.setdefault("errors", 0)
+    stats.setdefault("email_collisions", 0)
     stats.setdefault("fields_filled", {f: 0 for f in TARGET_FIELDS})
     stats.setdefault("usage", {"input_tokens": 0, "output_tokens": 0, "calls": 0})
     stats.setdefault("reindex_enqueued", 0)
@@ -252,14 +253,51 @@ async def backfill_cv_fields(
                         + "\n"
                     )
 
-                try:
-                    _apply_cv_enrichment(
-                        candidate, parsed, policy=CvWritePolicy.FILL_EMPTY
+                # Kolizja e-maila wykrywana PRZED zapisem, nie na commicie.
+                # `ix_candidates_email` jest UNIQUE, a FILL_EMPTY chroni tylko
+                # przed nadpisaniem WŁASNEGO wiersza — nie przed wpisaniem
+                # adresu, który już należy do INNEGO kandydata (duplikat osoby
+                # w bazie). Bez tego jeden taki wiersz zabijał cały bieg na
+                # commicie paczki, a launcher płacił LLM ponownie za wszystkie
+                # wiersze paczki przy każdym wznowieniu (id=67377, 22 próby).
+                # Kolidujący adres wypada; RESZTA pól wiersza normalnie się
+                # zapisuje. Kolizja to zarazem sygnał dla dedupu — stąd licznik.
+                email_value = (parsed.get("email") or "").strip()
+                if email_value and not (candidate.email or "").strip():
+                    email_taken = await db.scalar(
+                        select(func.count())
+                        .select_from(Candidate)
+                        .where(
+                            Candidate.email == email_value,
+                            Candidate.id != candidate.id,
+                        )
                     )
+                    if email_taken:
+                        parsed = {k: v for k, v in parsed.items() if k != "email"}
+                        stats["email_collisions"] += 1
+                        logger.info(
+                            "[cv-backfill] id=%s: e-mail %r należy już do innego "
+                            "kandydata — pole pominięte, reszta wiersza idzie",
+                            candidate.id,
+                            email_value,
+                        )
+
+                try:
+                    # SAVEPOINT per wiersz: naruszenie DOWOLNEGO constraintu
+                    # (nie tylko e-maila) wychodzi na flushu TUTAJ i cofa
+                    # wyłącznie ten wiersz — commit paczki zapisuje pozostałe.
+                    async with db.begin_nested():
+                        _apply_cv_enrichment(
+                            candidate, parsed, policy=CvWritePolicy.FILL_EMPTY
+                        )
+                        await db.flush()
                 except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
                     stats["errors"] += 1
                     logger.warning(
-                        "[cv-backfill] apply padł dla id=%s: %r", candidate.id, exc
+                        "[cv-backfill] apply/flush padł dla id=%s: %r — wiersz "
+                        "pominięty, bieg trwa",
+                        candidate.id,
+                        exc,
                     )
                     continue
 
