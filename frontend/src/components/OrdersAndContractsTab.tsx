@@ -646,11 +646,18 @@ function ContractorCard({
     <li className="border border-border rounded-lg bg-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex-1 min-w-0">
-          {/* Header: samo imię i nazwisko — numer kontraktu usunięty (ticket #4) */}
+          {/* Header: imię i nazwisko + numer kontraktu szarą, mniejszą czcionką.
+              Numer BEZ dopisku statusu — słowo „draft" obok nazwiska mówiło
+              o stanie rekordu, nie o czymkolwiek, co rekruter może z tym zrobić.
+              (Wcześniejszy ticket zdjął ten numer w całości; obecny go
+              przywraca — to nowsze zamówienie produktowe.) */}
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold text-base">
               👤 {contractor.candidate_name}
             </h3>
+            <span className="text-xs text-muted-foreground">
+              Contract {contractor.contract_id}
+            </span>
             {expiringWarn && (
               <span className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
@@ -809,8 +816,17 @@ function ContractorCard({
             )}
           </div>
 
-          {/* Info o rekrutacji usunięte z widoku Zamówień (ticket #4) —
-              pozostaje w Profil → Obecni konsultanci (ConsultantRow). */}
+          {/* Rekrutacja, z której wyszedł ten kontraktor. Dane przychodzą
+              z `/orders` od dawna (`initial_job_title`) — wcześniejszy ticket
+              zdjął tylko render, obecny go przywraca. */}
+          {contractor.initial_job_title && (
+            <div className="mt-1 text-xs text-muted-foreground">
+              z rekrutacji:{" "}
+              <span className="text-foreground">
+                {contractor.initial_job_title}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -837,13 +853,40 @@ function ContractorCard({
       </div>
 
       {hasSection ? (
-        <div className="pl-2 border-l-2 border-violet-200 space-y-2">
-          <div className="flex items-center justify-between gap-2">
+        <div className="space-y-3">
+          {/* „Przyszłe zamówienie" i „Historia zamówień" to DWA osobne
+              kontenery, nie jedna sekcja z przełącznikiem. Wcześniej wiersze
+              historii renderowały się pod nagłówkiem sekcji przyszłych i miały
+              badge „Draft" — czyli pod nagłówkiem „Przyszłe zamówienie" stały
+              zamówienia zakończone, oznaczone słowem, którego ten ticket
+              zabrania właśnie w tym miejscu. */}
+          <div className="pl-2 border-l-2 border-violet-200 space-y-2">
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Przyszłe zamówienie
               {futureOrders.length > 0 ? ` (${futureOrders.length})` : ""}
             </div>
-            {historyOrders.length > 0 && (
+
+            {futureOrders.length > 0 ? (
+              futureOrders.map((order) => (
+                <FutureOrderRow
+                  key={order.id}
+                  order={order}
+                  candidateName={contractor.candidate_name}
+                  clientId={clientId}
+                  onError={onError}
+                  onSuccess={onSuccess}
+                  onChange={onChange}
+                />
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground italic">
+                Brak przyszłych zamówień.
+              </div>
+            )}
+          </div>
+
+          {historyOrders.length > 0 && (
+            <div className="pl-2 border-l-2 border-border space-y-2">
               <button
                 type="button"
                 onClick={() => {
@@ -852,45 +895,27 @@ function ContractorCard({
                   if (!searching) setShowHistory((v) => !v);
                 }}
                 aria-expanded={historyOpen}
-                className="text-xs text-muted-foreground hover:text-violet-600 flex items-center gap-1"
+                className="text-xs font-medium text-muted-foreground hover:text-violet-600 flex items-center gap-1 uppercase tracking-wide"
               >
                 <History className="w-3 h-3" />
                 Historia zamówień ({historyOrders.length})
               </button>
-            )}
-          </div>
 
-          {futureOrders.length > 0 ? (
-            futureOrders.map((order) => (
-              <FutureOrderRow
-                key={order.id}
-                order={order}
-                candidateName={contractor.candidate_name}
-                clientId={clientId}
-                onError={onError}
-                onSuccess={onSuccess}
-                onChange={onChange}
-              />
-            ))
-          ) : (
-            <div className="text-xs text-muted-foreground italic">
-              Brak przyszłych zamówień.
+              {historyOpen &&
+                historyOrders.map((order) => (
+                  <HistoryOrderRow
+                    key={order.id}
+                    order={order}
+                    clientId={clientId}
+                    canManageFinance={canManageFinance}
+                    rateUnit={contractor.rate_unit}
+                    onError={onError}
+                    onSuccess={onSuccess}
+                    onDeleted={onChange}
+                  />
+                ))}
             </div>
           )}
-
-          {historyOpen &&
-            historyOrders.map((order) => (
-              <HistoryOrderRow
-                key={order.id}
-                order={order}
-                clientId={clientId}
-                canManageFinance={canManageFinance}
-                rateUnit={contractor.rate_unit}
-                onError={onError}
-                onSuccess={onSuccess}
-                onDeleted={onChange}
-              />
-            ))}
         </div>
       ) : (
         !activeOrder && (

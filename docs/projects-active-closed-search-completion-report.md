@@ -45,15 +45,27 @@ Zgodnie z istniejącym wzorcem w repo (rejestr umów B2B): parametr `q` na serwe
 po stronie klienta przeszukuje **pełny zbiór**, nie tylko pobrane 100 wierszy.
 300 ms daje odczucie „w czasie rzeczywistym" bez strzału na każdą literę.
 
-### Rozwijanie sekcji (decyzja produktowa — łatwo odwracalna)
-Wymóg zostawiał „obie rozwinięte vs zwijane" do ustalenia z produktem. Wybrano:
-- **Aktywne — rozwinięte domyślnie** (spełnia „domyślnie widoczna sekcja Aktywne").
-- **Zamknięte — zwinięte domyślnie** (odciąża widok; licznik i tak widoczny).
-- **Aktywne wyszukiwanie wymusza rozwinięcie obu sekcji** — inaczej trafienie w
-  zwiniętej sekcji zamkniętych byłoby niewidoczne.
+### Rozwijanie sekcji — ODWRÓCONE (akordeon → przełącznik)
 
-Użyto natywnego `<details>/<summary>` — ten sam idiom, co pozostałe collapsible na
-stronie klienta. Flip na „obie rozwinięte" = zmiana dwóch wartości domyślnych stanu.
+> **Nieaktualne od 2026-08-12.** Opisana niżej decyzja o akordeonie została
+> cofnięta: kubełki są teraz **przełącznikiem** (`ds/TabbedNav`), renderowana
+> jest **dokładnie jedna** lista, a auto-rozwijanie przy wyszukiwaniu zniknęło —
+> zastąpił je licznik przy niewybranej opcji, który pokazuje, że trafienia są
+> w drugim kubełku. Sekcja zostaje jako zapis historii decyzji.
+
+~~Wymóg zostawiał „obie rozwinięte vs zwijane" do ustalenia z produktem. Wybrano:~~
+- ~~**Aktywne — rozwinięte domyślnie** (spełnia „domyślnie widoczna sekcja Aktywne").~~
+- ~~**Zamknięte — zwinięte domyślnie** (odciąża widok; licznik i tak widoczny).~~
+- ~~**Aktywne wyszukiwanie wymusza rozwinięcie obu sekcji** — inaczej trafienie w
+  zwiniętej sekcji zamkniętych byłoby niewidoczne.~~
+
+~~Użyto natywnego `<details>/<summary>`~~ — obecnie `TabbedNav` z kitu DS
+(licznik wbudowany, ikona opcjonalna, role `tab`/`aria-selected` z Radiksa).
+
+**Co przetrwało odwrócenie i nie wolno tego ruszać:** oba zapytania lecą ZAWSZE,
+bez `enabled:`. Dodanie `enabled: bucket === …` zgasiłoby licznik niewybranej
+opcji do `0` przez `?? 0` i skłamałoby „brak zamkniętych projektów". Dane oba,
+render jeden.
 
 ### Pustka po wyszukaniu ≠ brak projektów
 Osobny komunikat „Brak projektów pasujących do wyszukiwania" vs „Brak aktywnych/

@@ -77,6 +77,10 @@ from app.services.b2b_contract_generator.docx_renderer import (
     render_contract_docx,
     render_from_context,
 )
+from app.services.b2b_contract_generator.entity_type import (
+    partner_display_lines,
+    resolve_partner_entity_type,
+)
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.render_context import build_render_context
 from app.services.b2b_contract_generator.uop_check import (
@@ -341,6 +345,19 @@ async def _serialize_generated_contracts(
             can_confirm = False
 
         job = jobs.get(row.job_id) if row.job_id is not None else None
+        # Kolumna „Partner": nazwa firmy z rejestru, a dla spółki dodatkowo
+        # druga linia z osobą. Rozstrzygane TUTAJ, nie na frontendzie — reguła
+        # („niejednoznaczne → spółka" + kasowanie duplikacji przez podciąg) musi
+        # dać ten sam wynik w tabeli, w dialogu podpisu i w odpowiedzi PATCH-a,
+        # a wszystkie trzy przechodzą przez ten serializer.
+        partner_display, partner_secondary = partner_display_lines(
+            legal_name=row.partner_legal_name,
+            person_name=row.partner_name,
+            entity_type=resolve_partner_entity_type(
+                stored=row.partner_entity_type,
+                legal_name=row.partner_legal_name,
+            ),
+        )
         items.append(
             B2BGeneratedContractItem(
                 # Zmiana statusu handlowego celowo NIE wygasa po podpisaniu:
@@ -354,6 +371,10 @@ async def _serialize_generated_contracts(
                 id=row.id,
                 contract_number=row.contract_number,
                 partner_name=row.partner_name,
+                partner_display_name=partner_display,
+                partner_secondary_line=partner_secondary,
+                partner_nip=row.partner_nip,
+                start_date=row.start_date,
                 client_name=row.client_name,
                 language=row.language,
                 signing_date=row.signing_date,
@@ -828,6 +849,18 @@ async def download_docx(
 _NUMBER_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d{4})\s*$")
 
 
+def _nip_digits(raw: str | None) -> str | None:
+    """NIP kanonicznie do samych cyfr (kolumna `b2b_generated_contracts.nip`).
+
+    Surowe formatowanie („123-456-32-18", „PL 1234563218") zostaje
+    w `render_payload`, więc dokument renderuje się bez zmian. Kolumna jest
+    kanoniczna, bo inaczej wyszukiwanie po NIP zależałoby od tego, jak
+    użytkownik wpisał kreski: „1234563218" nie znalazłoby „123-456-32-18".
+    """
+    digits = re.sub(r"\D", "", raw or "")
+    return digits[:32] or None
+
+
 def _parse_seq(contract_number: str | None, year: int | None = None) -> int | None:
     """Wyłuskaj numer porządkowy z `contract_number` („1434/2026" → 1434).
 
@@ -1000,6 +1033,24 @@ async def render_standalone(
             candidate_id=payload.candidate_id,
             job_id=payload.job_id,
             client_id=linked_job.client_id if linked_job else None,
+            # Wygenerowanie dokumentu to początek biegu umowy, nie jej
+            # obowiązywanie. „Aktywna" znaczy „podpisana obustronnie" i ustawia
+            # ją WYŁĄCZNIE confirm-fully-signed; default kolumny („active")
+            # kłamałby o każdej nowej umowie.
+            contract_status="in_progress",
+            # Snapshot danych rejestrowych na potrzeby listy — odnormalizowane
+            # z payloadu, bo lista pokazuje je jako kolumny i filtruje po
+            # `start_date` po stronie SQL-a.
+            partner_legal_name=payload.partner_legal_name,
+            partner_nip=_nip_digits(payload.partner_nip),
+            start_date=payload.start_date,
+            # Rozstrzygnięcie zapada TERAZ, nie przy każdym odczycie: ticket
+            # wymaga snapshotu „nieprzeliczanego później", a forma prawna
+            # Partnera po podpisaniu umowy przestaje być bieżącą informacją.
+            partner_entity_type=resolve_partner_entity_type(
+                stored=payload.partner_entity_type,
+                legal_name=payload.partner_legal_name,
+            ),
             # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
             render_payload=payload.model_dump(mode="json"),
         )
@@ -1042,14 +1093,20 @@ async def list_generated_contracts(
         None,
         max_length=120,
         description=(
-            "Szukaj po numerze umowy, nazwie Partnera/Klienta lub imieniu "
-            "i nazwisku powiązanego kandydata."
+            "Szukaj po numerze umowy, nazwie firmy Partnera, NIP, nazwie "
+            "Klienta lub imieniu i nazwisku Partnera/powiązanego kandydata."
         ),
     ),
     contract_status: str | None = Query(
         None,
-        pattern="^(active|closed)$",
+        pattern="^(active|in_progress|closed)$",
         description="Filtr statusu handlowego umowy.",
+    ),
+    start_from: date | None = Query(
+        None, description="Data rozpoczęcia usług OD (włącznie)."
+    ),
+    start_to: date | None = Query(
+        None, description="Data rozpoczęcia usług DO (włącznie)."
     ),
 ):
     """Ostatnio wygenerowane umowy (numer, partner, klient, data) — do zakładki
@@ -1060,6 +1117,16 @@ async def list_generated_contracts(
 
     ``can_delete`` mówi UI, czy bieżący użytkownik może usunąć dany wpis (autor
     wpisu lub admin)."""
+    # Odwrócony zakres zwróciłby pustą listę, którą użytkownik czyta jako „nie
+    # ma takich umów", a nie „pomyliłeś daty". Cicha zamiana granic byłaby
+    # jeszcze gorsza: filtr działałby inaczej, niż napisano w URL-u. FastAPI nie
+    # waliduje między parametrami, więc musi to być jawny guard w ciele.
+    if start_from is not None and start_to is not None and start_from > start_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="„Data rozpoczęcia od” nie może być późniejsza niż „do”.",
+        )
+
     query = await _scope_generator_query(
         select(B2BGeneratedContract),
         B2BGeneratedContract.client_id,
@@ -1074,23 +1141,46 @@ async def list_generated_contracts(
         # INNER wyciąłby je z wyników wyszukiwania po numerze umowy.
         query = query.outerjoin(
             Candidate, Candidate.id == B2BGeneratedContract.candidate_id
-        ).where(
-            or_(
-                B2BGeneratedContract.contract_number.ilike(pattern, escape="\\"),
-                B2BGeneratedContract.partner_name.ilike(pattern, escape="\\"),
-                B2BGeneratedContract.client_name.ilike(pattern, escape="\\"),
-                Candidate.name.ilike(pattern, escape="\\"),
-                Candidate.lastname.ilike(pattern, escape="\\"),
-                # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
-                # kolumny wyżej same tego nie dopasują.
-                func.concat(Candidate.name, " ", Candidate.lastname).ilike(
-                    pattern, escape="\\"
-                ),
-            )
         )
+        clauses = [
+            B2BGeneratedContract.contract_number.ilike(pattern, escape="\\"),
+            B2BGeneratedContract.partner_name.ilike(pattern, escape="\\"),
+            # Kolumna „Partner" pokazuje NAZWĘ FIRMY, więc bez tego warunku
+            # wyszukiwarka nie znajduje tego, co użytkownik widzi na liście.
+            B2BGeneratedContract.partner_legal_name.ilike(pattern, escape="\\"),
+            B2BGeneratedContract.client_name.ilike(pattern, escape="\\"),
+            Candidate.name.ilike(pattern, escape="\\"),
+            Candidate.lastname.ilike(pattern, escape="\\"),
+            # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
+            # kolumny wyżej same tego nie dopasują.
+            func.concat(Candidate.name, " ", Candidate.lastname).ilike(
+                pattern, escape="\\"
+            ),
+        ]
+        # NIP dochodzi tylko dla fraz wyglądających jak NIP. Próg 5 cyfr, bo
+        # `q="1"` dopasowałoby połowę rejestru. Kolumna trzyma same cyfry
+        # (kanonicznie, patrz `_nip_digits`), więc needle też normalizujemy —
+        # inaczej „123-456-32-18" nie znalazłoby zapisanego „1234563218".
+        nip_needle = re.sub(r"\D", "", needle)
+        if len(nip_needle) >= 5:
+            clauses.append(
+                B2BGeneratedContract.partner_nip.ilike(
+                    _like_needle(nip_needle), escape="\\"
+                )
+            )
+        query = query.where(or_(*clauses))
 
     if contract_status:
         query = query.where(B2BGeneratedContract.contract_status == contract_status)
+
+    # Koniunkcja z `q` i `contract_status` wychodzi sama: każdy filtr dokłada
+    # własne `.where(...)`, a SQLAlchemy łączy je AND-em. Wiersze bez
+    # `start_date` (historyczne, bez payloadu) WYPADAJĄ z zakresu — nieznana
+    # data rozpoczęcia nie mieści się w żadnym przedziale.
+    if start_from is not None:
+        query = query.where(B2BGeneratedContract.start_date >= start_from)
+    if start_to is not None:
+        query = query.where(B2BGeneratedContract.start_date <= start_to)
 
     rows = list(
         (
@@ -1301,6 +1391,14 @@ async def confirm_generated_contract_fully_signed(
 
         row.signature_status = "signed_both"
         row.signature_source = "manual_confirmation"
+        # Podpis obustronny to JEDYNE przejście `in_progress` → `active`.
+        # WARUNKOWO, nie bezwarunkowo: umowę wolno zamknąć powodem
+        # `resignation_before_signing` PRZED podpisem, a bezwarunkowe „active"
+        # na takim wierszu zostawiłoby wypełnione pola `closure_*` przy statusie
+        # `active` → IntegrityError z ck_..._closure_coherence, w środku
+        # atomowej automatyzacji zatrudnienia.
+        if row.contract_status == "in_progress":
+            row.contract_status = "active"
         row.candidate_id = candidate_id
         row.job_id = job.id
         row.client_id = job.client_id

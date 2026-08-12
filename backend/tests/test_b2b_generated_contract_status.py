@@ -116,7 +116,18 @@ def test_update_dto_rejects_closure_fields_without_status():
 # ── API: zamknięcie i powrót do aktywnej ─────────────────────────────────────
 
 
-async def test_new_contract_defaults_to_active(app_client, app_auth_headers):
+async def test_orm_default_status_stays_active_for_directly_seeded_rows(
+    app_client, app_auth_headers
+):
+    """Default kolumny zostaje „active" — to NIE jest status nowej umowy.
+
+    Ten test seeduje wiersz przez ORM, więc mierzy default kolumny, a nie
+    zachowanie generowania. Nową umowę oznacza `in_progress`, ustawiane JAWNIE
+    w handlerze `/render` (patrz `test_generated_contract_starts_in_progress`).
+    Default opisuje wiersz wstawiony BEZ decyzji o statusie: safety-net
+    entrypointu, seed, surowy INSERT — zmiana defaultu na `in_progress`
+    przepisałaby historię każdego takiego wiersza.
+    """
     admin_id = await _admin_user_id(app_client)
     rid, _number = await _seed(admin_id)
 
@@ -127,6 +138,36 @@ async def test_new_contract_defaults_to_active(app_client, app_auth_headers):
     assert item["closure_reason"] is None
     assert item["closure_date"] is None
     assert item["can_change_status"] is True
+
+
+async def test_in_progress_cannot_be_set_by_hand(app_client, app_auth_headers):
+    """„W trakcie" to stan, PRZEZ który umowa przechodzi automatycznie.
+
+    Odrzucenie żyje w walidatorze DTO, a nie w zawężonym typie pola, żeby
+    komunikat był po polsku i wyjaśniał, skąd ten status się bierze.
+    """
+    admin_id = await _admin_user_id(app_client)
+    rid, _number = await _seed(admin_id)
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "in_progress"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "automatycznie" in resp.text
+
+    # Status w bazie nie drgnął.
+    listing = await app_client.get(
+        PATH, headers=app_auth_headers, params={"limit": 200}
+    )
+    item = next(x for x in listing.json() if x["id"] == rid)
+    assert item["contract_status"] == "active"
+
+
+def test_dto_rejects_in_progress_with_a_polish_explanation():
+    with pytest.raises(ValidationError, match="automatycznie"):
+        B2BGeneratedContractUpdate(contract_status="in_progress")
 
 
 async def test_closing_keeps_the_row_and_records_reason_and_date(
@@ -439,3 +480,250 @@ async def test_search_misses_return_empty_not_everything(app_client, app_auth_he
     )
     assert resp.status_code == 200, resp.text
     assert resp.json() == []
+
+
+# ── Generowanie: `in_progress` + snapshot danych Partnera ────────────────────
+
+
+async def _render_docx(app_client, app_auth_headers, **overrides) -> str:
+    """Wygeneruj umowę przez PRAWDZIWY `/render` i zwróć jej numer.
+
+    Numer podajemy jawnie (seq z UUID), bo to jedyny sposób odnalezienia
+    świeżego wiersza bez ścigania się z innymi testami seedującymi tę tabelę —
+    `max(id)` byłby wyścigiem, a `/render` zwraca plik, nie identyfikator.
+    """
+    seq = 300000 + (uuid.uuid4().int % 500000)
+    number = f"{seq}/2026"
+    payload = {
+        "language": "pl",
+        "contract_number": number,
+        "partner_name": "Zofia Wiśniewska",
+        "client_name": "Nordea Bank",
+        "signing_date": "2026-08-01",
+        **overrides,
+    }
+    resp = await app_client.post(
+        "/api/b2b-generator/render?format=docx",
+        headers=app_auth_headers,
+        json=payload,
+    )
+    assert resp.status_code == 200, resp.text
+    return number
+
+
+async def _item_by_number(app_client, app_auth_headers, number: str) -> dict:
+    resp = await app_client.get(PATH, headers=app_auth_headers, params={"q": number})
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+async def test_generated_contract_starts_in_progress(app_client, app_auth_headers):
+    """Sedno zmiany: wygenerowanie dokumentu to nie jest „umowa Aktywna".
+
+    Do 0224 rejestr twierdził „Aktywna" o umowie, która dopiero poszła do
+    podpisu — bo status brał się z defaultu kolumny.
+    """
+    number = await _render_docx(app_client, app_auth_headers)
+    item = await _item_by_number(app_client, app_auth_headers, number)
+
+    assert item["contract_status"] == "in_progress"
+    assert item["closure_reason"] is None
+    assert item["closure_date"] is None
+
+
+async def test_generation_snapshots_partner_company_data(app_client, app_auth_headers):
+    """Nazwa firmy, NIP i data rozpoczęcia trafiają do KOLUMN, nie tylko do
+    `render_payload` — inaczej lista nie może ich pokazać ani po nich filtrować."""
+    number = await _render_docx(
+        app_client,
+        app_auth_headers,
+        partner_legal_name="ZW Software Sp. z o.o.",
+        partner_nip="123-456-32-18",
+        start_date="2026-09-15",
+    )
+    item = await _item_by_number(app_client, app_auth_headers, number)
+
+    # NIP kanonicznie w cyfrach; surowe formatowanie zostaje w payloadzie.
+    assert item["partner_nip"] == "1234563218"
+    assert item["start_date"] == "2026-09-15"
+    # Spółka → nazwa firmy w pierwszej linii, osoba w drugiej.
+    assert item["partner_display_name"] == "ZW Software Sp. z o.o."
+    assert item["partner_secondary_line"] == "Zofia Wiśniewska"
+
+
+async def test_generation_for_sole_trader_hides_the_second_line(
+    app_client, app_auth_headers
+):
+    """JDG: nazwa działalności zawiera już właściciela, więc druga linia byłaby
+    duplikacją. Snapshot z rejestru bije heurystykę po nazwie."""
+    number = await _render_docx(
+        app_client,
+        app_auth_headers,
+        partner_name="Jan Kowalski",
+        partner_legal_name="Kowalski Consulting Sp. z o.o.",
+        partner_entity_type="sole_trader",
+    )
+    item = await _item_by_number(app_client, app_auth_headers, number)
+
+    assert item["partner_display_name"] == "Kowalski Consulting Sp. z o.o."
+    assert item["partner_secondary_line"] is None
+
+
+async def test_unknown_entity_type_degrades_instead_of_blocking_generation(
+    app_client, app_auth_headers
+):
+    """Nieznana wartość podpowiedzi WYŚWIETLANIA nie może zablokować wygenerowania
+    umowy — walidator degraduje ją do „brak sygnału", nie do 422."""
+    number = await _render_docx(
+        app_client,
+        app_auth_headers,
+        partner_legal_name="Alfa Sp. z o.o.",
+        partner_entity_type="jdg",
+    )
+    item = await _item_by_number(app_client, app_auth_headers, number)
+    # Brak sygnału → heurystyka po nazwie → spółka → druga linia jest.
+    assert item["partner_secondary_line"] == "Zofia Wiśniewska"
+
+
+async def test_in_progress_is_filterable(app_client, app_auth_headers):
+    """Bez poszerzenia `pattern` w Query najliczniejsza kategoria zwracałaby 422."""
+    number = await _render_docx(app_client, app_auth_headers)
+    item = await _item_by_number(app_client, app_auth_headers, number)
+
+    resp = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={"limit": 200, "contract_status": "in_progress"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert item["id"] in {x["id"] for x in resp.json()}
+
+    active_only = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={"limit": 200, "contract_status": "active"},
+    )
+    assert item["id"] not in {x["id"] for x in active_only.json()}
+
+
+async def test_search_finds_a_row_by_company_name_and_by_nip(
+    app_client, app_auth_headers
+):
+    """Kolumna „Partner" pokazuje nazwę firmy, więc wyszukiwarka musi ją znać —
+    inaczej użytkownik nie znajduje tego, co widzi na liście. NIP szukany
+    z kreskami trafia w kanoniczne cyfry."""
+    tag = uuid.uuid4().hex[:10]
+    number = await _render_docx(
+        app_client,
+        app_auth_headers,
+        partner_legal_name=f"Wyszukiwalna {tag} Sp. z o.o.",
+        partner_nip="987-654-32-10",
+    )
+    expected = (await _item_by_number(app_client, app_auth_headers, number))["id"]
+
+    by_company = await app_client.get(PATH, headers=app_auth_headers, params={"q": tag})
+    assert [x["id"] for x in by_company.json()] == [expected]
+
+    by_nip = await app_client.get(
+        PATH, headers=app_auth_headers, params={"q": "987-654-32-10"}
+    )
+    assert expected in {x["id"] for x in by_nip.json()}
+
+
+# ── API: filtr zakresu daty rozpoczęcia ──────────────────────────────────────
+
+
+async def test_start_date_range_filter_is_inclusive_on_both_ends(
+    app_client, app_auth_headers
+):
+    number = await _render_docx(app_client, app_auth_headers, start_date="2026-09-15")
+    rid = (await _item_by_number(app_client, app_auth_headers, number))["id"]
+
+    for params in (
+        {"start_from": "2026-09-15", "start_to": "2026-09-15"},  # ten sam dzień
+        {"start_from": "2026-09-01", "start_to": "2026-09-30"},  # cały miesiąc
+        {"start_from": "2026-09-15"},  # tylko dolna granica
+        {"start_to": "2026-09-15"},  # tylko górna granica
+    ):
+        resp = await app_client.get(
+            PATH, headers=app_auth_headers, params={"limit": 200, **params}
+        )
+        assert resp.status_code == 200, resp.text
+        assert rid in {x["id"] for x in resp.json()}, params
+
+    outside = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={"limit": 200, "start_from": "2026-09-16"},
+    )
+    assert rid not in {x["id"] for x in outside.json()}
+
+
+async def test_rows_without_start_date_fall_outside_every_range(
+    app_client, app_auth_headers
+):
+    """Nieznana data rozpoczęcia nie mieści się w żadnym przedziale — wiersze
+    historyczne (bez payloadu) wypadają z filtra, i to jest poprawne."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _number = await _seed(admin_id)
+
+    resp = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={"limit": 200, "start_from": "1900-01-01", "start_to": "2999-12-31"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert rid not in {x["id"] for x in resp.json()}
+
+
+async def test_reversed_start_date_range_is_an_error_not_an_empty_list(
+    app_client, app_auth_headers
+):
+    """Pusta lista czytałaby się jako „nie ma takich umów", a cicha zamiana
+    granic sprawiłaby, że filtr działa inaczej, niż napisano w URL-u."""
+    resp = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={"start_from": "2026-09-30", "start_to": "2026-09-01"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_date_filter_combines_with_search_and_status(
+    app_client, app_auth_headers
+):
+    """Trzy filtry muszą działać koniunkcyjnie — każdy dokłada własne WHERE."""
+    tag = uuid.uuid4().hex[:10]
+    number = await _render_docx(
+        app_client,
+        app_auth_headers,
+        partner_legal_name=f"Koniunkcja {tag}",
+        start_date="2026-10-05",
+    )
+    rid = (await _item_by_number(app_client, app_auth_headers, number))["id"]
+
+    hit = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={
+            "q": tag,
+            "contract_status": "in_progress",
+            "start_from": "2026-10-01",
+            "start_to": "2026-10-31",
+        },
+    )
+    assert [x["id"] for x in hit.json()] == [rid]
+
+    # Ten sam wiersz, ale zakres dat obok — koniunkcja musi go odrzucić.
+    miss = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={
+            "q": tag,
+            "contract_status": "in_progress",
+            "start_from": "2026-11-01",
+        },
+    )
+    assert miss.json() == []

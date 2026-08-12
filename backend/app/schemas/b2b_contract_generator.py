@@ -8,9 +8,18 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Status handlowy wygenerowanej umowy i katalog powodów zamknięcia. Wartości
-# muszą pokrywać się z CHECK-ami na `b2b_generated_contracts` (model + migracja
-# 0202 + safety-net entrypointu) — etykiety PL żyją po stronie frontendu.
-B2BContractStatus = Literal["active", "closed"]
+# muszą pokrywać się z CHECK-ami na `b2b_generated_contracts` (model + migracje
+# 0203/0224 + safety-net entrypointu) — etykiety PL żyją po stronie frontendu.
+#
+# `in_progress` (0224) jest ustawiany WYŁĄCZNIE automatycznie: przy generowaniu
+# umowy, a `active` wyłącznie przy potwierdzeniu podpisu obustronnego. Katalog
+# jest jeden dla odczytu i zapisu; ręczny wybór `in_progress` odrzuca walidator
+# `B2BGeneratedContractUpdate`, nie zawężony typ — patrz uzasadnienie tam.
+B2BContractStatus = Literal["active", "in_progress", "closed"]
+# Typ podmiotu Partnera. Katalog żyje w `services.b2b_contract_generator.
+# entity_type`; tutaj powtórzony jako Literal, bo DTO nie może importować
+# serwisu (cykl importów).
+B2BPartnerEntityType = Literal["sole_trader", "company"]
 B2BClosureReason = Literal[
     "resignation_before_signing",
     "termination",
@@ -209,6 +218,18 @@ class B2BRenderRequest(BaseModel):
     partner_correspondence_address: Optional[str] = None
     partner_nip: Optional[str] = None
     partner_regon: Optional[str] = None
+    # Typ podmiotu rozpoznany z rejestru w momencie lookupu (CEIDG → JDG,
+    # KRS → spółka). Steruje wyłącznie tym, czy lista pokazuje drugą linię
+    # z osobą kontaktową — treść dokumentu jest od tego niezależna.
+    #
+    # `Optional[str]` + walidator, NIE `Optional[Literal[...]]`, z dwóch
+    # powodów. (1) Literal dałby 422 na CAŁYM `/render` za nieznaną wartość
+    # podpowiedzi WYŚWIETLANIA — zły handel, bo użytkownik nie wygenerowałby
+    # umowy. (2) `B2BRenderRequest(**row.render_payload)` odtwarza KAŻDY
+    # historyczny payload przy ponownym pobraniu DOCX; pole wymagane albo
+    # rygorystyczne zamieniłoby to w 422 dla wszystkich dotąd wygenerowanych
+    # umów. CHECK w bazie zostaje ostateczną barierą.
+    partner_entity_type: Optional[str] = None
     partner_email: Optional[str] = None
     partner_phone: Optional[str] = None
     # Klient + projekt
@@ -241,6 +262,17 @@ class B2BRenderRequest(BaseModel):
     ) -> Optional[list[B2BRateStageInput]]:
         return _normalize_rate_stages(v)
 
+    @field_validator("partner_entity_type")
+    @classmethod
+    def _known_entity_type(cls, v: Optional[str]) -> Optional[str]:
+        """Nieznana wartość degraduje do ``None``, nie do 422.
+
+        ``None`` oznacza „brak sygnału z rejestru", co serializer domyka
+        heurystyką po nazwie firmy — czyli najgorszy skutek złej wartości to
+        nadmiarowa druga linia, a nie zablokowane generowanie umowy.
+        """
+        return v if v in ("sole_trader", "company") else None
+
     @model_validator(mode="after")
     def _source_links_are_a_pair(self) -> "B2BRenderRequest":
         if (self.candidate_id is None) != (self.job_id is None):
@@ -272,6 +304,12 @@ class B2BCompanyLookupResponse(BaseModel):
     krs: Optional[str] = None
     address: Optional[str] = None
     source: Optional[str] = None
+    # Klasyfikacja gotowa, nie surowe `source`/`krs` do interpretacji na
+    # frontendzie: `source` przychodzi w czterech niespójnych formatach
+    # („CEIDG", „KRS", „biala_lista", „krs", „biznes"), a wiedzę o obu źródłach
+    # jednocześnie ma tylko `_merge`. Przepisanie tej tabeli prawdy do TS-a
+    # znaczyłoby jej wieczne pilnowanie w dwóch miejscach.
+    entity_type: Optional[B2BPartnerEntityType] = None
 
 
 class B2BUopCheckRequest(BaseModel):
@@ -299,7 +337,24 @@ class B2BGeneratedContractItem(BaseModel):
 
     id: int
     contract_number: str
+    # UWAGA: osoba fizyczna, NIE nazwa firmy. Zostaje w DTO z niezmienionym
+    # znaczeniem, bo ma dwóch żywych konsumentów, którym potrzebna jest osoba:
+    # etykietę w dialogu potwierdzenia podpisu i wyszukiwarkę. Nadpisanie go
+    # nazwą firmy byłoby najprostszą i najgorszą wersją tej zmiany.
     partner_name: Optional[str] = None
+    # Gotowe linie kolumny „Partner" — reguła rozpoznania JDG vs spółka ORAZ
+    # reguła podciągu (kasująca duplikację nazwiska zawartego już w nazwie
+    # firmy) żyją w serializerze, nie w komponencie. Powód: ten sam słownik form
+    # prawnych musi obsłużyć zapis snapshotu przy generowaniu, a kopia w TS-ie
+    # rozjechałaby się cicho — ten sam wiersz dostałby inną klasyfikację przy
+    # zapisie i przy wyświetlaniu.
+    partner_display_name: Optional[str] = None
+    partner_secondary_line: Optional[str] = None
+    # Kolumny „NIP" i „Data rozpoczęcia" na liście (snapshot z 0224). NIP jest
+    # kanonicznie w samych cyfrach; `start_date` to data rozpoczęcia USŁUG,
+    # nie data podpisania.
+    partner_nip: Optional[str] = None
+    start_date: Optional[date] = None
     client_name: Optional[str] = None
     language: Optional[str] = None
     signing_date: Optional[date] = None
@@ -363,6 +418,19 @@ class B2BGeneratedContractUpdate(BaseModel):
         Walidacja tutaj daje czytelny komunikat 422 po polsku zamiast surowego
         IntegrityError z bazy — sama baza pozostaje ostateczną barierą.
         """
+        # `in_progress` jest stanem, PRZEZ który umowa przechodzi automatycznie,
+        # nie stanem wybieranym. Odrzucane tutaj, a NIE przez zawężenie typu
+        # pola do Literal["active","closed"], z dwóch powodów: (1) wąski Literal
+        # daje angielskie „Input should be 'active' or 'closed'" bez wyjaśnienia,
+        # czego ten plik testowy nie da się złapać przez `pytest.raises(match=)`;
+        # (2) jeden katalog wartości dla odczytu i zapisu nie może się rozjechać.
+        if self.contract_status == "in_progress":
+            raise ValueError(
+                "Status „W trakcie” ustawia system automatycznie przy "
+                "generowaniu umowy — nie można go wybrać ręcznie. Umowa "
+                "staje się „Aktywna” po potwierdzeniu podpisu."
+            )
+
         if self.contract_status is None:
             # Jawne ``{"contract_status": null}`` != pominięcie pola. Bez tego
             # rozróżnienia null przechodzi walidację jako „brak zmiany statusu",

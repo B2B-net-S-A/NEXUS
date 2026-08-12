@@ -74,7 +74,6 @@ export function NewContractorOrderDialog({
 
   const [jobId, setJobId] = useState<string>(""); // "" = brak
   const [title, setTitle] = useState("");
-  const [titleTouched, setTitleTouched] = useState(false);
   const [contractStart, setContractStart] = useState("");
   const [contractEnd, setContractEnd] = useState("");
   const [orderStart, setOrderStart] = useState("");
@@ -125,20 +124,11 @@ export function NewContractorOrderDialog({
     },
   });
 
-  const selectedJobTitle = useMemo(() => {
-    if (!jobId) return null;
-    return clientJobs.find((j) => String(j.id) === jobId)?.title ?? null;
-  }, [jobId, clientJobs]);
-
-  // Auto-fill title from candidate + job (until user types)
-  useEffect(() => {
-    if (titleTouched) return;
-    if (!selectedCandidate) return;
-    const candName = `${selectedCandidate.name} ${selectedCandidate.lastname}`.trim();
-    setTitle(
-      selectedJobTitle ? `${candName} — ${selectedJobTitle}` : candName,
-    );
-  }, [selectedCandidate, selectedJobTitle, titleTouched]);
+  // Autofill USUNIĘTY: ta wartość jest pokazywana na karcie klienta jako
+  // „Numer zamówienia", a podpowiedź „Imię Nazwisko — Stanowisko" wpisywała tam
+  // nazwisko z tytułem rekrutacji zamiast numeru z dokumentu klienta. Pole
+  // wyglądające na wypełnione nie jest poprawiane, więc numer nigdy nie
+  // trafiał do systemu.
 
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);
@@ -359,16 +349,16 @@ export function NewContractorOrderDialog({
         )}
 
         <label className="block">
-          <span className="text-sm">Tytuł zamówienia *</span>
+          {/* Ta wartość jest wyświetlana na karcie klienta jako „Numer
+              zamówienia", więc etykieta musi mówić to samo — rozjazd „Tytuł"
+              tutaj vs „Numer" tam kazał zgadywać, że to jedno i to samo pole. */}
+          <span className="text-sm">Numer zamówienia *</span>
           <input
             value={title}
-            onChange={(e) => {
-              setTitleTouched(true);
-              setTitle(e.target.value);
-            }}
+            onChange={(e) => setTitle(e.target.value)}
             required
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder="np. Jan Kowalski — Senior Java Developer"
+            placeholder="np. 45767"
           />
         </label>
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Calendar,
   Check,
   CheckCircle2,
   ChevronsUpDown,
@@ -833,8 +834,172 @@ function ConfirmFullySignedDialog({
 // temu testy mockujące `@/lib/api` nadal dostają prawdziwe napisy.
 export const B2B_CONTRACT_STATUS_LABEL: Record<B2BContractStatus, string> = {
   active: "Aktywna",
+  in_progress: "W trakcie",
   closed: "Zamknięta",
 };
+
+/**
+ * Warianty badge'a statusu umowy.
+ *
+ * „Zamknięta" przeszła z `warning` (pomarańcz) na `neutral` (szary), żeby
+ * zwolnić pomarańcz dla „W trakcie". Nie jest to tylko przetasowanie kolorów:
+ * stan terminalny nie jest ostrzeżeniem, a umowa w drodze do podpisu wymaga
+ * uwagi. Dwa pomarańczowe statusy obok siebie byłyby nierozróżnialne.
+ */
+export const B2B_CONTRACT_STATUS_VARIANT: Record<
+  B2BContractStatus,
+  "info" | "warning" | "neutral"
+> = {
+  active: "info",
+  in_progress: "warning",
+  closed: "neutral",
+};
+
+/**
+ * Filtr zakresu daty rozpoczęcia usług — ikona kalendarza w nagłówku kolumny.
+ *
+ * Trzy tryby z ticketu sprowadzają się do JEDNEJ pary granic, bo tak wygląda
+ * kontrakt z backendem (`start_from`/`start_to`, obie włącznie): „cały miesiąc"
+ * to pierwszy i ostatni dzień, „konkretny dzień" to ta sama data w obu polach.
+ * Osobne tryby w stanie byłyby trzema reprezentacjami tego samego.
+ *
+ * Natywne `<input type="date">`, NIE biblioteka kalendarza: w repo nie ma
+ * żadnego pickera zakresu, a `react-day-picker` byłby tu jedyną taką
+ * zależnością. Konwencja repo (`StageFilterPanel`, `ClientContractRegister`) to
+ * para inputów ze skrzyżowanymi `min`/`max` — i ta krzyżowa walidacja jest
+ * potrzebna, bo odwrócony zakres backend odrzuca 422.
+ *
+ * `Popover`, nie `DropdownMenu`: menu Radiksa przechwytuje strzałki i zamyka się
+ * na kliknięcie pozycji, co walczy z polem daty. Do tego `PopoverContent`
+ * renderuje w portalu, więc panel nie jest obcinany przez `overflow-x-auto`
+ * tabeli.
+ */
+function StartDateRangeFilter({
+  from,
+  to,
+  onChange,
+}: {
+  from: string;
+  to: string;
+  onChange: (next: { from: string; to: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const active = Boolean(from || to);
+  // Miesiąc jako `YYYY-MM` — `type="month"` daje natywny wybór miesiąca,
+  // a granice liczymy z `Date`, żeby nie zgadywać długości lutego.
+  const [month, setMonth] = useState("");
+
+  const applyMonth = (value: string) => {
+    setMonth(value);
+    if (!value) return;
+    const [y, m] = value.split("-").map(Number);
+    if (!y || !m) return;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    // Dzień 0 następnego miesiąca = ostatni dzień wybranego.
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    onChange({ from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(last)}` });
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Filtruj po dacie rozpoczęcia"
+          aria-expanded={open}
+          title="Filtruj po dacie rozpoczęcia"
+          className={cn(
+            "rounded p-0.5 transition-colors",
+            active
+              ? "text-primary"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Calendar className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 space-y-3">
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">Zakres dat</p>
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              aria-label="Data rozpoczęcia — od"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => {
+                setMonth("");
+                onChange({ from: e.target.value, to });
+              }}
+              className="h-8 text-xs"
+            />
+            <span className="text-xs text-muted-foreground" aria-hidden>
+              –
+            </span>
+            <Input
+              type="date"
+              aria-label="Data rozpoczęcia — do"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => {
+                setMonth("");
+                onChange({ from, to: e.target.value });
+              }}
+              className="h-8 text-xs"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">
+            Cały miesiąc
+          </p>
+          <Input
+            type="month"
+            aria-label="Data rozpoczęcia — cały miesiąc"
+            value={month}
+            onChange={(e) => applyMonth(e.target.value)}
+            className="h-8 text-xs"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">
+            Konkretny dzień
+          </p>
+          <Input
+            type="date"
+            aria-label="Data rozpoczęcia — konkretny dzień"
+            value={from && from === to ? from : ""}
+            onChange={(e) => {
+              setMonth("");
+              onChange({ from: e.target.value, to: e.target.value });
+            }}
+            className="h-8 text-xs"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 border-t pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!active}
+            onClick={() => {
+              setMonth("");
+              onChange({ from: "", to: "" });
+            }}
+          >
+            Wyczyść
+          </Button>
+          <Button type="button" size="sm" onClick={() => setOpen(false)}>
+            Zamknij
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export const B2B_CLOSURE_REASON_LABEL: Record<B2BClosureReason, string> = {
   resignation_before_signing: "Rezygnacja przed podpisaniem umowy",
@@ -953,6 +1118,15 @@ export function ContractStatusDialog({
                 <SelectItem value="active">
                   {B2B_CONTRACT_STATUS_LABEL.active}
                 </SelectItem>
+                {/* „W trakcie" MUSI być na liście, ale wyszarzone. Widoczne,
+                    bo bez tej pozycji Radix wyrenderowałby pusty trigger dla
+                    umowy, która właśnie w tym stanie jest. Niewybieralne, bo
+                    ten status ustawia wyłącznie system — backend odrzuca
+                    ręczny wybór 422, a `disabled` domyka regułę po stronie UI,
+                    zamiast pozwolić użytkownikowi trafić na błąd. */}
+                <SelectItem value="in_progress" disabled>
+                  {B2B_CONTRACT_STATUS_LABEL.in_progress}
+                </SelectItem>
                 <SelectItem value="closed">
                   {B2B_CONTRACT_STATUS_LABEL.closed}
                 </SelectItem>
@@ -1048,14 +1222,24 @@ export function GeneratedContractsTab() {
   const [statusFilter, setStatusFilter] = useState<B2BContractStatus | "all">(
     "all",
   );
+  // Zakres daty ROZPOCZĘCIA USŁUG. Trzy tryby panelu (zakres / cały miesiąc /
+  // konkretny dzień) sprowadzają się do jednej pary granic: miesiąc to pierwszy
+  // i ostatni dzień, dzień to ta sama data w obu polach. `""` = brak granicy.
+  const [startFrom, setStartFrom] = useState("");
+  const [startTo, setStartTo] = useState("");
+  const dateFilterActive = Boolean(startFrom || startTo);
   // Debounce, żeby nie strzelać zapytaniem na każdą literę wpisaną w szukajkę.
   const debouncedSearch = useDebouncedValue(search, 300);
   const q = useQuery({
-    queryKey: ["b2b-generated", debouncedSearch, statusFilter],
+    // Filtr daty MUSI być w kluczu — bez tego react-query oddaje wynik
+    // poprzedniego zakresu z cache i zmiana granic „nic nie robi".
+    queryKey: ["b2b-generated", debouncedSearch, statusFilter, startFrom, startTo],
     queryFn: () =>
       b2bGeneratorApi.generated(100, {
         q: debouncedSearch,
         contractStatus: statusFilter === "all" ? undefined : statusFilter,
+        startFrom: startFrom || undefined,
+        startTo: startTo || undefined,
       }),
     staleTime: 10_000,
   });
@@ -1182,6 +1366,9 @@ export function GeneratedContractsTab() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Wszystkie statusy</SelectItem>
+                <SelectItem value="in_progress">
+                  {B2B_CONTRACT_STATUS_LABEL.in_progress}
+                </SelectItem>
                 <SelectItem value="active">
                   {B2B_CONTRACT_STATUS_LABEL.active}
                 </SelectItem>
@@ -1190,6 +1377,20 @@ export function GeneratedContractsTab() {
                 </SelectItem>
               </SelectContent>
             </Select>
+            {dateFilterActive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStartFrom("");
+                  setStartTo("");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary hover:text-primary-foreground"
+                aria-label="Wyczyść filtr daty rozpoczęcia"
+              >
+                Data rozpoczęcia: {startFrom || "…"} – {startTo || "…"}
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
           </div>
         )}
         {q.isLoading ? (
@@ -1203,24 +1404,42 @@ export function GeneratedContractsTab() {
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {/* Pustka po wyszukaniu ≠ brak umów w systemie — inaczej czyta się
-                to jak utratę danych (ten sam błąd co przy 403 wyżej). */}
-            {debouncedSearch.trim() || statusFilter !== "all"
+                to jak utratę danych (ten sam błąd co przy 403 wyżej).
+                Filtr daty MUSI być w tym warunku: bez niego odfiltrowana lista
+                twierdziłaby „Brak wygenerowanych umów", czyli awaria
+                wyrenderowałaby się jako utrata danych. */}
+            {debouncedSearch.trim() || statusFilter !== "all" || dateFilterActive
               ? "Brak umów pasujących do wyszukiwania."
               : "Brak wygenerowanych umów."}
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* `text-xs`, nie `text-sm`: przy 10 kolumnach rejestr nie mieści
+                się na typowej szerokości i tabela uciekała w poziomy scroll. */}
+            <table className="w-full text-xs">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="py-2 pr-4 font-medium">Numer</th>
                   <th className="py-2 pr-4 font-medium">Partner</th>
+                  <th className="py-2 pr-4 font-medium">NIP</th>
+                  <th className="py-2 pr-4 font-medium">
+                    <span className="inline-flex items-center gap-1.5">
+                      Data rozpoczęcia
+                      <StartDateRangeFilter
+                        from={startFrom}
+                        to={startTo}
+                        onChange={(next) => {
+                          setStartFrom(next.from);
+                          setStartTo(next.to);
+                        }}
+                      />
+                    </span>
+                  </th>
                   <th className="py-2 pr-4 font-medium">Klient</th>
-                  <th className="py-2 pr-4 font-medium">Język</th>
-                  <th className="py-2 pr-4 font-medium">Wygenerowano</th>
-                  <th className="py-2 pr-4 font-medium">Wygenerował</th>
-                  <th className="py-2 pr-4 font-medium">Status podpisu</th>
                   <th className="py-2 pr-4 font-medium">Status umowy</th>
+                  <th className="py-2 pr-4 font-medium">Status podpisu</th>
+                  <th className="py-2 pr-4 font-medium">Wygenerował</th>
+                  <th className="py-2 pr-4 font-medium">Wygenerowano</th>
                   <th className="py-2 text-right font-medium">Akcje</th>
                 </tr>
               </thead>
@@ -1239,7 +1458,26 @@ export function GeneratedContractsTab() {
                       <td className="py-2 pr-4 font-medium">
                         {r.contract_number}
                       </td>
-                      <td className="py-2 pr-4">{r.partner_name || "—"}</td>
+                      {/* Kolumna „Partner": NAZWA FIRMY z rejestru, nie nazwisko.
+                          Linie liczy backend — reguła rozpoznania JDG vs spółka i kasowania
+                          duplikacji nazwiska zawartego już w nazwie firmy nie może istnieć
+                          w dwóch kopiach, bo ta sama reguła decyduje o zapisie snapshotu.
+                          `|| r.partner_name` to fallback na wypadek starszego backendu
+                          (rollback jednej strony) — bez niego cała kolumna dałaby „—". */}
+                      <td className="py-2 pr-4">
+                        <div className="flex flex-col gap-0.5">
+                          <span>{r.partner_display_name || r.partner_name || "—"}</span>
+                          {r.partner_secondary_line ? (
+                            <span className="text-xs text-muted-foreground">
+                              {r.partner_secondary_line}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-4 tabular-nums">{r.partner_nip || "—"}</td>
+                      {/* Data ROZPOCZĘCIA USŁUG — surowe ISO, bez godziny (kontrast:
+                          „Wygenerowano" niżej celowo pokazuje czas). */}
+                      <td className="py-2 pr-4 tabular-nums">{r.start_date || "—"}</td>
                       <td className="py-2 pr-4">
                         {editing ? (
                           <Input
@@ -1262,15 +1500,72 @@ export function GeneratedContractsTab() {
                           r.client_name || "—"
                         )}
                       </td>
-                      <td className="py-2 pr-4 uppercase">
-                        {r.language || "—"}
+                      <td className="py-2 pr-4">
+                        <div className="flex min-w-44 flex-col items-start gap-1.5">
+                          <Badge
+                            variant={
+                              B2B_CONTRACT_STATUS_VARIANT[r.contract_status]
+                            }
+                            size="md"
+                            title={
+                              closed
+                                ? [
+                                    r.closure_reason
+                                      ? `Powód: ${
+                                          r.closure_reason === "other"
+                                            ? r.closure_reason_other || "Inne"
+                                            : B2B_CLOSURE_REASON_LABEL[
+                                                r.closure_reason
+                                              ]
+                                        }`
+                                      : null,
+                                    r.closure_date
+                                      ? `Zakończenie: ${r.closure_date}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")
+                                : r.contract_status === "in_progress"
+                                  ? "Wygenerowana, czeka na podpis obu stron"
+                                  : "Umowa podpisana i obowiązująca"
+                            }
+                          >
+                            {closed ? (
+                              <CircleSlash className="h-3.5 w-3.5" />
+                            ) : r.contract_status === "in_progress" ? (
+                              <CircleDashed className="h-3.5 w-3.5" />
+                            ) : (
+                              <CircleDot className="h-3.5 w-3.5" />
+                            )}
+                            {B2B_CONTRACT_STATUS_LABEL[r.contract_status]}
+                          </Badge>
+
+                          {closed ? (
+                            <span className="max-w-56 text-xs text-muted-foreground">
+                              {r.closure_reason === "other"
+                                ? r.closure_reason_other
+                                : r.closure_reason
+                                  ? B2B_CLOSURE_REASON_LABEL[r.closure_reason]
+                                  : null}
+                              {r.closure_date ? ` · ${r.closure_date}` : ""}
+                            </span>
+                          ) : null}
+
+                          {r.can_change_status ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => setStatusRow(r)}
+                              title="Zmień status umowy"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              <span className="ml-1">Zmień status</span>
+                            </Button>
+                          ) : null}
+                        </div>
                       </td>
-                      <td className="py-2 pr-4 text-muted-foreground">
-                        {r.created_at
-                          ? r.created_at.slice(0, 16).replace("T", " ")
-                          : "—"}
-                      </td>
-                      <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
                       <td className="py-2 pr-4">
                         <div className="flex min-w-48 flex-col items-start gap-1.5">
                           <Badge
@@ -1342,65 +1637,11 @@ export function GeneratedContractsTab() {
                           ) : null}
                         </div>
                       </td>
-                      <td className="py-2 pr-4">
-                        <div className="flex min-w-44 flex-col items-start gap-1.5">
-                          <Badge
-                            variant={closed ? "warning" : "info"}
-                            size="md"
-                            title={
-                              closed
-                                ? [
-                                    r.closure_reason
-                                      ? `Powód: ${
-                                          r.closure_reason === "other"
-                                            ? r.closure_reason_other || "Inne"
-                                            : B2B_CLOSURE_REASON_LABEL[
-                                                r.closure_reason
-                                              ]
-                                        }`
-                                      : null,
-                                    r.closure_date
-                                      ? `Zakończenie: ${r.closure_date}`
-                                      : null,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")
-                                : "Umowa w toku"
-                            }
-                          >
-                            {closed ? (
-                              <CircleSlash className="h-3.5 w-3.5" />
-                            ) : (
-                              <CircleDot className="h-3.5 w-3.5" />
-                            )}
-                            {B2B_CONTRACT_STATUS_LABEL[r.contract_status]}
-                          </Badge>
-
-                          {closed ? (
-                            <span className="max-w-56 text-xs text-muted-foreground">
-                              {r.closure_reason === "other"
-                                ? r.closure_reason_other
-                                : r.closure_reason
-                                  ? B2B_CLOSURE_REASON_LABEL[r.closure_reason]
-                                  : null}
-                              {r.closure_date ? ` · ${r.closure_date}` : ""}
-                            </span>
-                          ) : null}
-
-                          {r.can_change_status ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 px-2"
-                              onClick={() => setStatusRow(r)}
-                              title="Zmień status umowy"
-                            >
-                              <Pencil className="h-4 w-4" />
-                              <span className="ml-1">Zmień status</span>
-                            </Button>
-                          ) : null}
-                        </div>
+                      <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {r.created_at
+                          ? r.created_at.slice(0, 16).replace("T", " ")
+                          : "—"}
                       </td>
                       <td className="py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -1594,6 +1835,12 @@ function GeneratorForm() {
   // Imię i nazwisko w narzędniku do komparycji (auto-odmiana, edytowalne) (#7).
   const [partnerInstrumental, setPartnerInstrumental] = useState("");
   const [partnerLookup, setPartnerLookup] = useState<LookupStatus>("idle");
+  // Typ podmiotu z rejestru (CEIDG → JDG, KRS → spółka). Nie jest polem
+  // formularza — użytkownik go nie widzi ani nie edytuje; jedzie do backendu
+  // jako podpowiedź, czy lista ma pokazywać drugą linię z osobą kontaktową.
+  const [partnerEntityType, setPartnerEntityType] = useState<
+    "sole_trader" | "company" | null
+  >(null);
 
   const [previewHtml, setPreviewHtml] = useState<string>("");
   // Cache is keyed by candidate + recruitment and includes the in-flight
@@ -1758,6 +2005,12 @@ function GeneratorForm() {
   // Auto-uzupełnianie danych Partnera z rejestru po NIP (Biała Lista, debounced).
   useEffect(() => {
     const nip = partnerNip.replace(/\D/g, "");
+    // Klasyfikacja MUSI zniknąć razem z NIP-em, do którego należała. Bez tego
+    // scenariusz „wpisz NIP spółki → popraw na NIP JDG, lookup padnie" zapisuje
+    // w snapshocie `company` dla JDG — TRWALE, bo snapshot się nie przelicza.
+    // To najcichszy możliwy błąd w tej ścieżce: nic nie zgłasza awarii, a lista
+    // pokazuje zdublowane nazwisko.
+    setPartnerEntityType(null);
     if (nip.length !== 10) {
       setPartnerLookup("idle");
       return;
@@ -1774,6 +2027,7 @@ function GeneratorForm() {
         if (d.name) setPartnerLegalName(d.name);
         if (d.regon) setPartnerRegon(d.regon);
         if (d.address) setPartnerBusinessAddress(d.address);
+        setPartnerEntityType(d.entity_type ?? null);
         setPartnerLookup("ok");
       } catch {
         if (!cancelled) setPartnerLookup("none");
@@ -1822,6 +2076,9 @@ function GeneratorForm() {
     partner_business_address: partnerBusinessAddress.trim() || null,
     partner_correspondence_address: partnerCorrespondenceAddress.trim() || null,
     partner_nip: partnerNip.trim() || null,
+    // Podpowiedź wyświetlania, nie dane umowy: backend zapisuje ją jako
+    // snapshot, a gdy jej brak — rozstrzyga heurystyką po nazwie firmy.
+    partner_entity_type: partnerEntityType,
     partner_regon: partnerRegon.trim() || null,
     partner_email: partnerEmail.trim() || null,
     partner_phone: partnerPhone.trim()
