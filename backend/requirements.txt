@@ -1,4 +1,4 @@
-fastapi==0.115.6
+fastapi==0.141.1
 uvicorn[standard]==0.52.1
 # The `[asyncio]` extra is LOAD-BEARING from Python 3.13 onwards, do not drop it.
 # SQLAlchemy 2.0.36 declares its greenlet dependency as
@@ -10,9 +10,9 @@ uvicorn[standard]==0.52.1
 # the python_version marker, which is the whole point of using it here.
 sqlalchemy[asyncio]==2.0.51
 asyncpg==0.31.0
-alembic==1.19.0
+alembic==1.19.1
 pydantic[email]==2.13.4
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 email-validator==2.3.0
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
@@ -27,7 +27,7 @@ httpx==0.28.1
 # Wołających jest 7: embedding_service.py (×4), pool_suggester.py,
 # historical_jobs_retrieval.py, cc_classifier.py. Migracja na query_points —
 # osobny PR, razem z sondą `checks.qdrant` w /api/health.
-qdrant-client==1.12.1
+qdrant-client==1.19.0
 anthropic>=0.120.2,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
@@ -76,7 +76,7 @@ weasyprint==68.0
 pyhanko[etsi]==0.36.2
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
-boto3==1.43.66
+boto3==1.43.67
 
 # Polski kalendarz świąt dla `app.core.scheduling.is_business_day`. Targety
 # Priority Work ("4 weryfikacje / dzień roboczy") i triggery notyfikacji nie mogą
