@@ -28,18 +28,44 @@ from app.core.database import AsyncSessionLocal
 from app.services.traffit.importer import TraffitImporter
 
 
+# Wspólny prefiks/znacznik, po którym teardown pozna SWOJE wiersze. Bez tego
+# każde uruchomienie zostawia kandydatów, aktywności i notatki — testy nadal
+# przechodzą (identyfikatory są losowe), ale osad w bazie deweloperskiej mści
+# się gdzie indziej. Dziś zdarzyło się dokładnie to: inny test asertował
+# `1` i dostał `100`, bo przebieg naprawczy zobaczył setkę zostawionych wierszy.
+_TAG = "orphantest"
+_LASTNAME = "OrphanTestFixture"
+
+
 @pytest_asyncio.fixture
 async def db():
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            # Kolejność ma znaczenie — notatki i aktywności trzymają FK.
+            await session.rollback()
+            await session.execute(
+                text("DELETE FROM notes WHERE source_ref LIKE :p"),
+                {"p": f"traffit:activity:{_TAG}%"},
+            )
+            await session.execute(
+                text("DELETE FROM activities WHERE external_id LIKE :p"),
+                {"p": f"{_TAG}%"},
+            )
+            await session.execute(
+                text("DELETE FROM candidates WHERE lastname = :l"), {"l": _LASTNAME}
+            )
+            await session.commit()
 
 
 async def _mk_candidate(db) -> int:
     row = await db.execute(
         text(
             "INSERT INTO candidates (name, lastname, created_at, updated_at) "
-            "VALUES ('Jan', 'Kowalski', NOW(), NOW()) RETURNING id"
-        )
+            "VALUES ('Jan', :l, NOW(), NOW()) RETURNING id"
+        ),
+        {"l": _LASTNAME},
     )
     return row.scalar_one()
 
@@ -76,8 +102,8 @@ async def test_orphan_activity_does_not_sink_the_whole_batch(db) -> None:
     """
     ok_id = await _mk_candidate(db)
     orphan_id = await _free_candidate_id(db)
-    ok_ext = f"a{uuid.uuid4().hex[:10]}"
-    orphan_ext = f"a{uuid.uuid4().hex[:10]}"
+    ok_ext = f"{_TAG}-{uuid.uuid4().hex[:10]}"
+    orphan_ext = f"{_TAG}-{uuid.uuid4().hex[:10]}"
 
     await _mk_activity(db, entity_id=ok_id, ext=ok_ext)
     await _mk_activity(db, entity_id=orphan_id, ext=orphan_ext)
@@ -110,7 +136,7 @@ async def test_note_appears_once_the_candidate_exists(db) -> None:
     trwale oznaczała pominięte wiersze, ta notatka nie wróciłaby nigdy.
     """
     orphan_id = await _free_candidate_id(db)
-    ext = f"a{uuid.uuid4().hex[:10]}"
+    ext = f"{_TAG}-{uuid.uuid4().hex[:10]}"
     await _mk_activity(db, entity_id=orphan_id, ext=ext)
     await db.commit()
 
@@ -127,9 +153,9 @@ async def test_note_appears_once_the_candidate_exists(db) -> None:
     await db.execute(
         text(
             "INSERT INTO candidates (id, name, lastname, created_at, updated_at) "
-            "VALUES (:i, 'Pozny', 'Import', NOW(), NOW())"
+            "VALUES (:i, 'Pozny', :l, NOW(), NOW())"
         ),
-        {"i": orphan_id},
+        {"i": orphan_id, "l": _LASTNAME},
     )
     await db.commit()
 
