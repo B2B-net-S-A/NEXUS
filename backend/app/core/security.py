@@ -1,24 +1,52 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 
+import bcrypt
 from jose import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 ALGORITHM = "HS256"
+
+# Bezpośrednio pyca/bcrypt, nie passlib. passlib (ostatnie wydanie 2020,
+# projekt nieutrzymywany) przy inicjalizacji backendu odpala detect_wrap_bug
+# z >72-bajtowym hasłem testowym, a bcrypt 5 na >72 B rzuca ValueError
+# zamiast po cichu ucinać — więc każde verify()/hash() wybuchało na starcie.
+# Jawne ucięcie do 72 bajtów odtwarza semantykę passliba (bcrypt z definicji
+# liczy tylko pierwsze 72 bajty), dzięki czemu istniejące hashe — także
+# haseł dłuższych niż 72 bajty — weryfikują się bez zmian.
+_BCRYPT_MAX_BYTES = 72
+# Tyle co dotychczasowy default passliba — nowe hashe zostają $2b$12$.
+_BCRYPT_ROUNDS = 12
+
+
+def _bcrypt_secret(password: str) -> bytes:
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
 
 
 def hash_password(password: str) -> str:
     """Hash a plain-text password."""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(
+        _bcrypt_secret(password), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)
+    ).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain-text password against a hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a plain-text password against a hash.
+
+    Nie-bcryptowy ``hashed_password`` zwraca ``False`` zamiast rzucać.
+    To zmiana względem passliba (``UnknownHashError``) i celowa naprawa:
+    konta z importu Traffita mają placeholder
+    ``!imported-from-traffit-no-login!``, więc próba logowania na nie
+    kończyła się nieobsłużonym wyjątkiem (500) w ``auth.py`` zamiast
+    zwykłego 401 „Invalid credentials".
+    """
+    try:
+        return bcrypt.checkpw(
+            _bcrypt_secret(plain_password), hashed_password.encode("utf-8")
+        )
+    except ValueError:
+        return False
 
 
 def create_access_token(

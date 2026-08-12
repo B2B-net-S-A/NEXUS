@@ -16,8 +16,8 @@ Design notes:
   a 400, not a silent narrowing — keeps integrations honest.
 
 Security:
-- Client secret is verified against bcrypt hash via the same passlib
-  context user passwords use.
+- Client secret is verified against bcrypt hash via the same bcrypt
+  helper user passwords use.
 - Disabled clients (``enabled=False``) are rejected even if creds match.
 - ``last_used_at`` is stamped on every successful exchange so admin can
   see "this integration is dead — disable it" in the Settings UI.
