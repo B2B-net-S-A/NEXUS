@@ -335,6 +335,19 @@ async def test_updated_candidates_are_enqueued_for_reembedding(monkeypatch):
         async def commit(self):
             pass
 
+        async def flush(self):
+            pass
+
+        def begin_nested(self):
+            class _Savepoint:
+                async def __aenter__(self):
+                    return None
+
+                async def __aexit__(self, *exc):
+                    return False
+
+            return _Savepoint()
+
     stats = await runner.backfill_cv_fields(_FakeDb())
 
     assert stats["updated"] == 1
@@ -457,3 +470,156 @@ async def test_until_id_caps_the_scope_query():
         "bez until_id nie może istnieć górna granica — pełny bieg ma dojść "
         "do końca tabeli"
     )
+
+
+def _quarantine_candidate(cid: int, email=None) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=cid,
+        skills=None,
+        city=None,
+        country=None,
+        location=None,
+        years_it_experience=None,
+        raw_cv_text="x" * 300,
+        first_name=None,
+        last_name=None,
+        email=email,
+        phone=None,
+        education=None,
+        ai_summary=None,
+        experience=None,
+        cv_extracted_data=None,
+        current_position=None,
+        languages=None,
+    )
+
+
+class _QuarantineDb:
+    """Fałszka z pełnym protokołem runnera: execute/scalar/flush/savepoint."""
+
+    def __init__(self, rows, *, email_taken=False, flush_fails_for=()):
+        self._pages = [rows, []]
+        self.email_taken = email_taken
+        self.flush_fails_for = set(flush_fails_for)
+        self.current_row_id = None
+        self.scalar_calls = 0
+
+    async def execute(self, *_a, **_k):
+        rows = self._pages.pop(0) if self._pages else []
+
+        class _R:
+            def scalars(self_inner):
+                return self_inner
+
+            def all(self_inner):
+                return rows
+
+        return _R()
+
+    async def scalar(self, *_a, **_k):
+        self.scalar_calls += 1
+        return 1 if self.email_taken else 0
+
+    async def commit(self):
+        pass
+
+    async def flush(self):
+        if self.current_row_id in self.flush_fails_for:
+            raise RuntimeError(f"constraint violated for id={self.current_row_id}")
+
+    def begin_nested(self):
+        class _Savepoint:
+            async def __aenter__(self_inner):
+                return None
+
+            async def __aexit__(self_inner, *exc):
+                return False
+
+        return _Savepoint()
+
+
+def _install_quarantine_runner_fakes(monkeypatch, runner, parse_result):
+    class _OkFeature:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def fake_parse(cv_text, *, model, template):
+        return dict(parse_result)
+
+    async def fake_reindex(db, entity, ids):
+        return len(ids)
+
+    monkeypatch.setattr(runner, "ai_feature", _OkFeature)
+    monkeypatch.setattr(runner, "parse_cv_with_claude", fake_parse)
+    import app.services.index_outbox_service as outbox
+
+    monkeypatch.setattr(outbox, "record_bulk_reindex", fake_reindex)
+    monkeypatch.setattr(runner, "SLEEP_BETWEEN_CALLS_S", 0)
+
+
+@pytest.mark.asyncio
+async def test_email_collision_drops_the_field_not_the_row(monkeypatch):
+    """Adres należący do INNEGO kandydata wypada; reszta wiersza się zapisuje.
+
+    `ix_candidates_email` jest UNIQUE, a FILL_EMPTY chroni tylko przed
+    nadpisaniem własnego wiersza. Bez pre-checku jeden duplikat osoby w bazie
+    (id=67377, 22 wznowienia shardu C) zabijał cały bieg na commicie paczki —
+    i launcher płacił LLM ponownie za całą paczkę przy każdym wznowieniu.
+    """
+
+    from app.services import cv_field_backfill as runner
+
+    _install_quarantine_runner_fakes(
+        monkeypatch,
+        runner,
+        {"email": "zajety@example.com", "city": "Kraków", "_confidence": {}},
+    )
+
+    db = _QuarantineDb([_quarantine_candidate(101)], email_taken=True)
+    stats = await runner.backfill_cv_fields(db)
+
+    assert stats["email_collisions"] == 1
+    assert db.scalar_calls == 1, "pre-check musi pytać bazę o kolizję"
+    assert stats["updated"] == 1, "reszta pól (city) ma się zapisać mimo kolizji"
+    assert stats["errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_constraint_violation_quarantines_row_not_run(monkeypatch):
+    """Naruszenie constraintu na flushu kosztuje JEDEN wiersz, nie bieg.
+
+    Przed poprawką wychodziło dopiero na commicie paczki: ginęły też wiersze
+    już opłacone w tej paczce, a wznowienie płaciło za nie drugi raz.
+    """
+
+    from app.services import cv_field_backfill as runner
+
+    _install_quarantine_runner_fakes(
+        monkeypatch, runner, {"city": "Kraków", "_confidence": {}}
+    )
+
+    poisoned = _quarantine_candidate(201)
+    healthy = _quarantine_candidate(202)
+    db = _QuarantineDb([poisoned, healthy], flush_fails_for={201})
+
+    # `flush_fails_for` odpala się po `current_row_id`, ustawianym w rytmie
+    # wywołań parse (parse → apply → flush dla tego samego wiersza).
+    order = iter([201, 202])
+
+    async def fake_parse_tracking(cv_text, *, model, template):
+        db.current_row_id = next(order)
+        return {"city": "Kraków", "_confidence": {}}
+
+    monkeypatch.setattr(runner, "parse_cv_with_claude", fake_parse_tracking)
+
+    stats = await runner.backfill_cv_fields(db)
+
+    assert stats["errors"] == 1, "zatruty wiersz policzony jako błąd"
+    assert stats["updated"] == 1, "zdrowy wiersz z tej samej paczki przeżył"
+    assert stats["stopped_reason"] == "done", "bieg dobiegł końca mimo trucizny"
