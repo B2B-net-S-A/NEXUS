@@ -226,16 +226,21 @@ describe("splitOrders", () => {
 // ── Card rendering ────────────────────────────────────────────────────────────
 
 describe("OrdersAndContractsTab card", () => {
-  it("shows the consultant name without the contract id or recruitment info", async () => {
+  it("shows the consultant name with the contract id and recruitment origin", async () => {
     renderTab();
     expect(
       await screen.findByRole("heading", { name: /Tomasz Sadowski/ }),
     ).toBeInTheDocument();
     // Active order title surfaces as "Numer zamówienia" at the top of the card.
     expect(screen.getByText("45767")).toBeInTheDocument();
-    // Ticket #4: "Contract #<id>" oraz "z rekrutacji" usunięte z karty.
-    expect(screen.queryByText(/Contract 529/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/z rekrutacji/)).not.toBeInTheDocument();
+    // Numer kontraktu obok nazwiska — BEZ dopisku statusu („draft").
+    expect(screen.getByText("Contract 529")).toBeInTheDocument();
+    expect(screen.queryByText(/Contract 529 draft/)).not.toBeInTheDocument();
+    // Rekrutacja, z której wyszedł kontraktor.
+    expect(screen.getByText(/z rekrutacji/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Specjalista: Engineer DevOps"),
+    ).toBeInTheDocument();
   });
 
   it("renames the section to Przyszłe zamówienie and lists the future order", async () => {

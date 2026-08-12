@@ -41,9 +41,11 @@ export function ExtendOrderDialog({
   const canManageFinance = canManageCandidateFinance(user);
   const latest = contract.orders[0]; // assumed already sorted desc
 
-  const [title, setTitle] = useState(
-    `Przedłużenie ${contract.candidate_name}`,
-  );
+  // Bez autofillu: ta wartość ląduje na karcie jako „Numer zamówienia", więc
+  // podpowiedź „Przedłużenie <imię>" wpisywała tam nazwisko zamiast numeru
+  // z dokumentu klienta — i zostawała tam, bo nikt nie poprawia pola, które
+  // wygląda na wypełnione.
+  const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState(
     latest?.end_date
       ? // start dzień po końcu poprzedniego
@@ -192,18 +194,21 @@ export function ExtendOrderDialog({
         )}
 
         <label className="block">
-          <span className="text-sm">Tytuł zamówienia</span>
+          <span className="text-sm">Numer zamówienia</span>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
+            placeholder="np. 45767"
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
           />
         </label>
 
         <div className="grid grid-cols-2 gap-3">
           <label>
-            <span className="text-sm">Start</span>
+            <span className="text-sm">
+              Start <span className="text-destructive">*</span>
+            </span>
             <input
               type="text"
               inputMode="numeric"
@@ -212,6 +217,12 @@ export function ExtendOrderDialog({
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               onBlur={(e) => setStartDate(normalizeDateInput(e.target.value))}
+              // WYMAGANE, bo bez daty startu przedłużenie jest klasyfikowane
+              // jako ROZPOCZĘTE (`splitOrders` traktuje NULL jak przeszłość,
+              // a backend sortuje NULL na koniec) i wpada do zwiniętej
+              // „Historii zamówień" zamiast do „Przyszłego zamówienia".
+              // Użytkownik zgłasza to jako „zamówienie zniknęło".
+              required
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
           </label>
