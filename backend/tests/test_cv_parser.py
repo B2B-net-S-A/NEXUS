@@ -156,6 +156,8 @@ def _fake_anthropic_response(payload: dict | str) -> MagicMock:
     content_block.text = text
     message = MagicMock()
     message.content = [content_block]
+    # Jawnie None: MagicMock.usage byłby truthy i wpuszczał śmieci do `_usage`.
+    message.usage = None
     return message
 
 
@@ -175,15 +177,18 @@ async def test_parse_with_claude_success(monkeypatch):
         "career_summary": "7 lat doświadczenia w backendzie, głównie Python.",
     }
 
-    fake_client = MagicMock()
-    fake_client.messages.create.return_value = _fake_anthropic_response(
-        expected_payload
-    )
-    mock_anthropic = MagicMock()
-    mock_anthropic.Anthropic.return_value = fake_client
+    # Granica mocka = `call_claude`, nie `sys.modules["anthropic"]`. Parser
+    # przechodzi teraz przez współdzielonego klienta (timeout, retry, telemetria,
+    # bramka kwot) i surowego SDK nie importuje — stary mock niczego by nie
+    # przechwycił, a test dotykałby sieci z fałszywym kluczem.
+    from app.services import claude_client
 
-    with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
-        out = await cvp._parse_with_claude("some cv text")
+    monkeypatch.setattr(
+        claude_client,
+        "call_claude",
+        lambda **kwargs: _fake_anthropic_response(expected_payload),
+    )
+    out = await cvp._parse_with_claude("some cv text")
 
     assert out is not None
     assert out["companies"] == ["Acme Corp", "Globex"]
@@ -201,13 +206,18 @@ async def test_parse_with_claude_strips_markdown_fences(monkeypatch):
     payload = {"companies": ["X"], "career_summary": None}
     fenced = "```json\n" + json.dumps(payload) + "\n```"
 
-    fake_client = MagicMock()
-    fake_client.messages.create.return_value = _fake_anthropic_response(fenced)
-    mock_anthropic = MagicMock()
-    mock_anthropic.Anthropic.return_value = fake_client
+    # Granica mocka = `call_claude`, nie `sys.modules["anthropic"]`. Parser
+    # przechodzi teraz przez współdzielonego klienta (timeout, retry, telemetria,
+    # bramka kwot) i surowego SDK nie importuje — stary mock niczego by nie
+    # przechwycił, a test dotykałby sieci z fałszywym kluczem.
+    from app.services import claude_client
 
-    with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
-        out = await cvp._parse_with_claude("cv")
+    monkeypatch.setattr(
+        claude_client,
+        "call_claude",
+        lambda **kwargs: _fake_anthropic_response(fenced),
+    )
+    out = await cvp._parse_with_claude("cv")
 
     assert out is not None
     assert out["companies"] == ["X"]
@@ -219,13 +229,17 @@ async def test_parse_with_claude_returns_none_on_exception(monkeypatch):
     monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
     monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
 
-    fake_client = MagicMock()
-    fake_client.messages.create.side_effect = RuntimeError("upstream down")
-    mock_anthropic = MagicMock()
-    mock_anthropic.Anthropic.return_value = fake_client
+    # Granica mocka = `call_claude`, nie `sys.modules["anthropic"]`. Parser
+    # przechodzi teraz przez współdzielonego klienta (timeout, retry, telemetria,
+    # bramka kwot) i surowego SDK nie importuje — stary mock niczego by nie
+    # przechwycił, a test dotykałby sieci z fałszywym kluczem.
+    from app.services import claude_client
 
-    with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
-        out = await cvp._parse_with_claude("cv")
+    def exploding(**kwargs):
+        raise RuntimeError("upstream down")
+
+    monkeypatch.setattr(claude_client, "call_claude", exploding)
+    out = await cvp._parse_with_claude("cv")
 
     assert out is None
 
@@ -388,7 +402,7 @@ def test_split_name_returns_none_when_no_capitalized_pair():
 def test_apply_contact_fallbacks_fills_only_missing_slots():
     cv = "Jan Kowalski\n+48 600 123 456\njan@example.com"
     parsed: dict = {
-        "first_name": "Janusz",   # LLM already set — must NOT be overridden
+        "first_name": "Janusz",  # LLM already set — must NOT be overridden
         "last_name": None,
         "email": None,
         "phone": None,
