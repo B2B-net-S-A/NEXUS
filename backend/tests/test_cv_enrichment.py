@@ -501,3 +501,150 @@ def test_provenance_merges_across_runs():
     prov = c.cv_extracted_data["_field_provenance"]
     assert prov["city"]["source"] == "earlier-run", "untouched fields keep their stamp"
     assert "years_it_experience" in prov
+
+
+# ── Normalizator kształtu skills (granica zapisu dla wyjść LLM) ─────────────
+#
+# Zmierzone patologie z produ (2026-08-12): 113/150 wierszy kalibracji Fali 3
+# ze skills jako JSON-owym STRINGIEM, 192 historyczne stringi i 20 obiektów
+# {"level", "technologies"} ze ścieżki interaktywnej. Każdy przypadek niżej
+# odtwarza kształt zaobserwowany w bazie, nie hipotetyczny.
+
+
+def test_normalize_decodes_string_encoded_array_of_names():
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    raw = '["Java 8-17", "Kotlin 1.9", "Spring Boot"]'
+    assert normalize_llm_skills(raw) == [
+        {"name": "Java 8-17", "level": None},
+        {"name": "Kotlin 1.9", "level": None},
+        {"name": "Spring Boot", "level": None},
+    ]
+
+
+def test_normalize_decodes_double_encoded_string():
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    import json
+
+    raw = json.dumps(json.dumps(["Python", "SQL"]))
+    assert normalize_llm_skills(raw) == [
+        {"name": "Python", "level": None},
+        {"name": "SQL", "level": None},
+    ]
+
+
+def test_normalize_profile_object_takes_names_without_fabricating_levels():
+    """{"level": "senior", "technologies": [...]} opisuje OSOBĘ, nie każdą
+    technologię — przepisanie poziomu na każdy skill fabrykowałoby per-skill
+    seniority, którego w źródle nie ma."""
+
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    raw = {"level": "senior", "technologies": ["Java", "Kafka"]}
+    assert normalize_llm_skills(raw) == [
+        {"name": "Java", "level": None},
+        {"name": "Kafka", "level": None},
+    ]
+
+
+def test_normalize_canonical_list_passes_through_identically():
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    canon = [
+        {"name": "Angular", "level": "expert", "years": 6},
+        {"name": "TypeScript", "level": "senior"},
+    ]
+    out = normalize_llm_skills(canon)
+    assert out == [
+        {"name": "Angular", "level": "expert", "years": 6},
+        {"name": "TypeScript", "level": "senior"},
+    ]
+    assert normalize_llm_skills(out) == out, "normalizacja jest idempotentna"
+
+
+def test_normalize_salvages_mixed_list_and_drops_garbage_items():
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    raw = [
+        "Python",
+        {"name": "Docker", "level": "Senior", "years": "5"},
+        {"name": "K8s", "level": "advanced", "years": 200},
+        {"skill": "Terraform"},
+        {"level": "mid"},  # bez nazwy — do kosza
+        42,  # nie-string nie-dict — do kosza
+        "   ",  # pusta nazwa — do kosza
+    ]
+    assert normalize_llm_skills(raw) == [
+        {"name": "Python", "level": None},
+        {"name": "Docker", "level": "senior", "years": 5},
+        {"name": "K8s", "level": None},  # "advanced" spoza słownika, 200 lat absurd
+        {"name": "Terraform", "level": None},
+    ]
+
+
+def test_normalize_dedups_case_insensitively_keeping_first():
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    raw = ["Python", "python", {"name": "PYTHON", "level": "expert"}]
+    assert normalize_llm_skills(raw) == [{"name": "Python", "level": None}]
+
+
+def test_normalize_rejects_the_unsalvageable():
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    assert normalize_llm_skills(None) is None
+    assert normalize_llm_skills("nie-json wcale") is None
+    assert normalize_llm_skills([]) is None
+    assert normalize_llm_skills({}) is None
+    assert normalize_llm_skills({"level": "senior"}) is None
+    assert normalize_llm_skills(["x" * 121]) is None, "zdanie to nie skill"
+    assert normalize_llm_skills(7) is None
+
+
+def test_normalizer_vocabulary_matches_api_schema():
+    """Słownik poziomów jest zdefiniowany w dwóch miejscach (import z schemas
+    tworzyłby cykl) — ten test zamraża ich zgodność, żeby rozjazd był czerwony."""
+
+    from app.schemas.candidate import _VALID_SKILL_LEVELS
+    from app.services.cv_enrichment import _CANONICAL_SKILL_LEVELS
+
+    assert _CANONICAL_SKILL_LEVELS == _VALID_SKILL_LEVELS
+
+
+def test_normalizer_output_satisfies_strict_api_validator():
+    """Wyjście łagodnego normalizatora MUSI przechodzić strict-walidator API
+    bez zmian — jeden kanon, dwie postawy wobec błędów."""
+
+    from app.schemas.candidate import _normalize_skill_list
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    for raw in (
+        '["Java", "Kotlin"]',
+        {"level": "senior", "technologies": ["Azure", "AWS"]},
+        ["Python", {"name": "Docker", "level": "Senior", "years": "5"}],
+    ):
+        lenient = normalize_llm_skills(raw)
+        assert lenient is not None
+        assert _normalize_skill_list(lenient) == lenient
+
+
+def test_apply_writes_normalized_skills_not_raw_llm_shape():
+    c = _bare_candidate()
+    parsed = {"skills": '["Java", "Spring Boot"]', "_source": "test"}
+    _apply_cv_enrichment(c, parsed, policy=CvWritePolicy.FILL_EMPTY)
+    assert c.skills == [
+        {"name": "Java", "level": None},
+        {"name": "Spring Boot", "level": None},
+    ]
+    prov = c.cv_extracted_data.get("_field_provenance", {})
+    assert "skills" in prov
+
+
+def test_apply_leaves_column_untouched_when_skills_unsalvageable():
+    c = _bare_candidate()
+    parsed = {"skills": "totalnie nie json", "_source": "test"}
+    _apply_cv_enrichment(c, parsed, policy=CvWritePolicy.FILL_EMPTY)
+    assert c.skills is None, "śmieć nie może wylądować w kolumnie"
+    prov = c.cv_extracted_data.get("_field_provenance", {})
+    assert "skills" not in prov, "odrzucony zapis nie może udawać zapisu"

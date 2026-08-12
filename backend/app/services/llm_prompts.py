@@ -135,7 +135,12 @@ CV_ENRICHMENT = PromptTemplate(
 
 CV_ENRICHMENT_BULK = PromptTemplate(
     name="cv_enrichment_bulk",
-    version=1,
+    # v2: jawny zakaz oddawania `skills` jako zacytowanego stringa — kalibracja
+    # 2026-08-12 pokazała, że Haiku robi to w 113/150 wierszy mimo zadeklarowanego
+    # kształtu. Granicę i tak pilnuje `normalize_llm_skills` (pas i szelki);
+    # instrukcja podnosi odsetek odpowiedzi z poziomami/latami, których
+    # normalizacja stringa nie jest w stanie odzyskać.
+    version=2,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
@@ -161,7 +166,9 @@ CV_ENRICHMENT_BULK = PromptTemplate(
         '  "current_position_started_at": start of the current role, only when explicitly '
         'present in the CV; use "YYYY-MM-DD", "YYYY-MM" or "YYYY", otherwise null\n'
         '  "current_position_started_at_precision": "date"|"month"|"year"|"unknown"\n'
-        '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", "years": int|null}}\n'
+        '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", "years": int|null}}. '
+        "MUST be a JSON array of objects — never a quoted string containing "
+        "an array, never a list of bare strings.\n"
         '  "technologies": unique list of the most important canonical technologies '
         "and tools (max 8), ordered by relevance\n"
         '  "sectors": unique list of industries explicitly evidenced by projects or '
