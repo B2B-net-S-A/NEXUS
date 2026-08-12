@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.models.contract import ContractTerminationReason
 from app.models.job import JobCloseReason, JobPriority, Seniority
+from app.schemas.money import WholePLN
 
 
 class RecruiterBrief(BaseModel):
@@ -73,11 +74,11 @@ class ActiveConsultantItem(BaseModel):
     days_to_end: Optional[int] = (
         None  # null if no end_date; < 30 triggers amber UI, < 7 red
     )
-    monthly_rate_client: Optional[int] = None
+    monthly_rate_client: Optional[WholePLN] = None
     # Stawka kosztowa /mc (ticket #5 krok 1: koszt + przychód + marża w wierszu).
     # Dane finansowe — redagowane dla ról bez VIEW_FINANCE jak rodzeństwo.
-    monthly_rate_candidate: Optional[int] = None
-    monthly_margin: Optional[int] = None
+    monthly_rate_candidate: Optional[WholePLN] = None
+    monthly_margin: Optional[WholePLN] = None
     currency: str = "PLN"
     # „Część umowy" e-Zdrowia z REPREZENTATYWNEGO zamówienia kontraktu
     # (zamówienie pokrywające dziś, fallback: najnowsze po start_date — ta sama

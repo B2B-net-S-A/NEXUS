@@ -8,6 +8,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.schemas.money import WholePLN
+
 
 class MyClientRow(BaseModel):
     """Pojedynczy wpis na liście "Moi klienci".
@@ -56,7 +58,7 @@ class ClientDashboardResponse(BaseModel):
     currency_breakdown: Optional[dict[str, Decimal | int]] = None
 
     # Margin (auto z linkowanych Contract)
-    monthly_margin_total: Optional[int] = None
+    monthly_margin_total: Optional[WholePLN] = None
     monthly_margin_pct: Optional[float] = None
 
     # Konsultanci
