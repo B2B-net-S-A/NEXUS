@@ -254,6 +254,11 @@ class Settings(BaseSettings):
     # retrievalu. Rozdzielenie jest celowe: pozwala zbudować i zmierzyć indeks
     # na produkcji, zanim cokolwiek zacznie z niego czytać.
     CV_PASSAGES_ENABLED: bool = False
+    # Pula kandydatów przez hybrydę (BM25+dense+RRF, opcjonalnie rerank) zamiast
+    # samych wektorów. Selekcja członkostwa; skala semantyczna bez zmian — patrz
+    # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
+    # nakładają i włączone razem są niemierzalne).
+    HYBRID_POOL_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
