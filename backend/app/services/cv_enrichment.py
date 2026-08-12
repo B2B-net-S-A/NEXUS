@@ -24,13 +24,18 @@ call-site that forgets to pass a policy degrades to "backfill only", never to
 from __future__ import annotations
 
 import enum
+import json
+import logging
 from datetime import datetime, timezone
+from typing import Any, Optional
 
 from app.models.candidate import Candidate
 from app.services.candidate_quick_view import format_cv_highlight_bullets
 from app.services.candidate_location_writer import (
     apply_candidate_location_from_source,
 )
+
+logger = logging.getLogger(__name__)
 
 _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
 
@@ -42,6 +47,116 @@ _CV_AI_AUTHORED_FIELDS = (
     "years_it_experience",
     "ai_summary",
 )
+
+
+# Nazwa dłuższa niż to nie jest skillem, tylko zdaniem z CV — zapisanie jej
+# tworzyłoby "umiejętność", której żaden filtr ani embedding nie skonsumuje
+# sensownie. Odrzucamy element, nie przycinamy: ucięta połowa zdania to
+# fabrykacja nazwy, której w źródle nie było.
+_MAX_SKILL_NAME_CHARS = 120
+
+# Celowo NIE importowane z `app.schemas.candidate` (`_VALID_SKILL_LEVELS`):
+# schematy same importują z `app.services.*`, więc import w drugą stronę to
+# gotowy cykl. Zgodność obu słowników zamraża test — rozjazd będzie czerwony.
+_CANONICAL_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}
+
+
+def normalize_llm_skills(value: Any) -> Optional[list[dict]]:
+    """Łagodny bliźniak `schemas.candidate._normalize_skill_list` dla wyjść LLM.
+
+    Tamten walidator jest STRICT (rzuca) — słusznie dla danych wpisywanych
+    przez człowieka przez API. Wyjście modelu wymaga odwrotnej postawy:
+    uratuj co się da, odrzuć resztę, nigdy nie wysadzaj całego parsowania
+    jednym zepsutym elementem.
+
+    Powstało z pomiaru, nie z ostrożności: bieg kalibracyjny Fali 3
+    (2026-08-12, Haiku) oddał `skills` jako JSON-owy STRING w 113/150
+    wierszy, mimo że prompt jawnie żąda listy obiektów — a w bazie leżały
+    już 192 historyczne stringi i 20 obiektów `{"level", "technologies"}`
+    zapisane przez ścieżkę interaktywną. Granica zapisu nigdy nie
+    walidowała typu (`candidate.skills = parsed["skills"]`), więc JSONB
+    przyjmował wszystko.
+
+    Obsługiwane patologie (każda zaobserwowana w prodzie):
+      * string z zakodowaną tablicą (także podwójnie zakodowany) → dekoduj;
+      * `{"level": ..., "technologies": [...]}` → nazwy z `technologies`;
+        poziom OSOBY nie jest przepisywany na każdą technologię (bez
+        fabrykowania per-skill seniority);
+      * lista mieszana stringów i dictów → do kanonu per element;
+      * poziom spoza słownika (`"advanced"`, wielkość liter) → None / lower;
+      * `years` niecałkowite lub absurdalne → None;
+      * element bez użytecznej nazwy, string niedekodowalny → odrzucone.
+
+    Zwraca kanon `[{"name", "level", "years"?, "category"?}]` (ten sam co
+    walidator API — test zamraża zgodność) albo None, gdy nie ocalało nic.
+    None znaczy "nie zapisuj" — NIE "wyczyść kolumnę".
+    """
+
+    # Do dwóch przebiegów dekodowania: model potrafi oddać '"[\\"Java\\"]"'
+    # (string w stringu). Trzeci poziom to już nie format, tylko szum.
+    for _ in range(2):
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+
+    if isinstance(value, dict):
+        # Kształt "podsumowanie profilu": {"level": "senior", "technologies": [...]}.
+        techs = value.get("technologies") or value.get("skills")
+        if not isinstance(techs, list):
+            return None
+        value = techs
+
+    if not isinstance(value, list):
+        return None
+
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    for item in value:
+        entry: Optional[dict] = None
+        if isinstance(item, str):
+            name = item.strip()
+            if name and len(name) <= _MAX_SKILL_NAME_CHARS:
+                entry = {"name": name, "level": None}
+        elif isinstance(item, dict):
+            raw_name = item.get("name") or item.get("skill")
+            if isinstance(raw_name, str):
+                name = raw_name.strip()
+                if name and len(name) <= _MAX_SKILL_NAME_CHARS:
+                    level = item.get("level")
+                    if isinstance(level, str):
+                        level = level.strip().lower() or None
+                    if level not in _CANONICAL_SKILL_LEVELS:
+                        level = None
+                    entry = {"name": name, "level": level}
+                    years = item.get("years")
+                    if (
+                        years is not None
+                        and not isinstance(years, bool)
+                        and isinstance(years, (int, float, str))
+                    ):
+                        try:
+                            # OverflowError: int(float("inf")) — jeden absurdalny
+                            # element nie może wysadzić całej normalizacji.
+                            years_int = int(float(years))
+                        except (TypeError, ValueError, OverflowError):
+                            years_int = None
+                        if years_int is not None and 0 <= years_int <= 60:
+                            entry["years"] = years_int
+                    category = item.get("category")
+                    if isinstance(category, str) and category.strip():
+                        entry["category"] = category.strip()
+        if entry is None:
+            continue
+        dedup_key = entry["name"].casefold()
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        normalized.append(entry)
+
+    return normalized or None
 
 
 class CvWritePolicy(str, enum.Enum):
@@ -207,6 +322,10 @@ def _apply_cv_enrichment(
       * Contact fields (email/phone/first_name/last_name/city) are only
         backfilled when the candidate row has them empty — the recruiter's
         typed values always win.
+      * ``skills`` przechodzą przez :func:`normalize_llm_skills` — do kolumny
+        trafia wyłącznie kanon ``[{"name", "level", ...}]``; nieratowalne
+        wyjście modelu zostawia kolumnę nietkniętą (i nie liczy się jako
+        zapis), zamiast lądować w JSONB jako string/dict.
       * Records `_field_provenance` in `cv_extracted_data` for the fields this
         call actually wrote, so the UI can mark them as AI-derived.
     """
@@ -235,8 +354,20 @@ def _apply_cv_enrichment(
         candidate.years_it_experience = parsed["years_it_experience"]
         written_fields.append("years_it_experience")
     if parsed.get("skills") and _may_write("skills"):
-        candidate.skills = parsed["skills"]
-        written_fields.append("skills")
+        # Granica typów dla wyjścia LLM: bez tego JSONB przyjmuje string z
+        # zakodowaną tablicą albo dict-podsumowanie i kolumna przestaje mieć
+        # jeden kształt (zmierzone: 113/150 stringów w kalibracji Fali 3 na
+        # Haiku + 192 historyczne stringi ze ścieżki interaktywnej).
+        normalized_skills = normalize_llm_skills(parsed["skills"])
+        if normalized_skills:
+            candidate.skills = normalized_skills
+            written_fields.append("skills")
+        else:
+            logger.warning(
+                "[cv-enrichment] skills odrzucone przez normalizator "
+                "(typ %s) — kolumna nietknięta",
+                type(parsed["skills"]).__name__,
+            )
     if parsed.get("education") and _may_write("education"):
         candidate.education = parsed["education"]
         written_fields.append("education")

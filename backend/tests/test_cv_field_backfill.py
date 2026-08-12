@@ -101,7 +101,11 @@ async def test_parse_with_claude_captures_usage_and_template_identity(monkeypatc
 
     assert parsed is not None
     assert seen["model"] == "claude-haiku-4-5-20251001"
-    assert parsed["_source"] == "claude:cv_enrichment_bulk:v1"
+    # Wersja wyprowadzona ze stałej: asercja pilnuje, że tożsamość szablonu
+    # PŁYNIE do _source, a nie konkretnego numeru (bump wersji to nie regresja).
+    assert parsed["_source"] == (
+        f"claude:cv_enrichment_bulk:v{CV_ENRICHMENT_BULK.version}"
+    )
     assert parsed["_usage"] == {
         "model": "claude-haiku-4-5-20251001",
         "input_tokens": 3111,
