@@ -123,6 +123,64 @@ CV_ENRICHMENT = PromptTemplate(
 )
 
 
+# ── CV enrichment, wariant MASOWY (Fala 3) ──────────────────────────────────
+#
+# Kopia CV_ENRICHMENT bez `professional_profile` i `career_summary` — dwóch pól
+# GENERATYWNYCH (płynna polszczyzna), których backfill nie potrzebuje: zadanie
+# prosi o skills/miasto/lata/wykształcenie. Wycięcie ich robi dwie rzeczy naraz:
+# ścina ~35-40% tokenów wyjścia (wyjście to ~59% rachunku przy Haiku) i zdejmuje
+# z tańszego modelu najtrudniejszą kompetencję. OSOBNY szablon, nie zmiana
+# CV_ENRICHMENT: hash promptu interaktywnego wchodzi w klucze cache, a jego
+# treść zmienia zachowanie modelu na ścieżce rekrutera — tego nie ruszamy.
+
+CV_ENRICHMENT_BULK = PromptTemplate(
+    name="cv_enrichment_bulk",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "You are a recruitment assistant. Extract structured facts from CVs "
+        "for a Polish IT staffing ATS. Use canonical technology names "
+        "(e.g. 'React' not 'ReactJS', 'Kubernetes' not 'K8s'). Never invent "
+        "information that is not in the CV — when unsure, return null and "
+        "lower the confidence for that field."
+    ),
+    template=(
+        "From the CV below, produce a JSON object with these fields:\n"
+        '  "first_name": candidate\'s first name as it appears in the CV, or null\n'
+        '  "last_name": candidate\'s last name (surname) as it appears in the CV, or null\n'
+        '  "email": candidate\'s contact email (primary), exactly as written, lowercase, or null\n'
+        '  "phone": candidate\'s contact phone number in international format when possible '
+        '(e.g. "+48 600 123 456"); keep raw digits/spaces/dashes otherwise. null if none.\n'
+        '  "city": candidate\'s city of residence (e.g. "Warszawa", "Kraków") or null. '
+        "Do NOT guess from employer address — use only if the CV explicitly states the candidate's location.\n"
+        '  "years_it_experience": integer, best estimate of total IT experience\n'
+        '  "current_position": short string (e.g. "Senior Python Developer") or null\n'
+        '  "current_position_started_at": start of the current role, only when explicitly '
+        'present in the CV; use "YYYY-MM-DD", "YYYY-MM" or "YYYY", otherwise null\n'
+        '  "current_position_started_at_precision": "date"|"month"|"year"|"unknown"\n'
+        '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", "years": int|null}}\n'
+        '  "technologies": unique list of the most important canonical technologies '
+        "and tools (max 8), ordered by relevance\n"
+        '  "sectors": unique list of industries explicitly evidenced by projects or '
+        "employers (max 4), e.g. banking, public administration, finance, "
+        "telecommunications, e-commerce. Do not infer a sector from a technology.\n"
+        '  "education": list of {{"degree": str, "field": str|null, "school": str, "year": int|null}}\n'
+        '  "languages": list of {{"name": "<language>", "level": "A1|A2|B1|B2|C1|C2|native"}}\n'
+        '  "companies": list of strings — past employers in chronological order, '
+        "most recent first, unique (max 15). Use official company names as they appear in the CV.\n"
+        '  "linkedin_url": the candidate\'s LinkedIn profile URL exactly as it '
+        "appears in the CV (e.g. 'linkedin.com/in/jane-doe' or 'https://www.linkedin.com/in/jane-doe'), "
+        "or null if no LinkedIn URL is present.\n"
+        '  "_confidence": object mapping each field name above to a float 0.0–1.0 '
+        "representing how certain you are. Use 0.95+ when the value is explicit and unambiguous; "
+        "0.60–0.85 when inferred from context (e.g. full name from an email signature); "
+        "0.0–0.4 when guessing or missing. Include keys for ALL top-level fields you filled in.\n\n"
+        "Respond with ONLY the raw JSON, no prose.\n\n"
+        "CV:\n{cv_text}\n"
+    ),
+)
+
+
 # ── Order-PDF extraction (Zczytaj dane z dokumentu — przedłużenie) ──────────
 
 ORDER_EXTRACTION = PromptTemplate(

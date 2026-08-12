@@ -127,7 +127,6 @@ def test_declared_call_passes_in_strict_mode(monkeypatch):
 # are frozen rather than pretended away. The list must only ever shrink.
 _RAW_CLIENT_BASELINE = {
     "app/api/ai_writer.py",
-    "app/services/cv_parser.py",
     "app/services/cv_generator_b2b/ai_client.py",
 }
 

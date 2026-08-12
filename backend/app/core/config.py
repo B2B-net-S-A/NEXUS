@@ -241,6 +241,13 @@ class Settings(BaseSettings):
     # Anthropic (Claude) — used by CV enrichment and AI job writer
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL_CV: str = "claude-sonnet-5"
+    # Fala 3: model dla biegu MASOWEGO. Osobny od CLAUDE_MODEL_CV, żeby zmiana
+    # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
+    # rekrutera (upload CV → profil). Haiku: ~$0,004/CV vs ~$0,016 na Sonnecie.
+    CLAUDE_MODEL_CV_BULK: str = "claude-haiku-4-5-20251001"
+    # Twarde sufity pojedynczego biegu — `ai_quota` sam dokumentuje się jako
+    # advisory i wyścigowe, więc bieg ma własny bezpiecznik.
+    CV_BACKFILL_MAX_CALLS: int = 45_000
 
     # --- Fala 2: pasaże CV --------------------------------------------------
     # Kolekcja może istnieć i być wypełniona, a mimo to NIE brać udziału w
