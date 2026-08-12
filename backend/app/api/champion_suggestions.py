@@ -1,8 +1,12 @@
 """Endpoints for reviewing & applying Champion Profile AI suggestions.
 
-All endpoints require DeliveryLeadPlus (admin + delivery_lead). Matching
-router prefix is `/champion-suggestions` — the suggestions carry their own
-`job_id` so operations do not need to walk through the Jobs router.
+All endpoints require TacPlus (admin + delivery_lead + tac). Matching router
+prefix is `/champion-suggestions` — the suggestions carry their own `job_id` so
+operations do not need to walk through the Jobs router.
+
+Rola nie wystarcza za zakres: `ensure_champion_job_visible` zawęża Delivery Leada
+do jego par klient×TAC, a TAC-a do ofert, w których `Job.tac_id` wskazuje na
+niego. Persona spoza tej listy dostaje odmowę, a nie „bez ograniczeń".
 """
 
 from __future__ import annotations
@@ -13,8 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DeliveryLeadPlus
-from app.api.recruitment_access import ensure_delivery_lead_job_visible
+from app.api.deps import TacPlus
+from app.api.recruitment_access import ensure_champion_job_visible
 from app.core.database import get_db
 from app.models.champion_suggestion import ChampionProfileSuggestion
 from app.models.job import Job
@@ -72,7 +76,7 @@ async def _load_scoped_suggestion(
     if job is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     try:
-        await ensure_delivery_lead_job_visible(job, current_user, db)
+        await ensure_champion_job_visible(job, current_user, db)
     except HTTPException as exc:
         if exc.status_code == 403:
             raise HTTPException(status_code=404, detail="Suggestion not found") from exc
@@ -83,7 +87,7 @@ async def _load_scoped_suggestion(
 @router.get("/{suggestion_id}", response_model=ChampionProfileSuggestionOut)
 async def get_suggestion(
     suggestion_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
     suggestion = await _load_scoped_suggestion(db, suggestion_id, current_user)
@@ -94,7 +98,7 @@ async def get_suggestion(
 async def apply_suggestion_endpoint(
     suggestion_id: int,
     payload: ApplyPayload,
-    current_user: DeliveryLeadPlus,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
     """Merge the accepted sections into `jobs.champion_profile` and finalise.
@@ -115,7 +119,7 @@ async def apply_suggestion_endpoint(
 @router.post("/{suggestion_id}/reject", response_model=ChampionProfileSuggestionOut)
 async def reject_suggestion_endpoint(
     suggestion_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
     await _load_scoped_suggestion(db, suggestion_id, current_user)
@@ -131,7 +135,7 @@ async def reject_suggestion_endpoint(
 async def rate_suggestion_endpoint(
     suggestion_id: int,
     payload: RatePayload,
-    current_user: DeliveryLeadPlus,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
     """Phase 15 / Phase C — persist DL feedback on a terminated suggestion.
