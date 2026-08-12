@@ -30,6 +30,10 @@ from app.models.contract import Contract, ContractStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User
 from app.schemas.admin_clients_overview import DlKpiRow, OverviewRow
+from app.services.client_identity import (
+    client_display_name_expression,
+    visible_client_predicates,
+)
 
 router = APIRouter()
 
@@ -39,7 +43,23 @@ async def clients_overview(
     _user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    clients = list((await db.execute(select(Client).order_by(Client.name))).scalars())
+    # Nazwa prezentowana + tylko widoczne wiersze — ta sama para reguł co
+    # `my_clients.py` / `search.py` (`services/client_identity.py`). Surowe
+    # `Client.name` pokazywałoby nazwę sprzed ręcznej poprawki (na prodzie 24/160
+    # klientów), a brak filtra dorzucał 12 scalonych duplikatów jako wiersze
+    # z zerami. Sortowanie po `lower(effective_name)` jest tie-breakiem widocznej
+    # kolejności: końcowy `items.sort` po revenue jest STABILNY, a większość
+    # klientów ma revenue NULL, więc to ono decyduje o kolejności na ekranie.
+    effective_name = client_display_name_expression()
+    client_rows = list(
+        (
+            await db.execute(
+                select(Client, effective_name.label("effective_name"))
+                .where(*visible_client_predicates())
+                .order_by(func.lower(effective_name).asc(), Client.id.asc())
+            )
+        ).all()
+    )
 
     rev_rows = list(
         (
@@ -161,14 +181,14 @@ async def clients_overview(
         margin_lookup[r.client_id] = margin_lookup.get(r.client_id, 0) + monthly
 
     items: list[OverviewRow] = []
-    for c in clients:
+    for c, effective in client_rows:
         rev = rev_lookup.get(c.id, {"total": None, "active": None, "active_count": 0})
         head = head_dl_lookup.get(c.id)
         fc = fc_lookup.get(c.id)
         items.append(
             OverviewRow(
                 client_id=c.id,
-                name=c.name,
+                name=effective,
                 industry=getattr(c, "industry", None),
                 head_dl_id=head[0] if head else None,
                 head_dl_name=head[1] if head else None,
