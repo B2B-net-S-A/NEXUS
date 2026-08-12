@@ -59,9 +59,9 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **App UUID (Coolify):** `ocgkwcbovpve9wvf9smxl0kx`.
 - **Registry:** **brak GHCR** — Coolify buduje obrazy lokalnie z compose `build:` block (jednolite z Compass + LeadGen).
 - **Compose orkiestracja:**
-  - `docker-compose.yml` — base z `build:` block (no port bindings, Coolify Traefik routuje przez `expose:`).
+  - `docker-compose.yml` — base z `build:` block (no port bindings, Coolify Traefik routuje przez `expose:`). **Limity pamięci (mem_limit) są TUTAJ** — Coolify czyta wyłącznie ten plik (docker_compose_location), więc limity trzymane w overlayu nigdy nie obowiązywały na prodzie (Memory=0, wykryte i naprawione 2026-08-12).
   - `docker-compose.override.yml` — dev (re-adds host port bindings, auto-loaded przez `docker compose up`).
-  - `docker-compose.prod.yml` — prod overlay (resource limits, healthchecks).
+  - `docker-compose.prod.yml` — prod overlay (ports/env/healthchecks — referencja do ręcznej symulacji prod; BEZ limitów zasobów).
 - **Auto-deploy:** ✅ **TAK** — `git push origin main` → `.github/workflows/deploy.yml` (unified template, PR #68 merged 2026-05-04) → Coolify webhook → build + restart → smoke test.
 - **Trigger:** push `main` → `.github/workflows/deploy.yml`.
 - **Rollback:** Coolify panel `https://coolify-nexus.dynaminds.pl` → Resources → nexus → Deployments → poprzedni → Redeploy.
