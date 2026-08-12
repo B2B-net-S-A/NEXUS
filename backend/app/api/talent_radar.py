@@ -24,6 +24,7 @@ from app.api.deps import get_db
 from app.core.rate_limit import limiter
 from app.models.user import User
 from app.services.talent_radar_search import (
+    shape_radar_candidate,
     RadarQuery,
     TalentRadarError,
     search,
@@ -94,6 +95,36 @@ async def talent_radar_search(
         )
 
     return {
-        "results": [b.as_dict() for b in result.breakdowns],
+        "results": [
+            _shape_result(
+                breakdown, result.candidates_by_id.get(breakdown.candidate_id)
+            )
+            for breakdown in result.breakdowns
+        ],
         "meta": result.as_meta(),
     }
+
+
+def _shape_result(breakdown: Any, candidate: Any) -> dict[str, Any]:
+    """A score plus who it belongs to, with the salary layer redacted.
+
+    `/recommendations` blanks that layer unless the caller may see finance,
+    because its points and reason are derived from the job budget and would
+    otherwise act as an oracle for it. Here the layer is *structurally*
+    unscored — an ad-hoc radar query carries no budget at all, so
+    `_score_salary` short-circuits — but returning it raw would leave the
+    contract one refactor away from leaking, and would show the recruiter a
+    zero that means "not applicable" rather than "bad fit". Blanking it says
+    the true thing and matches the sibling endpoint.
+    """
+
+    payload = breakdown.as_dict()
+    payload["salary"] = {
+        "points": None,
+        "max": None,
+        "reason": None,
+        "status": "not_applicable",
+    }
+    # `candidate` is None only if a row vanished between ranking and shaping.
+    payload["candidate"] = shape_radar_candidate(candidate) if candidate else None
+    return payload

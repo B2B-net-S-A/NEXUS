@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -192,3 +193,73 @@ def test_endpoint_module_has_no_future_annotations_import():
     assert "annotations" not in future_imports, (
         "PEP 563 breaks FastAPI body resolution on this endpoint"
     )
+
+
+def test_result_rows_carry_the_person_not_just_an_id():
+    """A ranked list of integers is not a list a recruiter can read.
+
+    `ScoreBreakdown` holds `candidate_id` and scoring layers — nothing about
+    who that is. Shipping it unchanged would force the browser to resolve every
+    id one by one, an N+1 over the network across data this endpoint already
+    holds in memory.
+    """
+
+    candidate = SimpleNamespace(
+        id=7,
+        name="Anna",
+        lastname="Kowalska",
+        location="Kraków, PL",
+        competence_category="software_development",
+        years_it_experience=8,
+        availability_status=None,
+        champion=True,
+        avatar_url=None,
+    )
+
+    shaped = tr.shape_radar_candidate(candidate)
+
+    assert shaped["id"] == 7
+    assert shaped["name"] == "Anna" and shaped["lastname"] == "Kowalska"
+    assert shaped["champion"] is True
+    assert "email" not in shaped, (
+        "a triage list decides whom to open, not whom to write to — contact "
+        "details belong on the profile behind the click, not in every response"
+    )
+    assert "expected_rate_hourly" not in shaped and "phone" not in shaped
+
+
+def test_salary_layer_is_blanked_because_a_radar_query_has_no_budget():
+    """`/recommendations` redacts this layer; the radar has nothing to redact.
+
+    `build_ephemeral_job` sets `salary_min`/`salary_max` to None, so
+    `_score_salary` short-circuits and the layer is structurally unscored.
+    Returning its raw zero would read as "bad fit on money" rather than "not
+    applicable" — and would leave the contract one refactor away from becoming
+    the budget oracle the sibling endpoint guards against.
+    """
+
+    from app.api.talent_radar import _shape_result
+
+    breakdown = SimpleNamespace(
+        candidate_id=7,
+        as_dict=lambda: {
+            "candidate_id": 7,
+            "total": 61.0,
+            "salary": {
+                "points": 0.0,
+                "max": 15,
+                "reason": "brak widełek",
+                "status": "scored",
+            },
+        },
+    )
+
+    shaped = _shape_result(breakdown, None)
+
+    assert shaped["salary"] == {
+        "points": None,
+        "max": None,
+        "reason": None,
+        "status": "not_applicable",
+    }
+    assert shaped["candidate"] is None, "a vanished row must not crash the response"

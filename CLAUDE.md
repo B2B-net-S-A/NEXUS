@@ -357,6 +357,61 @@ Pełny opis: `docs/competence-categories-completion-report.md`.
   zero nadpisania). To ścieżka prodowa (brak SSH/DB). CLI: `python -m scripts.backfill_candidate_cc
   --dry-run|--commit [--all]`. **Bez migracji** — schemat już jest.
 
+## Talent Radar (wklejasz request → ranking bazy, bez zakładania rekrutacji)
+
+Sekcja `/talent-radar` + `POST /api/talent-radar/search`. Rekruter wybiera
+klienta, wkleja treść requestu i dostaje ranking kandydatów. **Nie tworzy
+oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
+#1116 (rename źródła), #1119 (UI).
+
+- **Nazwa kolidowała i kolizja została rozstrzygnięta na korzyść modułu.**
+  `talent_radar` funkcjonował od maja jako *legacy źródło importu* z Supabase.
+  Migracja `0222` przepisała je na `tr_legacy` (15 wierszy — nie 40 745, ta
+  liczba z docstringu importera opisuje rekordy POBIERANE, a importer scala).
+  Ograniczenia `CHECK` **nadal akceptują starą wartość** (widen-then-migrate),
+  a typ we froncie ma obie — dlatego zmiana niczego nie zerwała. Trasy techniczne
+  zostają: `/api/admin/import-talent-radar` to wciąż tamten import.
+- **`client_id` jest WYMAGANY, nie opcjonalny.** Filtr dopuszczalności sprawdza
+  względem niego blacklistę klienta, NDA, konflikty konkurencyjne i weto hiring
+  managera. Opcjonalny klient dałby listę, w której te kontrole cicho nie
+  zaszły — dokładnie defekt naprawiony w `/ai-matches` (#1109). Dlatego UI ma
+  **własny picker** (`TalentRadarClientPicker`), a nie `ContractsClientPicker`:
+  tamten oferuje „Wszyscy klienci (lista globalna)" jako wybór, co tutaj jest
+  zaproszeniem do czegoś, co z definicji nie może zadziałać.
+- **`meta.degraded` MUSI renderować się jako awaria, nigdy jako pusty stan.**
+  Gdy Qdrant albo Voyage milczy, backend zwraca zero wyników z tą flagą.
+  „Brak dopasowań" byłoby wtedy kłamstwem w najgorszą stronę — rekruter uznałby,
+  że w bazie nie ma nikogo takiego. Harness `/preview/talent-radar` (publiczny,
+  same mocki, zero wywołań API) pokazuje te stany obok siebie właśnie po to,
+  żeby różnica nie zniknęła przy kolejnej zmianie.
+- **Ranking bez cache'u.** `rank_candidates_for_job`, NIE `bulk_get_or_compute`:
+  klucz cache'u to `(kandydat, oferta, profil)`, a ta oferta nie ma `id`, więc
+  cache albo kolidowałby między niezwiązanymi wyszukiwaniami, albo wywracał się
+  na pustym kluczu. Z tego samego powodu `build_ephemeral_job` ma **`id=None`
+  jako rzecz znaczącą, nie zaślepkę** — `build_job_scoring_context` filtruje
+  `CandidateStage.job_id == job.id`, więc puste id oznacza brak historii
+  pipeline'u, co dla wyszukiwania ad hoc jest poprawne.
+- **`SimpleNamespace`, nie nieprzypisany `Job`.** Instancja ORM niesie deskryptory
+  relacji, które przy dostępie do atrybutu potrafią odpalić lazy load — w async
+  SQLAlchemy to `MissingGreenlet`, nie wartość domyślna. Test wychodzi wymagane
+  atrybuty **AST-em po źródle** `scoring_service`/`embedding_service`/
+  `pipeline_eligibility`, a nie z ręcznej listy, bo ręczna lista przechodzi
+  dalej w dniu, w którym scoring zacznie czytać nowe pole.
+- **Wyniki niosą tożsamość węższą niż profil** — bez e-maila, telefonu i stawki.
+  Lista rankingowa służy do decyzji KOGO otworzyć; kontakt jest za kliknięciem.
+  Warstwa wynagrodzenia jest wygaszana (`status: "not_applicable"`), bo radar
+  nie ma widełek i surowe zero czytałoby się jako „nie pasuje finansowo".
+- **Role**: `require_candidate_write` (admin, delivery_lead, tac, recruiter,
+  sourcer — **bez** head_of_recruitment). Ta sama piątka w czterech miejscach:
+  sidebar, paleta ⌘K, `CAPABILITY_ROLES` i `ROLE_ROUTES` w middleware. Bez wpisu
+  w middleware viewer wchodzi na stronę i dostaje 403 z API wyrenderowane jako
+  pusta lista.
+- **Pułapka przy dokładaniu endpointów**: moduł z `@limiter.limit` nie może mieć
+  `from __future__ import annotations` (PEP 563 + slowapi #579 → body ląduje jako
+  parametr Query). Pilnuje tego test czytający AST, nie treść pliku — docstring
+  wspomina ten import, żeby przed nim ostrzec, więc szukanie stringu wywalało
+  się na własnym ostrzeżeniu.
+
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
 Druga klasa poświadczeń obok JWT użytkownika — dla automatyzacji (cron, CI, skrypty

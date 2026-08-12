@@ -23,6 +23,7 @@ import {
   Settings,
   Sparkles,
   Store,
+  Radar,
   X,
   ChevronLeft,
   ChevronRight,
@@ -34,7 +35,11 @@ import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { hasRole, ROLE_LABELS, UserRole, useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
@@ -80,7 +85,14 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Kandydaci",
         icon: Users,
         badgeKey: "candidates",
-        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+        roles: [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "tac",
+          "recruiter",
+          "sourcer",
+        ],
       },
       {
         href: "/candidates/contact-queue",
@@ -93,25 +105,58 @@ const NAV_SECTIONS: NavSection[] = [
       // Wcześniej w sekcji Delivery z gate'em tac+; przeniesiony tu 2026-06-08
       // na prośbę usera. Edycja katalogu 29 ról nadal admin-only (zakładka
       // "Zakresy ról (admin)" w komponencie, gate `isAdmin`).
-      { href: "/contracts/b2b-generator", label: "Generator Umów B2B", icon: FileSignature },
+      {
+        href: "/contracts/b2b-generator",
+        label: "Generator Umów B2B",
+        icon: FileSignature,
+      },
       {
         href: "/talents",
         label: "Talenty",
         icon: Star,
-        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+        roles: [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "tac",
+          "recruiter",
+          "sourcer",
+        ],
+      },
+      {
+        // Role lustrzane wobec `require_candidate_write` — bez head_of_recruitment.
+        // Ta sama piątka co `RECRUITER_PLUS` w lib/capabilities.ts.
+        href: "/talent-radar",
+        label: "Talent Radar",
+        icon: Radar,
+        roles: ["admin", "delivery_lead", "tac", "recruiter", "sourcer"],
       },
       {
         href: "/sourcing/marketplace",
         label: "Targ / Dostępni",
         icon: Store,
-        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+        roles: [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "tac",
+          "recruiter",
+          "sourcer",
+        ],
       },
       {
         href: "/applications",
         label: "Zgłoszenia",
         icon: Inbox,
         badgeKey: "applicationSubmissions",
-        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "recruiter", "sourcer"],
+        roles: [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "tac",
+          "recruiter",
+          "sourcer",
+        ],
       },
     ],
   },
@@ -253,9 +298,7 @@ const FINANCE_NAV_SECTIONS: NavSection[] = [
   {
     title: "Finanse",
     icon: BarChart3,
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    ],
+    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
   },
   {
     title: "System",
@@ -303,7 +346,7 @@ function NavLink({
       ? collapsed
         ? "bg-primary/10 text-primary font-medium"
         : "bg-primary/10 text-primary font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-primary"
-      : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground"
+      : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
   );
   const inner = (
     <>
@@ -428,7 +471,9 @@ export function SidebarV2({
       today.setHours(0, 0, 0, 0);
       const todayIso = today.toISOString().slice(0, 10);
       const promises: Promise<unknown>[] = [
-        api.get("/api/candidates", { params: { page_size: 1, created_after: todayIso } }),
+        api.get("/api/candidates", {
+          params: { page_size: 1, created_after: todayIso },
+        }),
         api.get("/api/jobs", { params: { page_size: 1, status: "published" } }),
       ];
       // Indeksy nazwane zamiast pozycyjnych: `settled[isApproverForBadge ? 3 : 2]`
@@ -460,23 +505,25 @@ export function SidebarV2({
       const pendingCount =
         pendingRes && pendingRes.status === "fulfilled"
           ? Array.isArray((pendingRes.value as { data?: unknown[] }).data)
-            ? ((pendingRes.value as { data: unknown[] }).data.length)
+            ? (pendingRes.value as { data: unknown[] }).data.length
             : 0
           : 0;
 
       return {
         candidates:
           candidatesRes.status === "fulfilled"
-            ? ((candidatesRes.value as { data?: { total?: number } }).data?.total ?? 0)
+            ? ((candidatesRes.value as { data?: { total?: number } }).data
+                ?.total ?? 0)
             : 0,
         jobs:
           jobsRes.status === "fulfilled"
-            ? ((jobsRes.value as { data?: { total?: number } }).data?.total ?? 0)
+            ? ((jobsRes.value as { data?: { total?: number } }).data?.total ??
+              0)
             : 0,
         pendingVerifications: pendingCount,
         applicationSubmissions:
           submissionsRes && submissionsRes.status === "fulfilled"
-            ? (((submissionsRes.value as { data?: unknown[] }).data ?? []).length)
+            ? ((submissionsRes.value as { data?: unknown[] }).data ?? []).length
             : 0,
       } as BadgeCounts;
     },
@@ -496,7 +543,12 @@ export function SidebarV2({
     return pathname === hrefPath || pathname.startsWith(hrefPath + "/");
   };
   const initials = user?.name
-    ? user.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
+    ? user.name
+        .split(" ")
+        .map((w) => w[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
     : "?";
 
   return (
@@ -509,13 +561,13 @@ export function SidebarV2({
         "flex flex-col h-full shrink-0 overflow-hidden",
         "transition-[width] duration-200 ease-in-out",
         "border-r border-sidebar-border",
-        mobileOpen ? "w-64" : collapsed ? "w-[60px]" : "w-60"
+        mobileOpen ? "w-64" : collapsed ? "w-[60px]" : "w-60",
       )}
     >
       <div
         className={cn(
           "flex items-center border-b border-sidebar-border shrink-0 h-12",
-          collapsed && !mobileOpen ? "justify-center px-0" : "px-3 gap-2"
+          collapsed && !mobileOpen ? "justify-center px-0" : "px-3 gap-2",
         )}
       >
         <Link
@@ -531,7 +583,9 @@ export function SidebarV2({
               <div className="font-semibold text-sm leading-tight tracking-tight">
                 Nexus
               </div>
-              <div className="text-[10px] text-sidebar-muted leading-none">ATS · B2B.net</div>
+              <div className="text-[10px] text-sidebar-muted leading-none">
+                ATS · B2B.net
+              </div>
             </div>
           )}
         </Link>
@@ -543,10 +597,14 @@ export function SidebarV2({
             className={cn(
               "text-sidebar-muted hover:text-sidebar-foreground",
               "p-1 rounded-md hover:bg-sidebar-accent transition-colors",
-              collapsed ? "opacity-0" : "opacity-100"
+              collapsed ? "opacity-0" : "opacity-100",
             )}
           >
-            {pinned ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            {pinned ? (
+              <ChevronLeft className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
           </button>
         )}
 
@@ -565,7 +623,7 @@ export function SidebarV2({
         aria-label="Nawigacja główna"
         className={cn(
           "flex-1 overflow-y-auto py-3",
-          collapsed && !mobileOpen ? "px-2 space-y-1" : "px-2 space-y-0.5"
+          collapsed && !mobileOpen ? "px-2 space-y-1" : "px-2 space-y-0.5",
         )}
       >
         {navSections.map((section) => {
@@ -583,25 +641,35 @@ export function SidebarV2({
                   {section.title}
                 </p>
               )}
-              {collapsed && !mobileOpen && <div className="my-2 border-t border-sidebar-border mx-2" />}
-              <div className={cn(collapsed && !mobileOpen ? "space-y-1" : "space-y-0.5")}>
-                {visibleItems.map(({ href, label, icon, badgeKey, external }) => {
-                  const resolvedHref =
-                    href === "/dashboard" ? defaultDashboardHref : href;
-                  return (
-                    <NavLink
-                      key={href}
-                      href={resolvedHref}
-                      label={label}
-                      icon={icon}
-                      active={isActive(resolvedHref)}
-                      collapsed={collapsed && !mobileOpen}
-                      badgeCount={badgeKey ? badgeCounts[badgeKey] : undefined}
-                      onClick={onClose}
-                      external={external}
-                    />
-                  );
-                })}
+              {collapsed && !mobileOpen && (
+                <div className="my-2 border-t border-sidebar-border mx-2" />
+              )}
+              <div
+                className={cn(
+                  collapsed && !mobileOpen ? "space-y-1" : "space-y-0.5",
+                )}
+              >
+                {visibleItems.map(
+                  ({ href, label, icon, badgeKey, external }) => {
+                    const resolvedHref =
+                      href === "/dashboard" ? defaultDashboardHref : href;
+                    return (
+                      <NavLink
+                        key={href}
+                        href={resolvedHref}
+                        label={label}
+                        icon={icon}
+                        active={isActive(resolvedHref)}
+                        collapsed={collapsed && !mobileOpen}
+                        badgeCount={
+                          badgeKey ? badgeCounts[badgeKey] : undefined
+                        }
+                        onClick={onClose}
+                        external={external}
+                      />
+                    );
+                  },
+                )}
               </div>
             </div>
           );
@@ -620,7 +688,7 @@ export function SidebarV2({
       <div
         className={cn(
           "border-t border-sidebar-border shrink-0 py-3",
-          collapsed && !mobileOpen ? "px-2" : "px-3"
+          collapsed && !mobileOpen ? "px-2" : "px-3",
         )}
       >
         {collapsed && !mobileOpen ? (
@@ -656,10 +724,15 @@ export function SidebarV2({
               {initials}
             </Link>
             <div className="flex-1 min-w-0">
-              <Link href="/profile" className="text-sm font-medium truncate block text-sidebar-foreground hover:text-foreground">
+              <Link
+                href="/profile"
+                className="text-sm font-medium truncate block text-sidebar-foreground hover:text-foreground"
+              >
                 {user.name}
               </Link>
-              <span className="text-[10px] text-sidebar-muted">{ROLE_LABELS[user.role]}</span>
+              <span className="text-[10px] text-sidebar-muted">
+                {ROLE_LABELS[user.role]}
+              </span>
             </div>
             <button
               onClick={logout}
@@ -681,7 +754,9 @@ export function SidebarV2({
               >
                 Zaloguj się ponownie
               </Link>
-              <span className="text-[10px] text-sidebar-muted">Sesja wygasła</span>
+              <span className="text-[10px] text-sidebar-muted">
+                Sesja wygasła
+              </span>
             </div>
             <button
               onClick={logout}
