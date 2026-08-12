@@ -910,7 +910,15 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
     from app.models.screening_note import ScreeningNote, ScreeningType
     from app.models.user import User
 
-    marker = uuid.uuid4().hex[:10]
+    # Znacznik z SAMYCH LITER. Kanarki tego testu to gołe liczby ("999", "888",
+    # "777"), a znacznik hex zawiera cyfry — losowy sufiks potrafi więc zawrzeć
+    # igłę kanarka i test pada na własnych danych zamiast na wycieku. Nie
+    # hipotetyczne: 12.08 CI wylosowało `140999760e` do tytułu WIDOCZNEJ oferty
+    # i `assert "999" not in serialized_context` znalazło ją w legalnym tytule
+    # (~0,2% przebiegów). Mapowanie cyfr na g..p zachowuje entropię (16 symboli)
+    # i nie koliduje też z "AED"/"CAD"/"AUD" — asercje są case-sensitive,
+    # a znacznik pozostaje małymi literami.
+    marker = uuid.uuid4().hex[:10].translate(str.maketrans("0123456789", "ghijklmnop"))
     now = datetime(2026, 7, 30, 10, tzinfo=timezone.utc)
     captured_prompts: list[str] = []
 

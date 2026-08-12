@@ -24,6 +24,42 @@ const inter = localFont({
   display: "swap",
 });
 
+// Cyrillic lives in a SEPARATE file behind `unicode-range`, appended to the
+// font stack rather than merged into the file above.
+//
+// The point of unicode-range is that the browser fetches this file only when it
+// actually paints a character in the range — so a Polish-only session pays zero
+// bytes for it. Merging Cyrillic into Inter-Variable.woff2 would instead charge
+// every user ~33 KiB for glyphs almost none of them will ever see.
+//
+// Where it matters is not candidate names (CVs and LinkedIn give those in Latin
+// transliteration) but `raw_cv_text` and recruiter notes, which store text as it
+// arrived. One CV pasted in Ukrainian is enough to make the preview fall back to
+// a system font mid-paragraph.
+//
+// The subset deliberately contains NO Latin glyphs, so it can never win a
+// character that belongs to Inter — the stack order stays unambiguous.
+const interCyrillic = localFont({
+  src: [{ path: "./fonts/Inter-Cyrillic.woff2", weight: "100 900", style: "normal" }],
+  variable: "--font-cyrillic",
+  display: "swap",
+  // Jeden literał, bez konkatenacji i bez stałej — `next/font` parsuje te
+  // wartości statycznie ("Font loader values must be explicitly written
+  // literals") i odrzuca nawet sklejenie dwóch stringów.
+  //
+  // Ta lista musi zgadzać się z zakresami użytymi przy generowaniu
+  // Inter-Cyrillic.woff2 (patrz ./fonts/README.md). Rozjazd w jedną stronę
+  // znaczy pobieranie pliku bez potrzeby, w drugą — znak bez glifu mimo
+  // pobranego pliku.
+  declarations: [
+    {
+      prop: "unicode-range",
+      value:
+        "U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116,U+0460-052F,U+1C80-1C88,U+20B4,U+2DE0-2DFF,U+A640-A69F,U+FE2E-FE2F",
+    },
+  ],
+});
+
 const poppins = localFont({
   src: [
     { path: "./fonts/Poppins-400.woff2", weight: "400", style: "normal" },
@@ -38,15 +74,26 @@ const poppins = localFont({
 
 // Playful rounded font for the "Kids / game world" mode. Only used when
 // [data-kids="true"] is set on <html> (it rebinds --font-inter / --font-poppins
-// in globals.css). One variable file declared under the same four discrete
-// weights Google Fonts served for it, so the rendering is unchanged.
-const fredoka = localFont({
-  src: [
-    { path: "./fonts/Fredoka-Variable.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/Fredoka-Variable.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/Fredoka-Variable.woff2", weight: "600", style: "normal" },
-    { path: "./fonts/Fredoka-Variable.woff2", weight: "700", style: "normal" },
-  ],
+// in globals.css). One variable file declared under four discrete weights.
+//
+// Baloo 2, NOT Fredoka. Fredoka is missing 14 of the 19 Polish diacritics — it
+// carries only `ł ó Ł Ó` — and the kids theme swaps the font for the ENTIRE
+// interface, not just headings. Since the browser substitutes per CHARACTER,
+// words like "Rekrutację" or "Ścieżka" rendered with single letters in a
+// different typeface, weight and width. Baloo 2 keeps the same chunky rounded
+// character and covers Polish completely (verified glyph-by-glyph).
+// Jeden wpis z ZAKRESEM wag, nie cztery kopie tej samej ścieżki. Cztery wpisy
+// generują cztery bloki @font-face na ten sam plik i — co ważniejsze — ucinają
+// oś na najwyższej zadeklarowanej wadze.
+//
+// Zakres sięga 800, a nie 700, bo tryb kids podmienia także `--font-poppins`,
+// zadeklarowanego do 800. `font-extrabold` występuje w 22 plikach, m.in.
+// w `HeroLigaMistrzow` i `ChampionsPodium` — czyli dokładnie na ekranach
+// gamifikacji, gdzie ten motyw jest używany. Przy suficie 700 te nagłówki
+// cicho spadały o dwie wagi. Oś Baloo 2 to `400..800`, więc pełny zakres jest
+// tu darmowy.
+const baloo2 = localFont({
+  src: [{ path: "./fonts/Baloo2-Variable.woff2", weight: "400 800", style: "normal" }],
   variable: "--font-kids",
   display: "swap",
 });
@@ -65,7 +112,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="pl"
       suppressHydrationWarning
-      className={`${inter.variable} ${poppins.variable} ${fredoka.variable}`}
+      className={`${inter.variable} ${interCyrillic.variable} ${poppins.variable} ${baloo2.variable}`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
