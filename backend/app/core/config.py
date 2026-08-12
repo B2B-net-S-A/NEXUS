@@ -241,6 +241,13 @@ class Settings(BaseSettings):
     # Anthropic (Claude) — used by CV enrichment and AI job writer
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL_CV: str = "claude-sonnet-5"
+
+    # --- Fala 2: pasaże CV --------------------------------------------------
+    # Kolekcja może istnieć i być wypełniona, a mimo to NIE brać udziału w
+    # retrievalu. Rozdzielenie jest celowe: pozwala zbudować i zmierzyć indeks
+    # na produkcji, zanim cokolwiek zacznie z niego czytać.
+    CV_PASSAGES_ENABLED: bool = False
+    QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
     # bez redeploya, obok bramki AIFeatureKey.order_parser (master → feature → limit).

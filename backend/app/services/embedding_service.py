@@ -485,8 +485,22 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
     def _delete():
         from qdrant_client import QdrantClient
 
+        from app.services.passage_index import delete_candidate_passages
+
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         client.delete(collection_name=_collection(), points_selector=[candidate_id])
+
+        # Pasaże CV kasujemy TU, a nie osobną ścieżką, bo to jedyne miejsce
+        # wołane przy usuwaniu kandydata (`candidate_identity_quarantine`
+        # i outbox). Osobna funkcja, o której trzeba pamiętać, prędzej czy
+        # później zostałaby pominięta — a wtedy w indeksie zostawałoby
+        # nazwisko i fragmenty CV osoby skasowanej.
+        #
+        # Bezwarunkowo, NIE za flagą `CV_PASSAGES_ENABLED`: flaga rządzi tym,
+        # czy z pasaży CZYTAMY, a nie tym, czy dane po kimś zostają. Kolekcja
+        # wypełniona przy wyłączonej fladze to najbardziej prawdopodobny stan
+        # w trakcie wdrożenia i właśnie wtedy przeciek byłby najcichszy.
+        delete_candidate_passages(client, candidate_id)
 
     try:
         await asyncio.to_thread(_delete)
