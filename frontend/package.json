@@ -62,7 +62,7 @@
     "remark-gfm": "^4.0.0",
     "tailwind-merge": "^2.5.4",
     "tailwindcss": "^4.3.3",
-    "zod": "^3.25.76",
+    "zod": "^4.4.3",
     "zustand": "^5.0.2"
   },
   "overrides": {
