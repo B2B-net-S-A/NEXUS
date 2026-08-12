@@ -3,8 +3,9 @@
 # - It does NOT publish ports (Coolify routes traffic via its internal Traefik).
 # - For local dev, `docker-compose.override.yml` re-adds host port bindings and
 #   is loaded automatically by `docker compose up`.
-# - For explicit production tuning (resource limits, healthchecks), overlay
-#   `docker-compose.prod.yml`.
+# - Limity zasobów (mem_limit) są TUTAJ — Coolify czyta wyłącznie ten plik.
+#   `docker-compose.prod.yml` to overlay na ports/env/healthchecki (referencja
+#   do ręcznej symulacji prod), NIE na limity.
 #
 # Secrets are read from .env (see .env.example). Never commit the real .env.
 
@@ -22,6 +23,16 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Limity pamięci mieszkają w TYM pliku, nie w docker-compose.prod.yml:
+    # Coolify buduje wyłącznie z /docker-compose.yml (docker_compose_location),
+    # więc limity z overlaya NIGDY nie obowiązywały na prodzie (zweryfikowane
+    # 2026-08-12: `docker inspect` → Memory=0 na wszystkich serwisach).
+    # Wymiarowanie pod hosta CCX33 32 GB i pod strojenie niżej: limit MUSI
+    # przewyższać shared_buffers=8GB + work_mem×węzły + maintenance_work_mem —
+    # historyczne 1G z overlaya zabiłoby Postgresa, gdy tylko bufor się zapełni
+    # (zmierzone RSS 2026-08-12: 1,26 GiB i rośnie wraz z zapełnianiem SB).
+    mem_limit: 12g
+    mem_reservation: 2g
     # Strojenie pod hosta prod (CCX33: 8 vCPU / 32 GB RAM, NVMe). Zmierzone 2026-07-20:
     # baza 2583 MB, shared_buffers 128 MB (fabryczne) => mieściło się w nim ~5% bazy,
     # cache hit ratio 83.16% (zdrowy OLTP to 99%+), kontener PG zużywał 208 MiB.
@@ -85,8 +96,17 @@ services:
     logging: *default-logging
 
   qdrant:
-    image: qdrant/qdrant:latest
+    # Przypięte do wersji DZIAŁAJĄCEJ na prodzie 2026-08-12 (odczyt z
+    # kontenera: GET :6333 → 1.17.1). `latest` mogło przy dowolnym redeployu
+    # wciągnąć breaking change API albo formatu storage wolumenu qdrant_data.
+    # Podnoszenie wersji = świadomy PR z lekturą release notes, nie efekt
+    # uboczny deployu.
+    image: qdrant/qdrant:v1.17.1
     restart: unless-stopped
+    # 370 MiB zmierzone 2026-08-12 (z kolekcją pasaży, INT8 always_ram);
+    # 3G daje zapas na wzrost bazy i przyszłe eksperymenty z kolekcjami.
+    mem_limit: 3g
+    mem_reservation: 512m
     volumes:
       - qdrant_data:/qdrant/storage
     logging: *default-logging
@@ -103,6 +123,9 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
     restart: unless-stopped
+    # 1,25 GiB zmierzone 2026-08-12; szczyty przy evalach i backfillach.
+    mem_limit: 4g
+    mem_reservation: 1g
     env_file:
       - .env
     environment:
@@ -132,6 +155,8 @@ services:
         NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-unknown}
         SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
     restart: unless-stopped
+    mem_limit: 1g
+    mem_reservation: 256m
     env_file:
       - .env
     environment:
@@ -157,6 +182,10 @@ services:
     image: grafana/alloy:latest
     container_name: nexus-alloy
     restart: unless-stopped
+    # ~100 MiB w stanie ustalonym; standard obserwowalności daje Alloy
+    # twardy limit, żeby log-shipper nigdy nie konkurował z aplikacją.
+    mem_limit: 512m
+    mem_reservation: 128m
     profiles: ["observability"]
     command:
       - run
@@ -195,6 +224,10 @@ services:
       dockerfile: Dockerfile
     image: nexus-backup:latest
     restart: unless-stopped
+    # Nocne pg_dump + rclone (~37 GB korpusu CV) potrafią skokowo zjeść
+    # setki MB; 1G ogranicza sidecar bez duszenia transferu.
+    mem_limit: 1g
+    mem_reservation: 128m
     depends_on:
       postgres:
         condition: service_healthy
