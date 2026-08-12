@@ -57,6 +57,11 @@ async def retrieve_candidate_pool(
     wiedzieć, która strategia jest pod spodem. `score` to zawsze kosinus — patrz
     docstring modułu.
 
+    `raise_on_error` obowiązuje na OBU ścieżkach. Konsumenci fasady (poza
+    harnessem ewaluacyjnym) wołają z domyślnym `False` i liczą na łagodną
+    degradację — awaria dostawcy ma dawać pustą/uboższą pulę, nie 500 na
+    rekomendacjach. Flip flagi nie może tego kontraktu unieważnić.
+
     Flaga wyłączona ⇒ dosłownie dzisiejsza ścieżka, wywołanie za wywołanie.
     """
 
@@ -67,9 +72,24 @@ async def retrieve_candidate_pool(
 
     from app.services.hybrid_search import hybrid_candidates
 
-    hybrid = await hybrid_candidates(
-        db, query_text, pool=top_k, final_top_k=top_k, use_rerank=None
-    )
+    try:
+        hybrid = await hybrid_candidates(
+            db, query_text, pool=top_k, final_top_k=top_k, use_rerank=None
+        )
+    except Exception:
+        if raise_on_error:
+            raise
+        # Hybryda w całości padła (np. wyjątek w warstwie BM25). Spadek na
+        # ścieżkę semantyczną zamiast pustki: awaria NOWEGO silnika nie może
+        # degradować puli poniżej stanu sprzed flagi. Jeśli przyczyną jest
+        # dostawca embeddingów, ścieżka semantyczna sama połknie błąd (to jej
+        # udokumentowana semantyka przy `raise_on_error=False`) i odda [].
+        logger.exception(
+            "[retrieval-pool] hybryda padła — spadek na ścieżkę semantyczną"
+        )
+        return await _embedding.search_candidates_semantic(
+            query_text, top_k=top_k, raise_on_error=False
+        )
     ids = [candidate_id for candidate_id, _ in hybrid.pairs]
     if hybrid.degraded:
         # Noga wektorowa padła — ranking oparł się na samym BM25. To nadal
@@ -86,7 +106,18 @@ async def retrieve_candidate_pool(
 
     # Kosinusy TYLKO dla wybranych — ta sama miara, którą scoring dostawał
     # dotąd (po Fali 2: unia wektora kandydata i najlepszego pasażu).
-    cosine_by_id = await _embedding.similarity_for_candidate_ids(query_text, ids)
+    try:
+        cosine_by_id = await _embedding.similarity_for_candidate_ids(query_text, ids)
+    except Exception:
+        if raise_on_error:
+            raise
+        # Dosypka kosinusów padła PO udanym BM25 (np. Voyage w awarii). Pula
+        # z zerowym sygnałem semantycznym > pusta pula: to dokładnie ta sama
+        # semantyka co „kandydat bez wektora" niżej, tylko dla wszystkich naraz.
+        logger.exception(
+            "[retrieval-pool] kosinusy niedostępne — pula BM25-only z score=0.0"
+        )
+        cosine_by_id = {}
 
     pool: list[dict] = []
     for candidate_id in ids:

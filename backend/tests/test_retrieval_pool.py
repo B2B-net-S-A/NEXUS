@@ -85,6 +85,109 @@ async def test_flag_on_membership_from_hybrid_scores_from_cosine(monkeypatch):
     )
 
 
+@pytest.mark.asyncio
+async def test_hybrid_failure_falls_back_to_semantic_when_swallowing(monkeypatch):
+    """`raise_on_error=False` obowiązuje też na gałęzi hybrydowej.
+
+    Konsumenci (rekomendacje, Talent Radar) wołają z domyślnym `False` i liczą
+    na łagodną degradację — flip flagi nie może zamienić awarii silnika w 500.
+    Spadek idzie na ścieżkę semantyczną, nie w pustkę: awaria NOWEGO silnika
+    nie może degradować puli poniżej stanu sprzed flagi.
+    """
+
+    from app.services import retrieval_pool as rp
+
+    async def exploding_hybrid(*a, **k):
+        raise RuntimeError("BM25 w awarii")
+
+    sentinel = [{"candidate_id": 3, "score": 0.7}]
+    seen: dict = {}
+
+    async def fake_semantic(query, *, top_k, raise_on_error=False):
+        seen.update(raise_on_error=raise_on_error)
+        return sentinel
+
+    import app.services.hybrid_search as hybrid_module
+
+    monkeypatch.setattr(hybrid_module, "hybrid_candidates", exploding_hybrid)
+    from app.services import embedding_service
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", fake_semantic)
+    monkeypatch.setattr(rp, "hybrid_pool_enabled", lambda: True)
+
+    out = await rp.retrieve_candidate_pool(object(), "Senior Python", top_k=5)
+
+    assert out is sentinel
+    assert seen == {"raise_on_error": False}, (
+        "fallback sam też musi połykać — inaczej pierwotny kontrakt wraca bokiem"
+    )
+
+
+@pytest.mark.asyncio
+async def test_hybrid_failure_propagates_when_raising(monkeypatch):
+    """`raise_on_error=True` (harness ewaluacyjny) ma widzieć awarię, nie maskę."""
+
+    from app.services import retrieval_pool as rp
+
+    async def exploding_hybrid(*a, **k):
+        raise RuntimeError("BM25 w awarii")
+
+    async def forbidden_semantic(*a, **k):  # pragma: no cover - nie wolno
+        raise AssertionError("przy raise_on_error=True nie ma fallbacku")
+
+    import app.services.hybrid_search as hybrid_module
+
+    monkeypatch.setattr(hybrid_module, "hybrid_candidates", exploding_hybrid)
+    from app.services import embedding_service
+
+    monkeypatch.setattr(
+        embedding_service, "search_candidates_semantic", forbidden_semantic
+    )
+    monkeypatch.setattr(rp, "hybrid_pool_enabled", lambda: True)
+
+    with pytest.raises(RuntimeError, match="BM25 w awarii"):
+        await rp.retrieve_candidate_pool(
+            object(), "Senior Python", top_k=5, raise_on_error=True
+        )
+
+
+@pytest.mark.asyncio
+async def test_cosine_failure_after_bm25_gives_zero_score_pool(monkeypatch):
+    """Voyage pada PO udanym BM25 → pula BM25-only z score=0.0, nie wyjątek.
+
+    To ta sama semantyka co „kandydat bez wektora", tylko dla wszystkich naraz —
+    dokładne tokeny wciąż działają, a pusta pula byłaby gorsza od uboższej.
+    """
+
+    from app.services import retrieval_pool as rp
+
+    async def fake_hybrid(db, query, *, pool, final_top_k, use_rerank):
+        return SimpleNamespace(pairs=[(7, 0.032), (4, 0.030)], degraded=False)
+
+    async def exploding_cosines(query, ids):
+        raise RuntimeError("Voyage w awarii")
+
+    import app.services.hybrid_search as hybrid_module
+
+    monkeypatch.setattr(hybrid_module, "hybrid_candidates", fake_hybrid)
+    from app.services import embedding_service
+
+    monkeypatch.setattr(
+        embedding_service, "similarity_for_candidate_ids", exploding_cosines
+    )
+    monkeypatch.setattr(rp, "hybrid_pool_enabled", lambda: True)
+
+    out = await rp.retrieve_candidate_pool(object(), "Senior Python", top_k=2)
+
+    assert [row["candidate_id"] for row in out] == [7, 4]
+    assert all(row["score"] == 0.0 for row in out)
+
+    with pytest.raises(RuntimeError, match="Voyage w awarii"):
+        await rp.retrieve_candidate_pool(
+            object(), "Senior Python", top_k=2, raise_on_error=True
+        )
+
+
 def test_hybrid_flag_is_deliberately_absent_from_scoring_cache_inputs():
     """Zamrożona decyzja, nie przeoczenie.
 
@@ -125,4 +228,16 @@ def test_all_four_pool_sites_go_through_the_facade():
         assert "retrieve_candidate_pool" in calls, f"{rel}: pula poza fasadą"
         assert "search_candidates_semantic" not in calls, (
             f"{rel}: bezpośrednie wywołanie puli obok fasady — częściowy flip"
+        )
+        # Wariant atrybutowy (`embedding_service.search_candidates_semantic(...)`)
+        # to inny węzeł AST (`ast.Attribute`, nie `ast.Name`) — bez tej gałęzi
+        # strażnik przepuściłby refaktor na import modułu, chroniąc mniej, niż
+        # obiecuje jego nazwa.
+        attr_calls = [
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
+        assert "search_candidates_semantic" not in attr_calls, (
+            f"{rel}: atrybutowe wywołanie puli obok fasady — częściowy flip"
         )
