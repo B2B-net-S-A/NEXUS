@@ -124,18 +124,18 @@ from app.services.note_mention_render import (
     collect_traffit_user_ids,
     render_traffit_mentions,
 )
-from app.api.deps import RecruiterPlus, DeliveryLeadPlus
+from app.api.deps import RecruiterPlus
 from app.api.candidate_access import (
     CandidateDocumentAccess,
     CandidateExportAccess,
     CandidateFinanceAccess,
+    CandidateHardDeleteAccess,
     CandidatePIIAccess,
     CandidateProfileFactsWriteAccess,
     CandidateSearchAccess,
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
     CANDIDATE_WRITE_ROLES,
-    privacy_workflow_unavailable,
 )
 from app.api.financial_access import (
     has_financial_access,
@@ -147,6 +147,7 @@ from app.api.recruitment_access import (
     job_scope_clause,
 )
 from app.services import candidate_audit
+from app.services.candidate_audit import candidate_subject_reference
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
@@ -4218,24 +4219,100 @@ async def update_candidate(
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
     candidate_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: CandidateHardDeleteAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    # M2 audit PR 1 (M2-PRIV-02): operational hard delete is DISABLED. The
-    # ON DELETE CASCADE sweep (migrations 0141+0146) silently removes
-    # contracts, notes, stages and audit history, while local CV files,
-    # object-storage keys and integration payloads are NOT reliably cleaned
-    # up. Erasure returns as an auditable privacy-executor workflow in PR 2
-    # of the module plan (preview → approval → artifact manifest → retry).
+    """Trwałe usunięcie profilu kandydata (admin). Operacja nieodwracalna.
+
+    ODBLOKOWANE po M2-PRIV-02, ale nie przez samo zdjęcie blokady — audyt
+    wskazywał dwa konkretne defekty i oba są tu zaadresowane:
+
+    1. NADMIAROWOŚĆ. Kaskada szła `candidates` → `contracts` → `invoices` /
+       `document_signatures` / `client_orders`, czyli „usuń kandydata" kasowało
+       faktury. Migracja 0224 przestawia ten jeden FK na `SET NULL`, więc umowa
+       i całe jej poddrzewo finansowe zostają. Umowy są przed usunięciem
+       stemplowane pseudonimowym `candidate_subject_ref`, bo po wyzerowaniu FK
+       nic już nie wiązałoby ze sobą faktur tej samej osoby.
+    2. NIEKOMPLETNOŚĆ. Pliki CV i dokumenty w object storage zostawały po
+       usunięciu wiersza. Zbieramy klucze PRZED usunięciem (potem nie ma ich
+       skąd odczytać) i kasujemy po commicie.
+
+    Czego ta operacja nadal NIE sprząta — świadomie, żeby nie udawać, że
+    „usunięcie całkowite" jest całkowite: `traffit_webhook_events` nie ma FK na
+    kandydata, więc surowy payload integracji zostaje. To znany brak,
+    mierzalny przez `/api/admin/candidate-pii-orphans`.
+    """
+    candidate = await db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Kandydat nie znaleziony"
+        )
+
+    # Klucze plików trzeba zebrać TERAZ — po `db.delete()` wiersze już nie
+    # istnieją, a bez klucza nie da się skasować obiektu ze storage.
+    storage_keys: list[str] = []
+    if candidate.cv_storage_key:
+        storage_keys.append(candidate.cv_storage_key)
+    document_keys = await db.execute(
+        select(CandidateDocument.storage_key).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.storage_key.is_not(None),
+        )
+    )
+    storage_keys.extend(k for k in document_keys.scalars().all() if k)
+
+    # Pseudonimizacja umów PRZED usunięciem: `SET NULL` zadziała w bazie sam,
+    # ale zerwie jedyne powiązanie między fakturami jednego podmiotu.
+    subject_ref = candidate_subject_reference(candidate_id)
+    contracts_detached = (
+        await db.execute(
+            update(Contract)
+            .where(
+                Contract.candidate_id == candidate_id,
+                Contract.candidate_subject_ref.is_(None),
+            )
+            .values(candidate_subject_ref=subject_ref)
+        )
+    ).rowcount
+
+    # Audyt PRZED usunięciem, żeby ślad przetrwał operację. `Activity` nie ma
+    # FK na kandydata z CASCADE dla tej ścieżki — patrz test kontraktowy.
     candidate_audit.record_candidate_audit(
         db,
-        action=candidate_audit.SENSITIVE_OPERATION_BLOCKED,
+        action=candidate_audit.HARD_DELETED,
         user_id=current_user.id,
         entity_id=candidate_id,
-        details={"operation": "hard_delete", "reason": "privacy_workflow_required"},
+        details={
+            "operation": "hard_delete",
+            "contracts_detached": contracts_detached,
+            "storage_objects": len(storage_keys),
+            "subject_ref": subject_ref,
+        },
     )
+
+    await db.delete(candidate)
     await db.commit()
-    raise privacy_workflow_unavailable("trwałe usunięcie kandydata")
+
+    # Best-effort, PO commicie: nieosiągalny Qdrant ani storage nie może
+    # wycofać usunięcia, które w bazie już się stało. Importy lokalne, spójnie
+    # z resztą tego modułu (object storage jest opcjonalny w dev).
+    from app.services.embedding_service import delete_candidate_embedding
+    from app.services.object_storage import delete_cv, is_available
+
+    try:
+        await delete_candidate_embedding(candidate_id)
+    except Exception:  # noqa: BLE001 - best effort, patrz docstring
+        logger.warning("Qdrant cleanup failed for deleted candidate %s", candidate_id)
+    if storage_keys and is_available():
+        for key in storage_keys:
+            try:
+                delete_cv(key)
+            except Exception:  # noqa: BLE001 - best effort, patrz docstring
+                logger.warning(
+                    "Storage cleanup failed for deleted candidate %s (key=%s)",
+                    candidate_id,
+                    key,
+                )
 
 
 # CV-enrichment helpers live in app.services.cv_enrichment so the Traffit

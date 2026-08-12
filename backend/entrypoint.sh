@@ -224,6 +224,40 @@ _ENUM_STATEMENTS = [
     "ALTER TABLE contracts ADD CONSTRAINT fk_contracts_draft_updated_by "
     "FOREIGN KEY (draft_updated_by) REFERENCES users(id) "
     "ON DELETE SET NULL",
+    # 0224: usunięcie kandydata NIE kasuje umowy. Bez tego lustra hard delete
+    # na prodzie z osieroconym alembicem poleciałby kaskadą przez `contracts`
+    # i zabrał ze sobą `invoices`, `document_signatures` i `client_orders` —
+    # dokumenty księgowe i dowodowe, które nie mają własnego FK na kandydata.
+    """ALTER TABLE contracts
+       ADD COLUMN IF NOT EXISTS candidate_subject_ref VARCHAR(64) NULL""",
+    "ALTER TABLE contracts ALTER COLUMN candidate_id DROP NOT NULL",
+    # DROP po INTROSPEKCJI, nie po nazwie: sweep 0146 nadał tym więzom nazwy
+    # generowane, a starsze bazy mają nazwę z czasów `create_table`. Kasowanie
+    # po zgadniętej nazwie zostawiłoby stary CASCADE i lustro byłoby bezczynne.
+    """DO $$
+        DECLARE con RECORD;
+    BEGIN
+        FOR con IN
+            SELECT c.conname
+              FROM pg_constraint c
+              JOIN pg_attribute a
+                ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+             WHERE c.conrelid = 'contracts'::regclass
+               AND c.contype = 'f'
+               AND c.confrelid = 'candidates'::regclass
+               AND a.attname = 'candidate_id'
+        LOOP
+            EXECUTE format('ALTER TABLE contracts DROP CONSTRAINT %I', con.conname);
+        END LOOP;
+    END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE contracts
+            ADD CONSTRAINT contracts_candidate_id_candidates_fkey
+            FOREIGN KEY (candidate_id) REFERENCES candidates (id)
+            ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """CREATE INDEX IF NOT EXISTS ix_contracts_candidate_subject_ref
+       ON contracts (candidate_subject_ref)""",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255)",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS nip VARCHAR(32)",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS regon VARCHAR(32)",

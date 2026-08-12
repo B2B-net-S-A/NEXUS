@@ -268,3 +268,13 @@ CandidateIdentityQuarantineOverrideAccess = Annotated[
         )
     ),
 ]
+
+# Trwałe usunięcie profilu jest nieodwracalne, więc guard jest WĘŻSZY niż przy
+# zwykłej edycji kandydata: wyłącznie `admin`, a nie `DeliveryLeadPlus`, którym
+# ta trasa była chroniona wcześniej. `admin` to szczyt hierarchii ról
+# (`ROLE_RANK`), więc „Admin lub wyższa" znaczy dokładnie tę jedną rolę.
+# Przez `require_candidate_roles`, nie przez globalny `AdminUser`, żeby zachować
+# fail-closed na rolach spoza modułu kandydata (`finance`, legacy `user`).
+CandidateHardDeleteAccess = Annotated[
+    User, Depends(require_candidate_roles(UserRole.admin))
+]

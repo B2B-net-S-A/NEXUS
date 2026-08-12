@@ -115,8 +115,22 @@ class Contract(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     # Strony kontraktu
-    candidate_id: Mapped[int] = mapped_column(
-        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
+    #
+    # `SET NULL`, nie `CASCADE` (migracja 0224): usunięcie kandydata z bazy
+    # rekrutacyjnej nie może kasować umowy, bo na umowie wiszą `invoices`,
+    # `document_signatures` i `client_orders` — dokumenty księgowe i dowodowe,
+    # które nie mają własnego FK na kandydata i poszłyby razem z nią.
+    # Stąd kolumna jest nullowalna: NULL = umowa odpięta od usuniętej osoby.
+    candidate_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Pseudonimowy klucz podmiotu, stemplowany w momencie usuwania kandydata.
+    # Po wyzerowaniu FK nic nie wiązałoby ze sobą faktur tej samej osoby, więc
+    # księgowość nie mogłaby uzgodnić rozrachunków. Kluczowany HMAC (ten sam
+    # klucz co fingerprint tożsamości) łączy dokumenty bez przywracania danych
+    # osobowych. NULL dla umów żyjących kandydatów.
+    candidate_subject_ref: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
     )
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id"), nullable=False, index=True
