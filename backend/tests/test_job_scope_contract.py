@@ -102,12 +102,12 @@ def _calls_scope_marker(endpoint: Any) -> bool:
 def _scoped_routes() -> list[tuple[str, str, bool]]:
     """-> [(method, path, enforces_scope)] for the per-recruitment surface."""
     from app.main import app
+    from tests._route_introspection import iter_api_routes
 
     found: list[tuple[str, str, bool]] = []
-    for route in app.routes:
-        path = getattr(route, "path", "")
-        methods = getattr(route, "methods", None)
-        endpoint = getattr(route, "endpoint", None)
+    for path, route in iter_api_routes(app):
+        methods = route.methods
+        endpoint = route.endpoint
         if not path.startswith("/api/") or not methods or endpoint is None:
             continue
 
