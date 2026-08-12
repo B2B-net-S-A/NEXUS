@@ -469,6 +469,23 @@ async def _parse_with_ollama(cv_text: str) -> Optional[dict[str, Any]]:
         return None
 
 
+async def parse_cv_with_claude(
+    cv_text: str,
+    *,
+    model: str | None = None,
+    template: PromptTemplate = CV_ENRICHMENT,
+) -> Optional[dict[str, Any]]:
+    """Publiczne wejście dla sparametryzowanego kroku Claude (bieg masowy).
+
+    Cienki alias na `_parse_with_claude`: bieg masowy potrzebuje `model`/
+    `template`, których `parse_cv()` nie wystawia, a import prywatnej nazwy
+    między modułami wiąże konsumenta z wnętrzem tego pliku. Fallbacków
+    (Ollama/regex) celowo tu NIE ma — patrz docstring runnera.
+    """
+
+    return await _parse_with_claude(cv_text, model=model, template=template)
+
+
 async def parse_cv(
     cv_text: str,
     *,

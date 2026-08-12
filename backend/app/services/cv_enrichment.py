@@ -276,6 +276,12 @@ def _apply_cv_enrichment(
         written_fields.append("ai_summary")
 
     next_extracted = dict(parsed)
+    # `_usage` (tokeny+model) służy statystykom biegu i logom — NIE profilowi.
+    # `cv_extracted_data` wychodzi przez CandidateResponse do każdego
+    # zalogowanego, a metadane rozliczeniowe wywołań AI nie są częścią
+    # danych kandydata (ta sama zasada co redakcja fields_confidence
+    # w metadanych finansowych).
+    next_extracted.pop("_usage", None)
     # `cv_highlights` is refreshed even when `ai_summary` was blocked above, and
     # that asymmetry is deliberate: `resolve_cv_highlights` exists precisely to
     # "return only CV-provenanced facts; never trust generic ai_summary". The two

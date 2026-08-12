@@ -44,7 +44,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.cv_enrichment import CvWritePolicy, _apply_cv_enrichment
-from app.services.cv_parser import _parse_with_claude
+from app.services.cv_parser import parse_cv_with_claude
 from app.services.llm_prompts import CV_ENRICHMENT_BULK
 
 logger = logging.getLogger(__name__)
@@ -142,11 +142,23 @@ async def backfill_cv_fields(
     max_calls = int(getattr(settings, "CV_BACKFILL_MAX_CALLS", 45_000) or 45_000)
     bulk_model = settings.CLAUDE_MODEL_CV_BULK
 
-    calibration_handle = (
-        open(calibration_log_path, "a", encoding="utf-8")  # noqa: SIM115
-        if calibration_log_path
-        else None
-    )
+    calibration_handle = None
+    if calibration_log_path:
+        from pathlib import Path
+
+        # Strażnik na UJŚCIU, nie w endpoincie: parametr przychodzi od admina
+        # przez query string i trafia do `open(..., "a")`. Bez ograniczenia to
+        # zapis w dowolne miejsce zapisywalne dla procesu — dopisanie fragmentu
+        # do `entrypoint.sh` czy plików crona wykonuje się przy najbliższym
+        # restarcie, a Coolify restartuje kontener przy KAŻDYM pushu. `resolve()`
+        # przed sprawdzeniem, żeby `/tmp/../etc/x` nie przeszło po literach.
+        resolved = Path(calibration_log_path).resolve()
+        if not resolved.is_relative_to(Path("/tmp")):
+            raise ValueError(
+                "calibration_log_path musi wskazywać pod /tmp — "
+                f"otrzymano {calibration_log_path!r}"
+            )
+        calibration_handle = open(resolved, "a", encoding="utf-8")  # noqa: SIM115
 
     from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
 
@@ -199,7 +211,7 @@ async def backfill_cv_fields(
 
                 try:
                     async with ai_feature(db, AIFeatureKey.cv_backfill):
-                        parsed = await _parse_with_claude(
+                        parsed = await parse_cv_with_claude(
                             candidate.raw_cv_text,
                             model=bulk_model,
                             template=CV_ENRICHMENT_BULK,

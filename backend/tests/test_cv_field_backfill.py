@@ -283,7 +283,7 @@ async def test_updated_candidates_are_enqueued_for_reembedding(monkeypatch):
         return len(ids)
 
     monkeypatch.setattr(runner, "ai_feature", _OkFeature)
-    monkeypatch.setattr(runner, "_parse_with_claude", fake_parse)
+    monkeypatch.setattr(runner, "parse_cv_with_claude", fake_parse)
     import app.services.index_outbox_service as outbox
 
     monkeypatch.setattr(outbox, "record_bulk_reindex", fake_reindex)
@@ -337,4 +337,68 @@ async def test_updated_candidates_are_enqueued_for_reembedding(monkeypatch):
     assert enqueued == [[11]], (
         "zaktualizowany kandydat musi trafić do outboxu reindeksu — bez tego "
         "jego wektor zostaje stary i Voyage nie widzi nowych pól"
+    )
+
+
+@pytest.mark.asyncio
+async def test_calibration_log_path_is_confined_to_tmp():
+    """P0 z review: parametr admina szedł prosto do open(..., 'a').
+
+    Dopisanie fragmentu do entrypoint.sh wykonuje się przy najbliższym
+    restarcie, a Coolify restartuje kontener przy każdym pushu. `resolve()`
+    przed sprawdzeniem — `/tmp/../etc/x` nie może przejść po literach.
+    """
+
+    from app.services.cv_field_backfill import backfill_cv_fields
+
+    class _NoRowsDb:
+        async def execute(self, *a, **k):
+            raise AssertionError("nie powinno dojść do zapytania")
+
+        async def commit(self):
+            pass
+
+    for evil in ("/etc/hosts", "/tmp/../root/.bashrc", "relative.jsonl"):
+        with pytest.raises(ValueError, match="tmp"):
+            await backfill_cv_fields(_NoRowsDb(), calibration_log_path=evil)
+
+
+def test_usage_metadata_never_persists_to_the_candidate_profile():
+    """`cv_extracted_data` wychodzi do KAŻDEGO zalogowanego przez API.
+
+    Tokeny i model to metadane rozliczeniowe wywołania, nie dane kandydata —
+    zostają w statystykach biegu i logach, znikają przed zapisem profilu.
+    """
+
+    from types import SimpleNamespace as NS
+
+    from app.services.cv_enrichment import _apply_cv_enrichment
+
+    candidate = NS(
+        first_name=None,
+        last_name=None,
+        email=None,
+        phone=None,
+        city=None,
+        country=None,
+        location=None,
+        skills=None,
+        education=None,
+        years_it_experience=None,
+        ai_summary=None,
+        experience=None,
+        cv_extracted_data=None,
+        current_position=None,
+        languages=None,
+    )
+    _apply_cv_enrichment(
+        candidate,
+        {
+            "city": "Kraków",
+            "_usage": {"input_tokens": 3000, "model": "haiku"},
+            "_confidence": {},
+        },
+    )
+    assert "_usage" not in (candidate.cv_extracted_data or {}), (
+        "metadane rozliczeniowe nie mogą wyciekać na profil kandydata"
     )
