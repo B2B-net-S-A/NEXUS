@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.core.config import settings
+from app.services.b2b_contract_generator.entity_type import entity_type_from_registry
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +270,28 @@ def _merge(name_src: dict, bl: dict | None) -> dict:
     }
 
 
+def _with_entity_type(result: dict | None) -> dict | None:
+    """Dołóż rozstrzygnięcie JDG vs spółka do wyniku lookupu.
+
+    Klasyfikacja wychodzi z BACKENDU jako gotowa wartość, a nie jako surowe
+    ``source``/``krs`` do interpretacji na frontendzie, bo ``source`` przychodzi
+    w czterech niespójnych formatach („CEIDG", „KRS", „biala_lista", „krs",
+    „biznes"), a wiedzę o obu źródłach jednocześnie ma tylko ``_merge``.
+
+    Wołane na KAŻDYM z trzech wyjść ``lookup_company`` — pominięcie ścieżki
+    „sama Biała Lista" albo „po KRS" zostawiłoby te wyniki bez pola, czyli bez
+    sygnału, i cicho zdegradowałoby je do heurystyki po nazwie.
+    """
+    if result is None:
+        return None
+    return {
+        **result,
+        "entity_type": entity_type_from_registry(
+            result.get("source"), result.get("krs")
+        ),
+    }
+
+
 async def lookup_company(nip: str | None = None, krs: str | None = None) -> dict | None:
     """Pełna nazwa firmy z biznes.gov.pl (lub CEIDG, jeśli token) + adres/osoba
     z Białej Listy. KRS jako fallback po numerze KRS."""
@@ -285,9 +308,10 @@ async def lookup_company(nip: str | None = None, krs: str | None = None) -> dict
                 lookup_by_nip(nip), lookup_by_biznes(nip)
             )
         if name_src and name_src.get("name"):
-            return _merge(name_src, bl)
+            return _with_entity_type(_merge(name_src, bl))
         if bl:
-            return bl  # graceful fallback (sama Biała Lista — nazwisko właściciela)
+            # graceful fallback (sama Biała Lista — nazwisko właściciela)
+            return _with_entity_type(bl)
     if krs:
-        return await lookup_by_krs(krs)
+        return _with_entity_type(await lookup_by_krs(krs))
     return None
