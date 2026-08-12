@@ -16,6 +16,9 @@ Ten plik pinuje zachowania, na których wisi logowanie:
 - semantyka >72 bajtów identyczna z passlibem: liczy się pierwsze 72 bajty.
 """
 
+import pytest
+
+from app.core import security
 from app.core.security import hash_password, verify_password
 
 # passlib 1.7.4 + bcrypt 4.0.1: ctx.hash("tajnehaslo123")
@@ -50,6 +53,27 @@ def test_traffit_placeholder_returns_false_not_raises() -> None:
 def test_malformed_hashes_return_false() -> None:
     assert verify_password("cokolwiek", "") is False
     assert verify_password("cokolwiek", "notahash") is False
+
+
+def test_invalid_hash_burns_full_bcrypt_cost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ścieżka invalid-hash musi kosztować tyle co prawdziwy verify.
+
+    Bez spalenia kosztu na ``_DUMMY_HASH`` odpowiedź logowania na konto
+    z placeholderem Traffita wracałaby w mikrosekundy zamiast ~setek ms —
+    timing oracle pozwalający enumerować typ konta.
+    """
+    seen: list[bytes] = []
+    real_checkpw = security.bcrypt.checkpw
+
+    def counting_checkpw(pw: bytes, hashed: bytes) -> bool:
+        seen.append(hashed)
+        return real_checkpw(pw, hashed)
+
+    monkeypatch.setattr(security.bcrypt, "checkpw", counting_checkpw)
+    assert security.verify_password("cokolwiek", _TRAFFIT_PLACEHOLDER) is False
+    assert seen == [_TRAFFIT_PLACEHOLDER.encode("utf-8"), security._DUMMY_HASH]
 
 
 def test_roundtrip_keeps_format() -> None:

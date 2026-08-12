@@ -19,6 +19,13 @@ _BCRYPT_MAX_BYTES = 72
 # Tyle co dotychczasowy default passliba — nowe hashe zostają $2b$12$.
 _BCRYPT_ROUNDS = 12
 
+# Stała do wyrównania czasu, nie sekret (hash literału "nexus-timing-equalizer").
+# Ścieżka invalid-hash odpada w mikrosekundy, a prawdziwy verify to ~setki ms —
+# bez spalenia kosztu czas odpowiedzi /api/auth/login zdradzałby, które konta
+# mają placeholder z importu Traffita. Ta sama zasada co bcrypt liczony na obu
+# ścieżkach rejestracji (anti-enumeration).
+_DUMMY_HASH = b"$2b$12$XIC4ez/F8wAC/Y/.sa.A6.CIqyRSrsapLIgL5LYOcebe3w8RNw7Xu"
+
 
 def _bcrypt_secret(password: str) -> bytes:
     return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
@@ -46,6 +53,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
             _bcrypt_secret(plain_password), hashed_password.encode("utf-8")
         )
     except ValueError:
+        # Spal koszt bcrypta, żeby odpowiedź trwała tyle co zwykły verify.
+        bcrypt.checkpw(_bcrypt_secret(plain_password), _DUMMY_HASH)
         return False
 
 
