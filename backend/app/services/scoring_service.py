@@ -194,6 +194,12 @@ _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "AI_TEXT_SCHEMA_V2",
     # Changes how a no-signal layer contributes — i.e. the composite itself.
     "SCORE_RENORMALIZE_UNSCORED_LAYERS",
+    # Fala 2: włączenie pasaży CV zmienia skalę podobieństwa semantycznego
+    # (unia wektora kandydata z najlepszym pasażem), a więc każdy composite.
+    # Bez tego wpisu prod po flipie serwowałby score'y policzone na STAREJ
+    # skali, ewaluacja pokazałaby brak efektu, a wnioskiem byłoby „chunkowanie
+    # nie działa". Ten mechanizm był już ratowany ręcznie dwa razy (0143, 0150).
+    "CV_PASSAGES_ENABLED",
 )
 
 

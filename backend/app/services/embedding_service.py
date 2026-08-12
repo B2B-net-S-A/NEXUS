@@ -557,6 +557,13 @@ async def search_candidates_semantic(
         def _search():
             from qdrant_client import QdrantClient
 
+            from app.services.passage_index import (
+                aggregate_hits_to_candidates,
+                merge_candidate_hits,
+                passages_enabled,
+                search_passage_hits,
+            )
+
             client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             hits = client.search(
                 collection_name=_collection(),
@@ -564,7 +571,7 @@ async def search_candidates_semantic(
                 limit=top_k,
                 with_payload=True,
             )
-            return [
+            base = [
                 {
                     "candidate_id": int(hit.id),
                     "score": round(float(hit.score), 4),
@@ -572,6 +579,31 @@ async def search_candidates_semantic(
                 }
                 for hit in hits
             ]
+            # Fala 2: unia z najlepszym pasażem CV, za flagą. Bramka jest TUTAJ,
+            # w jedynym wspólnym wejściu retrievalu — dziewięciu konsumentów
+            # przełącza się jedną flagą NARAZ. Przełączanie ich pojedynczo
+            # zostawiałoby okres, w którym część powierzchni liczy na starej
+            # skali semantycznej, część na nowej, a cache score'ów (klucz bez
+            # pola powierzchni) mieszałby obie w jednym wierszu.
+            if passages_enabled():
+                try:
+                    passage_rows = aggregate_hits_to_candidates(
+                        # Zapas ×4: jeden kandydat potrafi obsadzić kilka
+                        # czołowych miejsc swoimi pasażami; po agregacji do
+                        # kandydatów lista się skraca.
+                        search_passage_hits(client, embedding, limit=top_k * 4),
+                        top_k=top_k,
+                    )
+                except Exception as passage_exc:  # noqa: BLE001
+                    # Degradacja do samego wektora kandydata, nie awaria
+                    # całości — pasaże są DODATKIEM do sygnału, nie podmianą.
+                    logger.warning(
+                        "[Search] pasaże niedostępne, zwracam sam wektor kandydata: %s",
+                        passage_exc,
+                    )
+                    return base
+                return merge_candidate_hits(base, passage_rows, top_k=top_k)
+            return base
 
         try:
             return await _run_qdrant(_search)
@@ -611,6 +643,11 @@ async def similarity_for_candidate_ids(
         from qdrant_client import QdrantClient
         from qdrant_client.models import Filter, HasIdCondition
 
+        from app.services.passage_index import (
+            best_passage_scores_for_ids,
+            passages_enabled,
+        )
+
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         hits = client.search(
             collection_name=_collection(),
@@ -619,7 +656,24 @@ async def similarity_for_candidate_ids(
             limit=len(ids),
             with_payload=False,
         )
-        return {int(hit.id): round(float(hit.score), 4) for hit in hits}
+        scores = {int(hit.id): round(float(hit.score), 4) for hit in hits}
+        # Fala 2: ta ścieżka zasila TEN SAM cache score'ów co pula z
+        # `search_candidates_semantic` (klucz: kandydat×oferta×profil, bez pola
+        # powierzchni). Musi więc przełączyć się TĄ SAMĄ flagą — zostawiona na
+        # starej kolekcji mieszałaby dwie skale semantyczne w jednym wierszu.
+        if passages_enabled():
+            try:
+                for candidate_id, best in best_passage_scores_for_ids(
+                    client, embedding, ids
+                ).items():
+                    if best > scores.get(candidate_id, -1.0):
+                        scores[candidate_id] = best
+            except Exception as passage_exc:  # noqa: BLE001
+                logger.warning(
+                    "[Search] pasaże niedostępne w similarity_for_candidate_ids: %s",
+                    passage_exc,
+                )
+        return scores
 
     try:
         return await asyncio.to_thread(_search)
