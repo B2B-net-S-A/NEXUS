@@ -1,5 +1,5 @@
-fastapi==0.115.6
-uvicorn[standard]==0.51.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
 # The `[asyncio]` extra is LOAD-BEARING from Python 3.13 onwards, do not drop it.
 # SQLAlchemy 2.0.36 declares its greenlet dependency as
 #   `greenlet!=0.4.17; python_version < "3.13" and (platform_machine == ...)`
@@ -10,7 +10,7 @@ uvicorn[standard]==0.51.0
 # the python_version marker, which is the whole point of using it here.
 sqlalchemy[asyncio]==2.0.51
 asyncpg==0.31.0
-alembic==1.18.5
+alembic==1.19.0
 pydantic[email]==2.13.4
 pydantic-settings==2.14.2
 email-validator==2.3.0
@@ -27,8 +27,8 @@ httpx==0.28.1
 # Wołających jest 7: embedding_service.py (×4), pool_suggester.py,
 # historical_jobs_retrieval.py, cc_classifier.py. Migracja na query_points —
 # osobny PR, razem z sondą `checks.qdrant` w /api/health.
-qdrant-client==1.12.1
-anthropic>=0.40,<1.0
+qdrant-client==1.19.0
+anthropic>=0.120.2,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
 #   pdfplumber 0.11.4/0.11.5 -> 20231228 | 0.11.6 -> 20250327 | 0.11.7 -> 20250506
@@ -51,18 +51,18 @@ aiofiles==25.1.0
 jinja2==3.1.6
 psycopg2-binary==2.9.12
 openpyxl==3.1.5
-icalendar==7.0.3
+icalendar==7.2.2
 python-json-logger==4.1.0
 # Security & observability
-slowapi==0.1.9
-sentry-sdk[fastapi]==2.20.0
+slowapi==0.1.10
+sentry-sdk[fastapi]==2.66.1
 # Microsoft 365 integration (Phase M365.1)
 # msal>=1.34 required to allow cryptography>=48 (older msal capped cryptography<46).
 msal==1.37.0
 cryptography==48.0.1
 bleach==6.4.0
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
-rapidfuzz==3.10.1
+rapidfuzz==3.14.5
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
@@ -73,13 +73,13 @@ weasyprint==68.0
 # a candidate for a future bump. [etsi] adds EU Trusted List parsing (xsdata,
 # signxml, lxml). Authoritative QES verdict via EU DSS sidecar; pyHanko is the
 # local integrity pre-check. See docs/in-house-qes-signature-plan.md.
-pyhanko[etsi]==0.34.1
+pyhanko[etsi]==0.36.2
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
-boto3==1.35.0
+boto3==1.43.66
 
 # Polski kalendarz świąt dla `app.core.scheduling.is_business_day`. Targety
 # Priority Work ("4 weryfikacje / dzień roboczy") i triggery notyfikacji nie mogą
 # liczyć 1 maja ani Bożego Ciała jako dnia pracy. Ruchome święta liczone z daty
 # Wielkanocy — dlatego biblioteka, nie własna tablica dat.
-holidays==0.83
+holidays==0.102
