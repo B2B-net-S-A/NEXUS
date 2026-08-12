@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, FileText, XCircle } from "lucide-react";
+import { Users, FileText } from "lucide-react";
 import api from "@/lib/api";
 import {
   filterConsultantsByPart,
@@ -15,7 +15,6 @@ import type { ClientProfileResponse } from "@/types/client-profile";
 import { SummaryBar } from "@/components/client-profile/SummaryBar";
 import { ConsultantRow } from "@/components/client-profile/ConsultantRow";
 import { PlacementRow } from "@/components/client-profile/PlacementRow";
-import { LostJobRow } from "@/components/client-profile/LostJobRow";
 import { ExtendContractMenu } from "@/components/client-profile/actions/ExtendContractMenu";
 import { ReEngageButton } from "@/components/client-profile/actions/ReEngageButton";
 
@@ -30,10 +29,16 @@ export function ProfileTab({ clientId }: Props) {
       api.get(`/api/clients/${clientId}/profile`).then((r) => r.data),
   });
 
-  // Akcje rekrutacji (Dodaj/Lost) mieszkają w zakładce Projekty — sekcja
-  // „Otwarte rekrutacje" usunięta (ticket #3). Zakończenie projektu (ticket
-  // #5) odbywa się w Zamówieniach lub Kontraktach — Profil jest wyłącznie
-  // odbiorcą danych (Obecni/Archiwum to read-modele).
+  // Profil NIE pokazuje rekrutacji w żadnej formie — ani list („Otwarte",
+  // „Przegrane"), ani liczników. Wszystkie rekrutacje klienta żyją w zakładce
+  // Projekty, w dwóch kubełkach: aktywne i zamknięte. Profil jest wyłącznie
+  // odbiorcą danych o KONSULTANTACH (Obecni/Archiwum to read-modele), a
+  // zakończenie projektu odbywa się w Zamówieniach lub Kontraktach.
+  //
+  // UWAGA przy przywracaniu czegokolwiek tutaj: powód i notatka przegranej
+  // (`close_reason`/`close_notes`) po usunięciu sekcji „Przegrane rekrutacje"
+  // NIE MAJĄ w aplikacji żadnego widoku, mimo że rekruter dalej je wpisuje
+  // przez „Lost" w Projektach. To znany, świadomie odłożony brak.
 
   if (isLoading) {
     return (
@@ -61,18 +66,16 @@ export function ProfileTab({ clientId }: Props) {
         archived={data.historical.placements}
         clientId={clientId}
       />
-      <LostJobsSection lostJobs={data.historical.lost_jobs} />
     </div>
   );
 }
 
 // ── Konsultanci: Obecni | Archiwum ───────────────────────────────────────────
-// Sekcja „Otwarte rekrutacje" (lista) usunięta dla wszystkich klientów
-// (ticket #3) — akcje Dodaj/Lost przeniesione do zakładki Projekty, kafelek
-// metryki „Otwarte rekrutacje" w SummaryBar zostaje bez zmian.
-// Ticket #5: Obecni BEZ akcji „Zakończ" (zakończenie w Zamówieniach lub
-// Kontraktach); Archiwum = wyłącznie odbiorca danych — konsultant trafia tu
-// automatycznie po zakończeniu projektu (read-model z zakończonych kontraktów).
+// To sekcja o KONSULTANTACH (kontrakty), nie o rekrutacjach — dlatego zostaje
+// w Profilu, mimo że listy i liczniki rekrutacji zostały z niego zdjęte.
+// Obecni BEZ akcji „Zakończ" (zakończenie w Zamówieniach lub Kontraktach);
+// Archiwum = wyłącznie odbiorca danych — konsultant trafia tu automatycznie
+// po zakończeniu projektu (read-model z zakończonych kontraktów).
 
 type ConsultantsTab = "obecni" | "archiwum";
 
@@ -214,37 +217,6 @@ function PartFilterPill({
     >
       {children}
     </button>
-  );
-}
-
-// ── Przegrane rekrutacje ─────────────────────────────────────────────────────
-// Dawna sekcja „Historia" miała dwie zakładki: Placementy (teraz „Archiwum
-// konsultantów" obok Obecnych — ticket #5 krok 2) i Przegrane (zostają tutaj).
-
-function LostJobsSection({
-  lostJobs,
-}: {
-  lostJobs: ClientProfileResponse["historical"]["lost_jobs"];
-}) {
-  return (
-    <section className="space-y-3">
-      <SectionHeader
-        icon={<XCircle className="w-4 h-4 text-muted-foreground" />}
-        title="Przegrane rekrutacje"
-        count={lostJobs.length}
-      />
-      {lostJobs.length === 0 ? (
-        <EmptyState icon={<XCircle className="w-8 h-8" />}>
-          Świetnie — żadna rekrutacja u tego klienta nie została przegrana.
-        </EmptyState>
-      ) : (
-        <div className="space-y-2">
-          {lostJobs.map((j) => (
-            <LostJobRow key={j.job_id} lost={j} />
-          ))}
-        </div>
-      )}
-    </section>
   );
 }
 
