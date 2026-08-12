@@ -57,7 +57,6 @@ from app.models.match_score import CandidateJobMatchScore
 from app.services.embedding_service import (
     _build_job_text,
     embed_job,
-    search_candidates_semantic,
     search_jobs_semantic,
     similarity_for_candidate_ids,
 )
@@ -81,6 +80,7 @@ from app.schemas.similar_job_candidates import (
     HistoricalSourceOut,
     SimilarJobOut,
 )
+from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger(__name__)
 
@@ -295,7 +295,7 @@ async def _recommend_candidates_core(
     pool_size = settings.MATCH_POOL_SIZE
     if location_active:
         pool_size = max(pool_size, settings.RECOMMENDATION_LOCATION_POOL_SIZE)
-    hits = await search_candidates_semantic(query_text, top_k=pool_size)
+    hits = await retrieve_candidate_pool(db, query_text, top_k=pool_size)
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
 

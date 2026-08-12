@@ -29,6 +29,7 @@ from app.models.proposal_snapshot import (
     STATUS_READY,
 )
 from app.models.recruitment_pipeline import CandidateStage
+from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,6 @@ async def compute_proposal_for_job(
     from app.services.embedding_service import (
         _build_job_text,
         embed_job,
-        search_candidates_semantic,
     )
     from app.services.match_score_cache import bulk_get_or_compute
     from app.services.scoring_service import (
@@ -146,7 +146,7 @@ async def compute_proposal_for_job(
             # 1000). `top_k` still caps what comes back — it just no longer decides what
             # scoring is allowed to see.
             pool_size = settings.MATCH_POOL_SIZE
-            hits = await search_candidates_semantic(query_text, top_k=pool_size)
+            hits = await retrieve_candidate_pool(session, query_text, top_k=pool_size)
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())
 
