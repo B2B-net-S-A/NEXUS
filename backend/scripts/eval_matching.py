@@ -67,13 +67,13 @@ from app.services import scoring_service  # noqa: E402
 from app.services.embedding_service import indexed_candidate_ids  # noqa: E402
 from app.services.embedding_service import (  # noqa: E402
     _build_job_text,
-    search_candidates_semantic,
 )
 from app.services.scoring_service import rank_candidates_for_job  # noqa: E402
 from app.services.similar_job_candidates import (  # noqa: E402
     boost_points_for_sources,
     fetch_historical_boost_map,
 )
+from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger("eval_matching")
 
@@ -251,8 +251,7 @@ class ProfileEval:
         return [
             j
             for j in self.per_job
-            if j.ground_truth_ids
-            and j.ground_truth_indexed == len(j.ground_truth_ids)
+            if j.ground_truth_ids and j.ground_truth_indexed == len(j.ground_truth_ids)
         ]
 
     @property
@@ -309,38 +308,47 @@ async def _audit_data_quality(db: AsyncSession) -> DataQuality:
     # plain `jsonb_typeof = 'array' AND jsonb_array_length(...)` crashes when
     # the planner evaluates jsonb_array_length first on a scalar row.
     must_len = case(
-        (func.jsonb_typeof(Job.must_skills) == "array",
-         func.jsonb_array_length(Job.must_skills)),
+        (
+            func.jsonb_typeof(Job.must_skills) == "array",
+            func.jsonb_array_length(Job.must_skills),
+        ),
         else_=0,
     )
     nice_len = case(
-        (func.jsonb_typeof(Job.nice_skills) == "array",
-         func.jsonb_array_length(Job.nice_skills)),
+        (
+            func.jsonb_typeof(Job.nice_skills) == "array",
+            func.jsonb_array_length(Job.nice_skills),
+        ),
         else_=0,
     )
-    present_must = await db.scalar(
-        select(func.count(Job.id)).where(must_len > 0)
-    ) or 0
+    present_must = await db.scalar(select(func.count(Job.id)).where(must_len > 0)) or 0
     missing_must = total_jobs - present_must
-    present_nice = await db.scalar(
-        select(func.count(Job.id)).where(nice_len > 0)
-    ) or 0
+    present_nice = await db.scalar(select(func.count(Job.id)).where(nice_len > 0)) or 0
     missing_nice = total_jobs - present_nice
 
     total_candidates = await db.scalar(select(func.count(Candidate.id))) or 0
-    list_fmt = await db.scalar(
-        select(func.count(Candidate.id)).where(
-            func.jsonb_typeof(Candidate.skills) == "array"
+    list_fmt = (
+        await db.scalar(
+            select(func.count(Candidate.id)).where(
+                func.jsonb_typeof(Candidate.skills) == "array"
+            )
         )
-    ) or 0
-    dict_fmt = await db.scalar(
-        select(func.count(Candidate.id)).where(
-            func.jsonb_typeof(Candidate.skills) == "object"
+        or 0
+    )
+    dict_fmt = (
+        await db.scalar(
+            select(func.count(Candidate.id)).where(
+                func.jsonb_typeof(Candidate.skills) == "object"
+            )
         )
-    ) or 0
-    null_fmt = await db.scalar(
-        select(func.count(Candidate.id)).where(Candidate.skills.is_(None))
-    ) or 0
+        or 0
+    )
+    null_fmt = (
+        await db.scalar(
+            select(func.count(Candidate.id)).where(Candidate.skills.is_(None))
+        )
+        or 0
+    )
 
     return DataQuality(
         total_jobs=total_jobs,
@@ -390,7 +398,9 @@ async def _discover_jobs_with_ground_truth(
         if rel > current:
             job_to_gt[job_id][candidate_id] = rel
 
-    qualifying_job_ids = [jid for jid, m in job_to_gt.items() if len(m) >= min_ground_truth]
+    qualifying_job_ids = [
+        jid for jid, m in job_to_gt.items() if len(m) >= min_ground_truth
+    ]
     if only_job_ids:
         wanted = set(only_job_ids)
         qualifying_job_ids = [jid for jid in qualifying_job_ids if jid in wanted]
@@ -405,10 +415,7 @@ async def _discover_jobs_with_ground_truth(
     )
     jobs = jobs_res.scalars().all()[:limit]
 
-    return [
-        (j, list(job_to_gt[j.id].keys()), job_to_gt[j.id])
-        for j in jobs
-    ]
+    return [(j, list(job_to_gt[j.id].keys()), job_to_gt[j.id]) for j in jobs]
 
 
 async def _seed_job_ids(db: AsyncSession) -> list[int]:
@@ -442,7 +449,7 @@ async def _score_job_candidates(
     query_text = _build_job_text(job)
 
     try:
-        hits = await search_candidates_semantic(query_text, top_k=pool_cap)
+        hits = await retrieve_candidate_pool(db, query_text, top_k=pool_cap)
     except Exception as e:
         logger.warning("semantic search failed for job=%s: %s", job.id, e)
         hits = []
@@ -648,7 +655,11 @@ def _go_no_go(
             f" Best profile `{best.profile.name}` (Recall@20 = {b_recall:.2f}) beats "
             f"default (Recall@20 = {d_recall:.2f}) — recommend Phase D1 weight tuning."
         )
-        return "GO (with caveats) — ship Phase A in parallel with Phase D1/B1." + weight_note + data_note
+        return (
+            "GO (with caveats) — ship Phase A in parallel with Phase D1/B1."
+            + weight_note
+            + data_note
+        )
     if d_recall >= 0.50:
         return (
             "CAUTION — Recall@20 below the 0.60 target even after ablation. Ship Phase A "
@@ -759,7 +770,10 @@ def _render_markdown(
         )
     # Compare best ablation profile to default
     best = max(profile_results, key=lambda p: p.mean_recall_at_20)
-    if best.profile.name != DEFAULT_PROFILE.name and best.mean_recall_at_20 > default.mean_recall_at_20 + 0.02:
+    if (
+        best.profile.name != DEFAULT_PROFILE.name
+        and best.mean_recall_at_20 > default.mean_recall_at_20 + 0.02
+    ):
         findings.append(
             f"**Profile `{best.profile.name}`** beats the default on Recall@20 "
             f"({best.mean_recall_at_20:.3f} vs {default.mean_recall_at_20:.3f}). "
@@ -813,9 +827,9 @@ def _render_markdown(
         lines.append("")
 
     # Qualitative error analysis on default profile
-    error_cases: list[JobEval] = sorted(
-        default.per_job, key=lambda j: j.recall_at_20
-    )[:error_cases_max]
+    error_cases: list[JobEval] = sorted(default.per_job, key=lambda j: j.recall_at_20)[
+        :error_cases_max
+    ]
     if error_cases:
         lines.append("## Error analysis (worst Recall@20, default profile)")
         lines.append("")
@@ -962,9 +976,7 @@ async def _run(args: argparse.Namespace) -> int:
                 # reflect the knobs this run actually scored with, otherwise the
                 # report claims a provenance it does not have.
                 "scoring_algorithm_version": scoring_service.scoring_algorithm_version(),
-                "embedding_model": os.environ.get(
-                    "EMBEDDING_MODEL", "voyage-3-large"
-                ),
+                "embedding_model": os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
                 "embedding_dimension": _VEC,
                 "index_version": "index-legacy-v1",
                 "taxonomy_version": "taxonomy-legacy-v1",
@@ -979,9 +991,7 @@ async def _run(args: argparse.Namespace) -> int:
                     "with_boost": p.with_boost,
                     "mean_precision_at_5": p.mean_precision_at_5,
                     "mean_recall_at_20": p.mean_recall_at_20,
-                    "mean_recall_at_20_normalized": (
-                        p.mean_recall_at_20_normalized
-                    ),
+                    "mean_recall_at_20_normalized": (p.mean_recall_at_20_normalized),
                     "fully_indexed_jobs": len(p.fully_indexed_jobs),
                     "mean_precision_at_5_fully_indexed": (
                         p.mean_precision_at_5_fully_indexed
