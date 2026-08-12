@@ -76,7 +76,10 @@ const materialSchema = z.object({
   is_published: z.boolean(),
 });
 
-type MaterialFormData = z.infer<typeof materialSchema>;
+// zod 4: z.coerce.number() ma wejście `unknown`, więc typ pól formularza
+// (input) i typ po walidacji (output) muszą być rozróżnione w useForm.
+type MaterialFormInput = z.input<typeof materialSchema>;
+type MaterialFormData = z.output<typeof materialSchema>;
 
 interface Props {
   material: HelpMaterial | null;
@@ -128,7 +131,7 @@ export function HelpMaterialEditorModal({
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<MaterialFormData>({
+  } = useForm<MaterialFormInput, unknown, MaterialFormData>({
     resolver: zodResolver(materialSchema),
     defaultValues: defaultsFor(material),
   });

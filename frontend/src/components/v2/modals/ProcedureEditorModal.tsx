@@ -33,7 +33,9 @@ const procedureSchema = z.object({
  is_published: z.boolean(),
 });
 
-type ProcedureFormData = z.infer<typeof procedureSchema>;
+// zod 4: z.coerce.number() ma wejście `unknown` — stąd osobny typ input/output.
+type ProcedureFormInput = z.input<typeof procedureSchema>;
+type ProcedureFormData = z.output<typeof procedureSchema>;
 
 interface Props {
  procedure: Procedure | null;
@@ -53,7 +55,7 @@ export function ProcedureEditorModal({ procedure, open, onOpenChange, onSaved }:
  watch,
  reset,
  formState: { errors, isSubmitting },
- } = useForm<ProcedureFormData>({
+ } = useForm<ProcedureFormInput, unknown, ProcedureFormData>({
  resolver: zodResolver(procedureSchema),
  defaultValues: {
  title: procedure?.title ??"",

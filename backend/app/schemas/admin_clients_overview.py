@@ -8,6 +8,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.schemas.money import WholePLN
+
 
 class OverviewRow(BaseModel):
     """Wiersz w rankingu klientów."""
@@ -19,7 +21,7 @@ class OverviewRow(BaseModel):
     head_dl_name: Optional[str] = None
     total_revenue_all_time: Decimal | int | None = None
     active_revenue: Decimal | int | None = None
-    monthly_margin_total: Optional[int] = None
+    monthly_margin_total: Optional[WholePLN] = None
     active_orders_count: int = 0
     active_consultants: int = 0
     framework_status: Optional[str] = None
@@ -38,6 +40,6 @@ class DlKpiRow(BaseModel):
     head_clients_count: int = 0
     total_revenue: Decimal | int | None = None
     active_revenue: Decimal | int | None = None
-    monthly_margin_total: Optional[int] = None
+    monthly_margin_total: Optional[WholePLN] = None
     active_orders_count: int = 0
     active_consultants: int = 0

@@ -7,6 +7,8 @@ from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.money import WholePLN
+
 
 class RequestHistoryEntry(BaseModel):
     """Mirror of services.request_history.RequestHistoryEntry for the API layer."""
@@ -31,7 +33,7 @@ class RequestHistoryEntry(BaseModel):
     champion_candidate_id: Optional[int] = None
     champions_count: int = 0
     candidates_count: int = 0
-    fee_rate: Optional[int] = None
+    fee_rate: Optional[WholePLN] = None
     fee_currency: Optional[str] = None
     rate_unit: Optional[str] = None
     tac_name: Optional[str] = None
