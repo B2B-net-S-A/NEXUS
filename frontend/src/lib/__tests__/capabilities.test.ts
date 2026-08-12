@@ -1,12 +1,12 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
 import {
   CAPABILITY_ROLES,
   hasAnyCapability,
   hasCapability,
   type Capability,
-} from "@/lib/capabilities"
-import type { UserRole } from "@/store/auth"
+} from "@/lib/capabilities";
+import type { UserRole } from "@/store/auth";
 
 // Wszystkie role z backendu (backend/app/models/user.py). Macierz MUSI być
 // domknięta — `head_of_recruitment` bywał pomijany w listach testowych i to
@@ -20,9 +20,9 @@ const ALL_ROLES: UserRole[] = [
   "recruiter",
   "sourcer",
   "user",
-]
+];
 
-const mkUser = (role: UserRole) => ({ role })
+const mkUser = (role: UserRole) => ({ role });
 
 /**
  * Oczekiwana macierz capability × rola. Pisana ręcznie (a nie wyliczana
@@ -155,6 +155,17 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  // Lustro backendowego require_candidate_write — head_of_recruitment świadomie
+  // poza, tak samo jak w RECRUITER_PLUS.
+  "nav.talent_radar": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
   "nav.sourcing": {
     admin: true,
     head_of_recruitment: true,
@@ -218,100 +229,104 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-}
+};
 
-const ALL_CAPABILITIES = Object.keys(CAPABILITY_ROLES) as Capability[]
+const ALL_CAPABILITIES = Object.keys(CAPABILITY_ROLES) as Capability[];
 
 describe("rejestr capability — kompletność", () => {
   it("każda capability z rejestru ma wpis w oczekiwanej macierzy", () => {
-    expect(Object.keys(EXPECTED).sort()).toEqual([...ALL_CAPABILITIES].sort())
-  })
+    expect(Object.keys(EXPECTED).sort()).toEqual([...ALL_CAPABILITIES].sort());
+  });
 
   it("każda capability wymienia wyłącznie znane role", () => {
     for (const capability of ALL_CAPABILITIES) {
       for (const role of CAPABILITY_ROLES[capability]) {
-        expect(ALL_ROLES).toContain(role)
+        expect(ALL_ROLES).toContain(role);
       }
     }
-  })
+  });
 
   it("żadna capability nie jest pusta (martwa bramka blokująca wszystkich)", () => {
     for (const capability of ALL_CAPABILITIES) {
-      expect(CAPABILITY_ROLES[capability].length).toBeGreaterThan(0)
+      expect(CAPABILITY_ROLES[capability].length).toBeGreaterThan(0);
     }
-  })
-})
+  });
+});
 
 describe("hasCapability — pełna macierz rola × capability", () => {
   for (const capability of ALL_CAPABILITIES) {
     for (const role of ALL_ROLES) {
       // Finance jest rolą ekskluzywną. Istniejący rejestr opisuje wyłącznie
       // capability operacyjne, więc wszystkie są dla niej fail-closed.
-      const expected =
-        role === "finance" ? false : EXPECTED[capability][role]
+      const expected = role === "finance" ? false : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
-        expect(hasCapability(mkUser(role), capability)).toBe(expected)
-      })
+        expect(hasCapability(mkUser(role), capability)).toBe(expected);
+      });
     }
   }
-})
+});
 
 describe("hasCapability — przypadki brzegowe", () => {
   it("fail-closed dla braku usera", () => {
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(null, capability)).toBe(false)
-      expect(hasCapability(undefined, capability)).toBe(false)
+      expect(hasCapability(null, capability)).toBe(false);
+      expect(hasCapability(undefined, capability)).toBe(false);
     }
-  })
+  });
 
   it("multi-role: druga rola nadaje uprawnienie, którego primary nie ma", () => {
     // Hybryda HoR + TAC — HoR sam nie zakłada firm, TAC tak.
-    const hybrid = { role: "head_of_recruitment" as UserRole, roles: ["head_of_recruitment", "tac"] as UserRole[] }
-    expect(hasCapability(mkUser("head_of_recruitment"), "client.create")).toBe(false)
-    expect(hasCapability(hybrid, "client.create")).toBe(true)
-  })
+    const hybrid = {
+      role: "head_of_recruitment" as UserRole,
+      roles: ["head_of_recruitment", "tac"] as UserRole[],
+    };
+    expect(hasCapability(mkUser("head_of_recruitment"), "client.create")).toBe(
+      false,
+    );
+    expect(hasCapability(hybrid, "client.create")).toBe(true);
+  });
 
   it("brak `roles` (stary cache localStorage) fallbackuje na primary `role`", () => {
-    expect(hasCapability({ role: "tac" }, "job.create")).toBe(true)
-    expect(hasCapability({ role: "recruiter" }, "job.create")).toBe(false)
-  })
+    expect(hasCapability({ role: "tac" }, "job.create")).toBe(true);
+    expect(hasCapability({ role: "recruiter" }, "job.create")).toBe(false);
+  });
 
   it("admin ma wszystko — żadna bramka go nie blokuje", () => {
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(mkUser("admin"), capability)).toBe(true)
+      expect(hasCapability(mkUser("admin"), capability)).toBe(true);
     }
-  })
+  });
 
   it("rola `user` (read-only viewer) nie ma NICZEGO", () => {
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(mkUser("user"), capability)).toBe(false)
+      expect(hasCapability(mkUser("user"), capability)).toBe(false);
     }
-  })
+  });
 
   it("rola `finance` nie dziedziczy żadnej capability operacyjnej", () => {
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(mkUser("finance"), capability)).toBe(false)
+      expect(hasCapability(mkUser("finance"), capability)).toBe(false);
     }
-  })
-})
+  });
+});
 
 describe("hasAnyCapability", () => {
   it("zwraca true gdy choć jedna capability przechodzi", () => {
     expect(
-      hasAnyCapability(mkUser("recruiter"), "job.create", "candidate.create")
-    ).toBe(true)
-  })
+      hasAnyCapability(mkUser("recruiter"), "job.create", "candidate.create"),
+    ).toBe(true);
+  });
 
   it("zwraca false gdy żadna nie przechodzi", () => {
     expect(
-      hasAnyCapability(mkUser("user"), "job.create", "candidate.create")
-    ).toBe(false)
-  })
+      hasAnyCapability(mkUser("user"), "job.create", "candidate.create"),
+    ).toBe(false);
+  });
 
   it("bez argumentów zwraca false (fail-closed)", () => {
-    expect(hasAnyCapability(mkUser("admin"))).toBe(false)
-  })
-})
+    expect(hasAnyCapability(mkUser("admin"))).toBe(false);
+  });
+});
 
 describe("regresja F-19: Quick Actions nie pokazuje akcji bez capability", () => {
   const QUICK_ACTIONS: Capability[] = [
@@ -321,38 +336,40 @@ describe("regresja F-19: Quick Actions nie pokazuje akcji bez capability", () =>
     "contact.create",
     "calendar_event.create",
     "invite_link.create",
-  ]
+  ];
 
   it("read-only viewer nie widzi ŻADNEJ akcji Quick Actions", () => {
-    const visible = QUICK_ACTIONS.filter((c) => hasCapability(mkUser("user"), c))
-    expect(visible).toEqual([])
-  })
+    const visible = QUICK_ACTIONS.filter((c) =>
+      hasCapability(mkUser("user"), c),
+    );
+    expect(visible).toEqual([]);
+  });
 
   it("sourcer widzi tylko kandydata, spotkanie i link aplikacyjny", () => {
     const visible = QUICK_ACTIONS.filter((c) =>
-      hasCapability(mkUser("sourcer"), c)
-    )
+      hasCapability(mkUser("sourcer"), c),
+    );
     expect(visible).toEqual([
       "candidate.create",
       "calendar_event.create",
       "invite_link.create",
-    ])
-  })
+    ]);
+  });
 
   it("head_of_recruitment widzi tylko osobę kontaktową", () => {
     const visible = QUICK_ACTIONS.filter((c) =>
-      hasCapability(mkUser("head_of_recruitment"), c)
-    )
-    expect(visible).toEqual(["contact.create"])
-  })
-})
+      hasCapability(mkUser("head_of_recruitment"), c),
+    );
+    expect(visible).toEqual(["contact.create"]);
+  });
+});
 
 describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
   // Komplet capability typu `*.create` — także tych bramkowanych poza Quick
   // Actions (nagłówki list, zakładki profilu klienta, strona szczegółów oferty).
   const CREATE_CAPABILITIES = ALL_CAPABILITIES.filter((c) =>
-    c.endsWith(".create")
-  )
+    c.endsWith(".create"),
+  );
 
   it("każda akcja tworzenia ma wpis w rejestrze", () => {
     expect(CREATE_CAPABILITIES).toEqual([
@@ -363,29 +380,29 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
       "contact.create",
       "calendar_event.create",
       "invite_link.create",
-    ])
-  })
+    ]);
+  });
 
   it("read-only viewer nie tworzy NICZEGO", () => {
     for (const capability of CREATE_CAPABILITIES) {
-      expect(hasCapability(mkUser("user"), capability)).toBe(false)
+      expect(hasCapability(mkUser("user"), capability)).toBe(false);
     }
-  })
+  });
 
   it("recruiter/sourcer nie tworzą kontraktów, rekrutacji, firm ani kontaktów", () => {
     for (const role of ["recruiter", "sourcer"] as UserRole[]) {
-      expect(hasCapability(mkUser(role), "contract.create")).toBe(false)
-      expect(hasCapability(mkUser(role), "job.create")).toBe(false)
-      expect(hasCapability(mkUser(role), "client.create")).toBe(false)
-      expect(hasCapability(mkUser(role), "contact.create")).toBe(false)
+      expect(hasCapability(mkUser(role), "contract.create")).toBe(false);
+      expect(hasCapability(mkUser(role), "job.create")).toBe(false);
+      expect(hasCapability(mkUser(role), "client.create")).toBe(false);
+      expect(hasCapability(mkUser(role), "contact.create")).toBe(false);
     }
-  })
+  });
 
   it("kontrakt, rekrutacja i firma dzielą tę samą bramkę (TacPlus)", () => {
     for (const role of ALL_ROLES) {
-      const contract = hasCapability(mkUser(role), "contract.create")
-      expect(hasCapability(mkUser(role), "job.create")).toBe(contract)
-      expect(hasCapability(mkUser(role), "client.create")).toBe(contract)
+      const contract = hasCapability(mkUser(role), "contract.create");
+      expect(hasCapability(mkUser(role), "job.create")).toBe(contract);
+      expect(hasCapability(mkUser(role), "client.create")).toBe(contract);
     }
-  })
-})
+  });
+});

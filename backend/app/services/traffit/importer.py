@@ -647,6 +647,33 @@ _UPDATE_USER_ADOPT = text(
 # Po migracji do Hetzner Object Storage (audit-2026-05-07): file_content jest
 # NULL (legacy fallback), a binary content trzymany w S3 pod kluczem
 # `storage_key`. Caller wysyła plik do S3 PRZED wywołaniem tego UPSERT.
+def needs_session_rollback(error: BaseException, *, past_savepoint: bool) -> bool:
+    """Czy po tym błędzie trzeba podnieść SESJĘ, czy wystarczył savepoint.
+
+    Dwa przypadki wymagają `db.rollback()`, i tylko one:
+
+    * `past_savepoint` — błąd przyszedł ze ścieżki commita, savepoint jest już
+      zamknięty i nic innego sesji nie podniesie;
+    * utrata POŁĄCZENIA — gdy backend Postgresa znika (restart, failover,
+      `idle_in_transaction_session_timeout`, reaper OOM), `ROLLBACK TO SAVEPOINT`
+      nie ma dokąd pójść. Sesja wpada w `PendingRollbackError`, a każdy kolejny
+      wiersz fazy pada — jeden blip połączenia kosztuje resztę importu zamiast
+      jednej paczki.
+
+    Dla zwykłego błędu INSTRUKCJI odpowiedź brzmi False: savepoint już go cofnął,
+    transakcja zewnętrzna żyje, a rollback sesji wyrzuciłby całą niezacommitowaną
+    paczkę — czyli dokładnie to, czemu savepoint miał zapobiec.
+
+    `is_active` i `in_transaction()` do rozróżnienia się NIE nadają: przy martwym
+    połączeniu raportują to samo co przy zdrowym (zmierzone). Robi to
+    `connection_invalidated`, ustawiane przez SQLAlchemy na `DBAPIError`.
+    """
+
+    if past_savepoint:
+        return True
+    return bool(getattr(error, "connection_invalidated", False))
+
+
 _UPSERT_CANDIDATE_DOCUMENT = text(
     """
     INSERT INTO candidate_documents (
@@ -1635,7 +1662,29 @@ class TraffitImporter:
                     progress.add_error(msg)
                     if progress.errors <= 5 or progress.errors % 200 == 0:
                         logger.warning("Candidates upsert error: %s", msg[:300])
-                    if row_committed_to_savepoint:
+                    # Rollback sesji jest potrzebny w DWÓCH przypadkach, nie w jednym.
+                    #
+                    # Pierwszy to awaria ścieżki commita (flaga True) — savepoint
+                    # został już zamknięty, więc sesji nie podnosi nic innego.
+                    #
+                    # Drugi wyszedł dopiero z adversarialnego przeglądu i jest
+                    # groźniejszy: gdy backend Postgresa ZNIKA (restart, failover,
+                    # `idle_in_transaction_session_timeout`, reaper OOM), savepoint
+                    # NIE MA SIĘ JAK wycofać. Sesja wpada w `PendingRollbackError` i
+                    # jedynym, co ją podnosi, jest właśnie `rollback()`. Flaga jest
+                    # wtedy False, więc sam warunek `row_committed_to_savepoint`
+                    # świadomie pomijał ratunek: każdy kolejny wiersz padał, a cała
+                    # faza rzucała wyjątek zamiast zwrócić `PhaseProgress` — czyli
+                    # jeden przelotny blip połączenia kosztował RESZTĘ nocnego
+                    # importu zamiast jednej paczki.
+                    #
+                    # `is_active` / `in_transaction()` do rozróżnienia się NIE
+                    # nadają — przy martwym połączeniu raportują dokładnie to samo
+                    # co przy zdrowym (zmierzone). Robi to `connection_invalidated`:
+                    # False dla błędu instrukcji, True dla utraty połączenia.
+                    if needs_session_rollback(
+                        e, past_savepoint=row_committed_to_savepoint
+                    ):
                         await self.db.rollback()
                         since_commit = 0
 

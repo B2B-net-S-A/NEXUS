@@ -1,4 +1,4 @@
-import { getUserRoles, type UserRole } from "@/store/auth"
+import { getUserRoles, type UserRole } from "@/store/auth";
 
 /**
  * JEDEN rejestr capability dla całego UI (audyt F-19).
@@ -24,8 +24,8 @@ import { getUserRoles, type UserRole } from "@/store/auth"
 
 /** Minimalny kształt usera potrzebny do decyzji — zgodny ze store'em auth. */
 export interface CapabilityUser {
-  role: UserRole
-  roles?: UserRole[]
+  role: UserRole;
+  roles?: UserRole[];
 }
 
 export type Capability =
@@ -44,13 +44,14 @@ export type Capability =
   // ── Wejścia nawigacyjne ────────────────────────────────────────────────────
   | "nav.candidates"
   | "nav.talents"
+  | "nav.talent_radar"
   | "nav.sourcing"
   | "nav.clients"
   | "nav.my_clients"
   | "nav.my_relationships"
   | "nav.contracts"
   | "nav.cortex"
-  | "nav.manager"
+  | "nav.manager";
 
 /** Wszystkie role operacyjne — czyli wszyscy POZA read-only viewerem `user`.
  *  Odpowiednik backendowego `OperationalUser` (deps.py). */
@@ -61,7 +62,7 @@ const OPERATIONAL: readonly UserRole[] = [
   "tac",
   "recruiter",
   "sourcer",
-]
+];
 
 /** Odpowiednik backendowego `RecruiterPlus` — UWAGA: bez `head_of_recruitment`. */
 const RECRUITER_PLUS: readonly UserRole[] = [
@@ -70,10 +71,10 @@ const RECRUITER_PLUS: readonly UserRole[] = [
   "tac",
   "recruiter",
   "sourcer",
-]
+];
 
 /** Odpowiednik backendowego `TacPlus`. */
-const TAC_PLUS: readonly UserRole[] = ["admin", "delivery_lead", "tac"]
+const TAC_PLUS: readonly UserRole[] = ["admin", "delivery_lead", "tac"];
 
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
@@ -111,14 +112,21 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // rozjeżdżającej się kopii.
   "nav.candidates": OPERATIONAL,
   "nav.talents": OPERATIONAL,
+  // POST /api/talent-radar/search → require_candidate_write.
+  "nav.talent_radar": RECRUITER_PLUS,
   "nav.sourcing": OPERATIONAL,
   "nav.clients": OPERATIONAL,
   "nav.my_clients": ["admin", "head_of_recruitment", "delivery_lead"],
-  "nav.my_relationships": ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+  "nav.my_relationships": [
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+  ],
   "nav.contracts": TAC_PLUS,
   "nav.cortex": ["admin", "head_of_recruitment", "delivery_lead", "tac"],
   "nav.manager": ["admin", "delivery_lead"],
-}
+};
 
 /**
  * Czy user ma daną capability. Fail-closed: brak usera = brak uprawnień.
@@ -126,12 +134,12 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
  */
 export function hasCapability(
   user: CapabilityUser | null | undefined,
-  capability: Capability
+  capability: Capability,
 ): boolean {
-  if (!user) return false
-  const allowed = CAPABILITY_ROLES[capability]
-  if (!allowed) return false
-  return getUserRoles(user).some((role) => allowed.includes(role))
+  if (!user) return false;
+  const allowed = CAPABILITY_ROLES[capability];
+  if (!allowed) return false;
+  return getUserRoles(user).some((role) => allowed.includes(role));
 }
 
 /** Czy user ma CHOĆ JEDNĄ z wymienionych capability (np. „czy pokazać menu"). */
@@ -139,5 +147,5 @@ export function hasAnyCapability(
   user: CapabilityUser | null | undefined,
   ...capabilities: Capability[]
 ): boolean {
-  return capabilities.some((c) => hasCapability(user, c))
+  return capabilities.some((c) => hasCapability(user, c));
 }

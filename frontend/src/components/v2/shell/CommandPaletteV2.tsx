@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   Star,
+  Radar,
   Users,
 } from "lucide-react";
 import {
@@ -126,16 +127,16 @@ export function CommandPaletteV2({
               signal: ctrl.signal,
             })
             .then((res) => {
-              buckets.candidate = ((res.data?.items ?? []) as RawSearchItem[]).map(
-                (c) => ({
-                  type: "candidate" as const,
-                  id: c.id,
-                  title:
-                    `${c.name ?? ""} ${c.lastname ?? ""}`.trim() ||
-                    `Kandydat #${c.id}`,
-                  subtitle: c.position ?? c.current_role ?? null,
-                }),
-              );
+              buckets.candidate = (
+                (res.data?.items ?? []) as RawSearchItem[]
+              ).map((c) => ({
+                type: "candidate" as const,
+                id: c.id,
+                title:
+                  `${c.name ?? ""} ${c.lastname ?? ""}`.trim() ||
+                  `Kandydat #${c.id}`,
+                subtitle: c.position ?? c.current_role ?? null,
+              }));
               flush();
             }),
         );
@@ -214,17 +215,48 @@ export function CommandPaletteV2({
   }> = useMemo(
     () => [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/candidates", label: "Kandydaci", icon: Users, capability: "nav.candidates" },
+      {
+        href: "/candidates",
+        label: "Kandydaci",
+        icon: Users,
+        capability: "nav.candidates",
+      },
       { href: "/jobs", label: "Rekrutacje", icon: Briefcase },
-      { href: "/clients", label: "Klienci", icon: Building2, capability: "nav.clients" },
-      { href: "/contracts", label: "Kontrakty", icon: FileText, capability: "nav.contracts" },
-      { href: "/talents", label: "Talenty", icon: Star, capability: "nav.talents" },
+      {
+        href: "/clients",
+        label: "Klienci",
+        icon: Building2,
+        capability: "nav.clients",
+      },
+      {
+        href: "/contracts",
+        label: "Kontrakty",
+        icon: FileText,
+        capability: "nav.contracts",
+      },
+      {
+        href: "/talents",
+        label: "Talenty",
+        icon: Star,
+        capability: "nav.talents",
+      },
+      {
+        href: "/talent-radar",
+        label: "Talent Radar",
+        icon: Radar,
+        capability: "nav.talent_radar",
+      },
       { href: "/calendar", label: "Kalendarz", icon: Calendar },
       { href: "/insights", label: "Insights", icon: Lightbulb },
       { href: "/settings", label: "Ustawienia", icon: Settings },
-      { href: "/manager", label: "Panel managera", icon: GitBranch, capability: "nav.manager" },
+      {
+        href: "/manager",
+        label: "Panel managera",
+        icon: GitBranch,
+        capability: "nav.manager",
+      },
     ],
-    []
+    [],
   );
 
   const visibleNav = navItems.filter((i) => !i.capability || can[i.capability]);
