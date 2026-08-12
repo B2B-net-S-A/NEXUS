@@ -156,6 +156,8 @@ _ENUM_STATEMENTS = [
     # => InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_requirement_map'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_interactive_chat'",
+    # 0223: masowe uzupełnianie pól z CV (Fala 3) — osobny kubełek kwoty
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_backfill'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
     # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
     # POST /api/autenti/contracts/{id}/send wywala się na insercie Notification
@@ -3249,6 +3251,10 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_requirement_map', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_requirement_map')",
+    # 0223: seed feature'a AI `cv_backfill` (masowe uzupełnianie pól z CV).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_backfill', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_backfill')",
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_interactive_chat', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

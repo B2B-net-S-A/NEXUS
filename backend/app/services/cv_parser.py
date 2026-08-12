@@ -39,7 +39,8 @@ import httpx
 from fastapi.concurrency import run_in_threadpool
 
 from app.core.config import settings
-from app.services.llm_prompts import CV_ENRICHMENT
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — adnotacja parse_cv
+from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -342,36 +343,52 @@ def _strip_json_fences(raw: str) -> str:
     return raw.strip().rstrip("`").strip()
 
 
-async def _parse_with_claude(cv_text: str) -> Optional[dict[str, Any]]:
-    """Call Anthropic Claude with the versioned CV_ENRICHMENT prompt.
+async def _parse_with_claude(
+    cv_text: str,
+    *,
+    model: str | None = None,
+    template: PromptTemplate = CV_ENRICHMENT,
+) -> Optional[dict[str, Any]]:
+    """Call Claude with a versioned enrichment prompt, through the shared client.
 
     Returns None on any failure so the caller can fall back to Ollama / regex.
     Never raises upward.
+
+    PRZEZ `call_claude`, NIE surowego `anthropic.Anthropic` — to nie jest
+    kosmetyka. Surowy klient omijał CZTERY rzeczy naraz: jawny timeout (default
+    SDK to 600 s na request), retry z backoffem na 429/529, telemetrię zdrowia
+    dostawcy w /api/health oraz `_assert_declared` bramki kwot. Przy biegu
+    masowym na ~39 tys. CV każda z tych czterech dziur kosztuje realnie; przy
+    ścieżce interaktywnej — kosztowała po cichu od początku.
+
+    `model`/`template` są parametrami, bo bieg MASOWY (Fala 3) używa tańszego
+    modelu i przyciętego promptu bez pól generatywnych, a ścieżka interaktywna
+    zostaje przy dotychczasowych domyślnych. Rozdzielenie per wywołanie, nie
+    per proces — obie ścieżki żyją w tym samym backendzie.
     """
     api_key = settings.ANTHROPIC_API_KEY
     if not api_key or not settings.CV_ENRICHMENT_ENABLED:
         return None
 
-    try:
-        import anthropic  # lazy import — keeps cold-start fast when unused
-    except ImportError:  # pragma: no cover — requirements.txt pins it
-        logger.warning("[cv_parser] anthropic SDK not installed; skipping Claude path")
-        return None
+    from app.services.claude_client import call_claude
 
+    chosen_model = model or settings.CLAUDE_MODEL_CV
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        user_prompt = CV_ENRICHMENT.render(cv_text=cv_text[:8000])
-        # Sync Anthropic SDK call — offload the multi-second network round-trip
-        # so it does not block the single-worker event loop.
+        user_prompt = template.render(cv_text=cv_text[:8000])
+        # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,
+        # żeby wielosekundowy round-trip nie blokował jednowątkowego event loopu.
         message = await run_in_threadpool(
-            client.messages.create,
-            model=settings.CLAUDE_MODEL_CV,
+            call_claude,
+            model=chosen_model,
             max_tokens=2000,
-            # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
-            # tokens count toward max_tokens and would truncate this JSON output.
+            # Claude 5 does adaptive thinking by default; thinking tokens count
+            # toward max_tokens and would truncate this JSON output. On models
+            # where thinking is off by default (Haiku 4.5) `disabled` is a no-op
+            # — the pin only matters when a Claude 5 model is configured.
             thinking={"type": "disabled"},
-            system=CV_ENRICHMENT.system_prompt or "",
+            system=template.system_prompt or "",
             messages=[{"role": "user", "content": user_prompt}],
+            api_key=api_key,
         )
         # Claude 5 models can lead with a non-text block (e.g. a thinking
         # block), so content[0].text may be absent/empty — collect every text
@@ -383,13 +400,32 @@ async def _parse_with_claude(cv_text: str) -> Optional[dict[str, Any]]:
         data = json.loads(unwrapped)
         if not isinstance(data, dict):
             return None
-        data["_source"] = f"claude:{CV_ENRICHMENT.name}:v{CV_ENRICHMENT.version}"
+        data["_source"] = f"claude:{template.name}:v{template.version}"
+        # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
+        # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w
+        # cv_extracted_data) + log, żeby bieg kalibracyjny mierzył realny
+        # koszt jednostkowy zamiast szacunku.
+        usage = getattr(message, "usage", None)
+        if usage is not None:
+            data["_usage"] = {
+                "model": chosen_model,
+                "input_tokens": getattr(usage, "input_tokens", None),
+                "output_tokens": getattr(usage, "output_tokens", None),
+            }
+            logger.info(
+                "[cv_parser] model=%s in=%s out=%s template=%s v%d",
+                chosen_model,
+                getattr(usage, "input_tokens", "?"),
+                getattr(usage, "output_tokens", "?"),
+                template.name,
+                template.version,
+            )
         return data
     except Exception as e:
         logger.warning(
             "[cv_parser] Claude call failed (template=%s v%d): %s",
-            CV_ENRICHMENT.name,
-            CV_ENRICHMENT.version,
+            template.name,
+            template.version,
             e,
         )
         return None
@@ -433,7 +469,29 @@ async def _parse_with_ollama(cv_text: str) -> Optional[dict[str, Any]]:
         return None
 
 
-async def parse_cv(cv_text: str, *, prefer_llm: bool = True) -> dict[str, Any]:
+async def parse_cv_with_claude(
+    cv_text: str,
+    *,
+    model: str | None = None,
+    template: PromptTemplate = CV_ENRICHMENT,
+) -> Optional[dict[str, Any]]:
+    """Publiczne wejście dla sparametryzowanego kroku Claude (bieg masowy).
+
+    Cienki alias na `_parse_with_claude`: bieg masowy potrzebuje `model`/
+    `template`, których `parse_cv()` nie wystawia, a import prywatnej nazwy
+    między modułami wiąże konsumenta z wnętrzem tego pliku. Fallbacków
+    (Ollama/regex) celowo tu NIE ma — patrz docstring runnera.
+    """
+
+    return await _parse_with_claude(cv_text, model=model, template=template)
+
+
+async def parse_cv(
+    cv_text: str,
+    *,
+    prefer_llm: bool = True,
+    db: "AsyncSession | None" = None,
+) -> dict[str, Any]:
     """
     Extract structured facts from CV text.
 
@@ -441,6 +499,14 @@ async def parse_cv(cv_text: str, *, prefer_llm: bool = True) -> dict[str, Any]:
     Claude → Ollama → regex; the first path that returns a non-None result
     wins. With `prefer_llm=False` only the regex heuristic runs (useful for
     deterministic tests and offline environments).
+
+    `db` włącza bramkę kwoty NA PŁATNYM KROKU: krok Claude'a idzie wtedy w
+    `ai_feature(db, cv_parser)`, a wyczerpana kwota gasi wyłącznie Claude'a —
+    Ollama i regex są darmowe i dalej działają. Bramka celowo NIE obejmuje
+    całego parsera: kwota na LLM nie jest powodem, żeby onboarding z CV stracił
+    także heurystyki, które nic nie kosztują. Wołający będący już wewnątrz
+    własnego `ai_feature` (np. cv_match_preview) nie podaje `db` — podwójne
+    naliczenie byłoby błędem, a `_assert_declared` widzi aktywny kontekst.
 
     Returns dict with keys: first_name, last_name, email, phone, city,
     years_it_experience, current_position, skills, education, languages,
@@ -453,7 +519,22 @@ async def parse_cv(cv_text: str, *, prefer_llm: bool = True) -> dict[str, Any]:
         return _normalize_cv_output(_regex_fallback(""))
 
     if prefer_llm:
-        claude = await _parse_with_claude(cv_text)
+        claude = None
+        if db is not None:
+            from app.models.ai_feature import AIFeatureKey
+            from app.services.ai_quota import AIQuotaExceeded, ai_feature
+
+            try:
+                async with ai_feature(db, AIFeatureKey.cv_parser):
+                    claude = await _parse_with_claude(cv_text)
+            except AIQuotaExceeded as quota_exc:
+                logger.info(
+                    "[cv_parser] krok Claude pominięty przez kwotę AI "
+                    "(fallbacki działają dalej): %s",
+                    quota_exc,
+                )
+        else:
+            claude = await _parse_with_claude(cv_text)
         if claude is not None:
             return _normalize_cv_output(
                 _apply_contact_fallbacks(

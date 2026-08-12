@@ -51,6 +51,11 @@ class AIFeatureKey(str, enum.Enum):
     order_parser = "order_parser"
     cv_requirement_map = "cv_requirement_map"
     cv_interactive_chat = "cv_interactive_chat"
+    # Masowe uzupełnianie pól kandydata z tekstu CV (Fala 3). OSOBNY klucz od
+    # `cv_parser`, żeby bieg na ~39 tys. CV nie wyczerpał miesięcznego limitu
+    # rekruterów ani nie wymusił podniesienia go do poziomu, na którym przestaje
+    # chronić funkcję interaktywną.
+    cv_backfill = "cv_backfill"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -64,6 +69,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.order_parser: "Odczyt danych z PDF zamówienia",
     AIFeatureKey.cv_requirement_map: "Interaktywne CV — kafelki wymagań",
     AIFeatureKey.cv_interactive_chat: "Interaktywne CV — chat klienta",
+    AIFeatureKey.cv_backfill: "Masowe uzupełnianie pól z CV",
 }
 
 
@@ -97,6 +103,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.order_parser: [
         "Tekst wyekstrahowany z PDF/DOCX zamówienia od klienta",
+    ],
+    AIFeatureKey.cv_backfill: [
+        "Zapisany tekst CV kandydatów (bieg masowy, tylko puste pola)",
     ],
     AIFeatureKey.cv_requirement_map: [
         "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
