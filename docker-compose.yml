@@ -96,7 +96,12 @@ services:
     logging: *default-logging
 
   qdrant:
-    image: qdrant/qdrant:latest
+    # Przypięte do wersji DZIAŁAJĄCEJ na prodzie 2026-08-12 (odczyt z
+    # kontenera: GET :6333 → 1.17.1). `latest` mogło przy dowolnym redeployu
+    # wciągnąć breaking change API albo formatu storage wolumenu qdrant_data.
+    # Podnoszenie wersji = świadomy PR z lekturą release notes, nie efekt
+    # uboczny deployu.
+    image: qdrant/qdrant:v1.17.1
     restart: unless-stopped
     # 370 MiB zmierzone 2026-08-12 (z kolekcją pasaży, INT8 always_ram);
     # 3G daje zapas na wzrost bazy i przyszłe eksperymenty z kolekcjami.
