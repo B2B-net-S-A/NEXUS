@@ -11,6 +11,9 @@
     python -m scripts.backfill_cv_fields --commit
     python -m scripts.backfill_cv_fields --commit --after-id 20000
 
+    # shard równoległy: rozłączny zakres id (górna granica WŁĄCZNIE)
+    python -m scripts.backfill_cv_fields --commit --after-id 20000 --until-id 40000
+
 Prod używa endpointów admin (POST /api/admin/candidates/backfill-cv-fields);
 ten plik to ta sama logika dla środowisk z dostępem do CLI.
 """
@@ -46,6 +49,7 @@ async def _main(args: argparse.Namespace) -> None:
             db,
             limit=args.limit,
             after_id=args.after_id,
+            until_id=args.until_id,
             calibration_log_path=args.calibration_log,
         )
         logger.info("=== KONIEC BIEGU ===")
@@ -64,6 +68,7 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--after-id", type=int, default=0)
+    parser.add_argument("--until-id", type=int, default=None)
     parser.add_argument("--calibration-log", type=str, default=None)
     asyncio.run(_main(parser.parse_args()))
 
