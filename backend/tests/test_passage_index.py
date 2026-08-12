@@ -12,6 +12,7 @@ import pytest
 from qdrant_client import models as qmodels
 
 from app.services.passage_index import (
+    MAX_PASSAGES_PER_CANDIDATE,
     PAYLOAD_CANDIDATE_ID,
     aggregate_hits_to_candidates,
     build_collection_config,
@@ -60,10 +61,16 @@ def test_point_ids_never_collide_between_candidates():
 
 
 def test_point_id_rejects_an_index_that_would_collide():
-    """Zmierzone maksimum to 21 pasaży; limit odrzuca to, co grozi kolizją."""
+    """Zmierzone maksimum to 21 pasaży; limit odrzuca to, co grozi kolizją.
+
+    Granica jest IMPORTOWANA, nie powtórzona: test z zaszytą liczbą po zmianie
+    limitu dalej by przechodził, pilnując granicy, której kod już nie ma — ta
+    sama klasa co „test-teatr" z bramki SQL, złapana wcześniej tego samego dnia.
+    """
 
     with pytest.raises(ValueError, match="kolizj"):
-        point_id_for(7, 1000)
+        point_id_for(7, MAX_PASSAGES_PER_CANDIDATE)
+    assert point_id_for(7, MAX_PASSAGES_PER_CANDIDATE - 1) > 0
 
 
 def test_point_id_is_deterministic():
@@ -104,6 +111,25 @@ def test_delete_uses_a_filter_not_a_point_id():
     condition = selector.filter.must[0]
     assert condition.key == PAYLOAD_CANDIDATE_ID
     assert condition.match.value == 7
+
+
+class _MissingCollectionClient:
+    """Symuluje Qdranta sprzed pierwszego backfillu — kolekcji pasaży nie ma."""
+
+    def delete(self, collection_name, points_selector):
+        raise RuntimeError(f"Collection `{collection_name}` doesn't exist!")
+
+
+def test_missing_collection_is_a_vacuous_delete_success():
+    """Nie ma kolekcji ⇒ nie ma pasaży ⇒ nie ma czego zapominać.
+
+    Ta funkcja wisi na ścieżce usuwania KAŻDEGO kandydata, a kolekcja pasaży
+    powstaje dopiero przy pierwszym backfillu. Bez tej gałęzi każde usunięcie
+    kandydata na prodzie logowałoby fałszywy warning, a `replace_*` odmawiałby
+    zapisu tam, gdzie wystarczy utworzyć kolekcję.
+    """
+
+    assert delete_candidate_passages(_MissingCollectionClient(), 7) is True
 
 
 def test_replace_deletes_before_upserting():

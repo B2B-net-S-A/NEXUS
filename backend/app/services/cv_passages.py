@@ -42,6 +42,13 @@ class Passage:
 
     `index` jest częścią tożsamości punktu w Qdrancie — pozwala nadpisać ten sam
     pasaż przy ponownym przetworzeniu tego samego CV, zamiast mnożyć duplikaty.
+
+    `start`/`end` są PRZYBLIŻONE i służą tylko orientacji. Scalanie bloków
+    skleja je pojedynczym `\n`, podczas gdy w źródle rozdzielał je co najmniej
+    podwójny — więc `end` potrafi zaniżać pozycję o długość zjedzonych
+    separatorów, a każdy kolejny pasaż dziedziczy to przesunięcie. Nic w
+    indeksie z nich nie korzysta (payload niesie tekst i indeks, nie offsety);
+    NIE nadają się do wycinania podciągów ze źródła.
     """
 
     index: int

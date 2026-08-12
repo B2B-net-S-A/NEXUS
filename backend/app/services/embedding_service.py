@@ -500,6 +500,11 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
         # czy z pasaży CZYTAMY, a nie tym, czy dane po kimś zostają. Kolekcja
         # wypełniona przy wyłączonej fladze to najbardziej prawdopodobny stan
         # w trakcie wdrożenia i właśnie wtedy przeciek byłby najcichszy.
+        #
+        # Kontrakt: NIC poniżej `client.delete` nie może rzucić — zewnętrzny
+        # handler logowałby wtedy „Failed to delete candidate vector", choć
+        # wektor został już usunięty, i licznik sukcesu kłamałby w dół.
+        # `delete_candidate_passages` łapie wszystko wewnętrznie i zwraca bool.
         delete_candidate_passages(client, candidate_id)
 
     try:

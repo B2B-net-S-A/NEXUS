@@ -30,8 +30,16 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-PASSAGES_COLLECTION = "nexus_cv_passages"
+_DEFAULT_PASSAGES_COLLECTION = "nexus_cv_passages"
 VECTOR_SIZE = 1024
+
+# Granica bezpieczeństwa identyfikatorów punktów: `point_id_for` koduje parę
+# (kandydat, pasaż) jako `candidate_id * MAX + index`, więc przekroczenie tej
+# liczby oznaczałoby kolizję z pasażami INNEGO kandydata. Zmierzone maksimum
+# w korpusie to 21 pasaży na CV — zapas jest wielokrotny. Na poziomie modułu,
+# żeby test asertował tę samą wartość, którą egzekwuje kod, zamiast powtarzać
+# liczbę, która po zmianie granicy cicho przestaje jej pilnować.
+MAX_PASSAGES_PER_CANDIDATE = 1000
 
 # Klucz payloadu, po którym kasujemy pasaże kandydata. Bez indeksu na nim filtr
 # jest liniowy po ćwierć miliona punktów — a kasowanie musi być szybkie, bo
@@ -40,7 +48,10 @@ PAYLOAD_CANDIDATE_ID = "candidate_id"
 
 
 def passages_collection_name() -> str:
-    return getattr(settings, "QDRANT_PASSAGES_COLLECTION", None) or PASSAGES_COLLECTION
+    return (
+        getattr(settings, "QDRANT_PASSAGES_COLLECTION", None)
+        or _DEFAULT_PASSAGES_COLLECTION
+    )
 
 
 def passages_enabled() -> bool:
@@ -145,6 +156,23 @@ def delete_candidate_passages(client, candidate_id: int) -> bool:
         )
         return True
     except Exception as exc:  # noqa: BLE001
+        # Brak kolekcji to sukces PRÓŻNIOWY, nie awaria: nie ma kolekcji, więc
+        # nie ma pasaży, więc nie ma czego zapominać. To nie jest kosmetyka —
+        # ta funkcja wisi na ścieżce usuwania KAŻDEGO kandydata, a kolekcja
+        # pasaży powstaje dopiero przy pierwszym backfillu. Bez tej gałęzi
+        # każde usunięcie kandydata na prodzie logowałoby fałszywy warning,
+        # a `replace_candidate_passages` odmawiałby zapisu tam, gdzie
+        # wystarczyłoby utworzyć kolekcję (robi to `ensure_passages_collection`,
+        # wołane przez skrypt backfillu PRZED pierwszym zapisem).
+        status = getattr(exc, "status_code", None)
+        message = str(exc).lower()
+        if status == 404 or "not found" in message or "doesn't exist" in message:
+            logger.debug(
+                "[Qdrant] kolekcja pasaży nie istnieje — nie ma czego usuwać "
+                "(kandydat %s).",
+                candidate_id,
+            )
+            return True
         logger.warning(
             "[Qdrant] nie udało się usunąć pasaży kandydata %s: %s", candidate_id, exc
         )
@@ -183,18 +211,18 @@ def point_id_for(candidate_id: int, passage_index: int) -> int:
     """Stabilny identyfikator punktu dla pary (kandydat, indeks pasażu).
 
     Deterministyczny, żeby ponowne przetworzenie tego samego CV NADPISYWAŁO te
-    same punkty zamiast mnożyć duplikaty. Mnożnik z zapasem: `MAX_PASSAGES` jest
+    same punkty zamiast mnożyć duplikaty. Mnożnik z zapasem: `MAX_PASSAGES_PER_CANDIDATE` jest
     wyższy niż zmierzone maksimum (21 pasaży na CV), więc identyfikatory dwóch
     kandydatów nie mogą na siebie wejść.
     """
 
-    MAX_PASSAGES = 1000
-    if not 0 <= passage_index < MAX_PASSAGES:
+    if not 0 <= passage_index < MAX_PASSAGES_PER_CANDIDATE:
         raise ValueError(
-            f"indeks pasażu {passage_index} poza zakresem 0..{MAX_PASSAGES - 1} — "
-            "przekroczenie oznaczałoby kolizję identyfikatorów między kandydatami"
+            f"indeks pasażu {passage_index} poza zakresem "
+            f"0..{MAX_PASSAGES_PER_CANDIDATE - 1} — przekroczenie oznaczałoby "
+            "kolizję identyfikatorów między kandydatami"
         )
-    return candidate_id * MAX_PASSAGES + passage_index
+    return candidate_id * MAX_PASSAGES_PER_CANDIDATE + passage_index
 
 
 def aggregate_hits_to_candidates(
