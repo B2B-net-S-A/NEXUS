@@ -13,6 +13,7 @@ Trzy rzeczy, które ten plik przybija, bo każda była realną decyzją:
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.services.cv_field_backfill import _empty_now
 from app.services.llm_prompts import CV_ENRICHMENT, CV_ENRICHMENT_BULK
@@ -405,4 +406,54 @@ def test_usage_metadata_never_persists_to_the_candidate_profile():
     )
     assert "_usage" not in (candidate.cv_extracted_data or {}), (
         "metadane rozliczeniowe nie mogą wyciekać na profil kandydata"
+    )
+
+
+@pytest.mark.asyncio
+async def test_until_id_caps_the_scope_query():
+    """Shard równoległy nie może wyjść poza swój zakres.
+
+    `until_id` istnieje, żeby N procesów CLI mogło orać rozłączne zakresy id
+    (zmierzone tempo sekwencyjne: ~375 wierszy/h ⇒ ~5,5 doby na pełny scope).
+    Bez górnej granicy w SQL proces po wyczerpaniu swojego zakresu wchodziłby
+    w zakres sąsiada i płacił drugi raz za jego nieprzerobione wiersze —
+    dlatego zamrażamy obecność warunku W ZAPYTANIU, nie w pętli.
+    """
+
+    from app.services import cv_field_backfill as runner
+
+    captured: list = []
+
+    class _FakeResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class _FakeDb:
+        async def execute(self, stmt, *_a, **_k):
+            captured.append(stmt)
+            return _FakeResult()
+
+        async def commit(self):
+            pass
+
+    await runner.backfill_cv_fields(_FakeDb(), after_id=20_000, until_id=40_000)
+    await runner.backfill_cv_fields(_FakeDb(), after_id=20_000)
+
+    def _sql(stmt) -> str:
+        return str(
+            stmt.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+    capped, uncapped = _sql(captured[0]), _sql(captured[1])
+    assert "candidates.id > 20000" in capped
+    assert "candidates.id <= 40000" in capped
+    assert "candidates.id <= " not in uncapped, (
+        "bez until_id nie może istnieć górna granica — pełny bieg ma dojść "
+        "do końca tabeli"
     )
