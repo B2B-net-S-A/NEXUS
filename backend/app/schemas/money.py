@@ -29,8 +29,6 @@ To NIE jest szerokie tłumienie błędu — konwertujemy wyłącznie typy liczbo
 walidacji pydantica, więc śmieci nadal dostają 422/500, a nie cichy ``None``.
 """
 
-from __future__ import annotations
-
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any
 
