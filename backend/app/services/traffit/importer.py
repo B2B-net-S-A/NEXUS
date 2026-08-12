@@ -756,6 +756,20 @@ WHERE a.external_source = 'traffit'
   )
   AND a.entity_type = 'candidate'
   AND a.entity_id IS NOT NULL
+  -- Kandydat MUSI istnieć. `notes.candidate_id` ma klucz obcy, a ta promocja to
+  -- JEDEN `INSERT ... SELECT`, więc pojedyncza osierocona aktywność nie psuła
+  -- własnego wiersza — wywracała CAŁĄ paczkę. Na prodzie jeden taki rekord dawał
+  -- `candidate_activities: errors 1` przy 396 779 zaktualizowanych, a ponieważ
+  -- błąd fazy wstrzymuje watermark, `__full__` stał od 19 lipca: pełny reconcile
+  -- nie mógł się domknąć z powodu jednej notatki.
+  --
+  -- Pominięcie takiego wiersza nie jest cichą stratą w rozumieniu M2-IMP-01:
+  -- kandydata NIE MA w Nexusie, więc notatki i tak nie da się zapisać (mówi to
+  -- sam FK). Aktywność źródłowa zostaje nietknięta, a dedup idzie po
+  -- `source_ref`, więc gdy kandydat zostanie kiedyś zaimportowany, najbliższy
+  -- sync dopisze notatkę. Mechanizm jest samoleczący, w przeciwieństwie do
+  -- przewracania całej fazy.
+  AND EXISTS (SELECT 1 FROM candidates c WHERE c.id = a.entity_id)
   AND COALESCE(
       a.details #>> '{content,content}',
       a.details ->> 'content',
