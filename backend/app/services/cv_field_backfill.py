@@ -118,6 +118,7 @@ async def backfill_cv_fields(
     *,
     limit: Optional[int] = None,
     after_id: int = 0,
+    until_id: Optional[int] = None,
     progress: Optional[dict[str, Any]] = None,
     calibration_log_path: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -126,6 +127,13 @@ async def backfill_cv_fields(
     `calibration_log_path` włącza tryb kalibracji: każdy wiersz dopisuje do
     JSONL surowy wynik parsowania + usage, żeby dało się ręcznie ocenić jakość
     Haiku na próbce PRZED autoryzacją pełnego biegu.
+
+    `until_id` (WYŁĄCZNIE górna granica, `id <= until_id`) istnieje po to, żeby
+    dało się uruchomić kilka RÓWNOLEGŁYCH procesów CLI na rozłącznych zakresach
+    id — zmierzony bieg sekwencyjny to ~375 wierszy/h (≈5,5 doby na pełny
+    scope), a wąskim gardłem jest latencja LLM, nie CPU. Bez górnej granicy
+    każdy proces po wyczerpaniu swojego zakresu wszedłby w zakres sąsiada
+    i płacił drugi raz za wiersze, których sąsiad jeszcze nie doszedł.
     """
 
     stats: dict[str, Any] = progress if progress is not None else {}
@@ -175,11 +183,14 @@ async def backfill_cv_fields(
         since_commit = 0
         cursor = after_id
         while True:
+            conditions = [Candidate.id > cursor, *_scope_filter()]
+            if until_id is not None:
+                conditions.append(Candidate.id <= until_id)
             rows = (
                 (
                     await db.execute(
                         select(Candidate)
-                        .where(Candidate.id > cursor, *_scope_filter())
+                        .where(*conditions)
                         .order_by(Candidate.id)
                         .limit(200)
                     )
