@@ -2595,6 +2595,13 @@ export interface B2BRenderPayload {
   partner_business_address?: string | null;
   partner_correspondence_address?: string | null;
   partner_nip?: string | null;
+  /**
+   * Typ podmiotu rozpoznany przez rejestr przy lookupie NIP-u. Steruje
+   * WYŁĄCZNIE tym, czy lista pokazuje drugą linię z osobą kontaktową — treść
+   * dokumentu jest od tego niezależna. Backend zapisuje to jako snapshot
+   * i nie przelicza później.
+   */
+  partner_entity_type?: "sole_trader" | "company" | null;
   partner_regon?: string | null;
   partner_email?: string | null;
   partner_phone?: string | null;
@@ -2659,6 +2666,10 @@ export const b2bGeneratorApi = {
         krs: string | null;
         address: string | null;
         source: string | null;
+        // Gotowa klasyfikacja z backendu, nie `source`/`krs` do interpretacji
+        // tutaj: `source` przychodzi w czterech niespójnych formatach, a wiedzę
+        // o obu rejestrach jednocześnie ma tylko warstwa serwisowa.
+        entity_type: "sole_trader" | "company" | null;
       }>("/api/b2b-generator/company-lookup", { params })
       .then((r) => r.data),
   clientsLookup: () =>
@@ -2680,6 +2691,8 @@ export const b2bGeneratorApi = {
           ...(params.contractStatus
             ? { contract_status: params.contractStatus }
             : {}),
+          ...(params.startFrom ? { start_from: params.startFrom } : {}),
+          ...(params.startTo ? { start_to: params.startTo } : {}),
         },
       })
       .then((r) => r.data),
@@ -2717,8 +2730,14 @@ export type B2BSignatureSource =
   | "manual_confirmation"
   | "validated_upload";
 
-/** Status handlowy umowy — niezależny od `B2BSignatureStatus`. */
-export type B2BContractStatus = "active" | "closed";
+/**
+ * Status handlowy umowy — niezależny od `B2BSignatureStatus`.
+ *
+ * `in_progress` ustawia system automatycznie przy generowaniu umowy, a `active`
+ * przy potwierdzeniu podpisu obustronnego. Użytkownik nie może wybrać
+ * `in_progress` — backend odrzuca to 422 (patrz `B2BGeneratedContractUpdate`).
+ */
+export type B2BContractStatus = "active" | "in_progress" | "closed";
 export type B2BClosureReason =
   | "resignation_before_signing"
   | "termination"
@@ -2732,6 +2751,9 @@ export type B2BClosureReason =
 export interface B2BGeneratedListParams {
   q?: string;
   contractStatus?: B2BContractStatus;
+  /** Zakres daty ROZPOCZĘCIA USŁUG (`YYYY-MM-DD`), obie granice włącznie. */
+  startFrom?: string;
+  startTo?: string;
 }
 
 /**
@@ -2749,7 +2771,23 @@ export interface B2BGeneratedContractUpdate {
 export interface B2BGeneratedContractRow {
   id: number;
   contract_number: string;
+  /** Imię i nazwisko osoby fizycznej — NIE nazwa firmy (ta jest niżej). */
   partner_name: string | null;
+  /**
+   * Gotowe linie kolumny „Partner", policzone na backendzie: nazwa firmy
+   * z rejestru, a dla wiersza bez zapisanej nazwy — awaryjnie osoba.
+   * Rozpoznanie JDG vs spółka i kasowanie duplikacji nazwiska zawartego już
+   * w nazwie firmy NIE są tu odtwarzane — ten sam słownik form prawnych
+   * decyduje o zapisie snapshotu, więc druga kopia reguły rozjechałaby się
+   * cicho z pierwszą.
+   */
+  partner_display_name: string | null;
+  /** Osoba kontaktowa spółki; `null` dla JDG i gdy powtarzałaby nazwę firmy. */
+  partner_secondary_line: string | null;
+  /** NIP kanonicznie w samych cyfrach (kolumna „NIP"). */
+  partner_nip: string | null;
+  /** Data rozpoczęcia USŁUG (`YYYY-MM-DD`), nie data podpisania. */
+  start_date: string | null;
   client_name: string | null;
   language: string | null;
   signing_date: string | null;

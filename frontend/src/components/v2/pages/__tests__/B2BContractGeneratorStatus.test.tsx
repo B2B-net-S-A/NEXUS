@@ -84,7 +84,14 @@ function generatedRow(
   return {
     id: 1,
     contract_number: "1471/2026",
+    // `partner_name` to OSOBA; nazwa firmy jest w `partner_display_name`.
+    // Celowo różne wartości, żeby test kolumny „Partner" nie przechodził
+    // przypadkiem na tym, że oba pola trzymają ten sam string.
     partner_name: "Jan Kowalski",
+    partner_display_name: "JK Software Jan Kowalski",
+    partner_secondary_line: null,
+    partner_nip: "1234563218",
+    start_date: "2026-08-25",
     client_name: "Nordea Bank",
     language: "pl",
     signing_date: "2026-07-24",
@@ -92,7 +99,9 @@ function generatedRow(
     created_by_name: "Marta Rekruter",
     signature_status: "unsigned",
     signature_source: null,
-    contract_status: "active",
+    // Świeżo wygenerowana umowa jest „W trakcie" — `active` znaczy teraz
+    // „podpisana obustronnie" i ustawia je wyłącznie potwierdzenie podpisu.
+    contract_status: "in_progress",
     closure_reason: null,
     closure_reason_other: null,
     closure_date: null,
@@ -158,10 +167,19 @@ beforeEach(() => {
 });
 
 describe("GeneratedContractsTab — status umowy", () => {
-  it("nowa umowa jest domyślnie Aktywna", async () => {
+  it("świeżo wygenerowana umowa pokazuje „W trakcie”, nie „Aktywna”", async () => {
+    // Do 0223 rejestr twierdził „Aktywna" o umowie, która dopiero poszła do
+    // podpisu — bo status brał się z defaultu kolumny.
     renderTab([generatedRow()]);
-    expect(await screen.findByText("Aktywna")).toBeInTheDocument();
+    expect(await screen.findByText("W trakcie")).toBeInTheDocument();
+    expect(screen.queryByText("Aktywna")).not.toBeInTheDocument();
     expect(screen.queryByText("Zamknięta")).not.toBeInTheDocument();
+  });
+
+  it("„Aktywna” to stan po potwierdzeniu podpisu, nie po wygenerowaniu", async () => {
+    renderTab([generatedRow({ contract_status: "active" })]);
+    expect(await screen.findByText("Aktywna")).toBeInTheDocument();
+    expect(screen.queryByText("W trakcie")).not.toBeInTheDocument();
   });
 
   it("pokazuje powód i datę zakończenia zamkniętej umowy", async () => {
@@ -293,7 +311,10 @@ describe("GeneratedContractsTab — status umowy", () => {
 
   it("bez uprawnień nie pokazuje przycisku zmiany statusu", async () => {
     renderTab([generatedRow({ can_change_status: false })]);
-    expect(await screen.findByText("Aktywna")).toBeInTheDocument();
+    // Wiersz jest wyrenderowany — asercja po numerze umowy, nie po etykiecie
+    // statusu: ten test dotyczy uprawnień, więc nie może się psuć przy każdej
+    // zmianie domyślnego statusu w fabryce.
+    expect(await screen.findByText("1471/2026")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Zmień status/ })).toBeNull();
   });
 });
@@ -352,5 +373,161 @@ describe("GeneratedContractsTab — wyszukiwarka", () => {
         { timeout: 2000 },
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe("GeneratedContractsTab — kolumny rejestru", () => {
+  it("ma docelową kolejność kolumn i nie ma kolumny Język", async () => {
+    renderTab([generatedRow()]);
+    await screen.findByText("1471/2026");
+
+    const headers = screen
+      .getAllByRole("columnheader")
+      .map((th) => th.textContent?.trim());
+
+    expect(headers).toEqual([
+      "Numer",
+      "Partner",
+      "NIP",
+      "Data rozpoczęcia",
+      "Klient",
+      "Status umowy",
+      "Status podpisu",
+      "Wygenerował",
+      "Wygenerowano",
+      "Akcje",
+    ]);
+    expect(screen.queryByRole("columnheader", { name: "Język" })).toBeNull();
+  });
+
+  it("pokazuje NIP i datę rozpoczęcia usług", async () => {
+    renderTab([generatedRow()]);
+    expect(await screen.findByText("1234563218")).toBeInTheDocument();
+    // Surowe ISO, bez godziny — w odróżnieniu od kolumny „Wygenerowano".
+    expect(screen.getByText("2026-08-25")).toBeInTheDocument();
+  });
+
+  it("dla spółki pokazuje nazwę firmy i osobę w drugiej linii", async () => {
+    renderTab([
+      generatedRow({
+        partner_display_name: "ZW Software Sp. z o.o.",
+        partner_secondary_line: "Zofia Wiśniewska",
+      }),
+    ]);
+    expect(await screen.findByText("ZW Software Sp. z o.o.")).toBeInTheDocument();
+    expect(screen.getByText("Zofia Wiśniewska")).toBeInTheDocument();
+  });
+
+  it("dla JDG nie pokazuje nazwiska w kolumnie Partner", async () => {
+    // Dowód, że kolumna przestała pokazywać `partner_name`: fabryka ma tam
+    // „Jan Kowalski", a nazwa działalności zawiera go już w sobie.
+    renderTab([
+      generatedRow({
+        partner_display_name: "JK Software Jan Kowalski",
+        partner_secondary_line: null,
+      }),
+    ]);
+    expect(
+      await screen.findByText("JK Software Jan Kowalski"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Jan Kowalski")).toBeNull();
+  });
+
+  it("wiersz historyczny bez nazwy firmy pokazuje osobę, nie „—”", async () => {
+    renderTab([
+      generatedRow({
+        partner_display_name: "Historyczny Partner",
+        partner_secondary_line: null,
+        partner_nip: null,
+        start_date: null,
+      }),
+    ]);
+    expect(await screen.findByText("Historyczny Partner")).toBeInTheDocument();
+  });
+});
+
+describe("GeneratedContractsTab — filtr daty rozpoczęcia", () => {
+  it("wysyła zakres na backend i trzyma go w kluczu zapytania", async () => {
+    const user = setupUser();
+    renderTab([generatedRow()]);
+    await screen.findByText("1471/2026");
+    mocks.generated.mockClear();
+
+    await user.click(
+      screen.getByRole("button", { name: /Filtruj po dacie rozpoczęcia/ }),
+    );
+    await screen.findByLabelText("Data rozpoczęcia — od");
+    setDate("Data rozpoczęcia — od", "2026-08-01");
+
+    await waitFor(() =>
+      expect(mocks.generated).toHaveBeenCalledWith(
+        100,
+        expect.objectContaining({ startFrom: "2026-08-01" }),
+      ),
+    );
+  });
+
+  it("cały miesiąc rozwija się na pierwszy i ostatni dzień", async () => {
+    const user = setupUser();
+    renderTab([generatedRow()]);
+    await screen.findByText("1471/2026");
+    mocks.generated.mockClear();
+
+    await user.click(
+      screen.getByRole("button", { name: /Filtruj po dacie rozpoczęcia/ }),
+    );
+    await screen.findByLabelText("Data rozpoczęcia — cały miesiąc");
+    // Luty 2026 — 28 dni; sztywne „30" byłoby błędem.
+    setDate("Data rozpoczęcia — cały miesiąc", "2026-02");
+
+    await waitFor(() =>
+      expect(mocks.generated).toHaveBeenCalledWith(
+        100,
+        expect.objectContaining({
+          startFrom: "2026-02-01",
+          startTo: "2026-02-28",
+        }),
+      ),
+    );
+  });
+
+  it("odfiltrowana lista mówi o filtrze, nie o braku umów w systemie", async () => {
+    const user = setupUser();
+    renderTab([generatedRow()]);
+    await screen.findByText("1471/2026");
+
+    mocks.generated.mockResolvedValue([]);
+    await user.click(
+      screen.getByRole("button", { name: /Filtruj po dacie rozpoczęcia/ }),
+    );
+    await screen.findByLabelText("Data rozpoczęcia — od");
+    setDate("Data rozpoczęcia — od", "2030-01-01");
+
+    // „Brak wygenerowanych umów" przy aktywnym filtrze czytałoby się jako
+    // utrata danych — to ten sam błąd, co renderowanie 403 jako pustki.
+    expect(
+      await screen.findByText("Brak umów pasujących do wyszukiwania."),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("GeneratedContractsTab — akcje niezależne od podpisu", () => {
+  it("„Pobierz” jest dostępny także dla umowy podpisanej obustronnie", async () => {
+    // Regresja: oba istniejące pliki testowe mają w fabryce
+    // `can_download: false`, więc ponowne dodanie guardu `!signed` przy
+    // „Pobierz" przeszłoby CI niezauważone.
+    renderTab([
+      generatedRow({
+        signature_status: "signed_both",
+        contract_status: "active",
+        can_download: true,
+        can_edit: true,
+      }),
+    ]);
+    expect(
+      await screen.findByRole("button", { name: /Pobierz/ }),
+    ).toBeInTheDocument();
+    // „Edytuj" przeciwnie — po podpisaniu znika.
+    expect(screen.queryByRole("button", { name: /Edytuj/ })).toBeNull();
   });
 });
