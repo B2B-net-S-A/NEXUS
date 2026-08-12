@@ -782,7 +782,7 @@ def _contract_export_row(
 async def export_contracts(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
-    format: str = Query("xlsx", regex="^(csv|xlsx)$"),
+    format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
     q: Optional[str] = Query(None),
     status: Optional[list[ContractStatus]] = Query(None),
     client_id: Optional[int] = None,

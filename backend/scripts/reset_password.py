@@ -11,7 +11,7 @@ Przykład:
 
     python scripts/reset_password.py artur@b2bnet.pl NowEMocneHaslo2026!
 
-Sprawdza czy user istnieje, haszuje hasło przez bcrypt (passlib, ten sam
+Sprawdza czy user istnieje, haszuje hasło przez bcrypt (ten sam
 mechanizm co /api/auth/login), zapisuje do DB. **Nie wymaga żadnego
 endpointu API** — pisze bezpośrednio do bazy przez SQLAlchemy, omija guardy.
 

@@ -56,11 +56,12 @@ def test_email_search_openapi_keeps_current_user_as_dependency() -> None:
     """slowapi must not turn the candidate guard into a public query field."""
 
     from app.main import app
+    from tests._route_introspection import iter_api_routes
 
     route = next(
         route
-        for route in app.routes
-        if getattr(route, "path", None) == "/api/microsoft365/emails/search"
+        for path, route in iter_api_routes(app)
+        if path == "/api/microsoft365/emails/search"
     )
     assert all(param.name != "current_user" for param in route.dependant.query_params)
     assert any(

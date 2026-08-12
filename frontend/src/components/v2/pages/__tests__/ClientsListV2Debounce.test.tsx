@@ -192,7 +192,10 @@ describe("ClientsListV2 — katalog klientów", () => {
       expect(screen.getByText("Technology")).toBeVisible();
       expect(
         within(
-          screen.getByRole("row", { name: /Nordea ABP Technology/i }),
+          // \s* — nazwa firmy i etykieta zakresu to sąsiednie inline spany;
+          // jsdom 30 liczy accessible name po browserowemu (bez sztucznej
+          // spacji między nimi), jsdom 25 spację wstawiał.
+          screen.getByRole("row", { name: /Nordea ABP\s*Technology/i }),
         ).getAllByText("—"),
       ).toHaveLength(2);
       expect(

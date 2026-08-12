@@ -2016,7 +2016,7 @@ async def export_candidates(
     current_user: CandidateExportAccess,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    format: str = Query("csv", regex="^(csv|xlsx)$"),
+    format: str = Query("csv", pattern="^(csv|xlsx)$"),
     status_: Optional[CandidateStatus] = Query(None, alias="status"),
     q: Optional[str] = None,
     location: Optional[str] = None,
