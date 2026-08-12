@@ -138,8 +138,10 @@ def normalize_llm_skills(value: Any) -> Optional[list[dict]]:
                         and isinstance(years, (int, float, str))
                     ):
                         try:
+                            # OverflowError: int(float("inf")) — jeden absurdalny
+                            # element nie może wysadzić całej normalizacji.
                             years_int = int(float(years))
-                        except (TypeError, ValueError):
+                        except (TypeError, ValueError, OverflowError):
                             years_int = None
                         if years_int is not None and 0 <= years_int <= 60:
                             entry["years"] = years_int

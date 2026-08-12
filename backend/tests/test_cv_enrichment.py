@@ -570,6 +570,7 @@ def test_normalize_salvages_mixed_list_and_drops_garbage_items():
         "Python",
         {"name": "Docker", "level": "Senior", "years": "5"},
         {"name": "K8s", "level": "advanced", "years": 200},
+        {"name": "Bash", "years": "inf"},  # OverflowError w int(float(...))
         {"skill": "Terraform"},
         {"level": "mid"},  # bez nazwy — do kosza
         42,  # nie-string nie-dict — do kosza
@@ -579,6 +580,7 @@ def test_normalize_salvages_mixed_list_and_drops_garbage_items():
         {"name": "Python", "level": None},
         {"name": "Docker", "level": "senior", "years": 5},
         {"name": "K8s", "level": None},  # "advanced" spoza słownika, 200 lat absurd
+        {"name": "Bash", "level": None},  # "inf" odpada, element przeżywa
         {"name": "Terraform", "level": None},
     ]
 
