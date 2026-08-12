@@ -164,10 +164,15 @@ def _apply_cv_contact_fields(
         candidate.phone = str(phone).strip()[:30]
 
     city = parsed.get("city")
-    if city:
+    country = parsed.get("country")
+    if city or country:
+        # `country` do niedawna w ogóle nie było ekstrahowane, więc projekcja
+        # `location` kończyła się na samym mieście. Pisarz kanoniczny sam pilnuje
+        # FILL_EMPTY i locków `_manual_override_*` — tu tylko podajemy oba fakty.
         apply_candidate_location_from_source(
             candidate,
             city=city,
+            country=country,
             overwrite_existing=False,
         )
 

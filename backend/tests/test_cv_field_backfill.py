@@ -206,3 +206,46 @@ async def test_backfill_run_stops_on_quota_not_per_row(monkeypatch):
 
     assert stats["stopped_reason"].startswith("quota")
     assert stats["last_id"] == 7, "kursor musi wskazywać, od czego wznowić"
+
+
+def test_bulk_prompt_asks_for_country_and_apply_consumes_it():
+    """Bez tego drugi pełny bieg byłby nieunikniony.
+
+    Plan odnotował lukę: `country` nie było ekstrahowane, więc projekcja
+    `location` kończyła się na samym mieście — a ścieżka zapisu i tak by kraj
+    wyrzuciła, bo nigdy po niego nie sięgała. Pytanie użytkownika „czy
+    wyciągamy wszystko?" złapało to PRZED biegiem, nie po nim.
+    """
+
+    rendered = CV_ENRICHMENT_BULK.render(cv_text="x")
+    assert '"country"' in rendered
+
+    from types import SimpleNamespace as NS
+
+    from app.services.cv_enrichment import _apply_cv_enrichment
+
+    candidate = NS(
+        first_name=None,
+        last_name=None,
+        email=None,
+        phone=None,
+        city=None,
+        country=None,
+        location=None,
+        skills=None,
+        education=None,
+        years_it_experience=None,
+        ai_summary=None,
+        experience=None,
+        cv_extracted_data=None,
+        current_position=None,
+        languages=None,
+    )
+    _apply_cv_enrichment(
+        candidate,
+        {"city": "Kraków", "country": "PL", "_confidence": {}},
+    )
+    assert candidate.country == "PL"
+    assert candidate.location == "Kraków, PL", (
+        "projekcja location musi nieść też kraj — dotąd kończyła się na mieście"
+    )

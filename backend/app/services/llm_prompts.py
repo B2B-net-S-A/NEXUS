@@ -153,6 +153,9 @@ CV_ENRICHMENT_BULK = PromptTemplate(
         '(e.g. "+48 600 123 456"); keep raw digits/spaces/dashes otherwise. null if none.\n'
         '  "city": candidate\'s city of residence (e.g. "Warszawa", "Kraków") or null. '
         "Do NOT guess from employer address — use only if the CV explicitly states the candidate's location.\n"
+        '  "country": candidate\'s country of residence as a 2-letter ISO code '
+        '(e.g. "PL", "DE", "UA") or the country name if the code is unclear; null when '
+        "the CV does not explicitly state it. Do NOT infer from language or employers.\n"
         '  "years_it_experience": integer, best estimate of total IT experience\n'
         '  "current_position": short string (e.g. "Senior Python Developer") or null\n'
         '  "current_position_started_at": start of the current role, only when explicitly '
