@@ -709,6 +709,22 @@ _COLUMN_STATEMENTS = [
        ADD COLUMN IF NOT EXISTS closure_date DATE NULL""",
     """CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_contract_status
        ON b2b_generated_contracts (contract_status)""",
+    # Surowy payload `/render` (migracja 0132). Bez tego wpisu lustro nie tworzy
+    # kolumny, a backfill w `_DATA_STATEMENTS` niżej czyta z niej dane Partnera —
+    # milcząco spadłby do `backfill data skip: ... UndefinedColumn`.
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS render_payload JSONB NULL""",
+    # Snapshot danych Partnera + data rozpoczęcia usług (migracja 0223).
+    # Odnormalizowane z `render_payload`, bo lista „Wygenerowane umowy" pokazuje
+    # te pola jako kolumny i filtruje po `start_date` po stronie SQL-a.
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS partner_legal_name VARCHAR(255) NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS partner_nip VARCHAR(32) NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS start_date DATE NULL""",
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS partner_entity_type VARCHAR(16) NULL""",
     # candidate_invite_links: token_sha256 + token_ct — hash+encrypt v2
     # (migracja 0183). Bez nich mint v2 wywala UndefinedColumn.
     """ALTER TABLE candidate_invite_links
@@ -3914,6 +3930,52 @@ _DATA_STATEMENTS = [
            'Wersja angielska oświadczenia o niekaralności (KRK 2024)', FALSE, 120, TRUE, now(), now()
        )
        ON CONFLICT (slug) DO NOTHING""",
+    # 0223 — snapshot danych Partnera z `render_payload` do kolumn. Klucze są
+    # 1:1 nazwami pól `B2BRenderRequest` (bez aliasów, bez `exclude_none`).
+    #
+    # `WHERE <kolumna> IS NULL` to nie optymalizacja, a poprawność: te
+    # instrukcje lecą przy KAŻDYM starcie kontenera, więc bez tego warunku
+    # ręcznie poprawiona nazwa firmy byłaby cyklicznie nadpisywana starym
+    # payloadem. `jsonb_typeof(...) = 'object'` chroni przed payloadem
+    # skalarnym, a `left(..., N)` przed `value too long`, które wywala CAŁY
+    # start kontenera, nie jeden wiersz.
+    """UPDATE b2b_generated_contracts
+          SET partner_legal_name =
+              left(NULLIF(TRIM(render_payload ->> 'partner_legal_name'), ''), 255)
+        WHERE partner_legal_name IS NULL
+          AND render_payload IS NOT NULL
+          AND jsonb_typeof(render_payload) = 'object'
+          AND NULLIF(TRIM(render_payload ->> 'partner_legal_name'), '') IS NOT NULL""",
+    # NIP kanonicznie do samych cyfr — surowe formatowanie („123-456-32-18")
+    # zostaje w `render_payload`, żeby dokument renderował się bez zmian.
+    r"""UPDATE b2b_generated_contracts
+          SET partner_nip = left(
+                  NULLIF(
+                      regexp_replace(
+                          COALESCE(render_payload ->> 'partner_nip', ''), '\D', '', 'g'
+                      ),
+                      ''
+                  ),
+                  32
+              )
+        WHERE partner_nip IS NULL
+          AND render_payload IS NOT NULL
+          AND jsonb_typeof(render_payload) = 'object'
+          AND NULLIF(
+                  regexp_replace(
+                      COALESCE(render_payload ->> 'partner_nip', ''), '\D', '', 'g'
+                  ),
+                  ''
+              ) IS NOT NULL""",
+    # Regex-guard zamiast `NULLIF(..., '')::date`: CI-sentinel sieje payload
+    # bez klucza `start_date`, a formularz umie zapisać pusty string — `::date`
+    # na jednym i drugim wywala instrukcję.
+    """UPDATE b2b_generated_contracts
+          SET start_date = (render_payload ->> 'start_date')::date
+        WHERE start_date IS NULL
+          AND render_payload IS NOT NULL
+          AND jsonb_typeof(render_payload) = 'object'
+          AND render_payload ->> 'start_date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'""",
 ]
 
 
@@ -4040,10 +4102,18 @@ _CONSTRAINT_STATEMENTS = [
             FOREIGN KEY (signed_by_user_id) REFERENCES users (id)
             ON DELETE SET NULL NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0223: 'in_progress' jako trzeci status. DROP PRZED ADD, bo
+    # `EXCEPTION WHEN duplicate_object THEN NULL` po cichu zostawiłby STARY,
+    # wąski constraint z 0203 — a wtedy INSERT z 'in_progress' wywalałby
+    # CheckViolation przy każdym generowaniu umowy, a entrypoint wypisałby
+    # tylko „backfill constraint skip".
+    """ALTER TABLE b2b_generated_contracts
+       DROP CONSTRAINT IF EXISTS ck_b2b_generated_contracts_contract_status""",
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts
             ADD CONSTRAINT ck_b2b_generated_contracts_contract_status
-            CHECK (contract_status IN ('active', 'closed')) NOT VALID;
+            CHECK (contract_status IN ('active', 'in_progress', 'closed'))
+            NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts
@@ -4058,12 +4128,18 @@ _CONSTRAINT_STATEMENTS = [
                 )
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0223: 'in_progress' traktowany jak 'active' — umowa w drodze do podpisu
+    # nie ma pól zamknięcia. Bez tego przepisania wiersz 'in_progress' łamie
+    # OBIE gałęzie tego CHECK-a, więc samo poszerzenie
+    # ck_..._contract_status wyżej NIE wystarczy. DROP przed ADD — jak wyżej.
+    """ALTER TABLE b2b_generated_contracts
+       DROP CONSTRAINT IF EXISTS ck_b2b_generated_contracts_closure_coherence""",
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts
             ADD CONSTRAINT ck_b2b_generated_contracts_closure_coherence
             CHECK (
                 (
-                    contract_status = 'active'
+                    contract_status IN ('active', 'in_progress')
                     AND closure_reason IS NULL
                     AND closure_date IS NULL
                     AND closure_reason_other IS NULL
@@ -4076,6 +4152,16 @@ _CONSTRAINT_STATEMENTS = [
                         = (closure_reason_other IS NOT NULL)
                     )
                 )
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0223: domena typu podmiotu Partnera. NULL dozwolony = wiersz historyczny
+    # bez sygnału z rejestru (heurystyka po nazwie działa w serializacji).
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_partner_entity_type
+            CHECK (
+                partner_entity_type IS NULL
+                OR partner_entity_type IN ('sole_trader', 'company')
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
 ]
