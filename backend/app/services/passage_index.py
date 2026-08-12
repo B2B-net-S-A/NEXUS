@@ -225,6 +225,99 @@ def point_id_for(candidate_id: int, passage_index: int) -> int:
     return candidate_id * MAX_PASSAGES_PER_CANDIDATE + passage_index
 
 
+def search_passage_hits(client, embedding: list[float], *, limit: int) -> list[Any]:
+    """Surowe trafienia z kolekcji pasaży dla zadanego embeddingu zapytania.
+
+    `limit` jest szerszy niż docelowe top-K kandydatów, bo jeden kandydat
+    potrafi zająć kilka najlepszych miejsc swoimi pasażami — po agregacji do
+    kandydatów lista się skraca. Mnożnik dobiera wołający.
+    """
+
+    return client.search(
+        collection_name=passages_collection_name(),
+        query_vector=embedding,
+        limit=limit,
+        with_payload=True,
+    )
+
+
+def best_passage_scores_for_ids(
+    client, embedding: list[float], candidate_ids: list[int]
+) -> dict[int, float]:
+    """Najlepszy pasażowy wynik KAŻDEGO ze wskazanych kandydatów.
+
+    `MatchAny` po payloadzie `candidate_id`, NIE `HasIdCondition`: identyfikatory
+    punktów w tej kolekcji są pochodnymi (kandydat, indeks pasażu), więc filtr
+    po id punktu nie znalazłby niczego — ta sama pułapka co przy kasowaniu.
+    Wymaga indeksu payloadu, który zakłada `ensure_passages_collection`.
+    """
+
+    if not candidate_ids:
+        return {}
+    hits = client.search(
+        collection_name=passages_collection_name(),
+        query_vector=embedding,
+        query_filter=qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key=PAYLOAD_CANDIDATE_ID,
+                    match=qmodels.MatchAny(any=[int(c) for c in candidate_ids]),
+                )
+            ]
+        ),
+        # Sufit: każdy kandydat może wnieść wiele pasaży, a chcemy maksimum
+        # per kandydat — bierzemy więc zapas i agregujemy po stronie klienta.
+        limit=max(len(candidate_ids) * 4, 64),
+        with_payload=True,
+    )
+    best: dict[int, float] = {}
+    for hit in hits:
+        payload = getattr(hit, "payload", None) or {}
+        candidate_id = payload.get(PAYLOAD_CANDIDATE_ID)
+        if candidate_id is None:
+            continue
+        score = round(float(getattr(hit, "score", 0.0) or 0.0), 4)
+        if score > best.get(int(candidate_id), -1.0):
+            best[int(candidate_id)] = score
+    return best
+
+
+def merge_candidate_hits(
+    base_hits: list[dict], passage_rows: list[dict], top_k: int
+) -> list[dict]:
+    """Suma dwóch źródeł retrievalu: wektor kandydata ∪ najlepszy pasaż.
+
+    UNIA z maksimum, nie podmiana — pasaże UZUPEŁNIAJĄ sygnał strukturalny
+    (skills, kategoria, experience zostają w wektorze kandydata), dzięki czemu
+    wyłączenie flagi wraca dokładnie do dzisiejszego zachowania. Kandydat obecny
+    tylko w jednym źródle wchodzi z jego wynikiem; obecny w obu — z wyższym.
+
+    Wiersz wygrany pasażem niesie `passage_text`/`passage_index`: to gotowy
+    dowód dla rekrutera („pasuje, bo w latach 2019-2022 robił X"), bez którego
+    wynik jest liczbą bez uzasadnienia.
+    """
+
+    merged: dict[int, dict] = {}
+    for row in base_hits:
+        candidate_id = int(row["candidate_id"])
+        merged[candidate_id] = dict(row)
+
+    for row in passage_rows:
+        candidate_id = int(row["candidate_id"])
+        score = float(row["score"])
+        current = merged.get(candidate_id)
+        if current is None or score > float(current["score"]):
+            entry = dict(current or {"candidate_id": candidate_id})
+            entry["score"] = round(score, 4)
+            if row.get("passage_text") is not None:
+                entry["passage_text"] = row["passage_text"]
+                entry["passage_index"] = row.get("passage_index")
+            merged[candidate_id] = entry
+
+    ranked = sorted(merged.values(), key=lambda r: float(r["score"]), reverse=True)
+    return ranked[:top_k]
+
+
 def aggregate_hits_to_candidates(
     hits: list[Any], top_k: int
 ) -> list[dict[str, Optional[float]]]:
