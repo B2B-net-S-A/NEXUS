@@ -149,6 +149,17 @@ async def list_contractors(
         selectinload(Contract.job),
     )
 
+    # Umowy odpięte od usuniętego kandydata (`candidate_id IS NULL`, migracja
+    # 0225) NIE są kontraktorami — nie ma osoby, której ta lista dotyczy, więc
+    # wiersz bez nazwiska i maila nie jest tu do niczego użyteczny. Sam dokument
+    # zostaje w pełni widoczny w rejestrze umów (`/api/contracts`), razem
+    # z fakturami i podpisami; to ta lista jest o LUDZIACH, nie o dokumentach.
+    #
+    # Filtr jest też jedyną barierą przed 500: `ContractorCandidateRef.id` to
+    # `int`, więc pojedyncza odpięta umowa wywracała walidację odpowiedzi i tym
+    # samym CAŁĄ listę kontraktorów dla wszystkich użytkowników.
+    query = query.where(Contract.candidate_id.is_not(None))
+
     # "ending"/"active" are date-window buckets (see contract_service), NOT the
     # raw stored status, so the tab counts agree with the register's date-based
     # filter and don't lag the promotion cron. "draft" stays a plain status match.
@@ -221,6 +232,9 @@ async def contractor_stats(
     query = select(Contract).options(
         selectinload(Contract.candidate),
     )
+    # Patrz komentarz przy pierwszej kwerendzie: odpięta umowa nie ma
+    # kontraktora, a `ContractorCandidateRef.id` jest nienullowalne.
+    query = query.where(Contract.candidate_id.is_not(None))
     query = query.where(Contract.status.in_(_LIST_STATUSES))
 
     if not current_user.has_any_role(*_FULL_VISIBILITY_ROLES):

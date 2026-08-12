@@ -105,6 +105,8 @@ import {
 } from"@/lib/renderMentions";
 import { EditCandidateModal } from"@/components/AppShell";
 import { IdentityEditor } from"./CandidateIdentityEditor";
+import { canHardDeleteCandidate } from"@/lib/candidate-delete-access";
+import { ConfirmV2 } from"@/components/v2/modals/ConfirmV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { SendEmailV2 } from"@/components/v2/modals/SendEmailV2";
 import { AutentiEnvelopeCard } from"@/components/v2/contract/AutentiEnvelopeCard";
@@ -277,7 +279,7 @@ export function CandidateDetailV2({
  const router = useRouter();
  const id = candidateId ?? Number(routeParams?.id);
  const queryClient = useQueryClient();
- const { showError } = useToast();
+ const { showError, showSuccess } = useToast();
  const openTab = useTabsStore((s) => s.openTab);
 
  // ── Prev/Next candidate navigation context ─────────────────────────────
@@ -490,6 +492,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // w nagłówku — szybka korekta np. kandydatów zaimportowanych jako "?".
  const [editingIdentity, setEditingIdentity] = useState(false);
  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+ const [deleteOpen, setDeleteOpen] = useState(false);
  const [screeningStage, setScreeningStage] = useState<number | null>(null);
  const [noteText, setNoteText] = useState("");
  const [noteSaving, setNoteSaving] = useState(false);
@@ -719,9 +722,29 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  }
  };
 
- // Hard delete usunięty z UI (audyt M2 PR1, M2-PRIV-02): kaskada ON DELETE
- // czyściła kontrakty/notatki/historię, a storage/Qdrant zostawały osierocone.
- // Backend odpowiada 409 do czasu privacy executora (PR2 planu modułu).
+ // Trwałe usunięcie profilu. Przywrócone po M2-PRIV-02 dopiero razem z dwiema
+ // naprawami, których brak był powodem wyłączenia: migracja 0224 odpina umowy
+ // (faktury i podpisy przestały ginąć w kaskadzie), a endpoint sprząta Qdranta
+ // i pliki w object storage. Widoczne wyłącznie dla admina.
+ const canDeleteCandidate = canHardDeleteCandidate(currentUser);
+ const deleteMut = useMutation({
+ mutationFn: () => candidatesApi.delete(id),
+ onSuccess: () => {
+ showSuccess("Profil kandydata usunięty z systemu");
+ // Lista kandydatów i pule muszą stracić ten wiersz; sam profil nie jest
+ // inwalidowany, bo zaraz go opuszczamy.
+ queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ queryClient.invalidateQueries({ queryKey: ["talent-pools"] });
+ setDeleteOpen(false);
+ // W trybie osadzonym (szuflada z listy) zamykamy panel; na pełnej stronie
+ // nie ma dokąd wrócić — profil już nie istnieje, więc 404 byłby jedynym
+ // efektem zostania na miejscu.
+ if (embedded) onClose?.();
+ else router.push("/candidates");
+ },
+ onError: (e) =>
+ showError(extractErrorMsg(e) || "Nie udało się usunąć profilu kandydata"),
+ });
 
  // Open a "Więcej" menu action on the next tick, after Radix finishes closing
  // the dropdown, so the opened overlay isn't disturbed by the menu's dismiss.
@@ -1138,8 +1161,21 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <Store className="h-4 w-4" />
  Wrzuć na targ
  </DropdownMenuItem>
- {/* „Usuń kandydata" usunięte (audyt M2 PR1) — hard delete wróci jako
- audytowalny privacy workflow w PR2; do tego czasu użyj blacklisty. */}
+ {/* Trwałe usunięcie profilu — tylko admin. Gating przez brak pozycji,
+ nie przez `disabled`: wyszarzona opcja mówiłaby wszystkim, że taka
+ możliwość istnieje, i zapraszała do proszenia o nią. */}
+ {canDeleteCandidate && (
+ <>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem
+ className="min-h-11 text-destructive focus:text-destructive"
+ onSelect={() => openFromMenu(() => setDeleteOpen(true))}
+ >
+ <Trash2 className="h-4 w-4" />
+ Usuń profil
+ </DropdownMenuItem>
+ </>
+ )}
  </DropdownMenuContent>
  </DropdownMenu>
  </div>
@@ -1503,6 +1539,23 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  onSaved={() => void contactCaseQuery.refetch()}
  onConflict={() => void contactCaseQuery.refetch()}
  />
+ {candidate && canDeleteCandidate && (
+ <ConfirmV2
+ open={deleteOpen}
+ onOpenChange={setDeleteOpen}
+ variant="destructive"
+ title="Trwale usunąć profil kandydata?"
+ // Opis wymienia, co zniknie, ORAZ co zostanie. Samo „usunie wszystkie
+ // dane" byłoby nieprawdą w obie strony: umowy i faktury przeżywają
+ // (odpięte, migracja 0224), a payloady integracji Traffit zostają, bo
+ // nie mają FK na kandydata.
+ description={`${candidate.name} ${candidate.lastname} oraz powiązane dane rekrutacyjne (CV, notatki, historia procesu, oceny, komentarze) zostaną trwale usunięte z systemu. Umowy i faktury zostaną zachowane bez powiązania z osobą — retencja dokumentów księgowych nie zależy od obecności kandydata w bazie. Tej operacji nie można cofnąć.`}
+ confirmLabel="Usuń trwale"
+ cancelLabel="Anuluj"
+ loading={deleteMut.isPending}
+ onConfirm={() => deleteMut.mutate()}
+ />
+ )}
 
  </div>
  );

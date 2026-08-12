@@ -100,6 +100,17 @@ describe("ExtendOrderDialog candidate finance lockdown", () => {
     expect(screen.queryByText(/Total value/)).not.toBeInTheDocument();
     expect(screen.queryByText(/marża/i)).not.toBeInTheDocument();
 
+    // Numer zamówienia i data startu są teraz WYMAGANE, więc bez ich
+    // wypełnienia formularz nie przechodzi walidacji i submit nie leci.
+    // Ten fixture ma `orders: []`, więc data startu NIE jest prefillowana
+    // z końca poprzedniego zamówienia — trzeba ją podać wprost.
+    fireEvent.change(screen.getByLabelText(/Numer zamówienia/), {
+      target: { value: "45767" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Start/), {
+      target: { value: "2026-09-01" },
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Zapisz przedłużenie" }));
 
     await waitFor(() => expect(createOrderExtension).toHaveBeenCalledOnce());
@@ -151,11 +162,15 @@ describe("ExtendOrderDialog — odczyt PDF (Zczytaj dane z dokumentu)", () => {
     });
     renderDialog();
 
-    const titleInput = screen.getByDisplayValue("Przedłużenie Jan Kowalski");
+    // Pole startuje PUSTE — autofill „Przedłużenie <imię>" został usunięty,
+    // bo ta wartość jest pokazywana na karcie klienta jako „Numer zamówienia",
+    // a podpowiedź wpisywała tam nazwisko.
+    const titleInput = screen.getByLabelText(/Numer zamówienia/);
+    expect(titleInput).toHaveValue("");
     addPdf();
 
     // Sam wybór pliku nie dotyka formularza i nie woła backendu.
-    expect(titleInput).toHaveValue("Przedłużenie Jan Kowalski");
+    expect(titleInput).toHaveValue("");
     expect(extractOrderPdf).not.toHaveBeenCalled();
     expect(screen.queryByText("Sprawdź dane!")).not.toBeInTheDocument();
   });

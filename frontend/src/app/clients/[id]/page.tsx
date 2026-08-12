@@ -1079,7 +1079,13 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* Trzy kafle, nie cztery: „Aktywne projekty" (`row.active_jobs`)
+              zdjęte, bo było trzecim miejscem z tą samą informacją — przy
+              przełączniku w zakładce Projekty i w SummaryBarze — i to liczonym
+              jeszcze inaczej (tu tylko `published`, tam `draft` + `published`).
+              Zostają METRYKI skuteczności: bez „N obsadzonych · N przegranych"
+              sekcja hit-ratio traci kontekst, a to nie jest lista rekrutacji. */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
               <div className="text-xs text-muted-foreground mb-1">Zamknięte zapytania</div>
               <div className="text-2xl font-bold text-foreground dark:text-foreground">
@@ -1114,13 +1120,6 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                     : `cel ≥${hitData!.overall.hit_ratio_target_pct}%`
                   : "Za mało danych (min. 3)"}
               </div>
-            </div>
-            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
-              <div className="text-xs text-muted-foreground mb-1">Aktywne projekty</div>
-              <div className="text-2xl font-bold text-foreground dark:text-foreground">
-                {row!.active_jobs}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">opublikowane</div>
             </div>
           </div>
 

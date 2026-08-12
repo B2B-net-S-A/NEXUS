@@ -16,11 +16,14 @@ only.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.activity import Activity
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,9 @@ BULK_CV_DOWNLOADED = "bulk_cv_downloaded"
 DOCUMENT_DOWNLOADED = "document_downloaded"
 DOCUMENT_URL_ISSUED = "document_url_issued"
 SENSITIVE_OPERATION_BLOCKED = "sensitive_operation_blocked"
+# Trwałe usunięcie profilu kandydata (admin). Zapisywane PRZED usunięciem, żeby
+# ślad przetrwał samą operację — po `db.delete()` nie ma już czego audytować.
+HARD_DELETED = "candidate_hard_deleted"
 BULK_ACTION_EXECUTED = "bulk_action_executed"
 # Client-facing pricing mutation („stawka do klienta"). Records old→new so a
 # rate change leaves a trail (P1-11). Financial payload — must stay out of any
@@ -71,3 +77,28 @@ def record_candidate_audit(
             external_source="audit",
         )
     )
+
+
+def candidate_subject_reference(candidate_id: int) -> str:
+    """Pseudonimowy klucz podmiotu dla umów odpiętych od usuniętego kandydata.
+
+    Po `ON DELETE SET NULL` (migracja 0225) faktury tej samej osoby przestają
+    być ze sobą powiązane, a bez tego księgowość nie uzgodni rozrachunków.
+    Ten klucz je łączy, nie przywracając tożsamości.
+
+    Kluczowany HMAC, nie goły hash z `candidate_id`: samo id ma zerową entropię,
+    więc niekluczowany digest odwraca się tablicą 10^7 wartości w sekundę.
+    Ten sam klucz i wzorzec separacji domeny co
+    `candidate_identity_quarantine._fingerprint`.
+    """
+    key = settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip()
+    if not key:
+        # Fail-closed jak w quarantine: produkcja przewraca się już na walidacji
+        # Settings, ale świadomie DEBUG-owy deployment nie może stemplować umów
+        # kluczem domyślnym ani efemerycznym.
+        raise RuntimeError(
+            "CANDIDATE_IDENTITY_FINGERPRINT_KEY is required to pseudonymise "
+            "contracts of a deleted candidate"
+        )
+    message = f"candidate-subject-v1\x00{candidate_id}".encode("utf-8")
+    return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()[:64]

@@ -46,7 +46,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
             name="ck_b2b_generated_contracts_signature_source",
         ),
         CheckConstraint(
-            "contract_status IN ('active', 'closed')",
+            "contract_status IN ('active', 'in_progress', 'closed')",
             name="ck_b2b_generated_contracts_contract_status",
         ),
         CheckConstraint(
@@ -59,9 +59,14 @@ class B2BGeneratedContract(Base, TimestampMixin):
         # bezużyteczne (nie wiadomo, co i kiedy się skończyło), a „Aktywna" z
         # wypełnionym powodem to sprzeczność. Wymuszamy to w bazie, nie tylko w
         # API, bo dane wchodzą tu również safety-netem entrypointu.
+        #
+        # `in_progress` jest tu traktowany jak `active` (migracja 0224): umowa
+        # w drodze do podpisu nie ma i nie może mieć pól zamknięcia. Gdyby ta
+        # gałąź została przypięta wyłącznie do `active`, wiersz `in_progress`
+        # łamałby OBIE gałęzie → IntegrityError na każdym generowaniu umowy.
         CheckConstraint(
             "("
-            "contract_status = 'active'"
+            "contract_status IN ('active', 'in_progress')"
             " AND closure_reason IS NULL"
             " AND closure_date IS NULL"
             " AND closure_reason_other IS NULL"
@@ -73,16 +78,46 @@ class B2BGeneratedContract(Base, TimestampMixin):
             ")",
             name="ck_b2b_generated_contracts_closure_coherence",
         ),
+        CheckConstraint(
+            "partner_entity_type IS NULL "
+            "OR partner_entity_type IN ('sole_trader', 'company')",
+            name="ck_b2b_generated_contracts_partner_entity_type",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     contract_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    # UWAGA: to IMIĘ I NAZWISKO osoby fizycznej (pole „Imię i nazwisko"
+    # w generatorze), NIE nazwa firmy. Nazwa firmy z GUS/CEIDG siedzi
+    # w `partner_legal_name`. Cała kolumna „Partner" na liście rozbija się o tę
+    # pomyłkę: kto wyświetli tutaj `partner_name`, pokaże nazwisko zamiast firmy.
     partner_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Nazwa firmy odczytana z rejestru (GUS/CEIDG) w momencie generowania.
+    # Dla JDG to pełna nazwa działalności („Management Services - Jan Kowalski"),
+    # która z mocy prawa zawiera imię i nazwisko właściciela. NULL = wiersz
+    # sprzed migracji 0224, którego payload nie miał tego klucza.
+    partner_legal_name: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    # NIP kanonicznie do samych cyfr — surowe formatowanie („123-456-32-18")
+    # zostaje w `render_payload`, żeby dokument renderował się bez zmian.
+    partner_nip: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # Binarny sygnał z rejestru: CEIDG → `sole_trader`, KRS → `company`.
+    # SNAPSHOT z momentu generowania, nie przeliczany później — forma prawna
+    # Partnera po podpisaniu umowy przestaje być bieżącą informacją.
+    # NULL znaczy dokładnie „brak sygnału z rejestru" (wiersz historyczny),
+    # a nie „nie wiemy" — dla takich wierszy typ wyznacza heurystyka po nazwie
+    # w warstwie serializacji.
+    partner_entity_type: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
     client_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     language: Mapped[str] = mapped_column(String(2), default="pl", nullable=False)
     signing_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # Data rozpoczęcia świadczenia Usług — NIE data podpisania (`signing_date`).
+    start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -99,6 +134,13 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # też bywa zamykana (wypowiedzenie, porozumienie), a niepodpisana bywa
     # zamknięta rezygnacją przed podpisem. Zamknięcie NIE usuwa wiersza —
     # kończy jego bieg i zostaje w rejestrze.
+    #
+    # Trzy wartości (0224): `in_progress` → `active` → `closed`, gdzie
+    # `in_progress` ustawia generowanie, a `active` WYŁĄCZNIE potwierdzenie
+    # podpisu obustronnego. Default kolumny ZOSTAJE `active` i to nie jest
+    # przeoczenie: opisuje wiersz wstawiony bez decyzji o statusie (seed,
+    # safety-net entrypointu, surowy INSERT). Zmiana defaultu na `in_progress`
+    # przepisałaby historię każdego takiego wiersza.
     contract_status: Mapped[str] = mapped_column(
         String(16), default="active", server_default="active", nullable=False
     )

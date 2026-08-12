@@ -182,7 +182,14 @@ class ContractUpdate(BaseModel):
 
 class ContractResponse(BaseModel):
     id: int
-    candidate_id: int
+    # NULL = umowa odpięta od usuniętego kandydata (migracja 0225). Rejestr umów
+    # MUSI takie wiersze pokazywać — na umowie wiszą faktury i podpisy, których
+    # retencja nie zależy od obecności osoby w bazie rekrutacyjnej. Gdyby to
+    # pole zostało nienullowalne, pierwsze usunięcie kandydata wywracałoby
+    # walidację odpowiedzi i cały rejestr zwracałby 500.
+    # (`ContractCreate.candidate_id` zostaje `int` — umowy bez kandydata się
+    # nie zakłada, tylko się z niego odpina.)
+    candidate_id: Optional[int] = None
     client_id: int
     job_id: Optional[int]
     start_date: Optional[date] = None

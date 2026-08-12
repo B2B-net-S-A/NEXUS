@@ -20,6 +20,8 @@ Uses the in-process ``app_client`` / ``app_auth_headers`` fixtures from conftest
 from __future__ import annotations
 
 import uuid
+
+import pytest
 from datetime import date
 
 from httpx import AsyncClient
@@ -92,53 +94,109 @@ async def test_delete_candidate_requires_auth(app_client: AsyncClient):
     assert r.status_code in (401, 403)
 
 
-async def test_delete_candidate_blocked_even_for_admin(
+async def test_admin_hard_delete_removes_the_candidate_and_its_notes(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Admin gets an explicit 409 — the endpoint must not run a cascade."""
+    """Usunięcie jest REALNE (nie archiwizacja, nie soft-delete).
+
+    Do 2026-08 ta trasa zwracała 409 (M2-PRIV-02), bo kaskada niszczyła też
+    faktury. Odblokowana dopiero razem z migracją 0224, która odpina umowy —
+    patrz test niżej.
+    """
     from app.models.candidate import Candidate
-    from app.models.contract import Contract
     from app.models.note import Note
 
     candidate_id = await _seed_candidate()
     await _seed_note(candidate_id)
-    await _seed_contract(candidate_id)
 
-    # Preconditions: the candidate exists and has the related rows.
     assert await _count(Candidate, id=candidate_id) == 1
     assert await _count(Note, candidate_id=candidate_id) == 1
-    assert await _count(Contract, candidate_id=candidate_id) == 1
 
     r = await app_client.delete(
         f"/api/candidates/{candidate_id}", headers=app_auth_headers
     )
-    assert r.status_code == 409, r.text
-    assert "workflow" in r.json()["detail"].lower()
+    assert r.status_code == 204, r.text
 
-    # Candidate and ALL related rows SURVIVE — nothing was cascaded.
-    assert await _count(Candidate, id=candidate_id) == 1
-    assert await _count(Note, candidate_id=candidate_id) == 1
-    assert await _count(Contract, candidate_id=candidate_id) == 1
+    # Kandydat i jego dane rekrutacyjne znikają z bazy.
+    assert await _count(Candidate, id=candidate_id) == 0
+    assert await _count(Note, candidate_id=candidate_id) == 0
 
-    # GET still works.
+    # GET zwraca 404 — profil naprawdę nie istnieje.
     r2 = await app_client.get(
         f"/api/candidates/{candidate_id}", headers=app_auth_headers
     )
-    assert r2.status_code == 200
+    assert r2.status_code == 404
 
 
-async def test_delete_blocked_emits_audit_event(
+async def test_hard_delete_keeps_the_contract_and_pseudonymises_it(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """The blocked attempt leaves an immutable audit row without PII."""
+    """SEDNO migracji 0225: „usuń kandydata" nie znaczy „usuń faktury".
+
+    `invoices`, `document_signatures` i `client_orders` nie mają własnego FK na
+    kandydata — wiszą na umowie. Gdyby umowa poszła kaskadą, zniknęłyby razem
+    z nią, a to dokumenty księgowe i dowodowe.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+
+    candidate_id = await _seed_candidate()
+    contract_id = await _seed_contract(candidate_id)
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 204, r.text
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+
+    assert contract is not None, "umowa NIE MOŻE zniknąć razem z kandydatem"
+    # FK wyzerowany przez ON DELETE SET NULL…
+    assert contract.candidate_id is None
+    # …ale dokument pozostaje przypisywalny do jednego podmiotu, inaczej
+    # księgowość nie uzgodniłaby rozrachunków osoby, której już nie ma.
+    assert contract.candidate_subject_ref
+    assert len(contract.candidate_subject_ref) == 64
+
+
+async def test_subject_reference_is_stable_and_not_the_raw_id(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Pseudonim jest kluczowanym HMAC-em, nie zapisanym id ani jego digestem.
+
+    Gdyby był gołym hashem z `candidate_id`, odwróciłoby go przejście 10^7
+    wartości — a wtedy „pseudonimizacja" nie pseudonimizuje niczego.
+    """
+    from app.services.candidate_audit import candidate_subject_reference
+
+    ref = candidate_subject_reference(4242)
+    assert ref == candidate_subject_reference(4242), "musi być deterministyczny"
+    assert ref != candidate_subject_reference(4243)
+    assert "4242" not in ref
+    import hashlib
+
+    assert ref != hashlib.sha256(b"4242").hexdigest()[:64]
+
+
+async def test_hard_delete_emits_an_audit_row_that_survives_the_delete(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Ślad audytu musi przeżyć operację, którą opisuje.
+
+    Zapisywany PRZED `db.delete()` — po usunięciu wiersza nie ma już czego
+    audytować, a `Activity` nie jest kasowane kaskadą dla tej ścieżki.
+    """
     from app.core.database import AsyncSessionLocal
     from app.models.activity import Activity
 
     candidate_id = await _seed_candidate()
+    await _seed_contract(candidate_id)
+
     r = await app_client.delete(
         f"/api/candidates/{candidate_id}", headers=app_auth_headers
     )
-    assert r.status_code == 409
+    assert r.status_code == 204, r.text
 
     async with AsyncSessionLocal() as db:
         row = await db.scalar(
@@ -146,15 +204,24 @@ async def test_delete_blocked_emits_audit_event(
             .where(
                 Activity.entity_type == "candidate",
                 Activity.entity_id == candidate_id,
-                Activity.action == "sensitive_operation_blocked",
+                Activity.action == "candidate_hard_deleted",
             )
             .order_by(Activity.id.desc())
             .limit(1)
         )
-    assert row is not None
+    assert row is not None, "audyt zniknął razem z kandydatem"
     assert row.details.get("operation") == "hard_delete"
-    # No PII in the audit payload.
+    assert row.details.get("contracts_detached") == 1
+    # Bez PII w payloadzie audytu.
     assert "@" not in str(row.details)
+
+
+async def test_hard_delete_of_missing_candidate_is_404_not_204(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """204 na nieistniejącym id kłamałoby, że coś usunięto."""
+    r = await app_client.delete("/api/candidates/999999999", headers=app_auth_headers)
+    assert r.status_code == 404, r.text
 
 
 async def test_every_candidate_fk_has_on_delete_rule():
@@ -198,23 +265,32 @@ async def test_every_candidate_fk_has_on_delete_rule():
     )
 
 
-async def test_delete_candidate_forbidden_for_recruiter(app_client: AsyncClient):
-    """A recruiter (below delivery_lead) may not delete candidates."""
+@pytest.mark.parametrize("role_name", ["recruiter", "delivery_lead"])
+async def test_hard_delete_is_admin_only(app_client: AsyncClient, role_name: str):
+    """Guard jest WĘŻSZY niż przy zwykłej edycji kandydata.
+
+    `delivery_lead` jest tu kluczowy, nie dekoracyjny: do 2026-08 ta trasa była
+    chroniona `DeliveryLeadPlus`, więc DL mógł usuwać profile. Ticket zawęża to
+    do admina, a bez tego przypadku nic by tego zawężenia nie pilnowało —
+    przypadek rekrutera przechodziłby również pod starym, szerszym guardem.
+    """
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
+    from app.models.candidate import Candidate
     from app.models.user import User, UserRole
 
     unique = uuid.uuid4().hex[:8]
-    email = f"pytest-recruiter-{unique}@example.com"
+    email = f"pytest-{role_name}-{unique}@example.com"
     password = f"T3st_{unique}!PassX"
     async with AsyncSessionLocal() as db:
         db.add(
             User(
                 email=email,
                 password_hash=hash_password(password),
-                name="Pytest Recruiter",
-                role=UserRole.recruiter,
+                name=f"Pytest {role_name}",
+                role=UserRole(role_name),
                 is_active=True,
+                profile_completed=True,
             )
         )
         await db.commit()
@@ -227,9 +303,34 @@ async def test_delete_candidate_forbidden_for_recruiter(app_client: AsyncClient)
 
     candidate_id = await _seed_candidate()
     r = await app_client.delete(f"/api/candidates/{candidate_id}", headers=headers)
-    assert r.status_code == 403
+    assert r.status_code == 403, r.text
 
-    # Candidate survives the forbidden attempt.
+    # Kandydat przeżywa odrzuconą próbę.
+    assert await _count(Candidate, id=candidate_id) == 1
+
+
+async def test_missing_fingerprint_key_is_503_with_a_reason_not_a_bare_500(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Fail-closed ZOSTAJE, ale operator musi wiedzieć, dlaczego.
+
+    Bez `CANDIDATE_IDENTITY_FINGERPRINT_KEY` nie da się spseudonimizować umów,
+    więc usunięcie musi zostać zablokowane — inaczej faktury straciłyby jedyne
+    powiązanie z podmiotem. Nieobsłużony `RuntimeError` dawał jednak gołe
+    „Internal Server Error", a przyczynę tylko w logach.
+    """
+    from app.core.config import settings
     from app.models.candidate import Candidate
 
+    candidate_id = await _seed_candidate()
+    await _seed_contract(candidate_id)
+    monkeypatch.setattr(settings, "CANDIDATE_IDENTITY_FINGERPRINT_KEY", "")
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 503, r.text
+    assert "CANDIDATE_IDENTITY_FINGERPRINT_KEY" in r.json()["detail"]
+
+    # Kandydat i umowa przeżywają zablokowaną próbę.
     assert await _count(Candidate, id=candidate_id) == 1

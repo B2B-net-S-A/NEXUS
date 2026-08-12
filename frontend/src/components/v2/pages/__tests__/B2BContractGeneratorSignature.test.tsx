@@ -91,7 +91,14 @@ function generatedRow(
   return {
     id: 1,
     contract_number: "1471/2026",
+    // Ten plik używa `partner_name` jako etykiety OSOBY w dialogu podpisu —
+    // dlatego `partner_display_name` zostaje tą samą wartością, żeby nie
+    // zmieniać sensu istniejących asercji.
     partner_name: "Jan Kowalski",
+    partner_display_name: "Jan Kowalski",
+    partner_secondary_line: null,
+    partner_nip: null,
+    start_date: null,
     client_name: "Nazwa z dokumentu",
     language: "pl",
     signing_date: "2026-07-24",
