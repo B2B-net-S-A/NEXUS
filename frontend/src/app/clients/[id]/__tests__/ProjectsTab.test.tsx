@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,11 +52,25 @@ function renderTab() {
   );
 }
 
-function detailsFor(sectionTitle: string): HTMLDetailsElement {
-  const details = screen.getByText(sectionTitle).closest("details");
-  if (!details) throw new Error(`No <details> for section: ${sectionTitle}`);
-  return details as HTMLDetailsElement;
+/**
+ * Kubełki są teraz przełącznikiem, nie akordeonem, więc nie ma już `<details>`
+ * do inspekcji. Asercje idą po roli `tab`/`aria-selected` (Radix) oraz po
+ * OBECNOŚCI wierszy w DOM.
+ *
+ * Świadomie `not.toBeInTheDocument()`, nie `not.toBeVisible()`: jsdom nie liczy
+ * widoczności, więc `toBeVisible` przepuściłby implementację, która tylko
+ * ukrywa niewybraną listę CSS-em — a ticket wymaga, żeby aktywne ZNIKAŁY.
+ */
+function tab(name: RegExp | string): HTMLElement {
+  return screen.getByRole("tab", { name });
 }
+
+/**
+ * Radix `TabsTrigger` przełącza się na pointer events, których `fireEvent.click`
+ * nie emituje — dlatego kliknięcia w kubełki idą przez `userEvent`.
+ * `delay: null` zdejmuje sztuczną pauzę między zdarzeniami.
+ */
+const setupUser = () => userEvent.setup({ delay: null });
 
 beforeEach(() => {
   mocks.apiGet.mockReset();
@@ -63,21 +78,23 @@ beforeEach(() => {
 });
 
 describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
-  it("segreguje projekty po statusie do właściwych sekcji", async () => {
+  it("segreguje projekty po statusie — widoczny tylko wybrany kubełek", async () => {
+    const user = setupUser();
     renderTab();
 
-    const activeSection = detailsFor("Aktywne projekty");
-    const closedSection = detailsFor("Zamknięte projekty");
-
-    // Aktywne (published + draft) w sekcji Aktywne, zamknięte poza nią.
+    // Aktywne (published + draft) widoczne, zamknięte NIEOBECNE w DOM.
     expect(
-      await within(activeSection).findByText("Senior Python Developer"),
+      await screen.findByText("Senior Python Developer"),
     ).toBeInTheDocument();
-    expect(within(activeSection).getByText("React Engineer szkic")).toBeInTheDocument();
-    expect(within(activeSection).queryByText("DevOps Engineer")).not.toBeInTheDocument();
+    expect(screen.getByText("React Engineer szkic")).toBeInTheDocument();
+    expect(screen.queryByText("DevOps Engineer")).not.toBeInTheDocument();
 
-    // Zamknięte w sekcji Zamknięte.
-    expect(await within(closedSection).findByText("DevOps Engineer")).toBeInTheDocument();
+    await user.click(tab(/Zamknięte projekty/));
+
+    // Po przełączeniu jest odwrotnie — aktywne wychodzą z DOM.
+    expect(await screen.findByText("DevOps Engineer")).toBeInTheDocument();
+    expect(screen.queryByText("Senior Python Developer")).not.toBeInTheDocument();
+    expect(screen.queryByText("React Engineer szkic")).not.toBeInTheDocument();
   });
 
   it("pyta serwer osobno o aktywne (open_only) i zamknięte (status=closed)", async () => {
@@ -98,21 +115,24 @@ describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
     );
   });
 
-  it("pokazuje liczbę projektów per sekcja w nagłówku", async () => {
+  it("pokazuje licznik przy OBU opcjach, także niewybranej", async () => {
     renderTab();
     await screen.findByText("Senior Python Developer");
 
-    // Nagłówek Aktywne = 2, Zamknięte = 1 (widoczne bez rozwijania).
-    expect(screen.getByText("Aktywne projekty").closest("summary")).toHaveTextContent("2");
-    expect(screen.getByText("Zamknięte projekty").closest("summary")).toHaveTextContent("1");
+    // Aktywne = 2, Zamknięte = 1. Licznik niewybranej opcji jest tym, co
+    // zastąpiło auto-rozwijanie drugiej sekcji przy wyszukiwaniu — gdyby
+    // zniknął (np. przez `enabled:` na drugim useQuery), użytkownik nie
+    // wiedziałby, że trafienia są w drugim kubełku.
+    expect(tab(/Aktywne projekty/)).toHaveTextContent("2");
+    expect(tab(/Zamknięte projekty/)).toHaveTextContent("1");
   });
 
-  it("domyślnie rozwija Aktywne, zwija Zamknięte", async () => {
+  it("domyślnie wybrane są Aktywne projekty", async () => {
     renderTab();
     await screen.findByText("Senior Python Developer");
 
-    expect(detailsFor("Aktywne projekty").open).toBe(true);
-    expect(detailsFor("Zamknięte projekty").open).toBe(false);
+    expect(tab(/Aktywne projekty/)).toHaveAttribute("aria-selected", "true");
+    expect(tab(/Zamknięte projekty/)).toHaveAttribute("aria-selected", "false");
   });
 
   it("wyszukiwarka odpytuje serwer z parametrem q (debounced)", async () => {
@@ -137,19 +157,24 @@ describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
     );
   });
 
-  it("aktywne wyszukiwanie rozwija także sekcję Zamknięte", async () => {
+  it("wyszukiwarka filtruje AKTUALNIE wybraną listę, nie obie naraz", async () => {
+    // Zastępuje test „aktywne wyszukiwanie rozwija także sekcję Zamknięte" —
+    // T4 usuwa akordeon, więc ta przesłanka przestała istnieć. Trafienie
+    // w drugim kubełku jest teraz widoczne przez jego licznik.
     renderTab();
     await screen.findByText("Senior Python Developer");
-    expect(detailsFor("Zamknięte projekty").open).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Szukaj projektów"), {
       target: { value: "DevOps" },
     });
 
     await waitFor(
-      () => expect(detailsFor("Zamknięte projekty").open).toBe(true),
+      () => expect(tab(/Zamknięte projekty/)).toHaveTextContent("1"),
       { timeout: 2500 },
     );
+    // Wybrany kubełek nadal aktywny — wyszukiwanie nie przełącza widoku.
+    expect(tab(/Aktywne projekty/)).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("DevOps Engineer")).not.toBeInTheDocument();
   });
 
   it("rozróżnia pustkę po wyszukaniu od braku projektów", async () => {
@@ -160,7 +185,8 @@ describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
       target: { value: "zzz-nic-nie-pasuje" },
     });
 
-    // Obie sekcje: komunikat "pasujących do wyszukiwania", nie "Brak aktywnych".
+    // Wybrany kubełek: komunikat "pasujących do wyszukiwania", nie
+    // "Brak aktywnych projektów" — pustka po filtrze ≠ brak danych.
     await waitFor(
       () =>
         expect(

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Briefcase, ExternalLink, Search, UserPlus, XCircle } from "lucide-react";
 import api from "@/lib/api";
+import { TabbedNav } from "@/components/ds";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { AddCandidateToJobModal } from "@/components/client-profile/actions/AddCandidateToJobModal";
@@ -128,58 +129,26 @@ function ProjectRow({
 // ── Section ───────────────────────────────────────────────────────────────────
 
 function ProjectsSection({
-  title,
-  tone,
   total,
   items,
   isLoading,
   isError,
   searching,
   emptyLabel,
-  open,
-  onToggle,
   renderActions,
 }: {
-  title: string;
-  tone: Bucket;
   total: number;
   items: ProjectJob[];
   isLoading: boolean;
   isError: boolean;
   searching: boolean;
   emptyLabel: string;
-  open: boolean;
-  onToggle: (event: React.SyntheticEvent<HTMLDetailsElement>) => void;
   renderActions?: (job: ProjectJob) => React.ReactNode;
 }) {
   const truncated = total > items.length;
   return (
-    <details
-      open={open}
-      onToggle={onToggle}
-      className="border border-border rounded-lg group"
-    >
-      <summary className="cursor-pointer select-none p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
-        <Briefcase
-          className={cn(
-            "w-4 h-4",
-            tone === "active" ? "text-purple-600" : "text-muted-foreground",
-          )}
-        />
-        <span>{title}</span>
-        <span
-          className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
-          aria-label={isLoading ? "Ładowanie liczby projektów" : `Liczba: ${total}`}
-        >
-          {/* "…" w trakcie ładowania — inaczej licznik mignąłby "0" zanim
-              dojdą dane. */}
-          {isLoading ? "…" : total}
-        </span>
-        <span className="ml-auto text-xs text-muted-foreground group-open:hidden">
-          rozwiń
-        </span>
-      </summary>
-      <div className="p-4 pt-0 border-t border-border space-y-2">
+    <div className="border border-border rounded-lg">
+      <div className="p-4 space-y-2">
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
             <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
@@ -211,7 +180,7 @@ function ProjectsSection({
           </>
         )}
       </div>
-    </details>
+    </div>
   );
 }
 
@@ -228,12 +197,16 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
   const [addCandidateTo, setAddCandidateTo] = useState<ProjectJob | null>(null);
   const [closeJobAsLost, setCloseJobAsLost] = useState<ProjectJob | null>(null);
 
-  // Aktywne rozwinięte domyślnie (wymóg: "domyślnie widoczna sekcja Aktywne"),
-  // zamknięte zwinięte. Aktywne wyszukiwanie wymusza rozwinięcie obu sekcji, żeby
-  // trafienie w zwiniętej sekcji zamkniętych nie było niewidoczne.
-  const [openActive, setOpenActive] = useState(true);
-  const [openClosed, setOpenClosed] = useState(false);
+  // Jeden przełącznik zamiast dwóch akordeonów: renderujemy DOKŁADNIE jedną
+  // listę, domyślnie aktywne. Stan lokalny, bez parametru w URL-u — spójnie
+  // z podzakładkami w Profilu.
+  const [bucket, setBucket] = useState<Bucket>("active");
 
+  // OBA zapytania lecą ZAWSZE, bez `enabled:` — i to jest cecha, nie
+  // przeoczenie. Ticket wymaga liczników przy obu opcjach niezależnie od
+  // wyboru, a `enabled: bucket === …` zgasiłoby licznik niewybranej opcji do
+  // `0` przez `?? 0` niżej, czyli skłamałby „brak zamkniętych projektów".
+  // Dane oba, render jeden.
   const activeQuery = useQuery({
     queryKey: ["client-jobs", clientId, "active", debouncedSearch],
     queryFn: () => fetchClientJobs(clientId, "active", debouncedSearch),
@@ -261,57 +234,82 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
         />
       </div>
 
-      <ProjectsSection
-        title="Aktywne projekty"
-        tone="active"
-        total={activeQuery.data?.total ?? 0}
-        items={activeJobs}
-        isLoading={activeQuery.isLoading}
-        isError={activeQuery.isError}
-        searching={searching}
-        emptyLabel="Brak aktywnych projektów."
-        open={searching ? true : openActive}
-        onToggle={(e) => {
-          if (!searching) setOpenActive(e.currentTarget.open);
-        }}
-        renderActions={(job) =>
-          job.status === "published" ? (
-            <>
-              <button
-                onClick={() => setAddCandidateTo(job)}
-                title="Dodaj kandydata do pipeline"
-                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-md transition-colors"
-              >
-                <UserPlus className="w-3 h-3" />
-                Dodaj
-              </button>
-              <button
-                onClick={() => setCloseJobAsLost(job)}
-                title="Zamknij jako przegraną"
-                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
-              >
-                <XCircle className="w-3 h-3" />
-                Lost
-              </button>
-            </>
-          ) : null
-        }
+      {/* Liczniki: awaria NIE może wyrenderować się jako „(0)" — to czyta się
+          jako „nie ma zamkniętych projektów". Przy błędzie zdejmujemy liczbę
+          i dopisujemy „(—)" do etykiety, a w trakcie ładowania nie pokazujemy
+          nic (inaczej licznik mignąłby „0" zanim dojdą dane). */}
+      <TabbedNav
+        ariaLabel="Kubełki projektów klienta"
+        value={bucket}
+        onValueChange={(v) => setBucket(v as Bucket)}
+        tabs={[
+          {
+            value: "active",
+            label: activeQuery.isError
+              ? "Aktywne projekty (—)"
+              : "Aktywne projekty",
+            count:
+              activeQuery.isError || activeQuery.isLoading
+                ? undefined
+                : (activeQuery.data?.total ?? 0),
+          },
+          {
+            value: "closed",
+            label: closedQuery.isError
+              ? "Zamknięte projekty (—)"
+              : "Zamknięte projekty",
+            count:
+              closedQuery.isError || closedQuery.isLoading
+                ? undefined
+                : (closedQuery.data?.total ?? 0),
+          },
+        ]}
       />
 
-      <ProjectsSection
-        title="Zamknięte projekty"
-        tone="closed"
-        total={closedQuery.data?.total ?? 0}
-        items={closedJobs}
-        isLoading={closedQuery.isLoading}
-        isError={closedQuery.isError}
-        searching={searching}
-        emptyLabel="Brak zamkniętych projektów."
-        open={searching ? true : openClosed}
-        onToggle={(e) => {
-          if (!searching) setOpenClosed(e.currentTarget.open);
-        }}
-      />
+      {/* Renderujemy DOKŁADNIE jedną listę — niewybrany kubełek wychodzi z DOM,
+          nie jest ukrywany CSS-em (inaczej „aktywne znikają" byłoby pozorne). */}
+      {bucket === "active" ? (
+        <ProjectsSection
+          total={activeQuery.data?.total ?? 0}
+          items={activeJobs}
+          isLoading={activeQuery.isLoading}
+          isError={activeQuery.isError}
+          searching={searching}
+          emptyLabel="Brak aktywnych projektów."
+          renderActions={(job) =>
+            job.status === "published" ? (
+              <>
+                <button
+                  onClick={() => setAddCandidateTo(job)}
+                  title="Dodaj kandydata do pipeline"
+                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-md transition-colors"
+                >
+                  <UserPlus className="w-3 h-3" />
+                  Dodaj
+                </button>
+                <button
+                  onClick={() => setCloseJobAsLost(job)}
+                  title="Zamknij jako przegraną"
+                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                >
+                  <XCircle className="w-3 h-3" />
+                  Lost
+                </button>
+              </>
+            ) : null
+          }
+        />
+      ) : (
+        /* Bez `renderActions` — akcje rekrutacji nie mogą wyciec do zamkniętych. */
+        <ProjectsSection
+          total={closedQuery.data?.total ?? 0}
+          items={closedJobs}
+          isLoading={closedQuery.isLoading}
+          isError={closedQuery.isError}
+          searching={searching}
+          emptyLabel="Brak zamkniętych projektów."
+        />
+      )}
 
       {addCandidateTo && (
         <AddCandidateToJobModal
