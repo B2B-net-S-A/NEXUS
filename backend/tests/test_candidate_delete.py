@@ -131,7 +131,7 @@ async def test_admin_hard_delete_removes_the_candidate_and_its_notes(
 async def test_hard_delete_keeps_the_contract_and_pseudonymises_it(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """SEDNO migracji 0224: „usuń kandydata" nie znaczy „usuń faktury".
+    """SEDNO migracji 0225: „usuń kandydata" nie znaczy „usuń faktury".
 
     `invoices`, `document_signatures` i `client_orders` nie mają własnego FK na
     kandydata — wiszą na umowie. Gdyby umowa poszła kaskadą, zniknęłyby razem

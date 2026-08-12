@@ -12,7 +12,7 @@ ciąga `httpx` i `settings`. Rozdzielenie I/O od czystej reguły pozwala też
 testować ją bez mockowania HTTP — czego `registry_lookup` do dziś nie ma.
 
 DWA MECHANIZMY, NIE JEDEN. Sygnał z rejestru (CEIDG vs KRS) jest twardy, ale
-istnieje wyłącznie dla umów generowanych od migracji 0223. Wiersze historyczne
+istnieje wyłącznie dla umów generowanych od migracji 0224. Wiersze historyczne
 mają `partner_entity_type = NULL`, więc dla nich decyduje heurystyka po formie
 prawnej w nazwie. Do tego dochodzi reguła podciągu w `partner_display_lines`,
 która kasuje duplikację nawet wtedy, gdy oba mechanizmy się mylą.

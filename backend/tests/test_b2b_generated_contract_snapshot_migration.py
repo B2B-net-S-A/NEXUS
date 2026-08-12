@@ -1,4 +1,4 @@
-"""Kontrakt migracji 0223: trzeci status + snapshot danych Partnera.
+"""Kontrakt migracji 0224: trzeci status + snapshot danych Partnera.
 
 Prod alembic bywa osierocony (`entrypoint.sh` toleruje porażkę `upgrade heads`),
 więc KAŻDA zmiana schematu musi mieć lustro w `entrypoint.sh` albo po cichu nigdy
@@ -18,7 +18,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-MIGRATION = BACKEND / "alembic/versions/0223_b2b_generated_contract_in_progress.py"
+MIGRATION = BACKEND / "alembic/versions/0224_b2b_generated_contract_in_progress.py"
 MODEL = BACKEND / "app/models/b2b_generated_contract.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 
@@ -31,11 +31,16 @@ _SNAPSHOT_COLUMNS = (
 
 
 def test_migration_chains_onto_the_single_head():
-    """Jedna głowa alembica jest bramką CI (`test_analytics_release_gates`),
-    więc `down_revision` nie może wskazywać na nic innego niż ówczesny tip."""
+    """Jedna głowa alembica jest bramką CI (`test_analytics_release_gates`).
+
+    Ta rewizja była pierwotnie numerowana 0223 z rodzicem 0222 — i to był realny
+    rozjazd: równolegle wszedł na maina `0223_cv_backfill_ai_feature` z TYM SAMYM
+    rodzicem, co dawało dwie głowy. Git tego nie zgłasza (żadnych konfliktów,
+    dwa różne pliki), więc bramka CI jest jedynym miejscem, gdzie to widać.
+    """
     src = MIGRATION.read_text("utf-8")
-    assert 'revision = "0223_b2b_generated_contract_in_progress"' in src
-    assert 'down_revision = "0222_rename_talent_radar_source"' in src
+    assert 'revision = "0224_b2b_generated_contract_in_progress"' in src
+    assert 'down_revision = "0223_cv_backfill_ai_feature"' in src
 
 
 def test_migration_widens_both_checks_not_just_the_status_one():

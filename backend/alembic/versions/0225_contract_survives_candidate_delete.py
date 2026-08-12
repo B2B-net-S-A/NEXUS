@@ -28,15 +28,15 @@ starsze bazy mogą mieć nazwę z czasów `create_table`
 (`contracts_candidate_id_fkey`). Kasowanie po zgadniętej nazwie zostawiłoby na
 prodzie stary CASCADE i cała ta migracja byłaby bezczynna.
 
-Revision ID: 0224_contract_survives_candidate_delete
-Revises: 0223_b2b_generated_contract_in_progress
+Revision ID: 0225_contract_survives_candidate_delete
+Revises: 0224_b2b_generated_contract_in_progress
 """
 
 from alembic import op
 
 
-revision = "0224_contract_survives_candidate_delete"
-down_revision = "0223_b2b_generated_contract_in_progress"
+revision = "0225_contract_survives_candidate_delete"
+down_revision = "0224_b2b_generated_contract_in_progress"
 branch_labels = None
 depends_on = None
 
@@ -94,7 +94,7 @@ def downgrade() -> None:
     # Powrót do CASCADE wymaga NOT NULL, a NOT NULL nie zniesie umów już
     # odpiętych od usuniętych kandydatów. Kasujemy je świadomie: przy CASCADE
     # i tak by nie istniały, więc downgrade odtwarza stan, w którym ich nie ma.
-    # (Ta migracja nie jest odpalana w CI — patrz komentarz w 0223.)
+    # (Ta migracja nie jest odpalana w CI — patrz komentarz w 0224.)
     op.execute("DELETE FROM contracts WHERE candidate_id IS NULL")
     op.execute("DROP INDEX IF EXISTS ix_contracts_candidate_subject_ref")
     op.execute(_DROP_EXISTING)

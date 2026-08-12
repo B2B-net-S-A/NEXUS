@@ -238,7 +238,7 @@ def test_substring_rule_does_not_match_a_word_fragment():
 
 
 def test_historical_row_without_legal_name_falls_back_to_the_person():
-    """Wiersz sprzed 0223: `partner_legal_name` NULL, a `partner_name` trzyma
+    """Wiersz sprzed 0224: `partner_legal_name` NULL, a `partner_name` trzyma
     nazwę firmy (realny fixture w `test_b2b_generated_contract_status`).
     Klasyfikacja jest tu nieistotna — gdyby decydowała, ta sama firma
     wypisałaby się DWA RAZY."""

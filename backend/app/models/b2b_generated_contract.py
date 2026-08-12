@@ -60,7 +60,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
         # wypełnionym powodem to sprzeczność. Wymuszamy to w bazie, nie tylko w
         # API, bo dane wchodzą tu również safety-netem entrypointu.
         #
-        # `in_progress` jest tu traktowany jak `active` (migracja 0223): umowa
+        # `in_progress` jest tu traktowany jak `active` (migracja 0224): umowa
         # w drodze do podpisu nie ma i nie może mieć pól zamknięcia. Gdyby ta
         # gałąź została przypięta wyłącznie do `active`, wiersz `in_progress`
         # łamałby OBIE gałęzie → IntegrityError na każdym generowaniu umowy.
@@ -97,7 +97,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # Nazwa firmy odczytana z rejestru (GUS/CEIDG) w momencie generowania.
     # Dla JDG to pełna nazwa działalności („Management Services - Jan Kowalski"),
     # która z mocy prawa zawiera imię i nazwisko właściciela. NULL = wiersz
-    # sprzed migracji 0223, którego payload nie miał tego klucza.
+    # sprzed migracji 0224, którego payload nie miał tego klucza.
     partner_legal_name: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True
     )
@@ -135,7 +135,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # zamknięta rezygnacją przed podpisem. Zamknięcie NIE usuwa wiersza —
     # kończy jego bieg i zostaje w rejestrze.
     #
-    # Trzy wartości (0223): `in_progress` → `active` → `closed`, gdzie
+    # Trzy wartości (0224): `in_progress` → `active` → `closed`, gdzie
     # `in_progress` ustawia generowanie, a `active` WYŁĄCZNIE potwierdzenie
     # podpisu obustronnego. Default kolumny ZOSTAJE `active` i to nie jest
     # przeoczenie: opisuje wiersz wstawiony bez decyzji o statusie (seed,

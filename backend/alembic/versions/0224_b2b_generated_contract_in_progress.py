@@ -39,15 +39,15 @@ Dla wierszy historycznych typ podmiotu wyznacza heurystyka po nazwie w warstwie
 serializacji, z regułą „niejednoznaczne → spółka". NULL w kolumnie znaczy
 dokładnie „brak sygnału z rejestru" i to jest informacja, nie brak danych.
 
-Revision ID: 0223_b2b_generated_contract_in_progress
-Revises: 0222_rename_talent_radar_source
+Revision ID: 0224_b2b_generated_contract_in_progress
+Revises: 0223_cv_backfill_ai_feature
 """
 
 from alembic import op
 
 
-revision = "0223_b2b_generated_contract_in_progress"
-down_revision = "0222_rename_talent_radar_source"
+revision = "0224_b2b_generated_contract_in_progress"
+down_revision = "0223_cv_backfill_ai_feature"
 branch_labels = None
 depends_on = None
 

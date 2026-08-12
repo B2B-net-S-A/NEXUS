@@ -116,7 +116,7 @@ class Contract(Base, TimestampMixin):
 
     # Strony kontraktu
     #
-    # `SET NULL`, nie `CASCADE` (migracja 0224): usunięcie kandydata z bazy
+    # `SET NULL`, nie `CASCADE` (migracja 0225): usunięcie kandydata z bazy
     # rekrutacyjnej nie może kasować umowy, bo na umowie wiszą `invoices`,
     # `document_signatures` i `client_orders` — dokumenty księgowe i dowodowe,
     # które nie mają własnego FK na kandydata i poszłyby razem z nią.

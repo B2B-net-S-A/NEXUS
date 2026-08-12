@@ -156,7 +156,7 @@ _ENUM_STATEMENTS = [
     # => InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_requirement_map'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_interactive_chat'",
-    # 0223: masowe uzupełnianie pól z CV (Fala 3) — osobny kubełek kwoty
+    # 0224: masowe uzupełnianie pól z CV (Fala 3) — osobny kubełek kwoty
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_backfill'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
     # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
@@ -750,7 +750,7 @@ _COLUMN_STATEMENTS = [
     # milcząco spadłby do `backfill data skip: ... UndefinedColumn`.
     """ALTER TABLE b2b_generated_contracts
        ADD COLUMN IF NOT EXISTS render_payload JSONB NULL""",
-    # Snapshot danych Partnera + data rozpoczęcia usług (migracja 0223).
+    # Snapshot danych Partnera + data rozpoczęcia usług (migracja 0224).
     # Odnormalizowane z `render_payload`, bo lista „Wygenerowane umowy" pokazuje
     # te pola jako kolumny i filtruje po `start_date` po stronie SQL-a.
     """ALTER TABLE b2b_generated_contracts
@@ -3251,7 +3251,7 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_requirement_map', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_requirement_map')",
-    # 0223: seed feature'a AI `cv_backfill` (masowe uzupełnianie pól z CV).
+    # 0224: seed feature'a AI `cv_backfill` (masowe uzupełnianie pól z CV).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_backfill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_backfill')",
@@ -4142,7 +4142,7 @@ _CONSTRAINT_STATEMENTS = [
             FOREIGN KEY (signed_by_user_id) REFERENCES users (id)
             ON DELETE SET NULL NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0223: 'in_progress' jako trzeci status. DROP PRZED ADD, bo
+    # 0224: 'in_progress' jako trzeci status. DROP PRZED ADD, bo
     # `EXCEPTION WHEN duplicate_object THEN NULL` po cichu zostawiłby STARY,
     # wąski constraint z 0203 — a wtedy INSERT z 'in_progress' wywalałby
     # CheckViolation przy każdym generowaniu umowy, a entrypoint wypisałby
@@ -4168,7 +4168,7 @@ _CONSTRAINT_STATEMENTS = [
                 )
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0223: 'in_progress' traktowany jak 'active' — umowa w drodze do podpisu
+    # 0224: 'in_progress' traktowany jak 'active' — umowa w drodze do podpisu
     # nie ma pól zamknięcia. Bez tego przepisania wiersz 'in_progress' łamie
     # OBIE gałęzie tego CHECK-a, więc samo poszerzenie
     # ck_..._contract_status wyżej NIE wystarczy. DROP przed ADD — jak wyżej.
@@ -4194,7 +4194,7 @@ _CONSTRAINT_STATEMENTS = [
                 )
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0223: domena typu podmiotu Partnera. NULL dozwolony = wiersz historyczny
+    # 0224: domena typu podmiotu Partnera. NULL dozwolony = wiersz historyczny
     # bez sygnału z rejestru (heurystyka po nazwie działa w serializacji).
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts

@@ -53,7 +53,11 @@ import {
 
 interface ContractDetail {
   id: number;
-  candidate_id: number;
+  /**
+   * NULL = umowa odpięta od usuniętego kandydata (migracja 0225). Rejestr
+   * pokazuje takie umowy dalej, bo wiszą na nich faktury i podpisy.
+   */
+  candidate_id: number | null;
   client_id: number;
   job_id: number | null;
   candidate_name: string | null;
@@ -725,15 +729,19 @@ export default function ContractDetailPage() {
             )}
           </h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            {contract.candidate_name ? (
+            {/* Bez `candidate_id` nie ma do czego linkować — link
+                `/candidates/null` udawałby istniejącą osobę i prowadził w 404. */}
+            {contract.candidate_name && contract.candidate_id != null ? (
               <Link
                 className="text-primary hover:underline dark:text-primary"
                 href={`/candidates/${contract.candidate_id}`}
               >
                 {contract.candidate_name}
               </Link>
-            ) : (
+            ) : contract.candidate_id != null ? (
               `#${contract.candidate_id}`
+            ) : (
+              "kandydat usunięty z systemu"
             )}
             {" · "}
             {contract.client_name ? (
@@ -812,15 +820,17 @@ export default function ContractDetailPage() {
                   Informacje o kontrakcie
                 </h2>
                 <InfoRow icon={User} label="Kandydat">
-                  {contract.candidate_name ? (
+                  {contract.candidate_name && contract.candidate_id != null ? (
                     <Link
                       href={`/candidates/${contract.candidate_id}`}
                       className="text-primary hover:underline dark:text-primary"
                     >
                       {contract.candidate_name}
                     </Link>
-                  ) : (
+                  ) : contract.candidate_id != null ? (
                     `#${contract.candidate_id}`
+                  ) : (
+                    "kandydat usunięty z systemu"
                   )}
                 </InfoRow>
                 <InfoRow icon={Building2} label="Klient">

@@ -82,7 +82,7 @@ def record_candidate_audit(
 def candidate_subject_reference(candidate_id: int) -> str:
     """Pseudonimowy klucz podmiotu dla umów odpiętych od usuniętego kandydata.
 
-    Po `ON DELETE SET NULL` (migracja 0224) faktury tej samej osoby przestają
+    Po `ON DELETE SET NULL` (migracja 0225) faktury tej samej osoby przestają
     być ze sobą powiązane, a bez tego księgowość nie uzgodni rozrachunków.
     Ten klucz je łączy, nie przywracając tożsamości.
 
