@@ -1,4 +1,4 @@
-fastapi==0.141.1
+fastapi==0.115.6
 uvicorn[standard]==0.52.1
 # The `[asyncio]` extra is LOAD-BEARING from Python 3.13 onwards, do not drop it.
 # SQLAlchemy 2.0.36 declares its greenlet dependency as
@@ -27,7 +27,7 @@ httpx==0.28.1
 # Wołających jest 7: embedding_service.py (×4), pool_suggester.py,
 # historical_jobs_retrieval.py, cc_classifier.py. Migracja na query_points —
 # osobny PR, razem z sondą `checks.qdrant` w /api/health.
-qdrant-client==1.19.0
+qdrant-client==1.12.1
 anthropic>=0.120.2,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
