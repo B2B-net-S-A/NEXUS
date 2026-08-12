@@ -39,17 +39,22 @@ from app.schemas.client_directory import (
     ClientPortfolioScopeUpdate,
 )
 from app.services.client_access import ADMIN_LIKE_ROLES, CLIENT_TEAM_ROLES
+from app.services.client_identity import (
+    client_display_name_expression,
+    visible_client_predicates,
+)
 
 router = APIRouter()
 
 
 def _effective_client_name():
-    """SQL expression for the NEXUS-owned canonical display name."""
+    """SQL expression for the NEXUS-owned canonical display name.
 
-    return func.coalesce(
-        func.nullif(func.btrim(Client.display_name), ""),
-        Client.name,
-    )
+    Cienki alias na `client_identity.client_display_name_expression` — reguła ma
+    jedną definicję (ten plik i `api/clients.py` trzymały jej dosłowne kopie).
+    """
+
+    return client_display_name_expression()
 
 
 def _escaped_like_pattern(value: str) -> str:
@@ -60,11 +65,9 @@ def _escaped_like_pattern(value: str) -> str:
 
 
 def _visible_client_filters() -> tuple:
-    return (
-        Client.hidden.is_(False),
-        Client.archived_at.is_(None),
-        Client.merged_into_client_id.is_(None),
-    )
+    """Cienki alias na `client_identity.visible_client_predicates` (była kopia)."""
+
+    return visible_client_predicates()
 
 
 def _active_consultants_subquery(as_of: date):

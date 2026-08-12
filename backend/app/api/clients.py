@@ -31,6 +31,11 @@ from app.services.access_scope import (
     resolve_delivery_lead_client_ids,
 )
 from app.services.client_access import ADMIN_LIKE_ROLES, CLIENT_TEAM_ROLES
+from app.services.client_identity import (
+    client_display_name,
+    client_display_name_expression,
+    visible_client_predicates,
+)
 from app.schemas.client_profile import (
     ActiveConsultantItem,
     CandidateBrief,
@@ -119,10 +124,13 @@ def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResp
 
 
 def _effective_client_name():
-    return func.coalesce(
-        func.nullif(func.btrim(Client.display_name), ""),
-        Client.name,
-    )
+    """Cienki alias na `client_identity.client_display_name_expression`.
+
+    Reguła nazwy prezentowanej ma JEDNĄ definicję. Ten plik trzymał jej kopię
+    dosłownie identyczną z `api/client_directory.py`, a `admin_clients_overview`
+    nie miał jej wcale i pokazywał surowe `Client.name`.
+    """
+    return client_display_name_expression()
 
 
 def _escaped_like_pattern(value: str) -> str:
@@ -137,7 +145,7 @@ def _serialize_client(
     effective_name: Optional[str] = None,
 ) -> ClientResponse | ClientSafeResponse:
     schema = _client_schema_for(current_user)
-    name = effective_name or (client.display_name or "").strip() or client.name
+    name = effective_name or client_display_name(client)
     return schema.model_validate(client).model_copy(update={"name": name})
 
 
@@ -205,11 +213,7 @@ async def list_clients(
     effective_name = _effective_client_name()
     query = (
         select(Client, effective_name.label("effective_name"))
-        .where(
-            Client.hidden.is_(False),
-            Client.archived_at.is_(None),
-            Client.merged_into_client_id.is_(None),
-        )
+        .where(*visible_client_predicates())
         .order_by(func.lower(effective_name).asc(), Client.id.asc())
     )
     query = apply_delivery_lead_client_scope(
