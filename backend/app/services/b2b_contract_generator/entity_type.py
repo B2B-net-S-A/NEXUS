@@ -239,7 +239,7 @@ def partner_display_lines(
     person = (person_name or "").strip()
 
     # Wiersz historyczny bez zapisanej nazwy firmy: pokazujemy osobę, jak przed
-    # migracją 0223. Klasyfikacja jest tu NIEISTOTNA — gdyby decydowała, wiersz
+    # migracją 0224. Klasyfikacja jest tu NIEISTOTNA — gdyby decydowała, wiersz
     # z `partner_name = "ZW Software Sp. z o.o."` i pustą nazwą firmy wypisałby
     # tę firmę DWA RAZY, w dwóch rozmiarach czcionki.
     if not legal:

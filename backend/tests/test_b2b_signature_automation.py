@@ -1450,3 +1450,78 @@ async def test_signed_generated_row_cannot_be_edited_or_deleted(
         assert row is not None
         assert row.signature_status == "signed_both"
         assert row.client_name == scenario["client_name"]
+
+
+# ── Status handlowy: promocja in_progress → active (migracja 0224) ────────────
+
+
+async def _set_generated_status(generated_id: int, **values: Any) -> None:
+    """Ustaw status handlowy wprost w bazie.
+
+    Helper `_seed_bound_scenario` zostawia default kolumny (`active`), a testy
+    niżej potrzebują wiersza w stanie, do którego prowadzi dopiero `/render`.
+    """
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None
+        for key, value in values.items():
+            setattr(row, key, value)
+        await db.commit()
+
+
+async def test_confirming_signature_promotes_in_progress_to_active(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Potwierdzenie podpisu jest JEDYNYM przejściem `in_progress` → `active`.
+
+    Bez tego testu warunek promocji mógłby zniknąć albo się odwrócić przy
+    zielonym CI: pozostałe testy tego pliku seedują wiersze przez ORM z defaultem
+    `active`, więc żaden nie przechodzi przez ten stan.
+    """
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _set_generated_status(scenario["generated_id"], contract_status="in_progress")
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert response.status_code == 200, response.text
+
+    generated = response.json()["generated_contract"]
+    assert generated["contract_status"] == "active", (
+        "podpis obustronny musi wypromować umowę z in_progress na active"
+    )
+    assert generated["signature_status"] == "signed_both"
+
+
+async def test_confirming_signature_does_not_reopen_a_closed_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Promocja jest WARUNKOWA i to jest jej sens.
+
+    Umowę wolno zamknąć powodem `resignation_before_signing` PRZED podpisem.
+    Bezwarunkowe `contract_status = "active"` zostawiłoby wtedy wypełnione pola
+    `closure_*` przy statusie `active`, co łamie
+    `ck_b2b_generated_contracts_closure_coherence` → IntegrityError w środku
+    atomowej automatyzacji zatrudnienia. Test na samo przejście
+    `in_progress → active` przeszedłby również dla wersji bezwarunkowej.
+    """
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _set_generated_status(
+        scenario["generated_id"],
+        contract_status="closed",
+        closure_reason="resignation_before_signing",
+        closure_date=date(2026, 8, 15),
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert response.status_code == 200, response.text
+
+    generated = response.json()["generated_contract"]
+    assert generated["contract_status"] == "closed", (
+        "zamknięta umowa nie może zostać cicho otwarta przez potwierdzenie podpisu"
+    )
+    assert generated["closure_reason"] == "resignation_before_signing"
+    # Sam podpis został odnotowany — blokujemy tylko zmianę statusu handlowego.
+    assert generated["signature_status"] == "signed_both"

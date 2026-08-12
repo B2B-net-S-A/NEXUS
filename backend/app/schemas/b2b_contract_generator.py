@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Status handlowy wygenerowanej umowy i katalog powodów zamknięcia. Wartości
 # muszą pokrywać się z CHECK-ami na `b2b_generated_contracts` (model + migracje
-# 0203/0223 + safety-net entrypointu) — etykiety PL żyją po stronie frontendu.
+# 0203/0224 + safety-net entrypointu) — etykiety PL żyją po stronie frontendu.
 #
-# `in_progress` (0223) jest ustawiany WYŁĄCZNIE automatycznie: przy generowaniu
+# `in_progress` (0224) jest ustawiany WYŁĄCZNIE automatycznie: przy generowaniu
 # umowy, a `active` wyłącznie przy potwierdzeniu podpisu obustronnego. Katalog
 # jest jeden dla odczytu i zapisu; ręczny wybór `in_progress` odrzuca walidator
 # `B2BGeneratedContractUpdate`, nie zawężony typ — patrz uzasadnienie tam.
@@ -350,7 +350,7 @@ class B2BGeneratedContractItem(BaseModel):
     # zapisie i przy wyświetlaniu.
     partner_display_name: Optional[str] = None
     partner_secondary_line: Optional[str] = None
-    # Kolumny „NIP" i „Data rozpoczęcia" na liście (snapshot z 0223). NIP jest
+    # Kolumny „NIP" i „Data rozpoczęcia" na liście (snapshot z 0224). NIP jest
     # kanonicznie w samych cyfrach; `start_date` to data rozpoczęcia USŁUG,
     # nie data podpisania.
     partner_nip: Optional[str] = None

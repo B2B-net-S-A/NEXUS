@@ -3970,7 +3970,7 @@ _DATA_STATEMENTS = [
            'Wersja angielska oświadczenia o niekaralności (KRK 2024)', FALSE, 120, TRUE, now(), now()
        )
        ON CONFLICT (slug) DO NOTHING""",
-    # 0223 — snapshot danych Partnera z `render_payload` do kolumn. Klucze są
+    # 0224 — snapshot danych Partnera z `render_payload` do kolumn. Klucze są
     # 1:1 nazwami pól `B2BRenderRequest` (bez aliasów, bez `exclude_none`).
     #
     # `WHERE <kolumna> IS NULL` to nie optymalizacja, a poprawność: te

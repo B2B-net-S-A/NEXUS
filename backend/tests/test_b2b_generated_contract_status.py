@@ -522,7 +522,7 @@ async def _item_by_number(app_client, app_auth_headers, number: str) -> dict:
 async def test_generated_contract_starts_in_progress(app_client, app_auth_headers):
     """Sedno zmiany: wygenerowanie dokumentu to nie jest „umowa Aktywna".
 
-    Do 0223 rejestr twierdził „Aktywna" o umowie, która dopiero poszła do
+    Do 0224 rejestr twierdził „Aktywna" o umowie, która dopiero poszła do
     podpisu — bo status brał się z defaultu kolumny.
     """
     number = await _render_docx(app_client, app_auth_headers)
