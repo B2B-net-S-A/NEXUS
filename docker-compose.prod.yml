@@ -4,6 +4,10 @@
 #
 # Secrets come from the managed env (Coolify vault / Docker secrets).
 # Ports are NOT exposed — Coolify's Traefik handles reverse proxy + TLS.
+#
+# Limity pamięci są w BAZOWYM docker-compose.yml, nie tutaj — Coolify czyta
+# wyłącznie plik z docker_compose_location, więc limity trzymane w overlayu
+# nigdy nie obowiązywały na prodzie (Memory=0, zweryfikowane 2026-08-12).
 services:
   postgres:
     ports: []
@@ -11,21 +15,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
       POSTGRES_DB: ${POSTGRES_DB:?required}
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 512M
 
   qdrant:
     ports: []
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 512M
 
   backend:
     ports: []
@@ -45,20 +37,8 @@ services:
       retries: 3
       start_period: 60s
       start_interval: 2s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
 
   frontend:
     ports: []
     environment:
       NODE_ENV: production
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
