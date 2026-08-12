@@ -455,6 +455,57 @@ def assert_delivery_lead_job_visible(
         )
 
 
+async def ensure_champion_job_visible(
+    job: Job,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Zakres oferty dla powierzchni Championa — TAC-a włącznie.
+
+    Osobna funkcja obok `ensure_delivery_lead_job_visible`, a nie rozszerzenie
+    tamtej: tamtą wołają też `jobs.py` i `notes.py`, więc zmiana jej semantyki
+    poszerzyłaby dostęp na trzech powierzchniach naraz przy okazji zmiany
+    dotyczącej jednej.
+
+    KLUCZOWA RÓŻNICA — ta funkcja ODMAWIA persony, której nie zna. Sama podmiana
+    guarda z `DeliveryLeadPlus` na `TacPlus` NIE wystarczyłaby i byłaby cicho
+    groźna: `delivery_lead_job_pairs` zwraca `None` (czyli „bez ograniczeń") dla
+    każdego, kto nie jest Delivery Leadem. TAC dostałby więc wgląd w Championa
+    KAŻDEJ oferty — czyli dokładnie ten wyciek, który zamknięto w #1069, tylko
+    odtworzony inną drogą.
+
+    Alternatywa, nie łańcuch: użytkownik może trzymać kilka ról naraz
+    (`role` + `roles`), więc Delivery Lead będący jednocześnie TAC-em tej oferty
+    przechodzi, nawet jeśli oferta wypada poza jego zakres delivery.
+    """
+
+    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+        return
+
+    if current_user.has_role(UserRole.delivery_lead):
+        try:
+            assert_delivery_lead_job_visible(
+                job, await delivery_lead_job_pairs(current_user, db)
+            )
+            return
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_403_FORBIDDEN:
+                raise
+            # Odmowa po stronie delivery nie kończy sprawy — ten sam człowiek
+            # może być TAC-iem tej oferty. Sprawdzamy drugą ścieżkę niżej.
+
+    # `job.tac_id` bywa NULL (oferta bez przypisanego TAC-a), a `current_user.id`
+    # nigdy — więc nieprzypisana oferta wypada z zakresu, zamiast wpadać w niego
+    # przez porównanie dwóch pustych wartości.
+    if current_user.has_role(UserRole.tac) and job.tac_id == current_user.id:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Job is outside the caller's Champion scope",
+    )
+
+
 async def ensure_delivery_lead_job_visible(
     job: Job,
     current_user: User,

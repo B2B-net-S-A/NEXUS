@@ -23,7 +23,7 @@ klucz monitoringu czytający status nie ma prawa uruchomić pełnego importu.
 # `candidate_activity_summary.py`.
 
 import asyncio
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
@@ -33,7 +33,11 @@ from app.api.deps import TraffitReadCaller, TraffitSyncCaller
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.tasks.traffit_sync import run_traffit_sync, sync_is_running
+from app.tasks.traffit_sync import (
+    run_traffit_sync,
+    sync_is_running,
+    validate_phases,
+)
 
 router = APIRouter()
 
@@ -53,6 +57,14 @@ async def trigger_traffit_sync(
     request: Request,
     _caller: TraffitSyncCaller,
     mode: str = Query("delta", pattern="^(delta|full)$"),
+    phases: Optional[str] = Query(
+        None,
+        description=(
+            "Comma-separated phase names to run INSTEAD of the whole plan, "
+            "e.g. `candidate_files,candidates_cv`. A partial run deliberately "
+            "does NOT advance the __daily__/__full__ markers."
+        ),
+    ),
 ) -> Dict[str, Any]:
     """Trigger a Traffit sync run in the background. Admin JWT or ``traffit:sync``.
 
@@ -68,10 +80,40 @@ async def trigger_traffit_sync(
             status_code=status.HTTP_409_CONFLICT,
             detail="A Traffit sync is already running",
         )
+
+    # Walidacja MUSI się wydarzyć tutaj, przed `create_task`. Bieg jest
+    # fire-and-forget, więc `ValueError` rzucony w tasku poleciałby wyłącznie do
+    # logów, a wywołujący dostałby 200 "started" za literówkę w nazwie fazy.
+    #
+    # Parsowanie po stronie ciała funkcji, nie przez `Annotated`/typ listy —
+    # ten moduł ma `@limiter.limit`, a slowapi (#579) w połączeniu z PEP 563
+    # potrafi wyprowadzić takie parametry jako WYMAGANE query i zwracać 422 na
+    # poprawnym wywołaniu. Ten sam trap opisuje CLAUDE.md.
+    selected: Optional[list[str]] = None
+    if phases is not None:
+        try:
+            validated = validate_phases(
+                [p.strip() for p in phases.split(",") if p.strip()]
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        # Z WALIDATORA, nie z surowego wejścia. Bieg i tak filtruje po zbiorze,
+        # więc echo surowej listy pokazywałoby `?phases=a,a` jako dwie pozycje
+        # przy jednym realnym przebiegu fazy — odpowiedź jest dla operatora
+        # potwierdzeniem tego, co się uruchomi, i ma się z tym zgadzać.
+        selected = sorted(validated)
+
     # Fire-and-forget: a full reconcile can take minutes/hours; don't block the
     # request. Progress is observable via GET /sync/status.
-    asyncio.create_task(run_traffit_sync(mode))
-    return {"status": "started", "mode": mode}
+    asyncio.create_task(run_traffit_sync(mode, phases=selected))
+    out: Dict[str, Any] = {"status": "started", "mode": mode}
+    if selected is not None:
+        out["phases"] = selected
+        out["markers_advanced"] = False
+    return out
 
 
 @router.get("/sync/status")
