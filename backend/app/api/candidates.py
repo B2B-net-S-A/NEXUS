@@ -4263,7 +4263,17 @@ async def delete_candidate(
 
     # Pseudonimizacja umów PRZED usunięciem: `SET NULL` zadziała w bazie sam,
     # ale zerwie jedyne powiązanie między fakturami jednego podmiotu.
-    subject_ref = candidate_subject_reference(candidate_id)
+    # Fail-closed ZOSTAJE (bez możliwości pseudonimizacji umów nie wolno usunąć
+    # kandydata), ale nieobsłużony `RuntimeError` dawał operatorowi gołe
+    # „Internal Server Error", a przyczynę — brak
+    # `CANDIDATE_IDENTITY_FINGERPRINT_KEY` — tylko w logach. 503, bo to problem
+    # konfiguracji serwera, nie błąd żądania.
+    try:
+        subject_ref = candidate_subject_reference(candidate_id)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
     contracts_detached = (
         await db.execute(
             update(Contract)

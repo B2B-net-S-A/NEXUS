@@ -307,3 +307,30 @@ async def test_hard_delete_is_admin_only(app_client: AsyncClient, role_name: str
 
     # Kandydat przeżywa odrzuconą próbę.
     assert await _count(Candidate, id=candidate_id) == 1
+
+
+async def test_missing_fingerprint_key_is_503_with_a_reason_not_a_bare_500(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Fail-closed ZOSTAJE, ale operator musi wiedzieć, dlaczego.
+
+    Bez `CANDIDATE_IDENTITY_FINGERPRINT_KEY` nie da się spseudonimizować umów,
+    więc usunięcie musi zostać zablokowane — inaczej faktury straciłyby jedyne
+    powiązanie z podmiotem. Nieobsłużony `RuntimeError` dawał jednak gołe
+    „Internal Server Error", a przyczynę tylko w logach.
+    """
+    from app.core.config import settings
+    from app.models.candidate import Candidate
+
+    candidate_id = await _seed_candidate()
+    await _seed_contract(candidate_id)
+    monkeypatch.setattr(settings, "CANDIDATE_IDENTITY_FINGERPRINT_KEY", "")
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 503, r.text
+    assert "CANDIDATE_IDENTITY_FINGERPRINT_KEY" in r.json()["detail"]
+
+    # Kandydat i umowa przeżywają zablokowaną próbę.
+    assert await _count(Candidate, id=candidate_id) == 1

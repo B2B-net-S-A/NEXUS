@@ -66,7 +66,12 @@ _SQUASHED_ANYWHERE: Final[tuple[str, ...]] = (
 
 # Krótkie skróty na zbitce muszą być zakotwiczone na KOŃCU — `spk` wewnątrz
 # nazwy to zbieg liter, `spk` na końcu to spółka komandytowa.
-_SQUASHED_SUFFIX: Final[tuple[str, ...]] = ("spzoospk", "spk", "spka", "spj", "spp")
+#
+# Bez `spzoospk` (forma złożona „sp. z o.o. sp. k."): `str.endswith(tuple)`
+# zwraca True dla KTÓREGOKOLWIEK elementu, a każdy string kończący się na
+# `spzoospk` kończy się też na `spk` — wpis nigdy nie zmieniałby wyniku. Ta
+# forma i tak wychodzi wcześniej, bo `spzoo` jest w `_SQUASHED_ANYWHERE`.
+_SQUASHED_SUFFIX: Final[tuple[str, ...]] = ("spk", "spka", "spj", "spp")
 
 # Pojedyncze tokeny jednoznaczne — dopasowanie gdziekolwiek w strumieniu.
 _TOKEN_ANYWHERE: Final[frozenset[str]] = frozenset(
