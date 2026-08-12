@@ -20,21 +20,49 @@ przeglądarkę użytkownika.
 | Plik                     | Rodzina | Wagi                | Uwagi                             |
 | ------------------------ | ------- | ------------------- | --------------------------------- |
 | `Inter-Variable.woff2`   | Inter   | zmienna `100 900`   | oś `wght`; `opsz` przypięta na 14 |
+| `Inter-Cyrillic.woff2`   | Inter   | zmienna `100 900`   | **tylko cyrylica**, za `unicode-range` |
 | `Poppins-{400..800}.woff2` | Poppins | 400/500/600/700/800 | statyczne (Poppins nie ma VF)     |
-| `Fredoka-Variable.woff2` | Fredoka | zmienna `300..700`  | oś `wght`; `wdth` przypięta na 100 |
+| `Baloo2-Variable.woff2`  | Baloo 2 | zmienna `400..800`  | oś `wght` (jedyna); tryb „kids"   |
 
-Każdy plik zawiera **latin + latin-ext w jednym woff2** (Google serwuje to jako
-dwa osobne pliki z `unicode-range`, a `next/font/local` nie umie ustawić
-`unicode-range` per plik w jednym wywołaniu). latin-ext jest **wymagany** —
-polskie znaki `ą ć ę ł ń ś ż ź` (i wersalikowe odpowiedniki) siedzą wyłącznie
-w nim; `ó`/`Ó` są w latin. Bez latin-ext polski tekst leci fallbackiem na font
-systemowy i renderuje się wizualnie niespójnie.
+Pliki łacińskie zawierają **latin + latin-ext w jednym woff2** (Google serwuje
+to jako dwa osobne pliki z `unicode-range`; rozbijanie tego u nas nic nie da,
+bo interfejs jest po polsku, więc latin-ext i tak jest zawsze potrzebny).
+latin-ext jest **wymagany** — polskie znaki `ą ć ę ł ń ś ż ź` (i wersalikowe
+odpowiedniki) siedzą wyłącznie w nim; `ó`/`Ó` są w latin. Bez latin-ext polski
+tekst leci fallbackiem na font systemowy i renderuje się wizualnie niespójnie.
 
-⚠️ **Fredoka nie ma polskich znaków** — ani upstream, ani na Google Fonts.
-Rodzina pokrywa z polskiego zestawu tylko `ł Ł ó Ó`. To stan zastany, nie
-regresja tej zmiany: w trybie „kids" (`[data-kids="true"]`) `ą ć ę ń ś ż ź` już
-dziś leciały fallbackiem. Decyzja, czy podmienić rodzinę dla trybu kids, należy
-do człowieka.
+### Cyrylica jest osobnym plikiem — i to jest cały sens `unicode-range`
+
+`Inter-Cyrillic.woff2` NIE jest doklejony do `Inter-Variable.woff2`. Jest
+deklarowany osobnym wywołaniem `localFont` z `declarations: [{ prop:
+"unicode-range", … }]` i dopisany **za** rodziną główną w `--font-sans` /
+`--font-display`. Dzięki temu przeglądarka pobiera go dopiero wtedy, gdy
+faktycznie maluje znak z tego zakresu — sesja wyłącznie polska płaci **zero**.
+Wrzucenie cyrylicy do pliku głównego kosztowałoby ~33 KiB **każdego**
+użytkownika za glify, których większość nigdy nie zobaczy.
+
+Realny przypadek to nie imiona kandydatów (CV i LinkedIn podają je
+transliterowane), tylko `raw_cv_text` i notatki rekruterów — te trzymają tekst
+w postaci, w jakiej przyszedł. Jedno CV wklejone po ukraińsku wystarczy, żeby
+podgląd rozjechał się fallbackiem w środku akapitu.
+
+Plaster cyryliczny **celowo nie zawiera ani jednego glifu łacińskiego**, więc
+nie jest w stanie przejąć znaku należącego do rodziny głównej; kolejność
+w stosie pozostaje jednoznaczna niezależnie od `unicode-range`.
+
+### Dlaczego Baloo 2, a nie Fredoka
+
+Fredoce brakuje **14 z 19** polskich znaków — pokrywa wyłącznie `ł Ł ó Ó`.
+Nie jest to kosmetyka, bo tryb „kids" (`[data-kids="true"]`) podmienia font
+**całego** interfejsu: `globals.css` przepina tam `--font-inter` ORAZ
+`--font-poppins` na `--font-kids`. Przeglądarka podstawia zamiennik **per
+znak**, więc „Rekrutację", „Ścieżka" czy „Wyślij" renderowały się z pojedynczymi
+literami w innym kroju, o innej grubości i szerokości.
+
+Baloo 2 zachowuje ten sam zaokrąglony, gruby charakter i pokrywa polski
+komplet (sprawdzone glif po glifie). Oś `wght` ma zakres `400..800`, więc
+wszystkie cztery deklarowane wagi (400/500/600/700) mieszczą się w niej —
+Fredoka miała `300..700`, ale najniższa waga i tak nie była używana.
 
 ## Skąd pochodzą i na jakiej licencji
 
@@ -42,8 +70,10 @@ do człowieka.
 `main` (kanoniczne repo dystrybucyjne Google Fonts):
 
 - `ofl/inter/Inter[opsz,wght].ttf` + `ofl/inter/OFL.txt` → `Inter-OFL.txt`
+  (ten sam plik źródłowy daje `Inter-Variable.woff2` i `Inter-Cyrillic.woff2`,
+  więc licencja jest jedna)
 - `ofl/poppins/Poppins-{Regular,Medium,SemiBold,Bold,ExtraBold}.ttf` + `ofl/poppins/OFL.txt` → `Poppins-OFL.txt`
-- `ofl/fredoka/Fredoka[wdth,wght].ttf` + `ofl/fredoka/OFL.txt` → `Fredoka-OFL.txt`
+- `ofl/baloo2/Baloo2[wght].ttf` + `ofl/baloo2/OFL.txt` → `Baloo2-OFL.txt`
 
 Wszystkie trzy: **SIL Open Font License 1.1** (potwierdzone w `METADATA.pb`:
 `license: "OFL"` oraz w nagłówkach dołączonych plików `*-OFL.txt`). OFL 1.1
@@ -61,11 +91,11 @@ co dziś serwuje `fonts.gstatic.com`** dla URL-i, które buduje `next/font/googl
 
 - `https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap`
 - `https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap`
-- `https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap`
+- `https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700&display=swap`
 
-Google w tych odpowiedziach przypina osie inne niż `wght` (Inter: `opsz`=14,
-Fredoka: `wdth`=100), zrzuca hinting (`prep`) i zostawia wąski zestaw feature'ów
-OpenType — to samo robi poniższy przepis.
+Google w tych odpowiedziach przypina osie inne niż `wght` (Inter: `opsz`=14),
+zrzuca hinting (`prep`) i zostawia wąski zestaw feature'ów OpenType — to samo
+robi poniższy przepis. Baloo 2 ma tylko oś `wght`, więc nie ma czego przypinać.
 
 ```bash
 pip install 'fonttools>=4.60' brotli
@@ -78,7 +108,7 @@ from fontTools.varLib import instancer
 
 # unicode-range dla latin + latin-ext, przepisane z odpowiedzi Google Fonts,
 # + 5 znaków łączących, które gstatic i tak trzyma w tych plastrach.
-UNICODES = ",".join("""
+LATIN = ",".join("""
 0000-00FF 0131 0152-0153 02BB-02BC 02C6 02DA 02DC 0304 0308 0329 2000-206F
 20AC 2122 2191 2193 2212 2215 FEFF FFFD
 0100-02BA 02BD-02C5 02C7-02CC 02CE-02D7 02DD-02FF 1D00-1DBF 1E00-1E9F
@@ -86,9 +116,19 @@ UNICODES = ",".join("""
 0300 0301 0303 0309 0323
 """.split())
 
+# cyrillic + cyrillic-ext, też z plastrów Google. Ukraińskie `і ї є` siedzą
+# w 0400-045F, `ґ` w 0490-0491 — i to one, nie rosyjskie, są tu realnym
+# przypadkiem. Ta sama lista MUSI wylądować w `unicode-range` w layout.tsx:
+# rozjazd między plikiem a deklaracją znaczy albo pobieranie pliku bez potrzeby,
+# albo znak bez glifu mimo pobranego pliku.
+CYRILLIC = ",".join("""
+0301 0400-045F 0490-0491 04B0-04B1 2116
+0460-052F 1C80-1C88 20B4 2DE0-2DFF A640-A69F FE2E-FE2F
+""".split())
+
 FEATURES = "calt,ccmp,dnom,frac,locl,numr,pnum,tnum,liga,kern,mark,mkmk".split(",")
 
-def build(src, dest, pin=None):
+def build(src, dest, unicodes=LATIN, pin=None):
     font = TTFont(src)
     if pin:
         font = instancer.instantiateVariableFont(font, pin, updateFontNames=False)
@@ -104,13 +144,14 @@ def build(src, dest, pin=None):
     o.recalc_bounds = o.recalc_timestamp = False
     o.drop_tables += ["DSIG"]
     s = subset.Subsetter(options=o)
-    s.populate(unicodes=subset.parse_unicodes(UNICODES))
+    s.populate(unicodes=subset.parse_unicodes(unicodes))
     s.subset(font)
     font.flavor = "woff2"
     font.save(dest)
 
-build("Inter[opsz,wght].ttf",   "Inter-Variable.woff2",   pin={"opsz": 14})
-build("Fredoka[wdth,wght].ttf", "Fredoka-Variable.woff2", pin={"wdth": 100})
+build("Inter[opsz,wght].ttf", "Inter-Variable.woff2", LATIN,    pin={"opsz": 14})
+build("Inter[opsz,wght].ttf", "Inter-Cyrillic.woff2", CYRILLIC, pin={"opsz": 14})
+build("Baloo2[wght].ttf",     "Baloo2-Variable.woff2", LATIN)
 for weight, style in [(400,"Regular"),(500,"Medium"),(600,"SemiBold"),
                       (700,"Bold"),(800,"ExtraBold")]:
     build(f"Poppins-{style}.ttf", f"Poppins-{weight}.woff2")

@@ -68,9 +68,18 @@
   --color-chart-4: hsl(var(--chart-4));
   --color-chart-5: hsl(var(--chart-5));
 
+  /* --font-cyrillic sits BEHIND the primary face on purpose. It is declared with
+     a `unicode-range` covering only Cyrillic, so the browser never downloads it
+     for a Polish-only session and never claims a character the primary face
+     owns — it simply catches what the primary face has no glyph for. Dropping it
+     from the stack does not break layout, it just brings back the system-font
+     fallback mid-word in CV text and recruiter notes. */
   --font-sans:
-    var(--font-inter), system-ui, -apple-system, Segoe UI, sans-serif;
-  --font-display: var(--font-poppins), system-ui, -apple-system, sans-serif;
+    var(--font-inter), var(--font-cyrillic), system-ui, -apple-system, Segoe UI,
+    sans-serif;
+  --font-display:
+    var(--font-poppins), var(--font-cyrillic), system-ui, -apple-system,
+    sans-serif;
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
