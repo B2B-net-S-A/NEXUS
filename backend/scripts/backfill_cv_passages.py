@@ -70,7 +70,16 @@ async def embed_in_slices(texts: list[str], embed_fn) -> list | None:
     vectors: list = []
     for offset in range(0, len(texts), VOYAGE_MAX_BATCH):
         piece = texts[offset : offset + VOYAGE_MAX_BATCH]
-        got = await embed_fn(piece, input_type="document")
+        try:
+            got = await embed_fn(piece, input_type="document")
+        except Exception as exc:  # noqa: BLE001
+            # Kontrakt `None-znaczy-pomiń` nie może zależeć od tego, czy AKURAT
+            # to embed_fn łapie własne wyjątki (`_voyage_embed_batch` dziś łapie
+            # i zwraca None — ale to wiedza o cudzym wnętrzu, nie gwarancja).
+            # Przelotny błąd sieci w wielogodzinnym biegu ma kosztować jedną
+            # paczkę, nie cały proces.
+            logger.warning("embed_fn rzucił zamiast zwrócić None: %s", exc)
+            return None
         if not got or len(got) != len(piece):
             return None
         vectors.extend(got)

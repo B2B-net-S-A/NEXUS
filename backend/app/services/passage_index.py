@@ -270,6 +270,11 @@ def best_passage_scores_for_ids(
         limit=max(len(candidate_ids) * 4, 64),
         with_payload=True,
     )
+    # Kandydat bez pasaży w kolekcji (backfill w toku albo CV bez tekstu) po
+    # prostu NIE występuje w wyniku i zostaje przy wyniku z wektora kandydata —
+    # to zamierzona łagodna degradacja, nie luka. Nie asertuj kompletności
+    # (`all(c in result for c in candidate_ids)`): niepełny wynik jest tu
+    # poprawnym stanem przejściowym przez cały czas trwania backfillu.
     best: dict[int, float] = {}
     for hit in hits:
         payload = getattr(hit, "payload", None) or {}

@@ -8,6 +8,8 @@ nie zapisuje, nie płaci i nie dotyka indeksu. To nie jest deklaracja w docstrin
 import ast
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/backfill_cv_passages.py"
 
 
@@ -98,9 +100,6 @@ def test_backfill_is_resumable():
     )
 
 
-import pytest
-
-
 @pytest.mark.asyncio
 async def test_embedding_slices_never_exceed_the_voyage_limit():
     """`_voyage_embed_batch` przyjmuje NAJWYŻEJ 128 tekstów i nie tnie sam.
@@ -150,3 +149,23 @@ async def test_partial_slice_failure_rejects_the_whole_batch():
         return [[0.0]] * len(texts)
 
     assert await embed_in_slices([f"t{i}" for i in range(300)], flaky_embed) is None
+
+
+@pytest.mark.asyncio
+async def test_a_raising_embed_fn_costs_one_batch_not_the_run():
+    """Kontrakt None-znaczy-pomiń nie zależy od wnętrza embed_fn.
+
+    `_voyage_embed_batch` dziś łapie własne wyjątki i zwraca None, ale to
+    wiedza o cudzym wnętrzu. Przelotny błąd sieci w wielogodzinnym biegu ma
+    kosztować jedną paczkę (dobraną przy wznowieniu), nie cały proces.
+    """
+
+    import sys
+
+    sys.path.insert(0, str(SCRIPT.parent.parent))
+    from scripts.backfill_cv_passages import embed_in_slices
+
+    async def exploding_embed(texts, *, input_type):
+        raise ConnectionError("transient")
+
+    assert await embed_in_slices(["a", "b"], exploding_embed) is None
