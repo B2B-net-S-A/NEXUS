@@ -208,3 +208,95 @@ async def trigger_backfill_cc(
 async def backfill_cc_status(_admin: AdminUser) -> dict[str, Any]:
     """Current competence-category backfill progress (in-memory)."""
     return dict(_CC_JOB)
+
+
+# ── Fala 3: masowe uzupełnianie pól z CV ────────────────────────────────────
+# Osobny stan single-flight — bieg trwa godziny i musi być obserwowalny
+# niezależnie od backfillu nazwisk/CC. Prod nie ma wygodnego CLI, więc admin
+# endpoint jest ścieżką produkcyjną; CLI (scripts/backfill_cv_fields.py) — dev.
+
+_CV_FIELDS_JOB: dict[str, Any] = {"running": False}
+
+
+async def _run_cv_fields_backfill(
+    limit: Optional[int], after_id: int, calibration_log: Optional[str]
+) -> None:
+    from app.services.cv_field_backfill import backfill_cv_fields
+
+    _CV_FIELDS_JOB.clear()
+    _CV_FIELDS_JOB.update(
+        running=True,
+        started_at=datetime.now(timezone.utc).isoformat(),
+        finished_at=None,
+        limit=limit,
+        after_id=after_id,
+        last_error=None,
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            await backfill_cv_fields(
+                db,
+                limit=limit,
+                after_id=after_id,
+                progress=_CV_FIELDS_JOB,
+                calibration_log_path=calibration_log,
+            )
+    except Exception as e:  # noqa: BLE001 — never crash the background task
+        _CV_FIELDS_JOB["last_error"] = repr(e)
+        logger.exception("[cv-fields-backfill] job crashed")
+    finally:
+        _CV_FIELDS_JOB["running"] = False
+        _CV_FIELDS_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+
+@router.post("/backfill-cv-fields")
+async def trigger_backfill_cv_fields(
+    _admin: AdminUser,
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        description="Sufit wierszy w tym biegu (np. 200 na kalibrację). "
+        "Bez limitu bieg idzie do końca scope'u albo do CV_BACKFILL_MAX_CALLS.",
+    ),
+    after_id: int = Query(
+        default=0,
+        ge=0,
+        description="Wznów od tego candidate_id (kursor z pola last_id statusu).",
+    ),
+    dry_run: bool = Query(
+        default=True,
+        description="Domyślnie TYLKO pomiar scope'u (zero LLM, zero zapisów). "
+        "Bieg płatny wymaga jawnego dry_run=false.",
+    ),
+    calibration_log: Optional[str] = Query(
+        default=None,
+        description="Ścieżka JSONL wewnątrz kontenera; każdy wiersz = surowy "
+        "wynik parsowania + usage, do ręcznej oceny jakości na próbce.",
+    ),
+) -> dict[str, Any]:
+    """Masowe uzupełnianie skills/city/years z tekstu CV (Fala 3). Admin only.
+
+    Zapis wyłącznie w pola PUSTE (polityka FILL_EMPTY z #1094); `[]` w skills
+    liczy się jako puste. Kwota: AIFeatureKey.cv_backfill — osobny kubełek od
+    interaktywnego cv_parser.
+    """
+    if dry_run:
+        from app.services.cv_field_backfill import count_scope
+
+        async with AsyncSessionLocal() as db:
+            scope = await count_scope(db, after_id=after_id)
+        return {"status": "dry_run", **scope}
+
+    if _CV_FIELDS_JOB.get("running"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A cv-fields backfill run is already in progress",
+        )
+    asyncio.create_task(_run_cv_fields_backfill(limit, after_id, calibration_log))
+    return {"status": "started", "limit": limit, "after_id": after_id}
+
+
+@router.get("/backfill-cv-fields/status")
+async def backfill_cv_fields_status(_admin: AdminUser) -> dict[str, Any]:
+    """Live progress biegu (in-memory; kursor last_id pozwala wznowić po restarcie)."""
+    return dict(_CV_FIELDS_JOB)

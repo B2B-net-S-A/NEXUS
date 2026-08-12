@@ -45,6 +45,9 @@ class TestFeatureKeyEnum:
             "order_parser",
             "cv_requirement_map",
             "cv_interactive_chat",
+            # Fala 3 (0223): masowy backfill pól z CV — osobny kubełek,
+            # żeby bieg na ~39 tys. CV nie wyczerpał limitu rekruterów.
+            "cv_backfill",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

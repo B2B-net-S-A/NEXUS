@@ -4510,7 +4510,10 @@ async def _enrich_candidate_from_document_task(
             )
             if not raw_text:
                 return
-            parsed = await parse_cv(raw_text)
+            # Background task bez bramki to dokładnie przypadek z docstringa
+            # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
+            # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
+            parsed = await parse_cv(raw_text, db=db)
 
             current_primary = await db.scalar(
                 select(CandidateDocument.id).where(
@@ -4642,7 +4645,7 @@ async def _enrich_candidate_cv_task(
             if not candidate or not candidate.raw_cv_text:
                 return
 
-            parsed = await parse_cv(candidate.raw_cv_text)
+            parsed = await parse_cv(candidate.raw_cv_text, db=db)
             if source_document_id is not None:
                 still_primary = (
                     await db.execute(
@@ -4818,7 +4821,7 @@ async def create_candidate_from_cv(
         )
 
     # 2 — parse structured facts
-    parsed = await parse_cv(raw_text)
+    parsed = await parse_cv(raw_text, db=db)
 
     # 3 — dedup scan
     dup_rows = await find_candidate_duplicates(
