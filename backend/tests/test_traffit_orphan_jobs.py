@@ -300,6 +300,26 @@ async def _orphan_row(db):
     return row.fetchone()
 
 
+@pytest_asyncio.fixture
+async def orphan_hidden_restored(db):
+    """Przywraca ``hidden = true`` na worku sierot — TAKŻE gdy test padnie.
+
+    Dwa testy niżej celowo cofają tę flagę, żeby odtworzyć stan produkcji sprzed
+    poprawki. Wiersz sieroty jest GLOBALNY dla bazy, więc sprzątanie dopisane po
+    asercji nie wystarcza: przy nieudanej asercji nie wykonuje się i zostawia
+    widoczny worek kolejnym testom — `test_hidden_orphan_falls_out_of_visible_
+    client_queries` zaczynałby padać „w parze", maskując prawdziwą przyczynę.
+    Teardown fixture'a wykonuje się niezależnie od wyniku testu (uwaga z review
+    PR #1151).
+    """
+    yield
+    await db.execute(
+        text("UPDATE clients SET hidden = true WHERE name = :n"),
+        {"n": ORPHAN_CLIENT_NAME},
+    )
+    await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_orphan_client_is_created_hidden(db, monkeypatch) -> None:
     """Ścieżka INSERT-u: świeżo zakładany worek od razu jest ukryty.
@@ -338,7 +358,9 @@ async def test_orphan_client_is_created_hidden(db, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_existing_visible_orphan_is_normalised_on_next_run(db) -> None:
+async def test_existing_visible_orphan_is_normalised_on_next_run(
+    db, orphan_hidden_restored
+) -> None:
     """Ścieżka naprawy produkcji: wiersz założony przed tą zmianą jest widoczny.
 
     Sync chodzi nocnie, więc bucket ukrywa się sam — bez migracji i bez dostępu
@@ -395,7 +417,9 @@ async def test_hidden_orphan_falls_out_of_visible_client_queries(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_dry_run_does_not_touch_the_orphan_flag(db) -> None:
+async def test_dry_run_does_not_touch_the_orphan_flag(
+    db, orphan_hidden_restored
+) -> None:
     """`dry_run` nie może pisać do bazy — także w ścieżce normalizacji."""
     await TraffitImporter(
         _JobsTraffit([_recruitment(f"o{uuid.uuid4().hex[:10]}", client=None)]),
@@ -418,10 +442,3 @@ async def test_dry_run_does_not_touch_the_orphan_flag(db) -> None:
     await imp.import_jobs()
 
     assert (await _orphan_row(db))[1] is False, "dry-run zapisał zmianę do bazy"
-
-    # Przywróć stan docelowy, żeby nie zostawiać widocznego worka innym testom.
-    await db.execute(
-        text("UPDATE clients SET hidden = true WHERE name = :n"),
-        {"n": ORPHAN_CLIENT_NAME},
-    )
-    await db.commit()
