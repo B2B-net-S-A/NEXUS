@@ -68,6 +68,7 @@ from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
 from app.api import admin_pipeline_inventory
+from app.api import admin_process_adoption
 from app.api import admin_engagement_inventory
 from app.api import admin_candidate_pii_orphans
 from app.api import admin_index_coverage, admin_schema_drift
@@ -754,6 +755,11 @@ app.include_router(
     admin_pipeline_inventory.router,
     prefix="/api/admin",
     tags=["admin-pipeline-inventory"],
+)
+app.include_router(
+    admin_process_adoption.router,
+    prefix="/api/admin",
+    tags=["admin-process-adoption"],
 )
 app.include_router(
     admin_engagement_inventory.router,
