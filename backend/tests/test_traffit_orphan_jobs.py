@@ -290,3 +290,138 @@ async def test_unresolved_client_count_reaches_sync_status(db) -> None:
         == progress.unresolved_client
         == 1
     )
+
+
+async def _orphan_row(db):
+    row = await db.execute(
+        text("SELECT id, hidden FROM clients WHERE name = :n"),
+        {"n": ORPHAN_CLIENT_NAME},
+    )
+    return row.fetchone()
+
+
+@pytest.mark.asyncio
+async def test_orphan_client_is_created_hidden(db, monkeypatch) -> None:
+    """Ścieżka INSERT-u: świeżo zakładany worek od razu jest ukryty.
+
+    Na produkcji (2026-08-12) siedział na 1. pozycji „Przeglądu klientów
+    (admin)" z zerami we wszystkich kolumnach, bo `_ensure_orphan_client`
+    zakładał go surowym INSERT-em bez ``hidden``.
+
+    Nazwa jest podmieniana na unikalną, bo wiersz sieroty jest GLOBALNY dla
+    bazy: wersja asertująca domyślną nazwę przechodziła bez poprawki, gdy
+    wcześniejszy przebieg zostawił bucket już ukryty — mierzyła stan bazy,
+    nie zachowanie kodu (ta sama pułapka, o której ostrzega
+    `test_orphan_client_is_created_lazily`).
+    """
+    unique_name = f"__traffit_orphans_test_{uuid.uuid4().hex[:8]}"
+    monkeypatch.setattr("app.services.traffit.importer.ORPHAN_CLIENT_NAME", unique_name)
+
+    await TraffitImporter(
+        _JobsTraffit([_recruitment(f"o{uuid.uuid4().hex[:10]}", client=None)]),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_jobs()
+
+    row = await db.execute(
+        text("SELECT id, hidden FROM clients WHERE name = :n"), {"n": unique_name}
+    )
+    created = row.fetchone()
+    assert created is not None, "sierota musiała zostać założona"
+    assert created[1] is True, "bucket techniczny musi być hidden już przy INSERT"
+
+    # Sprzątanie: joby wskazują na tego klienta kluczem obcym, więc najpierw one.
+    await db.execute(text("DELETE FROM jobs WHERE client_id = :id"), {"id": created[0]})
+    await db.execute(text("DELETE FROM clients WHERE id = :id"), {"id": created[0]})
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_existing_visible_orphan_is_normalised_on_next_run(db) -> None:
+    """Ścieżka naprawy produkcji: wiersz założony przed tą zmianą jest widoczny.
+
+    Sync chodzi nocnie, więc bucket ukrywa się sam — bez migracji i bez dostępu
+    do bazy. Test celowo cofa flagę na istniejącym wierszu (a nie kasuje go —
+    trzymają go klucze obce z `jobs`) i sprawdza, że kolejny bieg ją przywraca.
+    """
+    # Upewnij się, że sierota istnieje, a potem cofnij ją do stanu „widoczna".
+    await TraffitImporter(
+        _JobsTraffit([_recruitment(f"o{uuid.uuid4().hex[:10]}", client=None)]),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_jobs()
+    await db.execute(
+        text("UPDATE clients SET hidden = false WHERE name = :n"),
+        {"n": ORPHAN_CLIENT_NAME},
+    )
+    await db.commit()
+    assert (await _orphan_row(db))[1] is False, "setup: sierota miała być widoczna"
+
+    await TraffitImporter(
+        _JobsTraffit([_recruitment(f"o{uuid.uuid4().hex[:10]}", client=None)]),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_jobs()
+
+    assert (await _orphan_row(db))[1] is True, "kolejny bieg musi ukryć bucket"
+
+
+@pytest.mark.asyncio
+async def test_hidden_orphan_falls_out_of_visible_client_queries(db) -> None:
+    """Flaga bez skutku byłaby kosmetyką — sprawdzamy KONSEKWENCJĘ.
+
+    Wszystkie listy klientów (``list_clients``, dropdowny, katalog, ranking
+    admina) zawężają po tych samych predykatach.
+    """
+    from sqlalchemy import select
+
+    from app.models.client import Client
+    from app.services.client_identity import visible_client_predicates
+
+    await TraffitImporter(
+        _JobsTraffit([_recruitment(f"o{uuid.uuid4().hex[:10]}", client=None)]),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_jobs()
+
+    visible_names = (
+        await db.execute(select(Client.name).where(*visible_client_predicates()))
+    ).scalars()
+    assert ORPHAN_CLIENT_NAME not in set(visible_names)
+
+
+@pytest.mark.asyncio
+async def test_dry_run_does_not_touch_the_orphan_flag(db) -> None:
+    """`dry_run` nie może pisać do bazy — także w ścieżce normalizacji."""
+    await TraffitImporter(
+        _JobsTraffit([_recruitment(f"o{uuid.uuid4().hex[:10]}", client=None)]),
+        db,
+        dry_run=False,
+        batch_size=10,
+    ).import_jobs()
+    await db.execute(
+        text("UPDATE clients SET hidden = false WHERE name = :n"),
+        {"n": ORPHAN_CLIENT_NAME},
+    )
+    await db.commit()
+
+    imp = TraffitImporter(
+        _JobsTraffit([_recruitment(f"o{uuid.uuid4().hex[:10]}", client=None)]),
+        db,
+        dry_run=True,
+        batch_size=10,
+    )
+    await imp.import_jobs()
+
+    assert (await _orphan_row(db))[1] is False, "dry-run zapisał zmianę do bazy"
+
+    # Przywróć stan docelowy, żeby nie zostawiać widocznego worka innym testom.
+    await db.execute(
+        text("UPDATE clients SET hidden = true WHERE name = :n"),
+        {"n": ORPHAN_CLIENT_NAME},
+    )
+    await db.commit()
