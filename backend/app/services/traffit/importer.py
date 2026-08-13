@@ -879,13 +879,26 @@ class TraffitImporter:
         return {row[0]: row[1] for row in result}
 
     async def _ensure_orphan_client(self) -> int:
-        """Get-or-create the `__traffit_orphans` client. Returns its Nexus id."""
-        result = await self.db.execute(
-            select(Client.id).where(Client.name == ORPHAN_CLIENT_NAME)
-        )
-        existing = result.scalar_one_or_none()
-        if existing:
-            return existing
+        """Get-or-create the `__traffit_orphans` client. Returns its Nexus id.
+
+        Bucket jest ZAWSZE ``hidden`` — to worek techniczny na rekrutacje i osoby
+        kontaktowe bez klienta, nie firma. Bez tej flagi wchodzi do każdej listy
+        klientów jako pełnoprawny wiersz z zerami: `list_clients`, dropdowny,
+        `client_directory` i ranking admina filtrują właśnie po
+        ``hidden``/``archived_at``/``merged_into_client_id``
+        (`services/client_identity.visible_client_predicates`). Na produkcji
+        (2026-08-12) siedział na 1. pozycji rankingu klientów. Kod już traktował
+        go jako rekord systemowy — `client_portfolio_import.SYSTEM_CLIENT_NAMES`
+        wyłącza go ze ścieżki importu portfela — brakowało tylko flagi.
+
+        ``archived_at`` świadomie NIE jest ustawiane: do zniknięcia z list
+        wystarcza ``hidden``, a archiwizacja jest stanem cyklu życia importu
+        portfela (ścieżka „revive" wymaga ``hidden AND archived_at``), więc
+        wchodzenie w nią z tego miejsca mieszałoby dwie różne odpowiedzialności.
+        """
+        existing_id = await self._hide_orphan_client_if_visible()
+        if existing_id is not None:
+            return existing_id
 
         if self.dry_run:
             logger.info("[dry-run] would create orphan client '%s'", ORPHAN_CLIENT_NAME)
@@ -895,8 +908,8 @@ class TraffitImporter:
         result = await self.db.execute(
             text(
                 """
-                INSERT INTO clients (name, status, notes, nda_signed, created_at, updated_at)
-                VALUES (:name, CAST(:status AS clientstatus), :notes, false, NOW(), NOW())
+                INSERT INTO clients (name, status, notes, nda_signed, hidden, created_at, updated_at)
+                VALUES (:name, CAST(:status AS clientstatus), :notes, false, true, NOW(), NOW())
                 RETURNING id
                 """
             ),
@@ -915,6 +928,40 @@ class TraffitImporter:
         await self.db.commit()
         logger.info("Created orphan client (id=%d)", new_id)
         return new_id
+
+    async def _hide_orphan_client_if_visible(self) -> Optional[int]:
+        """Zwróć id worka sierot i ukryj go, jeśli jest jeszcze widoczny.
+
+        ``None`` = worek nie istnieje (zakładanie zostaje leniwe — instalacja bez
+        sierot nie dostaje pustego wiersza w liście klientów).
+
+        Osobna metoda, a nie gałąź w ``_ensure_orphan_client``, bo TAMTO jest
+        wołane LENIWIE — dopiero gdy w danym biegu trafi się sierota. Nocna delta
+        widzi tylko rekordy zmienione w Traffitcie, więc naprawa wiersza
+        założonego przed tą zmianą mogłaby czekać na pełny reconcile (tygodniowy),
+        a przy częstych redeployach — dowolnie długo. Dlatego woła to też start
+        fazy ``jobs``: jeden SELECT na bieg, UPDATE wyłącznie gdy flaga jest zła
+        (bez bumpowania ``updated_at`` bez powodu).
+        """
+        result = await self.db.execute(
+            select(Client.id, Client.hidden).where(Client.name == ORPHAN_CLIENT_NAME)
+        )
+        row = result.first()
+        if row is None:
+            return None
+        orphan_id, is_hidden = row
+        if not is_hidden and not self.dry_run:
+            await self.db.execute(
+                text("UPDATE clients SET hidden = true WHERE id = :id"),
+                {"id": orphan_id},
+            )
+            await self.db.commit()
+            logger.info(
+                "Orphan client (id=%d) ukryty — worek techniczny nie należy do "
+                "listy klientów",
+                orphan_id,
+            )
+        return orphan_id
 
     async def _build_client_external_id_map(self) -> dict[str, int]:
         """Pull current Nexus state: external_id (Traffit) → Nexus client.id."""
@@ -1760,7 +1807,11 @@ class TraffitImporter:
         # Zakładany LENIWIE — dopiero gdy pojawi się pierwsza sierota. Bez tego
         # każda instalacja dostawałaby pustego `__traffit_orphans` w liście
         # klientów, także ta, w której każda rekrutacja ma klienta.
-        orphan_client_id: Optional[int] = None
+        #
+        # Ale JEŚLI worek już istnieje, ukrywamy go od razu — nie czekając na
+        # sierotę w tym konkretnym biegu (patrz docstring metody). Wiersz
+        # założony przed dodaniem flagi jest widoczny w każdej liście klientów.
+        orphan_client_id: Optional[int] = await self._hide_orphan_client_if_visible()
         # Bieżące przypisania w Nexusie — po to, żeby sierota nie odbierała
         # klienta rekrutacji, która już go ma (patrz komentarz przy użyciu).
         existing_job_clients = await self._build_job_client_map()
