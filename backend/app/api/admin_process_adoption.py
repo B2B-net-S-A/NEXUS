@@ -200,7 +200,20 @@ async def _run(
     *,
     timeout: float = QUERY_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """Wykonaj jedno zapytanie; nigdy nie rzucaj — raportuj błąd inline."""
+    """Wykonaj jedno zapytanie; nigdy nie rzucaj — raportuj błąd inline.
+
+    `rollback()` w `finally` jest OBOWIĄZKOWY, nie kosmetyką. Siedem zapytań
+    jedzie po TEJ SAMEJ sesji, a przekroczenie budżetu `asyncio.wait_for`
+    anuluje zapytanie w locie (`pg_cancel_backend`) i zostawia połączenie
+    w stanie przerwanej transakcji. Bez resetu każde KOLEJNE zapytanie dostałoby
+    `InFailedSQLTransaction` (25P02) i raport pokazałby jako zepsute również te
+    trywialne — czyli najdroższe zapytanie pociągnęłoby za sobą diagnostykę,
+    która miała wyjaśnić, dlaczego padło.
+
+    Reset po KAŻDYM zapytaniu, nie tylko po błędzie, ma drugi powód: kończy
+    niejawną transakcję odczytu. Inaczej jeden przebieg raportu trzymałby
+    otwarty snapshot MVCC przez cały swój czas życia (na prodzie nawet ~2 min).
+    """
     started = time.monotonic()
     try:
         result = await asyncio.wait_for(db.execute(text(sql), params), timeout=timeout)
@@ -217,6 +230,11 @@ async def _run(
             "elapsed_ms": int((time.monotonic() - started) * 1000),
             "error": f"{type(exc).__name__}: {exc}",
         }
+    finally:
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001 — reset sesji nie może wywalić raportu
+            pass
 
 
 def _merge_waterfall(

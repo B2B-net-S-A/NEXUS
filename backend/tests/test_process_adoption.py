@@ -127,7 +127,13 @@ async def test_adoption_rejects_bad_token(monkeypatch):
 
 
 async def test_adoption_rejects_non_admin(app_client: AsyncClient):
-    """Zwykły user z ważnym JWT dostaje 403 — raport jest admin-only."""
+    """Nie-admin z ważnym JWT dostaje 403 — raport jest admin-only.
+
+    Rola `recruiter`, nie legacy `user`: ta druga jest wycofywana migracją 0210
+    („no new provisioning"), a `_snapshot_auth` i tak przepuszcza wyłącznie
+    `UserRole.admin` — dowód działa tak samo, a nie zakłada roli, której nowy
+    kod nie powinien już nadawać.
+    """
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
     from app.models.user import User, UserRole
@@ -140,7 +146,7 @@ async def test_adoption_rejects_non_admin(app_client: AsyncClient):
                 email=email,
                 password_hash=hash_password(password),
                 name="Adopt Viewer",
-                role=UserRole.user,
+                role=UserRole.recruiter,
                 is_active=True,
             )
         )
@@ -222,6 +228,32 @@ async def test_waterfall_is_monotonic(app_client: AsyncClient, app_auth_headers:
         assert row["credited"] >= row["credited_with_user"], row
         assert row["credited_with_user"] >= row["credited_active_user"], row
         assert row["raw"] >= 0
+
+
+async def test_timeout_does_not_cascade_to_other_queries(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Padnięcie najdroższego zapytania nie może zabrać reszty raportu.
+
+    Bez `rollback()` po anulowanym zapytaniu sesja zostaje w przerwanej
+    transakcji i KAŻDE kolejne zapytanie dostaje `InFailedSQLTransaction` —
+    raport pokazywałby jako zepsute także te trywialne, czyli diagnostyka
+    padałaby razem z tym, co miała zdiagnozować.
+    """
+    from app.api import admin_process_adoption as mod
+
+    monkeypatch.setattr(mod, "WATERFALL_TIMEOUT_SECONDS", 0.001)
+
+    r = await app_client.get(URL, headers=app_auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["summary"]["failed_keys"] == ["credited_milestones"], body[
+        "diagnostics"
+    ]
+    # Zapytania PO tym, które padło, muszą mieć wyniki.
+    assert body["supporting"]["counts"] != {}
+    assert "error" not in {d["key"]: d for d in body["diagnostics"]}["rejection_emails"]
 
 
 async def test_response_carries_no_pii(app_client: AsyncClient, app_auth_headers: dict):
