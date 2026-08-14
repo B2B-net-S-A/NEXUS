@@ -254,6 +254,13 @@ class Settings(BaseSettings):
     # retrievalu. Rozdzielenie jest celowe: pozwala zbudować i zmierzyć indeks
     # na produkcji, zanim cokolwiek zacznie z niego czytać.
     CV_PASSAGES_ENABLED: bool = False
+    # Fala Champion (2026-08-14): sygnały z champion_profile w scoringu —
+    # stawka PLN/h Championa vs oczekiwania kandydata (warstwa finansowa
+    # przestaje być wiecznie not_comparable) + lokalizacja/tryb oferty
+    # z Championa, gdy job.location puste (99,6%% importów) + remote_only
+    # z faktów notatkowych kandydata. Default OFF do czasu pomiaru na
+    # zbiorze eval z rekrutacji posiadających Championów.
+    CHAMPION_MATCH_SIGNALS_ENABLED: bool = False
     # Pula kandydatów przez hybrydę (BM25+dense+RRF, opcjonalnie rerank) zamiast
     # samych wektorów. Selekcja członkostwa; skala semantyczna bez zmian — patrz
     # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
