@@ -2688,13 +2688,27 @@ export const b2bGeneratorApi = {
         params: {
           limit,
           ...(params.q?.trim() ? { q: params.q.trim() } : {}),
-          ...(params.contractStatus
+          ...(params.contractStatus?.length
             ? { contract_status: params.contractStatus }
+            : {}),
+          ...(params.closureReason
+            ? { closure_reason: params.closureReason }
             : {}),
           ...(params.startFrom ? { start_from: params.startFrom } : {}),
           ...(params.startTo ? { start_to: params.startTo } : {}),
         },
+        // `repeat`, nie domyślny `brackets`: FastAPI czyta listę wyłącznie jako
+        // powtórzony parametr. Axios domyślnie wysłałby `contract_status[]=…`,
+        // co po stronie serwera jest INNĄ nazwą pola — filtr po cichu nie
+        // zadziałałby i zakładka pokazałaby pełną listę umów.
+        paramsSerializer: { indexes: null },
       })
+      .then((r) => r.data),
+  statusHistory: (id: number) =>
+    api
+      .get<B2BStatusEvent[]>(
+        `/api/b2b-generator/generated/${id}/status-history`,
+      )
       .then((r) => r.data),
   updateGenerated: (id: number, body: B2BGeneratedContractUpdate) =>
     api
@@ -2737,12 +2751,28 @@ export type B2BSignatureSource =
  * przy potwierdzeniu podpisu obustronnego. Użytkownik nie może wybrać
  * `in_progress` — backend odrzuca to 422 (patrz `B2BGeneratedContractUpdate`).
  */
-export type B2BContractStatus = "active" | "in_progress" | "closed";
+export type B2BContractStatus =
+  | "active"
+  | "in_progress"
+  | "suspended"
+  | "closed";
+/**
+ * Powody zakończenia PROJEKTU. Trzy ostatnie to katalog sprzed migracji 0226
+ * (opisywał rozstanie z Partnerem, nie koniec projektu) — zniknęły z pickera,
+ * ale MUSZĄ zostać w typie: produkcja ma wiersze `closed`, które je niosą,
+ * i bez nich odczyt takiego wpisu nie typowałby się.
+ */
 export type B2BClosureReason =
+  | "no_client_budget"
+  | "contractor_found_other_project"
+  | "contractor_health_reasons"
+  | "contractor_underperformance"
+  | "project_completed"
+  | "internalization"
+  | "other"
   | "resignation_before_signing"
   | "termination"
-  | "mutual_agreement"
-  | "other";
+  | "mutual_agreement";
 
 // Etykiety PL dla powyższych żyją w warstwie prezentacji
 // (`components/v2/pages/B2BContractGeneratorV2.tsx`) — tutaj tylko kontrakt
@@ -2750,10 +2780,32 @@ export type B2BClosureReason =
 
 export interface B2BGeneratedListParams {
   q?: string;
-  contractStatus?: B2BContractStatus;
+  /**
+   * Tablica — zakładka „Umowy aktywne i w trakcie podpisu" prosi o DWA statusy
+   * naraz. Axios serializuje ją jako powtórzony parametr, tak jak czyta go
+   * FastAPI (`contract_status=active&contract_status=in_progress`).
+   */
+  contractStatus?: B2BContractStatus[];
+  closureReason?: B2BClosureReason;
   /** Zakres daty ROZPOCZĘCIA USŁUG (`YYYY-MM-DD`), obie granice włącznie. */
   startFrom?: string;
   startTo?: string;
+}
+
+/** Wpis dziennika zmian statusu — dialog „Historia statusów". */
+export interface B2BStatusEvent {
+  id: number;
+  from_status: string | null;
+  to_status: string;
+  effective_date: string | null;
+  reason: string | null;
+  reason_other: string | null;
+  job_id: number | null;
+  job_title: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  changed_by_name: string | null;
+  created_at: string | null;
 }
 
 /**
@@ -2766,6 +2818,12 @@ export interface B2BGeneratedContractUpdate {
   closure_reason?: B2BClosureReason | null;
   closure_reason_other?: string | null;
   closure_date?: string | null;
+  /**
+   * Projekt przypisywany przy przywracaniu umowy z zawieszenia. Klienta
+   * wyprowadza backend z wybranego projektu — front go nie przesyła, żeby nie
+   * dało się zapisać pary projekt/klient, która w bazie do siebie nie należy.
+   */
+  job_id?: number;
 }
 
 export interface B2BGeneratedContractRow {

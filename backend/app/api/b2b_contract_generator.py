@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date, datetime, timezone
+from typing import get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -34,6 +35,9 @@ from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_contract_role import B2BContractRole
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_generated_contract_status_event import (
+    B2BGeneratedContractStatusEvent,
+)
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder
@@ -46,12 +50,16 @@ from app.models.contract import (
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_template import ContractTemplate
 from app.models.job import Job
+from app.models.note import Note, NoteType
 from app.models.job_collaborator import JobCollaborator
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import (
+    B2B_CLOSING_STATUSES,
+    B2BClosureReason,
     B2BCompanyLookupResponse,
     B2BContractDetailResponse,
+    B2BContractStatus,
     B2BGenerateRequest,
     B2BGenerateResponse,
     B2BConfirmFullySignedRequest,
@@ -59,6 +67,7 @@ from app.schemas.b2b_contract_generator import (
     B2BGeneratedContractItem,
     B2BGeneratedContractUpdate,
     B2BNextNumberResponse,
+    B2BStatusEventItem,
     B2BRenderHtmlResponse,
     B2BRenderRequest,
     B2BRoleCreate,
@@ -117,6 +126,61 @@ def _docx_response(data: bytes, contract_number: str | None) -> Response:
     if contract_number:
         headers["X-Contract-Number"] = contract_number
     return Response(content=data, media_type=_DOCX_MEDIA, headers=headers)
+
+
+# Etykiety PL statusów i powodów. Front ma własne — te NIE są ich duplikatem
+# w sensie, który zwykle jest błędem: służą do zbudowania TREŚCI NOTATKI, która
+# ląduje w bazie jako trwały tekst w module Kontrakty, i do komunikatów błędów.
+# Notatka jest artefaktem, nie widokiem — musi być czytelna bez frontendu.
+_STATUS_LABEL_PL = {
+    "active": "Aktywna",
+    "in_progress": "W trakcie",
+    "suspended": "Zawieszona",
+    "closed": "Zakończona",
+}
+
+_CLOSURE_REASON_LABEL_PL = {
+    "no_client_budget": "Brak budżetu u klienta",
+    "contractor_found_other_project": "Kontraktor znalazł inny projekt",
+    "contractor_health_reasons": "Względy zdrowotne kontraktora",
+    "contractor_underperformance": (
+        "Kontraktor nie wywiązywał się z obowiązków projektowych"
+    ),
+    "project_completed": "Zakończenie projektu",
+    "internalization": "Internalizacja",
+    "other": "Inny",
+    # Katalog sprzed 0226 — do odczytu wierszy historycznych.
+    "resignation_before_signing": "Rezygnacja przed podpisaniem umowy",
+    "termination": "Wypowiedzenie",
+    "mutual_agreement": "Porozumienie o rozwiązaniu umowy",
+}
+
+
+def _closure_reason_text(reason: str | None, reason_other: str | None) -> str:
+    """Czytelny powód: własny tekst dla „Inny", inaczej etykieta z katalogu."""
+    if reason == "other":
+        return (reason_other or "").strip() or "Inny"
+    if reason:
+        return _CLOSURE_REASON_LABEL_PL.get(reason, reason)
+    return "nie podano"
+
+
+def _previous_project_note(
+    prev_date: date | None,
+    prev_reason: str | None,
+    prev_reason_other: str | None,
+) -> str:
+    """Treść notatki dopisywanej do kontraktu przy powrocie z zawieszenia.
+
+    Szablon z Ticketu 6. ``prev_date`` bywa ``None`` tylko dla wierszy, które
+    trafiły w stan zawieszenia z pominięciem API (safety-net, ręczny UPDATE) —
+    „nie podano" jest wtedy uczciwsze niż podstawienie dzisiejszej daty.
+    """
+    when = prev_date.isoformat() if prev_date else "nie podano"
+    return (
+        "Poprzedni projekt zakończony: "
+        f"{when}, powód: {_closure_reason_text(prev_reason, prev_reason_other)}"
+    )
 
 
 def _has_signature_role(user: User) -> bool:
@@ -362,8 +426,20 @@ async def _serialize_generated_contracts(
             B2BGeneratedContractItem(
                 # Zmiana statusu handlowego celowo NIE wygasa po podpisaniu:
                 # wypowiedzenie i porozumienie o rozwiązaniu dotyczą właśnie
-                # umów podpisanych. Blokuje ją wyłącznie brak uprawnień.
-                can_change_status=is_admin or row.created_by == current_user.id,
+                # umów podpisanych.
+                #
+                # `True` bezwarunkowo, bo autoryzacja zaszła WYŻEJ: do tej listy
+                # dociera wyłącznie `B2BGeneratorAccess` (admin / head of
+                # recruitment / TAC / delivery lead z niepustym grafem klientów),
+                # a `_scope_generator_query` zawęża ją do klientów, których
+                # użytkownik prowadzi. Wcześniejsza reguła „autor albo admin"
+                # była za wąska dla operacji, o którą tu chodzi: kontraktora na
+                # nowy projekt kieruje delivery, nie osoba, która kiedyś
+                # wygenerowała dokument — przy tamtej regule przycisk „Zmień
+                # status" byłby niewidoczny dla większości zespołu, a zakładka
+                # „Umowy bez projektu" nie miałaby jak działać. Korekta TREŚCI
+                # dokumentu (`can_edit`) zostaje przy wąskiej bramce.
+                can_change_status=True,
                 contract_status=row.contract_status,
                 closure_reason=row.closure_reason,
                 closure_reason_other=row.closure_reason_other,
@@ -1097,10 +1173,16 @@ async def list_generated_contracts(
             "Klienta lub imieniu i nazwisku Partnera/powiązanego kandydata."
         ),
     ),
-    contract_status: str | None = Query(
+    contract_status: list[str] | None = Query(
         None,
-        pattern="^(active|in_progress|closed)$",
-        description="Filtr statusu handlowego umowy.",
+        description=(
+            "Filtr statusu handlowego umowy. Parametr powtarzalny — zakładka "
+            "„Umowy aktywne i w trakcie podpisu” przesyła dwie wartości."
+        ),
+    ),
+    closure_reason: str | None = Query(
+        None,
+        description="Filtr powodu zakończenia projektu (zakładki bez projektu / zakończone).",
     ),
     start_from: date | None = Query(
         None, description="Data rozpoczęcia usług OD (włącznie)."
@@ -1125,6 +1207,24 @@ async def list_generated_contracts(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="„Data rozpoczęcia od” nie może być późniejsza niż „do”.",
+        )
+
+    # Walidacja w ciele, a nie regexem w `Query(pattern=…)`: parametr jest teraz
+    # powtarzalny, a `pattern` na `list[str]` FastAPI stosuje do CAŁEJ listy,
+    # więc regex albo przepuszczałby wszystko, albo nic. Nieznana wartość musi
+    # dać 422 z nazwą pomyłki — ciche zignorowanie filtra zwróciłoby PEŁNĄ listę
+    # umów pod nagłówkiem zakładki, która obiecuje wąski podzbiór.
+    statuses = [s for s in (contract_status or []) if s]
+    unknown = sorted(set(statuses) - set(get_args(B2BContractStatus)))
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Nieznany status umowy: {', '.join(unknown)}.",
+        )
+    if closure_reason is not None and closure_reason not in get_args(B2BClosureReason):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Nieznany powód zakończenia: {closure_reason}.",
         )
 
     query = await _scope_generator_query(
@@ -1170,8 +1270,10 @@ async def list_generated_contracts(
             )
         query = query.where(or_(*clauses))
 
-    if contract_status:
-        query = query.where(B2BGeneratedContract.contract_status == contract_status)
+    if statuses:
+        query = query.where(B2BGeneratedContract.contract_status.in_(statuses))
+    if closure_reason:
+        query = query.where(B2BGeneratedContract.closure_reason == closure_reason)
 
     # Koniunkcja z `q` i `contract_status` wychodzi sama: każdy filtr dokłada
     # własne `.where(...)`, a SQLAlchemy łączy je AND-em. Wiersze bez
@@ -1192,6 +1294,94 @@ async def list_generated_contracts(
         .all()
     )
     return await _serialize_generated_contracts(db, rows, current_user)
+
+
+@router.get(
+    "/generated/{generated_id}/status-history",
+    response_model=list[B2BStatusEventItem],
+)
+async def generated_contract_status_history(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Dziennik zmian statusu jednej umowy — dialog „Historia statusów".
+
+    To JEDYNE miejsce, w którym da się odczytać datę i powód zakończenia
+    projektu po tym, jak umowa wróciła z zawieszenia do gry: powrót na „Aktywna"
+    czyści `closure_*` na wierszu (wymusza to
+    `ck_b2b_generated_contracts_closure_coherence`).
+
+    Rosnąco po `created_at`: historia czyta się od początku, a nie od końca.
+    """
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    await _assert_generator_client_access(db, current_user, row.client_id)
+
+    events = list(
+        (
+            await db.execute(
+                select(B2BGeneratedContractStatusEvent)
+                .where(
+                    B2BGeneratedContractStatusEvent.generated_contract_id
+                    == generated_id
+                )
+                .order_by(
+                    B2BGeneratedContractStatusEvent.created_at.asc(),
+                    B2BGeneratedContractStatusEvent.id.asc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not events:
+        return []
+
+    # Batch lookup jak w `_serialize_generated_contracts` — dziennik bywa długi
+    # dla kontraktora krążącego między projektami, a N+1 na trzech tabelach
+    # zrobiłby z dialogu historii najwolniejszy ekran w module.
+    job_ids = {e.job_id for e in events if e.job_id}
+    client_ids = {e.client_id for e in events if e.client_id}
+    user_ids = {e.changed_by for e in events if e.changed_by}
+
+    jobs: dict[int, str] = {}
+    if job_ids:
+        result = await db.execute(select(Job.id, Job.title).where(Job.id.in_(job_ids)))
+        jobs = {jid: title for jid, title in result.all()}
+    clients: dict[int, str] = {}
+    if client_ids:
+        result = await db.execute(
+            select(Client.id, Client.display_name, Client.name).where(
+                Client.id.in_(client_ids)
+            )
+        )
+        clients = {cid: (display or name) for cid, display, name in result.all()}
+    users: dict[int, str] = {}
+    if user_ids:
+        result = await db.execute(
+            select(User.id, User.name).where(User.id.in_(user_ids))
+        )
+        users = {uid: name for uid, name in result.all()}
+
+    return [
+        B2BStatusEventItem(
+            id=e.id,
+            from_status=e.from_status,
+            to_status=e.to_status,
+            effective_date=e.effective_date,
+            reason=e.reason,
+            reason_other=e.reason_other,
+            job_id=e.job_id,
+            job_title=jobs.get(e.job_id) if e.job_id else None,
+            client_id=e.client_id,
+            client_name=clients.get(e.client_id) if e.client_id else None,
+            changed_by_name=users.get(e.changed_by) if e.changed_by else None,
+            created_at=e.created_at.isoformat() if e.created_at else None,
+        )
+        for e in events
+    ]
 
 
 @router.get("/generated/{generated_id}/docx")
@@ -1481,7 +1671,17 @@ async def update_generated_contract(
 
     Zmiana treści dokumentu jest zablokowana po podpisaniu, ale zmiana **statusu
     handlowego** — nie: wypowiedzenie i porozumienie o rozwiązaniu dotyczą z
-    definicji umów już podpisanych. Zamknięcie nie usuwa wiersza."""
+    definicji umów już podpisanych. Zamknięcie nie usuwa wiersza.
+
+    **Kto co może** (dwie różne bramki, celowo):
+    - ``client_name`` — autor wpisu albo admin, jak przy usuwaniu. To korekta
+      TREŚCI dokumentu (synchronizuje `render_payload`), więc trzyma wąską
+      bramkę.
+    - ``contract_status`` — każdy, kto widzi wiersz (`B2BGeneratorAccess` +
+      client-scope z `_scope_generator_query`). Kontraktora na nowy projekt
+      kieruje delivery, nie osoba, która kiedyś kliknęła „generuj"; przy wąskiej
+      bramce przycisk byłby niewidoczny dla większości zespołu i cała zakładka
+      „Umowy bez projektu" nie miałaby jak działać."""
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -1495,15 +1695,6 @@ async def update_generated_contract(
         row.client_id,
         write=True,
     )
-    # Autoryzacja PRZED walidacją treści i regułami biznesowymi: inaczej kody
-    # odpowiedzi (422 „brak zmian" / 409 „podpisana") odpowiadałyby na pytania
-    # o cudzy wiersz, zanim ustalimy, że pytający ma do niego prawo.
-    is_admin = current_user.has_role(UserRole.admin)
-    if not is_admin and row.created_by != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="Możesz edytować tylko umowy, które samodzielnie wygenerowałeś.",
-        )
 
     fields = payload.model_fields_set
     wants_client_name = "client_name" in fields
@@ -1512,6 +1703,15 @@ async def update_generated_contract(
         raise HTTPException(
             status_code=422,
             detail="Nie przesłano żadnej zmiany.",
+        )
+    # Autoryzacja PRZED regułami biznesowymi: inaczej kody odpowiedzi
+    # (409 „podpisana" / 422 „zły status wyjściowy") odpowiadałyby na pytania
+    # o cudzy wiersz, zanim ustalimy, że pytający ma do niego prawo.
+    is_admin = current_user.has_role(UserRole.admin)
+    if wants_client_name and not is_admin and row.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Nazwę Klienta może poprawić tylko autor wpisu albo administrator.",
         )
     if wants_client_name and row.signature_status == "signed_both":
         raise HTTPException(
@@ -1548,8 +1748,68 @@ async def update_generated_contract(
 
     if wants_status:
         old_status = row.contract_status
-        row.contract_status = payload.contract_status
-        if payload.contract_status == "closed":
+        new_status = payload.contract_status
+        reactivating = new_status == "active" and old_status == "suspended"
+
+        # Zawiesić można WYŁĄCZNIE umowę już obowiązującą. Bez tego guardu
+        # `in_progress → suspended` byłby ślepym zaułkiem: powrót na „Aktywna"
+        # wymaga powiązanego kontraktu (409 niżej), a ten powstaje dopiero przy
+        # potwierdzeniu podpisu — jedynym wyjściem zostawałoby zamknięcie umowy.
+        if new_status == "suspended" and old_status != "active":
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Zawiesić można tylko umowę aktywną. Ta ma status "
+                    f"„{_STATUS_LABEL_PL.get(old_status, old_status)}”."
+                ),
+            )
+
+        job: Job | None = None
+        if reactivating:
+            if payload.job_id is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Wybierz projekt, do którego wraca kontraktor.",
+                )
+            # 409, nie 422: to nie jest błąd w przesłanych danych, tylko stan
+            # świata, który trzeba najpierw zmienić gdzie indziej.
+            if row.contract_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Ta umowa nie ma powiązanego kontraktora, więc notatka "
+                        "o poprzednim projekcie nie miałaby gdzie trafić. "
+                        "Najpierw oznacz umowę jako podpisaną obustronnie."
+                    ),
+                )
+            job = await db.get(Job, payload.job_id)
+            if job is None:
+                raise HTTPException(
+                    status_code=422, detail="Wybrany projekt nie istnieje."
+                )
+            # Nowy projekt może należeć do INNEGO klienta niż dotychczasowy, więc
+            # dostęp trzeba sprawdzić względem klienta docelowego. Bez tego
+            # delivery lead przypiąłby kontraktora do klienta spoza swojego grafu.
+            await _assert_generator_client_access(
+                db, current_user, job.client_id, write=True
+            )
+        elif "job_id" in fields:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Projekt można przypisać wyłącznie przy przywracaniu "
+                    "zawieszonej umowy."
+                ),
+            )
+
+        # Odczyt PRZED czyszczeniem — to jedyne miejsce, w którym data i powód
+        # zakończenia poprzedniego projektu jeszcze istnieją.
+        prev_reason = row.closure_reason
+        prev_reason_other = row.closure_reason_other
+        prev_date = row.closure_date
+
+        row.contract_status = new_status
+        if new_status in B2B_CLOSING_STATUSES:
             row.closure_reason = payload.closure_reason
             row.closure_reason_other = (
                 (payload.closure_reason_other or "").strip() or None
@@ -1560,9 +1820,64 @@ async def update_generated_contract(
         else:
             # Powrót na „Aktywna" czyści komplet pól zamknięcia — inaczej
             # zostawałby osierocony powód, którego CHECK i tak by nie przepuścił.
+            # Historia nie ginie: leci do dziennika niżej.
             row.closure_reason = None
             row.closure_reason_other = None
             row.closure_date = None
+
+        if job is not None:
+            row.job_id = job.id
+            row.client_id = job.client_id
+            client = await db.get(Client, job.client_id) if job.client_id else None
+            if client is not None:
+                row.client_name = client.display_name or client.name
+            # `render_payload` NIE jest synchronizowany — w odróżnieniu od
+            # korekty literówki w nazwie Klienta. Tam poprawiamy to, co miało
+            # być w dokumencie; tutaj zmienia się fakt handlowy, a podpisany
+            # DOCX jest zapisem tego, co strony podpisały, i nie wolno go
+            # przepisać pod nowego klienta.
+
+        db.add(
+            B2BGeneratedContractStatusEvent(
+                generated_contract_id=row.id,
+                from_status=old_status,
+                to_status=new_status,
+                # Przy zamknięciu/zawieszeniu zapisujemy datę NOWEGO zdarzenia,
+                # przy powrocie na „Aktywna" — datę zakończenia POPRZEDNIEGO
+                # projektu, bo to ona właśnie znika z wiersza.
+                effective_date=(
+                    row.closure_date
+                    if new_status in B2B_CLOSING_STATUSES
+                    else prev_date
+                ),
+                reason=(
+                    row.closure_reason
+                    if new_status in B2B_CLOSING_STATUSES
+                    else prev_reason
+                ),
+                reason_other=(
+                    row.closure_reason_other
+                    if new_status in B2B_CLOSING_STATUSES
+                    else prev_reason_other
+                ),
+                job_id=job.id if job is not None else None,
+                client_id=job.client_id if job is not None else None,
+                changed_by=current_user.id,
+            )
+        )
+
+        if reactivating:
+            db.add(
+                Note(
+                    contract_id=row.contract_id,
+                    content=_previous_project_note(
+                        prev_date, prev_reason, prev_reason_other
+                    ),
+                    note_type=NoteType.general,
+                    author_id=current_user.id,
+                )
+            )
+
         db.add(
             Activity(
                 entity_type="b2b_generated_contract",
@@ -1579,6 +1894,7 @@ async def update_generated_contract(
                     "closure_date": (
                         row.closure_date.isoformat() if row.closure_date else None
                     ),
+                    "job_id": row.job_id if job is not None else None,
                 },
             )
         )

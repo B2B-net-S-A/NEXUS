@@ -13,8 +13,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { ClientProfileResponse } from "@/types/client-profile";
 import { SummaryBar } from "@/components/client-profile/SummaryBar";
-import { ConsultantRow } from "@/components/client-profile/ConsultantRow";
-import { PlacementRow } from "@/components/client-profile/PlacementRow";
+import {
+  ConsultantsTable,
+  toConsultantRow,
+} from "@/components/client-profile/ConsultantsTable";
+import { TabbedNav } from "@/components/ds/TabbedNav";
 import { ExtendContractMenu } from "@/components/client-profile/actions/ExtendContractMenu";
 import { ReEngageButton } from "@/components/client-profile/actions/ReEngageButton";
 
@@ -97,35 +100,54 @@ function ConsultantsSection({
     ? filterConsultantsByPart(active, partFilter)
     : active;
 
+  const isArchive = tab === "archiwum";
+  const activeCount =
+    ezdrowie && partFilter !== "all" ? filtered.length : active.length;
+
   return (
     <section className="space-y-3">
-      <SectionHeader
-        icon={<Users className="w-4 h-4 text-emerald-600" />}
-        title="Konsultanci"
-        count={active.length + archived.length}
+      {/* Podzakładki na `ds/TabbedNav` — jak w sąsiedniej zakładce Projekty.
+          Poprzedni, ręcznie zrobiony przełącznik nie miał `role="tab"` ani
+          `aria-selected`, więc czytnik ekranu widział dwa zwykłe przyciski. */}
+      <TabbedNav
+        value={tab}
+        onValueChange={(v) => setTab(v as ConsultantsTab)}
+        ariaLabel="Konsultanci"
+        tabs={[
+          {
+            value: "obecni",
+            label: "Obecni konsultanci",
+            icon: Users,
+            // Aktywny filtr części zawęża licznik do tego, co realnie widać —
+            // stały total przy filtrze czytał się jak błąd (review #1056).
+            count: activeCount,
+          },
+          {
+            value: "archiwum",
+            label: "Archiwum konsultantów",
+            icon: FileText,
+            count: archived.length,
+          },
+        ]}
       />
 
-      <div className="flex gap-2 border-b border-border dark:border-border">
-        <SubTabButton
-          active={tab === "obecni"}
-          onClick={() => setTab("obecni")}
-          icon={<Users className="w-3.5 h-3.5" />}
-        >
-          {/* Aktywny filtr części zawęża licznik do tego, co realnie widać —
-              stały total przy filtrze czytał się jak błąd (review #1056). */}
-          Obecni konsultanci (
-          {ezdrowie && partFilter !== "all" ? filtered.length : active.length})
-        </SubTabButton>
-        <SubTabButton
-          active={tab === "archiwum"}
-          onClick={() => setTab("archiwum")}
-          icon={<FileText className="w-3.5 h-3.5" />}
-        >
-          Archiwum konsultantów ({archived.length})
-        </SubTabButton>
-      </div>
+      <SectionHeader
+        icon={
+          isArchive ? (
+            <FileText className="w-4 h-4 text-emerald-600" />
+          ) : (
+            <Users className="w-4 h-4 text-emerald-600" />
+          )
+        }
+        title={isArchive ? "Archiwum konsultantów" : "Obecni konsultanci"}
+        count={isArchive ? archived.length : activeCount}
+      />
+      <p className="text-xs text-muted-foreground">
+        Widok informacyjny. Zakończenie projektu odbywa się w Zamówieniach lub
+        Kontraktach.
+      </p>
 
-      {tab === "obecni" ? (
+      {!isArchive ? (
         <>
           {ezdrowie && active.length > 0 && (
             <div
@@ -159,20 +181,15 @@ function ConsultantsSection({
               Brak konsultantów spełniających wybrane kryteria.
             </EmptyState>
           ) : (
-            <div className="space-y-2">
-              {filtered.map((c) => (
-                <ConsultantRow
-                  key={c.contract_id}
-                  consultant={c}
-                  actions={
-                    <ExtendContractMenu
-                      contractId={c.contract_id}
-                      clientId={clientId}
-                    />
-                  }
+            <ConsultantsTable
+              rows={filtered.map(toConsultantRow)}
+              renderActions={(r) => (
+                <ExtendContractMenu
+                  contractId={r.contract_id}
+                  clientId={clientId}
                 />
-              ))}
-            </div>
+              )}
+            />
           )}
         </>
       ) : archived.length === 0 ? (
@@ -180,15 +197,19 @@ function ConsultantsSection({
           Brak zakończonych kontraktów dla tego klienta.
         </EmptyState>
       ) : (
-        <div className="space-y-2">
-          {archived.map((p) => (
-            <PlacementRow
-              key={p.contract_id}
-              placement={p}
-              actions={<ReEngageButton placement={p} />}
-            />
-          ))}
-        </div>
+        <ConsultantsTable
+          rows={archived.map(toConsultantRow)}
+          showEndDate
+          renderActions={(r) => {
+            // ReEngage tworzy NOWY kontrakt, nie edytuje wiersza archiwalnego —
+            // „nic się tu nie edytuje ręcznie" mówi o tym, że konsultant trafia
+            // tu automatycznie, nie o odbieraniu akcji.
+            const placement = archived.find(
+              (p) => p.contract_id === r.contract_id,
+            );
+            return placement ? <ReEngageButton placement={placement} /> : null;
+          }}
+        />
       )}
     </section>
   );
@@ -261,32 +282,5 @@ function EmptyState({
       <div className="opacity-40 mb-2">{icon}</div>
       <p className="text-sm">{children}</p>
     </div>
-  );
-}
-
-function SubTabButton({
-  active,
-  onClick,
-  icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors",
-        active
-          ? "border-purple-600 text-purple-600"
-          : "border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
-      )}
-    >
-      {icon}
-      {children}
-    </button>
   );
 }

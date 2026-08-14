@@ -160,23 +160,62 @@ Zobacz `~/.claude/rules/observability.md` dla pełnego standardu (Sentry + Grafa
 - **Alloy sidecar:** profile-gated (`profiles: [observability]`). Bez `COMPOSE_PROFILES=observability` w Coolify nie startuje. Po dodaniu Grafana creds → `{app="nexus"}` zwraca logi z 4 services + structured fields (FastAPI JSON logging od PR #108).
 - **Cloudflare:** `api.nexus.dynaminds.pl` — proxy ON, Full strict TLS, OWASP CRS PL2, rate limit `/api/auth/*` 10 req/min/IP. Backend ma już `slowapi` rate limiter — Cloudflare to pierwsza linia, slowapi druga.
 
-## Generator Umów B2B — status umowy + wyszukiwarka
+## Generator Umów B2B — trzy zakładki cyklu życia umowy
 
-Zakładka „Wygenerowane umowy" (`components/v2/pages/B2BContractGeneratorV2.tsx`)
-dostała kolumnę **Status umowy** i wyszukiwarkę. Migracja `0203_b2b_generated_contract_status`.
+Rejestr rozbity na trzy zakładki odpowiadające fazom życia umowy (migracja
+`0226_b2b_generated_contract_suspended`, na bazie 0203/0224):
+**„Umowy aktywne i w trakcie podpisu"** (`active` + `in_progress`) ·
+**„Umowy bez projektu"** (`suspended`) · **„Zakończone umowy"** (`closed`).
+Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
 
-- **Status handlowy ≠ status podpisu.** `contract_status` (`active` | `closed`) jest
-  **niezależny** od `signature_status`. Podpisaną umowę też się wypowiada, więc PATCH
-  statusu **nie jest** blokowany po podpisaniu — blokada 409 obejmuje wyłącznie treść
-  dokumentu (`client_name`). Gdyby status dziedziczył tę blokadę, funkcja byłaby martwa
-  w najczęstszym przypadku (wypowiedzenie / porozumienie). Stąd osobna flaga
-  `can_change_status` (= autor lub admin) obok `can_edit` (= autor/admin **i** niepodpisana).
+- **`suspended` powstał, bo bez niego rejestr kłamał.** Kontraktor kończy projekt
+  u klienta, ale umowa B2B dalej obowiązuje — czeka na kolejne zlecenie. `active`
+  twierdziłby, że ktoś pracuje; `closed`, że umowy nie ma. Ten status odpowiada na
+  pytanie „ilu mamy dziś kontraktorów bez projektu", a to pytanie o pieniądze.
+- **Zawiesić można WYŁĄCZNIE umowę `active`** (422 dla reszty). Bez tej reguły
+  `in_progress → suspended` byłby ślepym zaułkiem: powrót na `active` wymaga
+  powiązanego kontraktu, a ten powstaje dopiero przy potwierdzeniu podpisu.
+- **Powrót z zawieszenia wymaga projektu i powiązanego kontraktu.** `job_id`
+  obowiązkowy; `contract_id IS NULL` → **409**, nie 422 (to nie błąd w danych,
+  tylko stan świata do zmiany gdzie indziej). Klienta wyprowadza SERWER z projektu —
+  front go nie przesyła, żeby nie dało się zapisać pary projekt/klient, która
+  w bazie do siebie nie należy. Do powiązanego kontraktu leci notatka
+  „Poprzedni projekt zakończony: [data], powód: [powód]" (konstrukcja `Note(...)`
+  wprost w handlerze — `NoteCreate` nie ma `contract_id`, a `POST /api/notes` stoi
+  za bramką `CandidateWriteAccess`, czyli w złej domenie autoryzacji).
+- **Przypisanie projektu NIE dotyka `render_payload`** — w odróżnieniu od korekty
+  literówki w nazwie Klienta ([[b2b-generated-contract-clientname-dual-write]]).
+  Tam poprawiamy to, co MIAŁO być w dokumencie; tu zmienia się fakt handlowy,
+  a podpisany DOCX jest zapisem tego, co strony podpisały.
+- **Historia żyje w `b2b_generated_contract_status_events`.** Powrót na `active`
+  MUSI wyczyścić `closure_*` (wymusza to CHECK), więc bez dziennika data i powód
+  zakończenia poprzedniego projektu przepadałyby. `GET /generated/{id}/status-history`
+  + dialog „Historia statusów". FK z **ON DELETE CASCADE** — `DELETE /generated/{id}`
+  zwalnia numer umowy, RESTRICT zamieniłby dziennik w blokadę tej operacji.
+- **Status handlowy ≠ status podpisu.** `contract_status` jest **niezależny** od
+  `signature_status`. Podpisaną umowę też się wypowiada, więc PATCH statusu **nie
+  jest** blokowany po podpisaniu — blokada 409 obejmuje wyłącznie treść dokumentu
+  (`client_name`).
+- **Dwie różne bramki w tym samym PATCH-u.** `contract_status` — każdy, kto widzi
+  wiersz (`B2BGeneratorAccess` + client-scope; `can_change_status` = `True`).
+  `client_name` — nadal autor albo admin. Reguła „autor albo admin" dla statusu
+  była za wąska: kontraktora na nowy projekt kieruje delivery, nie osoba, która
+  kiedyś kliknęła „generuj" — przycisk byłby niewidoczny dla większości zespołu.
 - **Zamknięcie NIE usuwa wiersza** — dopisuje `closure_reason`, opcjonalny
   `closure_reason_other` i obowiązkowy `closure_date`. Powrót na `active` czyści komplet.
-- **Powody:** `resignation_before_signing` | `termination` | `mutual_agreement` | `other`.
+- **Powody opisują KONIEC PROJEKTU, nie rozstanie z Partnerem** (jeden katalog dla
+  `closed` i `suspended`): `no_client_budget` | `contractor_found_other_project` |
+  `contractor_health_reasons` | `contractor_underperformance` | `project_completed` |
+  `internalization` | `other`. Trzy wartości sprzed 0226
+  (`resignation_before_signing` | `termination` | `mutual_agreement`) **zniknęły
+  z pickera, ale ZOSTAJĄ** w Literalu, w CHECK-u i w etykietach: produkcja ma
+  wiersze `closed`, które je niosą. Zawężenie domeny wywaliłoby `ADD CONSTRAINT`,
+  a usunięcie etykiet zamieniłoby historyczny powód w puste miejsce.
   Etykiety PL żyją w warstwie prezentacji (`B2B_CLOSURE_REASON_LABEL` w komponencie,
   **nie** w `lib/api.ts`) — testy mockują `@/lib/api` w całości, więc stałe trzymane tam
-  wychodziłyby w testach jako `undefined`.
+  wychodziłyby w testach jako `undefined`. Wyjątek: `_CLOSURE_REASON_LABEL_PL`
+  w API — buduje TREŚĆ NOTATKI zapisywanej do bazy, czyli artefakt, nie widok.
+- **Etykieta `closed` to „Zakończona"** (dawniej „Zamknięta"); wartość w bazie bez zmian.
 - **Spójność wymuszona w bazie**, nie tylko w API: `ck_b2b_generated_contracts_closure_coherence`
   odrzuca `closed` bez powodu/daty oraz `active` z wypełnionym powodem. `closure_reason_other`
   jest wymagany dokładnie dla `other`. DTO `B2BGeneratedContractUpdate` to lustro tego CHECK-a
@@ -188,14 +227,63 @@ dostała kolumnę **Status umowy** i wyszukiwarkę. Migracja `0203_b2b_generated
   `limit` wierszach) po numerze umowy, `partner_name`, `client_name` oraz — przez OUTER JOIN
   na `candidates` — po imieniu/nazwisku powiązanego kandydata (także pełne „Imię Nazwisko"
   jednym ciągiem). Wildcardy `%`/`_` są escapowane, więc `%` szuka znaku, nie zwraca całej
-  listy. Dodatkowo `?contract_status=` jako filtr. FE debounce 300 ms.
+  listy. Dodatkowo `?closure_reason=` jako filtr w zakładkach cyklu życia.
+  FE debounce 300 ms.
+- **`?contract_status=` jest POWTARZALNY** (`list[str]`), bo zakładka pierwsza pyta
+  o dwa statusy naraz. Walidacja w ciele handlera, nie `Query(pattern=…)`: regex na
+  `list[str]` FastAPI stosuje do CAŁEJ listy. Nieznana wartość → 422 z nazwą pomyłki;
+  ciche zignorowanie filtra zwróciłoby PEŁNĄ listę pod nagłówkiem zakładki, która
+  obiecuje wąski podzbiór. Axios musi serializować `indexes: null` — domyślne
+  `contract_status[]=` to po stronie FastAPI INNA nazwa pola i filtr milcząco pada.
 - **Pusty wynik wyszukiwania ma inny komunikat niż brak umów** — „Brak umów pasujących do
-  wyszukiwania" vs „Brak wygenerowanych umów" (ten sam błąd co przy 403 renderowanym jako
-  pustka: pustka czyta się jak utrata danych).
-- **Safety-net entrypointu** zawiera lustro DDL (kolumny + 3 CHECK-i) — prod alembic bywa
-  orphaned. `/health/deep` **nie wymagał zmiany**: sonda `b2b_signature_schema` liczy tylko
-  pozycje ze swojej listy oczekiwanych, więc dołożenie kolumn/constraintów jej nie psuje.
+  wyszukiwania" vs „Brak umów aktywnych i w trakcie podpisu" (ten sam błąd co przy 403
+  renderowanym jako pustka: pustka czyta się jak utrata danych). Padnięte zapytanie ma
+  WŁASNĄ gałąź `isError` z przyciskiem „Ponów" — awaria nie może udawać zera.
+- **Safety-net entrypointu** zawiera lustro DDL (kolumny + CHECK-i + `CREATE TABLE`
+  dziennika) — prod alembic bywa orphaned. `CREATE TABLE` idzie do listy DDL, NIE przez
+  `Base.metadata.create_all`: tamten blok jest jedną transakcją i na prodzie potrafi paść
+  w całości (incydent Cortex, PR #664). Uwaga: wpis `ck_..._closure_reason` do 0226 miał
+  wyłącznie `EXCEPTION WHEN duplicate_object`, więc poszerzenie katalogu nigdy by na
+  prodzie nie zadziałało — dołożony DROP przed ADD. Obie tabele B2B są w `core_checks`
+  `/api/health/deep`.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
+
+## Klienci → Profil: tabela konsultantów + stawki z harmonogramu
+
+Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
+(`components/client-profile/ConsultantsTable.tsx`), nie karty. Kolumny: `Konsultant`
+(nazwisko / tag CC / **rekrutacja**) · `Start date` · `Stawka kosztowa` ·
+`Stawka przychodowa` · `Marża` (+ `End date` tylko w Archiwum, + `Akcje` w obu).
+
+- **Stawki idą z HARMONOGRAMÓW, nie z kolumn `contracts.rate_*`.** Kolumna niesie
+  wartość zapisaną przy ostatnim ZAPISIE kontraktu, więc stawka progresywna albo
+  aneks z datą, która już nadeszła, pokazywały tu STARĄ kwotę — a wraz z nią złą
+  marżę i zaniżone „Aktywne MRR". `clients.py` reużywa
+  `app.api.contracts._effective_rate_fields` (brak cyklu importów: `contracts.py`
+  nie importuje `clients.py`). **Oba zapytania MUSZĄ `selectinload` trzy
+  harmonogramy** (`candidate_rate_schedule`, `client_rate_schedule`,
+  `framework_rate_schedule`) — bez nich helper robi lazy-load w async i leci
+  `MissingGreenlet` 500 bez CORS, w UI „Nie udało się wczytać profilu".
+- **Archiwum liczy stawki na DZIEŃ ZAKOŃCZENIA** (`end_date` → `terminated_at` →
+  dziś), nie na dziś: to zapis historyczny, a krok harmonogramu zaplanowany po
+  zakończeniu projektu nigdy w jego trakcie nie obowiązywał. `total_revenue` i LTV
+  dostają tę samą stawkę wstrzykiwaną parametrem — inaczej wiersz pokazywałby sumę
+  policzoną z innej kwoty niż ta obok niej.
+- **`active_mrr` liczy się z tego samego słownika co wiersze.** Kafel będący sumą
+  innych liczb niż widoczne pod nim nie daje się zweryfikować wzrokiem.
+- **`HistoricalPlacementItem` dostał `job_id` + trzy kwoty** (`WholePLN`), objęte tą
+  samą redakcją `VIEW_FINANCE` co wiersz aktywny — inaczej rola bez uprawnień
+  zobaczyłaby w archiwum dokładnie to, co ukrywamy jej w zakładce obok.
+- **Brak rekrutacji zostawia PUSTY wiersz**, nie „brak powiązanej rekrutacji" —
+  tekst zastępczy w kolumnie danych czyta się jak wartość, a nie jak jej brak.
+- **Kwoty renderują się jako „—" (`formatPLN(null)`), nie znikają** — znikająca
+  komórka zostawiłaby roli bez `VIEW_FINANCE` trzy puste kolumny bez wyjaśnienia.
+- Podzakładki na `ds/TabbedNav` (`role="tab"`/`aria-selected`, liczniki), jak
+  w sąsiednim `ProjectsTab`. `ConsultantRow.tsx` i `PlacementRow.tsx` usunięte.
+- **Kafle KPI:** `components/StatsCard.tsx` ma układ jednoliniowy (~44 px zamiast
+  ~88), `subtitle` przeszedł do tooltipa. Ten komponent ma DOKŁADNIE JEDNEGO
+  konsumenta (`client-profile/SummaryBar`) — nie mylić z `components/ds/StatCard`,
+  który ma sześć miejsc użycia i którego zmiana dotyka dwóch dashboardów i Cortexu.
 
 ## Interaktywne CV (publiczny link do wygenerowanego CV)
 

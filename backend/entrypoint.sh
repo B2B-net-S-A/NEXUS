@@ -761,6 +761,31 @@ _COLUMN_STATEMENTS = [
        ADD COLUMN IF NOT EXISTS start_date DATE NULL""",
     """ALTER TABLE b2b_generated_contracts
        ADD COLUMN IF NOT EXISTS partner_entity_type VARCHAR(16) NULL""",
+    # Dziennik zmian statusu umowy (migracja 0226). CREATE TABLE leci TUTAJ,
+    # a nie przez `Base.metadata.create_all` niżej: tamten blok jest jedną
+    # transakcją i na produkcji potrafi paść w całości przez jedną złą tabelę
+    # (incydent Cortex, PR #664), zostawiając „metadata create_all failed;
+    # continuing" i UndefinedTable na żywym endpointcie.
+    #
+    # Powrót z „Zawieszonej" na „Aktywną" MUSI wyczyścić `closure_*` (wymusza to
+    # ck_..._closure_coherence), więc bez tej tabeli data i powód zakończenia
+    # poprzedniego projektu przepadają bezpowrotnie.
+    """CREATE TABLE IF NOT EXISTS b2b_generated_contract_status_events (
+           id SERIAL PRIMARY KEY,
+           generated_contract_id INTEGER NOT NULL
+               REFERENCES b2b_generated_contracts (id) ON DELETE CASCADE,
+           from_status VARCHAR(16) NULL,
+           to_status VARCHAR(16) NOT NULL,
+           effective_date DATE NULL,
+           reason VARCHAR(32) NULL,
+           reason_other TEXT NULL,
+           job_id INTEGER NULL REFERENCES jobs (id) ON DELETE SET NULL,
+           client_id INTEGER NULL REFERENCES clients (id) ON DELETE SET NULL,
+           changed_by INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+       )""",
+    """CREATE INDEX IF NOT EXISTS ix_b2b_gc_status_events_contract
+       ON b2b_generated_contract_status_events (generated_contract_id)""",
     # candidate_invite_links: token_sha256 + token_ct — hash+encrypt v2
     # (migracja 0183). Bez nich mint v2 wywala UndefinedColumn.
     """ALTER TABLE candidate_invite_links
@@ -4142,36 +4167,56 @@ _CONSTRAINT_STATEMENTS = [
             FOREIGN KEY (signed_by_user_id) REFERENCES users (id)
             ON DELETE SET NULL NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0224: 'in_progress' jako trzeci status. DROP PRZED ADD, bo
-    # `EXCEPTION WHEN duplicate_object THEN NULL` po cichu zostawiłby STARY,
-    # wąski constraint z 0203 — a wtedy INSERT z 'in_progress' wywalałby
-    # CheckViolation przy każdym generowaniu umowy, a entrypoint wypisałby
-    # tylko „backfill constraint skip".
+    # 0224/0226: 'in_progress' i 'suspended' jako trzeci i czwarty status.
+    # DROP PRZED ADD, bo `EXCEPTION WHEN duplicate_object THEN NULL` po cichu
+    # zostawiłby STARY, wąski constraint z 0203 — a wtedy INSERT z 'in_progress'
+    # wywalałby CheckViolation przy każdym generowaniu umowy, a entrypoint
+    # wypisałby tylko „backfill constraint skip".
     """ALTER TABLE b2b_generated_contracts
        DROP CONSTRAINT IF EXISTS ck_b2b_generated_contracts_contract_status""",
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts
             ADD CONSTRAINT ck_b2b_generated_contracts_contract_status
-            CHECK (contract_status IN ('active', 'in_progress', 'closed'))
+            CHECK (
+                contract_status IN ('active', 'in_progress', 'suspended', 'closed')
+            )
             NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0226: katalog powodów opisuje teraz KONIEC PROJEKTU, nie rozstanie
+    # z Partnerem. Trzy wartości z 0203 zostają mimo zniknięcia z pickera —
+    # produkcja ma wiersze `closed`, które je niosą, a CHECK jest domeną
+    # dopuszczalnych wartości, nie listą podpowiedzi w UI.
+    #
+    # DROP przed ADD dołożony w 0226: do tej pory ten wpis miał wyłącznie
+    # `EXCEPTION WHEN duplicate_object`, więc poszerzenie katalogu nigdy by na
+    # produkcji nie zadziałało — stary constraint zostałby nietknięty, a
+    # pierwsze zamknięcie umowy nowym powodem poleciałoby CheckViolation.
+    """ALTER TABLE b2b_generated_contracts
+       DROP CONSTRAINT IF EXISTS ck_b2b_generated_contracts_closure_reason""",
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts
             ADD CONSTRAINT ck_b2b_generated_contracts_closure_reason
             CHECK (
                 closure_reason IS NULL OR
                 closure_reason IN (
+                    'no_client_budget',
+                    'contractor_found_other_project',
+                    'contractor_health_reasons',
+                    'contractor_underperformance',
+                    'project_completed',
+                    'internalization',
+                    'other',
                     'resignation_before_signing',
                     'termination',
-                    'mutual_agreement',
-                    'other'
+                    'mutual_agreement'
                 )
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0224: 'in_progress' traktowany jak 'active' — umowa w drodze do podpisu
-    # nie ma pól zamknięcia. Bez tego przepisania wiersz 'in_progress' łamie
-    # OBIE gałęzie tego CHECK-a, więc samo poszerzenie
-    # ck_..._contract_status wyżej NIE wystarczy. DROP przed ADD — jak wyżej.
+    # nie ma pól zamknięcia. 0226: 'suspended' traktowany jak 'closed' — umowa
+    # bez projektu MUSI powiedzieć, co i kiedy się skończyło. Bez tego
+    # przepisania wiersz 'suspended' łamie OBIE gałęzie tego CHECK-a, więc samo
+    # poszerzenie ck_..._contract_status wyżej NIE wystarczy. DROP przed ADD.
     """ALTER TABLE b2b_generated_contracts
        DROP CONSTRAINT IF EXISTS ck_b2b_generated_contracts_closure_coherence""",
     """DO $$ BEGIN
@@ -4184,7 +4229,7 @@ _CONSTRAINT_STATEMENTS = [
                     AND closure_date IS NULL
                     AND closure_reason_other IS NULL
                 ) OR (
-                    contract_status = 'closed'
+                    contract_status IN ('closed', 'suspended')
                     AND closure_reason IS NOT NULL
                     AND closure_date IS NOT NULL
                     AND (

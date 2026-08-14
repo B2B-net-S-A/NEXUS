@@ -25,7 +25,9 @@ async def test_profile_requires_auth(app_client: AsyncClient) -> None:
 async def test_profile_404_for_missing_client(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
-    resp = await app_client.get("/api/clients/99999999/profile", headers=app_auth_headers)
+    resp = await app_client.get(
+        "/api/clients/99999999/profile", headers=app_auth_headers
+    )
     assert resp.status_code == 404
 
 
@@ -40,12 +42,19 @@ async def test_profile_returns_expected_shape(
         pytest.skip("No clients seeded — cannot exercise profile shape.")
     client_id = items[0]["id"]
 
-    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=app_auth_headers)
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
     # Top-level contract
-    assert set(body.keys()) >= {"summary", "open_jobs", "active_consultants", "historical"}
+    assert set(body.keys()) >= {
+        "summary",
+        "open_jobs",
+        "active_consultants",
+        "historical",
+    }
     assert isinstance(body["open_jobs"], list)
     assert isinstance(body["active_consultants"], list)
     assert isinstance(body["historical"], dict)
@@ -81,7 +90,9 @@ async def test_profile_active_consultants_have_candidate_brief(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
     """If the seed has at least one active contract, verify the candidate payload."""
-    listing = await app_client.get("/api/clients?page_size=25", headers=app_auth_headers)
+    listing = await app_client.get(
+        "/api/clients?page_size=25", headers=app_auth_headers
+    )
     clients = listing.json().get("items") or []
     for c in clients:
         resp = await app_client.get(
@@ -96,3 +107,200 @@ async def test_profile_active_consultants_have_candidate_brief(
         assert "id" in row["candidate"] and "name" in row["candidate"]
         return
     pytest.skip("No active consultants in any client — seed.py did not produce them.")
+
+
+# ── Stawki: harmonogram, nie kolumna legacy ─────────────────────────────────
+#
+# Kolumna `contracts.rate_*` niesie wartość zapisaną przy ostatnim ZAPISIE
+# kontraktu. Krok harmonogramu, którego data już nadeszła, zmienia stawkę BEZ
+# żadnego zapisu — i to jest dokładnie ta różnica, którą profil dotąd gubił,
+# pokazując starą kwotę, złą marżę i zaniżone „Aktywne MRR".
+
+
+async def _seed_scheduled_contract(*, ended: bool) -> tuple[int, int]:
+    """Kontrakt ze stawką, która zmieniła się w PRZESZŁOŚCI, i drugą w PRZYSZŁOŚCI.
+
+    Zwraca ``(client_id, contract_id)``. Kolumny legacy celowo trzymają kwotę
+    z pierwszego okresu — gdyby endpoint czytał je zamiast harmonogramu, testy
+    niżej zobaczyłyby właśnie tę, przedawnioną wartość.
+    """
+    import uuid
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+    from app.models.contract_candidate_rate import ContractCandidateRate
+    from app.models.contract_client_rate import ContractClientRate
+    from app.models.job import Job
+
+    today = date.today()
+    start = today - timedelta(days=400)
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Harmonogram",
+            lastname=f"S-{uuid.uuid4().hex[:6]}",
+            email=f"sched-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=f"SchedClient-{uuid.uuid4().hex[:6]}")
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+
+        job = Job(title="Projekt z harmonogramem", client_id=client.id)
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+
+        end_date = today - timedelta(days=30) if ended else today + timedelta(days=200)
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            job_id=job.id,
+            status=ContractStatus.ended if ended else ContractStatus.active,
+            start_date=start,
+            end_date=end_date,
+            # Kolumny legacy = pierwszy okres.
+            rate_candidate=Decimal("10000.000"),
+            rate_client=Decimal("15000.000"),
+            margin=Decimal("5000.000"),
+            rate_unit="monthly",
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+
+        db.add_all(
+            [
+                # Okres 1 (od startu) — zgodny z kolumną legacy.
+                ContractCandidateRate(
+                    contract_id=contract.id,
+                    rate=Decimal("10000.000"),
+                    effective_from=start,
+                ),
+                ContractClientRate(
+                    contract_id=contract.id,
+                    rate=Decimal("15000.000"),
+                    effective_from=start,
+                ),
+                # Okres 2 — data już minęła, także przed zakończeniem umowy.
+                ContractCandidateRate(
+                    contract_id=contract.id,
+                    rate=Decimal("12000.000"),
+                    effective_from=today - timedelta(days=200),
+                ),
+                ContractClientRate(
+                    contract_id=contract.id,
+                    rate=Decimal("18000.000"),
+                    effective_from=today - timedelta(days=200),
+                ),
+                # Okres 3 — data w przyszłości, NIE ma prawa pojawić się nigdzie.
+                ContractCandidateRate(
+                    contract_id=contract.id,
+                    rate=Decimal("99000.000"),
+                    effective_from=today + timedelta(days=365),
+                ),
+                ContractClientRate(
+                    contract_id=contract.id,
+                    rate=Decimal("99000.000"),
+                    effective_from=today + timedelta(days=365),
+                ),
+            ]
+        )
+        await db.commit()
+        return client.id, contract.id
+
+
+async def test_active_consultant_rates_come_from_the_schedule(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    client_id, contract_id = await _seed_scheduled_contract(ended=False)
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    row = next(r for r in body["active_consultants"] if r["contract_id"] == contract_id)
+
+    assert row["monthly_rate_candidate"] == 12000
+    assert row["monthly_rate_client"] == 18000
+    assert row["monthly_margin"] == 6000
+    # Kafel liczy się z tego samego źródła co wiersze — inaczej suma nie
+    # zgadzałaby się z tym, co widać pod nią.
+    assert body["summary"]["active_mrr"] == 6000
+
+
+async def test_archive_rates_are_resolved_at_the_end_date(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Archiwum to zapis historyczny, nie migawka „na dziś"."""
+    client_id, contract_id = await _seed_scheduled_contract(ended=True)
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    row = next(
+        r
+        for r in resp.json()["historical"]["placements"]
+        if r["contract_id"] == contract_id
+    )
+
+    assert row["monthly_rate_candidate"] == 12000
+    assert row["monthly_rate_client"] == 18000
+    assert row["monthly_margin"] == 6000
+    # Rekrutacja linkowalna także w archiwum (dotąd był sam tytuł).
+    assert row["job_id"] is not None
+    assert row["job_title"] == "Projekt z harmonogramem"
+
+
+async def test_archive_money_is_redacted_without_view_finance(
+    app_client: AsyncClient,
+) -> None:
+    """Nowe pola archiwum muszą podlegać tej samej redakcji co wiersz aktywny —
+    inaczej rola bez VIEW_FINANCE zobaczyłaby w archiwum dokładnie te kwoty,
+    które ukrywamy jej w zakładce obok."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    client_id, contract_id = await _seed_scheduled_contract(ended=True)
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"pytest-hor-{unique}@example.com"
+    password = f"T3st_{unique}!PassX"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name="Pytest HoR",
+                role=UserRole.head_of_recruitment,
+                is_active=True,
+            )
+        )
+        await db.commit()
+
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    row = next(
+        r for r in body["historical"]["placements"] if r["contract_id"] == contract_id
+    )
+    assert row["monthly_rate_candidate"] is None
+    assert row["monthly_rate_client"] is None
+    assert row["monthly_margin"] is None
+    assert row["total_revenue"] is None
+    assert body["summary"]["active_mrr"] is None

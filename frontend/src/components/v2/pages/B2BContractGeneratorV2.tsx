@@ -17,7 +17,9 @@ import {
   ExternalLink,
   FileSignature,
   Loader2,
+  History,
   Mail,
+  PauseCircle,
   Pencil,
   Plus,
   Printer,
@@ -79,6 +81,7 @@ import api, {
   type B2BContractStatus,
   type B2BGeneratedContractRow,
   type B2BGeneratedContractUpdate,
+  type B2BGeneratedListParams,
   type B2BGeneratePayload,
   type B2BRenderPayload,
   type B2BRole,
@@ -168,6 +171,11 @@ type CandidateDetail = {
 };
 
 type JobDetail = {
+  // `id`/`title` przychodzą też z listy `/api/jobs` (katalog projektów przy
+  // przywracaniu zawieszonej umowy), gdzie ten sam kształt jest elementem
+  // tablicy, a nie odpowiedzią `/api/jobs/{id}`.
+  id?: number;
+  title?: string | null;
   client_id?: number | null;
   description?: string | null;
   location?: string | null;
@@ -408,7 +416,11 @@ export function B2BContractGeneratorV2() {
       <Tabs defaultValue="generator">
         <TabsList className="mb-4">
           <TabsTrigger value="generator">Generator</TabsTrigger>
-          <TabsTrigger value="generated">Wygenerowane umowy</TabsTrigger>
+          <TabsTrigger value="generated">
+            Umowy aktywne i w trakcie podpisu
+          </TabsTrigger>
+          <TabsTrigger value="no-project">Umowy bez projektu</TabsTrigger>
+          <TabsTrigger value="closed">Zakończone umowy</TabsTrigger>
           {isAdmin ? (
             <TabsTrigger value="roles">Zakresy ról (admin)</TabsTrigger>
           ) : null}
@@ -424,6 +436,12 @@ export function B2BContractGeneratorV2() {
         </TabsContent>
         <TabsContent value="generated">
           <GeneratedContractsTab />
+        </TabsContent>
+        <TabsContent value="no-project">
+          <NoProjectContractsTab />
+        </TabsContent>
+        <TabsContent value="closed">
+          <ClosedContractsTab />
         </TabsContent>
         {isAdmin ? (
           <TabsContent value="roles">
@@ -835,25 +853,41 @@ function ConfirmFullySignedDialog({
 export const B2B_CONTRACT_STATUS_LABEL: Record<B2BContractStatus, string> = {
   active: "Aktywna",
   in_progress: "W trakcie",
-  closed: "Zamknięta",
+  suspended: "Zawieszona",
+  // „Zamknięta" → „Zakończona": tak nazywa ten stan proces i tak brzmi
+  // zakładka, do której wiersz trafia. Wartość w bazie zostaje `closed`.
+  closed: "Zakończona",
 };
 
 /**
  * Warianty badge'a statusu umowy.
  *
- * „Zamknięta" przeszła z `warning` (pomarańcz) na `neutral` (szary), żeby
+ * „Zakończona" przeszła z `warning` (pomarańcz) na `neutral` (szary), żeby
  * zwolnić pomarańcz dla „W trakcie". Nie jest to tylko przetasowanie kolorów:
  * stan terminalny nie jest ostrzeżeniem, a umowa w drodze do podpisu wymaga
  * uwagi. Dwa pomarańczowe statusy obok siebie byłyby nierozróżnialne.
+ *
+ * „Zawieszona" dostaje `soft` — czyta się jako wstrzymanie, a nie awarię ani
+ * stan terminalny. Umowa dalej obowiązuje, więc czerwień byłaby kłamstwem.
  */
 export const B2B_CONTRACT_STATUS_VARIANT: Record<
   B2BContractStatus,
-  "info" | "warning" | "neutral"
+  "info" | "warning" | "neutral" | "soft"
 > = {
   active: "info",
   in_progress: "warning",
+  suspended: "soft",
   closed: "neutral",
 };
+
+/** Ikona statusu — para z wariantem wyżej. */
+function StatusIcon({ status }: { status: B2BContractStatus }) {
+  const cls = "h-3.5 w-3.5";
+  if (status === "closed") return <CircleSlash className={cls} />;
+  if (status === "suspended") return <PauseCircle className={cls} />;
+  if (status === "in_progress") return <CircleDashed className={cls} />;
+  return <CircleDot className={cls} />;
+}
 
 /**
  * Filtr zakresu daty rozpoczęcia usług — ikona kalendarza w nagłówku kolumny.
@@ -1002,19 +1036,46 @@ function StartDateRangeFilter({
 }
 
 export const B2B_CLOSURE_REASON_LABEL: Record<B2BClosureReason, string> = {
+  no_client_budget: "Brak budżetu u klienta",
+  contractor_found_other_project: "Kontraktor znalazł inny projekt",
+  contractor_health_reasons: "Względy zdrowotne kontraktora",
+  contractor_underperformance:
+    "Kontraktor nie wywiązywał się z obowiązków projektowych",
+  project_completed: "Zakończenie projektu",
+  internalization: "Internalizacja",
+  other: "Inny",
+  // Katalog sprzed migracji 0226 — opisywał ROZSTANIE Z PARTNEREM, nie koniec
+  // projektu. Zniknął z pickera niżej, ale etykiety ZOSTAJĄ: produkcja ma
+  // zamknięte umowy z tymi powodami, a bez etykiety kolumna „Powód zakończenia
+  // projektu" pokazywałaby im surowy klucz albo puste miejsce.
   resignation_before_signing: "Rezygnacja przed podpisaniem umowy",
   termination: "Wypowiedzenie",
   mutual_agreement: "Porozumienie o rozwiązaniu umowy",
-  other: "Inne",
 };
 
-// Kolejność w liście rozwijanej „Powód zamknięcia umowy" — jak w zgłoszeniu.
+// Kolejność w liście rozwijanej „Powód zakończenia projektu" — jak w zgłoszeniu.
+// JEDNA lista dla „Zakończona" i „Zawieszona": to samo zdarzenie (projekt się
+// skończył) kończy albo zawiesza umowę, w zależności od tego, czy szukamy
+// kontraktorowi kolejnego zlecenia.
 const CLOSURE_REASONS: B2BClosureReason[] = [
-  "resignation_before_signing",
-  "termination",
-  "mutual_agreement",
+  "no_client_budget",
+  "contractor_found_other_project",
+  "contractor_health_reasons",
+  "contractor_underperformance",
+  "project_completed",
+  "internalization",
   "other",
 ];
+
+/** Czytelny powód: własny tekst dla „Inny", inaczej etykieta z katalogu. */
+export function closureReasonText(
+  reason: B2BClosureReason | null | undefined,
+  reasonOther: string | null | undefined,
+): string | null {
+  if (!reason) return null;
+  if (reason === "other") return reasonOther?.trim() || "Inny";
+  return B2B_CLOSURE_REASON_LABEL[reason] ?? reason;
+}
 
 /**
  * Zmiana statusu handlowego umowy. Zamknięcie NIE usuwa wpisu — dopisuje mu
@@ -1057,16 +1118,26 @@ export function ContractStatusDialog({
     onSuccess: (updated) => {
       toast.showSuccess(
         updated.contract_status === "closed"
-          ? "Umowa oznaczona jako zamknięta — wpis pozostaje na liście."
-          : "Umowa oznaczona jako aktywna.",
+          ? "Umowa zakończona — wpis przeszedł do „Zakończone umowy”."
+          : updated.contract_status === "suspended"
+            ? "Umowa zawieszona — kontraktor jest teraz w „Umowy bez projektu”."
+            : "Umowa oznaczona jako aktywna.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["b2b-status-history", row.id] });
       onOpenChange(false);
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
 
-  const closing = status === "closed";
+  // Oba statusy wymagają tego samego kompletu pól; różni się TYLKO to, co się
+  // kończy — przy zawieszeniu projekt (umowa trwa), przy zakończeniu umowa.
+  const closing = status === "closed" || status === "suspended";
+  const subject = status === "suspended" ? "projektu" : "umowy";
+  // „Zawieszona" pokazuje się wyłącznie dla umowy już obowiązującej. Backend
+  // odrzuca inne przejścia 422; ukrycie opcji oszczędza użytkownikowi wysyłki,
+  // która i tak nie ma prawa się udać.
+  const canSuspend = row.contract_status === "active";
   const submit = () => {
     if (!closing) {
       mut.mutate({ contract_status: "active" });
@@ -1075,19 +1146,19 @@ export function ContractStatusDialog({
     // Te same reguły egzekwuje backend (422) i CHECK w bazie — tu tylko po to,
     // żeby użytkownik zobaczył powód od razu, bez round-tripu.
     if (!reason) {
-      toast.showError("Wybierz powód zamknięcia umowy.");
+      toast.showError(`Wybierz powód zakończenia ${subject}.`);
       return;
     }
     if (reason === "other" && !reasonOther.trim()) {
-      toast.showError("Wpisz własny powód zamknięcia umowy.");
+      toast.showError(`Wpisz własny powód zakończenia ${subject}.`);
       return;
     }
     if (!closureDate) {
-      toast.showError("Podaj datę zakończenia umowy.");
+      toast.showError(`Podaj datę zakończenia ${subject}.`);
       return;
     }
     mut.mutate({
-      contract_status: "closed",
+      contract_status: status,
       closure_reason: reason,
       closure_reason_other: reason === "other" ? reasonOther.trim() : null,
       closure_date: closureDate,
@@ -1100,8 +1171,8 @@ export function ContractStatusDialog({
         <DialogHeader>
           <DialogTitle>Status umowy {row.contract_number}</DialogTitle>
           <DialogDescription>
-            Zamknięcie umowy nie usuwa jej z systemu — wpis zostaje na liście
-            wraz z powodem i datą zakończenia.
+            Żadna z tych zmian nie usuwa umowy z systemu — wpis przechodzi do
+            innej zakładki wraz z powodem i datą zakończenia.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
@@ -1127,18 +1198,33 @@ export function ContractStatusDialog({
                 <SelectItem value="in_progress" disabled>
                   {B2B_CONTRACT_STATUS_LABEL.in_progress}
                 </SelectItem>
+                {/* Widoczna tylko dla umowy obowiązującej — patrz `canSuspend`.
+                    Dla wiersza JUŻ zawieszonego pozycja musi zostać, inaczej
+                    Radix wyrenderowałby pusty trigger dla stanu, w którym umowa
+                    właśnie jest. */}
+                {canSuspend || row.contract_status === "suspended" ? (
+                  <SelectItem value="suspended">
+                    {B2B_CONTRACT_STATUS_LABEL.suspended}
+                  </SelectItem>
+                ) : null}
                 <SelectItem value="closed">
                   {B2B_CONTRACT_STATUS_LABEL.closed}
                 </SelectItem>
               </SelectContent>
             </Select>
+            {status === "suspended" ? (
+              <p className="text-xs text-muted-foreground">
+                Umowa nadal obowiązuje — kontraktor tylko nie ma przypisanego
+                projektu. Wpis przejdzie do zakładki „Umowy bez projektu”.
+              </p>
+            ) : null}
           </div>
 
           {closing ? (
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="b2b-closure-reason">
-                  Powód zamknięcia umowy
+                  Powód zakończenia {subject}
                 </Label>
                 <Select
                   value={reason}
@@ -1165,13 +1251,15 @@ export function ContractStatusDialog({
                     rows={3}
                     value={reasonOther}
                     onChange={(e) => setReasonOther(e.target.value)}
-                    placeholder="Opisz powód zamknięcia umowy"
+                    placeholder={`Opisz powód zakończenia ${subject}`}
                   />
                 </div>
               ) : null}
 
               <div className="space-y-1.5">
-                <Label htmlFor="b2b-closure-date">Data zakończenia umowy</Label>
+                <Label htmlFor="b2b-closure-date">
+                  Data zakończenia {subject}
+                </Label>
                 {/* type="date" = wpisanie z klawiatury ORAZ natywny kalendarz. */}
                 <Input
                   id="b2b-closure-date"
@@ -1180,7 +1268,8 @@ export function ContractStatusDialog({
                   onChange={(e) => setClosureDate(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Pole obowiązkowe dla statusu „Zamknięta".
+                  Pole obowiązkowe dla statusu „
+                  {B2B_CONTRACT_STATUS_LABEL[status]}".
                 </p>
               </div>
             </>
@@ -1209,6 +1298,333 @@ export function ContractStatusDialog({
   );
 }
 
+/**
+ * Przywrócenie zawieszonej umowy do gry: wybór projektu, klient dociągany.
+ *
+ * Klient jest READ-ONLY i wyprowadzany z projektu — dokładnie jak w generatorze
+ * przy tworzeniu umowy. Ręczne pole pozwoliłoby zapisać parę projekt/klient,
+ * która w bazie do siebie nie należy; backend i tak wyprowadza klienta sam,
+ * więc dwa źródła prawdy tylko by się rozjeżdżały.
+ */
+export function ReactivateContractDialog({
+  row,
+  open,
+  onOpenChange,
+}: {
+  row: B2BGeneratedContractRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [jobId, setJobId] = useState("");
+  // Rekrutacje kandydata to węższy i pewniejszy zbiór (kontraktor jest w nich
+  // realnie w pipelinie), ale bywa pusty — wtedy bez przełącznika na pełny
+  // katalog użytkownik zostaje w ślepym zaułku.
+  const [browseAll, setBrowseAll] = useState(false);
+  const [jobQuery, setJobQuery] = useState("");
+  const debouncedJobQuery = useDebouncedValue(jobQuery, 300);
+
+  useEffect(() => {
+    if (!open) return;
+    setJobId("");
+    setBrowseAll(false);
+    setJobQuery("");
+  }, [open, row]);
+
+  const recruitments = useQuery({
+    queryKey: ["b2b-reactivate-recruitments", row.candidate_id],
+    queryFn: () =>
+      api
+        .get<RecruitmentOption[]>(
+          `/api/cv-generator/candidates/${row.candidate_id}/recruitments`,
+        )
+        .then((r) => r.data),
+    enabled: open && !!row.candidate_id && !browseAll,
+  });
+
+  const catalog = useQuery({
+    queryKey: ["b2b-reactivate-jobs", debouncedJobQuery],
+    queryFn: () =>
+      api
+        .get<{ items?: JobDetail[] } | JobDetail[]>("/api/jobs", {
+          params: {
+            open_only: true,
+            page_size: 50,
+            ...(debouncedJobQuery.trim() ? { q: debouncedJobQuery.trim() } : {}),
+          },
+        })
+        .then((r) => (Array.isArray(r.data) ? r.data : (r.data.items ?? []))),
+    enabled: open && browseAll,
+  });
+
+  const selectedJob = useQuery({
+    queryKey: ["b2b-reactivate-job", jobId],
+    queryFn: () =>
+      api.get<JobDetail>(`/api/jobs/${jobId}`).then((r) => r.data),
+    enabled: open && !!jobId,
+  });
+
+  const mut = useMutation({
+    mutationFn: () =>
+      b2bGeneratorApi.updateGenerated(row.id, {
+        contract_status: "active",
+        job_id: Number(jobId),
+      }),
+    onSuccess: () => {
+      toast.showSuccess(
+        "Umowa wróciła do „Umowy aktywne i w trakcie podpisu”. Notatkę " +
+          "o poprzednim projekcie dopisano w Kontraktach.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["b2b-status-history", row.id] });
+      onOpenChange(false);
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const options: { value: string; label: string }[] = browseAll
+    ? (catalog.data ?? []).map((j) => ({
+        value: String(j.id),
+        label: j.title ?? `Projekt #${j.id}`,
+      }))
+    : (recruitments.data ?? []).map((r) => ({
+        value: String(r.job_id),
+        label: r.job_title,
+      }));
+  const listQuery = browseAll ? catalog : recruitments;
+  const clientLabel =
+    selectedJob.data?.client_name ?? row.canonical_client_name ?? "—";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Przywróć umowę {row.contract_number}</DialogTitle>
+          <DialogDescription>
+            Kontraktor wraca do pracy. Wskaż projekt — klient dociągnie się
+            z niego automatycznie, a data i powód zakończenia poprzedniego
+            projektu trafią jako notatka do powiązanego kontraktu.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="b2b-reactivate-job">Projekt</Label>
+            {listQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Ładowanie…</p>
+            ) : listQuery.isError ? (
+              /* Awaria NIE może wyrenderować się jako pusta lista — „brak
+                 projektów" czyta się jako fakt o świecie, a projekt jest tu
+                 polem obowiązkowym, więc user zostałby z zablokowanym
+                 przyciskiem i zerową wskazówką. */
+              <div className="space-y-2">
+                <Alert
+                  variant="warning"
+                  title="Nie udało się wczytać listy projektów"
+                  description="Sprawdź połączenie i spróbuj ponownie."
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => listQuery.refetch()}
+                >
+                  Ponów
+                </Button>
+              </div>
+            ) : options.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {browseAll
+                  ? "Brak otwartych projektów pasujących do wyszukiwania."
+                  : "Kandydat nie jest w żadnej rekrutacji."}
+              </p>
+            ) : (
+              <Select value={jobId} onValueChange={setJobId}>
+                <SelectTrigger id="b2b-reactivate-job">
+                  <SelectValue placeholder="Wybierz projekt…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {options.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              onClick={() => {
+                setBrowseAll((v) => !v);
+                setJobId("");
+              }}
+            >
+              {browseAll
+                ? "← Wróć do rekrutacji kandydata"
+                : "Szukaj w innych projektach →"}
+            </button>
+          </div>
+
+          {browseAll ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="b2b-reactivate-search">Szukaj projektu</Label>
+              <Input
+                id="b2b-reactivate-search"
+                value={jobQuery}
+                onChange={(e) => setJobQuery(e.target.value)}
+                placeholder="Nazwa projektu…"
+              />
+            </div>
+          ) : null}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="b2b-reactivate-client">Klient</Label>
+            <Input
+              id="b2b-reactivate-client"
+              value={selectedJob.isLoading && jobId ? "Ładowanie…" : clientLabel}
+              readOnly
+              disabled
+            />
+            <p className="text-xs text-muted-foreground">
+              Uzupełniany automatycznie na podstawie wybranego projektu.
+            </p>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={mut.isPending}
+            onClick={() => onOpenChange(false)}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            disabled={mut.isPending || !jobId}
+            onClick={() => mut.mutate()}
+          >
+            {mut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Przywróć umowę
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Dziennik zmian statusu — jedyne miejsce, w którym data i powód zakończenia
+ * poprzedniego projektu przetrwały powrót umowy na „Aktywna" (na wierszu pola
+ * te MUSZĄ zostać wyczyszczone, wymusza to CHECK spójności w bazie).
+ */
+export function StatusHistoryDialog({
+  row,
+  open,
+  onOpenChange,
+}: {
+  row: B2BGeneratedContractRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["b2b-status-history", row.id],
+    queryFn: () => b2bGeneratorApi.statusHistory(row.id),
+    enabled: open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Historia statusów {row.contract_number}</DialogTitle>
+          <DialogDescription>
+            Zapis wszystkich zmian statusu tej umowy wraz z datą i powodem
+            zakończenia projektu.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          {q.isLoading ? (
+            <p className="text-sm text-muted-foreground">Ładowanie…</p>
+          ) : q.isError ? (
+            <div className="space-y-2">
+              <Alert
+                variant="warning"
+                title="Nie udało się wczytać historii"
+                description={extractErrorMsg(q.error)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => q.refetch()}
+              >
+                Ponów
+              </Button>
+            </div>
+          ) : (q.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Status tej umowy nie był jeszcze zmieniany.
+            </p>
+          ) : (
+            <ol className="space-y-3">
+              {(q.data ?? []).map((e) => (
+                <li key={e.id} className="border-l-2 border-border pl-3">
+                  <p className="text-sm font-medium">
+                    {e.from_status
+                      ? `${
+                          B2B_CONTRACT_STATUS_LABEL[
+                            e.from_status as B2BContractStatus
+                          ] ?? e.from_status
+                        } → `
+                      : ""}
+                    {B2B_CONTRACT_STATUS_LABEL[
+                      e.to_status as B2BContractStatus
+                    ] ?? e.to_status}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {[
+                      e.effective_date
+                        ? `Zakończenie: ${e.effective_date}`
+                        : null,
+                      closureReasonText(
+                        e.reason as B2BClosureReason | null,
+                        e.reason_other,
+                      ),
+                      e.job_title ? `Projekt: ${e.job_title}` : null,
+                      e.client_name ? `Klient: ${e.client_name}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {[
+                      e.changed_by_name,
+                      e.created_at?.slice(0, 16).replace("T", " "),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" onClick={() => onOpenChange(false)}>
+            Zamknij
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function GeneratedContractsTab() {
   const toast = useToast();
   const router = useRouter();
@@ -1218,10 +1634,16 @@ export function GeneratedContractsTab() {
   const [statusRow, setStatusRow] = useState<B2BGeneratedContractRow | null>(
     null,
   );
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<B2BContractStatus | "all">(
-    "all",
+  const [historyRow, setHistoryRow] = useState<B2BGeneratedContractRow | null>(
+    null,
   );
+  const [search, setSearch] = useState("");
+  // „all" w TEJ zakładce znaczy „aktywne i w trakcie podpisu", nie „wszystkie
+  // umowy w systemie": zamknięte i zawieszone mają własne zakładki i nie mogą
+  // się tu pojawić, inaczej wiersz byłby widoczny w dwóch miejscach naraz.
+  const [statusFilter, setStatusFilter] = useState<
+    "active" | "in_progress" | "all"
+  >("all");
   // Zakres daty ROZPOCZĘCIA USŁUG. Trzy tryby panelu (zakres / cały miesiąc /
   // konkretny dzień) sprowadzają się do jednej pary granic: miesiąc to pierwszy
   // i ostatni dzień, dzień to ta sama data w obu polach. `""` = brak granicy.
@@ -1237,7 +1659,8 @@ export function GeneratedContractsTab() {
     queryFn: () =>
       b2bGeneratorApi.generated(100, {
         q: debouncedSearch,
-        contractStatus: statusFilter === "all" ? undefined : statusFilter,
+        contractStatus:
+          statusFilter === "all" ? ["active", "in_progress"] : [statusFilter],
         startFrom: startFrom || undefined,
         startTo: startTo || undefined,
       }),
@@ -1331,15 +1754,18 @@ export function GeneratedContractsTab() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Wygenerowane umowy</CardTitle>
+        <CardTitle className="text-base">
+          Umowy aktywne i w trakcie podpisu
+        </CardTitle>
         <CardDescription>
-          Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
-          numer nie powtarza istniejącego. Umowę można pobrać ponownie, a nazwę
-          Klienta poprawić („Edytuj"). Status podpisu jest widoczny w tabeli;
-          potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
+          Umowy obowiązujące oraz te, które czekają na podpis obu stron —
+          sprawdź, czy sugerowany / wpisany numer nie powtarza istniejącego.
+          Umowę można pobrać ponownie, a nazwę Klienta poprawić („Edytuj").
+          Potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
           Niepodpisany wpis może edytować lub usunąć osoba, która go
-          wygenerowała, albo administrator. Zamknięcie umowy („Status umowy")
-          nie usuwa jej z listy.
+          wygenerowała, albo administrator. Zawieszenie lub zakończenie umowy
+          („Zmień status") nie usuwa jej z systemu — przenosi ją do zakładki
+          „Umowy bez projektu" albo „Zakończone umowy".
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1358,22 +1784,22 @@ export function GeneratedContractsTab() {
             <Select
               value={statusFilter}
               onValueChange={(v) =>
-                setStatusFilter(v as B2BContractStatus | "all")
+                setStatusFilter(v as "active" | "in_progress" | "all")
               }
             >
               <SelectTrigger className="w-56" aria-label="Filtr statusu umowy">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                {/* Bez „Zakończona" i „Zawieszona": te wiersze mają własne
+                    zakładki. Zostawienie ich tutaj pokazywałoby tę samą umowę
+                    w dwóch miejscach naraz i psuło obietnicę nazwy zakładki. */}
                 <SelectItem value="all">Wszystkie statusy</SelectItem>
                 <SelectItem value="in_progress">
                   {B2B_CONTRACT_STATUS_LABEL.in_progress}
                 </SelectItem>
                 <SelectItem value="active">
                   {B2B_CONTRACT_STATUS_LABEL.active}
-                </SelectItem>
-                <SelectItem value="closed">
-                  {B2B_CONTRACT_STATUS_LABEL.closed}
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -1410,7 +1836,7 @@ export function GeneratedContractsTab() {
                 wyrenderowałaby się jako utrata danych. */}
             {debouncedSearch.trim() || statusFilter !== "all" || dateFilterActive
               ? "Brak umów pasujących do wyszukiwania."
-              : "Brak wygenerowanych umów."}
+              : "Brak umów aktywnych i w trakcie podpisu."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1510,14 +1936,14 @@ export function GeneratedContractsTab() {
                             title={
                               closed
                                 ? [
-                                    r.closure_reason
-                                      ? `Powód: ${
-                                          r.closure_reason === "other"
-                                            ? r.closure_reason_other || "Inne"
-                                            : B2B_CLOSURE_REASON_LABEL[
-                                                r.closure_reason
-                                              ]
-                                        }`
+                                    closureReasonText(
+                                      r.closure_reason,
+                                      r.closure_reason_other,
+                                    )
+                                      ? `Powód: ${closureReasonText(
+                                          r.closure_reason,
+                                          r.closure_reason_other,
+                                        )}`
                                       : null,
                                     r.closure_date
                                       ? `Zakończenie: ${r.closure_date}`
@@ -1530,40 +1956,45 @@ export function GeneratedContractsTab() {
                                   : "Umowa podpisana i obowiązująca"
                             }
                           >
-                            {closed ? (
-                              <CircleSlash className="h-3.5 w-3.5" />
-                            ) : r.contract_status === "in_progress" ? (
-                              <CircleDashed className="h-3.5 w-3.5" />
-                            ) : (
-                              <CircleDot className="h-3.5 w-3.5" />
-                            )}
+                            <StatusIcon status={r.contract_status} />
                             {B2B_CONTRACT_STATUS_LABEL[r.contract_status]}
                           </Badge>
 
                           {closed ? (
                             <span className="max-w-56 text-xs text-muted-foreground">
-                              {r.closure_reason === "other"
-                                ? r.closure_reason_other
-                                : r.closure_reason
-                                  ? B2B_CLOSURE_REASON_LABEL[r.closure_reason]
-                                  : null}
+                              {closureReasonText(
+                                r.closure_reason,
+                                r.closure_reason_other,
+                              )}
                               {r.closure_date ? ` · ${r.closure_date}` : ""}
                             </span>
                           ) : null}
 
-                          {r.can_change_status ? (
+                          <div className="flex items-center gap-1">
+                            {r.can_change_status ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2"
+                                onClick={() => setStatusRow(r)}
+                                title="Zmień status umowy"
+                              >
+                                <Pencil className="h-4 w-4" />
+                                <span className="ml-1">Zmień status</span>
+                              </Button>
+                            ) : null}
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
                               className="h-8 px-2"
-                              onClick={() => setStatusRow(r)}
-                              title="Zmień status umowy"
+                              onClick={() => setHistoryRow(r)}
+                              title="Historia statusów"
                             >
-                              <Pencil className="h-4 w-4" />
-                              <span className="ml-1">Zmień status</span>
+                              <History className="h-4 w-4" />
                             </Button>
-                          ) : null}
+                          </div>
                         </div>
                       </td>
                       <td className="py-2 pr-4">
@@ -1760,7 +2191,355 @@ export function GeneratedContractsTab() {
           }}
         />
       ) : null}
+      {historyRow ? (
+        <StatusHistoryDialog
+          row={historyRow}
+          open
+          onOpenChange={(open) => {
+            if (!open) setHistoryRow(null);
+          }}
+        />
+      ) : null}
     </Card>
+  );
+}
+
+/**
+ * Zakładki „Umowy bez projektu" i „Zakończone umowy".
+ *
+ * Jeden komponent dla obu, bo różnią je wyłącznie: filtrowany status, etykieta
+ * kolumny z datą (projekt vs umowa) i obecność akcji. Dwie kopie rozjechałyby
+ * się przy pierwszej zmianie kolumn — a to ten sam rejestr, tylko w innej fazie
+ * życia.
+ */
+function LifecycleContractsTab({
+  status,
+  title,
+  description,
+  dateColumnLabel,
+  allowActions,
+  emptyLabel,
+}: {
+  status: Extract<B2BContractStatus, "suspended" | "closed">;
+  title: string;
+  description: string;
+  dateColumnLabel: string;
+  allowActions: boolean;
+  emptyLabel: string;
+}) {
+  const [search, setSearch] = useState("");
+  const [reasonFilter, setReasonFilter] = useState<B2BClosureReason | "all">(
+    "all",
+  );
+  const [startFrom, setStartFrom] = useState("");
+  const [startTo, setStartTo] = useState("");
+  const [statusRow, setStatusRow] = useState<B2BGeneratedContractRow | null>(
+    null,
+  );
+  const [reactivateRow, setReactivateRow] =
+    useState<B2BGeneratedContractRow | null>(null);
+  const [historyRow, setHistoryRow] = useState<B2BGeneratedContractRow | null>(
+    null,
+  );
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const dateFilterActive = Boolean(startFrom || startTo);
+
+  const params: B2BGeneratedListParams = {
+    q: debouncedSearch,
+    contractStatus: [status],
+    closureReason: reasonFilter === "all" ? undefined : reasonFilter,
+    startFrom: startFrom || undefined,
+    startTo: startTo || undefined,
+  };
+  const q = useQuery({
+    queryKey: [
+      "b2b-generated",
+      status,
+      debouncedSearch,
+      reasonFilter,
+      startFrom,
+      startTo,
+    ],
+    queryFn: () => b2bGeneratorApi.generated(100, params),
+    staleTime: 10_000,
+  });
+  const rows = q.data ?? [];
+  const filtersActive =
+    Boolean(debouncedSearch.trim()) || reasonFilter !== "all" || dateFilterActive;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isForbidden(q.error) ? null : (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[18rem] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+                placeholder="Szukaj: numer umowy, firma, NIP, kandydat…"
+                aria-label={`Szukaj — ${title}`}
+              />
+            </div>
+            {/* Filtr statusu byłby tu bez sensu (z definicji jeden), więc
+                „Filtruj" to powód zakończenia + zakres daty rozpoczęcia. */}
+            <Select
+              value={reasonFilter}
+              onValueChange={(v) =>
+                setReasonFilter(v as B2BClosureReason | "all")
+              }
+            >
+              <SelectTrigger
+                className="w-72"
+                aria-label="Filtr powodu zakończenia"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Wszystkie powody</SelectItem>
+                {CLOSURE_REASONS.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {B2B_CLOSURE_REASON_LABEL[key]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {dateFilterActive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStartFrom("");
+                  setStartTo("");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary hover:text-primary-foreground"
+                aria-label="Wyczyść filtr daty rozpoczęcia"
+              >
+                Data rozpoczęcia: {startFrom || "…"} – {startTo || "…"}
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
+        )}
+        {q.isLoading ? (
+          <p className="text-sm text-muted-foreground">Ładowanie…</p>
+        ) : isForbidden(q.error) ? (
+          <Alert
+            variant="warning"
+            title={NO_ACCESS_TITLE}
+            description={NO_ACCESS_DESC}
+          />
+        ) : q.error ? (
+          /* Awaria ≠ pustka. Bez tej gałęzi padnięte zapytanie renderowałoby
+             się jako „brak umów", czyli jako fakt o świecie. */
+          <div className="space-y-2">
+            <Alert
+              variant="warning"
+              title="Nie udało się wczytać listy"
+              description={extractErrorMsg(q.error)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => q.refetch()}
+            >
+              Ponów
+            </Button>
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {filtersActive ? "Brak umów pasujących do wyszukiwania." : emptyLabel}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-2 pr-4 font-medium">Numer umowy</th>
+                  <th className="py-2 pr-4 font-medium">Partner</th>
+                  <th className="py-2 pr-4 font-medium">NIP</th>
+                  <th className="py-2 pr-4 font-medium">
+                    <span className="inline-flex items-center gap-1.5">
+                      Data rozpoczęcia
+                      <StartDateRangeFilter
+                        from={startFrom}
+                        to={startTo}
+                        onChange={(next) => {
+                          setStartFrom(next.from);
+                          setStartTo(next.to);
+                        }}
+                      />
+                    </span>
+                  </th>
+                  <th className="py-2 pr-4 font-medium">{dateColumnLabel}</th>
+                  <th className="py-2 pr-4 font-medium">Klient</th>
+                  <th className="py-2 pr-4 font-medium">Status umowy</th>
+                  <th className="py-2 pr-4 font-medium">
+                    Powód zakończenia projektu
+                  </th>
+                  {allowActions ? (
+                    <th className="py-2 text-right font-medium">Akcje</th>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-b">
+                    <td className="py-2 pr-4 font-medium">
+                      {r.contract_number}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span>
+                          {r.partner_display_name || r.partner_name || "—"}
+                        </span>
+                        {r.partner_secondary_line ? (
+                          <span className="text-xs text-muted-foreground">
+                            {r.partner_secondary_line}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-4 tabular-nums">
+                      {r.partner_nip || "—"}
+                    </td>
+                    <td className="py-2 pr-4 tabular-nums">
+                      {r.start_date || "—"}
+                    </td>
+                    <td className="py-2 pr-4 tabular-nums">
+                      {r.closure_date || "—"}
+                    </td>
+                    <td className="py-2 pr-4">{r.client_name || "—"}</td>
+                    <td className="py-2 pr-4">
+                      <Badge
+                        variant={B2B_CONTRACT_STATUS_VARIANT[r.contract_status]}
+                        size="md"
+                      >
+                        <StatusIcon status={r.contract_status} />
+                        {B2B_CONTRACT_STATUS_LABEL[r.contract_status]}
+                      </Badge>
+                    </td>
+                    <td className="py-2 pr-4">
+                      {closureReasonText(
+                        r.closure_reason,
+                        r.closure_reason_other,
+                      ) || "—"}
+                    </td>
+                    {allowActions ? (
+                      <td className="py-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {r.can_change_status ? (
+                            <>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => setReactivateRow(r)}
+                              >
+                                <CircleDot className="h-4 w-4" />
+                                Przywróć
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2"
+                                onClick={() => setStatusRow(r)}
+                                title="Zakończ umowę"
+                              >
+                                <CircleSlash className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => setHistoryRow(r)}
+                            title="Historia statusów"
+                          >
+                            <History className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+
+      {statusRow ? (
+        <ContractStatusDialog
+          row={statusRow}
+          open
+          onOpenChange={(open) => {
+            if (!open) setStatusRow(null);
+          }}
+        />
+      ) : null}
+      {reactivateRow ? (
+        <ReactivateContractDialog
+          row={reactivateRow}
+          open
+          onOpenChange={(open) => {
+            if (!open) setReactivateRow(null);
+          }}
+        />
+      ) : null}
+      {historyRow ? (
+        <StatusHistoryDialog
+          row={historyRow}
+          open
+          onOpenChange={(open) => {
+            if (!open) setHistoryRow(null);
+          }}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+export function NoProjectContractsTab() {
+  return (
+    <LifecycleContractsTab
+      status="suspended"
+      title="Umowy bez projektu"
+      description={
+        "Umowy, które nadal obowiązują, ale kontraktor nie ma aktualnie " +
+        "przypisanego projektu. Przywrócenie do gry wymaga wskazania nowego " +
+        "projektu — klient dociągnie się z niego, a informacja o poprzednim " +
+        "projekcie trafi jako notatka do powiązanego kontraktu."
+      }
+      dateColumnLabel="Data zakończenia projektu"
+      allowActions
+      emptyLabel="Brak umów bez przypisanego projektu."
+    />
+  );
+}
+
+export function ClosedContractsTab() {
+  return (
+    <LifecycleContractsTab
+      status="closed"
+      title="Zakończone umowy"
+      description={
+        "Umowy, które przestały obowiązywać. Widok informacyjny — zmiana " +
+        "statusu odbywa się w zakładkach, z których umowa tu trafiła."
+      }
+      dateColumnLabel="Data zakończenia umowy"
+      allowActions={false}
+      emptyLabel="Brak zakończonych umów."
+    />
   );
 }
 

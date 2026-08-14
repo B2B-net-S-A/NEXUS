@@ -72,12 +72,60 @@ async def _seed(
 
 
 def test_update_dto_rejects_closed_without_reason_or_date():
-    with pytest.raises(ValidationError, match="powód zamknięcia"):
+    with pytest.raises(ValidationError, match="powód zakończenia umowy"):
         B2BGeneratedContractUpdate(contract_status="closed", closure_date="2026-08-01")
-    with pytest.raises(ValidationError, match="Data zakończenia"):
+    with pytest.raises(ValidationError, match="Data zakończenia umowy"):
         B2BGeneratedContractUpdate(
-            contract_status="closed", closure_reason="termination"
+            contract_status="closed", closure_reason="project_completed"
         )
+
+
+def test_update_dto_rejects_suspended_without_reason_or_date():
+    """Ten sam komplet reguł co dla „Zakończona", ale komunikat mówi o PROJEKCIE.
+
+    Wspólny tekst kazałby użytkownikowi zgadywać, o którą datę pyta formularz —
+    przy zawieszeniu kończy się projekt, umowa trwa dalej."""
+    with pytest.raises(ValidationError, match="powód zakończenia projektu"):
+        B2BGeneratedContractUpdate(
+            contract_status="suspended", closure_date="2026-08-01"
+        )
+    with pytest.raises(ValidationError, match="Data zakończenia projektu"):
+        B2BGeneratedContractUpdate(
+            contract_status="suspended", closure_reason="no_client_budget"
+        )
+
+
+def test_update_dto_keeps_legacy_closure_reasons_readable():
+    """Katalog sprzed 0226 zniknął z pickera, ale MUSI przejść walidację.
+
+    Produkcja ma wiersze `closed` niosące te wartości; odrzucenie ich tutaj
+    wywracałoby odczyt i edycję każdego takiego wpisu."""
+    for legacy in ("resignation_before_signing", "termination", "mutual_agreement"):
+        dto = B2BGeneratedContractUpdate(
+            contract_status="closed",
+            closure_reason=legacy,
+            closure_date="2026-08-01",
+        )
+        assert dto.closure_reason == legacy
+
+
+def test_update_dto_binds_job_id_to_reactivation():
+    """`job_id` ma sens wyłącznie przy powrocie na „Aktywna".
+
+    Jawny ``null`` też jest odrzucany: przywrócenie umowy do gry BEZ projektu
+    jest dokładnie tym stanem, który opisuje „Zawieszona"."""
+    with pytest.raises(ValidationError, match="wyłącznie razem ze statusem"):
+        B2BGeneratedContractUpdate(
+            contract_status="suspended",
+            closure_reason="no_client_budget",
+            closure_date="2026-08-01",
+            job_id=7,
+        )
+    with pytest.raises(ValidationError, match="wyłącznie razem ze statusem"):
+        B2BGeneratedContractUpdate(client_name="X", job_id=7)
+    with pytest.raises(ValidationError, match="Wybierz projekt"):
+        B2BGeneratedContractUpdate(contract_status="active", job_id=None)
+    assert B2BGeneratedContractUpdate(contract_status="active", job_id=7).job_id == 7
 
 
 def test_update_dto_requires_free_text_only_for_other():
@@ -318,8 +366,14 @@ async def _other_legal_user_headers(app_client) -> tuple[int, dict[str, str]]:
     return uid, {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def test_foreign_user_cannot_change_status(app_client, app_auth_headers):
-    """Nie-autor i nie-admin dostaje 403 przy zmianie statusu cudzej umowy."""
+async def test_any_generator_user_can_change_status(app_client, app_auth_headers):
+    """Status zmienia KAŻDY, kto widzi wiersz — nie tylko autor wpisu.
+
+    Reguła „autor albo admin" (sprzed 0226) była za wąska dla operacji, o którą
+    tu chodzi: kontraktora na nowy projekt kieruje delivery, nie osoba, która
+    kiedyś kliknęła „generuj". Przy tamtej regule przycisk „Zmień status" byłby
+    niewidoczny dla większości zespołu i zakładka „Umowy bez projektu" nie
+    miałaby jak działać. Zawężenie zostaje na `client_name` — patrz test niżej."""
     admin_id = await _admin_user_id(app_client)
     rid, _number = await _seed(admin_id)
     _uid, other_headers = await _other_legal_user_headers(app_client)
@@ -329,32 +383,59 @@ async def test_foreign_user_cannot_change_status(app_client, app_auth_headers):
         headers=other_headers,
         json={
             "contract_status": "closed",
-            "closure_reason": "termination",
+            "closure_reason": "project_completed",
             "closure_date": "2026-08-31",
         },
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 200, resp.text
 
-    # Status faktycznie się nie zmienił.
     listing = await app_client.get(
         PATH, headers=app_auth_headers, params={"limit": 200}
     )
     item = next(x for x in listing.json() if x["id"] == rid)
-    assert item["contract_status"] == "active"
+    assert item["contract_status"] == "closed"
+    assert item["closure_reason"] == "project_completed"
+
+
+async def test_foreign_user_cannot_edit_client_name(app_client, app_auth_headers):
+    """Korekta TREŚCI dokumentu zostaje przy wąskiej bramce (autor albo admin).
+
+    `client_name` synchronizuje `render_payload`, więc zmienia to, co wyjdzie
+    z ponownego pobrania DOCX — inna klasa operacji niż status handlowy."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _number = await _seed(admin_id)
+    _uid, other_headers = await _other_legal_user_headers(app_client)
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}", headers=other_headers, json={"client_name": "Podmieniony"}
+    )
+    assert resp.status_code == 403, resp.text
+
+    listing = await app_client.get(
+        PATH, headers=app_auth_headers, params={"limit": 200}
+    )
+    item = next(x for x in listing.json() if x["id"] == rid)
+    assert item["client_name"] == "Nordea Bank"
 
 
 async def test_authorization_precedes_business_rules(app_client, app_auth_headers):
-    """403 leci PRZED 422/409 — kody odpowiedzi nie odpowiadają na pytania
-    o cudzy wiersz, zanim ustalimy prawo do niego."""
+    """403 leci PRZED 409 — kod odpowiedzi nie zdradza stanu podpisu cudzego
+    wiersza, zanim ustalimy prawo do jego edycji.
+
+    Pusty payload daje 422, nie 403, i to nie jest regresja: bramka roli
+    (`B2BGeneratorAccess`) i client-scope przepuściły już tego użytkownika do
+    ODCZYTU tego wiersza, a od 0226 wolno mu też zmienić jego status. „Nie
+    przesłano żadnej zmiany" nie ujawnia więc niczego, czego nie widzi na
+    liście. Zawężenie dotyczy wyłącznie `client_name` — i tam 403 nadal
+    wyprzedza 409."""
     admin_id = await _admin_user_id(app_client)
     signed_id, _ = await _seed(admin_id, signature_status="signed_both")
     _uid, other_headers = await _other_legal_user_headers(app_client)
 
-    # Pusty payload: 403, nie 422 (które potwierdzałoby istnienie wiersza).
     empty = await app_client.patch(
         f"{PATH}/{signed_id}", headers=other_headers, json={}
     )
-    assert empty.status_code == 403, empty.text
+    assert empty.status_code == 422, empty.text
 
     # Edycja podpisanej: 403, nie 409 (które zdradzałoby stan podpisu).
     signed = await app_client.patch(
@@ -727,3 +808,320 @@ async def test_date_filter_combines_with_search_and_status(
         },
     )
     assert miss.json() == []
+
+
+# ── Cykl życia: Aktywna → Zawieszona → Aktywna (z projektem) → Zakończona ────
+
+
+async def _seed_linked_contract(client_name: str = "Nordea Bank") -> tuple[int, int]:
+    """Kontraktor + kontrakt w module Kontrakty. Zwraca ``(contract_id, client_id)``.
+
+    Zawieszona umowa wraca do gry dopiero, gdy ma się gdzie zapisać notatka
+    o poprzednim projekcie — bez tego wiersza ścieżka kończy się 409."""
+    from datetime import date as _date
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Zawieszony",
+            lastname=f"K-{uuid.uuid4().hex[:6]}",
+            email=f"zaw-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=client_name)
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=_date(2026, 1, 1),
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+        return contract.id, client.id
+
+
+async def _seed_job(client_id: int, title: str) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+
+    async with AsyncSessionLocal() as db:
+        job = Job(title=title, client_id=client_id)
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        return job.id
+
+
+async def _link(generated_id: int, *, contract_id: int | None) -> None:
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(B2BGeneratedContract)
+            .where(B2BGeneratedContract.id == generated_id)
+            .values(contract_id=contract_id)
+        )
+        await db.commit()
+
+
+async def _suspend(app_client, headers, rid: int, *, date: str = "2026-08-01"):
+    return await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=headers,
+        json={
+            "contract_status": "suspended",
+            "closure_reason": "no_client_budget",
+            "closure_date": date,
+        },
+    )
+
+
+async def test_suspend_requires_active_source_status(app_client, app_auth_headers):
+    """`in_progress → suspended` to ślepy zaułek, więc jest zablokowany.
+
+    Powrót na „Aktywna" wymaga powiązanego kontraktu, a ten powstaje dopiero
+    przy potwierdzeniu podpisu — umowa przed podpisem utknęłaby w zakładce
+    „Umowy bez projektu" z jedynym wyjściem przez zamknięcie."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    await _link(rid, contract_id=None)
+
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(B2BGeneratedContract)
+            .where(B2BGeneratedContract.id == rid)
+            .values(contract_status="in_progress")
+        )
+        await db.commit()
+
+    resp = await _suspend(app_client, app_auth_headers, rid)
+    assert resp.status_code == 422, resp.text
+    assert "tylko umowę aktywną" in resp.json()["detail"]
+
+
+async def test_suspended_row_leaves_active_tab(app_client, app_auth_headers):
+    """Wiersz zawieszony znika z zakładki „Umowy aktywne i w trakcie podpisu"
+    i pojawia się w „Umowy bez projektu" — filtr wielu statusów to rozstrzyga."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+
+    assert (await _suspend(app_client, app_auth_headers, rid)).status_code == 200
+
+    active_tab = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params=[("contract_status", "active"), ("contract_status", "in_progress")],
+    )
+    assert rid not in [x["id"] for x in active_tab.json()]
+
+    no_project_tab = await app_client.get(
+        PATH, headers=app_auth_headers, params={"contract_status": "suspended"}
+    )
+    item = next(x for x in no_project_tab.json() if x["id"] == rid)
+    assert item["contract_status"] == "suspended"
+    assert item["closure_reason"] == "no_client_budget"
+    assert item["closure_date"] == "2026-08-01"
+
+
+async def test_reactivation_without_linked_contract_is_409(
+    app_client, app_auth_headers
+):
+    """Brak kontraktora = notatka nie ma gdzie trafić → 409, nie cicha strata.
+
+    Świadomie 409, nie 422: to nie jest błąd w przesłanych danych, tylko stan
+    świata, który trzeba najpierw zmienić gdzie indziej."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    assert (await _suspend(app_client, app_auth_headers, rid)).status_code == 200
+
+    _contract_id, client_id = await _seed_linked_contract()
+    job_id = await _seed_job(client_id, "Nowy projekt")
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "active", "job_id": job_id},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "podpisaną obustronnie" in resp.json()["detail"]
+
+
+async def test_reactivation_assigns_project_and_writes_note(
+    app_client, app_auth_headers
+):
+    """Powrót do gry: nowy projekt + klient na wierszu, notatka w Kontraktach.
+
+    Notatka jest jedynym miejscem, w którym data i powód zakończenia
+    poprzedniego projektu docierają do człowieka pracującego w module
+    Kontrakty — na samej umowie pola te MUSZĄ zostać wyczyszczone."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.note import Note
+
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    contract_id, client_id = await _seed_linked_contract("Klient docelowy")
+    await _link(rid, contract_id=contract_id)
+    job_id = await _seed_job(client_id, "Projekt po przerwie")
+
+    assert (await _suspend(app_client, app_auth_headers, rid)).status_code == 200
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "active", "job_id": job_id},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["contract_status"] == "active"
+    assert body["job_id"] == job_id
+    assert body["client_id"] == client_id
+    assert body["client_name"] == "Klient docelowy"
+    # Pola zamknięcia wyczyszczone — wymusza to CHECK spójności.
+    assert body["closure_reason"] is None
+    assert body["closure_date"] is None
+
+    async with AsyncSessionLocal() as db:
+        notes = list(
+            (await db.execute(select(Note).where(Note.contract_id == contract_id)))
+            .scalars()
+            .all()
+        )
+    assert len(notes) == 1
+    assert notes[0].content == (
+        "Poprzedni projekt zakończony: 2026-08-01, powód: Brak budżetu u klienta"
+    )
+
+
+async def test_reactivation_does_not_rewrite_signed_document(
+    app_client, app_auth_headers
+):
+    """Przypisanie nowego projektu NIE dotyka `render_payload`.
+
+    Korekta literówki w nazwie Klienta synchronizuje payload, bo poprawia to, co
+    MIAŁO być w dokumencie. Tutaj zmienia się fakt handlowy, a podpisany DOCX
+    jest zapisem tego, co strony podpisały."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id, client_name="Pierwotny Klient")
+    contract_id, client_id = await _seed_linked_contract("Zupełnie Inny Klient")
+    await _link(rid, contract_id=contract_id)
+    job_id = await _seed_job(client_id, "Projekt u innego klienta")
+
+    await _suspend(app_client, app_auth_headers, rid)
+    await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "active", "job_id": job_id},
+    )
+
+    async with AsyncSessionLocal() as db:
+        payload = await db.scalar(
+            select(B2BGeneratedContract.render_payload).where(
+                B2BGeneratedContract.id == rid
+            )
+        )
+    assert payload["client_name"] == "Pierwotny Klient"
+
+
+async def test_status_history_survives_the_clearing(app_client, app_auth_headers):
+    """Dziennik pamięta to, co znika z wiersza przy powrocie na „Aktywna"."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    contract_id, client_id = await _seed_linked_contract()
+    await _link(rid, contract_id=contract_id)
+    job_id = await _seed_job(client_id, "Projekt z historii")
+
+    await _suspend(app_client, app_auth_headers, rid, date="2026-07-15")
+    await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "active", "job_id": job_id},
+    )
+
+    resp = await app_client.get(
+        f"{PATH}/{rid}/status-history", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    events = resp.json()
+    assert [(e["from_status"], e["to_status"]) for e in events] == [
+        ("active", "suspended"),
+        ("suspended", "active"),
+    ]
+    # Zawieszenie zapisuje datę NOWEGO zdarzenia…
+    assert events[0]["effective_date"] == "2026-07-15"
+    assert events[0]["reason"] == "no_client_budget"
+    # …a powrót — datę zakończenia POPRZEDNIEGO projektu, bo to ona znika.
+    assert events[1]["effective_date"] == "2026-07-15"
+    assert events[1]["job_id"] == job_id
+    assert events[1]["job_title"] == "Projekt z historii"
+
+
+async def test_closure_reason_filter_narrows_the_listing(app_client, app_auth_headers):
+    admin_id = await _admin_user_id(app_client)
+    budget_id, _ = await _seed(admin_id)
+    health_id, _ = await _seed(admin_id)
+    await app_client.patch(
+        f"{PATH}/{budget_id}",
+        headers=app_auth_headers,
+        json={
+            "contract_status": "closed",
+            "closure_reason": "no_client_budget",
+            "closure_date": "2026-08-01",
+        },
+    )
+    await app_client.patch(
+        f"{PATH}/{health_id}",
+        headers=app_auth_headers,
+        json={
+            "contract_status": "closed",
+            "closure_reason": "contractor_health_reasons",
+            "closure_date": "2026-08-02",
+        },
+    )
+
+    resp = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params={"contract_status": "closed", "closure_reason": "no_client_budget"},
+    )
+    ids = [x["id"] for x in resp.json()]
+    assert budget_id in ids
+    assert health_id not in ids
+
+
+async def test_unknown_filter_values_are_422_not_ignored(app_client, app_auth_headers):
+    """Ciche zignorowanie filtra zwróciłoby PEŁNĄ listę umów pod nagłówkiem
+    zakładki, która obiecuje wąski podzbiór — to gorsze niż błąd."""
+    bad_status = await app_client.get(
+        PATH, headers=app_auth_headers, params={"contract_status": "zombie"}
+    )
+    assert bad_status.status_code == 422, bad_status.text
+    assert "zombie" in bad_status.json()["detail"]
+
+    bad_reason = await app_client.get(
+        PATH, headers=app_auth_headers, params={"closure_reason": "bo tak"}
+    )
+    assert bad_reason.status_code == 422, bad_reason.text
