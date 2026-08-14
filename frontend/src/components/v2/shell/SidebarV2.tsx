@@ -25,6 +25,7 @@ import {
   Sparkles,
   Store,
   Radar,
+  Wallet,
   X,
   ChevronLeft,
   ChevronRight,
@@ -285,6 +286,21 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   */
+  // Moduł „Finanse". Wpis MUSI istnieć także w FINANCE_NAV_SECTIONS niżej —
+  // użytkownik z rolą `finance` nigdy nie ogląda tego drzewa (patrz
+  // `isFinanceOnly`), a rola jest wyłączna, więc nikt nie widzi obu naraz.
+  {
+    title: "Finanse",
+    icon: Wallet,
+    items: [
+      {
+        href: "/finance",
+        label: "Finanse",
+        icon: Wallet,
+        roles: ["admin", "finance"],
+      },
+    ],
+  },
   {
     title: "System",
     icon: Settings,
@@ -301,7 +317,11 @@ const FINANCE_NAV_SECTIONS: NavSection[] = [
     icon: BarChart3,
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/finance", label: "Import MD", icon: FileSpreadsheet },
+      // Jedna pozycja, bo `/finance` to jedna strona z trzema zakładkami
+      // (wyniki miesięczne · archiwum · import zużycia MD). Osobny link
+      // „Import MD" prowadziłby do tej samej trasy i otwierał ją na innej
+      // zakładce niż podpowiada etykieta.
+      { href: "/finance", label: "Finanse", icon: Wallet },
     ],
   },
   {

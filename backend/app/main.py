@@ -50,6 +50,7 @@ from app.api import activities
 from app.api import admin
 from app.api import analytics_v1 as analytics_v1_api
 from app.api import dashboard_v2 as dashboard_v2_api
+from app.api import finance as finance_api
 from app.api import financial_adjustments as financial_adjustments_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
@@ -1053,6 +1054,8 @@ app.include_router(
     prefix="/api/financial-adjustments",
     tags=["financial-adjustments"],
 )
+# Moduł „Finanse" — import miesięcznych wyników kontraktorów (admin + finance).
+app.include_router(finance_api.router, prefix="/api/finance", tags=["finance"])
 app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
@@ -1831,6 +1834,7 @@ async def api_health_deep_check():
         CortexUnmatchedObservation,
         CortexUnmatchedTerm,
     )
+    from app.models.finance import FinanceImportRun, FinanceMonthlyResult
     from app.models.invite_link import CandidateInviteLink
     from app.models.job import Job
     from app.models.recruitment_priority import (
@@ -1861,6 +1865,11 @@ async def api_health_deep_check():
         ("contracts", Contract),
         ("contract_candidate_rates", ContractCandidateRate),
         ("contract_client_rates", ContractClientRate),
+        # 0227: moduł Finanse. Bez tych dwóch wpisów zielony deploy nie mówi
+        # nic o tym, czy tabele w ogóle powstały — a prodowy alembic bywa
+        # osierocony, więc /api/health/deep jest jedynym realnym dowodem.
+        ("finance_import_runs", FinanceImportRun),
+        ("finance_monthly_results", FinanceMonthlyResult),
         ("b2b_generated_contracts", B2BGeneratedContract),
         (
             "b2b_generated_contract_status_events",

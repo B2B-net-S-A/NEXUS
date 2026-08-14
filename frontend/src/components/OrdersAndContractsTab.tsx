@@ -19,7 +19,6 @@ import {
   X,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
-import { contractsApi } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { foldText } from "@/lib/contract-client-filter";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
@@ -36,7 +35,8 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
-import { canManageCandidateFinance, useAuthStore } from "@/store/auth";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
 import { TerminateContractModal } from "@/components/client-profile/actions/TerminateContractModal";
@@ -66,8 +66,6 @@ const STATUS_COLORS: Record<ClientOrderStatus, string> = {
 export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const user = useAuthStore((state) => state.user);
-  const canManageFinance = canManageCandidateFinance(user);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -80,14 +78,23 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
   const [terminatingContract, setTerminatingContract] =
     useState<ContractWithOrdersRead | null>(null);
   const [newContractor, setNewContractor] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<{
+    order: ClientOrderRead;
+    rateCandidate: number | null;
+  } | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["dl-orders-grouped", clientId],
     queryFn: async () => {
       const res = await dlPortalApi.listContractorsWithOrders(clientId);
       return res.data;
     },
   });
+
+  // Serwer wylicza to per klient (admin albo przypisany Delivery Lead). Front
+  // nie zna przypisań DL, więc bramkowanie po samej roli pokazywałoby pola
+  // stawek komuś, kto na zapisie dostanie 403.
+  const canManageFinance = data?.can_manage_finance ?? false;
 
   const filtered = useMemo<ContractWithOrdersRead[]>(() => {
     const contractors = data?.contractors ?? [];
@@ -130,6 +137,10 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
+    // Ten sam plik żyje w sekcji „Dokumenty zamówień" w zakładce Dokumenty
+    // kontraktu i w Plikach osoby (read-time bridge, zero kopii). Bez tego
+    // wgrany PDF pokazuje się tam dopiero po przeładowaniu strony.
+    queryClient.invalidateQueries({ queryKey: ["order-documents"] });
   }
 
   if (isLoading) {
@@ -137,6 +148,18 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
       <div className="text-muted-foreground py-8 text-center">
         Ładowanie zamówień & kontraktów…
       </div>
+    );
+  }
+
+  // Awaria pobrania NIE może renderować się jak pusty stan — „Brak
+  // kontraktorów" po nieudanym zapytaniu czyta się jak utrata danych.
+  if (isError) {
+    return (
+      <QueryStateNotice
+        state="error"
+        description="Nie udało się wczytać zamówień i kontraktów tego klienta."
+        onRetry={() => refetch()}
+      />
     );
   }
 
@@ -205,6 +228,12 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
               searching={searching}
               onExtend={() => setExtendingContract(contractor)}
               onTerminate={() => setTerminatingContract(contractor)}
+              onEditOrder={(order) =>
+                setEditingOrder({
+                  order,
+                  rateCandidate: contractor.rate_candidate,
+                })
+              }
               onChange={refresh}
               onError={(msg) => showToast(msg, "error")}
               onSuccess={(msg) => showToast(msg, "success")}
@@ -245,7 +274,50 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
           onTerminated={refresh}
         />
       )}
+
+      {editingOrder && (
+        <EditOrderDialog
+          clientId={clientId}
+          order={editingOrder.order}
+          rateCandidate={editingOrder.rateCandidate}
+          canManageFinance={canManageFinance}
+          onClose={() => setEditingOrder(null)}
+          onSaved={() => {
+            setEditingOrder(null);
+            refresh();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** „Uzupełnij zamówienie" — widoczny wyłącznie na draftach, w każdym slocie
+ *  karty (aktualny / przyszły / historia). Draft bez dat ląduje w slocie
+ *  aktualnym, więc jeden przycisk musi działać w trzech miejscach. */
+function CompleteOrderButton({
+  order,
+  onEditOrder,
+  compact,
+}: {
+  order: ClientOrderRead;
+  onEditOrder: (order: ClientOrderRead) => void;
+  compact?: boolean;
+}) {
+  if (order.status !== "draft") return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onEditOrder(order)}
+      className={
+        compact
+          ? "inline-flex items-center gap-1 text-xs text-violet-700 hover:underline"
+          : "flex items-center gap-1.5 px-3 py-1.5 text-sm border border-violet-300 text-violet-700 rounded hover:bg-violet-50"
+      }
+    >
+      <FilePlus2 className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+      Uzupełnij zamówienie
+    </button>
   );
 }
 
@@ -607,6 +679,7 @@ interface ContractorCardProps {
   searching: boolean;
   onExtend: () => void;
   onTerminate: () => void;
+  onEditOrder: (order: ClientOrderRead) => void;
   onChange: () => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
@@ -619,6 +692,7 @@ function ContractorCard({
   searching,
   onExtend,
   onTerminate,
+  onEditOrder,
   onChange,
   onError,
   onSuccess,
@@ -715,7 +789,16 @@ function ContractorCard({
                   placeholder="np. 12000"
                   onError={onError}
                   onSave={async (raw) => {
-                    await contractsApi.update(contractor.contract_id, {
+                    if (!activeOrder) {
+                      throw new Error(
+                        "Brak zamówienia, przez które można zapisać stawkę",
+                      );
+                    }
+                    // Zapis idzie przez zamówienie, nie przez PATCH
+                    // /api/contracts/{id}: tamten handler ma własną, admin-only
+                    // bramkę na 17 pól finansowych, więc przypisany Delivery
+                    // Lead dostawał tam 403 mimo prawa do tego klienta.
+                    await dlPortalApi.updateOrder(clientId, activeOrder.id, {
                       rate_candidate: parseDecimalInput(raw),
                     });
                     onSuccess("Stawka kosztowa zaktualizowana");
@@ -830,6 +913,9 @@ function ContractorCard({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {activeOrder && (
+            <CompleteOrderButton order={activeOrder} onEditOrder={onEditOrder} />
+          )}
           <button
             onClick={onExtend}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
@@ -873,6 +959,7 @@ function ContractorCard({
                   order={order}
                   candidateName={contractor.candidate_name}
                   clientId={clientId}
+                  onEditOrder={onEditOrder}
                   onError={onError}
                   onSuccess={onSuccess}
                   onChange={onChange}
@@ -909,6 +996,7 @@ function ContractorCard({
                     clientId={clientId}
                     canManageFinance={canManageFinance}
                     rateUnit={contractor.rate_unit}
+                    onEditOrder={onEditOrder}
                     onError={onError}
                     onSuccess={onSuccess}
                     onDeleted={onChange}
@@ -934,6 +1022,7 @@ interface FutureOrderRowProps {
   order: ClientOrderRead;
   candidateName: string;
   clientId: number;
+  onEditOrder: (order: ClientOrderRead) => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
   onChange: () => void;
@@ -943,6 +1032,7 @@ function FutureOrderRow({
   order,
   candidateName,
   clientId,
+  onEditOrder,
   onError,
   onSuccess,
   onChange,
@@ -983,6 +1073,7 @@ function FutureOrderRow({
             {fmtDate(order.start_date)} → {fmtDate(order.end_date) || "bezterminowo"}
           </div>
         )}
+        <CompleteOrderButton order={order} onEditOrder={onEditOrder} compact />
       </div>
       <button
         type="button"
@@ -1006,6 +1097,7 @@ interface HistoryOrderRowProps {
   canManageFinance: boolean;
   /** Jednostka stawek kontraktu — surowy rate_client jest w tej jednostce. */
   rateUnit: string;
+  onEditOrder: (order: ClientOrderRead) => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
   onDeleted: () => void;
@@ -1016,6 +1108,7 @@ function HistoryOrderRow({
   clientId,
   canManageFinance,
   rateUnit,
+  onEditOrder,
   onError,
   onSuccess,
   onDeleted,
@@ -1083,6 +1176,7 @@ function HistoryOrderRow({
               PDF
             </button>
           )}
+          <CompleteOrderButton order={order} onEditOrder={onEditOrder} compact />
         </div>
       </div>
       <button

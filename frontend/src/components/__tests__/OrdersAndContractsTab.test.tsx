@@ -170,7 +170,14 @@ beforeEach(() => {
   authState.role = "admin";
   authState.capabilities = ["manage_finance"];
   vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
-    data: { contractors: [structuredClone(CONTRACTOR)], total_contractors: 1 },
+    data: {
+      contractors: [structuredClone(CONTRACTOR)],
+      total_contractors: 1,
+      // Bramka finansowa liczona jest teraz SERWEROWO per klient (admin albo
+      // przypisany Delivery Lead) — front nie zna przypisań DL, więc czyta
+      // flagę z odpowiedzi zamiast zgadywać po roli.
+      can_manage_finance: true,
+    },
   } as never);
   vi.mocked(dlPortalApi.updateOrder).mockResolvedValue({ data: {} } as never);
   vi.mocked(dlPortalApi.deleteOrder).mockResolvedValue({ data: {} } as never);
@@ -252,9 +259,19 @@ describe("OrdersAndContractsTab card", () => {
   });
 
   it.each(["tac", "delivery_lead", "finance"])(
-    "hides candidate finance rows from %s",
+    "hides candidate finance rows when the server says %s cannot manage them",
     async (role) => {
+      // Bramka jest teraz SERWEROWA (`can_manage_finance` w odpowiedzi), bo
+      // front nie zna przypisań Delivery Leada. Test steruje flagą, nie rolą —
+      // inaczej sprawdzałby zgadywanie po roli, którego już nie ma.
       authState.role = role;
+      vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+        data: {
+          contractors: [structuredClone(CONTRACTOR)],
+          total_contractors: 1,
+          can_manage_finance: false,
+        },
+      } as never);
       renderTab();
       await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
       expect(screen.queryByText(/stawka kosztowa/)).not.toBeInTheDocument();
@@ -264,7 +281,18 @@ describe("OrdersAndContractsTab card", () => {
     },
   );
 
-  it("shows candidate finance rows to admin with manage_finance", async () => {
+  it("shows candidate finance rows when the server grants manage_finance", async () => {
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();
+    expect(screen.getByText(/stawka przychodowa/)).toBeInTheDocument();
+  });
+
+  it("shows finance rows to an assigned Delivery Lead", async () => {
+    // Sedno poszerzenia uprawnień: rola sama w sobie niczego nie otwiera ani
+    // nie zamyka — decyduje flaga policzona serwerowo dla TEGO klienta.
+    authState.role = "delivery_lead";
+    authState.capabilities = [];
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();
@@ -302,7 +330,7 @@ describe("OrdersAndContractsTab card", () => {
     );
   });
 
-  it("saves an edited stawka kosztowa via contractsApi.update", async () => {
+  it("saves an edited stawka kosztowa via the orders endpoint", async () => {
     const user = userEvent.setup();
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
@@ -314,7 +342,10 @@ describe("OrdersAndContractsTab card", () => {
     await user.keyboard("{Enter}");
 
     await waitFor(() =>
-      expect(contractsApi.update).toHaveBeenCalledWith(529, {
+      // PATCH /api/contracts/{id} zachowuje własną, admin-only bramkę na 17
+      // pól finansowych, więc przypisany DL dostawał tam 403. Stawka kosztowa
+      // idzie teraz tą samą ścieżką co reszta zamówienia.
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 1, {
         rate_candidate: 12500,
       }),
     );
@@ -362,6 +393,7 @@ describe("OrdersAndContractsTab card", () => {
       data: {
         contractors: [{ ...structuredClone(CONTRACTOR), rate_candidate: null }],
         total_contractors: 1,
+        can_manage_finance: true,
       },
     } as never);
     renderTab();
@@ -374,6 +406,7 @@ describe("OrdersAndContractsTab card", () => {
       data: {
         contractors: [{ ...structuredClone(CONTRACTOR), rate_unit: "hourly" }],
         total_contractors: 1,
+        can_manage_finance: true,
       },
     } as never);
     renderTab();
@@ -393,6 +426,7 @@ describe("OrdersAndContractsTab search", () => {
       data: {
         contractors: [structuredClone(CONTRACTOR), structuredClone(CONTRACTOR_2)],
         total_contractors: 2,
+        can_manage_finance: true,
       },
     } as never);
   }

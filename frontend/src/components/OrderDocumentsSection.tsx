@@ -6,6 +6,7 @@ import { ClipboardList, Download, ExternalLink, Loader2 } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { OrderDocumentItem } from "@/lib/api/dlPortal";
 import { downloadOrderDocument, openOrderDocument } from "@/lib/order-documents";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { formatDate } from "@/lib/utils";
 
 function formatBytes(n: number | null | undefined): string {
@@ -31,7 +32,7 @@ export function OrderDocumentsSection({ contractId, candidateId }: Props) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string>("");
 
-  const { data } = useQuery<OrderDocumentItem[]>({
+  const { data, error: queryError, refetch } = useQuery<OrderDocumentItem[]>({
     queryKey: ["order-documents", contractId ?? null, candidateId ?? null],
     queryFn: async () => {
       if (contractId != null) {
@@ -49,6 +50,22 @@ export function OrderDocumentsSection({ contractId, candidateId }: Props) {
     enabled: contractId != null || candidateId != null,
     retry: false, // 403 (brak dostępu do klienta) → nie ponawiaj, po prostu ukryj
   });
+
+  const status = (queryError as { response?: { status?: number } } | null)?.response
+    ?.status;
+  // 403 = ta rola nie ma dostępu do zamówień klienta (PO zawiera stawki) —
+  // sekcja po prostu nie istnieje dla niej i ciche ukrycie jest poprawne.
+  // Każda INNA awaria musi być widoczna: `return null` na 500 kasowałby całą
+  // sekcję dokumentów bez śladu, co czyta się jak „plików nie ma".
+  if (queryError && status !== 403) {
+    return (
+      <QueryStateNotice
+        state="error"
+        description="Nie udało się wczytać dokumentów zamówień."
+        onRetry={() => refetch()}
+      />
+    );
+  }
 
   const docs = data ?? [];
   if (docs.length === 0) return null;
@@ -93,6 +110,12 @@ export function OrderDocumentsSection({ contractId, candidateId }: Props) {
             <tr>
               <th className="text-left px-4 py-2">Zamówienie</th>
               <th className="text-left px-4 py-2">Plik</th>
+              {/* Kolumna „Typ" istnieje, żeby wiersz czytał się jak dokument
+                  kontraktu określonego rodzaju — tak samo jak w głównej tabeli
+                  Dokumentów wyżej. Wartość jest stała z definicji: sekcja
+                  listuje wyłącznie pliki zamówień, więc nie potrzebuje pola
+                  z serwera. */}
+              <th className="text-left px-4 py-2">Typ</th>
               <th className="text-left px-4 py-2">Rozmiar</th>
               <th className="text-left px-4 py-2">Dodano</th>
               <th className="text-right px-4 py-2">Akcje</th>
@@ -115,11 +138,15 @@ export function OrderDocumentsSection({ contractId, candidateId }: Props) {
                 <td className="px-4 py-2 text-muted-foreground truncate max-w-[16rem]">
                   {d.filename ?? "—"}
                 </td>
+                <td className="px-4 py-2">Zamówienie</td>
                 <td className="px-4 py-2 text-muted-foreground">
                   {formatBytes(d.size_bytes)}
                 </td>
                 <td className="px-4 py-2 text-xs text-muted-foreground">
-                  {formatDate(d.created_at)}
+                  {formatDate(d.uploaded_at ?? d.created_at)}
+                  {d.uploaded_by_email && (
+                    <span className="block opacity-70">{d.uploaded_by_email}</span>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-right">
                   <div className="inline-flex gap-1">

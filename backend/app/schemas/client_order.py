@@ -40,6 +40,14 @@ class ClientOrderUpdate(BaseModel):
     status: Optional[ClientOrderStatus] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    # Stawka KOSZTOWA mieszka na powiązanym ``Contract``, nie na zamówieniu —
+    # przyjmujemy ją tutaj, bo formularz uzupełnienia draftu pokazuje obie
+    # stawki obok siebie i zapisuje je jednym żądaniem. Handler przepisuje ją
+    # na kontrakt; `PATCH /api/contracts/{id}` zostaje nietknięty (ma własną,
+    # admin-only bramkę osłaniającą 17 pól i ~20 innych odpowiedzi).
+    rate_candidate: Optional[Decimal] = Field(
+        None, ge=0, max_digits=12, decimal_places=3
+    )
     rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=3)
     total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     currency: Optional[str] = Field(None, max_length=3)
@@ -126,6 +134,12 @@ class ClientOrdersGroupedResponse(BaseModel):
 
     contractors: list[ContractWithOrdersRead]
     total_contractors: int
+    # Czy TEN użytkownik może oglądać i zapisywać kwoty na zamówieniach TEGO
+    # klienta (admin albo przypisany Delivery Lead). Front nie zna przypisań
+    # DL, więc bez tej flagi renderowałby pola stawek każdemu, kto widzi
+    # zakładkę — a zapis kończyłby się 403, co czyta się jak „zapis nie
+    # działa", nie jak „nie masz uprawnień".
+    can_manage_finance: bool = False
 
 
 class OrderExtractionResult(BaseModel):
@@ -164,6 +178,12 @@ class OrderDocumentItem(BaseModel):
     size_bytes: Optional[int] = None
     created_at: datetime
     order_status: ClientOrderStatus
+    # Atrybucja wgrania — sekcja „Dokumenty zamówień" pokazuje ją w tym samym
+    # miejscu co główna tabela dokumentów kontraktu (`uploaded_by_email` pod
+    # datą), żeby wiersz czytał się jak każdy inny dokument kontraktu.
+    # NULL dla plików wgranych przed migracją 0227, która dodała te kolumny.
+    uploaded_by_email: Optional[str] = None
+    uploaded_at: Optional[datetime] = None
 
 
 class OrderDocumentsResponse(BaseModel):

@@ -16,6 +16,7 @@ import {
   Settings,
   Star,
   Radar,
+  Wallet,
   Users,
 } from "lucide-react";
 import {
@@ -254,6 +255,12 @@ export function CommandPaletteV2({
         label: "Panel managera",
         icon: GitBranch,
         capability: "nav.manager",
+      },
+      {
+        href: "/finance",
+        label: "Finanse",
+        icon: Wallet,
+        capability: "nav.finance",
       },
     ],
     [],

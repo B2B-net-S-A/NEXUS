@@ -246,6 +246,11 @@ from app.models.md_consumption import (
     MdConsumptionImport,
     MdConsumptionImportRow,
 )
+from app.models.finance import (
+    FinanceImportRun,
+    FinanceImportRunStatus,
+    FinanceMonthlyResult,
+)
 from app.models.ai_feature import (
     AIFeatureConfig,
     AIFeatureKey,
@@ -485,6 +490,9 @@ __all__ = [
     "ClientOrderStatus",
     "MdConsumptionImport",
     "MdConsumptionImportRow",
+    "FinanceImportRun",
+    "FinanceImportRunStatus",
+    "FinanceMonthlyResult",
     "AIFeatureConfig",
     "AIFeatureKey",
     "AIMasterToggle",

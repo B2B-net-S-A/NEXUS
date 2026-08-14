@@ -267,6 +267,15 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 AdminUser = Annotated[User, Depends(require_roles(UserRole.admin))]
 
+# Moduł „Finanse" (import miesięcznych wyników kontraktorów). Dwie ROZŁĄCZNE
+# publiczności, nie suma uprawnień: CHECK `ck_users_exclusive_finance_viewer_roles`
+# sprawia, że użytkownik `finance` ma wyłącznie tę rolę i nigdy nie jest
+# jednocześnie adminem.
+FinanceModuleUser = Annotated[
+    User,
+    Depends(require_roles(UserRole.admin, UserRole.finance)),
+]
+
 DeliveryLeadPlus = Annotated[
     User,
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
