@@ -184,8 +184,12 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     return (target - date.today()).days
 
 
-def _representative_order(contract: Contract):
+def _representative_order(contract: Contract) -> Optional[ClientOrder]:
     """Zamówienie reprezentujące kontrakt „na dziś".
+
+    ``None`` gdy kontrakt nie ma ANI JEDNEGO nieanulowanego zamówienia — stąd
+    guardy `if order is None` u obu wołających. Bez tej adnotacji wyglądają jak
+    martwy kod i kusi, żeby je usunąć.
 
     1 kontrakt = N zamówień/przedłużeń, a wiersz konsultanta jest per-KONTRAKT.
     Reguła lustrzana do FE ``splitOrders.activeOrder``: najnowsze ROZPOCZĘTE
