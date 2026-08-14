@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from app.models.client import ClientStatus
 
@@ -77,6 +77,21 @@ class ClientSafeResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def multi_consultant_orders_enabled(self) -> bool:
+        """Czy zakładka „Zamówienia" ma renderować widok wielo-konsultantowy.
+
+        Wyliczane po stronie serwera, a NIE duplikowane we froncie jak stała
+        e-Zdrowia (``frontend/src/lib/ezdrowie.ts``). Tamta lista to jedno
+        zaszyte ID; ta jest zmienną środowiskową, którą można zmienić
+        w Coolify bez deployu — kopia w bundlu byłaby nieaktualna od pierwszej
+        takiej zmiany, a nikt by tego nie zauważył poza zniknięciem zakładki.
+        """
+        from app.services.multi_consultant_orders import is_multi_consultant_client
+
+        return is_multi_consultant_client(self.id)
 
 
 class ClientResponse(ClientSafeResponse):

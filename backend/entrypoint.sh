@@ -786,6 +786,148 @@ _COLUMN_STATEMENTS = [
        )""",
     """CREATE INDEX IF NOT EXISTS ix_b2b_gc_status_events_contract
        ON b2b_generated_contract_status_events (generated_contract_id)""",
+    # ── Zamówienia wielo-konsultantowe (migracja 0227) ────────────────────
+    # Grupa („Zamówienie nr 445") NAD istniejącymi client_orders. Kolejność ma
+    # znaczenie: client_order_groups musi powstać przed kolumną FK w
+    # client_orders, a client_orders przed tabelami, które go referencjonują.
+    """CREATE TABLE IF NOT EXISTS client_order_groups (
+           id SERIAL PRIMARY KEY,
+           client_id INTEGER NOT NULL REFERENCES clients (id) ON DELETE CASCADE,
+           order_number VARCHAR(64) NOT NULL,
+           start_date DATE NOT NULL,
+           end_date DATE NULL,
+           notes TEXT NULL,
+           created_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_client_order_groups_dates
+               CHECK (end_date IS NULL OR end_date >= start_date)
+       )""",
+    """CREATE INDEX IF NOT EXISTS ix_client_order_groups_client
+       ON client_order_groups (client_id)""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS order_group_id INTEGER NULL
+       REFERENCES client_order_groups (id) ON DELETE SET NULL""",
+    """CREATE INDEX IF NOT EXISTS ix_client_orders_order_group
+       ON client_orders (order_group_id)""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS md_rate_cost NUMERIC(12, 2) NULL""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS md_rate_revenue NUMERIC(12, 2) NULL""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS md_input_mode VARCHAR(8) NULL""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS md_input_value NUMERIC(16, 6) NULL""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS md_total NUMERIC(16, 6) NULL""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS md_remaining NUMERIC(16, 6) NULL""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS md_manual_adjustment NUMERIC(16, 6)
+       NOT NULL DEFAULT 0""",
+    """ALTER TABLE client_orders
+       ADD COLUMN IF NOT EXISTS predecessor_order_id INTEGER NULL
+       REFERENCES client_orders (id) ON DELETE SET NULL""",
+    # Linia MD jest albo kompletna, albo jej nie ma. `md_rate_revenue` jest
+    # dzielnikiem przy przeliczaniu kwoty na MD i przy zamianie kontraktora,
+    # więc zero/NULL przy wypełnionym budżecie musi odpaść w bazie, a nie
+    # dopiero jako DivisionByZero w środku transakcji. NOT VALID — istniejące
+    # wiersze mają same NULL-e, więc i tak spełniają pierwszą gałąź.
+    """DO $$ BEGIN
+        ALTER TABLE client_orders
+            ADD CONSTRAINT ck_client_orders_md_coherence
+            CHECK (
+                (
+                    md_total IS NULL
+                    AND md_remaining IS NULL
+                    AND md_input_mode IS NULL
+                    AND md_input_value IS NULL
+                    AND md_rate_revenue IS NULL
+                )
+                OR (
+                    md_total IS NOT NULL
+                    AND md_remaining IS NOT NULL
+                    AND md_input_mode IN ('md', 'amount')
+                    AND md_input_value IS NOT NULL
+                    AND md_rate_revenue IS NOT NULL
+                    AND md_rate_revenue > 0
+                )
+            )
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    """CREATE TABLE IF NOT EXISTS md_consumption_imports (
+           id SERIAL PRIMARY KEY,
+           period_month VARCHAR(7) NOT NULL,
+           filename VARCHAR(255) NULL,
+           rows_total INTEGER NOT NULL DEFAULT 0,
+           rows_applied INTEGER NOT NULL DEFAULT 0,
+           rows_ambiguous INTEGER NOT NULL DEFAULT 0,
+           rows_unmatched INTEGER NOT NULL DEFAULT 0,
+           uploaded_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_md_consumption_imports_period
+               CHECK (period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
+       )""",
+    """CREATE TABLE IF NOT EXISTS md_consumption_import_rows (
+           id SERIAL PRIMARY KEY,
+           import_id INTEGER NOT NULL
+               REFERENCES md_consumption_imports (id) ON DELETE CASCADE,
+           row_number INTEGER NOT NULL,
+           consultant_name VARCHAR(255) NOT NULL,
+           md_reported NUMERIC(16, 6) NOT NULL,
+           status VARCHAR(24) NOT NULL,
+           matched_order_id INTEGER NULL
+               REFERENCES client_orders (id) ON DELETE SET NULL,
+           candidate_order_ids JSONB NULL,
+           resolved_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           resolved_at TIMESTAMPTZ NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_md_import_rows_status
+               CHECK (status IN ('applied', 'needs_assignment', 'unmatched'))
+       )""",
+    """CREATE INDEX IF NOT EXISTS ix_md_import_rows_import
+       ON md_consumption_import_rows (import_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_md_import_rows_status
+       ON md_consumption_import_rows (status)""",
+    """CREATE TABLE IF NOT EXISTS client_order_md_consumptions (
+           id SERIAL PRIMARY KEY,
+           order_id INTEGER NOT NULL
+               REFERENCES client_orders (id) ON DELETE CASCADE,
+           period_month VARCHAR(7) NOT NULL,
+           md_reported NUMERIC(16, 6) NOT NULL,
+           import_id INTEGER NULL
+               REFERENCES md_consumption_imports (id) ON DELETE SET NULL,
+           source VARCHAR(16) NOT NULL,
+           created_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_md_consumptions_source
+               CHECK (source IN ('import', 'manual')),
+           CONSTRAINT ck_md_consumptions_period
+               CHECK (period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
+       )""",
+    # UNIQUE, nie zwykły indeks — to on czyni import idempotentnym. Bez niego
+    # powtórka miesiąca dokłada drugi wiersz i MD odejmują się dwa razy.
+    """CREATE UNIQUE INDEX IF NOT EXISTS ux_md_consumptions_order_month
+       ON client_order_md_consumptions (order_id, period_month)""",
+    """CREATE TABLE IF NOT EXISTS client_order_group_events (
+           id SERIAL PRIMARY KEY,
+           group_id INTEGER NOT NULL
+               REFERENCES client_order_groups (id) ON DELETE CASCADE,
+           order_id INTEGER NULL REFERENCES client_orders (id) ON DELETE SET NULL,
+           event_type VARCHAR(32) NOT NULL,
+           description TEXT NOT NULL,
+           payload JSONB NULL,
+           created_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_client_order_group_events_type
+               CHECK (event_type IN ('utworzenie', 'dodanie_konsultanta',
+                                     'import_md', 'zamiana_kontraktora',
+                                     'edycja_reczna'))
+       )""",
+    """CREATE INDEX IF NOT EXISTS ix_client_order_group_events_group
+       ON client_order_group_events (group_id)""",
     # candidate_invite_links: token_sha256 + token_ct — hash+encrypt v2
     # (migracja 0183). Bez nich mint v2 wywala UndefinedColumn.
     """ALTER TABLE candidate_invite_links

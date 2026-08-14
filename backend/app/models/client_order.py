@@ -58,6 +58,21 @@ class ClientOrder(Base, TimestampMixin):
             "('cz1', 'cz2', 'cz4', 'cz5', 'cz6')",
             name="ck_client_orders_project_part",
         ),
+        # Linia MD jest albo kompletna, albo jej nie ma. Częściowo wypełniona
+        # (budżet bez stawki przychodowej) wysadziłaby dzielenie przy zamianie
+        # kontraktora w środku transakcji; stawka <= 0 jest dzielnikiem, więc
+        # baza odrzuca ją niezależnie od tego, co przepuści API.
+        CheckConstraint(
+            "("
+            "md_total IS NULL AND md_remaining IS NULL AND md_input_mode IS NULL "
+            "AND md_input_value IS NULL AND md_rate_revenue IS NULL"
+            ") OR ("
+            "md_total IS NOT NULL AND md_remaining IS NOT NULL "
+            "AND md_input_mode IN ('md', 'amount') AND md_input_value IS NOT NULL "
+            "AND md_rate_revenue IS NOT NULL AND md_rate_revenue > 0"
+            ")",
+            name="ck_client_orders_md_coherence",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -139,8 +154,75 @@ class ClientOrder(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # ── Linia zamówienia wielo-konsultantowego (migracja 0227) ────────────
+    # Wypełnione TYLKO dla klientów rozliczanych w T&M na MD (BIK, Polkomtel,
+    # BNP — lista w MULTI_CONSULTANT_ORDER_CLIENT_IDS). U pozostałych klientów
+    # wszystkie te pola są NULL i nic się dla nich nie zmienia.
+    order_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_order_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    """Zamówienie klienta („nr 445"), pod którym ta osoba pracuje."""
+
+    # Stawki są PER MD (osobodzień) i celowo NIE nadpisują `rate_client` /
+    # `Contract.rate_candidate`: tamte są interpretowane przez
+    # `Contract.rate_unit` (h/dzień/mc) i zasilają marżę miesięczną w widokach
+    # jednoosobowych. Wpisanie tu stawki dziennej do pola czytanego jako
+    # miesięczne dałoby cichy, 22-krotny błąd marży u trzech klientów.
+    md_rate_cost: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    md_rate_revenue: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+
+    md_input_mode: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    """``md`` albo ``amount`` — czy operator podał liczbę MD, czy kwotę."""
+
+    md_input_value: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 6), nullable=True
+    )
+    """Wartość wpisana przez operatora, zachowana dosłownie. Bez niej nie da
+    się później pokazać, czy budżet 41,67 MD wziął się z „41,67 MD", czy
+    z „50 000 zł" — a to różnica przy negocjacji aneksu."""
+
+    # Numeric(16, 6): `md_total = kwota / stawka` bywa ułamkiem nieskończonym,
+    # więc „bez zaokrąglenia" jest nieosiągalne w typie stałoprzecinkowym.
+    # Sześć miejsc to cztery miejsca zapasu ponad prezentację (2 miejsca).
+    md_total: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6), nullable=True)
+    md_remaining: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 6), nullable=True
+    )
+    """WYLICZANE: ``md_total - Σ konsumpcji + md_manual_adjustment``. Może zejść
+    do zera i poniżej — przekroczony budżet jest faktem handlowym, więc UI go
+    sygnalizuje kolorem, ale nic go nie blokuje ani nie ścina."""
+
+    md_manual_adjustment: Mapped[Decimal] = mapped_column(
+        Numeric(16, 6), nullable=False, server_default="0"
+    )
+    """Ręczna korekta operatora, trzymana OSOBNO od konsumpcji. Gdyby korekta
+    nadpisywała `md_remaining` wprost, najbliższy import miesiąca przeliczyłby
+    pozostałość od `md_total` i skasował ją po cichu."""
+
+    predecessor_order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_orders.id", ondelete="SET NULL"), nullable=True
+    )
+    """Linia, z której ta powstała przy zamianie kontraktora."""
+
     # Relationships
     client = relationship("Client", backref="orders")
+    order_group = relationship("ClientOrderGroup", back_populates="lines")
+    predecessor = relationship(
+        "ClientOrder", remote_side=[id], foreign_keys=[predecessor_order_id]
+    )
+    md_consumptions = relationship(
+        "ClientOrderMdConsumption",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ClientOrderMdConsumption.period_month.asc()",
+    )
     contract = relationship("Contract", back_populates="client_orders")
     job = relationship("Job", foreign_keys=[job_id])
     framework_contract = relationship(

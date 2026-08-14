@@ -1021,6 +1021,44 @@ class Settings(BaseSettings):
     # Application permissions need a confidential client (not public PKCE).
     TEAMS_CLIENT_SECRET: str = ""
 
+    # ── Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) ───────────────
+    # CSV z ``client_id`` klientów rozliczanych w modelu T&M na MD, u których
+    # jedno zamówienie obejmuje kilku konsultantów naraz. Każdy inny klient
+    # dostaje niezmieniony widok jednoosobowy — patrz
+    # ``app/services/multi_consultant_orders.py``.
+    #
+    # CSV (nie ``list[int]``) z tego samego powodu co ``SSO_ALLOWED_DOMAINS``:
+    # pydantic-settings v2 wymusiłby na liście składnię JSON w zmiennej
+    # środowiskowej. Parsuj przez ``settings.multi_consultant_order_client_ids``.
+    #
+    # Pusto = funkcja nieaktywna dla WSZYSTKICH klientów (fail-closed): nowe
+    # tabele stoją puste, a zakładka „Zamówienia" renderuje dotychczasowy widok.
+    # Dodanie kolejnego klienta to zmiana tej zmiennej w Coolify, bez deployu.
+    MULTI_CONSULTANT_ORDER_CLIENT_IDS: str = ""
+
+    @property
+    def multi_consultant_order_client_ids(self) -> frozenset[int]:
+        """Parse MULTI_CONSULTANT_ORDER_CLIENT_IDS CSV into a set of client ids.
+
+        Wpisy nienumeryczne są POMIJANE, nie wysadzają startu aplikacji: literówka
+        w zmiennej środowiskowej ma wyłączyć funkcję jednemu klientowi, a nie
+        położyć backend przy starcie (ta bramka nie jest krytyczna dla działania
+        reszty systemu).
+        """
+        raw = self.MULTI_CONSULTANT_ORDER_CLIENT_IDS
+        if not raw:
+            return frozenset()
+        ids: set[int] = set()
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                ids.add(int(chunk))
+            except ValueError:
+                continue
+        return frozenset(ids)
+
     @property
     def sso_allowed_domains_list(self) -> list[str]:
         """Parse SSO_ALLOWED_DOMAINS CSV into a list of lowercased domains."""

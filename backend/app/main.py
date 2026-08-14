@@ -61,7 +61,9 @@ from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
 from app.api import client_contract_amendments
+from app.api import client_order_groups as client_order_groups_api
 from app.api import client_orders as client_orders_api
+from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import hiring_managers_analytics as hiring_managers_api
@@ -720,6 +722,16 @@ app.include_router(
     client_orders_api.router,
     prefix="/api/clients",
     tags=["client-orders"],
+)
+app.include_router(
+    client_order_groups_api.router,
+    prefix="/api/clients",
+    tags=["client-order-groups"],
+)
+app.include_router(
+    md_consumption_api.router,
+    prefix="/api/md-consumption",
+    tags=["md-consumption"],
 )
 app.include_router(
     my_clients_api.router,
@@ -1801,6 +1813,15 @@ async def api_health_deep_check():
     )
     from app.models.candidate import Candidate
     from app.models.client import Client
+    from app.models.client_order_group import (
+        ClientOrderGroup,
+        ClientOrderGroupEvent,
+    )
+    from app.models.md_consumption import (
+        ClientOrderMdConsumption,
+        MdConsumptionImport,
+        MdConsumptionImportRow,
+    )
     from app.models.contract import Contract
     from app.models.contract_candidate_rate import ContractCandidateRate
     from app.models.contract_client_rate import ContractClientRate
@@ -1845,6 +1866,15 @@ async def api_health_deep_check():
             "b2b_generated_contract_status_events",
             B2BGeneratedContractStatusEvent,
         ),
+        # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
+        # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
+        # UndefinedTable przy zielonym deployu — dokładnie tryb awarii
+        # z incydentu Cortexa.
+        ("client_order_groups", ClientOrderGroup),
+        ("client_order_group_events", ClientOrderGroupEvent),
+        ("client_order_md_consumptions", ClientOrderMdConsumption),
+        ("md_consumption_imports", MdConsumptionImport),
+        ("md_consumption_import_rows", MdConsumptionImportRow),
         ("candidates", Candidate),
         ("clients", Client),
         ("jobs", Job),
