@@ -125,3 +125,15 @@ def test_location_flag_off_ignores_champion_entirely(monkeypatch):
     assert "lokalizacja nieznana" in res.reason, (
         "flag OFF: champion_profile niewidzialny dla warstwy — pełna odwracalność"
     )
+
+
+def test_malformed_notes_preferences_do_not_crash_scoring(flag_on):
+    """Dane kształtuje AI: `preferences` bywa stringiem zamiast dict —
+    scoring ma to zignorować, nie rzucić AttributeError (500)."""
+
+    broken = _cand(
+        cv_extracted_data={"_notes_insights": {"preferences": "remote_only"}}
+    )
+    job = _job(champion_profile={"work_mode": "zdalnie"})
+    res = _score_location(broken, job)
+    assert res.max_points > 0  # doszliśmy do końca bez wyjątku

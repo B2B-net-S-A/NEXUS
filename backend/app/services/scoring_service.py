@@ -1045,12 +1045,12 @@ def _score_location(
         if not job_remote:
             champion_mode = _champion_dict(job).get("work_mode")
             job_remote = _CHAMPION_WORK_MODE_TO_REMOTE.get(champion_mode)
-        if (
-            not remote_modes
-            and _notes_insights(candidate).get("preferences", {}).get("remote_only")
-            is True
-        ):
-            remote_modes = ["remote"]
+        if not remote_modes:
+            pref = _notes_insights(candidate).get("preferences")
+            # isinstance, nie .get w łańcuchu: dane kształtuje AI i "preferences"
+            # bywa stringiem — łańcuch .get rzucałby AttributeError (500 w scoringu).
+            if isinstance(pref, dict) and pref.get("remote_only") is True:
+                remote_modes = ["remote"]
     if job_remote and remote_modes:
         # Both sides known → judge the fit.
         if job_remote in remote_modes:
@@ -1068,9 +1068,7 @@ def _score_location(
     if _champion_signals_enabled() and not job_location:
         champion = _champion_dict(job)
         basics = champion.get("basics") or {}
-        job_location = (
-            basics.get("candidate_location_pref") if isinstance(basics, dict) else None
-        ) or champion.get("location")
+        job_location = basics.get("candidate_location_pref") or champion.get("location")
     job_tokens = location_tokens(job_location)
     cand_tokens = location_tokens(candidate.location)
     if job_tokens:
