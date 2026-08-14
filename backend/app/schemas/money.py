@@ -37,11 +37,18 @@ from pydantic import BeforeValidator
 _ONE = Decimal("1")
 
 
-def _to_whole_pln(value: Any) -> Any:
+def to_whole_pln(value: Any) -> Any:
     """Zaokrągl kwotę do pełnych złotych (pół w górę). Reszta typów bez zmian.
 
     ``bool`` przechodzi nietknięty świadomie — pydantic sam odrzuca ``bool``
     dla pola ``int``, a specjalna gałąź tylko by to zachowanie ukryła.
+
+    PUBLICZNA, bo agregaty muszą zaokrąglać DOKŁADNIE tak samo jak pojedyncze
+    wiersze. Kafel „Aktywne MRR" sumował surowe ``Decimal``-e i zaokrąglał raz
+    na końcu, a każdy wiersz przechodził przez ``WholePLN`` osobno — suma
+    zaokrągleń ≠ zaokrąglenie sumy, więc kafel różnił się od sumy kolumny
+    o złotówkę. Kto liczy sumę czegoś, co użytkownik widzi zaokrąglone, musi
+    użyć tej funkcji na SKŁADNIKACH, nie na wyniku.
     """
     if isinstance(value, Decimal):
         return int(value.quantize(_ONE, rounding=ROUND_HALF_UP))
@@ -51,5 +58,5 @@ def _to_whole_pln(value: Any) -> Any:
     return value
 
 
-WholePLN = Annotated[int, BeforeValidator(_to_whole_pln)]
+WholePLN = Annotated[int, BeforeValidator(to_whole_pln)]
 """``int`` w pełnych złotych, tolerancyjny na ``Decimal``/``float`` na wejściu."""

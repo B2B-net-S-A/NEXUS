@@ -12,7 +12,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
-from app.models.client_order import ClientOrderStatus
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -36,6 +36,7 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.schemas.money import to_whole_pln
 from app.schemas.client_profile import (
     ActiveConsultantItem,
     CandidateBrief,
@@ -183,16 +184,14 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     return (target - date.today()).days
 
 
-def _representative_project_part(contract: Contract) -> Optional[str]:
-    """„Część umowy" e-Zdrowia dla wiersza konsultanta (ticket #3).
+def _representative_order(contract: Contract):
+    """Zamówienie reprezentujące kontrakt „na dziś".
 
-    Part żyje na ZAMÓWIENIU (1 kontrakt = N zamówień/przedłużeń), wiersz
-    „Obecni konsultanci" jest per-KONTRAKT — reguła reprezentanta lustrzana
-    do FE ``splitOrders.activeOrder``: najnowsze ROZPOCZĘTE zamówienie
-    (start_date ≤ dziś, nullowe traktowane jak rozpoczęte), a gdy wszystkie
-    dopiero przyszłe — najbliższe nadchodzące. Anulowane pomijamy. Dzięki temu
-    edycja części na bieżącym zamówieniu natychmiast przestawia filtr Profilu,
-    a zaplanowane przedłużenie nie przejmuje wiersza przed swoim startem.
+    1 kontrakt = N zamówień/przedłużeń, a wiersz konsultanta jest per-KONTRAKT.
+    Reguła lustrzana do FE ``splitOrders.activeOrder``: najnowsze ROZPOCZĘTE
+    zamówienie (start_date ≤ dziś, nullowe traktowane jak rozpoczęte), a gdy
+    wszystkie dopiero przyszłe — najbliższe nadchodzące. Anulowane pomijamy.
+    Dzięki temu zaplanowane przedłużenie nie przejmuje wiersza przed startem.
     """
     orders = [
         o
@@ -204,10 +203,47 @@ def _representative_project_part(contract: Contract) -> Optional[str]:
     today = date.today()
     started = [o for o in orders if o.start_date is None or o.start_date <= today]
     if started:
-        representative = max(started, key=lambda o: (o.start_date or date.min, o.id))
-    else:
-        representative = min(orders, key=lambda o: (o.start_date or date.max, o.id))
-    return representative.project_part
+        return max(started, key=lambda o: (o.start_date or date.min, o.id))
+    return min(orders, key=lambda o: (o.start_date or date.max, o.id))
+
+
+def _representative_project_part(contract: Contract) -> Optional[str]:
+    """„Część umowy" e-Zdrowia dla wiersza konsultanta (ticket #3).
+
+    Part żyje na ZAMÓWIENIU — edycja części na bieżącym zamówieniu natychmiast
+    przestawia filtr Profilu.
+    """
+    order = _representative_order(contract)
+    return order.project_part if order is not None else None
+
+
+def _resolve_job(contract: Contract) -> tuple[Optional[int], Optional[str], bool]:
+    """Rekrutacja pokazywana pod nazwiskiem konsultanta.
+
+    Zwraca ``(job_id, job_title, from_order)``.
+
+    ``Contract.job_id`` jest kanonicznym źródłem, ale **na produkcji jest pusty
+    w całej bazie** (zmierzone 2026-08-14 na 10 klientach: zero trafień), więc
+    kolumna nie pokazywałaby niczego u nikogo. Fallback bierze rekrutację
+    z REPREZENTATYWNEGO zamówienia — tego samego, z którego liczy się „część
+    umowy", więc obie informacje w wierszu opisują ten sam moment.
+
+    ``from_order=True`` NIE jest kosmetyką: to inna proweniencja. `Contract.job_id`
+    mówi „z tej rekrutacji wziął się ten placement", a `ClientOrder.job_id` —
+    „z tej rekrutacji wzięło się bieżące zamówienie". Dla kontraktu przedłużanego
+    to bywa inna rekrutacja niż pierwotna, więc UI musi móc to rozróżnić zamiast
+    milcząco mieszać dwa znaczenia w jednej kolumnie.
+    """
+    if contract.job_id is not None:
+        return (
+            contract.job_id,
+            contract.job.title if contract.job else None,
+            False,
+        )
+    order = _representative_order(contract)
+    if order is None or order.job_id is None:
+        return None, None, False
+    return order.job_id, order.job.title if order.job else None, True
 
 
 @router.get("", response_model=ClientList)
@@ -401,9 +437,11 @@ async def get_client_profile(
         .options(
             selectinload(Contract.candidate),
             selectinload(Contract.job),
-            # Potrzebne do wyliczenia „części umowy" e-Zdrowia (ticket #3) —
-            # part żyje na ZAMÓWIENIU, wiersz konsultanta jest per-KONTRAKT.
-            selectinload(Contract.client_orders),
+            # Zamówienia + ich rekrutacje: „część umowy" e-Zdrowia (ticket #3)
+            # ORAZ fallback kolumny „rekrutacja", gdy `Contract.job_id` jest
+            # pusty. Bez `.selectinload(ClientOrder.job)` odczyt tytułu robi
+            # lazy-load w async → MissingGreenlet 500 bez CORS.
+            selectinload(Contract.client_orders).selectinload(ClientOrder.job),
             # Trzy harmonogramy stawek — WYMAGANE przez `_effective_rate_fields`.
             # Bez nich helper sięga po relację leniwie i w async leci
             # `MissingGreenlet` (500 bez nagłówków CORS, w UI „Nie udało się
@@ -430,12 +468,14 @@ async def get_client_profile(
         if c.candidate is None:
             continue
         rates = active_rates[c.id]
+        job_id, job_title, job_from_order = _resolve_job(c)
         active_consultants.append(
             ActiveConsultantItem(
                 contract_id=c.id,
                 candidate=_candidate_brief(c.candidate),
-                job_id=c.job_id,
-                job_title=c.job.title if c.job else None,
+                job_id=job_id,
+                job_title=job_title,
+                job_from_order=job_from_order,
                 start_date=c.start_date,
                 end_date=c.end_date,
                 days_to_end=_days_to(c.end_date),
@@ -457,6 +497,9 @@ async def get_client_profile(
         .options(
             selectinload(Contract.candidate),
             selectinload(Contract.job),
+            # Archiwum pokazuje tę samą kolumnę „rekrutacja" co „Obecni", więc
+            # potrzebuje tego samego fallbacku na zamówienie.
+            selectinload(Contract.client_orders).selectinload(ClientOrder.job),
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
             selectinload(Contract.framework_rate_schedule),
@@ -486,13 +529,15 @@ async def get_client_profile(
             continue
         end_boundary = ended_boundaries[c.id]
         rates = ended_rates[c.id]
+        job_id, job_title, job_from_order = _resolve_job(c)
         duration = _duration_months(c.start_date, end_boundary)
         placements.append(
             HistoricalPlacementItem(
                 contract_id=c.id,
                 candidate=_candidate_brief(c.candidate),
-                job_id=c.job_id,
-                job_title=c.job.title if c.job else None,
+                job_id=job_id,
+                job_title=job_title,
+                job_from_order=job_from_order,
                 start_date=c.start_date,
                 end_date=c.end_date,
                 terminated_at=c.terminated_at,
@@ -543,8 +588,14 @@ async def get_client_profile(
     # Ten sam słownik stawek, z którego liczą się wiersze — inaczej kafel
     # „Aktywne MRR" byłby sumą innych liczb niż te widoczne pod nim, a
     # użytkownik nie miałby jak zgadnąć, która wersja jest prawdziwa.
+    # `to_whole_pln` na SKŁADNIKACH, nie na wyniku: każdy wiersz jest
+    # zaokrąglany osobno przez `WholePLN`, więc suma surowych `Decimal`-i
+    # zaokrąglona raz na końcu potrafi różnić się od sumy kolumny o złotówkę
+    # (zmierzone na prodzie: Alior 59 211 vs 59 212). Kafel ma być sumą tego,
+    # co użytkownik WIDZI pod nim.
     active_mrr = sum(
-        (active_rates[c.id]["monthly_margin"] or 0) for c in active_contracts
+        to_whole_pln(active_rates[c.id]["monthly_margin"] or 0)
+        for c in active_contracts
     )
 
     # LTV = cumulative revenue so far. For active contracts use today as the
