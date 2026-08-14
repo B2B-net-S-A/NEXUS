@@ -186,6 +186,7 @@ class WeightProfile:
 # no way to tell them apart. It was patched twice by hand (migrations 0143 and
 # 0150 did a mass invalidation); a third time was only a matter of when.
 _SCORING_CACHE_INPUTS: tuple[str, ...] = (
+    "CHAMPION_MATCH_SIGNALS_ENABLED",
     "AI_SCORING_CONTRACT_V2",
     "VOYAGE_MODEL",
     "SEMANTIC_CALIBRATION_GAMMA",
@@ -886,6 +887,49 @@ def _score_skills(
     )
 
 
+def _champion_signals_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False))
+
+
+def _champion_dict(job: Job) -> dict:
+    champion = getattr(job, "champion_profile", None)
+    return champion if isinstance(champion, dict) else {}
+
+
+def _champion_hourly_rate(job: Job) -> Optional[float]:
+    """Stawka Championa w PLN/h — jedyna porównywalna z profilem kandydata.
+
+    `rate_value` pochodzi z parsera profili (import 2026-08-14) i z definicji
+    dokumentu jest stawką DLA KANDYDATA w PLN/h. To odblokowuje warstwę
+    finansową: legacy `Job.salary_min/max` jest w PLN/mies. i z kandydackim
+    PLN/h porównywalne nie będzie nigdy (patrz docstring `_score_salary`).
+    """
+
+    if not _champion_signals_enabled():
+        return None
+    value = _champion_dict(job).get("rate_value")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if 0 < float(value) < 2000 else None
+
+
+def _notes_insights(candidate: Candidate) -> dict:
+    extracted = getattr(candidate, "cv_extracted_data", None)
+    if not isinstance(extracted, dict):
+        return {}
+    insights = extracted.get("_notes_insights")
+    return insights if isinstance(insights, dict) else {}
+
+
+# Tryb pracy z dokumentu Championa → słownik remote_policy używany przez
+# warstwę lokalizacji po stronie kandydata (preferences.remote_modes).
+_CHAMPION_WORK_MODE_TO_REMOTE = {
+    "zdalnie": "remote",
+    "hybrydowo": "hybrid",
+    "stacjonarnie": "onsite",
+}
+
+
 def _score_salary(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> LayerResult:
@@ -915,6 +959,29 @@ def _score_salary(
             "not_comparable: historyczna stawka ma niekanoniczną walutę "
             "i wymaga ręcznej korekty",
             "not_comparable",
+        )
+
+    champion_rate = _champion_hourly_rate(job)
+    if champion_rate is not None and cand_rate is not None:
+        # Jedyna para w tej samej jednostce (PLN/h vs PLN/h): stawka Championa
+        # to budżet klienta NA KANDYDATA. Oczekiwania w budżecie = pełne
+        # punkty; przekroczenie degraduje liniowo do zera przy +30%.
+        cand = float(cand_rate)
+        if cand <= champion_rate:
+            return LayerResult(
+                points=max_pts,
+                max_points=max_pts,
+                reason=f"w budżecie Championa ({cand:.0f} ≤ {champion_rate:.0f} PLN/h)",
+            )
+        overshoot = (cand - champion_rate) / champion_rate
+        factor = max(0.0, 1.0 - overshoot / 0.30)
+        return LayerResult(
+            points=max_pts * factor,
+            max_points=max_pts,
+            reason=(
+                f"ponad budżet Championa o {overshoot:.0%} "
+                f"({cand:.0f} > {champion_rate:.0f} PLN/h)"
+            ),
         )
 
     if cand_rate is None or (job_min is None and job_max is None):
@@ -970,6 +1037,20 @@ def _score_location(
     prefs = getattr(candidate, "preferences", None) or {}
     remote_modes = prefs.get("remote_modes") if isinstance(prefs, dict) else None
     job_remote = job.remote_policy.value if job.remote_policy else None
+    if _champion_signals_enabled():
+        # Strona ofertowa: tryb pracy z dokumentu Championa, gdy oferta sama
+        # nie deklaruje polityki (typowe dla importów). Strona kandydacka:
+        # `remote_only` z faktów notatkowych, gdy brak jawnych preferencji —
+        # rekruter zapisał twardy warunek, którego nie wolno zgubić.
+        if not job_remote:
+            champion_mode = _champion_dict(job).get("work_mode")
+            job_remote = _CHAMPION_WORK_MODE_TO_REMOTE.get(champion_mode)
+        if (
+            not remote_modes
+            and _notes_insights(candidate).get("preferences", {}).get("remote_only")
+            is True
+        ):
+            remote_modes = ["remote"]
     if job_remote and remote_modes:
         # Both sides known → judge the fit.
         if job_remote in remote_modes:
@@ -983,7 +1064,14 @@ def _score_location(
         reason_bits.append("remote nieznany")
 
     # ── City half ─────────────────────────────────────────────────────────────
-    job_tokens = location_tokens(job.location)
+    job_location = job.location
+    if _champion_signals_enabled() and not job_location:
+        champion = _champion_dict(job)
+        basics = champion.get("basics") or {}
+        job_location = (
+            basics.get("candidate_location_pref") if isinstance(basics, dict) else None
+        ) or champion.get("location")
+    job_tokens = location_tokens(job_location)
     cand_tokens = location_tokens(candidate.location)
     if job_tokens:
         if tokens_overlap(cand_tokens, job_tokens):
