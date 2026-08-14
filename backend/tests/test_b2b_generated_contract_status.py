@@ -303,6 +303,21 @@ async def test_reopening_clears_every_closure_field(app_client, app_auth_headers
     assert body["closure_reason_other"] is None
     assert body["closure_date"] is None
 
+    # Wyczyszczone pola muszą PRZEŻYĆ w dzienniku — inaczej powód i data
+    # zamknięcia znikają z systemu bezpowrotnie. Ta asercja pilnuje właśnie
+    # tego, że czyszczenie wyżej nie jest utratą danych.
+    history = await app_client.get(
+        f"{PATH}/{rid}/status-history", headers=app_auth_headers
+    )
+    assert history.status_code == 200, history.text
+    events = history.json()
+    assert [e["to_status"] for e in events] == ["closed", "active"]
+    assert events[0]["reason"] == "mutual_agreement"
+    assert events[0]["effective_date"] == "2026-08-31"
+    # Zdarzenie powrotu przenosi to, co właśnie zniknęło z wiersza.
+    assert events[1]["reason"] == "mutual_agreement"
+    assert events[1]["effective_date"] == "2026-08-31"
+
 
 async def test_signed_contract_can_still_be_closed(app_client, app_auth_headers):
     """Wypowiedzenie i porozumienie dotyczą umów PODPISANYCH.
