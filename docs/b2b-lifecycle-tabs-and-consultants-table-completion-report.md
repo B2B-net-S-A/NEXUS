@@ -108,6 +108,70 @@ Nowe testy: 8 integracyjnych ścieżek cyklu życia (zawieszenie tylko z aktywne
 i lustro entrypointu · 3 na stawki z harmonogramu · 11 na nowe zakładki FE ·
 6 na tabelę konsultantów.
 
+## Smoke na produkcji (2026-08-14, `e0cbda9`)
+
+Wyłącznie ODCZYT — żadna prodowa umowa ani kontrakt nie zostały zmienione.
+Pełnej ścieżki `Aktywna → Zawieszona → Aktywna → Zakończona` celowo NIE odpalono
+na żywych danych (ten sam wybór co przy tickecie #5 w Fazie C); mechanika jest
+pokryta 8 testami integracyjnymi.
+
+**Wdrożenie schematu — jedyny realny dowód.** `/api/health/deep` = `healthy`,
+w tym `b2b_generated_contracts` **i `b2b_generated_contract_status_events`**.
+Prod ma osierocony alembic, więc zielona sonda głęboka jest jedynym potwierdzeniem,
+że lustro DDL w `entrypoint.sh` faktycznie się wykonało — `/api/health` byłby
+zielony także wtedy, gdyby tabela nie powstała.
+
+**Generator.** Pięć zakładek z nowymi nazwami. „Umowy bez projektu" pusta
+z komunikatem „Brak umów bez przypisanego projektu." (prawdziwe zero — awaria
+renderuje alert z „Ponów"). „Zakończone umowy" pokazuje 3 realne wiersze,
+read-only, bez kolumny Akcje. **Wiersz 1457/2026 niesie powód „Wypowiedzenie"** —
+czyli wartość sprzed 0226 wyrenderowaną z etykietą, nie surowym kluczem. To
+potwierdza decyzję o zostawieniu legacy w katalogu: zawężenie domeny zgodnie
+z literalnym brzmieniem Ticketu 4 pokazałoby tu puste miejsce. Dwa pozostałe
+wiersze mają powód „Inny" z własnym tekstem.
+
+**Profil klienta (Alior, 39).** Kafle jednoliniowe. Kolumny zgodne z makietą;
+marże się zgadzają (22 589 − 16 000 = 6 589). Wartość 22 589 to kontrakt godzinowy
+141,18 × 160 = 22 588,80 → koercja `WholePLN` działa i wiersz się nie wywraca.
+**Archiwum konsultantów** ma komplet nowych pól: koszt 19 200 · przychód 22 200 ·
+marża 3 000 · **End date 30.06.2026** — przed tym PR-em API nie zwracało tam
+żadnej stawki.
+
+**Naprawa stawek — zmierzony skutek.** U PFRON (klient 122) trzy kontrakty mają
+w harmonogramie obniżkę od 2026-07-01, której profil dotąd nie pokazywał:
+
+| kontrakt | harmonogram klienta | profil po zmianie |
+|---|---|---|
+| 401 | 130 → **120 od 2026-07-01** | 19 200 = 120 × 160 |
+| 389 | 190 → **170 od 2026-07-01** | 27 200 = 170 × 160 |
+| 393 | 90 → **80 od 2026-07-01** | 12 800 = 80 × 160 |
+
+Wszystkie zgodne z modułem Kontrakty (który zawsze liczył z harmonogramu). Przed
+zmianą profil czytał kolumnę legacy — na kontrakcie 401 pokazywałby 20 800.
+
+**Zakres zmiany jest wąski.** U Centrum e-Zdrowia harmonogramy są PUSTE
+(`_effective_rate_fields` spada na kolumnę legacy), więc tam kwoty się nie
+zmieniły. Nie każdy klient zobaczy różnicę — tylko ci z realnym harmonogramem.
+
+## Dwie rzeczy zmierzone przy smoke'u, warte osobnej decyzji
+
+**1. `Contract.job_id` jest pusty w całej bazie produkcyjnej.** Przeskanowano
+10 klientów (Alior, Bank Pocztowy, BNP, e-Zdrowie, Nordea, Ergo Hestia, m-Leasing,
+Nationale Nederlanden, KIR, PFRON) — **zero** aktywnych konsultantów z
+`job_title`. Wiersz „rekrutacja" pod nazwiskiem jest zaimplementowany i renderuje
+się poprawnie jako PUSTY (wymóg ticketu), ale dopóki kontrakty nie dostaną
+powiązania z ofertą, nie pokaże niczego u nikogo. To brak DANYCH, nie kodu —
+`ClientOrder.job_id` bywa wypełniony i mógłby posłużyć jako fallback, ale to
+osobna decyzja produktowa.
+
+**2. Kafel „Aktywne MRR" różni się o 1 zł od sumy kolumny „Marża"** (Alior:
+59 211 vs 59 212). Każdy wiersz jest zaokrąglany osobno przez `WholePLN`
+(half-up), a MRR sumuje `Decimal`-e i zaokrągla raz — suma zaokrągleń ≠
+zaokrąglenie sumy. Rozbieżność jest wcześniejsza niż ten PR, ale kolumnowy układ
+stawia obie liczby obok siebie, więc stała się widoczna. Naprawa to jedna linijka
+(sumować wartości już zaokrąglone); świadomie NIE robiona tutaj, bo wykracza poza
+zakres ticketów.
+
 ## Znane ograniczenia
 
 - Zakładka „Umowy bez projektu" jest pusta do pierwszego zawieszenia; historia
@@ -117,9 +181,8 @@ i lustro entrypointu · 3 na stawki z harmonogramu · 11 na nowe zakładki FE ·
   (`Contract.status IN (active, ending)`) a katalogiem klientów
   (`client_directory.py` — dodatkowo data-efektywny i dedup po osobie) **nietknięty**;
   liczniki na dwóch ekranach mogą się różnić. Warte osobnego ticketu.
-- Weryfikacja wzrokowa przez Chrome nie została wykonana: ekrany są za auth,
-  a w tym worktree nie stoi backend z bazą. Zachowanie DOM pokryte testami jsdom;
-  do sprawdzenia na środowisku z pełnym stackiem po deployu.
+- Pełna ścieżka zmiany statusu nie została odpalona na żywych danych (mutacja
+  prodowych umów) — pokrycie przez testy integracyjne.
 
 ## Zauważone przy okazji, POZA zakresem
 
