@@ -48,6 +48,7 @@ import { ProjectsTab } from "./ProjectsTab";
 // topbarze (NotificationsDropdown) wystarcza.
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
+import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import Link from "next/link";
@@ -936,7 +937,17 @@ export default function ClientDetailPage() {
             </div>
           )}
 
-          {activeTab === "zamowienia" && <OrdersAndContractsTab clientId={Number(id)} />}
+          {/* Widok wielo-konsultantowy tylko dla klientów rozliczanych w T&M na
+              MD (BIK / Polkomtel / BNP). Flagę wylicza BACKEND z listy
+              MULTI_CONSULTANT_ORDER_CLIENT_IDS — front nie trzyma kopii tej
+              listy, bo zmienia się ona w Coolify bez deployu. Każdy inny
+              klient dostaje niezmieniony widok jednoosobowy. */}
+          {activeTab === "zamowienia" &&
+            (client?.multi_consultant_orders_enabled ? (
+              <MultiConsultantOrdersTab clientId={Number(id)} />
+            ) : (
+              <OrdersAndContractsTab clientId={Number(id)} />
+            ))}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
 
           {activeTab === "zespol" && (

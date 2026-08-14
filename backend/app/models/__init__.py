@@ -240,6 +240,12 @@ from app.models.client_framework_contract import (
 )
 from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
+from app.models.md_consumption import (
+    ClientOrderMdConsumption,
+    MdConsumptionImport,
+    MdConsumptionImportRow,
+)
 from app.models.ai_feature import (
     AIFeatureConfig,
     AIFeatureKey,
@@ -473,7 +479,12 @@ __all__ = [
     "FrameworkContractSignedVia",
     "ClientContractAmendment",
     "ClientOrder",
+    "ClientOrderGroup",
+    "ClientOrderGroupEvent",
+    "ClientOrderMdConsumption",
     "ClientOrderStatus",
+    "MdConsumptionImport",
+    "MdConsumptionImportRow",
     "AIFeatureConfig",
     "AIFeatureKey",
     "AIMasterToggle",

@@ -9,6 +9,7 @@ import {
   Building2,
   FileText,
   FileSignature,
+  FileSpreadsheet,
   Star,
   Calendar,
   BarChart3,
@@ -298,7 +299,10 @@ const FINANCE_NAV_SECTIONS: NavSection[] = [
   {
     title: "Finanse",
     icon: BarChart3,
-    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/finance", label: "Import MD", icon: FileSpreadsheet },
+    ],
   },
   {
     title: "System",

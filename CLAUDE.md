@@ -565,3 +565,84 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   `from __future__ import annotations` (PEP 563 + slowapi #579 → `Annotated` guardy lądują
   jako wymagane parametry QUERY, 422 na poprawnym body). Ten sam trap co
   w `candidate_activity_summary.py`.
+
+## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
+
+Klienci rozliczani w T&M na MD przysyłają JEDNO zamówienie („nr 445") obejmujące
+kilku konsultantów, każdego z własną stawką kosztową, przychodową i budżetem MD,
+który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
+
+- **Zamówienie wielo-konsultantowe to GRUPA nad istniejącymi `client_orders`, a nie
+  „wiele osób w jednym wierszu".** Odruchowe rozwiązanie — zdjąć `NOT NULL`
+  z `client_orders.contract_id` i przenieść konsultanta do tabeli linii — psuje
+  siedemnaście ścieżek, bo CAŁY system czyta zamówienie przez jego kontrakt:
+  `dl_portal_expiry_scanner` robi INNER JOIN po `contract_id` (zamówienie bez kontraktu
+  przestaje ostrzegać na 30/14/7 dni, a `_promote_statuses` i tak przestempluje je na
+  `completed` — wygasa bez ostrzeżenia), sync terminacji w `contracts.py` domyka zamówienia
+  po `contract_id` (osierocone biegłyby po zakończeniu współpracy w nieskończoność),
+  zgrupowana lista iteruje po `Contract.client_orders` (osierocone ZNIKA z widoku),
+  a `ClientOrderRead.contract_id: int` wywala walidację przy pierwszym odczycie.
+  Grupa kosztuje jedną tabelę i zero ryzyka: linia = zwykłe `ClientOrder` ze swoim
+  kontraktem, więc wszystkie te ścieżki działają bez zmian. Zamówienia pozostałych
+  klientów mają `order_group_id IS NULL` i nie zmienia się dla nich nic.
+- **Bramka po `client_id` z ENV, nie po nazwie i nie w bundlu.** `MULTI_CONSULTANT_ORDER_CLIENT_IDS`
+  (CSV, Coolify) — dopisanie klienta bez deployu. Nazwa odpada z tego samego powodu co
+  przy e-Zdrowiu: Traffit nadpisuje `Client.name`, a „BNP" to RODZINA rekordów.
+  **Front NIE trzyma kopii listy** (inaczej niż `lib/ezdrowie.ts`, gdzie jedno stałe ID
+  jest zduplikowane po obu stronach) — lista jest zmienną środowiskową, więc kopia
+  w bundlu byłaby nieaktualna od pierwszej zmiany w Coolify. Zamiast tego
+  `ClientSafeResponse` wystawia wyliczone `multi_consultant_orders_enabled`.
+  **Pusta lista = funkcja wyłączona dla wszystkich** (fail-closed).
+- **Bramka stoi przy KAŻDEJ operacji, nie tylko przy renderowaniu.** Ukryty przycisk nie jest
+  zabezpieczeniem; wywołane wprost API założyłoby zamówienie u klienta, którego zakładka
+  nigdy go nie pokaże — dane nie do zobaczenia i nie do poprawienia z interfejsu.
+  Wyjątek: **ODCZYT u klienta spoza listy zwraca pustą listę, nie 403** — 403 renderuje się
+  jak awaria, a tutaj naprawdę nie ma czego pokazać.
+- **Stawki MD mają WŁASNE kolumny** (`md_rate_cost`/`md_rate_revenue`), nie nadpisują
+  `rate_client`/`Contract.rate_candidate`. Tamte są interpretowane przez `Contract.rate_unit`
+  (h/dzień/mc) i zasilają marżę miesięczną w widokach jednoosobowych — wpisanie tam stawki
+  dziennej dałoby cichy, 22-krotny błąd marży u trzech klientów. `_compute_monthly_margin`
+  jest CELOWO nietknięte.
+- **`md_remaining` jest WYLICZANE** (`md_total − Σ konsumpcji + md_manual_adjustment`),
+  przeliczane od zera przy każdej zmianie. To jest mechanizm idempotencji importu, razem
+  z UNIQUE `(order_id, period_month)`: powtórka miesiąca NADPISUJE wiersz konsumpcji.
+  **Korekta ręczna siedzi w osobnej kolumnie**, nie nadpisuje `md_remaining` — nadpisanie
+  przeżyłoby dokładnie do najbliższego importu, który przelicza pozostałość od `md_total`.
+- **Pozostałość może zejść poniżej zera** — przekroczony budżet jest faktem handlowym.
+  UI sygnalizuje kolorem, nic nie blokuje i nic nie ścina (także przy zamianie kontraktora).
+- **Zamiana kontraktora zachowuje wartość w PLN**: `md_nowe × stawka_nowa = md_pozostałe ×
+  stawka_stara`, wyłącznie od dnia zamiany w przód. Domknięcie starej linii jest lustrem
+  syncu terminacji z `contracts.py`: data zawsze, status `completed` dopiero gdy dzień
+  zamiany nadszedł — zamiana zaplanowana na przyszłość NIE może wyłączyć pracującego
+  konsultanta. Obie stawki, obie liczby MD i data lądują w `payload` zdarzenia; bez nich
+  nie da się rozliczyć faktury za miesiąc zamiany (MD sprzed zamiany idą po stawce poprzednika).
+- **Precyzja:** `NUMERIC(16, 6)`. „Bez zaokrąglenia" jest nieosiągalne w typie
+  stałoprzecinkowym (`kwota / stawka` bywa ułamkiem nieskończonym); sześć miejsc to cztery
+  zapasu ponad prezentację (2 miejsca), więc kolejne importy nie kumulują widocznego błędu.
+- **Import MD dopasowuje WYŁĄCZNIE po imieniu i nazwisku** (arkusz nie ma numeru zamówienia).
+  Jedno trafienie → zastosuj; zero → „Brak aktywnego zamówienia"; **więcej niż jedno →
+  „Wymaga przypisania" i system NIE zgaduje** — trafienie w złe zamówienie odejmuje MD nie
+  temu klientowi i wychodzi dopiero na fakturze. Wiersz importu ŻYJE DALEJ w bazie, bo bez
+  trwałego wiersza niejednoznaczność przepadłaby razem z odpowiedzią HTTP.
+  Tokeny nazwiska są **zbiorem** (nie listą) — arkusze piszą raz „Jan Kowalski", raz
+  „Kowalski Jan". Normalizacja z `candidate_identity_quarantine.normalize_person_name_part`.
+- **Parser XLSX szuka nagłówka po synonimach** i przemiata wszystkie arkusze (raporty często
+  zaczynają się arkuszem tytułowym). Miesiąc wybiera OPERATOR — nazwy plików kłamią dokładnie
+  wtedy, gdy import dotyczy okresu zaległego. Wiersze nieczytelne trafiają do `skipped_rows`,
+  nigdy nie znikają po cichu.
+- **Uprawnienia:** stawki pisze **wyłącznie admin** (lustro `_assert_order_finance_write_allowed`
+  z `client_orders.py`) — nowa powierzchnia nie mogła rozluźnić bramki, którą reszta modułu
+  już egzekwuje. Odczyt: `TacPlus` + jawne przypisanie DL/TAC. Liczby MD są **operacyjne**,
+  nie finansowe — pasek zużycia działa bez `VIEW_FINANCE`, a same stawki renderują się jako
+  „—" (znikająca kolumna czytałaby się jak brak danych, nie jak brak uprawnień).
+  Import: `FinanceManageUser` (admin + Finanse) z wąską projekcją wierszy — bez
+  identyfikatorów kandydatów i kontraktów.
+- **Pułapka UI, którą złapał dopiero test w przeglądarce:** gałąź pustego stanu MUSI wisieć na
+  `isSuccess`, nie na `!isLoading`. W przerwie między ponowieniami react-query ma
+  `isLoading === false`, `isError === false` i puste `data`, więc warunek na `isLoading`
+  przepuszczał ten stan do pustego stanu i ekran twierdził „brak zamówień", zanim cokolwiek
+  było wiadomo. Dotyczy trzech miejsc: listy zamówień, historii zamówienia i historii importów.
+- **Aktywacja na prodzie:** ustaw `MULTI_CONSULTANT_ORDER_CLIENT_IDS` w Coolify (ID z
+  `SELECT id, name FROM clients WHERE name ILIKE '%BIK%' OR name ILIKE '%Polkomtel%' OR
+  name ILIKE '%BNP%'`). Do tego czasu wszystko stoi bezczynnie i zakładka „Zamówienia"
+  renderuje dotychczasowy widok jednoosobowy dla każdego klienta.

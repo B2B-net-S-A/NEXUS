@@ -45,6 +45,9 @@ const COOKIE_NAME = "nexus_access";
 // prefix (patrz resolveAllowedRoles).
 const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
+  // Import zużycia MD — lustro backendowego `FinanceManageUser`
+  // (capability `manage_finance`, czyli admin + rola Finanse).
+  { prefix: "/finance", roles: ["admin", "finance"] },
   // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
   // middleware nie ma dostępu do user object, tylko JWT payload).

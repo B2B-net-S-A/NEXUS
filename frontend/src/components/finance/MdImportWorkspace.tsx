@@ -1,0 +1,359 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, HelpCircle, Upload } from "lucide-react";
+
+import { EmptyState, QueryStateNotice } from "@/components/ds";
+import { useToast } from "@/components/Toast";
+import {
+  mdConsumptionApi,
+  type ImportDetail,
+  type ImportRow,
+  type ImportRowStatus,
+} from "@/lib/api/orderGroups";
+import { cn } from "@/lib/utils";
+
+const inputClass =
+  "rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+
+const STATUS_STYLE: Record<ImportRowStatus, { className: string; icon: typeof CheckCircle2 }> = {
+  applied: { className: "text-emerald-700 bg-emerald-50", icon: CheckCircle2 },
+  needs_assignment: { className: "text-amber-700 bg-amber-50", icon: HelpCircle },
+  unmatched: { className: "text-muted-foreground bg-muted", icon: AlertTriangle },
+};
+
+function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function formatMd(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+function apiError(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
+    ?.detail;
+  return typeof detail === "string" ? detail : fallback;
+}
+
+/**
+ * Import miesięcznego raportu MD z Finansów.
+ *
+ * Arkusz nie zawiera numeru zamówienia, więc dopasowanie idzie po imieniu
+ * i nazwisku. Wiersz z więcej niż jednym trafieniem NIE jest zgadywany —
+ * czeka tutaj na ręczne wskazanie zamówienia.
+ */
+export function MdImportWorkspace() {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const [file, setFile] = useState<File | null>(null);
+  const [periodMonth, setPeriodMonth] = useState(currentMonth());
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ImportDetail | null>(null);
+
+  const history = useQuery({
+    queryKey: ["md-imports"],
+    queryFn: async () => (await mdConsumptionApi.listImports()).data,
+  });
+
+  const upload = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error("Wybierz plik");
+      return (await mdConsumptionApi.upload(file, periodMonth)).data;
+    },
+    onSuccess: (data) => {
+      setDetail(data);
+      setUploadError(null);
+      setFile(null);
+      if (fileInput.current) fileInput.current.value = "";
+      queryClient.invalidateQueries({ queryKey: ["md-imports"] });
+      showToast(`Zaimportowano ${data.rows_applied} z ${data.rows_total} wierszy`, "success");
+    },
+    onError: (err) =>
+      setUploadError(apiError(err, "Nie udało się zaimportować pliku.")),
+  });
+
+  const assign = useMutation({
+    mutationFn: async ({ rowId, orderId }: { rowId: number; orderId: number }) => {
+      if (!detail) throw new Error("Brak importu");
+      await mdConsumptionApi.assignRow(detail.id, rowId, orderId);
+      return (await mdConsumptionApi.getImport(detail.id)).data;
+    },
+    onSuccess: (data) => {
+      setDetail(data);
+      queryClient.invalidateQueries({ queryKey: ["md-imports"] });
+      showToast("Przypisano zamówienie i zaktualizowano MD", "success");
+    },
+    onError: (err) => showToast(apiError(err, "Nie udało się przypisać."), "error"),
+  });
+
+  const pendingCount = useMemo(
+    () => (detail?.rows ?? []).filter((r) => r.status === "needs_assignment").length,
+    [detail],
+  );
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="rounded-xl border border-border bg-card p-5">
+        <h2 className="text-sm font-semibold text-foreground">Import zużycia MD</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Wgraj miesięczny raport (XLSX) z kolumnami konsultanta i liczby MD. Nagłówki
+          rozpoznawane są automatycznie — m.in. „Konsultant" / „Imię i nazwisko" oraz
+          „MD" / „Osobodni".
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div>
+            <label htmlFor="md-period" className="mb-1 block text-xs font-semibold text-muted-foreground">
+              Miesiąc raportu *
+            </label>
+            <input
+              id="md-period"
+              type="month"
+              value={periodMonth}
+              onChange={(e) => setPeriodMonth(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label htmlFor="md-file" className="mb-1 block text-xs font-semibold text-muted-foreground">
+              Plik XLSX *
+            </label>
+            <input
+              id="md-file"
+              ref={fileInput}
+              type="file"
+              accept=".xlsx,.xlsm"
+              onChange={(e) => {
+                const picked = e.target.files?.[0] ?? null;
+                if (picked && !/\.(xlsx|xlsm)$/i.test(picked.name)) {
+                  setUploadError("Dozwolone są tylko pliki XLSX.");
+                  setFile(null);
+                  return;
+                }
+                setUploadError(null);
+                setFile(picked);
+              }}
+              className={cn(inputClass, "file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs")}
+            />
+          </div>
+          <button
+            type="button"
+            disabled={!file || !periodMonth || upload.isPending}
+            onClick={() => upload.mutate()}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" />
+            {upload.isPending ? "Importowanie…" : "Importuj"}
+          </button>
+        </div>
+
+        {uploadError ? (
+          <p role="alert" className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {uploadError}
+          </p>
+        ) : null}
+
+        <p className="mt-3 text-xs text-muted-foreground">
+          Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie — MD nie
+          odejmą się drugi raz.
+        </p>
+      </section>
+
+      {detail ? (
+        <section className="rounded-xl border border-border bg-card">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                Wynik importu — {detail.period_month}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {detail.filename}
+                {detail.sheet_name ? ` · arkusz „${detail.sheet_name}"` : ""}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-4 text-xs">
+              <span className="text-emerald-700">
+                Zaktualizowano: <strong>{detail.rows_applied}</strong>
+              </span>
+              <span className="text-amber-700">
+                Wymaga przypisania: <strong>{detail.rows_ambiguous}</strong>
+              </span>
+              <span className="text-muted-foreground">
+                Bez zamówienia: <strong>{detail.rows_unmatched}</strong>
+              </span>
+            </div>
+          </header>
+
+          {pendingCount > 0 ? (
+            <p className="border-b border-border bg-amber-50 px-5 py-2 text-xs text-amber-800">
+              {pendingCount} wierszy pasuje do więcej niż jednego zamówienia. System nie
+              wybiera za Ciebie — wskaż właściwe zamówienie w kolumnie obok.
+            </p>
+          ) : null}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-5 py-2 font-medium">Wiersz</th>
+                  <th className="px-5 py-2 font-medium">Konsultant</th>
+                  <th className="px-5 py-2 font-medium text-right">MD</th>
+                  <th className="px-5 py-2 font-medium">Status</th>
+                  <th className="px-5 py-2 font-medium">Zamówienie</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {detail.rows.map((row) => (
+                  <ImportRowLine
+                    key={row.id}
+                    row={row}
+                    busy={assign.isPending}
+                    onAssign={(orderId) => assign.mutate({ rowId: row.id, orderId })}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {detail.skipped_rows.length > 0 ? (
+            <div className="border-t border-border px-5 py-3">
+              <p className="text-xs font-medium text-foreground">
+                Pominięte wiersze ({detail.skipped_rows.length})
+              </p>
+              <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
+                {detail.skipped_rows.slice(0, 20).map((s, i) => (
+                  <li key={`${s.row}-${i}`}>
+                    wiersz {s.row}: {s.reason}
+                    {s.consultant_name ? ` (${s.consultant_name})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-foreground">Ostatnie importy</h2>
+        {history.isError ? (
+          <QueryStateNotice
+            state="error"
+            description="Nie udało się wczytać historii importów."
+            onRetry={() => history.refetch()}
+          />
+        ) : !history.isSuccess ? (
+          // `isSuccess`, nie `isLoading` — między ponowieniami react-query nie
+          // jest ani „loading", ani „error", a `data` jest puste, więc gałąź
+          // pustego stanu wygrywała i twierdziła, że importów nie ma.
+          <p className="text-sm text-muted-foreground">Wczytywanie…</p>
+        ) : history.data.imports.length === 0 ? (
+          <EmptyState
+            title="Brak importów"
+            description="Nie wgrano jeszcze żadnego raportu MD."
+          />
+        ) : (
+          <ul className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card">
+            {history.data.imports.map((imp) => (
+              <li key={imp.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
+                <FileSpreadsheet className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <span className="font-medium text-foreground">{imp.period_month}</span>
+                <span className="truncate text-xs text-muted-foreground">{imp.filename}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {imp.rows_applied}/{imp.rows_total} zastosowanych
+                  {imp.rows_ambiguous > 0 ? ` · ${imp.rows_ambiguous} do przypisania` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      setDetail((await mdConsumptionApi.getImport(imp.id)).data);
+                    } catch {
+                      showToast("Nie udało się otworzyć importu", "error");
+                    }
+                  }}
+                  className="rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                >
+                  Otwórz
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ImportRowLine({
+  row,
+  busy,
+  onAssign,
+}: {
+  row: ImportRow;
+  busy: boolean;
+  onAssign: (orderId: number) => void;
+}) {
+  const [choice, setChoice] = useState("");
+  const style = STATUS_STYLE[row.status];
+  const Icon = style.icon;
+
+  return (
+    <tr>
+      <td className="px-5 py-2 tabular-nums text-muted-foreground">{row.row_number}</td>
+      <td className="px-5 py-2 font-medium text-foreground">{row.consultant_name}</td>
+      <td className="px-5 py-2 text-right tabular-nums">{formatMd(row.md_reported)}</td>
+      <td className="px-5 py-2">
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+            style.className,
+          )}
+        >
+          <Icon className="h-3 w-3" aria-hidden="true" />
+          {row.status_label}
+        </span>
+      </td>
+      <td className="px-5 py-2">
+        {row.status === "needs_assignment" ? (
+          <div className="flex items-center gap-2">
+            <select
+              aria-label={`Wybierz zamówienie dla ${row.consultant_name}`}
+              value={choice}
+              onChange={(e) => setChoice(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            >
+              <option value="">— wybierz zamówienie —</option>
+              {row.options.map((o) => (
+                <option key={o.order_id} value={o.order_id}>
+                  {o.client_name} · nr {o.order_number} ({formatMd(o.md_remaining)} MD)
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!choice || busy}
+              onClick={() => onAssign(Number(choice))}
+              className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+            >
+              Przypisz
+            </button>
+          </div>
+        ) : row.matched ? (
+          <span className="text-xs text-muted-foreground">
+            {row.matched.client_name} · nr {row.matched.order_number}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            Brak aktywnej linii dla tego nazwiska w tym miesiącu
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}
