@@ -193,6 +193,9 @@ class TeamMemberSchema(BaseModel):
     precision_pct: float | None
     precision_verified_30d: int
     precision_sent_30d: int
+    # False = osoba nieaktywna, ale z dorobkiem w oknie. Wiersz zostaje, żeby
+    # suma zespołu nie kurczyła się przez zmianę flagi na koncie.
+    is_active: bool = True
 
 
 class TeamTotalsSchema(BaseModel):
@@ -204,6 +207,8 @@ class TeamTotalsSchema(BaseModel):
     cv_to_base: int
     precision_pct: float | None
     people: int
+    # Kamienie milowe bez możliwej atrybucji — raportowane, nie ukrywane.
+    unattributed: int = 0
 
 
 class TeamPanelSchema(BaseModel):
@@ -246,6 +251,7 @@ def _team_to_schema(result: TeamPanelResult) -> TeamPanelSchema:
                 precision_pct=r.precision_pct,
                 precision_verified_30d=r.precision_verified_30d,
                 precision_sent_30d=r.precision_sent_30d,
+                is_active=r.is_active,
             )
             for r in result.rows
         ],
@@ -258,6 +264,7 @@ def _team_to_schema(result: TeamPanelResult) -> TeamPanelSchema:
             cv_to_base=result.totals.cv_to_base,
             precision_pct=result.totals.precision_pct,
             people=result.totals.people,
+            unattributed=result.totals.unattributed,
         ),
     )
 

@@ -1790,6 +1790,7 @@ async def build_recruitment_stats_dashboard(
                     precision_pct=row.precision_pct,
                     precision_verified_30d=row.precision_verified_30d,
                     precision_sent_30d=row.precision_sent_30d,
+                    is_active=row.is_active,
                 )
                 for row in team.rows
             ],
@@ -1802,6 +1803,7 @@ async def build_recruitment_stats_dashboard(
                 cv_to_base=team.totals.cv_to_base,
                 precision_pct=team.totals.precision_pct,
                 people=team.totals.people,
+                unattributed=team.totals.unattributed,
             ),
         )
         from app.services.recruitment_trend import funnel_conversions

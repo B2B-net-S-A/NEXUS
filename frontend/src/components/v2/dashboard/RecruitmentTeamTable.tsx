@@ -258,6 +258,14 @@ export function RecruitmentTeamTable({
                     <div className="flex flex-col">
                       <span className="font-medium text-foreground">
                         {r.name}
+                        {r.is_active === false ? (
+                          <span
+                            className="ml-1.5 rounded bg-muted px-1 py-0.5 align-middle text-[10px] font-normal text-muted-foreground"
+                            title="Konto nieaktywne. Wiersz zostaje, bo jego dorobek wlicza się do wyniku firmy za ten okres."
+                          >
+                            nieaktywny
+                          </span>
+                        ) : null}
                       </span>
                       <span className="text-[11px] text-muted-foreground">
                         {ROLE_LABELS[r.role as UserRole] ?? r.role}
@@ -301,6 +309,17 @@ export function RecruitmentTeamTable({
               </tr>
             </tfoot>
           </table>
+          {table.totals.unattributed ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Poza tabelą: {table.totals.unattributed}{" "}
+              {table.totals.unattributed === 1
+                ? "kamień milowy"
+                : "kamieni milowych"}{" "}
+              w tym okresie nie da się przypisać do żadnego użytkownika. Nie
+              wchodzą do sum per osoba — pokazujemy je, żeby brak danych nie
+              wyglądał jak zero.
+            </p>
+          ) : null}
         </div>
       )}
     </div>

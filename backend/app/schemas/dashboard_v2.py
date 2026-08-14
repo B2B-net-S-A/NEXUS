@@ -335,6 +335,9 @@ class RecruitmentTeamTableRow(DashboardModel):
     precision_pct: float | None = None
     precision_verified_30d: int
     precision_sent_30d: int
+    # False = osoba nieaktywna z dorobkiem w oknie. Wiersz zostaje, bo kafle są
+    # sumą tabeli — bez niego odejście rekrutera kasowałoby wstecznie wynik firmy.
+    is_active: bool = True
 
 
 class RecruitmentTeamTableTotals(DashboardModel):
@@ -346,6 +349,10 @@ class RecruitmentTeamTableTotals(DashboardModel):
     cv_to_base: int
     precision_pct: float | None = None
     people: int
+    # Kamienie milowe w oknie bez możliwej atrybucji do użytkownika. Nie wchodzą
+    # do sum per osoba (nie ma do kogo), ale są raportowane — brak danych nie
+    # może renderować się jako zero.
+    unattributed: int = 0
 
 
 class RecruitmentTeamTable(DashboardModel):

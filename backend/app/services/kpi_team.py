@@ -57,7 +57,6 @@ _TEAM_FUNNEL_SQL = text(
            ) AS period_cnt,
            count(*) FILTER (WHERE reached_at >= :rolling30) AS r30_cnt
     FROM credited
-    WHERE credit_user IS NOT NULL
     GROUP BY credit_user, stage
     """
 )
@@ -95,6 +94,9 @@ class TeamMemberRow:
     precision_pct: Optional[float]  # None gdy < _PRECISION_MIN_DENOM weryfikacji
     precision_verified_30d: int
     precision_sent_30d: int
+    # False = osoba już nieaktywna, ale MA dorobek w tym oknie. Wiersz zostaje,
+    # żeby suma kolumny nie kurczyła się przez zmianę flagi na koncie.
+    is_active: bool = True
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,10 @@ class TeamTotals:
     cv_to_base: int
     precision_pct: Optional[float]
     people: int
+    # Kamienie milowe w oknie, których nie dało się przypisać do żadnego
+    # użytkownika. NIE wchodzą do sum per osoba (nie ma do kogo), ale są
+    # raportowane — inaczej „brak danych" wyglądałby jak zero.
+    unattributed: int = 0
 
 
 @dataclass(frozen=True)
@@ -184,8 +190,18 @@ async def compute_team_panel(
     )
 
     # agg[uid][stage] = {"p": period_cnt, "r30": r30_cnt}
+    # `uid IS NULL` = kamień milowy, którego nie da się przypisać do nikogo (ani
+    # weryfikator, ani autor ruchu nie mapują się na użytkownika NEXUSA). Do
+    # 2026-08-13 takie wiersze wycinał `WHERE credit_user IS NOT NULL` w SQL —
+    # znikały bez śladu, czyli brak danych renderował się jako zero. Teraz lądują
+    # w osobnym kubełku i są RAPORTOWANE w totals, choć nadal nie tworzą wiersza
+    # w tabeli (nie ma komu go przypisać).
     agg: dict[int, dict[str, dict[str, int]]] = {}
+    unattributed = 0
     for r in funnel_rows:
+        if r["uid"] is None:
+            unattributed += int(r["period_cnt"])
+            continue
         agg.setdefault(int(r["uid"]), {})[r["stage"]] = {
             "p": int(r["period_cnt"]),
             "r30": int(r["r30_cnt"]),
@@ -212,28 +228,38 @@ async def compute_team_panel(
             )
         )
     ).all()
-    user_meta: dict[int, tuple[str, str]] = {
-        u.id: (u.name or f"#{u.id}", _role_value(u.role)) for u in op_users
+    user_meta: dict[int, tuple[str, str, bool]] = {
+        u.id: (u.name or f"#{u.id}", _role_value(u.role), True) for u in op_users
     }
     shown_uids: set[int] = set(user_meta)
 
-    # Dołóż każdego AKTYWNEGO usera spoza puli, który MA aktywność (np. admin
-    # ruszający etapy). Filtr `is_active` jest kluczowy: kanoniczny view liczy
-    # bez limitu czasowego, więc bez niego panel wciągałby wszystkich
-    # zdezaktywowanych/zarchiwizowanych rekruterów, którzy kiedykolwiek ruszyli
-    # kandydata — panel managerski pokazuje tylko BIEŻĄCY zespół.
+    # Dołóż każdego usera spoza puli, który MA aktywność w oknie (np. admina
+    # ruszającego etapy albo osobę, która już odeszła).
+    #
+    # ZMIANA 2026-08-13: wcześniej stał tu `User.is_active.is_(True)` z
+    # uzasadnieniem „panel managerski pokazuje tylko BIEŻĄCY zespół". Skutek był
+    # jednak inny niż zamiar: kafle to SUMA wierszy tabeli, więc deaktywacja
+    # rekrutera wstecznie kasowała jego placementy z wyniku CAŁEJ FIRMY. Na
+    # produkcji to 10-25% kamieni milowych (kwiecień 674 z 827, marzec 716 z 902).
+    # Historia firmy nie może zmieniać się przez zmianę flagi na koncie, więc
+    # osoby nieaktywne Z AKTYWNOŚCIĄ W OKNIE wracają do tabeli oznaczone
+    # `is_active=False` — front może je wyszarzyć, ale suma się zgadza.
+    # Nieaktywni BEZ aktywności w oknie nadal nie pojawiają się wcale.
     extra_uids = (set(agg) | set(cv_by_uid)) - shown_uids
     if extra_uids:
         extra = (
             await db.execute(
-                select(User.id, User.name, User.role).where(
+                select(User.id, User.name, User.role, User.is_active).where(
                     User.id.in_(extra_uids),
-                    User.is_active.is_(True),
                 )
             )
         ).all()
         for u in extra:
-            user_meta[u.id] = (u.name or f"#{u.id}", _role_value(u.role))
+            user_meta[u.id] = (
+                u.name or f"#{u.id}",
+                _role_value(u.role),
+                bool(u.is_active),
+            )
             shown_uids.add(u.id)
 
     rows: list[TeamMemberRow] = []
@@ -245,7 +271,7 @@ async def compute_team_panel(
     tot_sent30 = 0
 
     for uid in shown_uids:
-        name, role = user_meta[uid]
+        name, role, is_active = user_meta[uid]
         stages = agg.get(uid, {})
 
         def _p(stage: str) -> int:
@@ -276,6 +302,7 @@ async def compute_team_panel(
                 precision_pct=prec,
                 precision_verified_30d=v30,
                 precision_sent_30d=s30,
+                is_active=is_active,
             )
         )
         sums["weryfikacje"] += weryf
@@ -312,6 +339,7 @@ async def compute_team_panel(
         cv_to_base=sums["cv"],
         precision_pct=team_prec,
         people=len(rows),
+        unattributed=unattributed,
     )
 
     return TeamPanelResult(

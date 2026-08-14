@@ -60,6 +60,16 @@ QUERY_TIMEOUT_SECONDS = 25.0
 # własny, dłuższy budżet — to najdroższe zapytanie w tym raporcie.
 WATERFALL_TIMEOUT_SECONDS = 60.0
 
+# Sufit na CAŁY raport. Bez niego suma limitów per zapytanie (6 × 25 s + 60 s)
+# pozwalałaby jednemu wywołaniu trzymać workera przez 3,5 minuty — a to endpoint
+# diagnostyczny, więc jego pesymistyczny przypadek nie może być droższy niż to,
+# co diagnozuje. Po przekroczeniu budżetu pozostałe zapytania są POMIJANE ze
+# statusem `skipped`, nie zgłaszane jako błędy: „nie zdążyliśmy" i „zapytanie
+# padło" to dwie różne diagnozy i mylenie ich wysłałoby operatora w złą stronę.
+# Pomiar na produkcji (2026-08-13, 187 tys. wierszy etapów): cały raport 1,7 s,
+# z czego wodospad 1,16 s — budżet jest zabezpieczeniem, nie ograniczeniem.
+TOTAL_BUDGET_SECONDS = 90.0
+
 _WARSAW_MONTH = (
     "to_char(date_trunc('month', {col} AT TIME ZONE 'Europe/Warsaw'), 'YYYY-MM')"
 )
@@ -301,25 +311,41 @@ async def process_adoption(
     monthly_params = {"since": since_months}
     window_params = {"since": since_days}
 
-    stage_origin = await _run(db, "stage_origin", _STAGE_ORIGIN_SQL, window_params)
-    stage_origin_monthly = await _run(
-        db, "stage_origin_monthly", _STAGE_ORIGIN_MONTHLY_SQL, monthly_params
+    async def _budgeted(
+        key: str,
+        sql: str,
+        params: dict[str, Any],
+        *,
+        timeout: float = QUERY_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
+        remaining = TOTAL_BUDGET_SECONDS - (time.monotonic() - started)
+        if remaining <= 0:
+            return {
+                "key": key,
+                "rows": [],
+                "elapsed_ms": 0,
+                "skipped": "budżet raportu wyczerpany przed tym zapytaniem",
+            }
+        return await _run(db, key, sql, params, timeout=min(timeout, remaining))
+
+    stage_origin = await _budgeted("stage_origin", _STAGE_ORIGIN_SQL, window_params)
+    stage_origin_monthly = await _budgeted(
+        "stage_origin_monthly", _STAGE_ORIGIN_MONTHLY_SQL, monthly_params
     )
-    process_eligibility = await _run(
-        db, "process_eligibility", _PROCESS_ELIGIBILITY_SQL, monthly_params
+    process_eligibility = await _budgeted(
+        "process_eligibility", _PROCESS_ELIGIBILITY_SQL, monthly_params
     )
-    raw_milestones = await _run(
-        db, "raw_milestones", _RAW_MILESTONES_SQL, monthly_params
+    raw_milestones = await _budgeted(
+        "raw_milestones", _RAW_MILESTONES_SQL, monthly_params
     )
-    credited_milestones = await _run(
-        db,
+    credited_milestones = await _budgeted(
         "credited_milestones",
         _CREDITED_MILESTONES_SQL,
         monthly_params,
         timeout=WATERFALL_TIMEOUT_SECONDS,
     )
-    supporting = await _run(db, "supporting", _SUPPORTING_SQL, window_params)
-    rejection_emails = await _run(db, "rejection_emails", _REJECTION_EMAILS_SQL, {})
+    supporting = await _budgeted("supporting", _SUPPORTING_SQL, window_params)
+    rejection_emails = await _budgeted("rejection_emails", _REJECTION_EMAILS_SQL, {})
 
     queries = [
         stage_origin,
@@ -331,6 +357,7 @@ async def process_adoption(
         rejection_emails,
     ]
     failed = [q["key"] for q in queries if "error" in q]
+    skipped = [q["key"] for q in queries if "skipped" in q]
 
     # Adopcja w skrócie: ile ruchów w oknie powstało u nas, ile przyszło z importu.
     manual_moves = sum(
@@ -351,6 +378,8 @@ async def process_adoption(
             "queries_total": len(queries),
             "queries_failed": len(failed),
             "failed_keys": failed,
+            "queries_skipped": len(skipped),
+            "skipped_keys": skipped,
             "moves_in_window": total_moves,
             "moves_manual": manual_moves,
             "moves_manual_pct": (
