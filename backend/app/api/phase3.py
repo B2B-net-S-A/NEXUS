@@ -141,7 +141,15 @@ async def sla_alerts(
         .all()
     )
     if not sla_defs:
-        return {"count": 0, "alerts": []}
+        # Zero skonfigurowanych SLA to NIE to samo co „nikt nie przekracza".
+        # `sla_max_days` nie jest ustawiane przez żadną migrację ani żadną
+        # ścieżkę zapisu w `app/` — kolumna istnieje wyłącznie jako DDL
+        # (`0006_pipeline_templates.py:106`, `0177_workflow_revisions.py:79`,
+        # `entrypoint.sh:2266`). Dopóki nikt nie wypełni jej ręcznie, ten
+        # endpoint z definicji zwraca pustkę, a ekran raportował z tego
+        # „wszystko w normie 🎉". Flaga pozwala frontowi powiedzieć prawdę:
+        # ten panel niczego nie pilnuje.
+        return {"count": 0, "alerts": [], "configured": False}
 
     stage_defs: dict[int, PipelineStageDef] = {sd.id: sd for sd in sla_defs}
     sla_def_ids = list(stage_defs.keys())
@@ -170,7 +178,7 @@ async def sla_alerts(
     # def — pair może mieć nowszą stage w terminal/no-SLA def (np. hired).
     candidate_pairs = [(s.candidate_id, s.job_id) for s in latest_rows]
     if not candidate_pairs:
-        return {"count": 0, "alerts": []}
+        return {"count": 0, "alerts": [], "configured": True}
 
     actually_latest_rows = (
         (
@@ -226,7 +234,7 @@ async def sla_alerts(
                 }
             )
     breaches.sort(key=lambda x: -x["overdue_by_days"])
-    return {"count": len(breaches), "alerts": breaches}
+    return {"count": len(breaches), "alerts": breaches, "configured": True}
 
 
 # ── Multi-pipeline view per candidate ────────────────────────────────────────

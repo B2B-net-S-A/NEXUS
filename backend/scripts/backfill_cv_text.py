@@ -53,6 +53,16 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--retry-outcomes",
+        default="",
+        help=(
+            "Przecinkowa lista terminalnych klas do PONOWNEJ próby (np. "
+            "'empty,junk'). Zmierzono 2026-08-14: losowy pilotaż 'empty' "
+            "odzyskał 37,5%% — bump zależności ekstraktorów odterminalnił "
+            "klasę, znaczniki z 10.08 blokowały retry."
+        ),
+    )
+    p.add_argument(
         "--no-reindex",
         action="store_true",
         help=(
@@ -83,6 +93,9 @@ def main() -> int:
             log_every=args.log_every,
             enqueue_reindex=not args.no_reindex,
             random_sample=args.random_sample,
+            retry_outcomes=frozenset(
+                o.strip() for o in args.retry_outcomes.split(",") if o.strip()
+            ),
         )
     )
     if not stats.storage_available:

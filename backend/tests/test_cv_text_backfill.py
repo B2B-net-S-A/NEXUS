@@ -215,3 +215,73 @@ def test_terminal_rows_are_excluded_in_sql_not_just_in_the_loop():
     # permanently drop the candidate.
     for retryable in ("download_failed", "error"):
         assert retryable not in svc._TERMINAL_OUTCOMES
+
+
+def test_retry_outcomes_reopens_only_the_named_terminal_classes():
+    """Wybrane klasy terminalne wracają do scope'u; reszta zostaje wykluczona.
+
+    Pomiar 2026-08-14: losowy pilotaż wierszy `empty` odzyskał 37,5% CV —
+    klasa przestała być terminalna po bumpach ekstraktorów, ale znaczniki
+    z 10.08 trwale blokowały ponowną próbę. Bez tego mechanizmu jedyną drogą
+    byłoby ręczne kasowanie znaczników w SQL.
+    """
+
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.cv_text_backfill import _pending_candidates_stmt
+
+    def _sql(**kwargs) -> str:
+        return str(
+            _pending_candidates_stmt(None, **kwargs).compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+    default_sql = _sql()
+    assert "'empty'" in default_sql, "domyślnie empty jest wykluczone"
+    assert "'legacy_doc'" in default_sql
+
+    retry_sql = _sql(retry_outcomes=frozenset({"empty", "junk"}))
+    assert "'empty'" not in retry_sql, "retry zdejmuje empty z listy wykluczeń"
+    assert "'junk'" not in retry_sql
+    assert "'legacy_doc'" in retry_sql, "niewymienione klasy zostają wykluczone"
+
+
+def test_retry_outcomes_open_the_loop_guard_not_just_sql():
+    """Test PĘTLI, nie kompilacji SQL — łapie no-op z review #1156.
+
+    Pierwsza wersja flagi otwierała tylko predykat SQL; `_terminal_marker`
+    w pętli sprawdzał pełny zbiór terminalny i wyrzucał każdy wpuszczony
+    wiersz jako `skipped_terminal`. Bieg wyglądał jak „nie ma nic do
+    zrobienia" — zero ekstrakcji, zero błędów, zielony exit code. Oba
+    strażniki (SQL + pętla) MUSZĄ dostawać ten sam `retry_outcomes`.
+    """
+
+    from types import SimpleNamespace
+
+    from app.services import cv_text_backfill as svc
+
+    candidate = SimpleNamespace(
+        cv_extracted_data={
+            svc._EXTRACTION_MARKER_KEY: {"outcome": "empty", "chars": 0}
+        },
+    )
+
+    assert svc._terminal_marker(candidate) == "empty", (
+        "bez retry wiersz jest terminalny"
+    )
+    assert (
+        svc._terminal_marker(candidate, retry_outcomes=frozenset({"empty"})) is None
+    ), "retry zdejmuje terminalność TAKŻE w pętli, nie tylko w SQL"
+    assert (
+        svc._terminal_marker(candidate, retry_outcomes=frozenset({"junk"})) == "empty"
+    ), "retry innej klasy nie otwiera tej"
+
+    import inspect
+
+    loop_src = inspect.getsource(svc.run_backfill)
+    assert "_terminal_marker(candidate, retry_outcomes=retry_outcomes)" in loop_src, (
+        "pętla run_backfill musi przekazywać retry_outcomes do strażnika — "
+        "inaczej SQL wpuszcza wiersze, a pętla je po cichu wyrzuca"
+    )

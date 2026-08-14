@@ -553,8 +553,12 @@ async def contract_alerts_loop(interval_hours: float = _DEFAULT_INTERVAL_HOURS) 
     while True:
         try:
             await run_contract_alerts_cycle()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("contract_alerts: cycle error %s", e)
+        except Exception:  # noqa: BLE001
+            # `exception`, nie `warning`: Sentry ma `event_level=logging.ERROR`
+            # (`main.py:271`), więc na WARNING trwale padający cykl nie wygenerowałby
+            # żadnego zdarzenia — pętla kręciłaby się w kółko, a alerty o kończących
+            # się umowach po prostu by nie przychodziły, bez śladu poza logiem kontenera.
+            logger.exception("contract_alerts: cycle error")
         await asyncio.sleep(interval_hours * 3600)
 
 
