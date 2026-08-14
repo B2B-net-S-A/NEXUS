@@ -318,6 +318,44 @@ async def test_future_swap_keeps_old_line_active(
     assert lines[old_id]["end_date"] == future.isoformat()
 
 
+async def test_swap_gives_successor_the_planned_end_date(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Następca dziedziczy planowany koniec, a nie datę zamiany.
+
+    Odczyt `end_date` PO nadpisaniu go datą zamiany dawał następcy jeden dzień
+    pracy — linia kończyłaby się w dniu, w którym się zaczyna.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    planned_end = _TODAY + timedelta(days=120)
+
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_line_payload(contracts[0], end_date=planned_end.isoformat())],
+    )
+    old_id = group["lines"][0]["id"]
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old_id}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    new_line = resp.json()
+    assert new_line["start_date"] == _TODAY.isoformat()
+    assert new_line["end_date"] == planned_end.isoformat(), (
+        "następca dostał datę zamiany zamiast planowanego końca zaangażowania"
+    )
+
+
 # ── Import MD ───────────────────────────────────────────────────────────────
 
 
@@ -474,6 +512,80 @@ async def test_import_unmatched_row_does_not_break_the_rest(
     body = resp.json()
     assert body["rows_unmatched"] == 1
     assert body["rows_applied"] == 1
+
+
+async def test_assign_rejects_a_line_closed_since_the_import(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Linia domknięta między importem a rozstrzygnięciem nie przyjmuje MD.
+
+    Zużycie zapisane na nieaktywnej linii nie pojawiłoby się już w żadnym
+    dopasowaniu — nie da się go zobaczyć ani cofnąć z interfejsu, a policzy
+    się do faktury.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract, ContractStatus
+    from sqlalchemy import select
+
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+
+    # Dwie aktywne linie tej samej osoby → wiersz „wymaga przypisania".
+    async with AsyncSessionLocal() as db:
+        first = await db.scalar(select(Contract).where(Contract.id == contracts[0]))
+        cand = await db.scalar(
+            select(Candidate).where(Candidate.id == first.candidate_id)
+        )
+        twin = Contract(
+            candidate_id=cand.id,
+            client_id=client_id,
+            status=ContractStatus.active,
+            start_date=_TODAY - timedelta(days=30),
+            rate_candidate=Decimal("100.000"),
+            rate_client=Decimal("150.000"),
+        )
+        db.add(twin)
+        await db.commit()
+        await db.refresh(twin)
+        twin_id = twin.id
+
+    await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    group_b = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(twin_id)]
+    )
+
+    body = (
+        await _upload(
+            app_client, app_auth_headers, [(names[0], 10)], _TODAY.strftime("%Y-%m")
+        )
+    ).json()
+    row = body["rows"][0]
+    assert row["status"] == "needs_assignment"
+
+    # Domknięcie jednej z linii PO imporcie — zamiana kontraktora.
+    target = group_b["lines"][0]["id"]
+    swap = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group_b['id']}/lines/{target}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert swap.status_code == 201, swap.text
+
+    assign = await app_client.post(
+        f"/api/md-consumption/imports/{body['id']}/rows/{row['id']}/assign",
+        json={"order_id": target},
+        headers=app_auth_headers,
+    )
+    assert assign.status_code == 409, assign.text
+    assert "nie jest już aktywna" in assign.text
 
 
 async def test_md_remaining_may_go_negative(

@@ -33,6 +33,7 @@ from decimal import Decimal
 from typing import Iterable, Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -227,23 +228,32 @@ async def upsert_consumption(
 ) -> tuple[ClientOrderMdConsumption, Decimal, Decimal]:
     """Zapisz zużycie za miesiąc i przelicz pozostałość.
 
-    Zwraca ``(wiersz, poprzednie_md, nowa_pozostałość)``. Nadpisanie zamiast
-    dodania nowego wiersza to właśnie to, co czyni powtórny import tego samego
-    miesiąca bezpiecznym (UNIQUE ``(order_id, period_month)`` pilnuje tego
-    także wtedy, gdy dwa importy trafią równolegle).
+    Zwraca ``(wiersz, poprzednie_md, nowa_pozostałość)``.
+
+    Zapis idzie przez ``INSERT … ON CONFLICT DO UPDATE``, a nie przez
+    „SELECT, potem INSERT albo UPDATE": ta druga wersja ma okno wyścigu między
+    odczytem a zapisem, w którym dwa równoległe żądania widzą brak wiersza,
+    oba próbują wstawić i drugie dostaje ``IntegrityError`` — czyli 500 zamiast
+    idempotentnego nadpisania. Dotyczy to nie tylko dwóch importów naraz, ale
+    i dwóch osób rozstrzygających ten sam niejednoznaczny wiersz.
+
+    ``previous`` służy wyłącznie treści wpisu w historii; autorytatywna
+    pozostałość i tak jest przeliczana od zera po zapisie.
     """
     month_bounds(period_month)  # walidacja kształtu, zanim cokolwiek zapiszemy
     value = quantize_md(md_reported)
 
-    existing = await db.scalar(
-        select(ClientOrderMdConsumption).where(
+    previous_raw = await db.scalar(
+        select(ClientOrderMdConsumption.md_reported).where(
             ClientOrderMdConsumption.order_id == order.id,
             ClientOrderMdConsumption.period_month == period_month,
         )
     )
-    previous = Decimal(str(existing.md_reported)) if existing else ZERO
-    if existing is None:
-        existing = ClientOrderMdConsumption(
+    previous = Decimal(str(previous_raw)) if previous_raw is not None else ZERO
+
+    stmt = (
+        pg_insert(ClientOrderMdConsumption)
+        .values(
             order_id=order.id,
             period_month=period_month,
             md_reported=value,
@@ -251,16 +261,33 @@ async def upsert_consumption(
             import_id=import_id,
             created_by_user_id=user_id,
         )
-        db.add(existing)
-    else:
-        existing.md_reported = value
-        existing.source = source
-        existing.import_id = import_id
-        existing.created_by_user_id = user_id
-    await db.flush()
+        .on_conflict_do_update(
+            index_elements=[
+                ClientOrderMdConsumption.order_id,
+                ClientOrderMdConsumption.period_month,
+            ],
+            set_={
+                "md_reported": value,
+                "source": source,
+                "import_id": import_id,
+                "created_by_user_id": user_id,
+                "updated_at": func.now(),
+            },
+        )
+        .returning(ClientOrderMdConsumption.id)
+    )
+    row_id = await db.scalar(stmt)
+
+    # Po zapisie Core'em mapa tożsamości sesji może trzymać nieaktualną wersję
+    # tego wiersza — pobieramy świeżo, żeby wołający dostał to, co jest w bazie.
+    row = await db.scalar(
+        select(ClientOrderMdConsumption)
+        .where(ClientOrderMdConsumption.id == row_id)
+        .execution_options(populate_existing=True)
+    )
 
     remaining = await recompute_remaining(db, order)
-    return existing, previous, remaining
+    return row, previous, remaining
 
 
 # ── Historia ────────────────────────────────────────────────────────────────

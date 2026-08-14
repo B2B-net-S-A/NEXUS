@@ -39,7 +39,7 @@ from sqlalchemy.orm import selectinload
 from app.api.financial_access import FinanceManageUser
 from app.core.database import get_db
 from app.models.client import Client
-from app.models.client_order import ClientOrder
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract
 from app.models.md_consumption import (
@@ -404,6 +404,19 @@ async def assign_row(
     )
     if order is None:
         raise HTTPException(404, detail="Linia zamówienia nie istnieje")
+    # Lista kandydatów powstała przy wgraniu pliku, a rozstrzygnięcie następuje
+    # później — w międzyczasie linia mogła zostać domknięta (np. zamianą
+    # kontraktora). Zapis MD na nieaktywną linię tworzy zużycie, którego
+    # `active_md_lines` już nigdy nie pokaże: nie da się go zobaczyć ani cofnąć
+    # z interfejsu, a policzy się do faktury.
+    if order.status != ClientOrderStatus.active:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Ta linia nie jest już aktywna — w międzyczasie została "
+                "zakończona lub zamieniona. Wybierz inne zamówienie."
+            ),
+        )
 
     await _apply_to_line(
         db,

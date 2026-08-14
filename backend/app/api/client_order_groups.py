@@ -762,6 +762,10 @@ async def swap_consultant(
     # zamiany nadszedł. Zamiana zaplanowana na przyszłość nie może wyłączyć
     # konsultanta, który jeszcze pracuje.
     today = date.today()
+    # Zapamiętane PRZED nadpisaniem — nowa linia dziedziczy planowany koniec
+    # zaangażowania po poprzedniku. Odczyt po przypisaniu dałby zawsze
+    # `payload.swap_date` i po cichu skróciłby pracę następcy do jednego dnia.
+    planned_end = old.end_date
     old.end_date = payload.swap_date
     if payload.swap_date <= today:
         old.status = ClientOrderStatus.completed
@@ -782,7 +786,7 @@ async def swap_consultant(
         title=f"Zamówienie {group.order_number} — {new_who}"[:255],
         status=ClientOrderStatus.active,
         start_date=payload.swap_date,
-        end_date=old.end_date if old.end_date != payload.swap_date else group.end_date,
+        end_date=planned_end if planned_end is not None else group.end_date,
         filled_at=datetime.now(timezone.utc),
         md_rate_cost=payload.rate_cost,
         md_rate_revenue=payload.rate_revenue,

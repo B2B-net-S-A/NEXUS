@@ -185,9 +185,14 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
+    # NOT VALID — spójnie z lustrem w entrypoint.sh. Bez tego Postgres skanuje
+    # całą tabelę pod ACCESS EXCLUSIVE, żeby zweryfikować wiersze, które
+    # z definicji spełniają pierwszą gałąź (wszystkie kolumny MD są świeże,
+    # więc NULL). Skan niczego by nie wykrył, a zablokowałby zamówienia
+    # na czas migracji.
     op.execute(
         "ALTER TABLE client_orders ADD CONSTRAINT "
-        f"ck_client_orders_md_coherence {_MD_COHERENCE}"
+        f"ck_client_orders_md_coherence {_MD_COHERENCE} NOT VALID"
     )
 
     # ── 3. Partia importu z Finansów ────────────────────────────────────────

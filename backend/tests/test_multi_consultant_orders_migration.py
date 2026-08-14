@@ -83,6 +83,20 @@ def test_entrypoint_mirrors_the_md_coherence_check():
     assert "ck_client_orders_md_coherence" in entrypoint
 
 
+def test_md_check_is_added_as_not_valid_in_both_places():
+    """``NOT VALID`` po obu stronach — inaczej migracja skanuje całą tabelę.
+
+    Bez tego Postgres weryfikuje wiersze, które z definicji spełniają warunek
+    (wszystkie kolumny MD są świeże, więc NULL), trzymając przez ten czas
+    ACCESS EXCLUSIVE na `client_orders`.
+    """
+    for source in (MIGRATION, ENTRYPOINT):
+        text = source.read_text(encoding="utf-8")
+        head, _, tail = text.partition("ck_client_orders_md_coherence")
+        assert tail, source.name
+        assert "NOT VALID" in tail, f"{source.name}: CHECK dodany bez NOT VALID"
+
+
 def test_entrypoint_keeps_consumption_uniqueness():
     """UNIQUE (order_id, period_month) JEST mechanizmem idempotencji importu.
 
