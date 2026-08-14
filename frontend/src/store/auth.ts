@@ -283,7 +283,7 @@ export function canManageCandidateFinance(
 /**
  * Linie konsultantów na zamówieniu wielo-konsultantowym (BIK/Polkomtel/BNP).
  *
- * Lustro backendowego `_manages_md_lines` w `api/client_order_groups.py`:
+ * Lustro backendowego `_has_md_line_management_role` w `api/client_order_groups.py`:
  * admin oraz Delivery Lead, bo to delivery układa obsadę zamówienia i
  * negocjuje stawki per konsultant. Świadomie SZERSZE niż
  * `canManageCandidateFinance` — tam chodzi o `rate_client`/`rate_candidate`

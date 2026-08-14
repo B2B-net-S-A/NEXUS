@@ -15,7 +15,7 @@ vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
   ) => selector({ user: authState }),
-  // Lustro backendowego `_manages_md_lines`: obsadę zamówienia prowadzi
+  // Lustro backendowego `_has_md_line_management_role`: obsadę zamówienia prowadzi
   // delivery, nie tylko admin.
   canManageMultiConsultantOrders: (user: { role?: string } | null) =>
     user?.role === "admin" || user?.role === "delivery_lead",

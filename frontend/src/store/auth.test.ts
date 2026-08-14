@@ -272,7 +272,7 @@ describe("ROLE_RANK invariants", () => {
 })
 
 describe("canManageMultiConsultantOrders", () => {
-  // Lustro backendowego `_manages_md_lines` (api/client_order_groups.py).
+  // Lustro backendowego `_has_md_line_management_role` (api/client_order_groups.py).
   // Świadomie SZERSZE niż `canManageCandidateFinance`: obsadę zamówienia
   // prowadzi delivery, więc wymóg admina czynił zakładkę bezużyteczną dla
   // osób, które ją faktycznie obsługują.

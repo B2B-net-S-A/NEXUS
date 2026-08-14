@@ -223,6 +223,63 @@ async def test_assigned_delivery_lead_can_add_a_consultant_with_rates(
     )
 
 
+async def test_unassigned_delivery_lead_is_rejected(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """DL BEZ przypisania do klienta nie dotknie ani zapisu, ani odczytu.
+
+    To jest niezmiennik, na którym stoi cała bramka:
+    ``_has_md_line_management_role`` sprawdza WYŁĄCZNIE rolę, a zawężenie do
+    klienta robi trasa. Gdyby ten test padł, każdy Delivery Lead miałby stawki
+    wszystkich klientów.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+
+    _, email, password = await _seed_user("delivery_lead")  # bez client_id
+    other_dl = await _headers_for(app_client, email, password)
+
+    create = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json={
+            "order_number": "448",
+            "start_date": _TODAY.isoformat(),
+            "lines": [_line_payload(contracts[0])],
+        },
+        headers=other_dl,
+    )
+    assert create.status_code == 403, create.text
+
+    add_line = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
+        json=_line_payload(contracts[0]),
+        headers=other_dl,
+    )
+    assert add_line.status_code == 403, add_line.text
+
+    swap = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[0],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=other_dl,
+    )
+    assert swap.status_code == 403, swap.text
+
+    # Odczyt też — `_require_group_read` wymaga jawnego przypisania DL/TAC.
+    read = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=other_dl
+    )
+    assert read.status_code == 403, read.text
+
+
 async def test_who_sees_line_rates():
     """Widoczność stawek linii — dokładnie ten sam zbiór ról, co zapis.
 

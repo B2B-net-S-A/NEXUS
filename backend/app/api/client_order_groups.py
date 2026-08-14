@@ -11,10 +11,12 @@ przycisk nie jest zabezpieczeniem, a wywołane wprost API założyłoby zamówie
 u klienta, którego zakładka nigdy go nie pokaże — czyli dane nie do zobaczenia
 i nie do poprawienia z interfejsu.
 
-Uprawnienia dzielą się dokładnie tam, gdzie w module zamówień: **pieniądze
-pisze wyłącznie admin** (stawki, kwota budżetu), operacyjne rzeczy — DL
-przypisany do klienta. Nowa powierzchnia nie może rozluźnić bramki finansowej,
-bo obchodziłaby regułę, którą reszta modułu już egzekwuje.
+Obsadę zamówienia prowadzi **delivery**: stawki linii MD ustawia admin albo
+Delivery Lead przypisany do klienta (``_has_md_line_management_role``). To
+świadome poszerzenie względem modułu zamówień, gdzie ``rate_client`` /
+``rate_candidate`` zostają admin-only — tamte pola są interpretowane przez
+``Contract.rate_unit`` i zasilają marżę miesięczną wszystkich klientów, te są
+per MD i dotyczą wyłącznie tej powierzchni.
 """
 
 from __future__ import annotations
@@ -118,8 +120,14 @@ def _assert_multi_client(client_id: int) -> None:
         )
 
 
-def _manages_md_lines(user: User) -> bool:
-    """Kto prowadzi linie MD: admin oraz Delivery Lead przypisany do klienta.
+def _has_md_line_management_role(user: User) -> bool:
+    """Czy ROLA użytkownika prowadzi linie MD: admin albo Delivery Lead.
+
+    **Nazwa mówi „rola" celowo — ta funkcja NIE sprawdza klienta.** Zawężenie do
+    klienta, do którego DL jest przypisany, robi ``DlAssignedOrAdmin`` na trasie
+    (zapis) i ``_require_group_read`` (odczyt). Nowy endpoint, który zawoła
+    poniższe guardy z pominięciem tamtych, dałby każdemu DL stawki wszystkich
+    klientów — i nic tutaj by tego nie zatrzymało.
 
     Delivery jest tu CELOWO, mimo że nie ma ``VIEW_FINANCE``: to delivery układa
     obsadę zamówienia i negocjuje stawki per konsultant, a wymóg admina do
@@ -143,13 +151,14 @@ def _manages_md_lines(user: User) -> bool:
     Rozdzielenie ich dałoby rolę, która zapisuje stawkę i widzi w jej miejscu
     „—" — czyli formularz, w którym nie da się sprawdzić własnej pracy.
     """
+    # Sam test roli. Przypisanie do klienta MUSI być sprawdzone przez trasę.
     return user.has_any_role(UserRole.admin, UserRole.delivery_lead)
 
 
 def _assert_line_finance_write_allowed(user: User, supplied: set[str]) -> None:
     """Stawki linii MD pisze admin albo przypisany Delivery Lead."""
     forbidden = sorted(supplied & _LINE_FINANCE_FIELDS)
-    if forbidden and not _manages_md_lines(user):
+    if forbidden and not _has_md_line_management_role(user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail={"code": "finance_fields_forbidden", "fields": forbidden},
@@ -162,7 +171,7 @@ def _can_see_finance(user: User) -> bool:
     TAC zostaje przy redakcji: jest w zespole klienta i widzi konsultantów oraz
     zużycie MD, ale nie prowadzi obsady zamówienia, więc stawki go nie dotyczą.
     """
-    return _manages_md_lines(user) or user_has_capability(
+    return _has_md_line_management_role(user) or user_has_capability(
         user, AnalyticsCapability.VIEW_FINANCE
     )
 
