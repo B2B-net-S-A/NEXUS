@@ -13,7 +13,7 @@ import {
   type OrderLineRead,
   type SwapConsultantInput,
 } from "@/lib/api/orderGroups";
-import { canManageCandidateFinance, useAuthStore } from "@/store/auth";
+import { canManageMultiConsultantOrders, useAuthStore } from "@/store/auth";
 
 import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal";
 import { OrderGroupCard } from "./OrderGroupCard";
@@ -28,7 +28,10 @@ function apiError(err: unknown, fallback: string): string {
   if (detail && typeof detail === "object" && "code" in detail) {
     const code = (detail as { code?: string }).code;
     if (code === "finance_fields_forbidden") {
-      return "Stawki zamówień może ustawiać wyłącznie administrator.";
+      return (
+        "Stawki linii może ustawiać administrator albo Delivery Lead " +
+        "przypisany do tego klienta."
+      );
     }
   }
   return fallback;
@@ -48,7 +51,7 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const user = useAuthStore((s) => s.user);
-  const canManage = canManageCandidateFinance(user);
+  const canManage = canManageMultiConsultantOrders(user);
 
   const [groupModal, setGroupModal] = useState<{ open: boolean; group: OrderGroupRead | null }>(
     { open: false, group: null },
@@ -168,11 +171,14 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {!query.isLoading && !query.isError ? (
+          {/* `isSuccess`, nie `!isLoading && !isError` — w przerwie między
+              ponowieniami dane są puste, a licznik pokazywałby „0 zamówienia",
+              czyli tę samą nieprawdę co pusty stan pod spodem. */}
+          {query.isSuccess ? (
             <p className="text-xs text-muted-foreground">
-              {query.data?.total_groups ?? 0}{" "}
-              {(query.data?.total_groups ?? 0) === 1 ? "zamówienie" : "zamówienia"} ·{" "}
-              {query.data?.total_consultants ?? 0} konsultantów
+              {query.data.total_groups}{" "}
+              {query.data.total_groups === 1 ? "zamówienie" : "zamówienia"} ·{" "}
+              {query.data.total_consultants} konsultantów
             </p>
           ) : null}
           {canManage ? (

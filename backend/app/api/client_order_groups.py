@@ -118,10 +118,38 @@ def _assert_multi_client(client_id: int) -> None:
         )
 
 
+def _manages_md_lines(user: User) -> bool:
+    """Kto prowadzi linie MD: admin oraz Delivery Lead przypisany do klienta.
+
+    Delivery jest tu CELOWO, mimo że nie ma ``VIEW_FINANCE``: to delivery układa
+    obsadę zamówienia i negocjuje stawki per konsultant, a wymóg admina do
+    dodania konsultanta czynił tę zakładkę bezużyteczną dla osób, które
+    faktycznie ją obsługują.
+
+    Zakres jest wąski i tego trzeba pilnować:
+
+    * tylko kolumny ``md_rate_cost`` / ``md_rate_revenue`` na TEJ powierzchni —
+      legacy ``rate_client`` / ``rate_candidate`` / ``total_value`` w module
+      zamówień zostają admin-only (``_ORDER_FINANCE_WRITE_FIELDS``),
+    * tylko klient, do którego DL jest jawnie przypisany — pilnuje tego
+      ``DlAssignedOrAdmin`` na trasie, a ``_require_group_read`` na odczycie,
+    * **head_of_recruitment NIE** — przechodzi przez ``DlAssignedOrAdmin``
+      globalnie, bez przypisania, a przy powierzchniach finansowych repo
+      konsekwentnie trzyma go poza (patrz `/settings/clients-overview`),
+    * rola ``finance`` NIE — jest odcinana od powierzchni kandydackich, żeby nie
+      sięgała po dane osobowe; ta niesie nazwisko konsultanta.
+
+    Uprawnienie do ODCZYTU i ZAPISU jest wyliczane z tej jednej funkcji.
+    Rozdzielenie ich dałoby rolę, która zapisuje stawkę i widzi w jej miejscu
+    „—" — czyli formularz, w którym nie da się sprawdzić własnej pracy.
+    """
+    return user.has_any_role(UserRole.admin, UserRole.delivery_lead)
+
+
 def _assert_line_finance_write_allowed(user: User, supplied: set[str]) -> None:
-    """Stawki linii pisze wyłącznie admin — jak każde pole pieniężne zamówienia."""
+    """Stawki linii MD pisze admin albo przypisany Delivery Lead."""
     forbidden = sorted(supplied & _LINE_FINANCE_FIELDS)
-    if forbidden and not user.has_role(UserRole.admin):
+    if forbidden and not _manages_md_lines(user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail={"code": "finance_fields_forbidden", "fields": forbidden},
@@ -129,7 +157,14 @@ def _assert_line_finance_write_allowed(user: User, supplied: set[str]) -> None:
 
 
 def _can_see_finance(user: User) -> bool:
-    return user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
+    """Stawki linii MD widzi ten, kto może je ustawiać, oraz role z VIEW_FINANCE.
+
+    TAC zostaje przy redakcji: jest w zespole klienta i widzi konsultantów oraz
+    zużycie MD, ale nie prowadzi obsady zamówienia, więc stawki go nie dotyczą.
+    """
+    return _manages_md_lines(user) or user_has_capability(
+        user, AnalyticsCapability.VIEW_FINANCE
+    )
 
 
 async def _load_group(

@@ -21,7 +21,9 @@ _TODAY = date.today()
 # ── Seed ────────────────────────────────────────────────────────────────────
 
 
-async def _seed_client_with_contracts(n_contracts: int = 2) -> tuple[int, list[int], list[str]]:
+async def _seed_client_with_contracts(
+    n_contracts: int = 2,
+) -> tuple[int, list[int], list[str]]:
     """Klient + N kontraktów kandydatów. Zwraca (client_id, contract_ids, names)."""
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -139,6 +141,181 @@ async def test_gate_returns_empty_list_not_forbidden(
     assert resp.json() == {"groups": [], "total_groups": 0, "total_consultants": 0}
 
 
+# ── Uprawnienia: delivery prowadzi obsadę zamówienia ────────────────────────
+
+
+async def _seed_user(
+    role_value: str, client_id: int | None = None
+) -> tuple[int, str, str]:
+    """Użytkownik danej roli (+ opcjonalne przypisanie DL do klienta)."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.models.user import User, UserRole
+
+    suffix = uuid.uuid4().hex[:8]
+    email = f"mo-{role_value}-{suffix}@example.com"
+    password = f"T3st_{suffix}!PassX"
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"MO {role_value}",
+            role=UserRole(role_value),
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        if client_id is not None and role_value == "delivery_lead":
+            db.add(
+                DeliveryLeadClientAssignment(
+                    client_id=client_id, delivery_lead_user_id=user.id
+                )
+            )
+            await db.commit()
+        return user.id, email, password
+
+
+async def _headers_for(app_client: AsyncClient, email: str, password: str) -> dict:
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def test_assigned_delivery_lead_can_add_a_consultant_with_rates(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """To delivery układa obsadę zamówienia — musi móc dodać konsultanta.
+
+    Zapis I odczyt naraz: rola, która zapisze stawkę i zobaczy w jej miejscu
+    „—", nie może sprawdzić własnej pracy.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    _, email, password = await _seed_user("delivery_lead", client_id)
+    dl_headers = await _headers_for(app_client, email, password)
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json={
+            "order_number": "447",
+            "start_date": _TODAY.isoformat(),
+            "lines": [_line_payload(contracts[0])],
+        },
+        headers=dl_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    line = resp.json()["lines"][0]
+    assert line["rate_cost"] == pytest.approx(1000.0), (
+        "DL nie widzi stawki, którą zapisał"
+    )
+    assert line["rate_revenue"] == pytest.approx(1200.0)
+
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=dl_headers
+    )
+    assert listing.json()["groups"][0]["lines"][0]["rate_revenue"] == pytest.approx(
+        1200.0
+    )
+
+
+async def test_who_sees_line_rates():
+    """Widoczność stawek linii — dokładnie ten sam zbiór ról, co zapis.
+
+    Sprawdzane na poziomie reguły, nie przez HTTP: TAC bez przypisania do
+    klienta nie przeczyta nawet grupy, więc test przez API mierzyłby bramkę
+    dostępu do klienta, a nie redakcję stawek.
+    """
+    from app.api.client_order_groups import _can_see_finance
+    from app.models.user import UserRole
+
+    class _StubUser:
+        def __init__(self, role):
+            self._role = role
+            self.role = role
+            self.roles = [role]
+
+        def has_role(self, role):
+            return self._role == role
+
+        def has_any_role(self, *roles):
+            return self._role in roles
+
+        def get_all_roles(self):
+            return [self._role]
+
+    for role in (UserRole.admin, UserRole.delivery_lead, UserRole.finance):
+        assert _can_see_finance(_StubUser(role)) is True, role
+    for role in (UserRole.tac, UserRole.recruiter, UserRole.sourcer):
+        assert _can_see_finance(_StubUser(role)) is False, role
+
+
+async def test_legacy_order_finance_guard_is_untouched(
+    app_client: AsyncClient, monkeypatch
+):
+    """Poluzowanie bramki dla linii MD NIE MOŻE otworzyć modułu zamówień.
+
+    `rate_client`/`rate_candidate` w `client_orders.py` są interpretowane przez
+    `Contract.rate_unit` i zostają admin-only. Gdyby ta asercja padła, znaczyłoby
+    to, że nowa powierzchnia rozszczelniła starą.
+    """
+    from app.api.client_orders import _assert_order_finance_write_allowed
+    from app.models.user import UserRole
+    from fastapi import HTTPException
+
+    class _StubUser:
+        def __init__(self, role):
+            self._role = role
+
+        def has_role(self, role):
+            return self._role == role
+
+        def has_any_role(self, *roles):
+            return self._role in roles
+
+    for role in (UserRole.delivery_lead, UserRole.tac, UserRole.head_of_recruitment):
+        with pytest.raises(HTTPException) as exc:
+            _assert_order_finance_write_allowed(_StubUser(role), {"rate_client"})
+        assert exc.value.status_code == 403, role
+
+    _assert_order_finance_write_allowed(_StubUser(UserRole.admin), {"rate_client"})
+
+
+async def test_head_of_recruitment_cannot_set_line_rates(monkeypatch):
+    """HoR przechodzi przez DlAssignedOrAdmin globalnie, bez przypisania.
+
+    Repo konsekwentnie trzyma go poza powierzchniami finansowymi (np.
+    `/settings/clients-overview` jest admin-only właśnie z tego powodu), więc
+    nie może ustawiać stawek mimo że przejdzie bramkę trasy.
+    """
+    from app.api.client_order_groups import _assert_line_finance_write_allowed
+    from app.models.user import UserRole
+    from fastapi import HTTPException
+
+    class _StubUser:
+        def __init__(self, role):
+            self._role = role
+
+        def has_role(self, role):
+            return self._role == role
+
+        def has_any_role(self, *roles):
+            return self._role in roles
+
+    with pytest.raises(HTTPException) as exc:
+        _assert_line_finance_write_allowed(
+            _StubUser(UserRole.head_of_recruitment), {"rate_cost"}
+        )
+    assert exc.value.status_code == 403
+
+    for role in (UserRole.admin, UserRole.delivery_lead):
+        _assert_line_finance_write_allowed(_StubUser(role), {"rate_cost"})
+
+
 # ── Budżet MD ───────────────────────────────────────────────────────────────
 
 
@@ -173,7 +350,9 @@ async def test_two_consultants_share_one_order(
         client_id,
         [
             _line_payload(contracts[0], input_value=50),
-            _line_payload(contracts[1], rate_cost=800, rate_revenue=950, input_value=63),
+            _line_payload(
+                contracts[1], rate_cost=800, rate_revenue=950, input_value=63
+            ),
         ],
     )
     assert len(group["lines"]) == 2
@@ -407,7 +586,9 @@ async def test_import_subtracts_md_and_is_idempotent(
     listing = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
     )
-    assert listing.json()["groups"][0]["lines"][0]["md_remaining"] == pytest.approx(35.0)
+    assert listing.json()["groups"][0]["lines"][0]["md_remaining"] == pytest.approx(
+        35.0
+    )
 
     second = await _upload(app_client, app_auth_headers, [(names[0], 15)], month)
     assert second.status_code == 201, second.text

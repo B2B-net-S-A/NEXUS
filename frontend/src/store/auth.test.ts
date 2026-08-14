@@ -4,6 +4,7 @@ import { hasCapability } from "@/lib/capabilities"
 
 import {
   canManageCandidateFinance,
+  canManageMultiConsultantOrders,
   hasRole,
   hasMinRole,
   onboardingPersona,
@@ -267,5 +268,40 @@ describe("ROLE_RANK invariants", () => {
     expect(ROLE_RANK.tac).toBeGreaterThan(ROLE_RANK.recruiter)
     expect(ROLE_RANK.recruiter).toBe(ROLE_RANK.sourcer)
     expect(ROLE_RANK.sourcer).toBeGreaterThan(ROLE_RANK.user)
+  })
+})
+
+describe("canManageMultiConsultantOrders", () => {
+  // Lustro backendowego `_manages_md_lines` (api/client_order_groups.py).
+  // Świadomie SZERSZE niż `canManageCandidateFinance`: obsadę zamówienia
+  // prowadzi delivery, więc wymóg admina czynił zakładkę bezużyteczną dla
+  // osób, które ją faktycznie obsługują.
+  it("przepuszcza admina i delivery leada", () => {
+    expect(canManageMultiConsultantOrders({ role: "admin", roles: [] })).toBe(true)
+    expect(
+      canManageMultiConsultantOrders({ role: "delivery_lead", roles: [] })
+    ).toBe(true)
+  })
+
+  it("nie przepuszcza pozostałych ról", () => {
+    // `head_of_recruitment` przechodzi backendowe DlAssignedOrAdmin globalnie,
+    // ale przy powierzchniach finansowych repo trzyma go poza — tu tak samo.
+    for (const role of [
+      "head_of_recruitment",
+      "tac",
+      "recruiter",
+      "sourcer",
+      "finance",
+      "user",
+    ] as UserRole[]) {
+      expect(canManageMultiConsultantOrders({ role, roles: [] })).toBe(false)
+    }
+    expect(canManageMultiConsultantOrders(null)).toBe(false)
+  })
+
+  it("czyta też role dodatkowe, nie tylko primary", () => {
+    expect(
+      canManageMultiConsultantOrders({ role: "tac", roles: ["delivery_lead"] })
+    ).toBe(true)
   })
 })

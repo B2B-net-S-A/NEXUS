@@ -15,10 +15,10 @@ vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
   ) => selector({ user: authState }),
-  canManageCandidateFinance: (
-    user: { role?: string; capabilities?: string[] } | null,
-  ) =>
-    user?.role === "admin" && (user.capabilities ?? []).includes("manage_finance"),
+  // Lustro backendowego `_manages_md_lines`: obsadę zamówienia prowadzi
+  // delivery, nie tylko admin.
+  canManageMultiConsultantOrders: (user: { role?: string } | null) =>
+    user?.role === "admin" || user?.role === "delivery_lead",
 }));
 
 vi.mock("@/lib/api/orderGroups", () => ({
@@ -181,8 +181,34 @@ describe("MultiConsultantOrdersTab", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("rola bez uprawnień finansowych nie widzi przycisków zapisu ani stawek", async () => {
+  it("delivery lead prowadzi obsadę zamówienia — widzi przyciski i stawki", async () => {
     authState.role = "delivery_lead";
+    authState.capabilities = [];
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group()],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByText("Zamówienie nr 445")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: /Nowe zamówienie/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Dodaj konsultanta do zamówienia/ }),
+    ).toBeInTheDocument();
+    // Backend nie redaguje mu stawek, bo to on je ustawia.
+    expect(screen.getByText("1200,00 zł/MD")).toBeInTheDocument();
+  });
+
+  it("rola bez uprawnień do obsady nie widzi przycisków zapisu ani stawek", async () => {
+    authState.role = "tac";
     authState.capabilities = [];
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {

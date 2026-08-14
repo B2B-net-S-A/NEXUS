@@ -280,6 +280,24 @@ export function canManageCandidateFinance(
   )
 }
 
+/**
+ * Linie konsultantów na zamówieniu wielo-konsultantowym (BIK/Polkomtel/BNP).
+ *
+ * Lustro backendowego `_manages_md_lines` w `api/client_order_groups.py`:
+ * admin oraz Delivery Lead, bo to delivery układa obsadę zamówienia i
+ * negocjuje stawki per konsultant. Świadomie SZERSZE niż
+ * `canManageCandidateFinance` — tam chodzi o `rate_client`/`rate_candidate`
+ * w module zamówień, które zostają admin-only.
+ *
+ * To gate KOSMETYCZNE. Ostatecznym arbitrem jest backend, który dodatkowo
+ * sprawdza, czy ten DL jest przypisany do TEGO klienta — czego front nie wie.
+ */
+export function canManageMultiConsultantOrders(
+  user: Pick<User, "role" | "roles"> | null | undefined
+): boolean {
+  return hasRole(user, "admin", "delivery_lead")
+}
+
 // ── Store ───────────────────────────────────────────────────────────────────
 
 interface AuthState {
