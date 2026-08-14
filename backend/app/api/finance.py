@@ -13,6 +13,7 @@ modyfikuje niczego poza dwiema tabelami ``finance_*``.
 
 import hashlib
 import io
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
@@ -53,6 +54,8 @@ from app.services.finance_import import (
     FinanceWorkbookError,
     parse_finance_workbook,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -105,15 +108,39 @@ async def _lock_period(db: AsyncSession, year: int, month: int) -> None:
     o indeks częściowy „jedna aktualna wersja" i jeden z nich padłby
     IntegrityError zamiast poczekać. Lock jest transakcyjny — zwalnia się
     z COMMIT/ROLLBACK, więc nie ma czego sprzątać.
+
+    Bramka dialektu jest tu FAIL-OPEN CO DO PRÓBY, nie co do skutku: gdy nie
+    umiemy rozpoznać silnika, i tak próbujemy wziąć blokadę. ``AsyncSession.bind``
+    jest w SQLAlchemy 2.0 wycofywane i w części konfiguracji zwraca ``None``;
+    warunek „pomiń, jeśli to nie postgres" zamieniłby taki przypadek w CICHY
+    brak blokady — najgorszy możliwy tryb awarii, bo objawia się dopiero
+    losowym 500 przy dwóch równoległych importach. Silnik bez advisory locków
+    (SQLite w testach) rzuci wyjątek, który świadomie połykamy.
     """
 
-    dialect = getattr(getattr(db, "bind", None), "dialect", None)
-    if getattr(dialect, "name", None) != "postgresql":
-        return  # SQLite w testach nie ma advisory locków
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(:key1, :key2)"),
-        {"key1": year, "key2": month},
-    )
+    bind = getattr(db, "bind", None)
+    if bind is None:
+        try:
+            bind = db.get_bind()
+        except Exception:  # sesja bez rozstrzygalnego bindu
+            bind = None
+    dialect_name = getattr(getattr(bind, "dialect", None), "name", None)
+    if dialect_name is not None and dialect_name != "postgresql":
+        return
+    try:
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:key1, :key2)"),
+            {"key1": year, "key2": month},
+        )
+    except Exception:
+        # Silnik nie zna advisory locków. Import nadal chroni indeks
+        # częściowy — po prostu kolizja wyjdzie błędem, a nie czekaniem.
+        logger.warning(
+            "advisory lock niedostępny (dialekt=%s) — import %04d-%02d bez serializacji",
+            dialect_name,
+            year,
+            month,
+        )
 
 
 def _row_to_read(row: FinanceMonthlyResult) -> FinanceResultRow:
@@ -274,15 +301,40 @@ async def update_result_row(
     user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Ręczna korekta jednej komórki.
+    """Ręczna korekta jednej komórki — WYŁĄCZNIE w aktualnej wersji miesiąca.
 
     NIE modyfikuje oryginalnego arkusza w Archiwum (pkt 4.4 ticketu) — plik
     jest zapisem tego, co przysłano, a nie tego, co po korekcie obowiązuje.
+
+    Wiersze wersji ZASTĄPIONEJ są zamrożone. Pobranie po samym PK pozwalało je
+    edytować, a to wprost łamało obietnicę, na której stoi „Przywróć jako
+    aktualny": przywrócony bieg wracałby ze zmianami wprowadzonymi już PO jego
+    zarchiwizowaniu, czyli nie w tym stanie, w jakim go porzucono. Archiwum ma
+    być zapisem historii, a nie drugą, edytowalną kopią danych.
     """
     row = await db.scalar(
-        select(FinanceMonthlyResult).where(FinanceMonthlyResult.id == row_id)
+        select(FinanceMonthlyResult)
+        .join(
+            FinanceImportRun,
+            FinanceImportRun.id == FinanceMonthlyResult.import_run_id,
+        )
+        .where(FinanceMonthlyResult.id == row_id)
+        .where(FinanceImportRun.status == FinanceImportRunStatus.current)
     )
     if row is None:
+        # Rozróżniamy „nie ma takiego wiersza" od „jest, ale w zamrożonej
+        # wersji" — inaczej edycja archiwum wyglądałaby jak zniknięcie danych.
+        exists = await db.scalar(
+            select(FinanceMonthlyResult.id).where(FinanceMonthlyResult.id == row_id)
+        )
+        if exists is not None:
+            raise HTTPException(
+                409,
+                detail=(
+                    "Ten wiersz należy do zastąpionej wersji miesiąca. "
+                    "Przywróć ją jako aktualną, żeby móc ją edytować."
+                ),
+            )
         raise HTTPException(404, detail="Nie znaleziono wiersza.")
 
     supplied = payload.model_fields_set & set(EDITABLE_NUMERIC_FIELDS)
@@ -408,13 +460,48 @@ async def import_workbook(
         replaced_run_id = existing.id
         await db.flush()
 
+    # Plik musi być na dysku, zanim powstanie wiersz (`file_path` jest NOT
+    # NULL), więc nie da się odwrócić kolejności — ale nieudany commit nie ma
+    # zostawiać na wolumenie arkusza, do którego nic nie prowadzi. Stąd
+    # sprzątanie w `except`: przy 15 MB na plik i miesięcznym rytmie importów
+    # osierocone kopie zbierałyby się cicho i bezterminowo.
     rel_path, size = storage_service.save_finance_import(
         period_year=year,
         period_month=month,
         upload_filename=filename,
         source=io.BytesIO(payload),
     )
+    try:
+        return await _persist_import(
+            db,
+            user=user,
+            year=year,
+            month=month,
+            filename=filename,
+            rel_path=rel_path,
+            size=size,
+            payload=payload,
+            parsed=parsed,
+            replaced_run_id=replaced_run_id,
+        )
+    except Exception:
+        storage_service.delete_finance_import(rel_path)
+        raise
 
+
+async def _persist_import(
+    db: AsyncSession,
+    *,
+    user: User,
+    year: int,
+    month: int,
+    filename: str,
+    rel_path: str,
+    size: int,
+    payload: bytes,
+    parsed,
+    replaced_run_id: Optional[int],
+) -> FinanceImportResult:
     run = FinanceImportRun(
         period_year=year,
         period_month=month,

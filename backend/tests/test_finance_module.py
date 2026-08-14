@@ -404,3 +404,119 @@ async def test_editable_fields_contract_matches_parser():
     from app.services.finance_import import NUMERIC_FIELDS
 
     assert set(EDITABLE_NUMERIC_FIELDS) == set(NUMERIC_FIELDS)
+
+
+async def test_cannot_edit_rows_of_superseded_run(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Wiersze zastąpionej wersji są ZAMROŻONE.
+
+    Bez tego „Przywróć jako aktualny" kłamie: przywrócony bieg wracałby ze
+    zmianami wprowadzonymi już PO jego zarchiwizowaniu, czyli nie w tym
+    stanie, w jakim go porzucono. Archiwum ma być zapisem historii, a nie
+    drugą, edytowalną kopią danych.
+    """
+    year, month = 2031, 7
+    await _reset_period(year, month)
+
+    first = await _import(app_client, app_auth_headers, year=year, month=month)
+    assert first.status_code == 201, first.text
+    results = await app_client.get(
+        "/api/finance/results",
+        headers=app_auth_headers,
+        params={"year": year, "month": month},
+    )
+    frozen_row_id = results.json()["rows"][0]["id"]
+
+    # Zastąpienie archiwizuje pierwszy bieg.
+    second = await _import(
+        app_client, app_auth_headers, year=year, month=month, replace=True
+    )
+    assert second.status_code == 201, second.text
+
+    blocked = await app_client.patch(
+        f"/api/finance/results/{frozen_row_id}",
+        headers=app_auth_headers,
+        json={"md_count": 99},
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert "zastąpionej" in blocked.json()["detail"]
+
+    # Nieistniejący wiersz nadal 404 — 409 nie może zjadać tego rozróżnienia.
+    missing = await app_client.patch(
+        "/api/finance/results/99999999",
+        headers=app_auth_headers,
+        json={"md_count": 1},
+    )
+    assert missing.status_code == 404, missing.text
+
+
+async def test_failed_import_leaves_no_orphan_file(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+):
+    """Nieudany commit nie zostawia arkusza bez wiersza w bazie.
+
+    Plik musi trafić na dysk przed wstawieniem wiersza (`file_path` jest NOT
+    NULL), więc jedyną obroną jest sprzątanie przy wyjątku. Przy 15 MB na plik
+    osierocone kopie zbierałyby się cicho i bezterminowo.
+    """
+    from app.api import finance as finance_api
+
+    year, month = 2031, 8
+    await _reset_period(year, month)
+
+    saved: list[str] = []
+    deleted: list[str] = []
+    real_save = finance_api.storage_service.save_finance_import
+    real_delete = finance_api.storage_service.delete_finance_import
+
+    def _save(**kwargs):
+        rel, size = real_save(**kwargs)
+        saved.append(rel)
+        return rel, size
+
+    def _delete(rel):
+        deleted.append(rel)
+        return real_delete(rel)
+
+    monkeypatch.setattr(finance_api.storage_service, "save_finance_import", _save)
+    monkeypatch.setattr(finance_api.storage_service, "delete_finance_import", _delete)
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("commit padł")
+
+    monkeypatch.setattr(finance_api, "_persist_import", _boom)
+
+    with pytest.raises(RuntimeError):
+        await _import(app_client, app_auth_headers, year=year, month=month)
+
+    assert saved, "plik nie został w ogóle zapisany — test nie sprawdza tego, co miał"
+    assert deleted == saved, (
+        f"osierocony plik po nieudanym imporcie: {set(saved) - set(deleted)}"
+    )
+
+
+async def test_lock_period_attempts_lock_when_dialect_unknown():
+    """Nierozpoznany silnik → PRÓBUJEMY wziąć blokadę, nie pomijamy jej.
+
+    ``AsyncSession.bind`` jest w SQLAlchemy 2.0 wycofywane i bywa ``None``.
+    Warunek „pomiń, jeśli to nie postgres" zamieniał taki przypadek w CICHY
+    brak blokady — najgorszy tryb awarii, bo objawia się dopiero losowym 500
+    przy dwóch równoległych importach tego samego miesiąca.
+    """
+    from app.api import finance as finance_api
+
+    executed: list[str] = []
+
+    class _NoBindSession:
+        bind = None
+
+        def get_bind(self):
+            raise RuntimeError("brak rozstrzygalnego bindu")
+
+        async def execute(self, stmt, params=None):
+            executed.append(str(stmt))
+
+    await finance_api._lock_period(_NoBindSession(), 2031, 9)
+    assert executed, "przy nieznanym dialekcie blokada została po cichu pominięta"
+    assert "pg_advisory_xact_lock" in executed[0]

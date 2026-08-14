@@ -115,12 +115,16 @@ def _attach_po_bytes(
     filename: str,
     content_type: Optional[str],
     user,
-) -> None:
+) -> Optional[str]:
     """Zapisz PO na dysku i przypnij metadane do Orderu (bez commitu).
 
-    Kasuje poprzedni plik, jeśli był — zamówienie ma dokładnie jeden PO, więc
-    stary blob po podmianie nie ma już żadnego czytelnika i zostałby sierotą
-    na wolumenie.
+    Zwraca ścieżkę POPRZEDNIEGO pliku — wywołujący kasuje ją dopiero PO
+    udanym commicie. Kasowanie tutaj oznaczało, że nieudany commit (błąd
+    wstawienia Activity, zerwana sesja) zostawiał bazę wskazującą na plik,
+    którego już nie ma: podgląd zamówienia zwracałby 410, a treści nie dałoby
+    się odtworzyć. Kolejność „najpierw utrwal wiersz, potem zwolnij stary
+    blob" zamienia najgorszy przypadek w osierocony plik na wolumenie, czyli
+    coś, co da się posprzątać, zamiast bezpowrotnie utraconego dokumentu.
     """
 
     import io
@@ -129,14 +133,13 @@ def _attach_po_bytes(
     rel_path, size = storage_service.save_client_order_po(
         order_id=order.id, upload_filename=filename, source=io.BytesIO(payload)
     )
-    if previous:
-        storage_service.delete_client_order_po(previous)
     order.filename = filename
     order.file_path = rel_path
     order.content_type = content_type
     order.size_bytes = size
     order.file_uploaded_by = user.id
     order.file_uploaded_at = datetime.now(timezone.utc)
+    return previous if previous and previous != rel_path else None
 
 
 def _days_to(target: Optional[date]) -> Optional[int]:
@@ -1284,7 +1287,7 @@ async def replace_order_po(
     # serwowane z `media_type=application/pdf` każdemu, kto otworzy dokument.
     if not payload_bytes.startswith(b"%PDF-"):
         raise HTTPException(415, detail="Plik nie jest dokumentem PDF.")
-    _attach_po_bytes(
+    superseded_path = _attach_po_bytes(
         order,
         payload=payload_bytes,
         filename=filename,
@@ -1306,6 +1309,11 @@ async def replace_order_po(
         )
     )
     await db.commit()
+    # Stary blob zwalniamy DOPIERO gdy nowy wiersz jest utrwalony. Przy
+    # nieudanym commicie zostaje osierocony plik (do posprzątania), a nie baza
+    # wskazująca na dokument, którego już nie ma.
+    if superseded_path:
+        storage_service.delete_client_order_po(superseded_path)
     await db.refresh(order)
     can_finance = _can_manage_order_finance(
         user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
