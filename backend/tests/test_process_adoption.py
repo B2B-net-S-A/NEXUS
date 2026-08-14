@@ -256,6 +256,29 @@ async def test_timeout_does_not_cascade_to_other_queries(
     assert "error" not in {d["key"]: d for d in body["diagnostics"]}["rejection_emails"]
 
 
+async def test_exhausted_budget_skips_rather_than_reports_failure(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Sufit czasu na CAŁY raport — i pominięcie, które nie udaje awarii.
+
+    Suma limitów per zapytanie (6 × 25 s + 60 s) pozwalałaby jednemu wywołaniu
+    trzymać workera 3,5 minuty. Po wyczerpaniu budżetu reszta jest POMIJANA,
+    a nie zgłaszana jako błąd: „nie zdążyliśmy" i „zapytanie padło" to dwie
+    różne diagnozy i pomylenie ich wysyła operatora w złą stronę.
+    """
+    from app.api import admin_process_adoption as mod
+
+    monkeypatch.setattr(mod, "TOTAL_BUDGET_SECONDS", 0.0)
+
+    r = await app_client.get(URL, headers=app_auth_headers)
+    assert r.status_code == 200, r.text
+    summary = r.json()["summary"]
+
+    assert summary["queries_skipped"] == summary["queries_total"]
+    assert summary["queries_failed"] == 0, "pominięcie to nie awaria"
+    assert summary["failed_keys"] == []
+
+
 async def test_response_carries_no_pii(app_client: AsyncClient, app_auth_headers: dict):
     """Raport ma same liczby i etykiety — żadnych e-maili ani nazwisk."""
     cand = await _seed_candidate()

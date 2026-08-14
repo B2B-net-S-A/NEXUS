@@ -316,14 +316,22 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
 
         monkeypatch.setattr(mod, "retrieve_candidate_pool", _fake_pool)
 
-        result = await mod.search(
-            db,
-            mod.RadarQuery(
-                client_id=client.id,
-                text="Senior DevOps Engineer, Kubernetes, Terraform, AWS",
-                top_k=5,
-            ),
-        )
+        try:
+            result = await mod.search(
+                db,
+                mod.RadarQuery(
+                    client_id=client.id,
+                    text="Senior DevOps Engineer, Kubernetes, Terraform, AWS",
+                    top_k=5,
+                ),
+            )
+        finally:
+            # `search()` niczego nie zapisuje, więc sprzątanie jest bezpieczne —
+            # a bez niego każdy przebieg zostawiałby wiersze w bazie i psuł testy,
+            # które liczą rekordy (paginacja list, inwentarze).
+            await db.delete(cand)
+            await db.delete(client)
+            await db.commit()
 
     assert result.degraded is False
     assert result.pool_size == 1, "kandydat z puli musi dojść do rankingu"
