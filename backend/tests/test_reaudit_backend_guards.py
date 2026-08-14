@@ -243,9 +243,17 @@ async def test_client_orders_list_redacted_for_non_finance(
     assert order_row["currency"] is None
 
 
-async def test_client_orders_list_redacts_finance_from_delivery_lead(
+async def test_client_orders_list_shows_finance_to_assigned_delivery_lead(
     app_client: AsyncClient,
 ) -> None:
+    """Przypisany Delivery Lead WIDZI kwoty zamówień swojego klienta.
+
+    Świadome poszerzenie reguły z F-13/P0.12 („tylko admin"): DL prowadzi
+    zamówienia klienta na co dzień i to on uzupełnia draft, więc odsyłanie
+    każdej stawki do admina zamieniało rejestr w prośbę o czynność, której
+    adresat nie mógł wykonać. Zakres pozostaje wąski — patrz trzy testy niżej:
+    NIEprzypisany DL, TAC i head_of_recruitment nadal nie dostają nic.
+    """
     client_id, _order_id, contract_id = await _seed_client_order()
     dl = await _headers_for(
         app_client,
@@ -255,14 +263,31 @@ async def test_client_orders_list_redacts_finance_from_delivery_lead(
 
     resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=dl)
     assert resp.status_code == 200, resp.text
+    body = resp.json()
     row = next(
-        (c for c in resp.json()["contractors"] if c["contract_id"] == contract_id),
+        (c for c in body["contractors"] if c["contract_id"] == contract_id),
         None,
     )
     assert row is not None
-    assert row["rate_candidate"] is None
-    assert row["latest_order_rate_client"] is None
-    assert row["latest_order_monthly_margin"] is None
+    assert row["rate_candidate"] is not None
+    # Front bramkuje pola stawek tą flagą — bez niej renderowałby kontrolkę,
+    # która na zapisie kończy się 403.
+    assert body["can_manage_finance"] is True
+
+
+async def test_client_orders_hidden_from_unassigned_delivery_lead(
+    app_client: AsyncClient,
+) -> None:
+    """DL BEZ przypisania do klienta nie dostaje ani kwot, ani rekordów.
+
+    To jest właściwy dowód domknięcia poszerzenia: samo posiadanie roli
+    `delivery_lead` niczego nie otwiera — liczy się jawne przypisanie.
+    """
+    client_id, _order_id, _contract_id = await _seed_client_order()
+    dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=None)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=dl)
+    assert resp.status_code == 403, resp.text
 
 
 async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> None:
@@ -285,7 +310,7 @@ async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> No
     assert body["currency"] is None
 
 
-async def test_get_order_redacts_finance_from_delivery_lead(
+async def test_get_order_shows_finance_to_assigned_delivery_lead(
     app_client: AsyncClient,
 ) -> None:
     client_id, order_id, _contract_id = await _seed_client_order()
@@ -300,10 +325,90 @@ async def test_get_order_redacts_finance_from_delivery_lead(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["rate_client"] is None
-    assert body["total_value"] is None
-    assert body["monthly_margin"] is None
-    assert body["currency"] is None
+    assert body["rate_client"] is not None
+
+
+async def test_head_of_recruitment_never_gains_order_finance(
+    app_client: AsyncClient,
+) -> None:
+    """HoR nie zyskuje kwot ani ich zapisu przy poszerzeniu dla DL.
+
+    Regresja na konkretną pułapkę: guard trasy ``require_dl_assigned_or_admin``
+    przepuszcza head_of_recruitment GLOBALNIE, bez sprawdzania przypisania.
+    Gdyby predykat finansowy brzmiał „ktokolwiek przeszedł ten guard", HoR
+    dostałby po cichu zapis stawek u WSZYSTKICH klientów. Dlatego
+    ``_can_manage_order_finance`` sprawdza rolę i przypisanie niezależnie.
+    """
+    from app.api import client_orders
+    from app.models.user import UserRole as Role
+
+    class _FakeUser:
+        def __init__(self, role: Role) -> None:
+            self._roles = {role}
+
+        def has_role(self, role: Role) -> bool:
+            return role in self._roles
+
+    for role in (Role.head_of_recruitment, Role.tac, Role.recruiter):
+        assert (
+            client_orders._can_manage_order_finance(_FakeUser(role), dl_assigned=True)
+            is False
+        ), f"{role.value} nie może zarządzać kwotami zamówień"
+
+    # A przypisany DL — może; nieprzypisany nie.
+    assert (
+        client_orders._can_manage_order_finance(
+            _FakeUser(Role.delivery_lead), dl_assigned=True
+        )
+        is True
+    )
+    assert (
+        client_orders._can_manage_order_finance(
+            _FakeUser(Role.delivery_lead), dl_assigned=False
+        )
+        is False
+    )
+
+
+async def test_delivery_lead_cannot_rewrite_rate_unit(app_client: AsyncClient) -> None:
+    """Przypisany DL zapisuje KWOTY, ale nie regułę ich przeliczania.
+
+    ``rate_unit`` i ``billing_hours_per_month`` przeliczają wstecz każdą kwotę
+    i marżę na kontrakcie (``_normalize_monthly``), a ticket prosi wyłącznie
+    o dwie stawki. Admin zachowuje pełen zestaw.
+    """
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    from app.api import client_orders
+    from app.models.user import UserRole as Role
+
+    class _FakeUser:
+        def __init__(self, role: Role) -> None:
+            self._roles = {role}
+
+        def has_role(self, role: Role) -> bool:
+            return role in self._roles
+
+    dl = _FakeUser(Role.delivery_lead)
+    # Kwoty — wolno.
+    client_orders._assert_order_finance_write_allowed(
+        dl, {"rate_client", "rate_candidate"}, can_finance=True
+    )
+    # Jednostka stawki — nie.
+    with _pytest.raises(HTTPException) as exc_info:
+        client_orders._assert_order_finance_write_allowed(
+            dl, {"rate_client", "rate_unit"}, can_finance=True
+        )
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["fields"] == ["rate_unit"]
+
+    # Admin — pełen zestaw, niezależnie od flagi.
+    client_orders._assert_order_finance_write_allowed(
+        _FakeUser(Role.admin),
+        {"rate_client", "rate_unit", "billing_hours_per_month"},
+        can_finance=False,
+    )
 
 
 async def test_client_order_reads_require_explicit_dl_or_tac_assignment(

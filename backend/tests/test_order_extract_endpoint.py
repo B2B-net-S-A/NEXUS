@@ -216,17 +216,55 @@ async def test_order_documents_by_contract_404(
     assert resp.status_code == 404
 
 
-async def test_extract_redacts_finance_and_metadata_for_delivery_lead(
+async def _hor_headers(app_client: AsyncClient) -> dict[str, str]:
+    """Head of Recruitment — BEZ przypisania, a mimo to przechodzi guard trasy.
+
+    ``require_dl_assigned_or_admin`` przepuszcza HoR globalnie, więc to jedyna
+    rola, która dociera do tego endpointu bez prawa do kwot. Dlatego właśnie na
+    niej trzymamy dowód redakcji kanałów pobocznych.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    email = f"hor-ord-{uuid.uuid4().hex[:8]}@example.com"
+    password = f"P4ss_{uuid.uuid4().hex[:6]}!"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name="HoR Ord",
+                role=UserRole.head_of_recruitment,
+                roles=[UserRole.head_of_recruitment.value],
+                is_active=True,
+                profile_completed=True,
+            )
+        )
+        await db.commit()
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+async def test_extract_redacts_finance_and_metadata_for_head_of_recruitment(
     app_client: AsyncClient, monkeypatch
 ):
-    """Delivery Lead (bez VIEW_FINANCE): kwoty ORAZ kanały poboczne
-    (fields_confidence finansowe + uncertain_reasons cytujące/nazywające
-    finanse) muszą być zredagowane — leak finance-lockdown z review."""
+    """HoR: kwoty ORAZ kanały poboczne (fields_confidence finansowe +
+    uncertain_reasons cytujące/nazywające finanse) muszą być zredagowane.
+
+    Wcześniej ten dowód stał na Delivery Leadzie; po poszerzeniu uprawnień
+    PRZYPISANY DL kwoty widzi (patrz test niżej), więc rolą bez dostępu, która
+    wciąż dociera do tego endpointu, jest head_of_recruitment — przepuszcza go
+    guard trasy, ale nie predykat finansowy.
+    """
     from app.api import client_orders as co
     from app.services.order_pdf_parser import OrderExtraction
 
     client_id = await _seed_client()
-    dl_headers = await _dl_headers(app_client, client_id)
+    dl_headers = await _hor_headers(app_client)
 
     monkeypatch.setattr(co, "extract_text", lambda path, filename: "treść zamówienia")
 
@@ -289,6 +327,54 @@ async def test_extract_redacts_finance_and_metadata_for_delivery_lead(
     # Pola operacyjne przechodzą.
     assert data["title"] == "PO-DL"
     assert data["start_date"] == "2026-06-01"
+
+
+async def test_extract_shows_finance_to_assigned_delivery_lead(
+    app_client: AsyncClient, monkeypatch
+):
+    """Przypisany DL widzi kwoty ORAZ ich pewność odczytu — jedną bramką.
+
+    Kanał poboczny (`fields_confidence`) musi iść za wartościami: dwa
+    niezależne sprawdzenia dałyby stan, w którym DL widzi stawkę, ale nie
+    pewność jej odczytu (albo odwrotnie), czyli baner „Sprawdź dane!" bez
+    informacji, co właściwie sprawdzić.
+    """
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import OrderExtraction
+
+    client_id = await _seed_client()
+    dl_headers = await _dl_headers(app_client, client_id)
+
+    monkeypatch.setattr(co, "extract_text", lambda path, filename: "treść zamówienia")
+
+    async def _fake_parse(text: str) -> OrderExtraction:
+        return OrderExtraction(
+            title="PO-DL",
+            start_date="2026-06-01",
+            end_date=None,
+            rate_client=Decimal("17000"),
+            rate_unit="month",
+            total_value=Decimal("102000"),
+            currency="PLN",
+            confidence={"title": 0.95, "rate_client": 0.97},
+            uncertain=True,
+            uncertain_reasons=["Niepewny odczyt: stawka (klient płaci)"],
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", _fake_parse)
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("order.pdf", b"%PDF-1.4 x", "application/pdf")},
+        headers=dl_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["rate_client"] == "17000"
+    assert data["total_value"] == "102000"
+    assert data["currency"] == "PLN"
+    assert "rate_client" in data["fields_confidence"]
 
 
 async def test_candidate_order_documents_dl_not_assigned_sees_nothing(

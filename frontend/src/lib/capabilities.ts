@@ -51,7 +51,8 @@ export type Capability =
   | "nav.my_relationships"
   | "nav.contracts"
   | "nav.cortex"
-  | "nav.manager";
+  | "nav.manager"
+  | "nav.finance";
 
 /** Wszystkie role operacyjne — czyli wszyscy POZA read-only viewerem `user`.
  *  Odpowiednik backendowego `OperationalUser` (deps.py). */
@@ -126,6 +127,11 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.contracts": TAC_PLUS,
   "nav.cortex": ["admin", "head_of_recruitment", "delivery_lead", "tac"],
   "nav.manager": ["admin", "delivery_lead"],
+  // /api/finance/* → FinanceModuleUser = require_roles(admin, finance)
+  // (backend/app/api/deps.py). Rola `finance` jest WYŁĄCZNA (CHECK
+  // ck_users_exclusive_finance_viewer_roles), więc to dwie rozłączne
+  // publiczności, a nie suma uprawnień.
+  "nav.finance": ["admin", "finance"],
 };
 
 /**

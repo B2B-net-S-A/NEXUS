@@ -140,6 +140,11 @@ export interface ContractWithOrdersRead {
 export interface ClientOrdersGroupedResponse {
   contractors: ContractWithOrdersRead[];
   total_contractors: number;
+  /** Czy TEN użytkownik może oglądać i zapisywać kwoty na zamówieniach TEGO
+   *  klienta (admin albo przypisany Delivery Lead). Serwer liczy to za nas —
+   *  front nie zna przypisań DL, więc bez tej flagi pokazywałby pola stawek
+   *  komuś, kto na zapisie dostanie 403. */
+  can_manage_finance: boolean;
 }
 
 /** Wynik "Zczytaj dane z dokumentu" — odczyt PDF/DOCX zamówienia. */
@@ -168,6 +173,9 @@ export interface OrderDocumentItem {
   size_bytes: number | null;
   created_at: string;
   order_status: ClientOrderStatus;
+  /** Null dla plików wgranych przed migracją 0227 (brak atrybucji w bazie). */
+  uploaded_by_email: string | null;
+  uploaded_at: string | null;
 }
 
 export interface OrderDocumentsResponse {
@@ -180,6 +188,10 @@ export interface ClientOrderUpdate {
   status?: ClientOrderStatus;
   start_date?: string | null;
   end_date?: string | null;
+  /** Stawka kosztowa. Mieszka na powiązanym kontrakcie, ale zapisujemy ją tą
+   *  samą ścieżką co resztę zamówienia — formularz uzupełnienia draftu
+   *  pokazuje obie stawki obok siebie i zapisuje je jednym żądaniem. */
+  rate_candidate?: number | null;
   rate_client?: number | null;
   total_value?: string | null;
   currency?: string | null;
@@ -392,6 +404,20 @@ export const dlPortalApi = {
 
   updateOrder: (clientId: number, orderId: number, payload: ClientOrderUpdate) =>
     api.patch<ClientOrderRead>(`/api/clients/${clientId}/orders/${orderId}`, payload),
+
+  /** Wgraj/podmień PDF zamówienia. Podmiana jest w miejscu — jeden Order ma
+   *  jeden plik, a sekcja „Dokumenty zamówień" w Dokumentach kontraktu czyta
+   *  dokładnie ten wiersz, więc nowa wersja aktualizuje pozycję zamiast ją
+   *  dublować. Tylko PDF (serwer zwraca 415 dla reszty). */
+  replaceOrderPo: (clientId: number, orderId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.put<ClientOrderRead>(
+      `/api/clients/${clientId}/orders/${orderId}/file`,
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+  },
 
   deleteOrder: (clientId: number, orderId: number) =>
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),

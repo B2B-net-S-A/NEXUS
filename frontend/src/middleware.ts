@@ -45,8 +45,11 @@ const COOKIE_NAME = "nexus_access";
 // prefix (patrz resolveAllowedRoles).
 const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
-  // Import zużycia MD — lustro backendowego `FinanceManageUser`
-  // (capability `manage_finance`, czyli admin + rola Finanse).
+  // Moduł „Finanse" — wyniki miesięczne kontraktorów, Archiwum importów oraz
+  // import zużycia MD. Lustro backendowych `FinanceModuleUser` /
+  // `FinanceManageUser` (oba: admin + rola Finanse). Bramka po stronie UI to
+  // UX; ten wpis pilnuje, żeby wejście z paska adresu kończyło się /403,
+  // a nie pustym ekranem.
   { prefix: "/finance", roles: ["admin", "finance"] },
   // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —

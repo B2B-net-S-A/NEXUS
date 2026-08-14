@@ -147,6 +147,18 @@ class ClientOrder(Base, TimestampMixin):
     file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     content_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Kto i kiedy wgrał TEN plik — celowo osobno od ``created_by_user_id``,
+    # bo zamówienie i jego PDF powstają w różnych momentach i zwykle z ręki
+    # różnych osób (drafty tworzy automat z hooka „hired", plik dokłada
+    # człowiek później). Sekcja „Dokumenty zamówień" w zakładce Dokumenty
+    # kontraktu pokazuje tę atrybucję w kolumnie „Dodał" — jak każdy inny
+    # dokument kontraktu (``contract_documents.uploaded_by``).
+    file_uploaded_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    file_uploaded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -229,6 +241,7 @@ class ClientOrder(Base, TimestampMixin):
         "ClientFrameworkContract", back_populates="orders"
     )
     creator = relationship("User", foreign_keys=[created_by_user_id])
+    file_uploader = relationship("User", foreign_keys=[file_uploaded_by])
 
     def __repr__(self) -> str:
         return (

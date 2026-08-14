@@ -229,7 +229,26 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
+  // /api/finance/* → require_roles(admin, finance). Jedyna capability, którą
+  // rola `finance` w ogóle posiada — patrz FINANCE_CAPABILITIES niżej.
+  "nav.finance": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: false,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
 };
+
+/**
+ * Capability, które przysługują roli `finance`. Lista jawna, nie wyliczana —
+ * dopisanie tu czegokolwiek ma być świadomym diffem w PR, bo `finance` to
+ * rola WYŁĄCZNA (CHECK ck_users_exclusive_finance_viewer_roles): jej
+ * użytkownik nie ma żadnej innej roli, która mogłaby czegoś dołożyć.
+ */
+const FINANCE_CAPABILITIES: readonly Capability[] = ["nav.finance"];
 
 const ALL_CAPABILITIES = Object.keys(CAPABILITY_ROLES) as Capability[];
 
@@ -256,9 +275,12 @@ describe("rejestr capability — kompletność", () => {
 describe("hasCapability — pełna macierz rola × capability", () => {
   for (const capability of ALL_CAPABILITIES) {
     for (const role of ALL_ROLES) {
-      // Finance jest rolą ekskluzywną. Istniejący rejestr opisuje wyłącznie
-      // capability operacyjne, więc wszystkie są dla niej fail-closed.
-      const expected = role === "finance" ? false : EXPECTED[capability][role];
+      // Finance jest rolą ekskluzywną: poza własnym modułem rejestr opisuje
+      // wyłącznie capability operacyjne, więc wszystkie są dla niej fail-closed.
+      const expected =
+        role === "finance"
+          ? FINANCE_CAPABILITIES.includes(capability)
+          : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected);
       });
@@ -305,7 +327,14 @@ describe("hasCapability — przypadki brzegowe", () => {
 
   it("rola `finance` nie dziedziczy żadnej capability operacyjnej", () => {
     for (const capability of ALL_CAPABILITIES) {
+      if (FINANCE_CAPABILITIES.includes(capability)) continue;
       expect(hasCapability(mkUser("finance"), capability)).toBe(false);
+    }
+  });
+
+  it("rola `finance` MA dostęp do własnego modułu", () => {
+    for (const capability of FINANCE_CAPABILITIES) {
+      expect(hasCapability(mkUser("finance"), capability)).toBe(true);
     }
   });
 });

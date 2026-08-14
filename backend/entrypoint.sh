@@ -28,6 +28,7 @@ if [ "$(id -u)" = "0" ]; then
         /tmp/nexus/uploads/microsoft365 \
         /tmp/nexus/uploads/client_framework_contracts \
         /tmp/nexus/uploads/candidate_documents \
+        /tmp/nexus/uploads/finance_imports \
         || echo "WARN: mkdir /tmp/nexus/uploads/* failed"
     if chown -R appuser:appgroup /tmp/nexus; then
         echo "chown /tmp/nexus ok"
@@ -3121,6 +3122,59 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_service_account_keys_service_account_id "
     "ON service_account_keys (service_account_id)",
+    # 0227: moduł Finanse — import miesięcznych wyników kontraktorów.
+    # `status` jako VARCHAR + CHECK (nie natywny enum PG): poszerzenie domeny
+    # to wtedy DROP+ADD CHECK-a, a nie `ALTER TYPE ... ADD VALUE`, które
+    # opakowane w `EXCEPTION WHEN duplicate_object` po pierwszym wykonaniu
+    # nigdy więcej nie zadziała (lekcja z 0226).
+    """CREATE TABLE IF NOT EXISTS finance_import_runs (
+        id SERIAL PRIMARY KEY,
+        period_year INTEGER NOT NULL,
+        period_month INTEGER NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'current',
+        source_filename VARCHAR(255) NOT NULL,
+        file_path VARCHAR(512) NOT NULL,
+        file_sha256 VARCHAR(64),
+        size_bytes INTEGER,
+        row_count INTEGER NOT NULL DEFAULT 0,
+        needs_completion_count INTEGER NOT NULL DEFAULT 0,
+        rejected_count INTEGER NOT NULL DEFAULT 0,
+        rejected_details JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        superseded_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS finance_monthly_results (
+        id SERIAL PRIMARY KEY,
+        import_run_id INTEGER NOT NULL
+            REFERENCES finance_import_runs(id) ON DELETE CASCADE,
+        row_number INTEGER NOT NULL,
+        consultant_name VARCHAR(255) NOT NULL,
+        client_name VARCHAR(255),
+        cost_rate_md NUMERIC(12,2),
+        md_count NUMERIC(8,2),
+        compensation NUMERIC(14,2),
+        revenue_rate_md NUMERIC(12,2),
+        invoice_amount NUMERIC(14,2),
+        margin_pln NUMERIC(14,2),
+        margin_pct NUMERIC(7,2),
+        edited_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_finance_monthly_results_row UNIQUE (import_run_id, row_number)
+    )""",
+    # 0227: kto wgrał PDF zamówienia. Osobno od `created_by_user_id` — draft
+    # zakłada automat z hooka „hired", plik dokłada człowiek później.
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS file_uploaded_by INTEGER NULL",
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS "
+    "file_uploaded_at TIMESTAMPTZ NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_orders
+            ADD CONSTRAINT fk_client_orders_file_uploaded_by_users
+            FOREIGN KEY (file_uploaded_by) REFERENCES users(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -4196,6 +4250,34 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0227 — moduł Finanse. DROP przed ADD, nie samo `EXCEPTION WHEN
+    # duplicate_object`: gdy kiedyś dojdzie trzeci status wersji, sam wyjątek
+    # zostawiłby na prodzie stary, węższy CHECK i nowa wartość leciałaby
+    # IntegrityError (dokładnie ten błąd naprawiała migracja 0226).
+    "ALTER TABLE finance_import_runs DROP CONSTRAINT IF EXISTS ck_finance_import_runs_status",
+    """DO $$ BEGIN
+        ALTER TABLE finance_import_runs
+            ADD CONSTRAINT ck_finance_import_runs_status
+            CHECK (status IN ('current', 'superseded'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE finance_import_runs DROP CONSTRAINT IF EXISTS ck_finance_import_runs_period_month",
+    """DO $$ BEGIN
+        ALTER TABLE finance_import_runs
+            ADD CONSTRAINT ck_finance_import_runs_period_month
+            CHECK (period_month BETWEEN 1 AND 12);
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE finance_import_runs DROP CONSTRAINT IF EXISTS ck_finance_import_runs_period_year",
+    """DO $$ BEGIN
+        ALTER TABLE finance_import_runs
+            ADD CONSTRAINT ck_finance_import_runs_period_year
+            CHECK (period_year BETWEEN 2000 AND 2100);
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE finance_monthly_results DROP CONSTRAINT IF EXISTS ck_finance_monthly_results_row_number",
+    """DO $$ BEGIN
+        ALTER TABLE finance_monthly_results
+            ADD CONSTRAINT ck_finance_monthly_results_row_number
+            CHECK (row_number >= 1);
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0222 — Talent Radar: nazwa przechodzi na moduł wyszukiwania, a źródło
     # importu dostaje `tr_legacy`. Oba CHECK-i przyjmują starą I nową wartość,
     # żeby rollback (redeploy poprzedniego obrazu, który wciąż pisze
@@ -4415,6 +4497,20 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    # 0227 — moduł Finanse. Indeks CZĘŚCIOWY, nie zwykły UNIQUE: aktualna
+    # wersja miesiąca musi być dokładnie jedna, ale zastąpionych wolno mieć
+    # dowolnie wiele (to cała treść Archiwum). Pełny UNIQUE zabroniłby
+    # drugiego importu tego samego miesiąca, czyli funkcji z ticketu.
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "
+    "uq_finance_import_runs_current_period "
+    "ON finance_import_runs (period_year, period_month) "
+    "WHERE status = 'current'",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_finance_import_runs_period "
+    "ON finance_import_runs (period_year, period_month)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_finance_import_runs_status "
+    "ON finance_import_runs (status)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_finance_monthly_results_import_run_id "
+    "ON finance_monthly_results (import_run_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_rbac_reconciliation_open "
     "ON rbac_relationship_reconciliation (issue_kind, created_at) "
     "WHERE resolved_at IS NULL",

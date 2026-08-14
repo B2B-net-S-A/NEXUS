@@ -27,6 +27,7 @@ CLIENT_REQUIRED_DOCS_DIR = STORAGE_ROOT / "client_required_docs"
 CLIENT_FRAMEWORK_CONTRACTS_DIR = STORAGE_ROOT / "client_framework_contracts"
 CLIENT_CONTRACT_AMENDMENTS_DIR = STORAGE_ROOT / "client_contract_amendments"
 CLIENT_ORDER_POS_DIR = STORAGE_ROOT / "client_orders"
+FINANCE_IMPORTS_DIR = STORAGE_ROOT / "finance_imports"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -397,3 +398,31 @@ def get_client_order_po_path(relative_path: str) -> Path:
 
 def delete_client_order_po(relative_path: str) -> None:
     _delete_relative(relative_path, "client order PO")
+
+
+# ── Finance monthly imports (oryginalne arkusze XLSX) ────────────────────────
+#
+# Plik jest ŚLADEM AUDYTOWYM, nie danymi roboczymi: trzyma też sześć kolumn,
+# których moduł świadomie nie zapisuje do bazy i nie pokazuje w UI. Katalog
+# per rok/miesiąc, bo Archiwum trzyma wiele wersji jednego okresu.
+
+
+def save_finance_import(
+    period_year: int, period_month: int, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Save monthly workbook under /finance_imports/{YYYY}-{MM}/{uuid}-{name}."""
+    rel, size = _save_to(
+        FINANCE_IMPORTS_DIR / f"{period_year:04d}-{period_month:02d}",
+        upload_filename,
+        source,
+    )
+    logger.info("Saved finance import: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_finance_import_path(relative_path: str) -> Path:
+    return _resolve_under_root(relative_path)
+
+
+def delete_finance_import(relative_path: str) -> None:
+    _delete_relative(relative_path, "finance import")
