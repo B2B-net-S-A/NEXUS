@@ -630,13 +630,22 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
   zaczynają się arkuszem tytułowym). Miesiąc wybiera OPERATOR — nazwy plików kłamią dokładnie
   wtedy, gdy import dotyczy okresu zaległego. Wiersze nieczytelne trafiają do `skipped_rows`,
   nigdy nie znikają po cichu.
-- **Uprawnienia:** stawki pisze **wyłącznie admin** (lustro `_assert_order_finance_write_allowed`
-  z `client_orders.py`) — nowa powierzchnia nie mogła rozluźnić bramki, którą reszta modułu
-  już egzekwuje. Odczyt: `TacPlus` + jawne przypisanie DL/TAC. Liczby MD są **operacyjne**,
-  nie finansowe — pasek zużycia działa bez `VIEW_FINANCE`, a same stawki renderują się jako
-  „—" (znikająca kolumna czytałaby się jak brak danych, nie jak brak uprawnień).
-  Import: `FinanceManageUser` (admin + Finanse) z wąską projekcją wierszy — bez
-  identyfikatorów kandydatów i kontraktów.
+- **Uprawnienia — obsadę zamówienia prowadzi DELIVERY, nie tylko admin.** Stawki linii MD
+  ustawia admin albo Delivery Lead **przypisany do tego klienta** (`_manages_md_lines`).
+  Zakres jest wąski i trzeba go pilnować: dotyczy WYŁĄCZNIE kolumn `md_rate_*` na tej
+  powierzchni — legacy `rate_client`/`rate_candidate`/`total_value` w module zamówień
+  zostają **admin-only** (`_ORDER_FINANCE_WRITE_FIELDS`), a `head_of_recruitment` jest poza
+  (przechodzi `DlAssignedOrAdmin` globalnie, bez przypisania, a repo konsekwentnie trzyma go
+  z dala od powierzchni finansowych — patrz `/settings/clients-overview`). Rola `finance`
+  też nie: jest odcinana od powierzchni kandydackich, a ta niesie nazwisko konsultanta.
+  **Odczyt i zapis są wyliczane z JEDNEJ funkcji** — rozdzielenie ich dałoby rolę, która
+  zapisuje stawkę i widzi w jej miejscu „—", czyli formularz bez możliwości sprawdzenia
+  własnej pracy. `VIEW_FINANCE` NIE zostało dodane roli DL globalnie: to zmieniłoby eksport
+  kontraktów, przychody w `/my-clients`, profil klienta i panel admina.
+  Liczby MD są **operacyjne**, nie finansowe — pasek zużycia działa bez uprawnień do stawek,
+  a same stawki renderują się jako „—" (znikająca kolumna czytałaby się jak brak danych, nie
+  jak brak uprawnień). Import: `FinanceManageUser` (admin + Finanse) z wąską projekcją
+  wierszy — bez identyfikatorów kandydatów i kontraktów.
 - **Pułapka UI, którą złapał dopiero test w przeglądarce:** gałąź pustego stanu MUSI wisieć na
   `isSuccess`, nie na `!isLoading`. W przerwie między ponowieniami react-query ma
   `isLoading === false`, `isError === false` i puste `data`, więc warunek na `isLoading`
