@@ -169,8 +169,20 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
     return ExtractionResult("extracted", cleaned)
 
 
-def _pending_candidates_stmt(limit: Optional[int], *, random_sample: bool = False):
+def _pending_candidates_stmt(
+    limit: Optional[int],
+    *,
+    random_sample: bool = False,
+    retry_outcomes: frozenset[str] = frozenset(),
+):
     """Rows whose CV text is missing or too short to be useful.
+
+    ``retry_outcomes`` wpuszcza z powrotem wiersze z WYBRANYMI terminalnymi
+    znacznikami. Powstało z pomiaru 2026-08-14: losowy pilotaż 40 wierszy
+    `empty` odzyskał 15 CV (37,5%) — klasa przestała być terminalna po bumpach
+    zależności ekstraktorów, ale znaczniki z 10.08 trwale wykluczały ponowną
+    próbę. Czoło listy po id kłamie w drugą stronę (najstarsze importy to
+    hasła/korupcje) — stąd pomiar na losowej próbie, nie od początku.
 
     Ordered by id by default so a full run is deterministic and resumable — a row
     that gains text drops out of the predicate, and hopeless ones carry a marker.
@@ -201,7 +213,7 @@ def _pending_candidates_stmt(limit: Optional[int], *, random_sample: bool = Fals
         ),
         or_(
             marker_outcome.is_(None),
-            marker_outcome.notin_(sorted(_TERMINAL_OUTCOMES)),
+            marker_outcome.notin_(sorted(_TERMINAL_OUTCOMES - retry_outcomes)),
         ),
     )
     stmt = stmt.order_by(func.random() if random_sample else Candidate.id.asc())
@@ -243,6 +255,7 @@ async def run_backfill(
     log_every: int = 200,
     enqueue_reindex: bool = True,
     random_sample: bool = False,
+    retry_outcomes: frozenset[str] = frozenset(),
     progress: Optional[Callable[[BackfillStats], None]] = None,
 ) -> BackfillStats:
     """Extract text for every candidate whose stored CV was never read.
@@ -262,7 +275,9 @@ async def run_backfill(
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(
-                _pending_candidates_stmt(limit, random_sample=random_sample)
+                _pending_candidates_stmt(
+                    limit, random_sample=random_sample, retry_outcomes=retry_outcomes
+                )
             )
         ).all()
 
