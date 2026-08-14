@@ -293,8 +293,8 @@ async def slack_sla_alerts_loop(
                 logger.info("slack_sla_alerts: posted %d new breach alerts", sent)
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             # Patrz komentarz w `contract_alerts.py` — WARNING jest poniżej progu
             # Sentry, więc trwała awaria cyklu byłaby niewidoczna.
-            logger.exception("slack_sla_alerts: cycle error %s", e)
+            logger.exception("slack_sla_alerts: cycle error")
         await asyncio.sleep(interval_minutes * 60)
