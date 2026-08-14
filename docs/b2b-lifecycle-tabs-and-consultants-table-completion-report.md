@@ -155,22 +155,36 @@ zmieniły. Nie każdy klient zobaczy różnicę — tylko ci z realnym harmonogr
 
 ## Dwie rzeczy zmierzone przy smoke'u, warte osobnej decyzji
 
-**1. `Contract.job_id` jest pusty w całej bazie produkcyjnej.** Przeskanowano
-10 klientów (Alior, Bank Pocztowy, BNP, e-Zdrowie, Nordea, Ergo Hestia, m-Leasing,
-Nationale Nederlanden, KIR, PFRON) — **zero** aktywnych konsultantów z
-`job_title`. Wiersz „rekrutacja" pod nazwiskiem jest zaimplementowany i renderuje
-się poprawnie jako PUSTY (wymóg ticketu), ale dopóki kontrakty nie dostaną
-powiązania z ofertą, nie pokaże niczego u nikogo. To brak DANYCH, nie kodu —
-`ClientOrder.job_id` bywa wypełniony i mógłby posłużyć jako fallback, ale to
-osobna decyzja produktowa.
+**1. Kolumna „rekrutacja" jest pusta w całej bazie — fallback tego NIE naprawił.**
 
-**2. Kafel „Aktywne MRR" różni się o 1 zł od sumy kolumny „Marża"** (Alior:
-59 211 vs 59 212). Każdy wiersz jest zaokrąglany osobno przez `WholePLN`
-(half-up), a MRR sumuje `Decimal`-e i zaokrągla raz — suma zaokrągleń ≠
-zaokrąglenie sumy. Rozbieżność jest wcześniejsza niż ten PR, ale kolumnowy układ
-stawia obie liczby obok siebie, więc stała się widoczna. Naprawa to jedna linijka
-(sumować wartości już zaokrąglone); świadomie NIE robiona tutaj, bo wykracza poza
-zakres ticketów.
+Historia pomiaru, bo pierwsza diagnoza była niepełna:
+
+- `Contract.job_id` jest pusty u **wszystkich** konsultantów: 417 wierszy
+  (388 aktywnych + 29 archiwalnych) na 15 klientach, zero trafień.
+- Dlatego #1159 dołożył fallback na `ClientOrder.job_id`. Uzasadnienie brzmiało
+  „`ClientOrder.job_id` bywa wypełniony" — i to prawda (38 z 49 zamówień
+  w próbce), ale **nie zostało zmierzone przed wdrożeniem**.
+- Po deployu: nadal **zero** na tych samych 417 wierszach. Powód: wszystkie 38
+  zamówień z `job_id` należy do kontraktów o statusie **`draft`** (i same są
+  `draft`), a profil pokazuje wyłącznie `active`/`ending` (Obecni) i `ended`
+  (Archiwum). Powiązanie rekrutacja↔zamówienie istnieje więc dokładnie tam,
+  gdzie profil nie sięga.
+
+**Wniosek: mechanizm nie jest martwy, jest przedwczesny.** Wszystkie działające
+dziś kontrakty pochodzą z importu i nie mają powiązania z ofertą; te
+z powiązaniem to drafty, które jeszcze nie ruszyły. Gdy pierwszy taki draft
+zostanie aktywowany, kolumna zacznie działać sama, bez zmian w kodzie.
+
+Lekcja procesowa: rozkład statusów należało sprawdzić PRZED dołożeniem
+fallbacku. „Pole bywa wypełnione" to za słaba przesłanka — pytanie brzmi
+„wypełnione na wierszach, które ten widok w ogóle pokazuje".
+
+**2. Kafel „Aktywne MRR" różnił się o 1 zł od sumy kolumny „Marża"** (Alior:
+59 211 vs 59 212) — **NAPRAWIONE w #1159**. Każdy wiersz zaokrągla `WholePLN`
+osobno (half-up), a MRR sumował `Decimal`-e i zaokrąglał raz; suma zaokrągleń ≠
+zaokrąglenie sumy. `to_whole_pln` leci teraz na składnikach. Zweryfikowane na
+prodzie na 10 klientach: kafel = suma kolumny wszędzie (Alior 59 212, Nordea
+1 601 120, BNP 194 240).
 
 ## Znane ograniczenia
 
