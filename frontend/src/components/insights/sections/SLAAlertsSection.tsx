@@ -16,13 +16,20 @@ interface SlaAlert {
 }
 
 export function SLAAlertsSection() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["insights-sla"],
     queryFn: () =>
-      phase3Api.slaAlerts().then((r) => r.data as { count: number; alerts: SlaAlert[] }),
+      phase3Api.slaAlerts().then(
+        (r) =>
+          r.data as { count: number; alerts: SlaAlert[]; configured?: boolean },
+      ),
   });
 
   const alerts = data?.alerts ?? [];
+  // `configured === false` = żaden etap nie ma ustawionego `sla_max_days`, więc
+  // ten panel z definicji nie ma czego pilnować. Do 2026-08-13 renderował z tego
+  // „wszystko w normie 🎉" — czyli brak konfiguracji wyglądał jak zdrowie.
+  const notConfigured = data?.configured === false;
 
   return (
     <section className="bg-card rounded-xl border border-border p-6 shadow-xs">
@@ -40,6 +47,15 @@ export function SLAAlertsSection() {
         <div className="py-8 flex items-center justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
+      ) : isError ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">
+          Alerty SLA: dane chwilowo niedostępne (to NIE jest zero).
+        </p>
+      ) : notConfigured ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">
+          SLA nie jest ustawione na żadnym etapie — ten panel niczego nie
+          pilnuje. Ustaw maksymalny czas w etapie szablonu, żeby zaczął działać.
+        </p>
       ) : alerts.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
           Brak alertów — wszystko w normie 🎉
