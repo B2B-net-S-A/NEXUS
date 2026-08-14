@@ -59,10 +59,31 @@ def test_only_one_alembic_head():
     od nowa: własna, uboższa wersja (sam ``ast.Assign``, bez ``AnnAssign``
     i wieloliniowych krotek) raportuje kilka widmowych głów i myli
     „nie umiem tego przeczytać" z „to jest nowa głowa".
+
+    Asercja sprawdza LICZBĘ głów i to, że ta migracja wciąż wisi w łańcuchu —
+    nie to, że akurat ona jest czubkiem. Przypięcie nazwy głowy oznaczałoby, że
+    ten test pada przy KAŻDEJ następnej migracji w repo, niezależnie od tego,
+    czy cokolwiek się rozszczepiło; „czerwony, bo ktoś dodał migrację" nie niesie
+    informacji, a uczy przestawiać stałą zamiast czytać, co się zepsuło.
     """
     from tests.test_analytics_release_gates import _alembic_heads
 
-    assert _alembic_heads() == ["0227_multi_consultant_orders"]
+    heads = _alembic_heads()
+    assert len(heads) == 1, f"łańcuch rozszczepiony, głowy: {heads}"
+
+    # Ta migracja ma nadal wisieć w łańcuchu — osierocona rewizja nigdy się
+    # nie wykona na produkcji, a licznik głów tego nie wykryje.
+    referenced = {
+        node.value.value
+        for path in MIGRATION.parent.glob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"revision", "down_revision"}
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    }
+    assert "0227_multi_consultant_orders" in referenced
 
 
 def test_entrypoint_mirrors_every_new_table():
