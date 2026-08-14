@@ -69,6 +69,12 @@ class ActiveConsultantItem(BaseModel):
     candidate: CandidateBrief
     job_id: Optional[int] = None
     job_title: Optional[str] = None
+    # True = rekrutacja pochodzi z ZAMÓWIENIA, nie z kontraktu. Inna
+    # proweniencja: `Contract.job_id` mówi „z tej rekrutacji wziął się ten
+    # placement", `ClientOrder.job_id` — „z tej rekrutacji wzięło się bieżące
+    # zamówienie". Dla kontraktu przedłużanego to bywa inna rekrutacja, więc UI
+    # musi móc to rozróżnić zamiast milcząco mieszać dwa znaczenia w kolumnie.
+    job_from_order: bool = False
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     days_to_end: Optional[int] = (
@@ -102,6 +108,12 @@ class HistoricalPlacementItem(BaseModel):
     # jak wiersz aktywnego konsultanta.
     job_id: Optional[int] = None
     job_title: Optional[str] = None
+    # True = rekrutacja pochodzi z ZAMÓWIENIA, nie z kontraktu. Inna
+    # proweniencja: `Contract.job_id` mówi „z tej rekrutacji wziął się ten
+    # placement", `ClientOrder.job_id` — „z tej rekrutacji wzięło się bieżące
+    # zamówienie". Dla kontraktu przedłużanego to bywa inna rekrutacja, więc UI
+    # musi móc to rozróżnić zamiast milcząco mieszać dwa znaczenia w kolumnie.
+    job_from_order: bool = False
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     terminated_at: Optional[date] = None

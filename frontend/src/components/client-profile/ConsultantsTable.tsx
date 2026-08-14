@@ -18,6 +18,7 @@ export interface ConsultantTableRow {
   candidate: ActiveConsultantItem["candidate"];
   job_id: number | null;
   job_title: string | null;
+  job_from_order: boolean;
   start_date: string | null;
   end_date: string | null;
   monthly_rate_candidate?: number | null;
@@ -35,6 +36,7 @@ export function toConsultantRow(
     candidate: c.candidate,
     job_id: c.job_id,
     job_title: c.job_title,
+    job_from_order: c.job_from_order,
     start_date: c.start_date ?? null,
     end_date: c.end_date ?? null,
     monthly_rate_candidate: c.monthly_rate_candidate,
@@ -137,7 +139,14 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
                         wiersz (wymóg ticketu), nie „brak powiązanej
                         rekrutacji" — komunikat zastępczy w kolumnie danych
                         czyta się jak wartość, a nie jak jej brak. */}
-                    <p className="text-xs text-muted-foreground">
+                    <p
+                      className="text-xs text-muted-foreground"
+                      title={
+                        r.job_from_order
+                          ? "Rekrutacja z bieżącego zamówienia — kontrakt nie ma własnego powiązania"
+                          : undefined
+                      }
+                    >
                       {r.job_title ? (
                         r.job_id ? (
                           <Link
@@ -150,8 +159,17 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
                           r.job_title
                         )
                       ) : (
-                        " "
+                        " "
                       )}
+                      {/* Tekst rekrutacji jest ten sam, ale PROWENIENCJA inna:
+                          `Contract.job_id` mówi „z tej rekrutacji wziął się ten
+                          placement", a fallback — „z tej rekrutacji wzięło się
+                          bieżące zamówienie". Przy kontrakcie przedłużanym to
+                          bywa inna rekrutacja, więc milczące zlanie obu znaczeń
+                          w jednej kolumnie byłoby przemilczeniem. */}
+                      {r.job_from_order ? (
+                        <span className="ml-1 opacity-60">· z zamówienia</span>
+                      ) : null}
                     </p>
                   </div>
                 </div>

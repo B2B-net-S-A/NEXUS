@@ -74,6 +74,7 @@ const PROFILE: ClientProfileResponse = {
       },
       job_id: 11,
       job_title: "Specjalista: Engineer DevOps",
+      job_from_order: false,
       start_date: "2026-07-27",
       end_date: null,
       days_to_end: null,
@@ -97,6 +98,7 @@ const PROFILE: ClientProfileResponse = {
       // Brak powiązanej rekrutacji — wiersz ma zostać PUSTY (wymóg ticketu).
       job_id: null,
       job_title: null,
+      job_from_order: false,
       start_date: "2026-05-04",
       end_date: null,
       days_to_end: null,
@@ -119,7 +121,9 @@ const PROFILE: ClientProfileResponse = {
           linkedin: null,
         },
         job_id: 12,
+        // Rekrutacja z ZAMÓWIENIA — kolumna musi oznaczyć inną proweniencję.
         job_title: "Data Engineer",
+        job_from_order: true,
         start_date: "2025-02-01",
         end_date: "2026-03-31",
         terminated_at: null,
@@ -259,6 +263,22 @@ describe("ProfileTab — tabela konsultantów", () => {
       (td.textContent ?? "").trim(),
     );
     expect(cells.slice(2, 5)).toEqual(["—", "—", "—"]);
+  });
+
+  it("rekrutacja z zamówienia jest oznaczona, nie zlana z kontraktową", async () => {
+    // `Contract.job_id` jest pusty w całej bazie prod, więc fallback na
+    // `ClientOrder.job_id` jest jedyną szansą, żeby ta kolumna cokolwiek
+    // pokazała. Ale to INNA proweniencja — milczące zlanie obu znaczeń
+    // w jednej kolumnie byłoby przemilczeniem, nie uproszczeniem.
+    const user = userEvent.setup({ delay: null });
+    renderTab();
+    await screen.findByText("Tomasz Sadowski");
+    // Wiersz z rekrutacją własną kontraktu — bez znacznika.
+    expect(screen.queryByText("· z zamówienia")).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /Archiwum konsultantów/ }));
+    expect(await screen.findByText("Data Engineer")).toBeInTheDocument();
+    expect(screen.getByText("· z zamówienia")).toBeInTheDocument();
   });
 
   it("Archiwum dokłada kolumnę End date", async () => {

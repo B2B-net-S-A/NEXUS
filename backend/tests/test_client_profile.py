@@ -304,3 +304,173 @@ async def test_archive_money_is_redacted_without_view_finance(
     assert row["monthly_margin"] is None
     assert row["total_revenue"] is None
     assert body["summary"]["active_mrr"] is None
+
+
+# ── Fallback rekrutacji na zamówienie + zgodność kafla MRR z sumą kolumny ────
+
+
+async def _seed_contract_with_order_job(*, contract_has_job: bool) -> tuple[int, int]:
+    """Kontrakt + zamówienie wskazujące rekrutację. Zwraca ``(client_id, contract_id)``.
+
+    ``contract_has_job=False`` odtwarza stan CAŁEJ bazy produkcyjnej: `Contract.job_id`
+    pusty, ale `ClientOrder.job_id` wypełniony (zmierzone 2026-08-14 na 10 klientach).
+    """
+    import uuid
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus
+    from app.models.job import Job
+
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Fallback",
+            lastname=f"J-{uuid.uuid4().hex[:6]}",
+            email=f"fb-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=f"FallbackClient-{uuid.uuid4().hex[:6]}")
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+
+        job_contract = Job(title="Rekrutacja kontraktu", client_id=client.id)
+        job_order = Job(title="Rekrutacja zamówienia", client_id=client.id)
+        db.add_all([job_contract, job_order])
+        await db.commit()
+        await db.refresh(job_contract)
+        await db.refresh(job_order)
+
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            job_id=job_contract.id if contract_has_job else None,
+            status=ContractStatus.active,
+            start_date=today - timedelta(days=100),
+            end_date=today + timedelta(days=100),
+            rate_candidate=Decimal("10000.000"),
+            rate_client=Decimal("15000.000"),
+            rate_unit="monthly",
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contract.id,
+                job_id=job_order.id,
+                title="Zamówienie testowe",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=50),
+            )
+        )
+        await db.commit()
+        return client.id, contract.id
+
+
+async def test_job_falls_back_to_the_order_when_contract_has_none(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Bez tego fallbacku kolumna „rekrutacja" nie pokazałaby NICZEGO u nikogo.
+
+    `Contract.job_id` jest pusty w całej bazie produkcyjnej (zmierzone na 10
+    klientach), a `ClientOrder.job_id` bywa wypełniony."""
+    client_id, contract_id = await _seed_contract_with_order_job(contract_has_job=False)
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    row = next(
+        r for r in resp.json()["active_consultants"] if r["contract_id"] == contract_id
+    )
+    assert row["job_title"] == "Rekrutacja zamówienia"
+    assert row["job_id"] is not None
+    # Flaga niesie INNĄ PROWENIENCJĘ — UI musi móc to rozróżnić, a nie milcząco
+    # zlać dwa znaczenia w jednej kolumnie.
+    assert row["job_from_order"] is True
+
+
+async def test_contract_job_wins_over_the_order(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """`Contract.job_id` jest kanoniczny — fallback wchodzi tylko przy jego braku."""
+    client_id, contract_id = await _seed_contract_with_order_job(contract_has_job=True)
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    row = next(
+        r for r in resp.json()["active_consultants"] if r["contract_id"] == contract_id
+    )
+    assert row["job_title"] == "Rekrutacja kontraktu"
+    assert row["job_from_order"] is False
+
+
+async def test_active_mrr_equals_the_sum_of_the_visible_margin_column(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Kafel ma być sumą tego, co użytkownik WIDZI pod nim.
+
+    Każdy wiersz zaokrągla `WholePLN` osobno (half-up). Sumowanie surowych
+    `Decimal`-i i zaokrąglenie raz na końcu dawało rozjazd o złotówkę (zmierzone
+    na prodzie: Alior 59 211 vs 59 212) — dwie liczby obok siebie, z których
+    użytkownik nie ma jak zgadnąć, która jest prawdziwa.
+
+    Stawka GODZINOWA z groszami jest tu istotna: przy równych kwotach
+    zaokrąglanie nie ma czego zepsuć i test przechodziłby także dla starej,
+    błędnej implementacji.
+    """
+    import uuid
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"MrrClient-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+        for i in range(3):
+            cand = Candidate(
+                name="Mrr",
+                lastname=f"C{i}-{uuid.uuid4().hex[:6]}",
+                email=f"mrr-{uuid.uuid4().hex[:8]}@example.com",
+            )
+            db.add(cand)
+            await db.commit()
+            await db.refresh(cand)
+            db.add(
+                Contract(
+                    candidate_id=cand.id,
+                    client_id=client.id,
+                    status=ContractStatus.active,
+                    start_date=today - timedelta(days=30),
+                    # 0,50 zł/h × 160 h = 80,00 zł marży — ale wprost:
+                    # 100,003 × 160 = 16 000,48 → 16 000; 120,006 × 160 =
+                    # 19 200,96 → 19 201. Marża surowa 3200,48 → 3200.
+                    rate_candidate=Decimal("100.003"),
+                    rate_client=Decimal("120.006"),
+                    rate_unit="hourly",
+                    billing_hours_per_month=160,
+                )
+            )
+        await db.commit()
+
+    resp = await app_client.get(
+        f"/api/clients/{client.id}/profile", headers=app_auth_headers
+    )
+    body = resp.json()
+    widoczna_suma = sum(r["monthly_margin"] for r in body["active_consultants"])
+    assert body["summary"]["active_mrr"] == widoczna_suma

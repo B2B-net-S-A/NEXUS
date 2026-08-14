@@ -69,6 +69,8 @@ export interface ActiveConsultantItem {
   candidate: CandidateBrief;
   job_id: number | null;
   job_title: string | null;
+  /** Rekrutacja pochodzi z ZAMÓWIENIA, nie z kontraktu — inna proweniencja. */
+  job_from_order: boolean;
   start_date: string;
   end_date: string | null;
   days_to_end: number | null;
@@ -88,6 +90,8 @@ export interface HistoricalPlacementItem {
   /** Rekrutacja jest linkowalna także w archiwum (dotąd był sam tytuł). */
   job_id: number | null;
   job_title: string | null;
+  /** Rekrutacja pochodzi z ZAMÓWIENIA, nie z kontraktu — inna proweniencja. */
+  job_from_order: boolean;
   start_date: string;
   end_date: string | null;
   terminated_at: string | null;
