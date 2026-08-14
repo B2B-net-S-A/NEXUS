@@ -211,6 +211,9 @@ export interface RecruitmentTeamTableRow {
   precision_pct: number | null
   precision_verified_30d: number
   precision_sent_30d: number
+  /** false = osoba nieaktywna z dorobkiem w oknie; wiersz zostaje, bo suma tabeli
+   *  jest wynikiem firmy i nie może kurczyć się przez zmianę flagi na koncie. */
+  is_active?: boolean
 }
 
 export interface RecruitmentTeamTableTotals {
@@ -222,6 +225,8 @@ export interface RecruitmentTeamTableTotals {
   cv_to_base: number
   precision_pct: number | null
   people: number
+  /** Kamienie milowe w oknie bez możliwej atrybucji — raportowane, nie ukryte. */
+  unattributed?: number
 }
 
 export interface RecruitmentTeamTable {

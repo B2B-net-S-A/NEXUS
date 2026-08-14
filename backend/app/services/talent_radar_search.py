@@ -145,6 +145,15 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         subcategory=None,
         industry=None,
         embedding_id=None,
+        # Zapytanie ad hoc nie ma hiring managera, więc nie ma czyjego weta
+        # sprawdzać — ale `load_manager_rejections` czyta to pole ZANIM sprawdzi,
+        # czy jest puste (`hiring_manager_verdicts.py:120`), a `SimpleNamespace`
+        # nie ma domyślnych atrybutów. Bez tej linii każde wyszukanie, które
+        # zwróciło choć jednego kandydata, kończyło się `AttributeError` w
+        # `filter_eligible_candidates` → 500. Pusta pula (degradacja retrievalu)
+        # wychodziła wcześniej, więc awaria nie pokazywała się na ścieżce
+        # „Qdrant leży" — tylko na tej, która miała działać.
+        hiring_manager_contact_id=None,
     )
 
 

@@ -91,8 +91,26 @@ PANEL_KPI_DEFAULTS: dict[str, dict[UserRole, int]] = {
 #   2) `classified_mf` — pierwszy zaakceptowany milestone w każdym natywnym
 #      attempt. Pending/rejected `verified` nie jest kamieniem milowym KPI,
 #      a akceptacja pending liczy się od `approved_at`, nie od pierwotnego ruchu.
-#   3) `classified_credited` — tylko zamrożone `kpi_eligible=true` i
-#      `credit_user_id`; handoff ownera nigdy nie zmienia creditu.
+#   3) `classified_credited` — zamrożone `kpi_eligible=true` (albo obserwacja
+#      z importu, patrz niżej) i `credit_user_id`; handoff ownera nigdy nie
+#      zmienia creditu.
+#
+# DECYZJA WŁAŚCICIELA 2026-08-13 — obserwacje z importu LICZĄ SIĘ do KPI.
+# Do tej pory obie gałęzie „classified" wymagały `kpi_eligible IS TRUE`, a
+# `_open_process_for_external_stage` stempluje każdy proces powstały z importu
+# jako `kpi_eligible=False` (`recruitment_process_commands.py:548`). Ponieważ
+# 99,5% ruchu w pipelinie pochodzi z Traffita (144 ruchy „manual" na 31 572
+# w 90 dni, zmierzone `/api/admin/process-adoption`), reguła zamieniała panel
+# firmy w miernik 0,5% jej pracy: kafle pokazywały 18 placementów rocznie przy
+# 315 w surowym widoku, a w sierpniu 2026 zeszły do 15 weryfikacji przy 387
+# realnych. Kamień milowy przechodził tylko wtedy, gdy wypadł PRZED otwarciem
+# procesu obserwacyjnego swojej pary (łapała go wtedy gałąź `legacy_*`), więc
+# im świeższy miesiąc, tym mniej było widać — zjazd 92% → 69% → 4%.
+#
+# Warunek celowo nazywa `origin_kind = 'external_observed'` zamiast po prostu
+# zdejmować predykat: `kpi_eligible=False` bywa ustawiane także przez moduł
+# priority work jako ŚWIADOME wykluczenie procesu (`priority_work_policy.py:538`
+# i `:551`) i te mają nadal nie liczyć się do KPI.
 #   4) `classified_fallback` — proces BEZ kotwicy (`classified_anchor`), czyli
 #      bez zaakceptowanego `verified` albo bez `credit_user_id`. Zamiast gubić
 #      kamień milowy (przed tym CTE dostawał go `COALESCE(verifier, first_mover)`)
@@ -188,7 +206,7 @@ VERIFIER_ANCHORED_CTE = """
         JOIN classified_process cp ON cp.id = mf.process_id
         JOIN classified_anchor verified
           ON verified.process_id = mf.process_id
-        WHERE cp.kpi_eligible IS TRUE
+        WHERE (cp.kpi_eligible IS TRUE OR cp.origin_kind::text = 'external_observed')
           AND mf.reached_at >= verified.reached_at
     ),
     classified_fallback AS (
@@ -203,7 +221,7 @@ VERIFIER_ANCHORED_CTE = """
           ON verified.process_id = mf.process_id
         LEFT JOIN classified_anchor anchored
           ON anchored.process_id = mf.process_id
-        WHERE cp.kpi_eligible IS TRUE
+        WHERE (cp.kpi_eligible IS TRUE OR cp.origin_kind::text = 'external_observed')
           AND anchored.process_id IS NULL
     ),
     legacy_mf AS (

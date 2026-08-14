@@ -45,6 +45,14 @@ def test_ephemeral_job_sets_every_attribute_the_scoring_path_reads():
         "app/services/scoring_service.py",
         "app/services/embedding_service.py",
         "app/services/pipeline_eligibility.py",
+        # Dopisane po awarii na prodzie (2026-08-13): `pipeline_eligibility`
+        # DELEGUJE weto do `hiring_manager_verdicts.load_manager_rejections`,
+        # które czyta `job.hiring_manager_contact_id`. Skan po trzech modułach
+        # tego nie widział, więc test przechodził, a każde realne wyszukanie
+        # kończyło się 500. Sama lista modułów jest ostatnią ręczną rzeczą w tym
+        # teście — dlatego niżej stoi drugi guard, który jedzie PRAWDZIWĄ ścieżką
+        # i nie ma czego przeoczyć.
+        "app/services/hiring_manager_verdicts.py",
     ):
         tree = ast.parse((backend / module).read_text(encoding="utf-8"))
         for fn in ast.walk(tree):
@@ -263,3 +271,59 @@ def test_salary_layer_is_blanked_because_a_radar_query_has_no_budget():
         "status": "not_applicable",
     }
     assert shaped["candidate"] is None, "a vanished row must not crash the response"
+
+
+async def test_search_survives_the_real_eligibility_path(monkeypatch):
+    """Guard, który nie ma czego przeoczyć: pełne `search()` po PRAWDZIWEJ ścieżce.
+
+    Test wyżej (skan AST) wylicza atrybuty z RĘCZNEJ listy modułów i właśnie na
+    tym się przewrócił: `pipeline_eligibility` deleguje weto do
+    `hiring_manager_verdicts`, którego na liście nie było, więc brak
+    `job.hiring_manager_contact_id` przeszedł przez CI i wywalał każde realne
+    wyszukanie na prodzie (500). Ten test nie enumeruje niczego — podstawia
+    tylko retrieval (jedyną zależność zewnętrzną: Voyage + Qdrant) i puszcza
+    resztę łańcucha na żywo, więc KAŻDY brakujący atrybut wychodzi tu, a nie u
+    użytkownika.
+
+    Pusta pula jest osobnym, łagodnym przypadkiem (`degraded=True`) i wychodzi
+    z `search()` ZANIM dotknie eligibility — dlatego awaria nie pokazywała się
+    na ścieżce „retrieval leży", tylko na tej, która miała działać.
+    """
+    import uuid as _uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.services import talent_radar_search as mod
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"RadarE2E-{_uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+
+        cand = Candidate(
+            name="Radar",
+            lastname=f"E2E-{_uuid.uuid4().hex[:6]}",
+            email=f"radar-{_uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add(cand)
+        await db.commit()
+        await db.refresh(cand)
+
+        async def _fake_pool(_db, _text, *, top_k, raise_on_error=False):
+            return [{"candidate_id": cand.id, "score": 0.71}]
+
+        monkeypatch.setattr(mod, "retrieve_candidate_pool", _fake_pool)
+
+        result = await mod.search(
+            db,
+            mod.RadarQuery(
+                client_id=client.id,
+                text="Senior DevOps Engineer, Kubernetes, Terraform, AWS",
+                top_k=5,
+            ),
+        )
+
+    assert result.degraded is False
+    assert result.pool_size == 1, "kandydat z puli musi dojść do rankingu"
