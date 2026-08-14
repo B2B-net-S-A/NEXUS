@@ -129,8 +129,14 @@ def test_entrypoint_drops_rewritten_checks_before_adding_them():
 
 
 def test_entrypoint_mirrors_the_widened_checks_and_entity_type_domain():
+    # Domena statusu została poszerzona ponownie w 0226 („Zawieszona"), więc
+    # asercja pilnuje `in_progress` W AKTUALNEJ liście, a nie dosłownego
+    # napisu z 0224 — inaczej każde kolejne poszerzenie fałszywie czerwieni
+    # test o luście, zamiast wykryć jego BRAK.
     entry = ENTRYPOINT.read_text("utf-8")
-    assert "contract_status IN ('active', 'in_progress', 'closed')" in entry
+    assert (
+        "contract_status IN ('active', 'in_progress', 'suspended', 'closed')" in entry
+    )
     assert "contract_status IN ('active', 'in_progress')" in entry
     assert "ck_b2b_generated_contracts_partner_entity_type" in entry
 
@@ -140,7 +146,9 @@ def test_model_matches_the_migration():
     nie z migracji — rozjazd oznacza, że świeża baza i CI mają inny constraint
     niż produkcja."""
     model = MODEL.read_text("utf-8")
-    assert "contract_status IN ('active', 'in_progress', 'closed')" in model
+    assert (
+        "contract_status IN ('active', 'in_progress', 'suspended', 'closed')" in model
+    )
     assert "contract_status IN ('active', 'in_progress')" in model
     assert "ck_b2b_generated_contracts_partner_entity_type" in model
     for column in _SNAPSHOT_COLUMNS:

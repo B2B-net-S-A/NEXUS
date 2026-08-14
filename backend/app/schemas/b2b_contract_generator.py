@@ -9,23 +9,55 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Status handlowy wygenerowanej umowy i katalog powodów zamknięcia. Wartości
 # muszą pokrywać się z CHECK-ami na `b2b_generated_contracts` (model + migracje
-# 0203/0224 + safety-net entrypointu) — etykiety PL żyją po stronie frontendu.
+# 0203/0224/0226 + safety-net entrypointu) — etykiety PL żyją po stronie
+# frontendu.
 #
 # `in_progress` (0224) jest ustawiany WYŁĄCZNIE automatycznie: przy generowaniu
 # umowy, a `active` wyłącznie przy potwierdzeniu podpisu obustronnego. Katalog
 # jest jeden dla odczytu i zapisu; ręczny wybór `in_progress` odrzuca walidator
 # `B2BGeneratedContractUpdate`, nie zawężony typ — patrz uzasadnienie tam.
-B2BContractStatus = Literal["active", "in_progress", "closed"]
+#
+# `suspended` (0226) = umowa nadal obowiązuje, ale kontraktor nie ma
+# przypisanego projektu. Zasila zakładkę „Umowy bez projektu".
+B2BContractStatus = Literal["active", "in_progress", "suspended", "closed"]
 # Typ podmiotu Partnera. Katalog żyje w `services.b2b_contract_generator.
 # entity_type`; tutaj powtórzony jako Literal, bo DTO nie może importować
 # serwisu (cykl importów).
 B2BPartnerEntityType = Literal["sole_trader", "company"]
+# Powody zakończenia PROJEKTU (0226). Wspólne dla `closed` i `suspended` —
+# jeden katalog, nie dwa: to samo zdarzenie („projekt się skończył") kończy albo
+# zawiesza umowę w zależności od tego, czy szukamy kontraktorowi kolejnego
+# zlecenia.
 B2BClosureReason = Literal[
+    "no_client_budget",
+    "contractor_found_other_project",
+    "contractor_health_reasons",
+    "contractor_underperformance",
+    "project_completed",
+    "internalization",
+    "other",
+    # Katalog sprzed 0226 (opisywał ROZSTANIE Z PARTNEREM, nie koniec projektu).
+    # Zniknął z pickera we froncie, ale zostaje tutaj i w CHECK-u, bo produkcja
+    # ma wiersze `closed`, które te wartości niosą — bez nich odczyt takiego
+    # wiersza wywracałby się na walidacji odpowiedzi, a historyczny powód
+    # zamieniłby się w puste miejsce.
     "resignation_before_signing",
     "termination",
     "mutual_agreement",
-    "other",
 ]
+# Powody wybieralne w UI — podzbiór `B2BClosureReason` bez wartości legacy.
+# Serwowany przez API, żeby front i backend nie trzymały dwóch kopii kolejności.
+B2B_SELECTABLE_CLOSURE_REASONS: tuple[str, ...] = (
+    "no_client_budget",
+    "contractor_found_other_project",
+    "contractor_health_reasons",
+    "contractor_underperformance",
+    "project_completed",
+    "internalization",
+    "other",
+)
+# Statusy, które wymagają powodu i daty zakończenia (lustro gałęzi CHECK-a).
+B2B_CLOSING_STATUSES: frozenset[str] = frozenset({"closed", "suspended"})
 
 
 class B2BRoleResponse(BaseModel):
@@ -403,6 +435,11 @@ class B2BGeneratedContractUpdate(BaseModel):
     Pola są opcjonalne i rozróżniane po ``model_fields_set`` — pominięcie pola
     zostawia je bez zmian, w odróżnieniu od jawnego przesłania ``null``. Bez
     tego dodanie statusu kasowałoby nazwę Klienta przy każdej zmianie statusu.
+
+    ``job_id`` przypisuje umowie nowy projekt przy przywróceniu jej z zawieszenia
+    (Ticket 6). Klient jest z niego wyprowadzany po stronie serwera — front go
+    nie przesyła, żeby nie dało się zapisać pary projekt/klient, która w bazie
+    do siebie nie należy.
     """
 
     client_name: Optional[str] = None
@@ -410,6 +447,7 @@ class B2BGeneratedContractUpdate(BaseModel):
     closure_reason: Optional[B2BClosureReason] = None
     closure_reason_other: Optional[str] = None
     closure_date: Optional[date] = None
+    job_id: Optional[int] = None
 
     @model_validator(mode="after")
     def _closure_fields_match_status(self) -> "B2BGeneratedContractUpdate":
@@ -417,6 +455,11 @@ class B2BGeneratedContractUpdate(BaseModel):
 
         Walidacja tutaj daje czytelny komunikat 422 po polsku zamiast surowego
         IntegrityError z bazy — sama baza pozostaje ostateczną barierą.
+
+        Czego ten walidator NIE sprawdza i sprawdzić nie może: że przejście na
+        „Zawieszona" wychodzi z „Aktywnej" i że przywracana umowa ma powiązany
+        kontrakt. Oba wymagają znajomości BIEŻĄCEGO stanu wiersza, którego DTO
+        nie widzi — egzekwuje je handler.
         """
         # `in_progress` jest stanem, PRZEZ który umowa przechodzi automatycznie,
         # nie stanem wybieranym. Odrzucane tutaj, a NIE przez zawężenie typu
@@ -447,18 +490,32 @@ class B2BGeneratedContractUpdate(BaseModel):
                 raise ValueError(
                     "Pola zamknięcia można przesłać wyłącznie razem ze statusem umowy."
                 )
+            if "job_id" in self.model_fields_set:
+                raise ValueError(
+                    "Projekt można przypisać wyłącznie razem ze statusem „Aktywna”."
+                )
             return self
 
-        if self.contract_status == "closed":
+        if self.contract_status in B2B_CLOSING_STATUSES:
+            # Jeden komplet reguł dla obu statusów, ale komunikaty rozróżniają,
+            # co się kończy: przy „Zawieszona" kończy się PROJEKT (umowa trwa),
+            # przy „Zakończona" — UMOWA. Wspólny tekst kazałby użytkownikowi
+            # zgadywać, o którą datę pyta formularz.
+            suspending = self.contract_status == "suspended"
+            subject = "projektu" if suspending else "umowy"
             if self.closure_reason is None:
-                raise ValueError("Podaj powód zamknięcia umowy.")
+                raise ValueError(f"Podaj powód zakończenia {subject}.")
             if self.closure_date is None:
-                raise ValueError("Data zakończenia umowy jest obowiązkowa.")
+                raise ValueError(f"Data zakończenia {subject} jest obowiązkowa.")
             other = (self.closure_reason_other or "").strip()
             if self.closure_reason == "other" and not other:
-                raise ValueError("Wpisz własny powód zamknięcia umowy.")
+                raise ValueError(f"Wpisz własny powód zakończenia {subject}.")
             if self.closure_reason != "other" and other:
-                raise ValueError("Własny powód można podać tylko dla powodu „Inne”.")
+                raise ValueError("Własny powód można podać tylko dla powodu „Inny”.")
+            if "job_id" in self.model_fields_set:
+                raise ValueError(
+                    "Projekt można przypisać wyłącznie razem ze statusem „Aktywna”."
+                )
             return self
 
         # active → wszystkie pola zamknięcia muszą zostać wyczyszczone.
@@ -466,7 +523,38 @@ class B2BGeneratedContractUpdate(BaseModel):
             raise ValueError("Aktywna umowa nie może mieć powodu ani daty zakończenia.")
         if (self.closure_reason_other or "").strip():
             raise ValueError("Aktywna umowa nie może mieć powodu ani daty zakończenia.")
+        # Jawne ``{"job_id": null}`` != pominięcie pola. Przywrócenie umowy do
+        # gry BEZ projektu jest dokładnie tym stanem, który opisuje „Zawieszona",
+        # więc pusty projekt przy statusie „Aktywna" nie jest korektą, tylko
+        # sprzecznością.
+        if "job_id" in self.model_fields_set and self.job_id is None:
+            raise ValueError("Wybierz projekt, do którego wraca kontraktor.")
         return self
+
+
+class B2BStatusEventItem(BaseModel):
+    """Wpis dziennika zmian statusu (dialog „Historia statusów").
+
+    ``reason`` celowo NIE jest typowany jako ``B2BClosureReason``: dziennik jest
+    zapisem tego, co się stało. Gdyby katalog powodów kiedyś się zmienił, wąski
+    typ wywracałby odczyt historycznych wpisów — a to jedyne miejsce, w którym
+    dane o zakończonych projektach przetrwały wyczyszczenie pól na umowie.
+    """
+
+    id: int
+    from_status: Optional[str] = None
+    to_status: str
+    effective_date: Optional[date] = None
+    reason: Optional[str] = None
+    reason_other: Optional[str] = None
+    job_id: Optional[int] = None
+    job_title: Optional[str] = None
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    changed_by_name: Optional[str] = None
+    created_at: Optional[str] = None
+
+    model_config = {"from_attributes": True}
 
 
 class B2BConfirmFullySignedRequest(BaseModel):

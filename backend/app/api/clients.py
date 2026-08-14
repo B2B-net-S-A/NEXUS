@@ -47,6 +47,7 @@ from app.schemas.client_profile import (
     OpenJobItem,
     RecruiterBrief,
 )
+from app.api.contracts import _effective_rate_fields
 from app.api.deps import AdminUser, OperationalUser, TacPlus
 
 router = APIRouter()
@@ -74,15 +75,26 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
 
 
 def _contract_total_revenue(
-    contract: Contract, boundary: Optional[date] = None
+    contract: Contract,
+    boundary: Optional[date] = None,
+    monthly_rate_client: Optional[object] = None,
 ) -> Optional[int]:
     """Cumulative revenue from a contract up to a boundary date (exclusive).
 
     For active contracts the caller passes `boundary=date.today()` so LTV keeps
     ticking. For ended contracts the caller passes the actual end date
     (terminated_at preferred, falls back to end_date, then today).
+
+    ``monthly_rate_client`` lets the caller inject the rate resolved from the
+    effective-dated schedule. Without it this would fall back to the legacy
+    column and the archive row would show a revenue total computed from a
+    different rate than the one displayed next to it in the same row.
     """
-    monthly = contract.monthly_rate_client
+    monthly = (
+        monthly_rate_client
+        if monthly_rate_client is not None
+        else contract.monthly_rate_client
+    )
     if monthly is None or contract.start_date is None:
         return None
     months = _duration_months(contract.start_date, boundary)
@@ -392,15 +404,32 @@ async def get_client_profile(
             # Potrzebne do wyliczenia „części umowy" e-Zdrowia (ticket #3) —
             # part żyje na ZAMÓWIENIU, wiersz konsultanta jest per-KONTRAKT.
             selectinload(Contract.client_orders),
+            # Trzy harmonogramy stawek — WYMAGANE przez `_effective_rate_fields`.
+            # Bez nich helper sięga po relację leniwie i w async leci
+            # `MissingGreenlet` (500 bez nagłówków CORS, w UI „Nie udało się
+            # wczytać profilu"). Ta sama pułapka pilnowana jest w 9 innych
+            # miejscach serializujących kontrakt.
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
         .order_by(Contract.start_date.desc())
     )
     active_contracts = list((await db.execute(active_stmt)).scalars().all())
 
+    # Stawki liczone z HARMONOGRAMÓW, nie z kolumn `contracts.rate_*`.
+    # Kolumna niesie wartość zapisaną przy ostatnim zapisie kontraktu, więc
+    # stawka progresywna albo aneks z datą, która już nadeszła, pokazywały tu
+    # STARĄ kwotę — a wraz z nią złą marżę i zaniżone „Aktywne MRR". Ticket każe
+    # te liczby wyeksponować w osobnych kolumnach; eksponowanie złej liczby jest
+    # gorsze niż jej brak.
+    active_rates = {c.id: _effective_rate_fields(c, today) for c in active_contracts}
+
     active_consultants: list[ActiveConsultantItem] = []
     for c in active_contracts:
         if c.candidate is None:
             continue
+        rates = active_rates[c.id]
         active_consultants.append(
             ActiveConsultantItem(
                 contract_id=c.id,
@@ -410,9 +439,9 @@ async def get_client_profile(
                 start_date=c.start_date,
                 end_date=c.end_date,
                 days_to_end=_days_to(c.end_date),
-                monthly_rate_client=c.monthly_rate_client,
-                monthly_rate_candidate=c.monthly_rate_candidate,
-                monthly_margin=c.monthly_margin,
+                monthly_rate_client=rates["monthly_rate_client"],
+                monthly_rate_candidate=rates["monthly_rate_candidate"],
+                monthly_margin=rates["monthly_margin"],
                 currency=c.currency or "PLN",
                 project_part=_representative_project_part(c),
             )
@@ -428,6 +457,9 @@ async def get_client_profile(
         .options(
             selectinload(Contract.candidate),
             selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
         .order_by(
             func.coalesce(Contract.terminated_at, Contract.end_date).desc().nullslast(),
@@ -437,23 +469,41 @@ async def get_client_profile(
     )
     ended_contracts = list((await db.execute(ended_stmt)).scalars().all())
 
+    # Archiwum to zapis HISTORYCZNY, więc stawka jest rozwiązywana na dzień
+    # zakończenia, nie na dziś. Krok harmonogramu zaplanowany PO zakończeniu
+    # projektu nigdy nie obowiązywał w jego trakcie i nie ma prawa pojawić się
+    # w wierszu archiwalnym.
+    ended_boundaries = {
+        c.id: (c.terminated_at or c.end_date or today) for c in ended_contracts
+    }
+    ended_rates = {
+        c.id: _effective_rate_fields(c, ended_boundaries[c.id]) for c in ended_contracts
+    }
+
     placements: list[HistoricalPlacementItem] = []
     for c in ended_contracts:
         if c.candidate is None:
             continue
-        end_boundary = c.terminated_at or c.end_date or today
+        end_boundary = ended_boundaries[c.id]
+        rates = ended_rates[c.id]
         duration = _duration_months(c.start_date, end_boundary)
         placements.append(
             HistoricalPlacementItem(
                 contract_id=c.id,
                 candidate=_candidate_brief(c.candidate),
+                job_id=c.job_id,
                 job_title=c.job.title if c.job else None,
                 start_date=c.start_date,
                 end_date=c.end_date,
                 terminated_at=c.terminated_at,
                 termination_reason=c.termination_reason,
                 duration_months=duration,
-                total_revenue=_contract_total_revenue(c, end_boundary),
+                monthly_rate_client=rates["monthly_rate_client"],
+                monthly_rate_candidate=rates["monthly_rate_candidate"],
+                monthly_margin=rates["monthly_margin"],
+                total_revenue=_contract_total_revenue(
+                    c, end_boundary, rates["monthly_rate_client"]
+                ),
             )
         )
 
@@ -490,17 +540,26 @@ async def get_client_profile(
         )
 
     # ── 5. Summary metrics ────────────────────────────────────────────────
-    active_mrr = sum((c.monthly_margin or 0) for c in active_contracts)
+    # Ten sam słownik stawek, z którego liczą się wiersze — inaczej kafel
+    # „Aktywne MRR" byłby sumą innych liczb niż te widoczne pod nim, a
+    # użytkownik nie miałby jak zgadnąć, która wersja jest prawdziwa.
+    active_mrr = sum(
+        (active_rates[c.id]["monthly_margin"] or 0) for c in active_contracts
+    )
 
     # LTV = cumulative revenue so far. For active contracts use today as the
     # boundary so the number keeps ticking; for ended use the real end date.
     ltv = 0
     for c in active_contracts:
-        rev = _contract_total_revenue(c, today)
+        rev = _contract_total_revenue(
+            c, today, active_rates[c.id]["monthly_rate_client"]
+        )
         if rev:
             ltv += rev
     for c in ended_contracts:
-        rev = _contract_total_revenue(c, c.terminated_at or c.end_date or today)
+        rev = _contract_total_revenue(
+            c, ended_boundaries[c.id], ended_rates[c.id]["monthly_rate_client"]
+        )
         if rev:
             ltv += rev
 
@@ -554,6 +613,13 @@ async def get_client_profile(
             consultant.monthly_margin = None
         for placement in response.historical.placements:
             placement.total_revenue = None
+            # Archiwum pokazuje ten sam komplet stawek co „Obecni konsultanci",
+            # więc musi być redagowane tak samo — inaczej rola bez VIEW_FINANCE
+            # zobaczyłaby w archiwum dokładnie te kwoty, które ukrywamy jej
+            # w zakładce obok.
+            placement.monthly_rate_client = None
+            placement.monthly_rate_candidate = None
+            placement.monthly_margin = None
 
     return response
 

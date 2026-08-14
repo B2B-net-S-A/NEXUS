@@ -71,30 +71,44 @@ interface StatsCardProps {
   sparkline?: number[];
 }
 
+/**
+ * Kafelek KPI profilu klienta. Układ JEDNOLINIOWY: etykieta i wartość w tym
+ * samym rzędzie, ~44 px zamiast ~88 px — kafle stały nad listą konsultantów
+ * i zjadały pół ekranu na dwie liczby.
+ *
+ * `subtitle` przeszedł do `title` (natywny tooltip) zamiast własnej linijki:
+ * w jednym rzędzie nie ma na niego miejsca, ale to jedyne wyjaśnienie, że
+ * „Aktywne MRR" jest sumą MARŻ, a nie przychodów — skasowanie go zamieniłoby
+ * tę liczbę w zagadkę.
+ *
+ * Komponent ma dokładnie jednego konsumenta (`client-profile/SummaryBar`), więc
+ * zmiana nie dotyka żadnego innego ekranu. Nie mylić z `components/ds/StatCard`,
+ * który ma sześć miejsc użycia.
+ */
 export function StatsCard({ title, value, subtitle, icon, color = "blue", trend, sparkline }: StatsCardProps) {
   const strokeColor = SPARKLINE_COLORS[color] ?? SPARKLINE_COLORS.blue;
 
   return (
-    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 flex flex-col gap-3 hover:shadow-md transition-all duration-200 cursor-default">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-muted-foreground dark:text-muted-foreground">{title}</span>
-        <div className="flex items-center gap-2">
-          {sparkline && <Sparkline values={sparkline} color={strokeColor} />}
-          {icon && (
-            <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center border", COLOR_MAP[color])}>
-              {icon}
-            </div>
-          )}
-        </div>
-      </div>
-      <div>
-        <p className="text-3xl font-bold text-foreground dark:text-foreground leading-none">{value}</p>
-        {subtitle && <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{subtitle}</p>}
+    <div
+      className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-2.5 flex items-center gap-3 hover:shadow-md transition-all duration-200 cursor-default"
+      title={subtitle}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium text-muted-foreground dark:text-muted-foreground truncate">{title}</p>
+        <p className="text-xl font-bold text-foreground dark:text-foreground leading-tight tabular-nums">{value}</p>
         {trend != null && (
-          <p className={cn("text-xs mt-1 font-medium", trend.value >= 0 ? "text-green-600" : "text-destructive")}>
+          <p className={cn("text-xs font-medium", trend.value >= 0 ? "text-green-600" : "text-destructive")}>
             {trend.value >= 0 ? "↑" : "↓"} {Math.abs(trend.value)}%
             {trend.label && <span className="text-muted-foreground dark:text-muted-foreground font-normal ml-1">{trend.label}</span>}
           </p>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {sparkline && <Sparkline values={sparkline} color={strokeColor} />}
+        {icon && (
+          <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center border", COLOR_MAP[color])}>
+            {icon}
+          </div>
         )}
       </div>
     </div>

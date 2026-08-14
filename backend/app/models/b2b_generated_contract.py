@@ -46,24 +46,39 @@ class B2BGeneratedContract(Base, TimestampMixin):
             name="ck_b2b_generated_contracts_signature_source",
         ),
         CheckConstraint(
-            "contract_status IN ('active', 'in_progress', 'closed')",
+            "contract_status IN ('active', 'in_progress', 'suspended', 'closed')",
             name="ck_b2b_generated_contracts_contract_status",
         ),
+        # Katalog powodów opisuje KONIEC PROJEKTU (migracja 0226). Trzy wartości
+        # z 0203 (`resignation_before_signing`, `termination`,
+        # `mutual_agreement`) opisywały ROZSTANIE Z PARTNEREM i zniknęły
+        # z pickera, ale zostają tutaj: produkcja ma wiersze `closed`, które je
+        # niosą. CHECK jest domeną dopuszczalnych wartości, nie listą
+        # podpowiedzi w UI — zawężenie go wywaliłoby walidację constraintu, a
+        # nawet gdyby przeszło, historyczny powód zamieniłby się w puste
+        # miejsce.
         CheckConstraint(
             "closure_reason IS NULL OR closure_reason IN ("
-            "'resignation_before_signing', 'termination', "
-            "'mutual_agreement', 'other')",
+            "'no_client_budget', 'contractor_found_other_project', "
+            "'contractor_health_reasons', 'contractor_underperformance', "
+            "'project_completed', 'internalization', 'other', "
+            "'resignation_before_signing', 'termination', 'mutual_agreement')",
             name="ck_b2b_generated_contracts_closure_reason",
         ),
-        # Domknięcie stanu: „Zamknięta" bez powodu albo bez daty zakończenia jest
-        # bezużyteczne (nie wiadomo, co i kiedy się skończyło), a „Aktywna" z
-        # wypełnionym powodem to sprzeczność. Wymuszamy to w bazie, nie tylko w
-        # API, bo dane wchodzą tu również safety-netem entrypointu.
+        # Domknięcie stanu: „Zakończona" bez powodu albo bez daty zakończenia
+        # jest bezużyteczna (nie wiadomo, co i kiedy się skończyło), a „Aktywna"
+        # z wypełnionym powodem to sprzeczność. Wymuszamy to w bazie, nie tylko
+        # w API, bo dane wchodzą tu również safety-netem entrypointu.
         #
         # `in_progress` jest tu traktowany jak `active` (migracja 0224): umowa
         # w drodze do podpisu nie ma i nie może mieć pól zamknięcia. Gdyby ta
         # gałąź została przypięta wyłącznie do `active`, wiersz `in_progress`
         # łamałby OBIE gałęzie → IntegrityError na każdym generowaniu umowy.
+        #
+        # `suspended` jest traktowany jak `closed` (migracja 0226): umowa bez
+        # projektu MUSI powiedzieć, co i kiedy się skończyło — inaczej zakładka
+        # „Umowy bez projektu" pokazywałaby wiersze bez daty i powodu, czyli
+        # dokładnie to, czego ten status miał uniknąć.
         CheckConstraint(
             "("
             "contract_status IN ('active', 'in_progress')"
@@ -71,7 +86,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
             " AND closure_date IS NULL"
             " AND closure_reason_other IS NULL"
             ") OR ("
-            "contract_status = 'closed'"
+            "contract_status IN ('closed', 'suspended')"
             " AND closure_reason IS NOT NULL"
             " AND closure_date IS NOT NULL"
             " AND ((closure_reason = 'other') = (closure_reason_other IS NOT NULL))"
@@ -135,12 +150,21 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # zamknięta rezygnacją przed podpisem. Zamknięcie NIE usuwa wiersza —
     # kończy jego bieg i zostaje w rejestrze.
     #
-    # Trzy wartości (0224): `in_progress` → `active` → `closed`, gdzie
-    # `in_progress` ustawia generowanie, a `active` WYŁĄCZNIE potwierdzenie
-    # podpisu obustronnego. Default kolumny ZOSTAJE `active` i to nie jest
-    # przeoczenie: opisuje wiersz wstawiony bez decyzji o statusie (seed,
-    # safety-net entrypointu, surowy INSERT). Zmiana defaultu na `in_progress`
-    # przepisałaby historię każdego takiego wiersza.
+    # Cztery wartości: `in_progress` → `active` → (`suspended` ⇄ `active`) →
+    # `closed`. `in_progress` ustawia generowanie, `active` WYŁĄCZNIE
+    # potwierdzenie podpisu obustronnego (0224), a `suspended` (0226) opisuje
+    # umowę, która nadal obowiązuje, choć kontraktor nie ma przypisanego
+    # projektu — zasila zakładkę „Umowy bez projektu".
+    #
+    # Zawiesić można WYŁĄCZNIE umowę `active`: „nadal obowiązuje" nie opisuje
+    # dokumentu przed podpisem. Bez tej reguły `in_progress → suspended`
+    # tworzyłby ślepy zaułek, bo powrót na `active` wymaga powiązanego
+    # kontraktu (409), który powstaje dopiero przy potwierdzeniu podpisu.
+    #
+    # Default kolumny ZOSTAJE `active` i to nie jest przeoczenie: opisuje wiersz
+    # wstawiony bez decyzji o statusie (seed, safety-net entrypointu, surowy
+    # INSERT). Zmiana defaultu na `in_progress` przepisałaby historię każdego
+    # takiego wiersza.
     contract_status: Mapped[str] = mapped_column(
         String(16), default="active", server_default="active", nullable=False
     )

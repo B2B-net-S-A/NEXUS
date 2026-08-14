@@ -173,7 +173,7 @@ describe("GeneratedContractsTab — status umowy", () => {
     renderTab([generatedRow()]);
     expect(await screen.findByText("W trakcie")).toBeInTheDocument();
     expect(screen.queryByText("Aktywna")).not.toBeInTheDocument();
-    expect(screen.queryByText("Zamknięta")).not.toBeInTheDocument();
+    expect(screen.queryByText("Zakończona")).not.toBeInTheDocument();
   });
 
   it("„Aktywna” to stan po potwierdzeniu podpisu, nie po wygenerowaniu", async () => {
@@ -182,7 +182,24 @@ describe("GeneratedContractsTab — status umowy", () => {
     expect(screen.queryByText("W trakcie")).not.toBeInTheDocument();
   });
 
-  it("pokazuje powód i datę zakończenia zamkniętej umowy", async () => {
+  it("pokazuje powód i datę zakończenia zakończonej umowy", async () => {
+    renderTab([
+      generatedRow({
+        contract_status: "closed",
+        closure_reason: "project_completed",
+        closure_date: "2026-08-31",
+      }),
+    ]);
+
+    expect(await screen.findByText("Zakończona")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Zakończenie projektu · 2026-08-31/),
+    ).toBeInTheDocument();
+  });
+
+  it("powód sprzed migracji 0226 nadal ma etykietę, nie surowy klucz", async () => {
+    // Produkcja ma zamknięte umowy z katalogiem sprzed zmiany. Usunięcie tych
+    // etykiet zamieniłoby historyczny powód w puste miejsce albo w `termination`.
     renderTab([
       generatedRow({
         contract_status: "closed",
@@ -191,8 +208,9 @@ describe("GeneratedContractsTab — status umowy", () => {
       }),
     ]);
 
-    expect(await screen.findByText("Zamknięta")).toBeInTheDocument();
-    expect(screen.getByText(/Wypowiedzenie · 2026-08-31/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Wypowiedzenie · 2026-08-31/),
+    ).toBeInTheDocument();
   });
 
   it("dla powodu „Inne” pokazuje własny tekst, nie etykietę katalogową", async () => {
@@ -210,7 +228,7 @@ describe("GeneratedContractsTab — status umowy", () => {
     ).toBeInTheDocument();
   });
 
-  it("„Zamknięta” odsłania powód i datę, i wysyła komplet pól", async () => {
+  it("„Zakończona” odsłania powód i datę, i wysyła komplet pól", async () => {
     const user = setupUser();
     mocks.updateGenerated.mockResolvedValue(
       generatedRow({ contract_status: "closed" }),
@@ -223,15 +241,15 @@ describe("GeneratedContractsTab — status umowy", () => {
     // Póki umowa jest Aktywna, pola zamknięcia nie istnieją.
     expect(screen.queryByLabelText("Data zakończenia umowy")).toBeNull();
 
-    await pickOption(user, /Status umowy/, "Zamknięta");
-    await pickOption(user, /Powód zamknięcia umowy/, "Wypowiedzenie");
+    await pickOption(user, /Status umowy/, "Zakończona");
+    await pickOption(user, /Powód zakończenia umowy/, "Zakończenie projektu");
     setDate("Data zakończenia umowy", "2026-08-31");
     await user.click(screen.getByRole("button", { name: /Zapisz status/ }));
 
     await waitFor(() =>
       expect(mocks.updateGenerated).toHaveBeenCalledWith(1, {
         contract_status: "closed",
-        closure_reason: "termination",
+        closure_reason: "project_completed",
         closure_reason_other: null,
         closure_date: "2026-08-31",
       }),
@@ -248,10 +266,10 @@ describe("GeneratedContractsTab — status umowy", () => {
     await user.click(
       await screen.findByRole("button", { name: /Zmień status/ }),
     );
-    await pickOption(user, /Status umowy/, "Zamknięta");
+    await pickOption(user, /Status umowy/, "Zakończona");
     expect(screen.queryByLabelText("Własny powód")).toBeNull();
 
-    await pickOption(user, /Powód zamknięcia umowy/, "Inne");
+    await pickOption(user, /Powód zakończenia umowy/, "Inny");
     fireEvent.change(screen.getByLabelText("Własny powód"), {
       target: { value: "Zmiana modelu współpracy" },
     });
@@ -268,15 +286,15 @@ describe("GeneratedContractsTab — status umowy", () => {
     );
   });
 
-  it("nie zapisuje „Zamkniętej” bez daty zakończenia", async () => {
+  it("nie zapisuje „Zakończonej” bez daty zakończenia", async () => {
     const user = setupUser();
     renderTab([generatedRow()]);
 
     await user.click(
       await screen.findByRole("button", { name: /Zmień status/ }),
     );
-    await pickOption(user, /Status umowy/, "Zamknięta");
-    await pickOption(user, /Powód zamknięcia umowy/, "Wypowiedzenie");
+    await pickOption(user, /Status umowy/, "Zakończona");
+    await pickOption(user, /Powód zakończenia umowy/, "Zakończenie projektu");
     await user.click(screen.getByRole("button", { name: /Zapisz status/ }));
 
     expect(mocks.updateGenerated).not.toHaveBeenCalled();
@@ -334,7 +352,9 @@ describe("GeneratedContractsTab — wyszukiwarka", () => {
       () =>
         expect(mocks.generated).toHaveBeenCalledWith(100, {
           q: "Kowalski",
-          contractStatus: undefined,
+          // Zakładka pyta o DWA statusy naraz — „Wszystkie" znaczy tu
+          // „aktywne i w trakcie podpisu", nie „wszystkie umowy w systemie".
+          contractStatus: ["active", "in_progress"],
         }),
       { timeout: 2000 },
     );
@@ -345,14 +365,31 @@ describe("GeneratedContractsTab — wyszukiwarka", () => {
     renderTab([generatedRow()]);
     await screen.findByText("1471/2026");
 
-    await pickOption(user, /Filtr statusu umowy/, "Zamknięta");
+    await pickOption(user, /Filtr statusu umowy/, "Aktywna");
 
     await waitFor(() =>
       expect(mocks.generated).toHaveBeenCalledWith(100, {
         q: "",
-        contractStatus: "closed",
+        contractStatus: ["active"],
       }),
     );
+  });
+
+  it("filtr statusu nie oferuje zakładek obok — zakończonej ani zawieszonej", async () => {
+    // Zostawienie ich tutaj pokazywałoby tę samą umowę w dwóch zakładkach
+    // naraz i psuło obietnicę nazwy tej zakładki.
+    const user = setupUser();
+    renderTab([generatedRow()]);
+    await screen.findByText("1471/2026");
+
+    await user.click(
+      screen.getByRole("combobox", { name: /Filtr statusu umowy/ }),
+    );
+    expect(
+      await screen.findByRole("option", { name: "Aktywna" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Zakończona" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Zawieszona" })).toBeNull();
   });
 
   it("pusty wynik wyszukiwania nie udaje braku umów w systemie", async () => {

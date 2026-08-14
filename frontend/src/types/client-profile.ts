@@ -85,12 +85,21 @@ export interface ActiveConsultantItem {
 export interface HistoricalPlacementItem {
   contract_id: number;
   candidate: CandidateBrief;
+  /** Rekrutacja jest linkowalna także w archiwum (dotąd był sam tytuł). */
+  job_id: number | null;
   job_title: string | null;
   start_date: string;
   end_date: string | null;
   terminated_at: string | null;
   termination_reason: ContractTerminationReason | null;
   duration_months: number | null;
+  /**
+   * Stawki rozwiązane na DZIEŃ ZAKOŃCZENIA, nie na dziś — archiwum jest zapisem
+   * historycznym. `null` = brak uprawnień finansowych (backend redaguje).
+   */
+  monthly_rate_client: number | null;
+  monthly_rate_candidate: number | null;
+  monthly_margin: number | null;
   total_revenue: number | null;
 }
 

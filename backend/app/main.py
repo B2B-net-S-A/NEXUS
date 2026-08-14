@@ -1796,6 +1796,9 @@ async def api_health_deep_check():
 
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.b2b_generated_contract_status_event import (
+        B2BGeneratedContractStatusEvent,
+    )
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.contract import Contract
@@ -1838,6 +1841,10 @@ async def api_health_deep_check():
         ("contract_candidate_rates", ContractCandidateRate),
         ("contract_client_rates", ContractClientRate),
         ("b2b_generated_contracts", B2BGeneratedContract),
+        (
+            "b2b_generated_contract_status_events",
+            B2BGeneratedContractStatusEvent,
+        ),
         ("candidates", Candidate),
         ("clients", Client),
         ("jobs", Job),

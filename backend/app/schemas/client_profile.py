@@ -88,14 +88,29 @@ class ActiveConsultantItem(BaseModel):
 
 
 class HistoricalPlacementItem(BaseModel):
+    """Wiersz zakładki „Archiwum konsultantów" — konsultant po zakończeniu projektu.
+
+    Ten sam komplet kolumn co „Obecni konsultanci" plus data zakończenia. Stawki
+    są rozwiązywane na DZIEŃ ZAKOŃCZENIA, nie na dziś: archiwum jest zapisem
+    historycznym, a krok harmonogramu zaplanowany po zakończeniu projektu nigdy
+    nie obowiązywał w jego trakcie.
+    """
+
     contract_id: int
     candidate: CandidateBrief
+    # `job_id` (nie tylko tytuł) — wiersz archiwum linkuje do rekrutacji tak samo
+    # jak wiersz aktywnego konsultanta.
+    job_id: Optional[int] = None
     job_title: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     terminated_at: Optional[date] = None
     termination_reason: Optional[ContractTerminationReason] = None
     duration_months: Optional[int] = None
+    # Dane finansowe — redagowane dla ról bez VIEW_FINANCE, jak w rodzeństwie.
+    monthly_rate_client: Optional[WholePLN] = None
+    monthly_rate_candidate: Optional[WholePLN] = None
+    monthly_margin: Optional[WholePLN] = None
     total_revenue: Optional[int] = None  # monthly_rate_client * duration_months (PLN)
 
 
