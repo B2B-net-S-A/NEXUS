@@ -220,7 +220,17 @@ def _pending_candidates_stmt(
     return stmt.limit(limit) if limit is not None else stmt
 
 
-def _terminal_marker(candidate: Candidate) -> Optional[str]:
+def _terminal_marker(
+    candidate: Candidate, retry_outcomes: frozenset[str] = frozenset()
+) -> Optional[str]:
+    """Terminalny wynik z markera — z pominięciem klas otwartych do retry.
+
+    Ten guard MUSI dostawać ten sam `retry_outcomes` co SQL: pierwsza wersja
+    flagi otwierała wyłącznie predykat SQL, a pętla wyrzucała każdy wpuszczony
+    wiersz tutaj — bieg `--retry-outcomes` był cichym no-opem wyglądającym jak
+    „nie ma nic do zrobienia" (złapane w review #1156).
+    """
+
     extracted = candidate.cv_extracted_data
     if not isinstance(extracted, dict):
         return None
@@ -228,6 +238,8 @@ def _terminal_marker(candidate: Candidate) -> Optional[str]:
     if not isinstance(marker, dict):
         return None
     outcome = marker.get("outcome")
+    if outcome in retry_outcomes:
+        return None
     return outcome if outcome in _TERMINAL_OUTCOMES else None
 
 
@@ -307,7 +319,7 @@ async def run_backfill(
                 )
                 if candidate is None:
                     continue
-                if _terminal_marker(candidate):
+                if _terminal_marker(candidate, retry_outcomes=retry_outcomes):
                     stats.skipped_terminal += 1
                     continue
 
