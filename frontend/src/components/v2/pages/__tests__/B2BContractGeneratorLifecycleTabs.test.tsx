@@ -231,6 +231,27 @@ describe("Umowy bez projektu", () => {
     );
   });
 
+  it("dialog statusu NIE oferuje „Aktywnej” dla wiersza zawieszonego", async () => {
+    // Powrót do gry wymaga wskazania projektu, więc taki zapis backend
+    // odrzuciłby 422. Opcja, która zawsze kończy się błędem, jest gorsza niż
+    // jej brak — od tego jest przycisk „Przywróć".
+    const user = setupUser();
+    renderTab(NoProjectContractsTab, [row()]);
+    await screen.findByText("1471/2026");
+
+    await user.click(
+      screen.getByRole("button", { name: /Zakończ umowę/ }),
+    );
+    await user.click(
+      await screen.findByRole("combobox", { name: /Status umowy/ }),
+    );
+    expect(
+      await screen.findByRole("option", { name: "Zawieszona" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Zakończona" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Aktywna" })).toBeNull();
+  });
+
   it("nie da się zapisać przywrócenia bez wybranego projektu", async () => {
     const user = setupUser();
     mocks.apiGet.mockResolvedValue({ data: [] });

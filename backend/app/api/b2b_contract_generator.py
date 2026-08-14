@@ -1749,6 +1749,20 @@ async def update_generated_contract(
     if wants_status:
         old_status = row.contract_status
         new_status = payload.contract_status
+        # ŚWIADOMA ASYMETRIA: projektu i notatki wymaga wyłącznie powrót
+        # z ZAWIESZENIA, nie każde przejście na „Aktywna".
+        #
+        # `suspended → active` to ZDARZENIE BIZNESOWE — kontraktor wraca do
+        # pracy, więc musi być powiedziane, do czyjego projektu, a informacja
+        # o poprzednim projekcie musi trafić do Kontraktów, zanim `closure_*`
+        # zostaną wyczyszczone.
+        #
+        # `closed → active` to KOREKTA POMYŁKI — ktoś zamknął nie tę umowę.
+        # Wymuszanie projektu blokowałoby cofnięcie błędnego kliknięcia
+        # i zmuszało do wpisania projektu, którego może nie być. Zdarzenie
+        # trafia do dziennika (niżej), więc ślad zostaje. Ta ścieżka NIE ma
+        # dziś powierzchni w UI: zakładka „Zakończone umowy" jest read-only,
+        # a dialog statusu nie oferuje „Aktywnej" dla wiersza zawieszonego.
         reactivating = new_status == "active" and old_status == "suspended"
 
         # Zawiesić można WYŁĄCZNIE umowę już obowiązującą. Bez tego guardu
@@ -1828,7 +1842,10 @@ async def update_generated_contract(
         if job is not None:
             row.job_id = job.id
             row.client_id = job.client_id
-            client = await db.get(Client, job.client_id) if job.client_id else None
+            # Bez gałęzi `if job.client_id` — `Job.client_id` jest NOT NULL od
+            # migracji 0120, więc taki guard byłby martwym kodem udającym
+            # obsłużony przypadek.
+            client = await db.get(Client, job.client_id)
             if client is not None:
                 row.client_name = client.display_name or client.name
             # `render_payload` NIE jest synchronizowany — w odróżnieniu od

@@ -1125,3 +1125,48 @@ async def test_unknown_filter_values_are_422_not_ignored(app_client, app_auth_he
         PATH, headers=app_auth_headers, params={"closure_reason": "bo tak"}
     )
     assert bad_reason.status_code == 422, bad_reason.text
+
+
+async def test_reopening_a_closed_contract_does_not_require_a_project(
+    app_client, app_auth_headers
+):
+    """ŚWIADOMA ASYMETRIA względem powrotu z zawieszenia.
+
+    `suspended → active` to zdarzenie biznesowe (kontraktor wraca do pracy), więc
+    musi powiedzieć, do czyjego projektu. `closed → active` to KOREKTA POMYŁKI —
+    ktoś zamknął nie tę umowę. Wymuszanie projektu blokowałoby cofnięcie błędnego
+    kliknięcia i kazałoby wpisać projekt, którego może nie być.
+
+    Ta ścieżka nie ma dziś powierzchni w UI (zakładka „Zakończone umowy" jest
+    read-only), ale API ją dopuszcza i ten test przypina ją jako decyzję, a nie
+    przeoczenie. Ślad zostaje w dzienniku."""
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={
+            "contract_status": "closed",
+            "closure_reason": "project_completed",
+            "closure_date": "2026-08-31",
+        },
+    )
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}", headers=app_auth_headers, json={"contract_status": "active"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["contract_status"] == "active"
+    assert resp.json()["closure_reason"] is None
+
+    history = await app_client.get(
+        f"{PATH}/{rid}/status-history", headers=app_auth_headers
+    )
+    # `_seed` wstawia wiersz BEZ statusu, więc obowiązuje default kolumny
+    # (`active`) — `in_progress` ustawia wyłącznie handler `/render`.
+    assert [(e["from_status"], e["to_status"]) for e in history.json()] == [
+        ("active", "closed"),
+        ("closed", "active"),
+    ]
+    # Bez projektu nie ma czego przypisać — wiersz zostaje bez rekrutacji.
+    assert history.json()[-1]["job_id"] is None

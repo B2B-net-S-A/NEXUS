@@ -1186,9 +1186,16 @@ export function ContractStatusDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="active">
-                  {B2B_CONTRACT_STATUS_LABEL.active}
-                </SelectItem>
+                {/* Dla wiersza ZAWIESZONEGO „Aktywna" nie jest tu opcją: powrót
+                    do gry wymaga wskazania projektu, więc backend odrzuciłby
+                    taki zapis 422. Opcja, która zawsze kończy się błędem, jest
+                    gorsza niż jej brak — od tego jest przycisk „Przywróć",
+                    który pyta o projekt. */}
+                {row.contract_status !== "suspended" ? (
+                  <SelectItem value="active">
+                    {B2B_CONTRACT_STATUS_LABEL.active}
+                  </SelectItem>
+                ) : null}
                 {/* „W trakcie" MUSI być na liście, ale wyszarzone. Widoczne,
                     bo bez tej pozycji Radix wyrenderowałby pusty trigger dla
                     umowy, która właśnie w tym stanie jest. Niewybieralne, bo
