@@ -1227,7 +1227,9 @@ def _score_availability(
                 availability_date = derived
                 source_note = " (z notatek)"
         if not reference_deadline:
-            champion_start = _parse_champion_date(_champion_dict(job).get("start_date"))
+            champion_start = _parse_champion_date(
+                _champion_dict(job).get("start_date"), today=today
+            )
             if champion_start:
                 reference_deadline = champion_start
                 source_note += " (start Championa)"

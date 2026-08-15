@@ -156,3 +156,15 @@ def test_column_and_deadline_still_win_over_fallbacks(v11_on):
     res = _score_availability(cand, job)
     assert res.points == res.max_points
     assert "z notatek" not in res.reason, "kolumna wygrywa z notatkami"
+
+
+def test_asap_champion_start_uses_pinned_today(v11_on):
+    """ASAP w start_date Championa musi honorować wstrzyknięte today —
+    trzecia runda review złapała cichy no-op replace bez asercji trafień."""
+
+    job = _job(champion_profile={"start_date": "ASAP"})
+    cand = _cand(
+        cv_extracted_data={"_notes_insights": {"availability": {"raw": "od zaraz"}}}
+    )
+    res = _score_availability(cand, job, today=date(2030, 1, 1))
+    assert res.points == res.max_points, "obie strony = pinned today → na czas"
