@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import date, timedelta
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Optional, Sequence
 
@@ -187,6 +188,7 @@ class WeightProfile:
 # 0150 did a mass invalidation); a third time was only a matter of when.
 _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "CHAMPION_MATCH_SIGNALS_ENABLED",
+    "CHAMPION_SIGNALS_V11_ENABLED",
     "AI_SCORING_CONTRACT_V2",
     "VOYAGE_MODEL",
     "SEMANTIC_CALIBRATION_GAMMA",
@@ -323,6 +325,9 @@ class ScoreBreakdown:
     salary: LayerResult
     location: LayerResult
     availability: LayerResult
+    # v1.1: powód mnożnikowej kary seniority — kara 16-32% bez śladu w
+    # breakdownie byłaby niediagnozowalna ("68 po karze" vs "68 bez kary").
+    seniority_note: Optional[str] = None
     matching_must: List[str] = field(default_factory=list)
     gap_must: List[str] = field(default_factory=list)
     matching_nice: List[str] = field(default_factory=list)
@@ -1095,29 +1100,159 @@ def _score_location(
     )
 
 
+def _v11_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_SIGNALS_V11_ENABLED", False))
+
+
+# Kara mnożnikowa, nie punktowa: kompozyt ma dwa tryby (suma i renormalizacja
+# do 100), w których stała liczba punktów znaczyłaby co innego. Mnożnik działa
+# w obu identycznie. Tolerancja 1 roku, bo lata z CV są szacunkiem (±1 to szum,
+# nie sygnał); cap -32%%, bo sam dokument Championa ostrzega przed nadmiernym
+# filtrowaniem ("nie zawężamy do X" — sekcja uwag Delivery Leada).
+_SENIORITY_TOLERANCE_YEARS = 1
+_SENIORITY_PENALTY_PER_YEAR = 0.08
+_SENIORITY_PENALTY_CAP = 0.32
+
+
+def _champion_seniority_factor(
+    candidate: Candidate, job: Job
+) -> tuple[float, Optional[str]]:
+    """(mnożnik totalu, powód) — 1.0/None gdy nie ma czego oceniać."""
+
+    if not _v11_enabled():
+        return 1.0, None
+    required = _champion_dict(job).get("seniority_min_years")
+    if isinstance(required, bool) or not isinstance(required, (int, float)):
+        return 1.0, None
+    years = getattr(candidate, "years_it_experience", None)
+    if years is None or not isinstance(years, (int, float)) or isinstance(years, bool):
+        return 1.0, None
+    deficit = float(required) - float(years)
+    if deficit <= _SENIORITY_TOLERANCE_YEARS:
+        return 1.0, None
+    penalty = min(
+        (deficit - _SENIORITY_TOLERANCE_YEARS) * _SENIORITY_PENALTY_PER_YEAR,
+        _SENIORITY_PENALTY_CAP,
+    )
+    return 1.0 - penalty, (
+        f"seniority: {years:.0f} lat vs wymagane {required:.0f}+ (kara {penalty:.0%})"
+    )
+
+
+_DATE_PATTERNS = (
+    re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})"),  # 2026-09-01
+    re.compile(r"(\d{1,2})[./](\d{1,2})[./](\d{4})"),  # 1.09.2026
+)
+_ASAP = re.compile(r"asap|od zaraz|natychmiast|od ręki|immediately", re.I)
+_NOTICE = re.compile(
+    r"(\d+)\s*(tydz|tyg|week|mies|miesiąc|miesiec|month|dni|dzień|dzien|day|mc)",
+    re.I,
+)
+
+
+def _parse_champion_date(
+    raw: object, *, today: Optional[date] = None
+) -> Optional[date]:
+    """Data startu z dokumentu Championa — formaty PL, ASAP = dziś."""
+
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text_value = raw.strip()
+    if _ASAP.search(text_value):
+        return today or date.today()
+    m = _DATE_PATTERNS[0].search(text_value)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        m = _DATE_PATTERNS[1].search(text_value)
+        if not m:
+            return None
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        return date(y, mo, d)
+    except ValueError:
+        return None
+
+
+def _notes_available_date(
+    candidate: Candidate, *, today: Optional[date] = None
+) -> Optional[date]:
+    """Dostępność z faktów notatkowych: jawna data > dziś+wypowiedzenie."""
+
+    availability = _notes_insights(candidate).get("availability")
+    if not isinstance(availability, dict):
+        return None
+    base = today or date.today()
+    explicit = _parse_champion_date(availability.get("available_from"), today=base)
+    if explicit:
+        return explicit
+    for raw in (availability.get("notice_period"), availability.get("raw")):
+        if not isinstance(raw, str):
+            continue
+        if _ASAP.search(raw):
+            return base
+        m = _NOTICE.search(raw)
+        if m:
+            n, unit = int(m.group(1)), m.group(2).lower()
+            if unit.startswith(("tydz", "tyg", "week")):
+                days = n * 7
+            elif unit.startswith(("mies", "month", "mc")):
+                days = n * 30
+            else:
+                days = n
+            return base + timedelta(days=days)
+    return None
+
+
 def _score_availability(
-    candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
+    candidate: Candidate,
+    job: Job,
+    profile: WeightProfile = DEFAULT_PROFILE,
+    *,
+    today: Optional[date] = None,
 ) -> LayerResult:
     """Availability fit. Full points before deadline, decay 30 days post."""
     max_pts = profile.availability
-    if not candidate.availability_date:
+    availability_date = candidate.availability_date
+    reference_deadline = job.deadline
+    source_note = ""
+    if _v11_enabled():
+        # v1.1: 99% importowanych kandydatów nie ma availability_date, ale
+        # 13,9k ma fakty notatkowe ("2 tygodnie wypowiedzenia", "od zaraz"),
+        # a oferty z Championem mają datę startu. Fallback po OBU stronach —
+        # kolumna i deadline nadal wygrywają, gdy istnieją.
+        if not availability_date:
+            derived = _notes_available_date(candidate, today=today)
+            if derived:
+                availability_date = derived
+                source_note = " (z notatek)"
+        if not reference_deadline:
+            champion_start = _parse_champion_date(
+                _champion_dict(job).get("start_date"), today=today
+            )
+            if champion_start:
+                reference_deadline = champion_start
+                source_note += " (start Championa)"
+    if not availability_date:
         # No signal → out of the budget, like every other layer that has
         # nothing to judge. Awarding a neutral share here ranked nobody: ~99%
         # of imported candidates have no availability date, so the constant
         # landed on almost the whole corpus.
         return _unscored(max_pts, "brak daty")
-    if not job.deadline:
+    if not reference_deadline:
         return LayerResult(points=max_pts, max_points=max_pts, reason="brak deadline")
 
-    delta_days = (candidate.availability_date - job.deadline).days
+    delta_days = (availability_date - reference_deadline).days
     if delta_days <= 0:
-        return LayerResult(points=max_pts, max_points=max_pts, reason="na czas")
+        return LayerResult(
+            points=max_pts, max_points=max_pts, reason="na czas" + source_note
+        )
 
     decay = max(0.0, 1.0 - delta_days / 30.0)
     return LayerResult(
         points=max_pts * decay,
         max_points=max_pts,
-        reason=f"spóźnienie {delta_days} dni",
+        reason=f"spóźnienie {delta_days} dni" + source_note,
     )
 
 
@@ -1380,6 +1515,12 @@ async def score_candidate_job(
     else:
         total = sum(layer.points for layer in layers)
 
+    # v1.1: niedobór seniority względem Championa tnie total MNOŻNIKOWO —
+    # stała punktowa znaczyłaby co innego w trybie sumy i renormalizacji.
+    seniority_factor, seniority_reason = _champion_seniority_factor(candidate, job)
+    if seniority_factor < 1.0 and total > 0:
+        total *= seniority_factor
+
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
     # Structured event for log aggregation (JSON formatter reshapes extras).
     # DEBUG, nie INFO (2026-07-27): to jest najgorętsza pętla w systemie —
@@ -1399,6 +1540,7 @@ async def score_candidate_job(
             "location_points": round(location.points, 2),
             "availability_points": round(availability.points, 2),
             "penalties_count": len(penalties),
+            "seniority_note": seniority_reason,
             "must_matched": len(must_match),
             "must_missing": len(must_gap),
             "latency_ms": latency_ms,
@@ -1409,6 +1551,7 @@ async def score_candidate_job(
         candidate_id=candidate.id,
         job_id=job.id,
         total=total,
+        seniority_note=seniority_reason,
         semantic=semantic,
         skills=skills,
         salary=salary,
