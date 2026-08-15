@@ -1,6 +1,9 @@
 # Edycja zamówień Draft + PDF · moduł Finanse — raport z wdrożenia
 
-Dwa tickety, jeden PR, dwa rozłączne obszary kodu. Migracja `0227` obsługuje oba,
+> **Status:** scalone jako [#1161](https://github.com/artur-t-96/Nexus/pull/1161) i wdrożone na
+> produkcję 2026-08-14 (commit `f1c7e5f`). `/api/health/deep` zielony, obie nowe tabele obecne.
+
+Dwa tickety, jeden PR, dwa rozłączne obszary kodu. Migracja `0228` obsługuje oba,
 bo rozbicie na dwie rewizje dałoby wyłącznie drugą okazję do rozjazdu głów alembica.
 
 ## A. Zamówienia w profilu klienta
@@ -71,6 +74,17 @@ Dalsze zawężenia:
   DL. Bez tego renderowałby kontrolkę, która na zapisie kończy się 403 — a to czyta się jak „zapis
   nie działa", nie jak „nie masz uprawnień".
 
+**Świadomie idziemy dalej niż [#1163](https://github.com/artur-t-96/Nexus/pull/1163).** Ten PR,
+zmergowany w tym samym dniu, poluzował zapis dla Delivery Leada wyłącznie na kolumnach `md_rate_*`
+(powierzchnia order-groups) i zapisał, że legacy `rate_client` / `rate_candidate` / `total_value`
+**zostają admin-only**. Tutaj są otwarte dla przypisanego DL — decyzja produktowa, potwierdzona przy
+planowaniu.
+
+Uzasadnienie: bez tego draft, którego automat każe uzupełnić, nadal pokazuje DL-owi „—" w miejscu,
+gdzie ma wpisać stawkę. #1163 tych pól nie zakazał — po prostu ich nie ruszał w swoim zakresie.
+Konsekwencja do posprzątania: dwie bramki finansowe na sąsiednich powierzchniach liczą uprawnienia
+niezależnie (patrz „Do zrobienia po deployu", pkt 4).
+
 **Poza zakresem (świadomie):** promocja `draft → active` z UI. Ticket wymienia wyłącznie pola i PDF,
 a promocja pociąga walidację kompletności i stemplowanie `filled_at`.
 
@@ -78,6 +92,21 @@ a promocja pociąga walidację kompletności i stemplowanie `filled_at`.
 
 Route `/finance`, API `/api/finance`, tabele `finance_*`, w UI „Finanse" (reguła z `CLAUDE.md`:
 etykiety PL, warstwa techniczna EN — ta sama co `/jobs` ↔ „Rekrutacje").
+
+### Trasa dzielona z importem MD (#1162)
+
+W trakcie prac na `main` wszedł [#1162](https://github.com/artur-t-96/Nexus/pull/1162), który
+postawił pod `/finance` **inny** moduł: „Import zużycia MD" (`MdImportWorkspace`), zasilający budżety
+MD zamówień wielo-konsultantowych. Dwa różne moduły, ta sama trasa, ta sama nazwa, te same role.
+
+Rozstrzygnięte na **trzy zakładki jednej strony** zamiast dwóch adresów:
+
+`Wyniki miesięczne` · `Archiwum` · `Import zużycia MD`
+
+Dwa wpisy „Finanse" w nawigacji zmuszałyby użytkownika do zgadywania, w którym siedzi jego arkusz.
+`MdImportWorkspace` osadzony **bez zmiany jego kodu**; w sidebarze jedna pozycja. Przełącznik to ten
+sam wzorzec co w module Kontrakty (lokalny `ModeButton`, stan w URL przez History API — nie
+`useSearchParams`, który w Next 15 wymusza granicę Suspense wokół całej strony).
 
 ### Schemat
 
@@ -130,11 +159,25 @@ ponownie z `replace=true` — dwa kroki, ale plik idzie przez sieć raz.
 > czyli `jsonb <> varchar`. Postgres nie ma takiego operatora → **500 dokładnie w ścieżce, która ma
 > ostrzec użytkownika przed utratą pracy**. Naprawione CAST-em na tekst.
 
+### Archiwum jest zamrożone
+
+`PATCH /finance/results/{id}` działa **wyłącznie** na wierszach wersji aktualnej. Wiersz z wersji
+zastąpionej zwraca **409** (a nie 404 — „jest, ale zamrożony" to co innego niż „nie ma"). Bez tego
+„Przywróć jako aktualny" kłamie: przywrócony bieg wracałby ze zmianami wprowadzonymi już **po** jego
+zarchiwizowaniu, czyli nie w stanie, w jakim go porzucono. Archiwum ma być zapisem historii, a nie
+drugą, edytowalną kopią danych.
+
 ### Kafle
 
 Liczone serwerowo **z tych samych wierszy, które zwraca `/results`** — kafel będący sumą innych liczb
 niż widoczne pod nim jest niemożliwy do zweryfikowania wzrokiem (ta sama lekcja co `active_mrr`
 w profilu klienta).
+
+Auto-review zgłosiło tu podwójny skan tabeli i zaproponowało agregat SQL. **Odrzucone świadomie** —
+`SELECT SUM(...)` wprowadza dokładnie ten problem, którego ten kod unika. Arkusz miesięczny to
+dziesiątki wierszy, więc koszt jest teoretyczny, a spójność realna. Gdyby moduł urósł do tysięcy
+wierszy, właściwą kolejnością jest paginacja tabeli i **dopiero potem** osobna agregacja — z jawną
+świadomością, że kafle przestają być sumą tego, co widać.
 
 ### RBAC — 7 miejsc
 
@@ -146,21 +189,60 @@ użytkownik `finance` ma tylko tę rolę i nigdy nie jest jednocześnie adminem.
 Reszta: `middleware.ts` `ROLE_ROUTES`, `capabilities.ts` + jego test, `CommandPaletteV2`,
 `RequireRole` na stronie, `FinanceModuleUser` w `deps.py`.
 
+## Trzy błędy znalezione przez auto-review (naprawione)
+
+Wszystkie trzy przeszły przez pełny zestaw testów i dopiero review je wychwyciło — warto zapamiętać
+ich wspólną cechę: **żaden nie objawiłby się od razu**.
+
+1. **Edycja wierszy zarchiwizowanego importu.** Opisana wyżej. Łamała gwarancję, którą sam wpisałem
+   do docstringa metody `restore_import` — czyli kod obiecywał coś, czego sąsiedni handler nie
+   respektował.
+
+2. **Stary PDF kasowany przed commitem.** `_attach_po_bytes` zwalniał poprzedni blob, zanim wiersz
+   został utrwalony. Nieudany commit (błąd wstawienia `Activity`, zerwana sesja) zostawiał bazę
+   wskazującą na plik, którego już nie ma: podgląd 410, treści nie da się odtworzyć. Kasowanie
+   przeniesione **za** commit — najgorszy przypadek to teraz osierocony plik do posprzątania, a nie
+   bezpowrotnie utracony dokument. Ta sama zmiana objęła import arkusza (sprzątanie w `except`, bo
+   `file_path` jest NOT NULL i plik musi powstać przed wierszem).
+
+3. **Cichy brak advisory locka.** Najgroźniejszy, bo **bezobjawowy**. `AsyncSession.bind` jest
+   w SQLAlchemy 2.0 wycofywane i w części konfiguracji zwraca `None`; warunek „pomiń, jeśli to nie
+   postgres" zamieniał taki przypadek w brak blokady **bez śladu w logach**. Ujawniłby się dopiero
+   losowym 500, gdy dwa importy tego samego miesiąca ścigają się o indeks częściowy. Teraz przy
+   nierozpoznanym silniku **próbujemy** wziąć blokadę, a brak wsparcia jest logowany — tryb awarii
+   przesunięty z „cicho bez blokady" na „blokada wzięta albo wpis w logu".
+
+Każda ma test broniący jej przed regresją (zamrożone archiwum z rozróżnieniem 409/404, brak sieroty
+po nieudanym imporcie, próba blokady przy nierozstrzygalnym bindzie).
+
 ## Weryfikacja
 
 | Co | Wynik |
 |---|---|
-| Migracja `0227` od zera na czystym Postgresie 16 | ✅ przechodzi |
-| Jedna głowa alembica (`test_no_new_alembic_heads`) | ✅ 1 głowa |
-| Backend: szeroki przemiat 109 plików testowych | ✅ **1124 passed**, 9 skipped |
-| Backend: nowe testy (`test_finance_module`, `test_client_order_file_upload`) | ✅ 22 passed |
+| Łańcuch migracji od zera na czystym Postgresie 16 (`0226 → 0227_multi_consultant_orders → 0228`) | ✅ przechodzi |
+| Jedna głowa alembica | ✅ 1 głowa |
+| Backend: szeroki przemiat 113 plików testowych | ✅ **1170 passed**, 9 skipped |
+| Backend: zestaw dotknięty po poprawkach z review | ✅ **135 passed** |
 | `ruff check app/` + `ruff format --check` na zmienionych plikach | ✅ czysto |
-| Frontend: `type-check`, `lint` (0 błędów), `build` | ✅ `/finance` 17.1 kB |
-| Frontend: pełny vitest | ✅ **1177 passed** (122 pliki) |
+| Frontend: `type-check`, `lint` (0 błędów), `build` | ✅ `/finance` 15.8 kB |
+| Frontend: pełny vitest | ✅ **1193 passed** (124 pliki) |
+| CI na PR (10 checków, w tym 4 shardy pytest) | ✅ 10/10 |
+| **Produkcja:** `/api/health` wersja == `f1c7e5f` | ✅ |
+| **Produkcja:** `/api/health/deep` + obie nowe tabele | ✅ `healthy`, zero niezdrowych pozycji |
 
 `test_team_structure_dl_clients_dedup.py` pada — sprawdzone na **czystym checkoucie bazowego
 commita**: pada tam identycznie, jest w `--ignore` w `ci.yml` i w zadeklarowanej liście znanych
 awarii w `test_ci_coverage_contract.py`. Nie jest efektem tych zmian.
+
+### Czego NIE zweryfikowano
+
+**Smoke UI przez Chrome nie został wykonany.** Ani wbudowana przeglądarka, ani lokalny Chrome nie
+miały aktywnej sesji — oba przekierowały na `/login`; zalogowanie wymaga SSO Microsoft, czego
+automatyzacja nie robi. Zweryfikowana została wyłącznie **bramka trasy**: `/finance` przekierowuje na
+`/login?next=%2Ffinance`, czyli trasa istnieje i jest chroniona deny-by-default (to nie 404).
+
+Nieobejrzane na oczy: tabela wyników, trzy zakładki, edycja dwuklikiem, dialog uzupełniania draftu
+i sekcja „Dokumenty zamówień" z kolumną Typ. Warto przeklikać ręcznie.
 
 ### Testy, które zmieniły znaczenie (świadomie)
 
@@ -174,9 +256,43 @@ nie mają dostępu:
 - Dołożone: nieprzypisany DL → 403, HoR/TAC/recruiter → brak dostępu do kwot, DL nie może przepisać
   `rate_unit`.
 
+## Kolizja z równoległymi PR-ami — lekcja do zapamiętania
+
+W ciągu jednego dnia na `main` weszły cztery PR-y, z czego trzy dotykały tego samego terenu. Merge
+blokowały po kolei **trzy różne rzeczy i żadnej nie wykryły lokalne testy**:
+
+1. **Podwójna migracja `0227`.** #1162 wprowadził `0227_multi_consultant_orders`, ta gałąź miała
+   własne `0227_*`. **Git nie zgłasza konfliktu** — różne nazwy plików — ale alembic dostałby dwie
+   głowy. Przenumerowane na `0228` z `down_revision` na ich rewizję. To ten sam wzorzec, który już
+   raz wystąpił przy równoległych PR-ach: *dubel migracji bez konfliktu = dwie głowy*.
+
+2. **Test przypinający NAZWĘ głowy alembica.** #1162 napisał
+   `assert _alembic_heads() == ["0227_multi_consultant_orders"]`. Taki test pada przy **każdej**
+   następnej migracji w repo, niezależnie od tego, czy cokolwiek się rozszczepiło — a jego własny
+   docstring mówi „nowa migracja nie rozszczepia łańcucha", czyli asercję o *liczbie* głów.
+   Poprawione na: dokładnie jedna głowa **+** ich rewizja nadal wisi w łańcuchu (osierocona nigdy się
+   nie wykona, a licznik głów tego nie wykryje). Nie przestawiono stałej na własną nazwę, bo to tylko
+   przesuwa problem na kolejny PR.
+
+3. **Nierozwiązane wątki auto-review.** Branch protection wymaga rozwiązania konwersacji, więc CI
+   zielone 10/10 **nie wystarczało** do merge'u. 13 wątków okazało się 4 ustaleniami powtórzonymi
+   przez trzy przebiegi review.
+
+Do tego dwukrotnie `main` uciekł w trakcie i `strict=true` odmówił scalenia nieaktualnej gałęzi —
+zachowanie prawidłowe: to ten sam bezpiecznik, którego brak sprawił kiedyś, że squash nieaktualnej
+gałęzi cofnął sześć merge'y na produkcji.
+
+**Wniosek operacyjny:** przy ruchliwym `main` każdy rebase resetuje ~20-minutowe CI. Przy więcej niż
+jednym PR-ze właściwym narzędziem jest `scripts/merge-train.sh`, nie ręczne rebase'y.
+
 ## Do zrobienia po deployu
 
-1. `/api/health/deep` musi być zielony — to **jedyny** realny dowód, że obie tabele powstały
-   na produkcji (prodowy alembic bywa osierocony).
-2. Archiwalne pliki xlsx lądują na wolumenie lokalnym, który — jak reszta uploadów w NEXUSIE — **nie
+1. ~~`/api/health/deep` musi być zielony~~ — **zweryfikowane**, `finance_import_runs`
+   i `finance_monthly_results` obecne na produkcji. To był jedyny realny dowód, że migracja utworzyła
+   tabele (prodowy alembic bywa osierocony, stąd lustro DDL w `entrypoint.sh`).
+2. **Ręczny smoke UI** — patrz „Czego NIE zweryfikowano" wyżej.
+3. Archiwalne pliki xlsx lądują na wolumenie lokalnym, który — jak reszta uploadów w NEXUSIE — **nie
    ma kopii off-site**. Archiwum to ślad audytowy, nie backup.
+4. Do rozważenia w osobnym ticketcie: zunifikowanie `_can_manage_order_finance` (ten PR) z
+   `_manages_md_lines` (#1163) w jedną funkcję. Dziś dwie bramki finansowe na sąsiednich
+   powierzchniach liczą uprawnienia niezależnie i mogą się rozjechać.
