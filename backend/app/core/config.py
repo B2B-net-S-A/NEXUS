@@ -261,6 +261,11 @@ class Settings(BaseSettings):
     # z faktów notatkowych kandydata. Default OFF do czasu pomiaru na
     # zbiorze eval z rekrutacji posiadających Championów.
     CHAMPION_MATCH_SIGNALS_ENABLED: bool = False
+    # v1.1 (2026-08-15): seniority Championa jako mnożnikowa kara na total
+    # (tolerancja 1 rok, -8%%/rok niedoboru, cap -32%%) + dostępność kandydata
+    # wyprowadzana z faktów notatkowych vs data startu Championa. OSOBNA
+    # flaga, bo v1 jest już ON na prodzie — v1.1 musi mieć własny pomiar.
+    CHAMPION_SIGNALS_V11_ENABLED: bool = False
     # Pula kandydatów przez hybrydę (BM25+dense+RRF, opcjonalnie rerank) zamiast
     # samych wektorów. Selekcja członkostwa; skala semantyczna bez zmian — patrz
     # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
