@@ -325,6 +325,9 @@ class ScoreBreakdown:
     salary: LayerResult
     location: LayerResult
     availability: LayerResult
+    # v1.1: powód mnożnikowej kary seniority — kara 16-32% bez śladu w
+    # breakdownie byłaby niediagnozowalna ("68 po karze" vs "68 bez kary").
+    seniority_note: Optional[str] = None
     matching_must: List[str] = field(default_factory=list)
     gap_must: List[str] = field(default_factory=list)
     matching_nice: List[str] = field(default_factory=list)
@@ -1202,7 +1205,11 @@ def _notes_available_date(
 
 
 def _score_availability(
-    candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
+    candidate: Candidate,
+    job: Job,
+    profile: WeightProfile = DEFAULT_PROFILE,
+    *,
+    today: Optional[date] = None,
 ) -> LayerResult:
     """Availability fit. Full points before deadline, decay 30 days post."""
     max_pts = profile.availability
@@ -1215,7 +1222,7 @@ def _score_availability(
         # a oferty z Championem mają datę startu. Fallback po OBU stronach —
         # kolumna i deadline nadal wygrywają, gdy istnieją.
         if not availability_date:
-            derived = _notes_available_date(candidate)
+            derived = _notes_available_date(candidate, today=today)
             if derived:
                 availability_date = derived
                 source_note = " (z notatek)"
@@ -1542,6 +1549,7 @@ async def score_candidate_job(
         candidate_id=candidate.id,
         job_id=job.id,
         total=total,
+        seniority_note=seniority_reason,
         semantic=semantic,
         skills=skills,
         salary=salary,

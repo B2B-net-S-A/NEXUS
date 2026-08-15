@@ -130,8 +130,8 @@ def test_availability_layer_uses_notes_and_champion_start(v11_on):
             "_notes_insights": {"availability": {"notice_period": "1 miesiąc"}}
         }
     )
-    res = _score_availability(cand, job)
-    assert res.points == res.max_points, "dziś+30 dni << 1.12 → na czas"
+    res = _score_availability(cand, job, today=date(2026, 8, 15))
+    assert res.points == res.max_points, "15.08+30 dni << 1.12 → na czas"
     assert "z notatek" in res.reason and "start Championa" in res.reason
 
 
