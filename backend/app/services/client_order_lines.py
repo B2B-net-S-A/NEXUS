@@ -41,6 +41,7 @@ from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
 from app.models.contract import Contract, ContractStatus
+from app.models.job import Job
 from app.models.md_consumption import (
     CONSUMPTION_SOURCE_IMPORT,
     ClientOrderMdConsumption,
@@ -154,24 +155,27 @@ class ConsultantOption:
         return CONSULTANT_SOURCE_LABELS.get(self.source, self.source)
 
 
-def _option_from_contract(
-    contract: Contract, *, source: str, with_contract: bool
-) -> Optional[ConsultantOption]:
-    candidate = contract.candidate
-    if candidate is None or candidate.id is None:
-        return None
-    first = (candidate.name or "").strip()
-    last = (candidate.lastname or "").strip()
+def _option(
+    *,
+    candidate_id: int,
+    contract_id: Optional[int],
+    name: Optional[str],
+    lastname: Optional[str],
+    source: str,
+    job_title: Optional[str] = None,
+) -> ConsultantOption:
+    first = (name or "").strip()
+    last = (lastname or "").strip()
     return ConsultantOption(
-        candidate_id=candidate.id,
-        contract_id=contract.id if with_contract else None,
+        candidate_id=candidate_id,
+        contract_id=contract_id,
         first_name=first,
         last_name=last,
-        full_name=f"{first} {last}".strip() or f"#{candidate.id}",
+        # Osoba bez imienia i nazwiska (import zostawia „?") nadal musi być
+        # wybieralna — pusty wiersz nie dałby się kliknąć świadomie.
+        full_name=f"{first} {last}".strip() or f"#{candidate_id}",
         source=source,
-        job_title=(
-            contract.job.title if with_contract and contract.job is not None else None
-        ),
+        job_title=job_title,
     )
 
 
@@ -239,13 +243,27 @@ async def list_consultant_options(
     options: list[ConsultantOption] = []
     seen: set[int] = set()
 
+    # Oba zapytania wyciągają KOLUMNY, nie encje: picker potrzebuje czterech
+    # pól, a hydratacja pełnych `Contract` + `Candidate` przez `selectinload`
+    # kosztowała dwa dodatkowe SELECT-y i tysiące obiektów ORM na jedno
+    # otwarcie listy. Przy okazji znika ryzyko `MissingGreenlet` — nie ma tu
+    # żadnej relacji, po którą można sięgnąć leniwie.
+
     # ── A. Kontrakty u TEGO klienta ────────────────────────────────────────
     client_rows = await db.execute(
-        select(Contract)
-        .options(selectinload(Contract.candidate), selectinload(Contract.job))
+        select(
+            Contract.id,
+            Candidate.id,
+            Candidate.name,
+            Candidate.lastname,
+            Job.title,
+        )
+        # JOIN, nie `candidate_id IS NOT NULL`: umowa osieroconego kandydata
+        # (`ON DELETE SET NULL`) nie ma kogo pokazać na liście.
+        .join(Candidate, Candidate.id == Contract.candidate_id)
+        .outerjoin(Job, Job.id == Contract.job_id)
         .where(
             Contract.client_id == client_id,
-            Contract.candidate_id.isnot(None),
             Contract.status.in_(CLIENT_CONTRACT_STATUSES),
         )
         # Osoba z dwoma żywymi kontraktami u jednego klienta ma na liście być
@@ -253,36 +271,50 @@ async def list_consultant_options(
         # bieżące zaangażowanie — kontrakt o najpóźniejszym starcie.
         .order_by(Contract.start_date.desc().nullslast(), Contract.id.desc())
     )
-    for contract in client_rows.scalars():
-        option = _option_from_contract(
-            contract, source=SOURCE_CLIENT_RECRUITMENT, with_contract=True
-        )
-        if option is None or option.candidate_id in seen:
+    for contract_id, candidate_id, name, lastname, job_title in client_rows:
+        if candidate_id in seen:
             continue
-        seen.add(option.candidate_id)
-        options.append(option)
+        seen.add(candidate_id)
+        options.append(
+            _option(
+                candidate_id=candidate_id,
+                contract_id=contract_id,
+                name=name,
+                lastname=lastname,
+                source=SOURCE_CLIENT_RECRUITMENT,
+                job_title=job_title,
+            )
+        )
 
     # ── B. Pozostali aktywni konsultanci z bazy ────────────────────────────
     # Filtrujemy po `seen`, a nie po `client_id != ...`: osoba z zakończonym
     # kontraktem u tego klienta i żywym u innego NIE jest w źródle A, więc musi
     # się tu pojawić — inaczej wypadłaby z listy w całości.
+    #
+    # `GROUP BY` po kandydacie zwija konsultanta z kilkoma żywymi kontraktami
+    # do jednego wiersza JUŻ W BAZIE. Kontrakt i tak nie jedzie na drut (osoba
+    # z tego źródła nie ma go u tego klienta), więc nie ma czego wybierać
+    # między nimi — a bez zwijania jedna osoba potrafiła nadjechać kilka razy
+    # tylko po to, żeby wypaść na dedupie w Pythonie.
     base_rows = await db.execute(
-        select(Contract)
-        .options(selectinload(Contract.candidate))
-        .where(
-            Contract.candidate_id.isnot(None),
-            Contract.status.in_(LIVE_CONTRACT_STATUSES),
-        )
-        .order_by(Contract.start_date.desc().nullslast(), Contract.id.desc())
+        select(Candidate.id, Candidate.name, Candidate.lastname)
+        .join(Contract, Contract.candidate_id == Candidate.id)
+        .where(Contract.status.in_(LIVE_CONTRACT_STATUSES))
+        .group_by(Candidate.id, Candidate.name, Candidate.lastname)
     )
-    for contract in base_rows.scalars():
-        option = _option_from_contract(
-            contract, source=SOURCE_NEXUS_BASE, with_contract=False
-        )
-        if option is None or option.candidate_id in seen:
+    for candidate_id, name, lastname in base_rows:
+        if candidate_id in seen:
             continue
-        seen.add(option.candidate_id)
-        options.append(option)
+        seen.add(candidate_id)
+        options.append(
+            _option(
+                candidate_id=candidate_id,
+                contract_id=None,
+                name=name,
+                lastname=lastname,
+                source=SOURCE_NEXUS_BASE,
+            )
+        )
 
     matching = [o for o in options if option_matches_query(o, query)]
     matching.sort(key=_sort_key)
