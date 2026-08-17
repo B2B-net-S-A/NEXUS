@@ -56,7 +56,9 @@ export function HelpPageV2() {
  const [selectedId, setSelectedId] = useState<number | null>(null);
  const [editorOpen, setEditorOpen] = useState(false);
  const [editorTarget, setEditorTarget] = useState<Procedure | null>(null);
- const [toast, setToast] = useState<string | null>(null);
+ const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(
+ null
+ );
  const [activeTab, setActiveTab] = useState<HelpTab>("procedures");
  const [materialEditorOpen, setMaterialEditorOpen] = useState(false);
  const [materialEditorTarget, setMaterialEditorTarget] = useState<HelpMaterial | null>(null);
@@ -104,8 +106,12 @@ export function HelpPageV2() {
  },
  });
 
- const showToast = (msg: string) => {
- setToast(msg);
+ // `type` przychodzi z akcji szablonu zaproszenia (kopiowanie do schowka bywa
+ // blokowane przez przeglądarkę). Bez niego nieudane kopiowanie pokazywało się
+ // tym samym, neutralnym dymkiem co sukces — rekruter szedł dalej przekonany,
+ // że treść ma w schowku.
+ const showToast = (msg: string, type: "success" | "error" = "success") => {
+ setToast({ message: msg, type });
  setTimeout(() => setToast(null), 3000);
  };
 
@@ -328,9 +334,14 @@ export function HelpPageV2() {
  {toast && (
  <div
  role="status"
- className="fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground"
+ className={cn(
+"fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm border",
+ toast.type ==="error"
+ ?"bg-destructive-muted text-destructive-muted-foreground border-destructive"
+ :"bg-card text-foreground border-border"
+ )}
  >
- {toast}
+ {toast.message}
  </div>
  )}
  </div>

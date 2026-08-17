@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -77,12 +77,31 @@ export function PrepInviteModal({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
 
-  // Reset przy każdym otwarciu: modal jest współdzielony między kandydatami,
-  // więc bez tego drugi kandydat dostałby treść poprawioną dla pierwszego.
+  // Reset TYLKO na zboczu narastającym `open`: modal jest współdzielony między
+  // kandydatami, więc bez resetu drugi kandydat dostałby treść poprawioną dla
+  // pierwszego. Ale reset przy każdej zmianie referencji `prefilled` kasował
+  // wpisane zmiany: `prefilled` liczy się z `template`, ten z danych React
+  // Query, a te po `staleTime` i powrocie do okna przychodzą jako NOWA tablica
+  // — identyczna treściowo, inna referencyjnie.
+  //
+  // To nie jest przypadek teoretyczny akurat w tej funkcji: szablon każe
+  // rekruterowi wkleić link do ogłoszenia, czyli PRZEŁĄCZYĆ SIĘ do innego okna
+  // i wrócić. Dokładnie ten ruch odświeżał zapytanie i kasował to, co już
+  // wpisał — łącznie z linkiem, po który wyszedł.
+  // Flaga „już wypełniono w tym otwarciu", a nie samo zbocze `open`: szablon
+  // przychodzi z zapytania, więc przy pierwszym otwarciu `prefilled` bywa
+  // jeszcze `undefined`. Wartownik oparty na samym zboczu uznałby otwarcie za
+  // obsłużone i zostawił puste pola, gdy dane dojdą chwilę później.
+  const filledForOpenRef = useRef(false);
   useEffect(() => {
-    if (open && prefilled) {
+    if (!open) {
+      filledForOpenRef.current = false;
+      return;
+    }
+    if (!filledForOpenRef.current && prefilled) {
       setSubject(prefilled.subject);
       setBody(prefilled.body);
+      filledForOpenRef.current = true;
     }
   }, [open, prefilled]);
 

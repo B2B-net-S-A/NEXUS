@@ -175,7 +175,9 @@ export interface HelpMaterialsSectionProps {
   onEdit?: (material: HelpMaterial) => void;
   /** CTA „dodaj pierwszy materiał" w pustym stanie dla admina. */
   onAdd?: () => void;
-  onToast?: (message: string) => void;
+  /** `type` niesie rozróżnienie sukces/błąd — `PrepInviteActions` woła to
+      dwoma argumentami, a węższy typ cicho gubił drugi. */
+  onToast?: (message: string, type?: "success" | "error") => void;
   /**
    * Kategorie obecne na liście — strona karmi nimi datalist w edytorze.
    * Wołane z `useEffect`, więc referencja musi być stabilna (`useCallback`).
@@ -349,7 +351,9 @@ function MaterialRow({
   isAdmin: boolean;
   onEdit?: (material: HelpMaterial) => void;
   onDelete: (material: HelpMaterial) => void;
-  onToast?: (message: string) => void;
+  /** `type` niesie rozróżnienie sukces/błąd — `PrepInviteActions` woła to
+      dwoma argumentami, a węższy typ cicho gubił drugi. */
+  onToast?: (message: string, type?: "success" | "error") => void;
 }) {
   const { Icon, label } = FILE_KIND_META[fileKindFor(material)];
   const safeHref = safeExternalHref(material.url);
