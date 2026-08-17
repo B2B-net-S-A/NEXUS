@@ -41,6 +41,7 @@ from app.services.notes_insights_extractor import (
     legacy_row_is_fresh,
     load_note_rows,
     notes_fingerprint,
+    stamp_no_content,
 )
 
 logger = logging.getLogger(__name__)
@@ -204,6 +205,11 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     continue
                 blob = build_notes_blob(rows)
                 if len(blob) < MIN_BLOB_CHARS:
+                    # Stempel bez AI — inaczej klasa "no_content" wraca do
+                    # selekcji każdego dnia i zjada cały budżet biegu
+                    # (prod, pierwszy bieg: selected=300, skipped_short=299).
+                    stamp_no_content(cand, fingerprint=fingerprint)
+                    await db.commit()
                     stats["skipped_short"] += 1
                     continue
                 try:
