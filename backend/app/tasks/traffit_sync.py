@@ -30,10 +30,11 @@ from datetime import datetime, timedelta, timezone
 from collections.abc import Sequence
 from typing import Any, Optional
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.models.candidate import Candidate
 from app.services.cortex import runs as cortex_runs
 from app.services.cortex.extractor_traffit import import_cortex_facts
 from app.services.traffit.client import TraffitClient, TraffitConfig
@@ -269,6 +270,75 @@ async def _cortex_phase(since: Optional[datetime]) -> _CortexPhaseResult:
     return _CortexPhaseResult(stats, started, datetime.now(timezone.utc))
 
 
+class _CvFieldsPhaseResult:
+    """Adapter stats `backfill_cv_fields` na kontrakt fazy (as_dict/errors/*_at)."""
+
+    def __init__(
+        self, stats: dict[str, Any], started_at: datetime, finished_at: datetime
+    ):
+        self._stats = stats
+        self.started_at = started_at
+        self.finished_at = finished_at
+        self.errors = int(stats.get("errors") or 0)
+
+    def as_dict(self) -> dict[str, Any]:
+        out = {
+            "processed": self._stats.get("processed", 0),
+            "updated": self._stats.get("updated", 0),
+            "skipped": self._stats.get("skipped_no_result", 0),
+            "errors": self.errors,
+            "fields_filled": self._stats.get("fields_filled", {}),
+            "llm_calls": (self._stats.get("usage") or {}).get("calls", 0),
+        }
+        if self._stats.get("stopped_reason"):
+            out["stopped_reason"] = self._stats["stopped_reason"]
+        if "note" in self._stats:
+            out["note"] = self._stats["note"]
+        return out
+
+
+async def _cv_fields_phase(files_since: Optional[datetime]) -> _CvFieldsPhaseResult:
+    """Parse pól z CV (skills/city/years) dla kandydatów dotkniętych w tym biegu.
+
+    Domyka lukę świeżości po Fali 3: backfill był jednorazowy, a nowe/zmienione
+    CV z nocnego syncu nie dostawały pól strukturalnych, dopóki ktoś nie
+    odpalił biegu ręcznie. Delta-only ŚWIADOMIE: pełny reconcile nie ma tu
+    czego naprawiać — pozostałość scope'u po Fali 3 to wiersze, których parser
+    już nie uzupełni (sufit pokrycia), i nocne re-przemiatanie ich co tydzień
+    płaciłoby LLM za te same odmowy. FILL_EMPTY + scope filter w
+    `backfill_cv_fields` czynią fazę idempotentną; kwota `cv_backfill` + sufit
+    `TRAFFIT_SYNC_CV_FIELDS_LIMIT` ograniczają koszt pojedynczej nocy.
+    """
+    started = datetime.now(timezone.utc)
+    from app.services.cv_field_backfill import _scope_filter, backfill_cv_fields
+
+    if files_since is None:
+        stats: dict[str, Any] = {
+            "processed": 0,
+            "note": "full-scan pominięty celowo (delta-only faza)",
+        }
+        return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
+
+    async with AsyncSessionLocal() as db:
+        ids = (
+            (
+                await db.execute(
+                    select(Candidate.id)
+                    .where(Candidate.updated_at >= files_since, *_scope_filter())
+                    .order_by(Candidate.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        stats = await backfill_cv_fields(
+            db,
+            candidate_ids=list(ids),
+            limit=max(1, int(settings.TRAFFIT_SYNC_CV_FIELDS_LIMIT)),
+        )
+    return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
+
+
 class _ReconcilePhaseResult:
     """Adapter raportu `reconcile()` na kontrakt fazy.
 
@@ -376,6 +446,7 @@ def _phase_plan(
             "candidates_enrich_names",
             lambda: importer.enrich_missing_names(since=files_since),
         ),
+        ("candidates_cv_fields", lambda: _cv_fields_phase(files_since)),
         ("pipelines", lambda: importer.import_pipelines(since=since)),
         (
             "candidate_activities",
@@ -405,6 +476,7 @@ PHASE_NAMES: tuple[str, ...] = (
     "candidates_cv",
     "candidate_files",
     "candidates_enrich_names",
+    "candidates_cv_fields",
     "pipelines",
     "candidate_activities",
     "candidate_sources",
