@@ -874,9 +874,16 @@ async def _run(args: argparse.Namespace) -> int:
         total = sum(parts)
         if abs(total - 100.0) > 0.01:
             raise SystemExit(f"--weights musi sumować się do 100, jest {total}: {spec!r}")
+        if parts[5] > 0 and not args.include_champion:
+            logger.warning(
+                "--weights champion_fit=%.1f zostanie wyzerowane przez leakage "
+                "guard (efektywny budżet %g); --include-champion, żeby zachować",
+                parts[5],
+                total - parts[5],
+            )
         profiles.append(
             WeightProfile(
-                name=f"custom_{i}_" + "_".join(str(int(x)) for x in parts),
+                name=f"custom_{i}_" + "_".join(f"{x:g}" for x in parts),
                 semantic=parts[0],
                 skills=parts[1],
                 salary=parts[2],

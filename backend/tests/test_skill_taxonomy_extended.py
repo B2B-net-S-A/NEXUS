@@ -72,7 +72,10 @@ def test_flag_gates_merge_and_db_wins_on_conflict(monkeypatch):
     assert on["kubernetes"] == "kubernetes", "baza wygrywa na kolizji"
     assert on["k8s"] == "kubernetes", "alias z rozszerzenia dopisany"
     assert on["jira"] == "jira"
-    assert loader_mod is not None
+    assert hasattr(loader_mod, "refresh_alias_map"), (
+        "loader, którego logikę replikujemy, musi istnieć — inaczej test "
+        "sprawdza martwą kopię"
+    )
 
 
 def test_flag_registered_in_scoring_cache_inputs():

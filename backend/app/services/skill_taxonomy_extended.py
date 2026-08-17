@@ -28,6 +28,12 @@ from __future__ import annotations
 
 # kanoniczna (lowercase) -> lista aliasów (lowercase). Kanoniczna sama mapuje
 # się na siebie w loaderze; tu tylko warianty.
+#
+# PUSTA lista aliasów NIE jest no-opem: kanoniczna spoza bazowej taksonomii
+# dostaje self-map w ALIAS_MAP, a regex ekstrakcji z tekstu Championa/JD jest
+# budowany z KLUCZY tej mapy — samo dopisanie "figma"/"gradle"/"uml" czyni
+# termin rozpoznawalnym w derived-must. To jest główny mechanizm eksperymentu;
+# aliasy-warianty to nadbudowa.
 EXTENDED_FAMILIES: dict[str, list[str]] = {
     # ── narzędzia codzienne (top luki wg liczby kandydatów) ────────────────
     "git": ["gitflow", "git flow"],
