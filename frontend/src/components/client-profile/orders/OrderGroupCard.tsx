@@ -8,6 +8,7 @@ import { QueryStateNotice } from "@/components/ds";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { orderGroupsApi, type OrderGroupRead, type OrderLineRead } from "@/lib/api/orderGroups";
+import { countPl } from "@/lib/plural-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
 import { MdBudgetBar } from "./MdBudgetBar";
@@ -229,8 +230,8 @@ export function OrderGroupCard({
               className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
             >
               <History className="h-3.5 w-3.5" aria-hidden="true" />
-              Historia zamówienia ({group.event_count}{" "}
-              {group.event_count === 1 ? "wpis" : "wpisy"})
+              Historia zamówienia (
+              {countPl(group.event_count, "wpis", "wpisy", "wpisów")})
               <ChevronDown
                 className={cn("h-3 w-3 transition-transform", historyOpen && "rotate-180")}
                 aria-hidden="true"
