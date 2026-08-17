@@ -350,6 +350,12 @@ async def _resolve_line_person(
         contract = await _resolve_contract(db, group.client_id, payload.contract_id)
         return contract, contract.candidate, False
     # Schemat gwarantuje, że dokładnie jedno z pól jest ustawione.
+    #
+    # Daty szkicu kontraktu są LUSTREM dat linii (a przy pustym końcu linii —
+    # końca całego zamówienia), bo tylko tyle wiadomo: formularz obsady nie
+    # pyta o okres umowy. Kto będzie ten kontrakt aktywował, MUSI je świadomie
+    # potwierdzić — to nie są daty przepisane z dokumentu, tylko z zamówienia,
+    # pod które osoba została dopisana.
     return await _contract_for_candidate(
         db,
         client_id=group.client_id,
