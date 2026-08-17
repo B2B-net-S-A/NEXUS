@@ -298,7 +298,16 @@ def notes_gap_warnings(candidate: Candidate, job: Job) -> list[dict]:
     nazw ≥4 znaków — zawieranie całej nazwy wymagania („Kubernetes w prod"
     trafia „kubernetes", wielowyrazowe „spring boot" też).
     """
-    extracted = getattr(candidate, "cv_extracted_data", None)
+    return notes_gap_warnings_from_extracted(
+        getattr(candidate, "cv_extracted_data", None), job
+    )
+
+
+def notes_gap_warnings_from_extracted(extracted: Any, job: Job) -> list[dict]:
+    """Wariant na gołym ``cv_extracted_data`` — dla wołających, którzy nie chcą
+    ładować pełnego wiersza kandydata (endpoint scoringu pobiera sam JSONB;
+    pełny ORM ciągnąłby ``raw_cv_text`` przy każdym wyświetleniu uzasadnienia,
+    dla ~86% kandydatów bez insights zupełnie na darmo)."""
     if not isinstance(extracted, dict):
         return []
     insights = extracted.get("_notes_insights")

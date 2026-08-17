@@ -34,7 +34,7 @@ from app.services.match_justification_service import (
     MatchJustificationNotFound,
     get_cached,
     get_or_generate,
-    notes_gap_warnings,
+    notes_gap_warnings_from_extracted,
 )
 
 router = APIRouter()
@@ -98,12 +98,21 @@ async def _notes_warnings_for(
 
     Jedno miejsce dla GET i POST /feedback — rozjazd oznaczałby, że ta sama
     para (kandydat, oferta) raz pokazuje ostrzeżenia, a raz nie.
+
+    Z kandydata pobieramy WYŁĄCZNIE ``cv_extracted_data`` — pełny wiersz ORM
+    ciągnąłby też ``raw_cv_text`` (Text, potrafi mieć megabajty) przy każdym
+    wyświetleniu uzasadnienia. Job idzie w całości, bo fallback Championa
+    czyta ``champion_profile``/``requirements``/``description``.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
-    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
-    if job is None or candidate is None:
-        return (job.title if job is not None else None), []
-    return job.title, notes_gap_warnings(candidate, job)
+    if job is None:
+        return None, []
+    extracted = await db.scalar(
+        select(Candidate.cv_extracted_data).where(Candidate.id == candidate_id)
+    )
+    if not isinstance(extracted, dict) or "_notes_insights" not in extracted:
+        return job.title, []
+    return job.title, notes_gap_warnings_from_extracted(extracted, job)
 
 
 @router.get("/{candidate_id}/scoring/{job_id}", response_model=MatchJustificationOut)

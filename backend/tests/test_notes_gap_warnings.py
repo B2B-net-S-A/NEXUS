@@ -133,3 +133,35 @@ def test_dedup_and_cap():
     )
     capped = notes_gap_warnings(_cand(gaps=many), wide_job)
     assert len(capped) == 5
+
+
+def test_nosql_gap_does_not_match_sql_requirement():
+    # Kluczowa gwarancja z opisu PR: dopasowanie tokenowe, nie substring.
+    # "nosql" ma 5 znaków, więc goły substring by nie zadziałał w tę stronę,
+    # ale token-split {"nosql"} też nie może zawierać "sql" — przybite wprost.
+    cand = _cand(gaps=[{"name": "NoSQL", "evidence": "nie zna baz NoSQL"}])
+    job = _job(must=["SQL"])
+    assert notes_gap_warnings(cand, job) == []
+
+    # Kierunek odwrotny: wymaganie "NoSQL", brak "SQL" — też nie może trafić.
+    cand2 = _cand(gaps=[{"name": "SQL"}])
+    job2 = _job(must=["NoSQL"])
+    assert notes_gap_warnings(cand2, job2) == []
+
+
+def test_from_extracted_variant_mirrors_candidate_wrapper():
+    from app.services.match_justification_service import (
+        notes_gap_warnings_from_extracted,
+    )
+
+    extracted = {
+        "_notes_insights": {
+            "skills_gaps_observed": [{"name": "Remedy", "evidence": "brak"}]
+        }
+    }
+    job = _job(must=["Remedy"])
+    assert notes_gap_warnings_from_extracted(extracted, job) == [
+        {"skill": "Remedy", "evidence": "brak"}
+    ]
+    assert notes_gap_warnings_from_extracted(None, job) == []
+    assert notes_gap_warnings_from_extracted("tekst", job) == []
