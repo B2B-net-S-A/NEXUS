@@ -580,7 +580,22 @@ async def test_update_can_clear_description_explicitly(mat_client, admin_headers
 
 
 @pytest.mark.asyncio
-async def test_update_title_regenerates_slug(mat_client, admin_headers):
+async def test_update_title_keeps_slug_stable(mat_client, admin_headers):
+    """Zmiana tytułu NIE rusza sluga (odwrócony wcześniejszy kontrakt).
+
+    Slug jest identyfikatorem wiersza, nie jego etykietą — nie występuje
+    w żadnej trasie (endpointy biorą ``{material_id}``), za to jest kluczem
+    seedowania (``ON CONFLICT (slug) DO NOTHING`` w ``entrypoint.sh``) i
+    punktem zaczepienia dla FE, który po nim odnajduje pozycję-szablon
+    zaproszenia prep.
+
+    Poprzednia wersja tego testu pinowała przeliczanie sluga z tytułu i przez
+    to utrwalała defekt: jedna poprawka tytułu w Pomoc → Materiały gasiła
+    przycisk „Zaproszenie prep" na profilu KAŻDEGO kandydata — po cichu, bo
+    sama zakładka Pomoc sluga nie używa i wyglądała dalej sprawnie. Drugim
+    skutkiem dryfu był bliźniaczy wiersz dosiewany przy najbliższym starcie
+    kontenera, gdy ``ON CONFLICT`` przestawał trafiać.
+    """
     created = await mat_client.post(
         "/api/help-materials",
         headers=admin_headers,
@@ -599,9 +614,18 @@ async def test_update_title_regenerates_slug(mat_client, admin_headers):
         json={"title": "Zupełnie nowy tytuł materiału"},
     )
     assert upd.status_code == 200
-    new_slug = upd.json()["slug"]
-    assert new_slug != old_slug
-    assert "zupelnie" in new_slug
+    assert upd.json()["title"] == "Zupełnie nowy tytuł materiału"
+    assert upd.json()["slug"] == old_slug
+
+    # Powrót do pierwotnego tytułu też niczego nie przesuwa — stabilność jest
+    # bezwarunkowa, a nie „wraca, jeśli cofniesz zmianę".
+    back = await mat_client.put(
+        f"/api/help-materials/{mid}",
+        headers=admin_headers,
+        json={"title": "Pierwotny tytuł materiału"},
+    )
+    assert back.status_code == 200
+    assert back.json()["slug"] == old_slug
 
 
 # ── Walidacja URL (stored-XSS) ──────────────────────────────────────────────

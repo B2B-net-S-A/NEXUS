@@ -4,12 +4,17 @@ Czytelne dla wszystkich zalogowanych; edycja zarezerwowana dla admina —
 dokładnie jak ``procedures``. Search po tytule, kategorii, opisie i temacie
 szablonu (ILIKE).
 
-Pozycja jest ALBO linkiem do dokumentu w SharePoincie (``url``), ALBO szablonem
-treści (``template_subject`` + ``template_body``) — np. zaproszeniem
-kalendarzowym, które nie jest plikiem. Dlatego ``url`` jest opcjonalny, ale
-wiersz bez adresu i bez treści szablonu jest odrzucany (422) lustrzanie do
-CHECK-a ``ck_help_materials_link_or_template``: taka pozycja wyrenderowałaby się
-w Pomocy bez żadnej akcji, co czyta się jak awaria, a nie jak pusta treść.
+Pozycja niesie link do dokumentu w SharePoincie (``url``), treść szablonu
+(``template_subject`` + ``template_body``) — np. zaproszenie kalendarzowe, które
+nie jest plikiem — albo OBA naraz. Dlatego ``url`` jest opcjonalny, ale wiersz
+bez adresu i bez treści szablonu jest odrzucany (422) lustrzanie do CHECK-a
+``ck_help_materials_link_or_template`` (``url IS NOT NULL OR template_body IS
+NOT NULL``): taka pozycja wyrenderowałaby się w Pomocy bez żadnej akcji, co
+czyta się jak awaria, a nie jak pusta treść. To świadomie OR, nie XOR — link
+z dołączoną treścią (np. wzór dokumentu + gotowa notatka) jest legalny, a FE
+pokazuje wtedy obie akcje.
+
+``slug`` jest NIEZMIENNY po utworzeniu wiersza — patrz ``update_help_material``.
 
 Bezpieczeństwo: ``url`` wpisuje admin, a FE renderuje go jako ``<a href>``.
 Walidacja schematu jest ALLOWLISTĄ (tylko http/https), nie blocklistą — dzięki
@@ -249,16 +254,17 @@ def _slugify(title: str) -> str:
     return _trim_slug(slug or "material")
 
 
-async def _ensure_unique_slug(
-    db: AsyncSession, base: str, exclude_id: Optional[int] = None
-) -> str:
-    """Zwraca slug, dodając sufiks -2, -3, … jeśli już istnieje."""
+async def _ensure_unique_slug(db: AsyncSession, base: str) -> str:
+    """Zwraca slug, dodając sufiks -2, -3, … jeśli już istnieje.
+
+    Wołane WYŁĄCZNIE przy tworzeniu wiersza — slug jest potem niezmienny
+    (patrz komentarz przy zmianie tytułu w ``update_help_material``), więc nie
+    ma tu wariantu „pomiń własne id".
+    """
     candidate = _trim_slug(base)
     suffix = 2
     while True:
         stmt = select(HelpMaterial.id).where(HelpMaterial.slug == candidate)
-        if exclude_id is not None:
-            stmt = stmt.where(HelpMaterial.id != exclude_id)
         existing = await db.scalar(stmt)
         if existing is None:
             return candidate
@@ -396,12 +402,18 @@ async def update_help_material(
     fields = data.model_fields_set
 
     if "title" in fields and data.title is not None:
-        new_title = data.title.strip()
-        if new_title != material.title:
-            material.title = new_title
-            material.slug = await _ensure_unique_slug(
-                db, _slugify(new_title), exclude_id=material.id
-            )
+        # Tytuł zmieniamy, SLUG NIE. Slug jest identyfikatorem wiersza, a nie
+        # jego etykietą: nie występuje w żadnej trasie (endpointy biorą
+        # `{material_id}`), za to służy za klucz seedowania
+        # (`ON CONFLICT (slug)` w entrypoincie) i za punkt zaczepienia dla FE,
+        # który po nim odnajduje pozycję-szablon zaproszenia.
+        #
+        # Przeliczanie sluga z tytułu zrywało oba wiązania naraz: jedna
+        # poprawka tytułu w Pomoc → Materiały gasiła przycisk „Zaproszenie
+        # prep" na profilu KAŻDEGO kandydata (bez żadnego sygnału dla admina),
+        # a przy najbliższym starcie kontenera seed dosiewał bliźniaczy wiersz,
+        # bo `ON CONFLICT` przestawał trafiać.
+        material.title = data.title.strip()
     if "category" in fields and data.category is not None:
         material.category = data.category.strip()
     # `url` bez strażnika `is not None` — jawne null MUSI czyścić adres, inaczej
