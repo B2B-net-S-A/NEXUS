@@ -188,7 +188,8 @@ class WeightProfile:
 # 0150 did a mass invalidation); a third time was only a matter of when.
 _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "CHAMPION_MATCH_SIGNALS_ENABLED",
-    "CHAMPION_SIGNALS_V11_ENABLED",
+    "CHAMPION_SENIORITY_PENALTY_ENABLED",
+    "CHAMPION_AVAILABILITY_FALLBACK_ENABLED",
     "AI_SCORING_CONTRACT_V2",
     "VOYAGE_MODEL",
     "SEMANTIC_CALIBRATION_GAMMA",
@@ -1100,8 +1101,12 @@ def _score_location(
     )
 
 
-def _v11_enabled() -> bool:
-    return bool(getattr(settings, "CHAMPION_SIGNALS_V11_ENABLED", False))
+def _seniority_penalty_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", False))
+
+
+def _availability_fallback_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", False))
 
 
 # Kara mnożnikowa, nie punktowa: kompozyt ma dwa tryby (suma i renormalizacja
@@ -1119,7 +1124,7 @@ def _champion_seniority_factor(
 ) -> tuple[float, Optional[str]]:
     """(mnożnik totalu, powód) — 1.0/None gdy nie ma czego oceniać."""
 
-    if not _v11_enabled():
+    if not _seniority_penalty_enabled():
         return 1.0, None
     required = _champion_dict(job).get("seniority_min_years")
     if isinstance(required, bool) or not isinstance(required, (int, float)):
@@ -1216,7 +1221,7 @@ def _score_availability(
     availability_date = candidate.availability_date
     reference_deadline = job.deadline
     source_note = ""
-    if _v11_enabled():
+    if _availability_fallback_enabled():
         # v1.1: 99% importowanych kandydatów nie ma availability_date, ale
         # 13,9k ma fakty notatkowe ("2 tygodnie wypowiedzenia", "od zaraz"),
         # a oferty z Championem mają datę startu. Fallback po OBU stronach —
