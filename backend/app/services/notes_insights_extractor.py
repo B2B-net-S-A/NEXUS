@@ -208,7 +208,12 @@ async def extract_insights(notes_blob: str) -> dict:
     try:
         return json.loads(payload)
     except json.JSONDecodeError:
-        return json.loads(_close_open_json(payload))
+        # Naprawa dostaje PEŁNY ogon (raw[start:]), nie payload ucięty na
+        # ostatnim '}' — przy uciętej odpowiedzi wcześniejszy wewnętrzny '}'
+        # obcinał wszystko za sobą, zanim naprawa cokolwiek zobaczyła.
+        # Postamble po poprawnym JSON-ie nieosiągalny: wtedy pierwszy parse
+        # payloadu po prostu się udaje.
+        return json.loads(_close_open_json(raw[start:]))
 
 
 def stamp_no_content(

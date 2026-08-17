@@ -261,3 +261,15 @@ def test_truncated_json_is_repaired():
 
     ok = '{"a": [1, 2], "b": "x"}'
     assert _json.loads(_close_open_json(ok)) == {"a": [1, 2], "b": "x"}
+
+
+def test_truncation_repair_uses_full_tail_not_last_brace():
+    # Ucięta odpowiedź z wcześniejszym wewnętrznym '}' — cięcie na rfind('}')
+    # gubiło pole "c" ZANIM naprawa je zobaczyła.
+    from app.services.notes_insights_extractor import _close_open_json
+    import json as _json
+
+    raw = '{"a": {"b": 1}, "c": [{"name": "SQL", "evidence": "praca z SQ'
+    repaired = _json.loads(_close_open_json(raw))
+    assert repaired["a"] == {"b": 1}
+    assert repaired["c"][0]["name"] == "SQL", "pole za wewnętrznym '}' przeżywa"
