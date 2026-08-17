@@ -13,6 +13,7 @@ import {
   type OrderLineRead,
   type SwapConsultantInput,
 } from "@/lib/api/orderGroups";
+import { countPl } from "@/lib/plural-pl";
 import { canManageMultiConsultantOrders, useAuthStore } from "@/store/auth";
 
 import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal";
@@ -176,9 +177,19 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
               czyli tę samą nieprawdę co pusty stan pod spodem. */}
           {query.isSuccess ? (
             <p className="text-xs text-muted-foreground">
-              {query.data.total_groups}{" "}
-              {query.data.total_groups === 1 ? "zamówienie" : "zamówienia"} ·{" "}
-              {query.data.total_consultants} konsultantów
+              {countPl(
+                query.data.total_groups,
+                "zamówienie",
+                "zamówienia",
+                "zamówień",
+              )}{" "}
+              ·{" "}
+              {countPl(
+                query.data.total_consultants,
+                "konsultant",
+                "konsultanci",
+                "konsultantów",
+              )}
             </p>
           ) : null}
           {canManage ? (
