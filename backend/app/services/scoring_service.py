@@ -190,6 +190,9 @@ _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "CHAMPION_MATCH_SIGNALS_ENABLED",
     "CHAMPION_SENIORITY_PENALTY_ENABLED",
     "CHAMPION_AVAILABILITY_FALLBACK_ENABLED",
+    # 4a: rozszerzenie taksonomii zmienia derived-must (regex z ALIAS_MAP),
+    # a więc warstwę skills każdego composite'u.
+    "SKILL_ALIAS_EXTENDED_ENABLED",
     "AI_SCORING_CONTRACT_V2",
     "VOYAGE_MODEL",
     "SEMANTIC_CALIBRATION_GAMMA",

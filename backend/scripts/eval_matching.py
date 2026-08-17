@@ -864,6 +864,34 @@ async def _run(args: argparse.Namespace) -> int:
         profiles = list(ABLATION_PROFILES)
     else:
         profiles = [DEFAULT_PROFILE]
+    for i, spec in enumerate(args.weights or []):
+        parts = [float(x) for x in spec.split(",")]
+        if len(parts) != 6:
+            raise SystemExit(
+                f"--weights wymaga 6 wartości (semantic,skills,salary,location,"
+                f"availability,champion_fit), dostałem {len(parts)}: {spec!r}"
+            )
+        total = sum(parts)
+        if abs(total - 100.0) > 0.01:
+            raise SystemExit(f"--weights musi sumować się do 100, jest {total}: {spec!r}")
+        if parts[5] > 0 and not args.include_champion:
+            logger.warning(
+                "--weights champion_fit=%.1f zostanie wyzerowane przez leakage "
+                "guard (efektywny budżet %g); --include-champion, żeby zachować",
+                parts[5],
+                total - parts[5],
+            )
+        profiles.append(
+            WeightProfile(
+                name=f"custom_{i}_" + "_".join(f"{x:g}" for x in parts),
+                semantic=parts[0],
+                skills=parts[1],
+                salary=parts[2],
+                location=parts[3],
+                availability=parts[4],
+                champion_fit=parts[5],
+            )
+        )
 
     # AI-P0-01: close champion_fit label leakage unless explicitly opted in.
     if not args.include_champion:
@@ -1119,6 +1147,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--ablation",
         action="store_true",
         help="Run every profile in ABLATION_PROFILES instead of just default.",
+    )
+    parser.add_argument(
+        "--weights",
+        action="append",
+        metavar="S,SK,SAL,LOC,AV,CH",
+        help=(
+            "Dodatkowy profil wag (6 liczb sumujących się do 100: semantic,"
+            "skills,salary,location,availability,champion_fit). Powtarzalne — "
+            "każde wystąpienie dodaje jedno ramię do TEGO SAMEGO biegu "
+            "(wspólny retrieval, porównanie czystych wag). Strojenie 4b: "
+            "trenuj na zbiorze ROZŁĄCZNYM z zamrożonym eval (--exclude-job-ids)."
+        ),
     )
     parser.add_argument(
         "--with-historical-boost",
