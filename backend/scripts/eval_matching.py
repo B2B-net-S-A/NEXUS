@@ -140,14 +140,15 @@ class WeightProfile:
         return asdict(self)
 
 
-# Mirrors the live engine default (scoring_service: 35/30/12/8/5/10 = 100).
+# Mirrors the live engine default (scoring_service: 45/25/10/8/2/10 = 100,
+# strojenie 4b 17.08.2026 — poprzednio 35/30/12/8/5/10).
 DEFAULT_PROFILE = WeightProfile(
-    name="default_35_30_12_8_5_10",
-    semantic=35.0,
-    skills=30.0,
-    salary=12.0,
+    name="default_45_25_10_8_2_10",
+    semantic=45.0,
+    skills=25.0,
+    salary=10.0,
     location=8.0,
-    availability=5.0,
+    availability=2.0,
     champion_fit=10.0,
 )
 
