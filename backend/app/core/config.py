@@ -266,6 +266,10 @@ class Settings(BaseSettings):
     # Dekompozycja na dwie niezależne flagi, każda z własnym pomiarem:
     CHAMPION_SENIORITY_PENALTY_ENABLED: bool = False
     CHAMPION_AVAILABILITY_FALLBACK_ENABLED: bool = False
+    # 4a: rozszerzone rodziny aliasów umiejętności (skill_taxonomy_extended)
+    # w mapie scoringu — górują na derived-must z Championa/JD dla terminów
+    # spoza bazowej taksonomii (git/jira/maven/servicenow…). Flip po pomiarze.
+    SKILL_ALIAS_EXTENDED_ENABLED: bool = False
     # Pula kandydatów przez hybrydę (BM25+dense+RRF, opcjonalnie rerank) zamiast
     # samych wektorów. Selekcja członkostwa; skala semantyczna bez zmian — patrz
     # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
