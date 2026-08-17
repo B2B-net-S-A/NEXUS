@@ -25,7 +25,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -34,13 +34,16 @@ from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import DlAssignedOrAdmin, TacPlus
 from app.core.database import get_db
 from app.models.activity import Activity
+from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.user import User, UserRole
 from app.schemas.client_order_group import (
+    ConsultantOptionRead,
+    ConsultantOptionsResponse,
     OrderGroupCreate,
     OrderGroupEventRead,
     OrderGroupEventsResponse,
@@ -53,8 +56,10 @@ from app.schemas.client_order_group import (
     OrderLineUpdate,
 )
 from app.services.client_order_lines import (
+    CLIENT_CONTRACT_STATUSES,
     consultant_display_name,
     lines_for_group,
+    list_consultant_options,
     record_event,
     recompute_remaining,
 )
@@ -279,14 +284,91 @@ async def _resolve_contract(
     return contract
 
 
+async def _contract_for_candidate(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    candidate_id: int,
+    start_date: date,
+    end_date: Optional[date],
+) -> tuple[Contract, Optional[Candidate], bool]:
+    """Kontrakt u tego klienta dla osoby z bazy Nexus — istniejący albo nowy.
+
+    Zwraca `(kontrakt, kandydat, czy_utworzono)`. Kandydat wraca OSOBNO, bo dla
+    świeżo utworzonego kontraktu relacja ``contract.candidate`` nie jest
+    załadowana i sięgnięcie po nią odpaliłoby leniwe doczytanie — w async
+    SQLAlchemy kończy się to ``MissingGreenlet``, czyli 500 bez nagłówków CORS
+    (w przeglądarce „Network Error" bez żadnej wskazówki).
+
+    Istniejący kontrakt jest REUŻYWANY, nawet gdy operator przyszedł ścieżką
+    „z bazy Nexus": drugi równoległy kontrakt u tego samego klienta rozdwoiłby
+    prawdę o tym, kto tam pracuje — a to jest dokładnie ta rzecz, której cały
+    moduł pilnuje.
+    """
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
+    if candidate is None:
+        raise HTTPException(400, detail="Nie znaleziono osoby o tym identyfikatorze")
+
+    existing = await db.scalar(
+        select(Contract)
+        .options(selectinload(Contract.candidate))
+        .where(
+            Contract.candidate_id == candidate_id,
+            Contract.client_id == client_id,
+            Contract.status.in_(CLIENT_CONTRACT_STATUSES),
+        )
+        .order_by(Contract.start_date.desc().nullslast(), Contract.id.desc())
+    )
+    if existing is not None:
+        return existing, existing.candidate, False
+
+    contract = Contract(
+        candidate_id=candidate_id,
+        client_id=client_id,
+        # `draft`, nie `active`: aktywacja kontraktu ma własny cykl życia
+        # (``contract_lifecycle.activate_contract``), który waliduje komplet
+        # danych i dowód podpisu. Obsada zamówienia nie może go obchodzić
+        # bokiem — inaczej osoba wchodziłaby do MRR i alertów wygasania na
+        # podstawie formularza, który o umowie nie pyta.
+        status=ContractStatus.draft,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    db.add(contract)
+    await db.flush()
+    return contract, candidate, True
+
+
+async def _resolve_line_person(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    payload: OrderLineCreate,
+) -> tuple[Contract, Optional[Candidate], bool]:
+    """Kogo dotyczy linia — z kontraktu u klienta albo z bazy Nexus."""
+    if payload.contract_id is not None:
+        contract = await _resolve_contract(db, group.client_id, payload.contract_id)
+        return contract, contract.candidate, False
+    # Schemat gwarantuje, że dokładnie jedno z pól jest ustawione.
+    return await _contract_for_candidate(
+        db,
+        client_id=group.client_id,
+        candidate_id=payload.candidate_id,  # type: ignore[arg-type]
+        start_date=payload.start_date,
+        end_date=payload.end_date or group.end_date,
+    )
+
+
 async def _build_line(
     db: AsyncSession,
     *,
     group: ClientOrderGroup,
     payload: OrderLineCreate,
     user: User,
-) -> tuple[ClientOrder, str]:
-    contract = await _resolve_contract(db, group.client_id, payload.contract_id)
+) -> tuple[ClientOrder, str, bool]:
+    contract, candidate, contract_created = await _resolve_line_person(
+        db, group=group, payload=payload
+    )
     if payload.job_id is not None:
         owns_job = await db.scalar(
             select(Job.id).where(
@@ -305,7 +387,6 @@ async def _build_line(
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
 
-    candidate = contract.candidate
     who = (
         f"{candidate.name or ''} {candidate.lastname or ''}".strip()
         if candidate
@@ -337,14 +418,23 @@ async def _build_line(
     # relacji, więc sięgnięcie po nią odpaliłoby leniwe doczytanie — w async
     # SQLAlchemy kończy się to `MissingGreenlet`, czyli 500 bez CORS
     # (w przeglądarce „Network Error" bez żadnej wskazówki).
-    return line, who or "konsultant"
+    return line, who or "konsultant", contract_created
 
 
-def _describe_line(order: ClientOrder, who: str) -> str:
+def _describe_line(
+    order: ClientOrder, who: str, *, contract_created: bool = False
+) -> str:
+    # Fakt założenia kontraktu ląduje w opisie zdarzenia, a nie tylko w polach
+    # linii: historia zamówienia jest jedynym miejscem, w którym widać, że ta
+    # osoba weszła spoza rekrutacji u tego klienta i ma u niego świeży szkic
+    # umowy do domknięcia.
+    suffix = (
+        " (osoba z bazy Nexus — założono szkic kontraktu)" if contract_created else ""
+    )
     return (
         f"{who} — stawka kosztowa {format_md(order.md_rate_cost)} zł/MD, "
         f"przychodowa {format_md(order.md_rate_revenue)} zł/MD, "
-        f"budżet {format_md(order.md_total)} MD"
+        f"budżet {format_md(order.md_total)} MD{suffix}"
     )
 
 
@@ -380,6 +470,56 @@ async def list_order_groups(
         groups=groups,
         total_groups=len(groups),
         total_consultants=sum(g.active_consultants for g in groups),
+    )
+
+
+@router.get(
+    "/{client_id}/order-groups/consultant-options",
+    response_model=ConsultantOptionsResponse,
+)
+async def list_consultant_options_for_client(
+    client_id: int,
+    user: DlAssignedOrAdmin,
+    q: str = Query("", max_length=120, description="Imię i nazwisko"),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """Kogo można dołożyć do zamówienia — jedna lista, dwa źródła.
+
+    Osoby z kontraktem u tego klienta ORAZ pozostali aktywni konsultanci z bazy
+    Nexus, scaleni, bez duplikatów i posortowani alfabetycznie po imieniu.
+    Każda pozycja niesie etykietę pochodzenia, bo wybór między dwiema osobami
+    o tym samym nazwisku bywa wyborem między „ta, którą tu znamy" a „ta z bazy".
+
+    Bramka zapisu (``DlAssignedOrAdmin``), a nie odczytu: ta lista istnieje
+    wyłącznie po to, żeby nakarmić ``add_line``. Kto nie może dodać linii, nie
+    potrzebuje nazwisk konsultantów z całej bazy.
+
+    Klient spoza listy wielo-konsultantowej dostaje PUSTĄ listę, nie 422 — to
+    GET, a odmowa renderuje się w interfejsie jak awaria.
+    """
+    await _assert_client(db, client_id)
+    if not is_multi_consultant_client(client_id):
+        return ConsultantOptionsResponse(options=[], total=0)
+
+    options, total = await list_consultant_options(
+        db, client_id=client_id, query=q, limit=limit
+    )
+    return ConsultantOptionsResponse(
+        options=[
+            ConsultantOptionRead(
+                candidate_id=o.candidate_id,
+                contract_id=o.contract_id,
+                full_name=o.full_name,
+                first_name=o.first_name,
+                last_name=o.last_name,
+                source=o.source,
+                source_label=o.source_label,
+                job_title=o.job_title,
+            )
+            for o in options
+        ],
+        total=total,
     )
 
 
@@ -472,14 +612,16 @@ async def create_order_group(
     )
 
     for line_payload in payload.lines:
-        line, who = await _build_line(db, group=group, payload=line_payload, user=user)
+        line, who, contract_created = await _build_line(
+            db, group=group, payload=line_payload, user=user
+        )
         await db.flush()
         record_event(
             db,
             group_id=group.id,
             order_id=line.id,
             event_type=EVENT_CONSULTANT_ADDED,
-            description=_describe_line(line, who),
+            description=_describe_line(line, who, contract_created=contract_created),
             payload={
                 "consultant": who,
                 "rate_cost": str(line.md_rate_cost),
@@ -487,6 +629,7 @@ async def create_order_group(
                 "md_total": str(line.md_total),
                 "input_mode": line.md_input_mode,
                 "input_value": str(line.md_input_value),
+                "contract_created": contract_created,
             },
             user_id=user.id,
         )
@@ -602,19 +745,22 @@ async def add_line(
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
-    line, who = await _build_line(db, group=group, payload=payload, user=user)
+    line, who, contract_created = await _build_line(
+        db, group=group, payload=payload, user=user
+    )
     await db.flush()
     record_event(
         db,
         group_id=group.id,
         order_id=line.id,
         event_type=EVENT_CONSULTANT_ADDED,
-        description=_describe_line(line, who),
+        description=_describe_line(line, who, contract_created=contract_created),
         payload={
             "consultant": who,
             "rate_cost": str(line.md_rate_cost),
             "rate_revenue": str(line.md_rate_revenue),
             "md_total": str(line.md_total),
+            "contract_created": contract_created,
         },
         user_id=user.id,
     )

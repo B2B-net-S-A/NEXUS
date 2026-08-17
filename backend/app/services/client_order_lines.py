@@ -40,7 +40,7 @@ from sqlalchemy.orm import selectinload
 from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.md_consumption import (
     CONSUMPTION_SOURCE_IMPORT,
     ClientOrderMdConsumption,
@@ -95,6 +95,198 @@ def candidate_name_tokens(candidate: Candidate | None) -> frozenset[str]:
     if candidate is None:
         return frozenset()
     return name_tokens(f"{candidate.name or ''} {candidate.lastname or ''}")
+
+
+# ── Kogo można dołożyć do zamówienia ────────────────────────────────────────
+#
+# Dwa źródła w JEDNEJ liście: osoby z kontraktem u tego klienta oraz pozostali
+# aktywni konsultanci z bazy. Wcześniej picker pokazywał wyłącznie to pierwsze
+# źródło, więc osoby, której nie rekrutowaliśmy u tego klienta, nie dało się
+# dołożyć do zamówienia — a to jest zwyczajny scenariusz: konsultant kończy
+# projekt u jednego klienta i wchodzi na zamówienie u drugiego.
+#
+# Świadomie NIE zwracamy nazwy klienta, u którego dana osoba pracuje TERAZ.
+# Odbiorcą tej listy jest zespół JEDNEGO klienta; sama obsada innego klienta
+# jest informacją handlową i nie jest tu do niczego potrzebna.
+
+SOURCE_CLIENT_RECRUITMENT = "client_recruitment"
+SOURCE_NEXUS_BASE = "nexus_base"
+
+CONSULTANT_SOURCE_LABELS: dict[str, str] = {
+    SOURCE_CLIENT_RECRUITMENT: "Rekrutacja u klienta",
+    SOURCE_NEXUS_BASE: "Baza Nexus",
+}
+
+# „Aktywny konsultant" w całej bazie. `ending` jest w środku celowo: to nadal
+# ktoś, kto dziś pracuje (kontrakt < 30 dni do końca), czyli dokładnie osoba,
+# którą planuje się na kolejne zamówienie. Wycięcie jej ukryłoby najbardziej
+# oczywistych kandydatów do obsady.
+LIVE_CONTRACT_STATUSES: tuple[ContractStatus, ...] = (
+    ContractStatus.active,
+    ContractStatus.ending,
+)
+
+# Źródło „u tego klienta" ZACHOWUJE dotychczasową zawartość pickera — te same
+# statusy co `client_orders.list_active_contracts_for_extension`, łącznie
+# z `draft`. Ticket jest rozszerzeniem, nie zamianą, więc lista, którą operator
+# widział wczoraj, musi być podzbiorem tej, którą zobaczy dziś.
+CLIENT_CONTRACT_STATUSES: tuple[ContractStatus, ...] = LIVE_CONTRACT_STATUSES + (
+    ContractStatus.draft,
+)
+
+
+@dataclass(frozen=True)
+class ConsultantOption:
+    """Jedna pozycja pickera „Konsultant" przy dodawaniu osoby do zamówienia."""
+
+    candidate_id: int
+    #: `None` = osoba nie ma kontraktu u tego klienta; zapis linii go utworzy.
+    contract_id: Optional[int]
+    first_name: str
+    last_name: str
+    full_name: str
+    source: str
+    #: Rekrutacja u TEGO klienta (źródło A). Dla bazy Nexus zawsze `None`.
+    job_title: Optional[str]
+
+    @property
+    def source_label(self) -> str:
+        return CONSULTANT_SOURCE_LABELS.get(self.source, self.source)
+
+
+def _option_from_contract(
+    contract: Contract, *, source: str, with_contract: bool
+) -> Optional[ConsultantOption]:
+    candidate = contract.candidate
+    if candidate is None or candidate.id is None:
+        return None
+    first = (candidate.name or "").strip()
+    last = (candidate.lastname or "").strip()
+    return ConsultantOption(
+        candidate_id=candidate.id,
+        contract_id=contract.id if with_contract else None,
+        first_name=first,
+        last_name=last,
+        full_name=f"{first} {last}".strip() or f"#{candidate.id}",
+        source=source,
+        job_title=(
+            contract.job.title if with_contract and contract.job is not None else None
+        ),
+    )
+
+
+def _sort_key(option: ConsultantOption) -> tuple[str, str, int]:
+    """Alfabetycznie po imieniu, po kluczu bez diakrytyków.
+
+    Sortowanie robimy w Pythonie, a nie `ORDER BY` w bazie: prod nie ma
+    rozszerzenia `unaccent`, więc „Łukasz" w SQL-u wylądowałby za „Zbigniewem".
+    Ten sam normalizator co przy dopasowaniu nazwisk, żeby kolejność i wyniki
+    wyszukiwania nie rozjeżdżały się między sobą.
+    """
+    return (
+        normalize_person_name_part(option.first_name),
+        normalize_person_name_part(option.last_name),
+        option.candidate_id,
+    )
+
+
+def _search_parts(option: ConsultantOption) -> list[str]:
+    return [
+        normalized
+        for part in f"{option.first_name} {option.last_name}".split()
+        if (normalized := normalize_person_name_part(part))
+    ]
+
+
+def option_matches_query(option: ConsultantOption, query: str) -> bool:
+    """Czy pozycja pasuje do wpisanego imienia i nazwiska.
+
+    Zapytanie jest rozbijane na tokeny i KAŻDY musi trafić w którąś część
+    nazwiska — dlatego „Jan Kowalski" zwraca Jana Kowalskiego, a nie wszystkich
+    Janów i wszystkich Kowalskich. O to chodzi w wymaganiu „dokładne
+    dopasowanie po kombinacji imię + nazwisko, a nie po pojedynczym fragmencie".
+
+    Token dopasowuje się PREFIKSEM, nie równością. Równość byłaby pułapką:
+    „Anna Kowal" wpisane w trakcie pisania nie zwracałoby nic, a pusta lista
+    czyta się jak „nie ma takiej osoby w bazie" — i kończy założeniem duplikatu.
+    Pełne imię i nazwisko wpisane w całości i tak zawęża wynik do jednej osoby.
+    """
+    tokens = [
+        normalized
+        for part in str(query or "").split()
+        if (normalized := normalize_person_name_part(part))
+    ]
+    if not tokens:
+        return True
+    parts = _search_parts(option)
+    return all(any(part.startswith(token) for part in parts) for token in tokens)
+
+
+async def list_consultant_options(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    query: str = "",
+    limit: int = 100,
+) -> tuple[list[ConsultantOption], int]:
+    """Scalona, posortowana lista kandydatów na linię zamówienia.
+
+    Zwraca `(pozycje przycięte do limitu, liczba wszystkich pasujących)`.
+    Licznik jest częścią kontraktu, a nie ozdobą: bez niego przycięcie listy
+    byłoby cichym obcięciem, a operator czytałby „to wszyscy" tam, gdzie jest
+    „tylu się zmieściło".
+    """
+    options: list[ConsultantOption] = []
+    seen: set[int] = set()
+
+    # ── A. Kontrakty u TEGO klienta ────────────────────────────────────────
+    client_rows = await db.execute(
+        select(Contract)
+        .options(selectinload(Contract.candidate), selectinload(Contract.job))
+        .where(
+            Contract.client_id == client_id,
+            Contract.candidate_id.isnot(None),
+            Contract.status.in_(CLIENT_CONTRACT_STATUSES),
+        )
+        # Osoba z dwoma żywymi kontraktami u jednego klienta ma na liście być
+        # RAZ (wymóg „każda osoba widoczna tylko raz"), więc bierzemy jej
+        # bieżące zaangażowanie — kontrakt o najpóźniejszym starcie.
+        .order_by(Contract.start_date.desc().nullslast(), Contract.id.desc())
+    )
+    for contract in client_rows.scalars():
+        option = _option_from_contract(
+            contract, source=SOURCE_CLIENT_RECRUITMENT, with_contract=True
+        )
+        if option is None or option.candidate_id in seen:
+            continue
+        seen.add(option.candidate_id)
+        options.append(option)
+
+    # ── B. Pozostali aktywni konsultanci z bazy ────────────────────────────
+    # Filtrujemy po `seen`, a nie po `client_id != ...`: osoba z zakończonym
+    # kontraktem u tego klienta i żywym u innego NIE jest w źródle A, więc musi
+    # się tu pojawić — inaczej wypadłaby z listy w całości.
+    base_rows = await db.execute(
+        select(Contract)
+        .options(selectinload(Contract.candidate))
+        .where(
+            Contract.candidate_id.isnot(None),
+            Contract.status.in_(LIVE_CONTRACT_STATUSES),
+        )
+        .order_by(Contract.start_date.desc().nullslast(), Contract.id.desc())
+    )
+    for contract in base_rows.scalars():
+        option = _option_from_contract(
+            contract, source=SOURCE_NEXUS_BASE, with_contract=False
+        )
+        if option is None or option.candidate_id in seen:
+            continue
+        seen.add(option.candidate_id)
+        options.append(option)
+
+    matching = [o for o in options if option_matches_query(o, query)]
+    matching.sort(key=_sort_key)
+    return matching[:limit], len(matching)
 
 
 # ── Odczyt linii ────────────────────────────────────────────────────────────
