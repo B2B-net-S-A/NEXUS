@@ -39,6 +39,8 @@ function material(overrides: Partial<HelpMaterial> = {}): HelpMaterial {
     title: "Szablon do umowy",
     url: SHAREPOINT_WORD_URL,
     description: null,
+    template_subject: null,
+    template_body: null,
     is_editable_template: false,
     sort_order: 0,
     is_published: true,
@@ -274,5 +276,124 @@ describe("Materiały — stany puste", () => {
         published_only: false,
       }),
     );
+  });
+});
+
+/**
+ * Wiersz-SZABLON (migracja 0229 seeduje go na każdym środowisku).
+ *
+ * Regresja, którą te testy zamykają: `url` stał się NULLOWALNY w API, ale typ
+ * FE dalej deklarował `string`, więc `tsc` przepuszczał `material.url
+ * .toLowerCase()` — a na zaseedowanym wierszu wywalało to render CAŁEJ sekcji
+ * Materiałów, dla każdego zalogowanego, od pierwszego wejścia po deployu.
+ */
+describe("Materiały — pozycja będąca szablonem treści", () => {
+  const TEMPLATE_BODY = [
+    "Dzień dobry,",
+    "",
+    "Zapraszam na spotkanie przygotowujące do rozmowy z (nazwa Klienta).",
+    "",
+    "Pozdrawiam",
+  ].join("\n");
+
+  function templateMaterial(overrides: Partial<HelpMaterial> = {}): HelpMaterial {
+    return material({
+      id: 99,
+      slug: "zaproszenie-prep-spotkanie",
+      title: "Zaproszenie na spotkanie przygotowujące (prep)",
+      url: null,
+      template_subject:
+        "Przygotowanie do spotkania z (nazwa Klienta) – (imię i nazwisko kandydata)",
+      template_body: TEMPLATE_BODY,
+      ...overrides,
+    });
+  }
+
+  it("renderuje się bez wyjątku mimo url = null", async () => {
+    renderSection([templateMaterial()]);
+
+    expect(
+      await screen.findByText("Zaproszenie na spotkanie przygotowujące (prep)"),
+    ).toBeInTheDocument();
+  });
+
+  it("daje akcje zaproszenia zamiast etykiety „Nieprawidłowy link”", async () => {
+    // Brak adresu to zamierzony stan tej pozycji, nie zepsuty wiersz —
+    // komunikat o błędnym linku czytałby się jak awaria.
+    renderSection([templateMaterial()]);
+
+    expect(
+      await screen.findByRole("button", { name: /^Pobierz zaproszenie \(\.ics\)/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /^Otwórz w Outlook Web/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Nieprawidłowy link")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Otwórz:/ })).not.toBeInTheDocument();
+  });
+
+  it("deeplink do Outlooka łamie wiersze przez <br>, nie przez %0A", async () => {
+    renderSection([templateMaterial()]);
+
+    const link = await screen.findByRole("link", { name: /^Otwórz w Outlook Web/ });
+    const href = new URL(link.getAttribute("href") ?? "");
+    expect(href.searchParams.get("rru")).toBe("addevent");
+    expect(href.searchParams.get("body")).toContain("<br>");
+    expect(href.searchParams.get("subject")).toContain("Przygotowanie do spotkania");
+  });
+
+  it("pokazuje instrukcję o CV obok przycisku, a NIE w treści zaproszenia", async () => {
+    renderSection([templateMaterial()]);
+
+    expect(
+      await screen.findByText(
+        "UWAGA! Do zaproszenia załączamy CV wysłane pod dany projekt",
+      ),
+    ).toBeInTheDocument();
+
+    const href =
+      screen.getByRole("link", { name: /^Otwórz w Outlook Web/ }).getAttribute("href") ??
+      "";
+    expect(decodeURIComponent(href)).not.toContain("UWAGA");
+  });
+
+  it("pozycja z linkiem NIE dostaje akcji zaproszenia", async () => {
+    renderSection([material({ id: 1 })]);
+
+    await screen.findByRole("link", { name: /^Otwórz:/ });
+    expect(
+      screen.queryByRole("button", { name: /Pobierz zaproszenie/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/UWAGA! Do zaproszenia załączamy CV/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("wiersz z linkiem ORAZ treścią daje OBIE akcje — dokument nie znika", async () => {
+    // CHECK w bazie to `url IS NOT NULL OR template_body IS NOT NULL`, a PUT
+    // dopisujący treść do wiersza-linku jest legalny (pinuje to test backendu
+    // `test_adding_template_body_does_not_clear_url`). Przełącznik
+    // „szablon ALBO link" gubił wtedy „Otwórz": adres siedział w bazie, a
+    // rekruter nie miał żadnej drogi do dokumentu i czytał to jak utratę pliku.
+    renderSection([templateMaterial({ id: 77, url: SHAREPOINT_WORD_URL })]);
+
+    const open = await screen.findByRole("link", { name: /^Otwórz:/ });
+    expect(open).toHaveAttribute("href", SHAREPOINT_WORD_URL);
+    expect(
+      screen.getByRole("button", { name: /^Pobierz zaproszenie \(\.ics\)/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Nieprawidłowy link")).not.toBeInTheDocument();
+  });
+
+  it("szablon z WADLIWYM adresem nie przemilcza błędu", async () => {
+    // Brak adresu w szablonie jest zamierzony, ale adres NIE do otwarcia to
+    // literówka admina — musi być widoczna, żeby dało się ją poprawić.
+    renderSection([templateMaterial({ id: 78, url: "firma.sharepoint.com/plik" })]);
+
+    expect(await screen.findByText("Nieprawidłowy link")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^Pobierz zaproszenie \(\.ics\)/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Otwórz:/ })).not.toBeInTheDocument();
   });
 });
