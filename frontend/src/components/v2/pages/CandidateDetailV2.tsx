@@ -13,6 +13,7 @@ import {
   ArrowRight,
  Ban,
  Calendar,
+ CalendarPlus,
  CheckCircle2,
  ChevronDown,
  ChevronUp,
@@ -133,6 +134,7 @@ import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
 import ScheduleInterviewModal from"@/components/calendar/ScheduleInterviewModal";
+import { PrepInviteModal } from"@/components/v2/modals/PrepInviteModal";
 import {
  CandidatePipelinesWidget,
  candidatePipelinesQueryKey,
@@ -486,6 +488,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  const [cvOpen, setCvOpen] = useState(false);
  const [assignOpen, setAssignOpen] = useState(false);
  const [scheduleOpen, setScheduleOpen] = useState(false);
+ // Osobno od `scheduleOpen`: „Zaplanuj interview" wysyła zaproszenie przez
+ // Graph, a to daje rekruterowi SZKIC do własnego Outlooka (żeby dołożył CV).
+ const [prepInviteOpen, setPrepInviteOpen] = useState(false);
  const [contactOutcomeOpen, setContactOutcomeOpen] = useState(false);
  const [editOpen, setEditOpen] = useState(false);
  // Inline edycja tożsamości/kontaktu (imię, nazwisko, email, telefon) wprost
@@ -1139,6 +1144,17 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <Calendar className="h-4 w-4" />
  Zaplanuj interview
  </DropdownMenuItem>
+ {/* Świadomie osobna pozycja od „Zaplanuj interview": tamta WYSYŁA przez
+ Graph, ta daje szkic do własnego Outlooka, żeby rekruter dołożył CV.
+ Bez emaila też ma sens — plik .ics adresuje się już w Outlooku. */}
+ <DropdownMenuItem
+ className="min-h-11"
+ title="Przygotuj zaproszenie prep do wysłania z własnego Outlooka (z CV)"
+ onSelect={() => openFromMenu(() => setPrepInviteOpen(true))}
+ >
+ <CalendarPlus className="h-4 w-4" />
+ Zaproszenie prep
+ </DropdownMenuItem>
  <DropdownMenuItem
  className="min-h-11"
  onSelect={() => openFromMenu(() => setCvOpen(true))}
@@ -1520,6 +1536,17 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateId={Number(id)}
  candidateName={fullName}
  candidateEmail={candidate.email ?? null}
+ />
+ {/* `onToast` NIE jest opcjonalne w praktyce: bez niego nieudane kopiowanie
+ (brak HTTPS, odmowa uprawnień) byłoby na tym ekranie nieme, a ta sama
+ akcja w Pomoc → Materiały komunikat pokazuje. */}
+ <PrepInviteModal
+ open={prepInviteOpen}
+ onOpenChange={setPrepInviteOpen}
+ candidateName={fullName}
+ onToast={(message, type) =>
+ type === "error" ? showError(message) : showSuccess(message)
+ }
  />
  {/* Marketplace modal is parent-controlled so its overlay survives the
  "Więcej" dropdown unmounting (its trigger lives inside the menu). */}
