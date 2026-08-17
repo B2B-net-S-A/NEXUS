@@ -943,6 +943,21 @@ class Settings(BaseSettings):
     # scopes itself to the rows it just touched.
     TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
 
+    # ── Notes insights sync (świeżość faktów z notatek) ─────────────────────
+    # Cykliczna ekstrakcja `cv_extracted_data._notes_insights` po imporcie
+    # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
+    # + honorowanie wierszy legacy) — patrz app/tasks/notes_insights_sync.py.
+    NOTES_INSIGHTS_SYNC_ENABLED: bool = False
+    # Jak często pętla sprawdza, czy bieg jest należny (clamp >=300 s w pętli);
+    # sam bieg jest najwyżej raz dziennie.
+    NOTES_INSIGHTS_SYNC_CHECK_INTERVAL_SECONDS: int = 1800
+    # Godzina UTC, od której dzienny bieg może ruszyć — PO nocnym Traffit
+    # syncu (02:00), żeby ekstrakcja widziała świeżo zaimportowane notatki.
+    NOTES_INSIGHTS_SYNC_HOUR_UTC: int = 4
+    # Sufit kandydatów na bieg (~$0,002/kandydata na Haiku). Ogranicza koszt
+    # pojedynczego dnia; zaległość zbiega w kolejnych dobach.
+    NOTES_INSIGHTS_SYNC_BATCH_LIMIT: int = 300
+
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only
     # contact coordination inside Nexus; it never writes stages or contact

@@ -78,7 +78,12 @@ from app.api import admin_index_coverage, admin_schema_drift
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
-from app.api import admin_candidates, admin_client_portfolio, admin_traffit
+from app.api import (
+    admin_candidates,
+    admin_client_portfolio,
+    admin_notes_insights,
+    admin_traffit,
+)
 from app.api import admin_talent_pools
 from app.api import required_documents
 from app.api import screenings
@@ -562,6 +567,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
+    from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
     from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
@@ -601,6 +607,7 @@ async def lifespan(app: FastAPI):
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
+        "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
         "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
         "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
         "index_outbox": asyncio.create_task(index_outbox_loop()),
@@ -843,6 +850,11 @@ app.include_router(activities.router, prefix="/api/activities", tags=["activitie
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(
     admin_traffit.router, prefix="/api/admin/traffit", tags=["admin", "traffit"]
+)
+app.include_router(
+    admin_notes_insights.router,
+    prefix="/api/admin/notes-insights",
+    tags=["admin", "notes-insights"],
 )
 app.include_router(
     admin_candidates.router,
