@@ -131,6 +131,8 @@ describe("MultiConsultantOrdersTab", () => {
     expect(await screen.findByText("Zamówienie nr 445")).toBeInTheDocument();
     expect(screen.getByText("Jan Kowalski")).toBeInTheDocument();
     expect(screen.getByText("Jan Nowak")).toBeInTheDocument();
+    // Polska liczba mnoga: 1 zamówienie / 2 konsultanci, nie „1 zamówienia".
+    expect(screen.getByText(/1 zamówienie · 2 konsultanci/)).toBeInTheDocument();
     expect(screen.getByText("15")).toBeInTheDocument();
     expect(screen.getByText("/ 50 MD")).toBeInTheDocument();
     expect(screen.getByText("48")).toBeInTheDocument();
@@ -176,6 +178,8 @@ describe("MultiConsultantOrdersTab", () => {
     renderTab();
 
     expect(await screen.findByText("Brak zamówień")).toBeInTheDocument();
+    // Zero bierze dopełniacz — „0 zamówienia" było moim błędem widocznym na prodzie.
+    expect(screen.getByText(/0 zamówień · 0 konsultantów/)).toBeInTheDocument();
     expect(
       screen.queryByText(/Nie udało się wczytać zamówień/),
     ).not.toBeInTheDocument();
