@@ -8,6 +8,8 @@ Pokrywa:
 - Update PATCH-semantyka częściowa (model_fields_set)
 - Walidacja URL: tylko http(s); javascript:/data:/file:/względne → 422
 - Sortowanie: sort_order ASC, potem title ASC
+- Szablony treści (wiersz bez url): zapis i odczyt, wyszukiwanie po temacie,
+  spójność „link ALBO szablon" — w API (422) i w bazie (CHECK)
 """
 
 from __future__ import annotations
@@ -17,7 +19,8 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -713,3 +716,218 @@ async def test_list_sorted_by_sort_order_then_title(mat_client, admin_headers):
     assert listing.status_code == 200
     titles = [m["title"] for m in listing.json()]
     assert titles == [f"A {unique}", f"B {unique}", f"C {unique}"]
+
+
+# ── Szablony treści (wiersz bez url) ────────────────────────────────────────
+#
+# Zaproszenie kalendarzowe nie jest plikiem w SharePoincie — rekruter potrzebuje
+# TREŚCI, którą wkleja do Outlooka. Taka pozycja nie ma adresu, więc `url` jest
+# opcjonalny, ale wiersz bez adresu I bez treści jest odrzucany na obu
+# poziomach: w API (422) i w bazie (CHECK ck_help_materials_link_or_template).
+
+
+_TEMPLATE_SUBJECT = (
+    "Przygotowanie do spotkania z (nazwa Klienta) – (imię i nazwisko kandydata)"
+)
+_TEMPLATE_BODY = (
+    "Dzień dobry,\n\nZapraszam na spotkanie przygotowujące do rozmowy "
+    "z (nazwa Klienta).\n\nPozdrawiam"
+)
+
+
+@pytest.mark.asyncio
+async def test_template_without_url_round_trips(mat_client, admin_headers):
+    """Szablon zapisuje się bez adresu i wraca z treścią 1:1 (z pustymi liniami)."""
+    title = f"Zaproszenie prep {uuid.uuid4().hex[:6]}"
+
+    create = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": title,
+            "template_subject": _TEMPLATE_SUBJECT,
+            "template_body": _TEMPLATE_BODY,
+            "sort_order": 35,
+        },
+    )
+    assert create.status_code == 201, create.text
+    created = create.json()
+    assert created["url"] is None
+    assert created["template_subject"] == _TEMPLATE_SUBJECT
+    assert created["template_body"] == _TEMPLATE_BODY
+
+    listing = await mat_client.get("/api/help-materials", headers=admin_headers)
+    assert listing.status_code == 200
+    row = next(m for m in listing.json() if m["id"] == created["id"])
+    assert row["url"] is None
+    assert row["template_subject"] == _TEMPLATE_SUBJECT
+    # Puste linie są częścią układu wiadomości — odczyt nie może ich zjeść.
+    assert row["template_body"] == _TEMPLATE_BODY
+    assert "\n\n" in row["template_body"]
+
+
+@pytest.mark.asyncio
+async def test_material_without_url_and_without_template_is_rejected(
+    mat_client, admin_headers
+):
+    """Wiersz bez adresu i bez treści to martwa pozycja w UI — 422, nie 500."""
+    resp = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": f"Pusty {uuid.uuid4().hex[:6]}",
+        },
+    )
+    assert resp.status_code == 422, resp.text
+
+    # Sam temat bez treści to wciąż brak treści — CHECK patrzy na template_body.
+    only_subject = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": f"Sam temat {uuid.uuid4().hex[:6]}",
+            "template_subject": _TEMPLATE_SUBJECT,
+        },
+    )
+    assert only_subject.status_code == 422, only_subject.text
+
+
+@pytest.mark.asyncio
+async def test_adding_template_body_does_not_clear_url(mat_client, admin_headers):
+    """Dopisanie treści do LINKU nie może skasować adresu (i odwrotnie)."""
+    link = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": f"Link z notatką {uuid.uuid4().hex[:6]}",
+            "url": _VALID_URL,
+        },
+    )
+    assert link.status_code == 201, link.text
+
+    upd = await mat_client.put(
+        f"/api/help-materials/{link.json()['id']}",
+        headers=admin_headers,
+        json={"template_body": _TEMPLATE_BODY},
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["url"] == _VALID_URL
+    assert upd.json()["template_body"] == _TEMPLATE_BODY
+
+    template = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": f"Szablon z linkiem {uuid.uuid4().hex[:6]}",
+            "template_subject": _TEMPLATE_SUBJECT,
+            "template_body": _TEMPLATE_BODY,
+        },
+    )
+    assert template.status_code == 201, template.text
+
+    upd2 = await mat_client.put(
+        f"/api/help-materials/{template.json()['id']}",
+        headers=admin_headers,
+        json={"url": _VALID_URL},
+    )
+    assert upd2.status_code == 200, upd2.text
+    assert upd2.json()["url"] == _VALID_URL
+    assert upd2.json()["template_subject"] == _TEMPLATE_SUBJECT
+    assert upd2.json()["template_body"] == _TEMPLATE_BODY
+
+
+@pytest.mark.asyncio
+async def test_update_cannot_clear_both_link_and_template(mat_client, admin_headers):
+    """Jawne wyczyszczenie adresu na wierszu bez treści → 422, wiersz nietknięty."""
+    created = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": f"Tylko link {uuid.uuid4().hex[:6]}",
+            "url": _VALID_URL,
+        },
+    )
+    assert created.status_code == 201, created.text
+    mid = created.json()["id"]
+
+    resp = await mat_client.put(
+        f"/api/help-materials/{mid}",
+        headers=admin_headers,
+        json={"url": None},
+    )
+    assert resp.status_code == 422, resp.text
+
+    listing = await mat_client.get("/api/help-materials", headers=admin_headers)
+    row = next(m for m in listing.json() if m["id"] == mid)
+    assert row["url"] == _VALID_URL, "odrzucona edycja nie może zostawić śladu"
+
+
+@pytest.mark.asyncio
+async def test_search_matches_template_subject(mat_client, admin_headers):
+    """Rekruter szuka po temacie widocznym w Outlooku, nie po naszym tytule."""
+    unique = uuid.uuid4().hex[:6]
+
+    template = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": f"Wzór {unique}",
+            "template_subject": f"Przygotowanie do spotkania {unique}",
+            "template_body": _TEMPLATE_BODY,
+        },
+    )
+    assert template.status_code == 201, template.text
+    template_slug = template.json()["slug"]
+
+    other = await mat_client.post(
+        "/api/help-materials",
+        headers=admin_headers,
+        json={
+            "category": "Szablony i wzory",
+            "title": f"Inny materiał {unique}",
+            "url": _VALID_URL,
+        },
+    )
+    assert other.status_code == 201
+    other_slug = other.json()["slug"]
+
+    found = await mat_client.get(
+        "/api/help-materials",
+        headers=admin_headers,
+        params={"q": f"przygotowanie do spotkania {unique}"},
+    )
+    assert found.status_code == 200
+    slugs = [m["slug"] for m in found.json()]
+    assert template_slug in slugs
+    assert other_slug not in slugs
+
+
+@pytest.mark.asyncio
+async def test_database_check_rejects_row_without_url_and_template():
+    """Ostatnia bramka jest w BAZIE, nie w Pydanticu.
+
+    Wiersze wjeżdżają też migracją, seedem w ``entrypoint.sh`` i ręcznym SQL-em
+    na prodzie — te ścieżki omijają walidację API, więc CHECK musi je odrzucić
+    samodzielnie.
+    """
+    async with AsyncSessionLocal() as db:
+        with pytest.raises(IntegrityError):
+            await db.execute(
+                text(
+                    "INSERT INTO help_materials "
+                    "(slug, category, title, url, template_subject, template_body, "
+                    " is_editable_template, sort_order, is_published, "
+                    " created_at, updated_at) "
+                    "VALUES (:slug, 'Szablony i wzory', 'Niespójny wiersz', "
+                    " NULL, NULL, NULL, FALSE, 0, TRUE, now(), now())"
+                ),
+                {"slug": f"niespojny-{uuid.uuid4().hex[:8]}"},
+            )
+        await db.rollback()

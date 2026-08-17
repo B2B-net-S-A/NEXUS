@@ -1,7 +1,15 @@
-"""Help materials API — biblioteka linków do dokumentów firmowych (SharePoint).
+"""Help materials API — materiały firmowe w zakładce Pomoc.
 
 Czytelne dla wszystkich zalogowanych; edycja zarezerwowana dla admina —
-dokładnie jak ``procedures``. Search po tytule, kategorii i opisie (ILIKE).
+dokładnie jak ``procedures``. Search po tytule, kategorii, opisie i temacie
+szablonu (ILIKE).
+
+Pozycja jest ALBO linkiem do dokumentu w SharePoincie (``url``), ALBO szablonem
+treści (``template_subject`` + ``template_body``) — np. zaproszeniem
+kalendarzowym, które nie jest plikiem. Dlatego ``url`` jest opcjonalny, ale
+wiersz bez adresu i bez treści szablonu jest odrzucany (422) lustrzanie do
+CHECK-a ``ck_help_materials_link_or_template``: taka pozycja wyrenderowałaby się
+w Pomocy bez żadnej akcji, co czyta się jak awaria, a nie jak pusta treść.
 
 Bezpieczeństwo: ``url`` wpisuje admin, a FE renderuje go jako ``<a href>``.
 Walidacja schematu jest ALLOWLISTĄ (tylko http/https), nie blocklistą — dzięki
@@ -20,7 +28,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.database import get_db
 from app.models.help_material import HelpMaterial
@@ -80,27 +88,67 @@ def _validate_url(raw: str) -> str:
 _INT32_MIN = -2_147_483_648
 _INT32_MAX = 2_147_483_647
 
+# Komunikat współdzielony przez walidator schematu (POST) i sprawdzenie stanu
+# po scaleniu (PUT) — jeden tekst, żeby admin dostał tę samą diagnozę niezależnie
+# od tego, którą ścieżką doszedł do niespójnego wiersza.
+_LINK_OR_TEMPLATE_MESSAGE = (
+    "Materiał musi mieć adres URL albo treść szablonu — pozycja bez jednego "
+    "i drugiego wyświetliłaby się w Pomocy bez żadnej akcji"
+)
+
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    """Puste/białe wejście to BRAK wartości, nie pusty string.
+
+    Bez tego ``template_body=""`` przechodziłby CHECK w bazie (kolumna jest
+    wtedy NOT NULL) i dawał szablon bez treści — pozycję, która wygląda na
+    sprawną, a po kliknięciu nic nie wstawia.
+    """
+    if value is None:
+        return None
+    return value.strip() or None
+
 
 class HelpMaterialCreate(BaseModel):
     category: str = Field(min_length=1, max_length=255)
     title: str = Field(min_length=1, max_length=255)
-    url: str = Field(min_length=1)
+    # Opcjonalny, bo szablon treści nie ma adresu. Spójności („link ALBO
+    # szablon") pilnuje `_require_link_or_template` niżej.
+    url: Optional[str] = None
     description: Optional[str] = None
+    template_subject: Optional[str] = Field(default=None, max_length=255)
+    template_body: Optional[str] = None
     is_editable_template: bool = False
     sort_order: int = Field(default=0, ge=_INT32_MIN, le=_INT32_MAX)
     is_published: bool = True
 
     @field_validator("url")
     @classmethod
-    def _check_url(cls, v: str) -> str:
-        return _validate_url(v)
+    def _check_url(cls, v: Optional[str]) -> Optional[str]:
+        normalized = _normalize_optional_text(v)
+        if normalized is None:
+            return None
+        return _validate_url(normalized)
+
+    @field_validator("template_subject", "template_body")
+    @classmethod
+    def _normalize_template(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_optional_text(v)
+
+    @model_validator(mode="after")
+    def _require_link_or_template(self) -> "HelpMaterialCreate":
+        if self.url is None and self.template_body is None:
+            raise ValueError(_LINK_OR_TEMPLATE_MESSAGE)
+        return self
 
 
 class HelpMaterialUpdate(BaseModel):
     category: Optional[str] = Field(default=None, min_length=1, max_length=255)
     title: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    url: Optional[str] = Field(default=None, min_length=1)
+    url: Optional[str] = None
     description: Optional[str] = None
+    template_subject: Optional[str] = Field(default=None, max_length=255)
+    template_body: Optional[str] = None
     is_editable_template: Optional[bool] = None
     sort_order: Optional[int] = Field(default=None, ge=_INT32_MIN, le=_INT32_MAX)
     is_published: Optional[bool] = None
@@ -108,9 +156,19 @@ class HelpMaterialUpdate(BaseModel):
     @field_validator("url")
     @classmethod
     def _check_url(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        return _validate_url(v)
+        normalized = _normalize_optional_text(v)
+        if normalized is None:
+            return None
+        return _validate_url(normalized)
+
+    @field_validator("template_subject", "template_body")
+    @classmethod
+    def _normalize_template(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_optional_text(v)
+
+    # Spójności „link ALBO szablon" NIE da się rozstrzygnąć na samym payloadzie:
+    # PUT jest częściowy, więc dopiero stan PO scaleniu z wierszem w bazie mówi,
+    # czy coś zostało. Sprawdzenie siedzi w `update_help_material`.
 
 
 class HelpMaterialResponse(BaseModel):
@@ -118,8 +176,10 @@ class HelpMaterialResponse(BaseModel):
     slug: str
     category: str
     title: str
-    url: str
+    url: Optional[str]
     description: Optional[str]
+    template_subject: Optional[str]
+    template_body: Optional[str]
     is_editable_template: bool
     sort_order: int
     is_published: bool
@@ -251,7 +311,8 @@ async def list_help_materials(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     q: Optional[str] = Query(
-        default=None, description="Wyszukaj po tytule, kategorii i opisie"
+        default=None,
+        description="Wyszukaj po tytule, kategorii, opisie i temacie szablonu",
     ),
     published_only: bool = Query(
         default=True,
@@ -273,6 +334,9 @@ async def list_help_materials(
                     HelpMaterial.title.ilike(pattern, escape="\\"),
                     HelpMaterial.category.ilike(pattern, escape="\\"),
                     HelpMaterial.description.ilike(pattern, escape="\\"),
+                    # Rekruter szuka szablonu po tym, co widzi w Outlooku —
+                    # czyli po temacie, nie po naszym tytule pozycji.
+                    HelpMaterial.template_subject.ilike(pattern, escape="\\"),
                 )
             )
 
@@ -298,6 +362,8 @@ async def create_help_material(
         title=data.title.strip(),
         url=data.url,
         description=data.description,
+        template_subject=data.template_subject,
+        template_body=data.template_body,
         is_editable_template=data.is_editable_template,
         sort_order=data.sort_order,
         is_published=data.is_published,
@@ -338,16 +404,30 @@ async def update_help_material(
             )
     if "category" in fields and data.category is not None:
         material.category = data.category.strip()
-    if "url" in fields and data.url is not None:
+    # `url` bez strażnika `is not None` — jawne null MUSI czyścić adres, inaczej
+    # nie da się zamienić linku w szablon treści. Pominięcie pola nadal nie
+    # rusza wartości (rozstrzyga `model_fields_set`), a wiersz bez adresu
+    # i bez treści odpada niżej na sprawdzeniu spójności.
+    if "url" in fields:
         material.url = data.url
     if "description" in fields:
         material.description = data.description
+    if "template_subject" in fields:
+        material.template_subject = data.template_subject
+    if "template_body" in fields:
+        material.template_body = data.template_body
     if "is_editable_template" in fields and data.is_editable_template is not None:
         material.is_editable_template = data.is_editable_template
     if "sort_order" in fields and data.sort_order is not None:
         material.sort_order = data.sort_order
     if "is_published" in fields and data.is_published is not None:
         material.is_published = data.is_published
+
+    # Lustro CHECK-a `ck_help_materials_link_or_template` — sprawdzane PO
+    # scaleniu, bo dopiero wtedy widać, czy po edycji cokolwiek zostało.
+    # Bez tego admin dostawałby surowy IntegrityError jako 500.
+    if material.url is None and material.template_body is None:
+        raise HTTPException(status_code=422, detail=_LINK_OR_TEMPLATE_MESSAGE)
 
     material.updated_by = current_user.id
     await db.flush()
