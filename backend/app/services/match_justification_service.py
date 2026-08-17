@@ -281,6 +281,11 @@ def _input_hash(candidate: Candidate, job: Job, breakdown: dict) -> str:
 _MAX_NOTES_WARNINGS = 5
 
 
+def _skill_match_tokens(text_value: str) -> set[str]:
+    """Tokeny po znakach nie-alfanumerycznych, z zachowaniem +/# (c++, c#)."""
+    return set(re.split(r"[^0-9a-ząćęłńóśźż+#]+", text_value)) - {""}
+
+
 def notes_gap_warnings(candidate: Candidate, job: Job) -> list[dict]:
     """Braki potwierdzone w notatkach, które pokrywają się z wymaganiami oferty.
 
@@ -292,11 +297,11 @@ def notes_gap_warnings(candidate: Candidate, job: Job) -> list[dict]:
     TRAFIAJĄCE w wymaganie. Braki niezwiązane z ofertą zostają na karcie
     profilu — tutaj byłyby szumem.
 
-    Dopasowanie: równość po kanonizacji aliasów (PostgreSQL == postgres),
-    równość tokenowa w wolnym tekście braku („SQL wariant" trafia „sql", ale
-    „NoSQL" już nie — goły substring dawałby tu fałszywy alarm) albo — dla
-    nazw ≥4 znaków — zawieranie całej nazwy wymagania („Kubernetes w prod"
-    trafia „kubernetes", wielowyrazowe „spring boot" też).
+    Dopasowanie: równość po kanonizacji aliasów (PostgreSQL == postgres) albo
+    PODZBIÓR tokenów wymagania w tokenach tekstu braku — „SQL wariant" trafia
+    „sql", „Kubernetes w prod" trafia „kubernetes", „brak spring boot" trafia
+    „spring boot"; ale „NoSQL" nie trafia „sql", a „JavaScript" nie trafia
+    „java" (goły substring robił z tego fałszywe oskarżenie o brak).
     """
     return notes_gap_warnings_from_extracted(
         getattr(candidate, "cv_extracted_data", None), job
@@ -325,6 +330,14 @@ def notes_gap_warnings_from_extracted(extracted: Any, job: Job) -> list[dict]:
     if not requirement_names:
         return []
     requirements = {name.casefold() for name in requirement_names if name}
+    # Wymagania stokenizowane TYM SAMYM podziałem co tekst braku — dopasowanie
+    # to podzbiór tokenów, nie goły substring: "java" w "javascript" byłoby
+    # fałszywym oskarżeniem o brak. Cena świadoma: polska odmiana w nazwie
+    # braku ("terraformowanie") przestaje trafiać "terraform" — ostrzeżenie
+    # jest zarzutem, precyzja bije czułość.
+    requirement_tokens = {
+        req: frozenset(_skill_match_tokens(req)) for req in requirements
+    }
 
     warnings: list[dict] = []
     seen: set[str] = set()
@@ -337,14 +350,13 @@ def notes_gap_warnings_from_extracted(extracted: Any, job: Job) -> list[dict]:
         gap_text = raw_name.strip().casefold()
         canonical_gap = canonical_skill_names([raw_name])
         gap_canon = canonical_gap[0].casefold() if canonical_gap else gap_text
-        # Tokeny po znakach nie-alfanumerycznych, z zachowaniem +/# (c++, c#).
-        gap_tokens = set(re.split(r"[^0-9a-ząćęłńóśźż+#]+", gap_text)) - {""}
+        gap_tokens = _skill_match_tokens(gap_text)
         hit = None
         if gap_canon in requirements:
             hit = gap_canon
         else:
-            for req in requirements:
-                if req in gap_tokens or (len(req) >= 4 and req in gap_text):
+            for req, req_tokens in requirement_tokens.items():
+                if req in gap_tokens or (req_tokens and req_tokens <= gap_tokens):
                     hit = req
                     break
         if hit is None or hit in seen:

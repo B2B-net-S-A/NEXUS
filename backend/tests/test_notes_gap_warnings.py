@@ -165,3 +165,19 @@ def test_from_extracted_variant_mirrors_candidate_wrapper():
     ]
     assert notes_gap_warnings_from_extracted(None, job) == []
     assert notes_gap_warnings_from_extracted("tekst", job) == []
+
+
+def test_prefix_name_pairs_do_not_false_positive():
+    # "java" jako substring "javascript" robił fałszywe oskarżenie o brak —
+    # dopasowanie musi iść po tokenach, nigdy po gołym substringu.
+    cand = _cand(gaps=[{"name": "JavaScript", "evidence": "nie zna JS"}])
+    job = _job(must=["Java"])
+    assert notes_gap_warnings(cand, job) == []
+
+
+def test_multiword_requirement_matches_via_token_subset():
+    cand = _cand(gaps=[{"name": "brak doświadczenia ze Spring Boot"}])
+    job = _job(must=["Spring Boot"])
+    out = notes_gap_warnings(cand, job)
+    assert len(out) == 1
+    assert out[0]["skill"] == "brak doświadczenia ze Spring Boot"
