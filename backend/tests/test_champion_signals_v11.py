@@ -36,11 +36,14 @@ def _cand(**kw):
 
 @pytest.fixture()
 def v11_on(monkeypatch):
-    monkeypatch.setattr(settings, "CHAMPION_SIGNALS_V11_ENABLED", True)
+    # historyczna nazwa fixture; po dekompozycji włącza OBIE flagi
+    monkeypatch.setattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", True)
+    monkeypatch.setattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", True)
 
 
-def test_v11_flag_is_in_scoring_cache_inputs():
-    assert "CHAMPION_SIGNALS_V11_ENABLED" in _SCORING_CACHE_INPUTS
+def test_v11_flags_are_in_scoring_cache_inputs():
+    assert "CHAMPION_SENIORITY_PENALTY_ENABLED" in _SCORING_CACHE_INPUTS
+    assert "CHAMPION_AVAILABILITY_FALLBACK_ENABLED" in _SCORING_CACHE_INPUTS
 
 
 def test_seniority_factor_matrix(v11_on):
@@ -61,7 +64,7 @@ def test_seniority_factor_matrix(v11_on):
 
 def test_seniority_needs_both_sides_and_flag(monkeypatch):
     job = _job(champion_profile={"seniority_min_years": 10})
-    monkeypatch.setattr(settings, "CHAMPION_SIGNALS_V11_ENABLED", True)
+    monkeypatch.setattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", True)
     assert _champion_seniority_factor(_cand(), job) == (1.0, None), "brak lat = neutral"
     assert _champion_seniority_factor(
         _cand(years_it_experience=2), _job(champion_profile={})
@@ -71,7 +74,7 @@ def test_seniority_needs_both_sides_and_flag(monkeypatch):
             _cand(years_it_experience=2),
             _job(champion_profile={"seniority_min_years": bad}),
         ) == (1.0, None)
-    monkeypatch.setattr(settings, "CHAMPION_SIGNALS_V11_ENABLED", False)
+    monkeypatch.setattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", False)
     assert _champion_seniority_factor(_cand(years_it_experience=2), job) == (
         1.0,
         None,
@@ -136,7 +139,7 @@ def test_availability_layer_uses_notes_and_champion_start(v11_on):
 
 
 def test_availability_layer_flag_off_ignores_fallbacks(monkeypatch):
-    monkeypatch.setattr(settings, "CHAMPION_SIGNALS_V11_ENABLED", False)
+    monkeypatch.setattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", False)
     job = _job(champion_profile={"start_date": "1.12.2026"})
     cand = _cand(
         cv_extracted_data={
@@ -168,3 +171,26 @@ def test_asap_champion_start_uses_pinned_today(v11_on):
     )
     res = _score_availability(cand, job, today=date(2030, 1, 1))
     assert res.points == res.max_points, "obie strony = pinned today → na czas"
+
+
+def test_flags_are_independent(monkeypatch):
+    """Dekompozycja: każda flaga steruje WYŁĄCZNIE swoim sygnałem."""
+
+    monkeypatch.setattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", True)
+    monkeypatch.setattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", False)
+    job = _job(champion_profile={"seniority_min_years": 10, "start_date": "1.12.2026"})
+    cand = _cand(
+        years_it_experience=2,
+        cv_extracted_data={"_notes_insights": {"availability": {"raw": "od zaraz"}}},
+    )
+    f, _ = _champion_seniority_factor(cand, job)
+    assert f < 1.0, "kara działa przy włączonej fladze kary"
+    res = _score_availability(cand, job)
+    assert "brak daty" in res.reason, "fallback dostępności NIE działa bez swojej flagi"
+
+    monkeypatch.setattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", False)
+    monkeypatch.setattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", True)
+    f2, _ = _champion_seniority_factor(cand, job)
+    assert f2 == 1.0, "kara NIE działa bez swojej flagi"
+    res2 = _score_availability(cand, job)
+    assert res2.points == res2.max_points, "fallback działa przy swojej fladze"
