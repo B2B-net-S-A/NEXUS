@@ -3083,6 +3083,16 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_help_materials_sort_order "
     "ON help_materials (sort_order)",
     "CREATE INDEX IF NOT EXISTS ix_help_materials_id ON help_materials (id)",
+    # 0229: pozycja Pomocy może być SZABLONEM TREŚCI zamiast linku (zaproszenie
+    # kalendarzowe nie jest plikiem w SharePoincie). `url` przestaje być
+    # obowiązkowy, a treść trafia do `template_subject`/`template_body`.
+    # DROP NOT NULL jest idempotentny — na kolumnie już nullable to no-op.
+    # Kolejność ma znaczenie: `_DATA_STATEMENTS` niżej wstawia wiersz z
+    # `url = NULL`, a `_CONSTRAINT_STATEMENTS` dokłada CHECK spójności.
+    "ALTER TABLE help_materials ALTER COLUMN url DROP NOT NULL",
+    "ALTER TABLE help_materials "
+    "ADD COLUMN IF NOT EXISTS template_subject VARCHAR(255) NULL",
+    "ALTER TABLE help_materials ADD COLUMN IF NOT EXISTS template_body TEXT NULL",
     # 0220: konta serwisowe + klucze API (nagłówek X-API-Key). Bez tych tabel
     # zależność ``require_service_scope`` wywala UndefinedTable na KAŻDYM
     # requeście z kluczem, a Ustawienia → API zwracają 500. Kolejność ma
@@ -4191,6 +4201,30 @@ _DATA_STATEMENTS = [
            'Wersja angielska oświadczenia o niekaralności (KRK 2024)', FALSE, 120, TRUE, now(), now()
        )
        ON CONFLICT (slug) DO NOTHING""",
+    # 0229 — szablon zaproszenia na spotkanie przygotowujące. Jedyny wiersz bez
+    # `url`: to nie plik w SharePoincie, tylko TREŚĆ, którą rekruter wkleja do
+    # Outlooka. `\n` rozwija Python (nie-raw string), więc do SQL-a trafiają
+    # prawdziwe znaki nowej linii — puste linie są częścią układu wiadomości.
+    #
+    # Zdania „UWAGA! Do zaproszenia załączamy CV…" CELOWO tu NIE MA: to
+    # instrukcja dla rekrutera, a nie treść wysyłana kandydatowi. Jej miejsce
+    # jest w UI obok przycisku.
+    """INSERT INTO help_materials
+           (slug, category, title, url, description,
+            template_subject, template_body,
+            is_editable_template, sort_order, is_published,
+            created_at, updated_at)
+       VALUES (
+           'zaproszenie-prep-spotkanie',
+           'Szablony i wzory',
+           'Zaproszenie na spotkanie przygotowujące (prep)',
+           NULL,
+           'Zaproszenie kalendarzowe wysyłane kandydatowi przed rozmową z klientem.',
+           'Przygotowanie do spotkania z (nazwa Klienta) – (imię i nazwisko kandydata)',
+           'Dzień dobry,\n\nZapraszam na spotkanie przygotowujące do rozmowy z (nazwa Klienta) na stanowisko (nazwa stanowiska), które odbędzie się (data interview).\n\nLink do opisu stanowiska: (link do pracuj / rocketjobs)\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam',
+           FALSE, 35, TRUE, now(), now()
+       )
+       ON CONFLICT (slug) DO NOTHING""",
     # 0224 — snapshot danych Partnera z `render_payload` do kolumn. Klucze są
     # 1:1 nazwami pól `B2BRenderRequest` (bez aliasów, bez `exclude_none`).
     #
@@ -4250,6 +4284,23 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0229 — pozycja Pomocy musi być ALBO linkiem, ALBO szablonem treści.
+    # Wiersz bez `url` i bez `template_body` wyrenderowałby się w zakładce jako
+    # martwa pozycja bez żadnej akcji — czyta się jak awaria, nie jak pustka.
+    #
+    # IF NOT EXISTS zamiast gołego ADD CONSTRAINT: te instrukcje lecą przy
+    # KAŻDYM starcie kontenera, więc drugi boot musi być no-opem.
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_help_materials_link_or_template'
+              AND conrelid = 'help_materials'::regclass
+        ) THEN
+            ALTER TABLE help_materials
+                ADD CONSTRAINT ck_help_materials_link_or_template
+                CHECK (url IS NOT NULL OR template_body IS NOT NULL);
+        END IF;
+    END $$""",
     # 0227 — moduł Finanse. DROP przed ADD, nie samo `EXCEPTION WHEN
     # duplicate_object`: gdy kiedyś dojdzie trzeci status wersji, sam wyjątek
     # zostawiłby na prodzie stary, węższy CHECK i nowa wartość leciałaby
