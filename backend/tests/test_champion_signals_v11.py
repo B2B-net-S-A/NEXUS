@@ -183,14 +183,15 @@ def test_flags_are_independent(monkeypatch):
         years_it_experience=2,
         cv_extracted_data={"_notes_insights": {"availability": {"raw": "od zaraz"}}},
     )
+    today = date(2026, 8, 15)
     f, _ = _champion_seniority_factor(cand, job)
     assert f < 1.0, "kara działa przy włączonej fladze kary"
-    res = _score_availability(cand, job)
+    res = _score_availability(cand, job, today=today)
     assert "brak daty" in res.reason, "fallback dostępności NIE działa bez swojej flagi"
 
     monkeypatch.setattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", False)
     monkeypatch.setattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", True)
     f2, _ = _champion_seniority_factor(cand, job)
     assert f2 == 1.0, "kara NIE działa bez swojej flagi"
-    res2 = _score_availability(cand, job)
+    res2 = _score_availability(cand, job, today=today)
     assert res2.points == res2.max_points, "fallback działa przy swojej fladze"
