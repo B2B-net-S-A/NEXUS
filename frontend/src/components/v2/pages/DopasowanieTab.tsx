@@ -282,6 +282,37 @@ export function DopasowanieTab({
             </section>
           )}
 
+          {/* Braki z notatek — deterministyczna nakładka serwera (nie LLM):
+              brak potwierdzony w notatce rekruterskiej trafia w wymaganie
+              TEJ oferty. Osobna sekcja od watchoutów, bo źródłem jest
+              rozmowa z kandydatem, nie interpretacja CV przez model. */}
+          {(data.notes_warnings?.length ?? 0) > 0 && (
+            <section className="rounded-xl border border-border bg-card/60 p-5">
+              <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
+                Braki potwierdzone w notatkach:
+              </h3>
+              <ul className="space-y-2">
+                {data.notes_warnings!.map((w, i) => (
+                  <li
+                    key={`${w.skill}-${i}`}
+                    className="flex items-start gap-2 text-sm text-foreground"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span>
+                      <span className="font-medium">{w.skill}</span>
+                      {w.evidence && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          — {w.evidence}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           {/* Feedback + provenance */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
             <div className="flex items-center gap-2">
