@@ -146,6 +146,42 @@ def build_notes_blob(rows: Sequence[tuple]) -> str:
     return blob[:BLOB_CHAR_LIMIT]
 
 
+def _close_open_json(text_value: str) -> str:
+    """Domknij urwane stringi/nawiasy w uciętym JSON-ie (konserwatywnie).
+
+    Pierwszy bieg na prodzie pokazał realny przypadek: bogate notatki →
+    odpowiedź ucięta na max_tokens w środku tablicy → JSONDecodeError →
+    kandydat w ``errors`` i codzienna reselekcja. Domknięcie traci najwyżej
+    ogon dokumentu — częściowe insights są lepsze niż wieczny błąd. Na
+    poprawnym JSON-ie to no-op (pusty stos, poza stringiem).
+    """
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in text_value:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+    repaired = text_value
+    if in_string:
+        repaired += '"'
+    for opener in reversed(stack):
+        repaired += "}" if opener == "{" else "]"
+    return repaired
+
+
 async def extract_insights(notes_blob: str) -> dict:
     """Jedno wywołanie Haiku → sparsowany dict (unia v1+v2).
 
@@ -157,16 +193,56 @@ async def extract_insights(notes_blob: str) -> dict:
     msg = await run_in_threadpool(
         call_claude,
         model=EXTRACTION_MODEL,
-        max_tokens=2500,
+        # 4000, nie 2500: unia schematów v1+v2 przy bogatych notatkach
+        # potrafiła przekroczyć 2500 i ucinała JSON (prod, id=25176).
+        max_tokens=4000,
         temperature=0,
         thinking={"type": "disabled"},
         messages=[{"role": "user", "content": PROMPT + notes_blob}],
     )
     raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-    start, end = raw.find("{"), raw.rfind("}")
-    if start < 0 or end <= start:
+    start = raw.find("{")
+    if start < 0:
         raise ValueError("brak obiektu JSON w odpowiedzi modelu")
-    return json.loads(raw[start : end + 1])
+    payload = raw[start : raw.rfind("}") + 1] if raw.rfind("}") > start else raw[start:]
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        # Naprawa dostaje PEŁNY ogon (raw[start:]), nie payload ucięty na
+        # ostatnim '}' — przy uciętej odpowiedzi wcześniejszy wewnętrzny '}'
+        # obcinał wszystko za sobą, zanim naprawa cokolwiek zobaczyła.
+        # Postamble po poprawnym JSON-ie nieosiągalny: wtedy pierwszy parse
+        # payloadu po prostu się udaje.
+        return json.loads(_close_open_json(raw[start:]))
+
+
+def stamp_no_content(
+    candidate: Candidate, *, fingerprint: str, now_iso: Optional[str] = None
+) -> None:
+    """Ostempluj kandydata bez ekstrahowalnych notatek (bez wywołania AI).
+
+    Bez tego stempla kandydaci ze śladowymi notatkami (klasa „no_content"
+    z importu 08.2026, ~setki–tysiące) wracali do selekcji KAŻDEGO dnia
+    i zjadali cały budżet biegu na pomijanie samych siebie — pierwszy bieg
+    na prodzie: selected=300, skipped_short=299, extracted=0. Stempel
+    zachowuje ewentualne istniejące fakty (aktualizuje tylko meta-klucze),
+    a zmiana notatek w przyszłości unieważnia go przez znacznik czasu.
+    """
+    now = now_iso or datetime.now(timezone.utc).isoformat()
+    extracted = (
+        dict(candidate.cv_extracted_data)
+        if isinstance(candidate.cv_extracted_data, dict)
+        else {}
+    )
+    prior = extracted.get("_notes_insights")
+    insights = dict(prior) if isinstance(prior, dict) else {}
+    insights["_input_hash"] = fingerprint
+    insights["_extracted_at"] = now
+    insights["_v2_extracted_at"] = now
+    insights["_no_content"] = True
+    extracted["_notes_insights"] = insights
+    candidate.cv_extracted_data = extracted
+    flag_modified(candidate, "cv_extracted_data")
 
 
 def _safe_rate_value(raw: Any) -> Optional[float]:

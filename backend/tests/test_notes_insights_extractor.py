@@ -215,3 +215,61 @@ def test_malformed_rate_strings_never_raise():
     stats3 = _apply(cand3, {"expected_rate": {"value": 140, "period": "h"}})
     assert cand3.expected_rate_hourly == Decimal("120"), "nieznany autor → nietykalne"
     assert stats3["rate_updated"] == 0
+
+
+def test_stamp_no_content_freshens_candidate_without_ai():
+    from datetime import timedelta
+
+    from app.services.notes_insights_extractor import stamp_no_content
+
+    import app.services.notes_insights_extractor as mod
+
+    cand = _cand()
+    original = mod.flag_modified
+    mod.flag_modified = lambda *a, **k: None
+    try:
+        stamp_no_content(cand, fingerprint="fp-x")
+    finally:
+        mod.flag_modified = original
+    ins = cand.cv_extracted_data["_notes_insights"]
+    assert ins["_input_hash"] == "fp-x" and ins["_no_content"] is True
+    # Stempel wystarcza selekcji: znacznik świeższy niż ostatnia notatka.
+    just_before = datetime.now(timezone.utc) - timedelta(seconds=5)
+    assert legacy_row_is_fresh(ins, just_before) is True
+
+    # Istniejące fakty przeżywają stempel (aktualizują się tylko meta-klucze).
+    cand2 = _cand(
+        cv_extracted_data={"_notes_insights": {"expected_rate": {"value": 100}}}
+    )
+    mod.flag_modified = lambda *a, **k: None
+    try:
+        stamp_no_content(cand2, fingerprint="fp-y")
+    finally:
+        mod.flag_modified = original
+    ins2 = cand2.cv_extracted_data["_notes_insights"]
+    assert ins2["expected_rate"] == {"value": 100}
+    assert ins2["_input_hash"] == "fp-y"
+
+
+def test_truncated_json_is_repaired():
+    from app.services.notes_insights_extractor import _close_open_json
+    import json as _json
+
+    cut = '{"skills_evidenced": [{"name": "SQL", "evidence": "praca z SQ'
+    repaired = _json.loads(_close_open_json(cut))
+    assert repaired["skills_evidenced"][0]["name"] == "SQL"
+
+    ok = '{"a": [1, 2], "b": "x"}'
+    assert _json.loads(_close_open_json(ok)) == {"a": [1, 2], "b": "x"}
+
+
+def test_truncation_repair_uses_full_tail_not_last_brace():
+    # Ucięta odpowiedź z wcześniejszym wewnętrznym '}' — cięcie na rfind('}')
+    # gubiło pole "c" ZANIM naprawa je zobaczyła.
+    from app.services.notes_insights_extractor import _close_open_json
+    import json as _json
+
+    raw = '{"a": {"b": 1}, "c": [{"name": "SQL", "evidence": "praca z SQ'
+    repaired = _json.loads(_close_open_json(raw))
+    assert repaired["a"] == {"b": 1}
+    assert repaired["c"][0]["name"] == "SQL", "pole za wewnętrznym '}' przeżywa"
