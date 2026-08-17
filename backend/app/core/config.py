@@ -942,6 +942,10 @@ class Settings(BaseSettings):
     # resumable via an `after_id` cursor, full reconcile only — delta already
     # scopes itself to the rows it just touched.
     TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
+    # Sufit fazy candidates_cv_fields (parse pól skills/city/years dla
+    # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
+    # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
+    TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
 
     # ── Notes insights sync (świeżość faktów z notatek) ─────────────────────
     # Cykliczna ekstrakcja `cv_extracted_data._notes_insights` po imporcie
