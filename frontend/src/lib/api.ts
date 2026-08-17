@@ -883,6 +883,10 @@ export interface MatchJustification {
   pros: string[];
   /** "Do weryfikacji / luki" — gaps and things to confirm. */
   watchouts: string[];
+  /** Braki potwierdzone w notatkach rekruterskich, pokrywające się z
+   * wymaganiami oferty. Liczone deterministycznie po stronie serwera
+   * (nigdy przez LLM) — mogą być nieobecne na starszym backendzie. */
+  notes_warnings?: Array<{ skill: string; evidence?: string | null }>;
   model: string | null;
   /** "Oceń ten scoring": -1 (down) / +1 (up) / null (not rated). */
   rating: number | null;
