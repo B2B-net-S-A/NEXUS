@@ -191,3 +191,27 @@ def test_is_due_daily_schedule(monkeypatch):
     assert _is_due(yesterday, before_window) is False, "przed godziną okna"
     today_already = datetime(2026, 8, 17, 4, 30, tzinfo=timezone.utc)
     assert _is_due(today_already, now) is False, "dzisiejszy bieg już był"
+
+
+def test_malformed_rate_strings_never_raise():
+    # Haiku potrafi zwrócić "150-200" — goły float() rzucałby i kandydat
+    # wracał do selekcji każdego dnia (pętla-trucizna).
+    cand = _cand()
+    stats = _apply(cand, {"expected_rate": {"value": "150-200", "period": "h"}})
+    assert cand.expected_rate_hourly is None and stats["changed"] == 0
+
+    # Numeryczny string przechodzi (import 08.2026 zapisywał verbatim).
+    cand2 = _cand()
+    _apply(cand2, {"expected_rate": {"value": "150", "period": "h"}})
+    assert cand2.expected_rate_hourly == Decimal("150.0")
+
+    # Zepsuty prior nie wywraca ścieżki "czy to nasz wpis".
+    cand3 = _cand(
+        expected_rate_hourly=Decimal("120"),
+        cv_extracted_data={
+            "_notes_insights": {"expected_rate": {"value": "brak danych"}}
+        },
+    )
+    stats3 = _apply(cand3, {"expected_rate": {"value": 140, "period": "h"}})
+    assert cand3.expected_rate_hourly == Decimal("120"), "nieznany autor → nietykalne"
+    assert stats3["rate_updated"] == 0

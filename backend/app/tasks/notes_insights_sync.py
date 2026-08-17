@@ -34,6 +34,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.notes_insights_extractor import (
+    MIN_BLOB_CHARS,
     apply_insights,
     build_notes_blob,
     extract_insights,
@@ -121,7 +122,11 @@ async def _select_stale_candidates(limit: int) -> list[int]:
                 text(
                     """
                     SELECT c.id,
-                           c.cv_extracted_data->'_notes_insights' AS ins,
+                           c.cv_extracted_data->'_notes_insights'
+                               ->>'_v2_extracted_at' AS stamp_v2,
+                           c.cv_extracted_data->'_notes_insights'
+                               ->>'_extracted_at' AS stamp_v1,
+                           (c.cv_extracted_data ? '_notes_insights') AS has_ins,
                            ln.latest
                     FROM candidates c
                     JOIN (
@@ -137,7 +142,15 @@ async def _select_stale_candidates(limit: int) -> list[int]:
             )
         ).all()
     stale: list[int] = []
-    for cid, insights, latest in rows:
+    for cid, stamp_v2, stamp_v1, has_ins, latest in rows:
+        # Lekka projekcja: same znaczniki zamiast całego blobu insights —
+        # `legacy_row_is_fresh` i tak czyta wyłącznie te dwa pola, a pełny
+        # JSONB dla ~14k wierszy to dziesiątki MB na każdy dzienny bieg.
+        insights = (
+            {"_v2_extracted_at": stamp_v2, "_extracted_at": stamp_v1}
+            if has_ins
+            else None
+        )
         if legacy_row_is_fresh(insights, latest):
             continue
         stale.append(int(cid))
@@ -188,7 +201,7 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     stats["skipped_same_fingerprint"] += 1
                     continue
                 blob = build_notes_blob(rows)
-                if len(blob) < 60:
+                if len(blob) < MIN_BLOB_CHARS:
                     stats["skipped_short"] += 1
                     continue
                 try:

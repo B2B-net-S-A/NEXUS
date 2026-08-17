@@ -169,6 +169,24 @@ async def extract_insights(notes_blob: str) -> dict:
     return json.loads(raw[start : end + 1])
 
 
+def _safe_rate_value(raw: Any) -> Optional[float]:
+    """Wartość stawki z odpowiedzi modelu — liczba albo None, NIGDY wyjątek.
+
+    Haiku potrafi zwrócić "150-200" lub inny nienumeryczny string; goły
+    ``float(value)`` rzucałby wtedy z ``apply_insights``, kandydat lądowałby
+    w ``errors`` bez zapisu ``_input_hash`` i wracał do selekcji każdego dnia
+    — pętla-trucizna zjadająca budżet biegu. Stringi numeryczne ("150")
+    przechodzą, bo import 08.2026 zapisywał wartości modelu verbatim i takie
+    wiersze istnieją w ``prior``.
+    """
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_notice(raw: Any) -> Optional[tuple[int, str]]:
     if not isinstance(raw, str):
         return None
@@ -258,14 +276,13 @@ def apply_insights(
         changed = True
 
     # ── expected_rate → kolumna: FILL_EMPTY + aktualizacja własnego wpisu ──
-    rate = parsed.get("expected_rate") or {}
-    value = rate.get("value") if isinstance(rate, dict) else None
-    if (
-        value
-        and isinstance(rate, dict)
-        and rate.get("period") == "h"
-        and 0 < float(value) < 2000
-    ):
+    rate = (
+        parsed.get("expected_rate")
+        if isinstance(parsed.get("expected_rate"), dict)
+        else {}
+    )
+    value = _safe_rate_value(rate.get("value"))
+    if value is not None and rate.get("period") == "h" and 0 < value < 2000:
         new_rate = Decimal(str(value))
         if candidate.expected_rate_hourly is None:
             candidate.expected_rate_hourly = new_rate
@@ -279,7 +296,7 @@ def apply_insights(
             # z notatek (marker albo równość z poprzednią ekstrakcją) — świeższa
             # notatka aktualizuje nasz własny wpis, nigdy ludzki.
             prior_rate = prior.get("expected_rate")
-            prior_value = (
+            prior_value = _safe_rate_value(
                 prior_rate.get("value") if isinstance(prior_rate, dict) else None
             )
             ours = bool(prior.get("_rate_from_notes")) or (
