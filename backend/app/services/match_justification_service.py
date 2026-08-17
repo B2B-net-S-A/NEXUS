@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Optional
 
@@ -36,7 +37,11 @@ from app.models.match_justification import CandidateMatchJustification
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import MATCH_JUSTIFICATION
 from app.services.match_score_cache import get_cached_or_compute
-from app.services.scoring_service import ScoreBreakdown
+from app.services.scoring_service import (
+    ScoreBreakdown,
+    _extract_skills_from_champion,
+    canonical_skill_names,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +274,85 @@ def _input_hash(candidate: Candidate, job: Job, breakdown: dict) -> str:
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+# ── Deterministyczna nakładka: braki z notatek vs wymagania oferty ──────────
+
+_MAX_NOTES_WARNINGS = 5
+
+
+def notes_gap_warnings(candidate: Candidate, job: Job) -> list[dict]:
+    """Braki potwierdzone w notatkach, które pokrywają się z wymaganiami oferty.
+
+    Świadomie DETERMINISTYCZNE i osobne od prozy LLM: notatki rekruterskie nie
+    mogą zasilać wywołań AI (decyzja z importu 08.2026 — wewnętrzne opinie nie
+    przeciekają do wektorów ani uzasadnień). Ta funkcja liczy przecięcie
+    `_notes_insights.skills_gaps_observed` z must/nice oferty (z fallbackiem
+    Championa — tym samym, którego używa scoring) i zwraca wyłącznie braki
+    TRAFIAJĄCE w wymaganie. Braki niezwiązane z ofertą zostają na karcie
+    profilu — tutaj byłyby szumem.
+
+    Dopasowanie: równość po kanonizacji aliasów (PostgreSQL == postgres),
+    równość tokenowa w wolnym tekście braku („SQL wariant" trafia „sql", ale
+    „NoSQL" już nie — goły substring dawałby tu fałszywy alarm) albo — dla
+    nazw ≥4 znaków — zawieranie całej nazwy wymagania („Kubernetes w prod"
+    trafia „kubernetes", wielowyrazowe „spring boot" też).
+    """
+    extracted = getattr(candidate, "cv_extracted_data", None)
+    if not isinstance(extracted, dict):
+        return []
+    insights = extracted.get("_notes_insights")
+    if not isinstance(insights, dict):
+        return []
+    gaps = insights.get("skills_gaps_observed")
+    if not isinstance(gaps, list):
+        return []
+
+    requirement_names = canonical_skill_names(job.must_skills) + canonical_skill_names(
+        job.nice_skills
+    )
+    if not requirement_names:
+        requirement_names = canonical_skill_names(_extract_skills_from_champion(job))
+    if not requirement_names:
+        return []
+    requirements = {name.casefold() for name in requirement_names if name}
+
+    warnings: list[dict] = []
+    seen: set[str] = set()
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            continue
+        raw_name = gap.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            continue
+        gap_text = raw_name.strip().casefold()
+        canonical_gap = canonical_skill_names([raw_name])
+        gap_canon = canonical_gap[0].casefold() if canonical_gap else gap_text
+        # Tokeny po znakach nie-alfanumerycznych, z zachowaniem +/# (c++, c#).
+        gap_tokens = set(re.split(r"[^0-9a-ząćęłńóśźż+#]+", gap_text)) - {""}
+        hit = None
+        if gap_canon in requirements:
+            hit = gap_canon
+        else:
+            for req in requirements:
+                if req in gap_tokens or (len(req) >= 4 and req in gap_text):
+                    hit = req
+                    break
+        if hit is None or hit in seen:
+            continue
+        seen.add(hit)
+        evidence = gap.get("evidence")
+        warnings.append(
+            {
+                "skill": raw_name.strip(),
+                "evidence": evidence.strip()
+                if isinstance(evidence, str) and evidence.strip()
+                else None,
+            }
+        )
+        if len(warnings) >= _MAX_NOTES_WARNINGS:
+            break
+    return warnings
 
 
 # ── Output sanitisation ─────────────────────────────────────────────────────

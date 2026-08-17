@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import OperationalUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_justification import CandidateMatchJustification
 from app.services.ai_quota import AIQuotaExceeded
@@ -33,9 +34,19 @@ from app.services.match_justification_service import (
     MatchJustificationNotFound,
     get_cached,
     get_or_generate,
+    notes_gap_warnings,
 )
 
 router = APIRouter()
+
+
+class NotesGapWarning(BaseModel):
+    """Brak potwierdzony w notatce rekruterskiej, pokrywający się z wymaganiem
+    oferty. Liczony deterministycznie per request (nigdy przez LLM i poza
+    cache'em prozy) — patrz `notes_gap_warnings`."""
+
+    skill: str
+    evidence: Optional[str] = None
 
 
 class MatchJustificationOut(BaseModel):
@@ -46,6 +57,7 @@ class MatchJustificationOut(BaseModel):
     summary: str
     pros: list[str]
     watchouts: list[str]
+    notes_warnings: list[NotesGapWarning] = Field(default_factory=list)
     model: Optional[str] = None
     rating: Optional[int] = None
     rating_comment: Optional[str] = None
@@ -59,7 +71,9 @@ class ScoringFeedbackIn(BaseModel):
 
 
 def _serialize(
-    row: CandidateMatchJustification, job_title: Optional[str]
+    row: CandidateMatchJustification,
+    job_title: Optional[str],
+    notes_warnings: Optional[list[dict]] = None,
 ) -> MatchJustificationOut:
     return MatchJustificationOut(
         candidate_id=row.candidate_id,
@@ -69,11 +83,27 @@ def _serialize(
         summary=row.summary,
         pros=list(row.pros or []),
         watchouts=list(row.watchouts or []),
+        notes_warnings=[NotesGapWarning(**w) for w in (notes_warnings or [])],
         model=row.model,
         rating=row.rating,
         rating_comment=row.rating_comment,
         generated_at=row.updated_at,
     )
+
+
+async def _notes_warnings_for(
+    candidate_id: int, job_id: int, db: AsyncSession
+) -> tuple[Optional[str], list[dict]]:
+    """(job_title, deterministyczne ostrzeżenia z notatek) dla serializacji.
+
+    Jedno miejsce dla GET i POST /feedback — rozjazd oznaczałby, że ta sama
+    para (kandydat, oferta) raz pokazuje ostrzeżenia, a raz nie.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
+    if job is None or candidate is None:
+        return (job.title if job is not None else None), []
+    return job.title, notes_gap_warnings(candidate, job)
 
 
 @router.get("/{candidate_id}/scoring/{job_id}", response_model=MatchJustificationOut)
@@ -108,8 +138,8 @@ async def get_scoring_justification(
             detail=f"Nie udało się wygenerować uzasadnienia AI: {exc}",
         ) from exc
 
-    job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
-    return _serialize(row, job_title)
+    job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
+    return _serialize(row, job_title, warnings)
 
 
 @router.post(
@@ -145,5 +175,5 @@ async def rate_scoring_justification(
     await db.commit()
     await db.refresh(row)
 
-    job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
-    return _serialize(row, job_title)
+    job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
+    return _serialize(row, job_title, warnings)
