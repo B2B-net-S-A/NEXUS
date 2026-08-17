@@ -192,8 +192,10 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                 ).scalar_one_or_none()
                 if cand is None:
                     continue
+                # Bez idiomu `or {}` — cv_extracted_data na prodzie bywa listą
+                # (guard-test test_no_caller_reintroduces_the_or_dict_idiom).
                 prior = (
-                    (cand.cv_extracted_data or {}).get("_notes_insights")
+                    cand.cv_extracted_data.get("_notes_insights")
                     if isinstance(cand.cv_extracted_data, dict)
                     else None
                 )
