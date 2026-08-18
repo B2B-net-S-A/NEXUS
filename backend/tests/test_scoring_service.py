@@ -503,10 +503,14 @@ def test_availability_no_date_neutral():
 
 
 def test_availability_late_decays():
+    # Jawny profil z niezerowym budżetem — test MECHANIZMU decay nie może
+    # zależeć od strojonych wag domyślnych (od 18.08 default ma availability=0,
+    # co zeruje warstwę niezależnie od dat).
+    profile = ss.WeightProfile(name="decay-test", availability=5.0)
     job = make_job(deadline=date(2026, 6, 1))
     cand = make_candidate(availability_date=date(2026, 6, 16))  # 15 days late
-    r = ss._score_availability(cand, job)
-    assert 0 < r.points < ss.AVAILABILITY_MAX
+    r = ss._score_availability(cand, job, profile)
+    assert 0 < r.points < profile.availability
 
 
 # ── score_semantic ───────────────────────────────────────────────────────────
