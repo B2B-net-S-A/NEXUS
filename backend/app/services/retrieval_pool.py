@@ -43,12 +43,75 @@ def hybrid_pool_enabled() -> bool:
     return bool(getattr(settings, "HYBRID_POOL_ENABLED", False))
 
 
+def multi_query_enabled() -> bool:
+    return bool(getattr(settings, "MULTI_QUERY_RETRIEVAL_ENABLED", False))
+
+
+async def _multi_query_pool(
+    query_text: str,
+    variants: list[str],
+    *,
+    top_k: int,
+    raise_on_error: bool,
+) -> list[dict]:
+    """Unia pul z zapytania głównego i wariantów — członkostwo z unii,
+    podobieństwo z zapytania GŁÓWNEGO.
+
+    Ta sama zasada co przy hybrydzie (docstring modułu): kosinusy względem
+    różnych tekstów żyją na różnych skalach, a `similarity_map` konsumowana
+    przez warstwę semantyczną jest kalibrowana pod jedną. Kandydat dosypany
+    przez wariant dostaje więc kosinus policzony względem tekstu głównego —
+    dlatego flaga NIE wchodzi do `_SCORING_CACHE_INPUTS` (zmienia się tylko
+    to, KOGO oglądamy, nie jak liczymy).
+    """
+    primary = await _embedding.search_candidates_semantic(
+        query_text, top_k=top_k, raise_on_error=raise_on_error
+    )
+    pool_by_id: dict[int, float] = {
+        int(h["candidate_id"]): float(h["score"]) for h in primary
+    }
+
+    extra_ids: set[int] = set()
+    for variant in variants:
+        try:
+            hits = await _embedding.search_candidates_semantic(
+                variant, top_k=top_k, raise_on_error=False
+            )
+        except Exception:  # pragma: no cover — kontrakt raise_on_error=False
+            hits = []
+        for h in hits:
+            cid = int(h["candidate_id"])
+            if cid not in pool_by_id:
+                extra_ids.add(cid)
+
+    if extra_ids:
+        try:
+            cosine_by_id = await _embedding.similarity_for_candidate_ids(
+                query_text, sorted(extra_ids)
+            )
+        except Exception:
+            if raise_on_error:
+                raise
+            # Dosypka kosinusów padła — kandydaci z wariantów wchodzą z 0.0
+            # (semantyka „brak sygnału", nie wykluczenie), jak w hybrydzie.
+            logger.exception(
+                "[retrieval-pool] multi-query: kosinusy dla wariantów niedostępne"
+            )
+            cosine_by_id = {}
+        for cid in extra_ids:
+            pool_by_id[cid] = float(cosine_by_id.get(cid) or 0.0)
+
+    ranked = sorted(pool_by_id.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+    return [{"candidate_id": cid, "score": score} for cid, score in ranked]
+
+
 async def retrieve_candidate_pool(
     db: AsyncSession,
     query_text: str,
     *,
     top_k: int,
     raise_on_error: bool = False,
+    query_variants: list[str] | None = None,
 ) -> list[dict]:
     """Zwróć pulę kandydatów w kształcie `[{candidate_id, score}]`.
 
@@ -63,9 +126,21 @@ async def retrieve_candidate_pool(
     rekomendacjach. Flip flagi nie może tego kontraktu unieważnić.
 
     Flaga wyłączona ⇒ dosłownie dzisiejsza ścieżka, wywołanie za wywołanie.
+
+    `query_variants` (runda 2): dodatkowe sformułowania zapytania dla unii pul
+    przy `MULTI_QUERY_RETRIEVAL_ENABLED` — patrz `_multi_query_pool`. Ścieżka
+    hybrydowa je ignoruje (hybryda ma własną nogę BM25 na dokładne tokeny,
+    czyli dokładnie to, co wnosi wariant skillowy).
     """
 
     if not hybrid_pool_enabled():
+        if multi_query_enabled() and query_variants:
+            return await _multi_query_pool(
+                query_text,
+                query_variants,
+                top_k=top_k,
+                raise_on_error=raise_on_error,
+            )
         return await _embedding.search_candidates_semantic(
             query_text, top_k=top_k, raise_on_error=raise_on_error
         )

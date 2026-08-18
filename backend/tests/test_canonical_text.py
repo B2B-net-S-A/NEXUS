@@ -126,3 +126,128 @@ def test_dispatcher_selects_by_flag(monkeypatch):
     v2 = emb._build_candidate_text(cand)
     assert "Jan" not in v2  # canonical excludes PII
     assert "[SKILLS]" in v2
+
+
+# ── v3: pełne CV + fakty z notatek (runda 2) ─────────────────────────────────
+
+
+def test_candidate_v3_includes_full_cv_always():
+    """v2 dawał CV tylko jako fallback pustego szkieletu; v3 — zawsze."""
+    long_cv = "Projekt migracji hurtowni danych. " * 300  # ~10k znaków
+    cand = _cand(raw_cv_text=long_cv)
+    v2 = ct.build_candidate_text_v2(cand)
+    v3 = ct.build_candidate_text_v3(cand)
+    assert "[CV] " not in v2, "v2: struktura niepusta ⇒ CV nie wchodzi"
+    assert "[CV] " in v3
+    # Cap 12k zamiast 3000 z buildera v1 — sekcja niesie realnie długi tekst.
+    cv_line = next(line for line in v3.split("\n") if line.startswith("[CV] "))
+    assert len(cv_line) > 5000
+
+
+def test_candidate_v3_cv_cap_and_junk_gate():
+    cand = _cand(raw_cv_text="x" * 50_000)
+    v3 = ct.build_candidate_text_v3(cand)
+    # Symbol soup (0% liter to nie, ale "x"*n to 100% liter — cap testujemy tu,
+    # junk niżej).
+    cv_line = next(line for line in v3.split("\n") if line.startswith("[CV] "))
+    assert len(cv_line) <= len("[CV] ") + ct._V3_CV_CAP
+
+    junk = _cand(raw_cv_text="(cid:12)(cid:13) 1234 5678 !!!")
+    assert "[CV] " not in ct.build_candidate_text_v3(junk)
+
+
+def test_candidate_v3_notes_section_from_insights():
+    cand = _cand(
+        cv_extracted_data={
+            "_notes_insights": {
+                "skills_evidenced": [
+                    {"name": "Terraform", "evidence": "prowadził moduł IaC"},
+                    {"name": "AWS"},
+                ],
+                "certifications": ["CKA"],
+                "languages_observed": ["angielski C1"],
+                # Pola wrażliwe/negatywne — NIE mogą wejść do tekstu:
+                "expected_rate": 180,
+                "skills_gaps_observed": ["Kubernetes"],
+                "client_vetoes": ["Acme Corp"],
+            }
+        }
+    )
+    v3 = ct.build_candidate_text_v3(cand)
+    assert "[NOTES] " in v3
+    for wanted in ("Terraform", "AWS", "CKA", "angielski C1"):
+        assert wanted in v3
+    assert "180" not in v3
+    assert "Kubernetes" not in v3, "luka obserwowana to sygnał NEGATYWNY"
+    assert "Acme Corp" not in v3
+
+
+def test_candidate_v3_survives_list_shaped_extracted_data():
+    """cv_extracted_data na prodzie bywa LISTĄ — v3 nie może się wywrócić."""
+    cand = _cand(cv_extracted_data=["legacy", "list", "shape"])
+    v3 = ct.build_candidate_text_v3(cand)
+    assert "[NOTES] " not in v3
+    assert "[SKILLS]" in v3
+
+
+def test_candidate_v3_still_excludes_pii():
+    v3 = ct.build_candidate_text_v3(_cand())
+    for pii in ("Kowalski", "jan.kowalski@example.com", "+48123456789"):
+        assert pii not in v3.replace("Jan Kowalski CV", "")  # poza treścią CV
+    # Imię może wystąpić WEWNĄTRZ surowego CV (to treść dokumentu), ale nie
+    # jako osobne pole — brak sekcji z name/lastname/city.
+    assert "Warszawa" not in v3.split("[CV] ")[0]
+
+
+def test_dispatcher_v3_takes_precedence(monkeypatch):
+    from app.core.config import settings
+    from app.services import embedding_service as emb
+
+    cand = _cand(raw_cv_text="Unikalna fraza z pelnego CV. " * 200)
+    monkeypatch.setattr(settings, "AI_TEXT_SCHEMA_V2", True)
+    monkeypatch.setattr(settings, "AI_TEXT_SCHEMA_V3", True, raising=False)
+    text = emb._build_candidate_text(cand)
+    assert "[CV] " in text, "v3 wygrywa z v2 (v2 nie dałby CV przy strukturze)"
+
+
+def test_v3_flag_and_collection_are_scoring_cache_inputs():
+    """Flip v3/kolekcji zmienia skalę semantyki ⇒ MUSI unieważnić cache."""
+    from app.services.scoring_service import _SCORING_CACHE_INPUTS
+
+    assert "AI_TEXT_SCHEMA_V3" in _SCORING_CACHE_INPUTS
+    assert "QDRANT_COLLECTION" in _SCORING_CACHE_INPUTS
+
+
+# ── warianty zapytań multi-query (runda 2) ───────────────────────────────────
+
+
+def _job(**kw) -> SimpleNamespace:
+    base = dict(
+        title="Senior Python Developer (ref: ABC-123)",
+        seniority=SimpleNamespace(value="senior"),
+        must_skills=[{"name": "Python"}, {"name": "FastAPI"}],
+        nice_skills=[{"name": "Kafka"}],
+    )
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def test_query_variants_shapes():
+    variants = ct.build_job_query_variants(_job(), base_text="pelny tekst oferty")
+    assert len(variants) == 2
+    title_v, skills_v = variants
+    assert "Python Developer" in title_v and "senior" in title_v
+    assert "ABC-123" not in title_v, "ref noise odpada jak w buildarach"
+    assert skills_v == "Python, FastAPI, Kafka"
+
+
+def test_query_variants_drop_empty_and_duplicates():
+    empty = ct.build_job_query_variants(
+        SimpleNamespace(title="", seniority=None, must_skills=None, nice_skills=None)
+    )
+    assert empty == []
+    # Wariant identyczny z tekstem głównym odpada (nic by nie wnosił).
+    j = SimpleNamespace(
+        title="Python", seniority=None, must_skills=None, nice_skills=None
+    )
+    assert ct.build_job_query_variants(j, base_text="Python") == []

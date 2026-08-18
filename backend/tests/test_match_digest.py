@@ -38,7 +38,7 @@ async def test_fresh_top_filters_staged_and_floor(monkeypatch):
 
     job = SimpleNamespace(id=77, title="Analityk")
 
-    async def fake_pool(db, text, top_k):
+    async def fake_pool(db, text, top_k, query_variants=None):
         return [
             {"candidate_id": 1, "score": 0.9},  # staged — odpada
             {"candidate_id": 2, "score": 0.8},  # score 70 — wchodzi

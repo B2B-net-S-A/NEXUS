@@ -116,14 +116,19 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
 
 async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
     """Top świeżych dopasowań (spoza pipeline'u) dla jednej rekrutacji."""
+    from app.services.canonical_text import build_job_query_variants
     from app.services.embedding_service import _build_job_text
     from app.services.match_score_cache import bulk_get_or_compute
     from app.services.retrieval_pool import retrieve_candidate_pool
     from app.services.scoring_service import resolve_active_profile
 
     try:
+        query_text = _build_job_text(job)
         hits = await retrieve_candidate_pool(
-            db, _build_job_text(job), top_k=int(settings.MATCH_DIGEST_TOP_N) * 40
+            db,
+            query_text,
+            top_k=int(settings.MATCH_DIGEST_TOP_N) * 40,
+            query_variants=build_job_query_variants(job, query_text),
         )
     except Exception as exc:  # noqa: BLE001 — awaria retrievalu = pusta lista
         logger.warning("match-digest: retrieval padł dla job=%s: %s", job.id, exc)

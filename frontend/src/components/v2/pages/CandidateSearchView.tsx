@@ -68,7 +68,13 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
   sort: "relevance",
   page: 1,
   page_size: 50,
-  search_mode: "boolean",
+  // Runda 2 (2026-08-18): default "hybrid", nie "boolean". Bramka backendu
+  // wymaga NIEPUSTEGO `q` (search.py: use_hybrid = mode=="hybrid" and q), więc
+  // wyszukiwanie samymi filtrami zachowuje się identycznie jak dotąd — hybryda
+  // (wektory + BM25 + rerank) włącza się dokładnie tam, gdzie wnosi wartość:
+  // przy frazie tekstowej. Dotąd standalone /candidates/search nie dotykał
+  // wektorów, dopóki użytkownik ręcznie nie kliknął „Semantycznie".
+  search_mode: "hybrid",
 };
 
 /**

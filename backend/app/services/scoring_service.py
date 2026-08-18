@@ -208,6 +208,12 @@ _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "SCORE_UNKNOWN_NEUTRAL_FRACTION",
     # Changes the embedding TEXT, hence the similarity, hence the score.
     "AI_TEXT_SCHEMA_V2",
+    # Runda 2: v3 zmienia tekst kandydata (pełne CV + notatki), a przełączenie
+    # kolekcji zmienia ŹRÓDŁO wektorów — oba przestawiają skalę podobieństwa
+    # semantycznego, więc flip musi unieważnić cache (ten sam mechanizm, który
+    # ratowały migracje 0143/0150).
+    "AI_TEXT_SCHEMA_V3",
+    "QDRANT_COLLECTION",
     # Changes how a no-signal layer contributes — i.e. the composite itself.
     "SCORE_RENORMALIZE_UNSCORED_LAYERS",
     # Fala 2: włączenie pasaży CV zmienia skalę podobieństwa semantycznego

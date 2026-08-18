@@ -103,6 +103,21 @@ class Settings(BaseSettings):
     # collection (PR6). The active text-schema version string derives from it.
     AI_TEXT_SCHEMA_V2: bool = False
 
+    # Runda 2 (2026-08-18): v3 = v2 + pełne CV zawsze (cap 12k; v1 ucinał na
+    # 3000 znaków — 63% CV na prodzie jest dłuższych) + sekcja [NOTES] z faktów
+    # potwierdzonych w rozmowach (7,3k kandydatów). Dotyczy WYŁĄCZNIE tekstu
+    # kandydata; tekst oferty zostaje na dotychczasowym dispatcherze. Flip
+    # wymaga zbudowanej kolekcji side-by-side (reembed z QDRANT_COLLECTION
+    # wskazującym nową) i przełącza się RAZEM z QDRANT_COLLECTION — oba wpisy
+    # są w _SCORING_CACHE_INPUTS, więc flip unieważnia cache score'ów.
+    AI_TEXT_SCHEMA_V3: bool = False
+
+    # Runda 2: unia pul z kilku sformułowań zapytania (pełny tekst oferty +
+    # tytuł/seniority + lista skilli). Warianty decydują o CZŁONKOSTWIE puli;
+    # podobieństwo semantyczne liczone osobno względem tekstu głównego (wzorzec
+    # hybrydy) — dlatego flaga świadomie NIE wchodzi do _SCORING_CACHE_INPUTS.
+    MULTI_QUERY_RETRIEVAL_ENABLED: bool = False
+
     # ── AI unified retrieval orchestrator (plan PR8) ──────────────────────────
     # OFF by default. When ON (per surface, comma-separated list in
     # AI_UNIFIED_RETRIEVAL_SURFACES), a surface routes through the single

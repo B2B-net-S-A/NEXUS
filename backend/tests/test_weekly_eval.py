@@ -3,7 +3,12 @@
 from datetime import datetime, timedelta, timezone
 
 from app.tasks.weekly_eval import _is_due, detect_regression
-from scripts.eval_frozen_set import FROZEN_JOB_IDS_2026_08, frozen_ids_csv
+from scripts.eval_frozen_set import (
+    FROZEN_JOB_IDS_2026_08,
+    FROZEN_JOB_IDS_2026_08_B,
+    frozen_ids_csv,
+    frozen_ids_csv_b,
+)
 
 
 def test_frozen_set_is_stable():
@@ -11,6 +16,16 @@ def test_frozen_set_is_stable():
     assert len(set(FROZEN_JOB_IDS_2026_08)) == 50, "duplikaty psują porównywalność"
     csv = frozen_ids_csv()
     assert csv.count(",") == 49 and csv.split(",")[0] == "1394"
+
+
+def test_holdout_b_is_stable_and_disjoint():
+    """Holdout B potwierdza flipy — nie może dzielić ofert ze zbiorem A,
+    na którym decyzje były strojone (runda 2, higiena pomiarowa)."""
+    assert len(FROZEN_JOB_IDS_2026_08_B) == 50
+    assert len(set(FROZEN_JOB_IDS_2026_08_B)) == 50
+    assert set(FROZEN_JOB_IDS_2026_08_B).isdisjoint(FROZEN_JOB_IDS_2026_08)
+    csv = frozen_ids_csv_b()
+    assert csv.count(",") == 49 and csv.split(",")[0] == "3242"
 
 
 def test_is_due_weekly_window(monkeypatch):

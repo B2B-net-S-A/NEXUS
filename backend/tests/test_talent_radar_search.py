@@ -311,7 +311,9 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
         await db.commit()
         await db.refresh(cand)
 
-        async def _fake_pool(_db, _text, *, top_k, raise_on_error=False):
+        async def _fake_pool(
+            _db, _text, *, top_k, raise_on_error=False, query_variants=None
+        ):
             return [{"candidate_id": cand.id, "score": 0.71}]
 
         monkeypatch.setattr(mod, "retrieve_candidate_pool", _fake_pool)
