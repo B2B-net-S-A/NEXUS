@@ -167,7 +167,7 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 //                  łapałoby przez `startsWith` także wewnętrzny `/cv-generator`
 //                  i wystawiło go publicznie.
 //   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`,
-//   `/preview/talent-radar`
+//   `/preview/talent-radar`, `/preview/order-consultant-picker`
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
 //                  Renderują wyłącznie zahardkodowane mocki i nie wołają
@@ -197,6 +197,7 @@ const PUBLIC_PATHS = [
   "/preview/candidate-profile",
   "/preview/contact-queue",
   "/preview/talent-radar",
+  "/preview/order-consultant-picker",
 ];
 
 function isPublicPath(pathname: string): boolean {

@@ -646,6 +646,39 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
   a same stawki renderują się jako „—" (znikająca kolumna czytałaby się jak brak danych, nie
   jak brak uprawnień). Import: `FinanceManageUser` (admin + Finanse) z wąską projekcją
   wierszy — bez identyfikatorów kandydatów i kontraktów.
+- **Picker konsultanta pokazuje DWA źródła w jednej liście** (`ConsultantPicker`,
+  `GET …/order-groups/consultant-options`): osoby z kontraktem u tego klienta
+  („Rekrutacja u klienta") i pozostałych aktywnych konsultantów z bazy
+  („Baza Nexus"). Wcześniej był tu `<select>` wyłącznie z kontraktami u klienta,
+  więc konsultanta kończącego projekt u jednego klienta nie dało się wpisać na
+  zamówienie u drugiego. Reguły, które trzymają tę listę uczciwą: dedup po
+  OSOBIE, nie po kontrakcie (kto jest w źródle A, nie pojawia się w B, a osoba
+  z dwoma żywymi kontraktami u tego klienta ma jeden wiersz — ten o najpóźniejszym
+  starcie); „aktywny" to `active` + **`ending`** (kontrakt < 30 dni do końca to
+  wciąż ktoś, kto pracuje, i najbardziej oczywisty kandydat na obsadę); sortowanie
+  i wyszukiwanie idą po kluczu bez diakrytyków **w Pythonie**, bo prod nie ma
+  `unaccent`; zapytanie jest AND-em po tokenach dopasowywanych PREFIKSEM, więc
+  „Jan Kowalski" zwraca jedną osobę, a nie wszystkich Janów i wszystkich
+  Kowalskich (równość byłaby pułapką — „Anna Kowal" w trakcie pisania nie
+  zwracałoby nic, a pustka czyta się jak „nie ma jej w bazie" i kończy duplikatem).
+  Odpowiedź niesie `total`, bo lista bez licznika przycięta limitem czyta się jako
+  komplet. **Nazwa klienta, u którego dana osoba pracuje teraz, NIE wychodzi** —
+  odbiorcą listy jest zespół jednego klienta. Harness wizualny (publiczny, same
+  mocki): `/preview/order-consultant-picker`.
+- **Osoba z bazy Nexus jedzie jako `candidate_id`, a serwer zakłada jej kontrakt
+  w statusie `draft`.** `client_orders.contract_id` jest NOT NULL i czyta go
+  kilkanaście ścieżek (skaner wygasania, sync terminacji, MRR), więc linia musi
+  wisieć na kontrakcie u TEGO klienta — zdjęcie NOT NULL jest wykluczone (patrz
+  wyżej). `draft`, nie `active`: aktywacja ma własny walidowany cykl życia
+  (`contract_lifecycle.activate_contract`), a formularz obsady o umowie nie pyta,
+  więc nie może wpychać ludzi do MRR i alertów wygasania. Kontrakt już istniejący
+  jest REUŻYWANY (zero drugich, równoległych kontraktów u tego samego klienta).
+  `OrderLineCreate` wymaga DOKŁADNIE JEDNEGO z pól `contract_id`/`candidate_id`:
+  przy dwóch trzeba by rozstrzygać, które wygrywa, a każde rozstrzygnięcie po
+  cichu wpisuje na zamówienie kogoś innego, niż widział operator. Fakt założenia
+  kontraktu ląduje w historii zamówienia (`payload.contract_created`).
+  **Zamiana kontraktora (`SwapConsultantModal`) świadomie ZOSTAJE przy starej,
+  wąskiej liście** — ticket dotyczył dodawania do zamówienia.
 - **Pułapka UI, którą złapał dopiero test w przeglądarce:** gałąź pustego stanu MUSI wisieć na
   `isSuccess`, nie na `!isLoading`. W przerwie między ponowieniami react-query ma
   `isLoading === false`, `isError === false` i puste `data`, więc warunek na `isLoading`
