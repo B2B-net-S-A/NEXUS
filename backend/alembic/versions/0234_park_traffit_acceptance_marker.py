@@ -44,11 +44,23 @@ _MARKER = r"[[(/]\s*" + _WORD + r"\s*[])/]?" + r"|" + r"[[(/]?\s*" + _WORD + r"\
 # Akceptacja klienta zapisana tam, gdzie jej miejsce. „Kiedykolwiek osiągnięty",
 # nie „bieżący": klient zaakceptował kandydata także wtedy, gdy proces poszedł
 # potem dalej albo się rozsypał.
+#
+# DWA źródła, bo enum sam nie wystarcza: importer Traffita mapuje TYPY stanów
+# (`end-good` → `hired`, `client_verification` → `cv_sent`) i **w praktyce nigdy
+# nie produkuje `acceptance`**. Fakt „Zaakceptowany" żyje w NAZWIE etapu
+# szablonu (`pipeline_stage_defs.name`) — to ją widzi rekruter w interfejsie.
+# Pytanie wyłącznie o enum parkowałoby tag komuś, kto ma akceptację widoczną
+# na ekranie, czyli kazałoby „przypisać do rekrutacji" coś już przypisanego.
 _HAS_ACCEPTANCE_STAGE = """
     EXISTS (
         SELECT 1 FROM candidate_stages cs
+        LEFT JOIN pipeline_stage_defs psd ON psd.id = cs.stage_def_id
         WHERE cs.candidate_id = cand.id
-          AND cs.stage::text IN ('acceptance', 'negotiation', 'onboarding', 'hired')
+          AND (
+              cs.stage::text IN ('acceptance', 'negotiation', 'onboarding', 'hired')
+              OR psd.name ILIKE '%akcept%'
+              OR psd.terminal_type::text = 'hired'
+          )
     )
 """
 
