@@ -77,6 +77,10 @@ from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger("eval_matching")
 
+# Ustawiany z CLI (--dump-layers); _score_job_candidates dopisuje wiersze.
+_DUMP_HANDLE = None
+_DUMP_GT: dict[int, set[int]] = {}
+
 
 # ── Ground truth config ──────────────────────────────────────────────────────
 
@@ -497,6 +501,36 @@ async def _score_job_candidates(
             b.total += boost_points_for_sources(count)
         breakdowns.sort(key=lambda r: -r.total)
 
+    if _DUMP_HANDLE is not None:
+        gt = _DUMP_GT.get(job.id, set())
+        for b in breakdowns:
+            _DUMP_HANDLE.write(
+                json.dumps(
+                    {
+                        "job_id": job.id,
+                        "candidate_id": b.candidate_id,
+                        "gt": b.candidate_id in gt,
+                        "total": round(b.total, 4),
+                        "layers": {
+                            name: {
+                                "points": round(layer.points, 4),
+                                "max": layer.max_points,
+                            }
+                            for name, layer in (
+                                ("semantic", b.semantic),
+                                ("skills", b.skills),
+                                ("salary", b.salary),
+                                ("location", b.location),
+                                ("availability", b.availability),
+                                ("champion_fit", b.champion_fit),
+                            )
+                        },
+                        "seniority_note": b.seniority_note,
+                    }
+                )
+                + "\n"
+            )
+
     return [b.candidate_id for b in breakdowns], pool_size, boost_map
 
 
@@ -855,6 +889,7 @@ def _render_markdown(
 
 
 async def _run(args: argparse.Namespace) -> int:
+    global _DUMP_HANDLE
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -927,6 +962,14 @@ async def _run(args: argparse.Namespace) -> int:
             exclude_job_ids=excluded or None,
         )
 
+        if args.dump_layers:
+            _DUMP_HANDLE = open(  # noqa: SIM115 — zamykany w finally niżej
+                args.dump_layers, "w", encoding="utf-8"
+            )
+            _DUMP_GT.clear()
+            for job, gt_ids, _relevance in job_records:
+                _DUMP_GT[job.id] = set(gt_ids)
+
         if not job_records:
             logger.error(
                 "No jobs with ≥%s ground-truth candidates found. "
@@ -940,44 +983,55 @@ async def _run(args: argparse.Namespace) -> int:
         )
 
         profile_results: list[ProfileEval] = []
-        for profile in profiles:
-            logger.info("-> profile %s", profile.name)
-            res = await evaluate_profile(
-                profile,
-                job_records,
-                db,
-                with_historical_boost=args.with_historical_boost,
-                pool_cap=args.pool,
-            )
-            profile_results.append(res)
+        try:
+            for profile in profiles:
+                logger.info("-> profile %s", profile.name)
+                res = await evaluate_profile(
+                    profile,
+                    job_records,
+                    db,
+                    with_historical_boost=args.with_historical_boost,
+                    pool_cap=args.pool,
+                )
+                profile_results.append(res)
 
-        # Ablation mode additionally runs the default profile WITH boost so the
-        # markdown table shows the direct delta vs. baseline.
-        if args.ablation and not args.with_historical_boost:
-            logger.info("-> profile default + historical_boost (delta run)")
-            delta_res = await evaluate_profile(
-                DEFAULT_PROFILE,
-                job_records,
-                db,
-                with_historical_boost=True,
-                pool_cap=args.pool,
-            )
-            # Rename for unambiguous output.
-            delta_res = ProfileEval(
-                profile=WeightProfile(
-                    name=f"{DEFAULT_PROFILE.name}+boost",
-                    semantic=DEFAULT_PROFILE.semantic,
-                    skills=DEFAULT_PROFILE.skills,
-                    salary=DEFAULT_PROFILE.salary,
-                    location=DEFAULT_PROFILE.location,
-                    availability=DEFAULT_PROFILE.availability,
-                    champion_fit=DEFAULT_PROFILE.champion_fit,
-                ),
-                per_job=delta_res.per_job,
-                with_boost=True,
-            )
-            profile_results.append(delta_res)
+            # Ablation mode additionally runs the default profile WITH boost
+            # so the markdown table shows the direct delta vs. baseline.
+            if args.ablation and not args.with_historical_boost:
+                logger.info("-> profile default + historical_boost (delta run)")
+                delta_res = await evaluate_profile(
+                    DEFAULT_PROFILE,
+                    job_records,
+                    db,
+                    with_historical_boost=True,
+                    pool_cap=args.pool,
+                )
+                # Rename for unambiguous output.
+                delta_res = ProfileEval(
+                    profile=WeightProfile(
+                        name=f"{DEFAULT_PROFILE.name}+boost",
+                        semantic=DEFAULT_PROFILE.semantic,
+                        skills=DEFAULT_PROFILE.skills,
+                        salary=DEFAULT_PROFILE.salary,
+                        location=DEFAULT_PROFILE.location,
+                        availability=DEFAULT_PROFILE.availability,
+                        champion_fit=DEFAULT_PROFILE.champion_fit,
+                    ),
+                    per_job=delta_res.per_job,
+                    with_boost=True,
+                )
+                profile_results.append(delta_res)
+        finally:
+            # 1185-review: handle zamykany ZAWSZE (wyjątek w ewaluacji nie może
+            # zostawić niedomkniętego bufora), _DUMP_GT resetowany razem z nim.
+            if _DUMP_HANDLE is not None:
+                _DUMP_HANDLE.close()
+                _DUMP_HANDLE = None
+                _DUMP_GT.clear()
+                logger.info("Layer dump written to %s", args.dump_layers)
 
+    # Zamknięcie zrzutu w finally powyżej byłoby poza zasięgiem `async with db`
+    # — dlatego finally obejmuje blok ewaluacji, a nie cały _run.
     generated_at = datetime.now(timezone.utc)
     voyage_configured = bool(os.environ.get("VOYAGE_API_KEY"))
     markdown = _render_markdown(
@@ -1148,6 +1202,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--ablation",
         action="store_true",
         help="Run every profile in ABLATION_PROFILES instead of just default.",
+    )
+    parser.add_argument(
+        "--dump-layers",
+        metavar="PATH",
+        help=(
+            "Zrzut per (oferta, kandydat): punkty/max każdej warstwy + total + "
+            "flaga GT (JSONL). Wsad do offline'owego przeszukiwania wag "
+            "(scripts/weight_search.py) — rekombinacja jest dokładna, więc "
+            "tysiące wektorów liczy się w sekundy bez ponownego scoringu."
+        ),
     )
     parser.add_argument(
         "--weights",
