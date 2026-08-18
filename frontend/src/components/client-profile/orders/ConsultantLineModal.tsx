@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 
 import { AppModal } from "@/components/ds";
-import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
+  ConsultantOption,
   OrderGroupRead,
   OrderInputMode,
   OrderLineRead,
 } from "@/lib/api/orderGroups";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
+import { ConsultantPicker } from "./ConsultantPicker";
 import { formatMd } from "./MdBudgetBar";
 
 const inputClass =
@@ -20,7 +20,10 @@ const labelClass =
   "mb-1 block text-xs font-semibold text-muted-foreground";
 
 export interface LineFormValues {
-  contract_id: number;
+  /** Dokładnie jedno z pól. `contract_id` — osoba ma już kontrakt u tego
+   *  klienta; `candidate_id` — osoba z bazy Nexus, kontrakt założy serwer. */
+  contract_id?: number | null;
+  candidate_id?: number | null;
   rate_cost: number;
   rate_revenue: number;
   input_mode: OrderInputMode;
@@ -56,7 +59,7 @@ export function ConsultantLineModal({
 }: Props) {
   const editing = Boolean(line);
 
-  const [contractId, setContractId] = useState<string>("");
+  const [person, setPerson] = useState<ConsultantOption | null>(null);
   const [rateCost, setRateCost] = useState("");
   const [rateRevenue, setRateRevenue] = useState("");
   const [inputMode, setInputMode] = useState<OrderInputMode>("md");
@@ -65,16 +68,9 @@ export function ConsultantLineModal({
   const [endDate, setEndDate] = useState("");
   const [remaining, setRemaining] = useState("");
 
-  const contracts = useQuery({
-    queryKey: ["client-contracts-for-order-line", clientId],
-    queryFn: async () =>
-      (await dlPortalApi.listActiveContractsForExtension(clientId)).data,
-    enabled: open && !editing,
-  });
-
   useEffect(() => {
     if (!open) return;
-    setContractId(line ? String(line.contract_id) : "");
+    setPerson(null);
     setRateCost(line?.rate_cost != null ? String(line.rate_cost) : "");
     setRateRevenue(line?.rate_revenue != null ? String(line.rate_revenue) : "");
     setInputMode(line?.input_mode ?? "md");
@@ -97,7 +93,7 @@ export function ConsultantLineModal({
 
   const canSubmit =
     !submitting &&
-    (editing || contractId !== "") &&
+    (editing || person !== null) &&
     parseDecimalInput(rateCost) !== null &&
     (parseDecimalInput(rateRevenue) ?? 0) > 0 &&
     parseDecimalInput(inputValue) !== null &&
@@ -106,7 +102,14 @@ export function ConsultantLineModal({
   const submit = () => {
     if (!canSubmit) return;
     onSubmit({
-      contract_id: Number(contractId || line?.contract_id),
+      // Edycja nie zmienia osoby, więc linia zostaje przy swoim kontrakcie.
+      // Dodanie wysyła DOKŁADNIE JEDNO pole — dwa naraz serwer odrzuca, żeby
+      // nie musiał zgadywać, kogo operator naprawdę wskazał.
+      ...(editing
+        ? { contract_id: line?.contract_id }
+        : person?.contract_id != null
+          ? { contract_id: person.contract_id }
+          : { candidate_id: person?.candidate_id }),
       rate_cost: parseDecimalInput(rateCost) as number,
       rate_revenue: parseDecimalInput(rateRevenue) as number,
       input_mode: inputMode,
@@ -154,41 +157,26 @@ export function ConsultantLineModal({
 
         {!editing ? (
           <div>
-            <label htmlFor="line-contract" className={labelClass}>
-              Konsultant *
-            </label>
-            {contracts.isError ? (
-              <p role="alert" className="text-sm text-destructive">
-                Nie udało się wczytać listy konsultantów.{" "}
-                <button
-                  type="button"
-                  onClick={() => contracts.refetch()}
-                  className="underline"
-                >
-                  Ponów
-                </button>
-              </p>
-            ) : (
-              <select
-                id="line-contract"
-                value={contractId}
-                onChange={(e) => setContractId(e.target.value)}
-                className={inputClass}
-              >
-                <option value="">
-                  {contracts.isLoading ? "Wczytywanie…" : "— wybierz konsultanta —"}
-                </option>
-                {contracts.data?.map((c) => (
-                  <option key={c.contract_id} value={c.contract_id}>
-                    {c.candidate_name}
-                    {c.initial_job_title ? ` — ${c.initial_job_title}` : ""}
-                  </option>
-                ))}
-              </select>
-            )}
+            <span className={labelClass}>Konsultant *</span>
+            <ConsultantPicker
+              clientId={clientId}
+              value={person}
+              onChange={setPerson}
+              enabled={open}
+            />
             <p className="mt-1 text-xs text-muted-foreground">
-              Lista zawiera konsultantów z kontraktem u tego klienta.
+              Osoby z rekrutacji u tego klienta oraz pozostali aktywni
+              konsultanci z bazy Nexus. Wybór z obu źródeł działa tak samo.
             </p>
+            {person && person.contract_id === null ? (
+              /* Zapis założy tej osobie kontrakt u klienta — operator ma o tym
+                 wiedzieć PRZED kliknięciem, a nie dowiedzieć się z rejestru
+                 kontraktów. */
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ta osoba nie ma jeszcze kontraktu u tego klienta — zapis założy
+                go w statusie <strong>szkic</strong>.
+              </p>
+            ) : null}
           </div>
         ) : (
           <p className="text-sm text-foreground">
