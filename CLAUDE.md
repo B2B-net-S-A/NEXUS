@@ -773,6 +773,34 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
 - **Odczyt PDF ma DWIE polityki nadpisywania i nie wolno ich ujednolicać:** widok MD pyta
   „Tak/Nie" przy rozbieżności z ręcznym wpisem, widok jednoosobowy nadpisuje po cichu.
   Oba wymogi są w ticketach wprost. Wspólna warstwa: `lib/order-extraction.ts`.
-- **Aktywacja na prodzie:** `COST_ORDER_CLIENT_IDS` = ID Polkomtela w Coolify (pusto =
-  checkbox „Zamówienie kosztowe" nie renderuje się nigdzie) oraz `DL_ALERTS_ENABLED=true`
-  (domyślnie `true`; wyłączenie kończy pętlę skanera PRZED nią, nie budzi procesu co 24 h).
+- **Zamiana kontraktora DZIAŁA na zamówieniu kosztowym i nie rusza puli.** Guard był
+  pisany wyłącznie pod tryb MD (`md_total is None` → 422), a linia kosztowa ma `md_total`
+  puste **z definicji** — więc przycisk renderował się aktywny i gwarantowanie kończył się
+  błędem „Linia nie ma budżetu MD do przeniesienia", czyli komunikatem o danych do
+  uzupełnienia w stanie, którego nie da się usunąć. W trybie kosztowym nie ma czego
+  przenosić: zmienia się osoba i jej stawki, a nowa linia dostaje **komplet NULL-i** w
+  polach MD (`ck_client_orders_md_coherence` dopuszcza tylko wszystko albo nic).
+  `settle_group` nie filtruje po statusie linii, więc domknięcie poprzednika **nie
+  odsłania wydanych już pieniędzy** — dlatego zamiana nie wymaga przeliczenia budżetu.
+- **Centrum e-Zdrowia a „kontraktor bez zamówienia":** `POST /orders` wymaga tam części
+  umowy (`validate_project_part(..., require=True)`), a select renderował się wyłącznie
+  przy istniejącym `activeOrder` — u TEGO klienta objaw „nie da się nic wpisać" przeżywał
+  więc poprawkę T6, i to jako surowe 422. Teraz część umowy jest **polem, które zakłada
+  szkic**: renderuje się bez zamówienia, a próba zapisu czegokolwiek innego bez niej
+  odmawia po polsku, po stronie przeglądarki, zamiast lecieć po odpowiedź serwera.
+- **`?tab=` na profilu klienta jest LOAD-BEARING.** Trzy źródła powiadomień linkują wprost
+  do zakładki ze sprawą (`dl_alerts_scanner.py`, `dl_portal_expiry_scanner.py`,
+  `pipeline.py` — wszystkie `/clients/{id}?tab=zamowienia`), a strona trzymała `useState`
+  na stałe `"profil"` i parametru nie czytała. Kliknięcie powiadomienia lądowało na
+  Profilu i kazało odbiorcy szukać samodzielnie.
+- **Aktywacja na prodzie: `COST_ORDER_CLIENT_IDS=15` (Polkomtel) USTAWIONE 2026-08-18.**
+  Nie panelem i nie po SSH (klucze martwe, hasła do panelu nie znamy) — workflow
+  **„Coolify set env"** (`.github/workflows/coolify-set-env.yml`, `workflow_dispatch`);
+  to jest droga do każdej przyszłej zmiany env na prodzie. Zweryfikowane na żywym API:
+  `cost_orders_enabled` = `true` u Polkomtela i `false` u BIK/BNP, mimo że wszyscy trzej
+  są wielo-konsultantowi. `DL_ALERTS_ENABLED` domyślnie `true` (wyłączenie kończy pętlę
+  skanera PRZED nią, nie budzi procesu co 24 h).
+  **Uwaga:** sama zmienna to połowa aktywacji — checkbox renderuje się dopiero, gdy
+  `GET /api/clients/{id}` zwraca `cost_orders_enabled`. To pole było zaplanowane,
+  udokumentowane i konsumowane przez front, a mimo to nigdy nie powstało (PR #1196);
+  wyszło z odpytania produkcji, nie z zielonych testów.

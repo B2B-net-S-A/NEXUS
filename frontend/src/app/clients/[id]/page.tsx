@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
@@ -705,9 +705,35 @@ type Tab =
   | "analityka"
   | "zespol";
 
+const TAB_KEYS: readonly Tab[] = [
+  "profil",
+  "projekty",
+  "kontakty",
+  "umowy-ramowe",
+  "zamowienia",
+  "analityka",
+  "zespol",
+] as const;
+
+function isTab(value: string | null): value is Tab {
+  return value !== null && (TAB_KEYS as readonly string[]).includes(value);
+}
+
 export default function ClientDetailPage() {
   const { id } = useParams();
-  const [activeTab, setActiveTab] = useState<Tab>("profil");
+  // `?tab=` NIE jest ozdobnikiem — trzy źródła powiadomień linkują wprost do
+  // zakładki, w której jest sprawa do załatwienia: skaner alertów Delivery
+  // Leada (`dl_alerts_scanner.py`), skaner wygasania zamówień
+  // (`dl_portal_expiry_scanner.py`) i pipeline (`pipeline.py`). Wszystkie
+  // emitują `/clients/{id}?tab=zamowienia`, a strona czytała wyłącznie stan
+  // początkowy "profil", więc kliknięcie powiadomienia lądowało na Profilu
+  // i kazało odbiorcy szukać samodzielnie — czyli link obiecywał coś,
+  // czego nie robił.
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<Tab>(() =>
+    isTab(requestedTab) ? requestedTab : "profil",
+  );
   const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();

@@ -48,6 +48,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import { contractsApi } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -154,14 +155,14 @@ const CONTRACTOR_2 = {
   ],
 };
 
-function renderTab() {
+function renderTab(clientId = 7) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <OrdersAndContractsTab clientId={7} />
+        <OrdersAndContractsTab clientId={clientId} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -641,5 +642,76 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
         rate_candidate: 120,
       }),
     );
+  });
+});
+
+
+describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
+  // `POST /orders` wymaga „części umowy" dla Centrum e-Zdrowia
+  // (`validate_project_part(..., require=True)`), a select renderował się
+  // wyłącznie przy `activeOrder`. U TEGO klienta ścieżka „kontraktor bez
+  // zamówienia" kończyła się więc 422 i objaw „nie da się nic wpisać"
+  // przeżywał poprawkę — a pola, z którego można by część podać, karta w tym
+  // stanie w ogóle nie renderowała.
+  const NO_ORDERS = {
+    ...structuredClone(CONTRACTOR),
+    contract_id: 815,
+    candidate_name: "Ezdrowie Bezzamowien",
+    rate_candidate: null,
+    latest_order_rate_client: null,
+    orders: [],
+  };
+
+  beforeEach(() => {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [NO_ORDERS],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+  });
+
+  it("select części umowy renderuje się MIMO braku zamówienia", async () => {
+    renderTab(EZDROWIE_CLIENT_ID);
+    expect(await screen.findByLabelText("Część umowy")).toBeInTheDocument();
+  });
+
+  it("wybór części zakłada szkic zamówienia i przesyła project_part", async () => {
+    const user = userEvent.setup();
+    renderTab(EZDROWIE_CLIENT_ID);
+
+    await user.selectOptions(await screen.findByLabelText("Część umowy"), "cz2");
+
+    await waitFor(() =>
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
+    );
+    const [, form] = vi.mocked(dlPortalApi.createOrderExtension).mock.calls[0];
+    expect((form as FormData).get("project_part")).toBe("cz2");
+    expect((form as FormData).get("order_status")).toBe("draft");
+  });
+
+  it("zapis innego pola bez części odmawia PO POLSKU i nie woła API", async () => {
+    // Bez tej gałęzi użytkownik dostawał surowe „Request failed with status
+    // code 422" — komunikat, z którego nie da się wywnioskować, czego brakuje.
+    const user = userEvent.setup();
+    renderTab(EZDROWIE_CLIENT_ID);
+
+    await user.click(
+      await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
+    );
+    await user.type(screen.getByLabelText("Numer zamówienia"), "45767");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(await screen.findByText(/wybierz część umowy/i)).toBeInTheDocument();
+    expect(dlPortalApi.createOrderExtension).not.toHaveBeenCalled();
+  });
+
+  it("u klienta spoza e-Zdrowia część umowy się NIE pojawia", async () => {
+    // Bramka jest po `client_id`, nie po nazwie — a backend odrzuca część
+    // umowy przysłaną przez kogokolwiek innego.
+    renderTab(7);
+    expect(await screen.findByText(/Ezdrowie Bezzamowien/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Część umowy")).not.toBeInTheDocument();
   });
 });
