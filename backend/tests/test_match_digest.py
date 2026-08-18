@@ -60,9 +60,16 @@ async def test_fresh_top_filters_staged_and_floor(monkeypatch):
             return self._values
 
     class FakeDb:
+        # Stanowy dispatch po KOLEJNOŚCI wywołań, nie po treści SQL —
+        # `"candidate_stages" in str(stmt)` pękłoby cicho przy zmianie nazwy
+        # tabeli/aliasu. Kontrakt _fresh_top_matches: najpierw SELECT staged,
+        # potem SELECT kandydatów; zmiana kolejności = czerwony test, jawnie.
+        def __init__(self):
+            self.calls = 0
+
         async def execute(self, stmt):
-            text_stmt = str(stmt)
-            if "candidate_stages" in text_stmt:
+            self.calls += 1
+            if self.calls == 1:
                 return FakeResult([1])
             return FakeResult([SimpleNamespace(id=cid) for cid in (2, 3, 4)])
 

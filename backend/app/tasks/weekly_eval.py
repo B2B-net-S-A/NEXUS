@@ -200,7 +200,12 @@ async def run_weekly_eval() -> dict[str, Any]:
         )
     except asyncio.TimeoutError:
         proc.kill()
-        await proc.communicate()  # reap — bez tego zombie + ResourceWarning
+        try:
+            await proc.communicate()  # reap — bez tego zombie + ResourceWarning
+        except (RuntimeError, ProcessLookupError):
+            # 3.12+: transport bywa już zamknięty po anulowaniu przez wait_for;
+            # kill i tak zaszedł, a reap dokona się przy GC procesu.
+            pass
         return {"status": "timeout", "measured_at": started.isoformat()}
     if proc.returncode != 0:
         tail = (stderr or b"")[-500:].decode("utf-8", "replace")

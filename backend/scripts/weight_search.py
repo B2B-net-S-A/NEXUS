@@ -87,6 +87,23 @@ def metrics_for_weights(jobs: dict, weights: dict[str, float]) -> dict[str, floa
     }
 
 
+def _dump_has_nonzero_champion(path: str) -> bool:
+    """Czy zrzut niesie realny (max>0) wkład champion_fit.
+
+    Przy leakage guardzie eval zeruje max tej warstwy — wtedy stały budżet
+    siatki niczego nie zmienia i nota byłaby szumem."""
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            layer = row.get("layers", {}).get("champion_fit") or {}
+            if (layer.get("max") or 0) > 0:
+                return True
+    return False
+
+
 def simplex_grid(step: int, total: int):
     """Wszystkie wektory 5 nieujemnych wielokrotności `step` sumujące się do total."""
     for a in range(0, total + 1, step):
@@ -126,11 +143,11 @@ def main() -> int:
     # ale siatka go nie przeszukuje (stały budżet --champion). Gdy eval biegł
     # z leakage guardem, max=0 i wkład i tak był zerowy; niezerowy max oznacza
     # bieg z --include-champion — wtedy wyniki modelują stan BEZ tej warstwy.
-    sample = next(iter(jobs.values()))[:1]
-    if sample:
+    if _dump_has_nonzero_champion(args.dump):
         print(
-            f"uwaga: champion_fit trzymany jako stały budżet {args.champion} "
-            "(siatka przeszukuje 5 pozostałych warstw)",
+            f"uwaga: zrzut ma niezerowy champion_fit, a siatka trzyma go jako "
+            f"stały budżet {args.champion} — wyniki modelują stan bez tej "
+            "warstwy (bieg z --include-champion?)",
             file=sys.stderr,
         )
     total_budget = 100 - args.champion

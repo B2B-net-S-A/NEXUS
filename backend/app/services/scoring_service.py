@@ -1603,6 +1603,9 @@ async def score_candidate_job(
     seniority_factor, seniority_reason = _champion_seniority_factor(candidate, job)
     if seniority_factor < 1.0 and total > 0:
         total *= seniority_factor
+    # Kary MNOŻĄ SIĘ świadomie (seniority × dostępność): to niezależne ryzyka
+    # i kandydat z oboma jest gorszym zakładem niż z jednym — maks. łącznie
+    # 0.68 × 0.90 ≈ −39%. Werdykt o skali wydaje pomiar A/B, nie intuicja.
     availability_factor, availability_reason = _champion_availability_conflict_factor(
         candidate, job
     )

@@ -200,6 +200,11 @@ async def run_match_digest() -> dict[str, Any]:
                 if job_row is None:
                     continue
                 top = await _fresh_top_matches(db, job_row)
+                # Commit NATYCHMIAST po scoringu — bulk_get_or_compute pisze
+                # do match_score_cache przez tę samą sesję, a `continue` bez
+                # commitu rollbackowałby wpisy i co tydzień liczylibyśmy te
+                # same wyniki od nowa dla rekrutacji bez świeżych trafień.
+                await db.commit()
                 if not top:
                     continue
                 stats["jobs_with_matches"] += 1
