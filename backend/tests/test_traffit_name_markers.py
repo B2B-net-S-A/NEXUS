@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from app.services.traffit.mappers import (
+    extract_markers,
     has_blacklist_marker,
     strip_status_marker,
     traffit_employee_to_candidate,
@@ -78,13 +79,75 @@ def test_zwykle_imiona_nietkniete(wartosc: str):
     assert has_blacklist_marker(wartosc) is False
 
 
-def test_akcept_zostaje_nietkniety():
-    """Świadome ograniczenie zakresu: nie wiadomo, co znaczy, i nie ma go gdzie przenieść.
+AKCEPT_FORMS = [
+    ("[akcept]Agnieszka", "Agnieszka"),
+    ("[akcept] Rajan", "Rajan"),
+    ("[AKCEPT] Mateusz", "Mateusz"),
+    ("[akceptacja] Ewa", "Ewa"),
+    ("[akceptowany] Piotr", "Piotr"),
+    ("(akcept) Anna", "Anna"),
+]
 
-    Skasowanie markera bez pola docelowego byłoby utratą jedynego zapisu —
-    dokładnie tym błędem, którego ta zmiana ma uniknąć przy blackliście.
+
+@pytest.mark.parametrize("raw,oczekiwane", AKCEPT_FORMS)
+def test_akcept_znika_z_imienia(raw: str, oczekiwane: str):
+    assert strip_status_marker(raw) == oczekiwane
+
+
+@pytest.mark.parametrize("raw,_", AKCEPT_FORMS)
+def test_akcept_to_nie_blacklista(raw: str, _: str):
+    """„Zaakceptowany przez klienta" jest przeciwieństwem zakazu — nie może na nią trafić."""
+    assert has_blacklist_marker(raw) is False
+
+
+@pytest.mark.parametrize("raw,_", AKCEPT_FORMS)
+def test_akcept_nie_zmienia_statusu(raw: str, _: str):
+    """Akceptacja to fakt z rekrutacji, nie cecha osoby — `status` zostaje.
+
+    Pole na nią istnieje (`PipelineStage.acceptance`), ale wiersz etapu wymaga
+    oferty i daty, których marker nie niesie. Wymyślenie ich sfabrykowałoby
+    historię rekrutacyjną, z której liczone są lejek i premie.
     """
-    assert strip_status_marker("[akcept]Agnieszka") == "[akcept]Agnieszka"
+    wynik = traffit_employee_to_candidate(
+        {"id": 99, "name": raw, "lastname": "Testowy", "status": "active"}
+    )
+    assert wynik["status"] == "active"
+
+
+def test_zdjety_marker_zostaje_w_prowieniencji():
+    """Nic nie ginie po cichu: surowy marker ląduje w catch-allu `cv_extracted_data`."""
+    wynik = traffit_employee_to_candidate(
+        {
+            "id": 100,
+            "name": "[akcept] Rajan",
+            "lastname": "Chellappa",
+            "status": "active",
+        }
+    )
+    assert wynik["name"] == "Rajan"
+    assert "akcept" in wynik["cv_extracted_data"]["traffit_name_marker"].lower()
+
+
+def test_prowieniencja_nie_powstaje_bez_markera():
+    wynik = traffit_employee_to_candidate(
+        {"id": 101, "name": "Anna", "lastname": "Nowak", "status": "active"}
+    )
+    assert "traffit_name_marker" not in wynik["cv_extracted_data"]
+
+
+def test_marker_na_koncu_pola_nie_obcina_nazwiska():
+    """Regresja: prowieniencja liczona z RÓŻNICY DŁUGOŚCI wycinała kawałek nazwiska.
+
+    „Kowalski - zatrudniony" ma marker na końcu, więc `raw[:len(raw)-len(clean)]`
+    zwracało „Kowalski - zat". Odczyt faktycznych dopasowań wyrażenia jest
+    odporny na pozycję markera.
+    """
+    assert extract_markers("Kowalski - zatrudniony") == ["zatrudniony"]
+    wynik = traffit_employee_to_candidate(
+        {"id": 102, "name": "Jan", "lastname": "Kowalski - zatrudniony"}
+    )
+    assert wynik["lastname"] == "Kowalski"
+    assert wynik["cv_extracted_data"]["traffit_name_marker"] == "zatrudniony"
 
 
 def test_mapper_ustawia_status_i_czysci_imie():
