@@ -59,6 +59,56 @@ async def test_delete_covers_every_candidate_collection(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_active_collection_failure_returns_false(monkeypatch):
+    """Awaria kasowania z kolekcji AKTYWNEJ musi dać False — na tym wisi
+    trwały retry kwarantanny (`if not deleted:`). Poboczna może paść cicho."""
+    import qdrant_client
+
+    from app.services import embedding_service as emb
+    from app.services import passage_index
+
+    class _ActiveFails(_FakeClient):
+        def delete(self, collection_name, points_selector):
+            if collection_name == "nexus_candidates":
+                raise RuntimeError("aktywna kolekcja niedostępna")
+            super().delete(collection_name, points_selector)
+
+    _FakeClient.deleted = []
+    monkeypatch.setattr(qdrant_client, "QdrantClient", _ActiveFails)
+    monkeypatch.setattr(
+        passage_index, "delete_candidate_passages", lambda client, cid: True
+    )
+
+    ok = await emb.delete_candidate_embedding(99)
+    assert ok is False, "True przy nieusuniętym wektorze = kwarantanna bez retry"
+
+
+@pytest.mark.asyncio
+async def test_sidecar_collection_failure_still_returns_true(monkeypatch):
+    """Odwrotny kierunek: padła TYLKO poboczna — aktywna czysta ⇒ True."""
+    import qdrant_client
+
+    from app.services import embedding_service as emb
+    from app.services import passage_index
+
+    class _SidecarFails(_FakeClient):
+        def delete(self, collection_name, points_selector):
+            if collection_name != "nexus_candidates":
+                raise RuntimeError("poboczna w trakcie dropu")
+            super().delete(collection_name, points_selector)
+
+    _FakeClient.deleted = []
+    monkeypatch.setattr(qdrant_client, "QdrantClient", _SidecarFails)
+    monkeypatch.setattr(
+        passage_index, "delete_candidate_passages", lambda client, cid: True
+    )
+
+    ok = await emb.delete_candidate_embedding(100)
+    assert ok is True
+    assert [n for n, _s in _FakeClient.deleted] == ["nexus_candidates"]
+
+
+@pytest.mark.asyncio
 async def test_delete_survives_listing_failure(monkeypatch):
     """Awaria listingu kolekcji nie może zablokować kasowania z aktywnej."""
     import qdrant_client

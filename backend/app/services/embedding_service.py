@@ -505,16 +505,21 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
             names = [c.name for c in client.get_collections().collections]
         except Exception:
             names = []
-        targets = {_collection()} | {
-            n for n in names if n.startswith("nexus_candidates")
-        }
+        active = _collection()
+        targets = {active} | {n for n in names if n.startswith("nexus_candidates")}
         for coll in targets:
+            if coll == active:
+                # Awaria na kolekcji AKTYWNEJ musi WYJŚĆ z _delete(): zewnętrzny
+                # handler zwraca wtedy False, a kwarantanna (`if not deleted:`)
+                # stage'uje trwały retry. Połknięcie jej tutaj zwracałoby True
+                # przy nieusuniętym wektorze — cicha luka w RODO-erasure.
+                client.delete(collection_name=coll, points_selector=[candidate_id])
+                continue
             try:
                 client.delete(collection_name=coll, points_selector=[candidate_id])
             except Exception:
-                # Pojedyncza kolekcja (np. właśnie dropnięta) nie może zablokować
-                # kasowania z pozostałych — a błąd na AKTYWNEJ i tak wyjdzie
-                # w zewnętrznym handlerze przy kolejnej operacji.
+                # Kolekcja poboczna (np. właśnie dropnięta) nie może zablokować
+                # kasowania z aktywnej ani przewrócić całej operacji.
                 logger.warning(
                     "[Embed] Delete candidate %s from collection %s failed",
                     candidate_id,
