@@ -75,3 +75,29 @@ pole już istniało. Świadomie nie zgadujemy z wolnego tekstu.
 precedencja jawnego pola nad Championem, no-op bez budżetu, determinizm
 liczników, źródła lokalizacji (cv/notes/all, relokacja-unwilling odpada),
 katalog marginesów w schemacie radaru. Razem z powierzchniami: 139 zielonych.
+
+## Aneks: Champion ingest — domknięcie luk + świeży sync (ta sama runda)
+
+Sprostowanie stanu: import 1095 profili ODBYŁ SIĘ 13-14.08 (954 oferty mają
+`champion_profile`). Ta część domyka resztę: **~140 rekrutacji bez profilu**
+i **świeży sync** nowych rekrutacji.
+
+Ograniczenie architektoniczne (zgłoszone do supportu Traffita): Integration
+API nie wystawia plików rekrutacji — pobrać je może wyłącznie zalogowana
+przeglądarka (sesyjny endpoint `/api/file/fileContent/{id}`, ~0,2 s —
+namierzony 18.08; poprzednio znana ścieżka wisiała >45 s). Stąd podział ról:
+
+- **Serwer**: `POST /api/admin/champion-profiles/ingest` (multipart docx/pdf →
+  Haiku parse promptem v3 z importu sierpniowego → FILL_EMPTY na
+  `champion_profile` + `must/nice_skills` + reindeks + `mark_stale_for_job`)
+  i `GET .../coverage` (diff dla collectora). AdminUser, kwota
+  `AIFeatureKey.champion_profile_parse` (0236), walidacja rozmiaru/typu,
+  pre-check pokrycia PRZED kosztem LLM (idempotencja za darmo). **CORS ręczny
+  wyłącznie na tych dwóch trasach dla origin `b2bnetwork.traffit.com`** —
+  globalna lista originów nietknięta; auth zostaje Bearerem, więc CORS
+  niczego nie autoryzuje.
+- **Przeglądarka**: `scripts/champion_collector.js` — w zalogowanej karcie
+  Traffita liczy braki (mapa skanu − coverage), pobiera pliki i POST-uje.
+  Świeży sync = ten sam collector z `scanNewFrom` (przemiata nowe rid przez
+  `/api/v2/recruitments/{rid}/files`, dławione). Powtarzalny bieg — nie pętla
+  serwerowa, bo serwer nie ma dostępu do plików (do czasu odpowiedzi Traffita).

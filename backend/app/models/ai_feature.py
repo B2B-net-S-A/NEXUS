@@ -59,6 +59,7 @@ class AIFeatureKey(str, enum.Enum):
     # Cykliczna ekstrakcja faktów z notatek (pętla notes_insights_sync) —
     # osobny kubełek z tego samego powodu co cv_backfill.
     notes_extraction = "notes_extraction"
+    champion_profile_parse = "champion_profile_parse"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -74,6 +75,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_interactive_chat: "Interaktywne CV — chat klienta",
     AIFeatureKey.cv_backfill: "Masowe uzupełnianie pól z CV",
     AIFeatureKey.notes_extraction: "Fakty z notatek rekruterskich",
+    AIFeatureKey.champion_profile_parse: "Odczyt profili Championa (Traffit)",
 }
 
 
@@ -114,6 +116,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.notes_extraction: [
         "Treść wewnętrznych notatek o kandydacie (ekstrakcja strukturalna;",
         "wynik zostaje w NEXUS — nie trafia do klienta ani do wektorów)",
+    ],
+    AIFeatureKey.champion_profile_parse: [
+        "Treść dokumentu Profilu Championa (wymagania, stawka, kontekst projektu)",
     ],
     AIFeatureKey.cv_requirement_map: [
         "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
