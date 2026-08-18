@@ -27,6 +27,8 @@ class NotificationType(str, enum.Enum):
     contract_ending_90d = "contract_ending_90d"
     equipment_return_due_14d = "equipment_return_due_14d"
     client_order_ending_30d = "client_order_ending_30d"
+    # Cotygodniowy digest top dopasowań per otwarta rekrutacja (match_digest).
+    match_digest = "match_digest"
     # Phase 14 — post-interview feedback chain
     post_interview_t15 = "post_interview_t15"
     post_interview_t45 = "post_interview_t45"
