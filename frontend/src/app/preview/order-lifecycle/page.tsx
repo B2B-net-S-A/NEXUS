@@ -175,7 +175,17 @@ export default function OrderLifecyclePreview() {
   const queryClient = useMemo(() => {
     const qc = new QueryClient({
       defaultOptions: {
-        queries: { staleTime: Infinity, retry: false, refetchOnMount: false },
+        queries: {
+          staleTime: Infinity,
+          retry: false,
+          refetchOnMount: false,
+          // Domyślne `queryFn`, które odrzuca LOKALNIE — obietnica „zero
+          // zapytań" przestaje zależeć od tego, czy zasiałem każdy klucz.
+          // Klucz pominięty przez pomyłkę poleciałby do API, dostał 401,
+          // a globalny interceptor axiosa przerzuciłby całą stronę na /login
+          // — publiczny podgląd zniknąłby oglądającemu z ekranu.
+          queryFn: () => Promise.reject(new Error("podgląd: brak zasianych danych")),
+        },
       },
     });
     // Historia jest lazy (`enabled: historyOpen`), więc bez zasiania jej
