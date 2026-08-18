@@ -117,7 +117,13 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
 
 
 def _extract_metrics(payload: dict) -> dict[str, Any]:
-    prof = payload["profiles"][0]
+    profiles = payload.get("profiles") or []
+    if not profiles:
+        raise ValueError(
+            "harness zwrócił 0 ofert — zamrożony zbiór nie spełnia --min-gt? "
+            "Sprawdź /tmp/weekly-eval.md w kontenerze."
+        )
+    prof = profiles[0]
     return {
         "p5": round(float(prof["mean_precision_at_5"]), 4),
         "r20n": round(float(prof["mean_recall_at_20_normalized"]), 4),
@@ -152,7 +158,6 @@ async def run_weekly_eval() -> dict[str, Any]:
     from scripts.eval_frozen_set import frozen_ids_csv
 
     started = datetime.now(timezone.utc)
-    out_json = "/tmp/weekly-eval.json"
     cmd = [
         sys.executable,
         "-m",
@@ -191,6 +196,7 @@ async def run_weekly_eval() -> dict[str, Any]:
             "measured_at": started.isoformat(),
         }
 
+    out_json = "/tmp/weekly-eval.json"
     try:
         with open(out_json, encoding="utf-8") as fh:
             metrics = _extract_metrics(json.load(fh))
