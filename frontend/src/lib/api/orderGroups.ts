@@ -65,8 +65,33 @@ export interface OrderGroupEvent {
   created_at: string;
 }
 
+/** Skąd pochodzi osoba na liście wyboru konsultanta. */
+export type ConsultantOptionSource = "client_recruitment" | "nexus_base";
+
+export interface ConsultantOption {
+  candidate_id: number;
+  /** `null` = osoba bez kontraktu u tego klienta; zapis linii go założy. */
+  contract_id: number | null;
+  full_name: string;
+  first_name: string;
+  last_name: string;
+  source: ConsultantOptionSource;
+  /** Etykieta z serwera — front jej NIE tłumaczy, żeby nie rozjechała się
+   *  z tekstem zapisywanym do historii zamówienia. */
+  source_label: string;
+  job_title: string | null;
+}
+
+export interface ConsultantOptionsResponse {
+  options: ConsultantOption[];
+  /** Wszyscy pasujący, także poza `limit` — służy do ostrzeżenia o przycięciu. */
+  total: number;
+}
+
 export interface OrderLineInput {
-  contract_id: number;
+  /** Dokładnie jedno z pól: kontrakt u tego klienta ALBO osoba z bazy Nexus. */
+  contract_id?: number | null;
+  candidate_id?: number | null;
   rate_cost: number;
   rate_revenue: number;
   input_mode: OrderInputMode;
@@ -159,6 +184,17 @@ export const orderGroupsApi = {
 
   remove: (clientId: number, groupId: number) =>
     api.delete(`/api/clients/${clientId}/order-groups/${groupId}`),
+
+  /** Kogo można dołożyć do zamówienia: osoby z kontraktem u tego klienta
+   *  ORAZ pozostali aktywni konsultanci z bazy — jedna lista, z etykietą
+   *  pochodzenia przy każdej pozycji. Filtrowanie po `q` robi SERWER, więc
+   *  ostrzeżenie o przycięciu (`total`) dotyczy wyniku wyszukiwania, a nie
+   *  przypadkowego okna pobranych wierszy. */
+  consultantOptions: (clientId: number, q: string, limit = 100) =>
+    api.get<ConsultantOptionsResponse>(
+      `/api/clients/${clientId}/order-groups/consultant-options`,
+      { params: { q, limit } },
+    ),
 
   addLine: (clientId: number, groupId: number, payload: OrderLineInput) =>
     api.post<OrderLineRead>(
