@@ -1012,3 +1012,47 @@ async def test_re_exhaustion_after_a_budget_raise_alerts_again(
             "drugie wyczerpanie nie wygenerowało alertu — klucz dedupu nie "
             "rozróżnia epizodów budżetu"
         )
+
+
+async def test_client_api_exposes_both_order_mode_flags(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """`GET /api/clients/{id}` MUSI zwracać obie flagi trybu zamówień.
+
+    Ten test istnieje, bo `cost_orders_enabled` zostało zaplanowane, front je
+    konsumował — i nigdy nie powstało. Checkbox „Zamówienie kosztowe" nie
+    renderowałby się NIGDY, nawet po ustawieniu `COST_ORDER_CLIENT_IDS`,
+    a żaden inny test tego nie widział: backendowe patchują serwis wprost,
+    frontendowe dostają flagę propsem. Dziura była dokładnie w szczelinie
+    między nimi — czyli w odpowiedzi API, której nikt nie asertował.
+    """
+    client_id, _, _ = await _seed_client_with_contracts(1)
+
+    _enable_multi(monkeypatch)
+    _enable_cost(monkeypatch)
+    off = await app_client.get(f"/api/clients/{client_id}", headers=app_auth_headers)
+    assert off.status_code == 200, off.text
+    body = off.json()
+    assert body["multi_consultant_orders_enabled"] is False
+    assert body["cost_orders_enabled"] is False, "brak pola = martwy checkbox"
+
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    on = await app_client.get(f"/api/clients/{client_id}", headers=app_auth_headers)
+    assert on.status_code == 200, on.text
+    assert on.json()["multi_consultant_orders_enabled"] is True
+    assert on.json()["cost_orders_enabled"] is True
+
+
+async def test_cost_flag_is_independent_of_the_md_flag(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """BIK i BNP rozliczają się wyłącznie na MD — u nich checkbox ma NIE być."""
+    client_id, _, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch)  # pusta lista kosztowych
+
+    resp = await app_client.get(f"/api/clients/{client_id}", headers=app_auth_headers)
+    body = resp.json()
+    assert body["multi_consultant_orders_enabled"] is True
+    assert body["cost_orders_enabled"] is False
