@@ -977,6 +977,20 @@ class Settings(BaseSettings):
     # Sufit czasu subprocesu harnessu (dzisiejsze biegi: ~12-15 min).
     WEEKLY_EVAL_TIMEOUT_SECONDS: int = 3600
 
+    # ── Match digest (cotygodniowy push top dopasowań do rekruterów) ────────
+    # Adopcja rekomendacji wymaga PUSH, nie pull: digest wysyła in-app
+    # notyfikację z top świeżych dopasowań per opublikowana rekrutacja do jej
+    # rekrutera/TAC. Patrz app/tasks/match_digest.py.
+    MATCH_DIGEST_ENABLED: bool = False
+    MATCH_DIGEST_CHECK_INTERVAL_SECONDS: int = 3600
+    # Poniedziałek 06:00 UTC — początek tygodnia pracy.
+    MATCH_DIGEST_WEEKDAY: int = 0
+    MATCH_DIGEST_HOUR_UTC: int = 6
+    # Minimalny score dopasowania w digeście — digest 20-punktowych trafień
+    # to spam, który zabija zaufanie do funkcji.
+    MATCH_DIGEST_MIN_SCORE: float = 55.0
+    MATCH_DIGEST_TOP_N: int = 5
+
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only
     # contact coordination inside Nexus; it never writes stages or contact

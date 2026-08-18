@@ -161,6 +161,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_backfill'",
     # 0230: cykliczna ekstrakcja faktów z notatek (notes_insights_sync)
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'notes_extraction'",
+    # 0231: cotygodniowy digest dopasowań (match_digest_loop)
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
     # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
     # POST /api/autenti/contracts/{id}/send wywala się na insercie Notification
