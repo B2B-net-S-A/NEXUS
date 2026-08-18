@@ -485,11 +485,17 @@ def test_location_known_mismatch_still_zero():
 # ── _score_availability ──────────────────────────────────────────────────────
 
 
+# Testy MECHANIKI warstwy dostępności biegną na jawnym profilu z niezerowym
+# budżetem — od 18.08 default ma availability=0, więc na domyślnym profilu
+# każda asercja o punktach redukuje się do 0 == 0 i nie testuje niczego.
+_AVAILABILITY_PROFILE = ss.WeightProfile(name="availability-test", availability=5.0)
+
+
 def test_availability_before_deadline_full_points():
     job = make_job(deadline=date(2026, 6, 1))
     cand = make_candidate(availability_date=date(2026, 5, 1))
-    r = ss._score_availability(cand, job)
-    assert r.points == pytest.approx(ss.AVAILABILITY_MAX)
+    r = ss._score_availability(cand, job, _AVAILABILITY_PROFILE)
+    assert r.points == pytest.approx(_AVAILABILITY_PROFILE.availability)
 
 
 def test_availability_no_date_neutral():
@@ -497,16 +503,18 @@ def test_availability_no_date_neutral():
     # FRACTION), consistent with salary/location/champion. Was hardcoded 0.5.
     job = make_job(deadline=date(2026, 6, 1))
     cand = make_candidate(availability_date=None)
-    r = ss._score_availability(cand, job)
-    assert r.points == pytest.approx(ss.AVAILABILITY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    r = ss._score_availability(cand, job, _AVAILABILITY_PROFILE)
+    assert r.points == pytest.approx(
+        _AVAILABILITY_PROFILE.availability * ss.UNKNOWN_NEUTRAL_FRACTION
+    )
     assert r.scored is False
 
 
 def test_availability_late_decays():
     job = make_job(deadline=date(2026, 6, 1))
     cand = make_candidate(availability_date=date(2026, 6, 16))  # 15 days late
-    r = ss._score_availability(cand, job)
-    assert 0 < r.points < ss.AVAILABILITY_MAX
+    r = ss._score_availability(cand, job, _AVAILABILITY_PROFILE)
+    assert 0 < r.points < _AVAILABILITY_PROFILE.availability
 
 
 # ── score_semantic ───────────────────────────────────────────────────────────

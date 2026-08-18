@@ -93,21 +93,23 @@ UNKNOWN_NEUTRAL_FRACTION: float = float(
 # Keep SKILLS_MAX at 30 (must=20, nice=10) so Phase 2 unit tests that assert
 # specific point sums remain green. We subtract the 10pt Champion budget from
 # semantic/salary/location instead.
-# 45/25/10/8/2 (+champion 10) od 17.08.2026 — strojenie 4b: trening 7 profili
-# na zbiorze ROZŁĄCZNYM (50 ofert champion-era poza zamrożonym eval) wskazał
-# 45/25/10/8/2 jako dominujące na wszystkich metrykach; walidacja na zamrożonych
-# 50: P@5 +5%, MRR +5%, nDCG +4%, R@20n bez regresu. Poprzednio 35/30/12/8/5.
-SEMANTIC_MAX = 45.0
-SKILLS_MAX = 25.0
+# 60/10/15/5/0 (+champion 10) od 18.08.2026 — LTR-lite: pełny simpleks 7315
+# wektorów na zrzucie warstw zbioru ROZŁĄCZNEGO (scripts/weight_search),
+# nominacja zwalidowana prawdziwym biegiem na zamrożonych 50: P@5 +2%,
+# R@20n +4%, MRR +6% vs 45/25/10/8/2. Dostępność 0 spójna z podwójnym NO-GO
+# tej warstwy (fallback −24%, konflikt −4% R@20n). Historia: 35/30/12/8/5
+# → 45/25/10/8/2 (17.08, siatka 7 profili) → obecne.
+SEMANTIC_MAX = 60.0
+SKILLS_MAX = 10.0
 # Pochodne z SKILLS_MAX (klasyczny podział 2:1), nie osobne literały — przy
 # strojeniu wag rozjeżdżały się z budżetem warstwy (zostały 20/10 przy 25).
 SKILLS_MUST_MAX = SKILLS_MAX * (2.0 / 3.0)
 SKILLS_NICE_MAX = SKILLS_MAX * (1.0 / 3.0)
-SALARY_MAX = 10.0
-LOCATION_MAX = 8.0
-AVAILABILITY_MAX = 2.0
+SALARY_MAX = 15.0
+LOCATION_MAX = 5.0
+AVAILABILITY_MAX = 0.0
 CHAMPION_FIT_MAX = 10.0
-# sum = 35 + 30 + 12 + 8 + 5 + 10 = 100
+# sum = 60 + 10 + 15 + 5 + 0 + 10 = 100
 
 
 @dataclass(frozen=True)
