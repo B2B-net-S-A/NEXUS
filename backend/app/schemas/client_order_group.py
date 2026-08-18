@@ -14,7 +14,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Optional
 
-from pydantic import BaseModel, Field, PlainSerializer, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PlainSerializer,
+    field_validator,
+    model_validator,
+)
 
 from app.services.multi_consultant_orders import (
     INPUT_MODES,
@@ -46,13 +52,27 @@ MoneyPLN = Annotated[
 
 
 class OrderLineCreate(BaseModel):
-    """Jedna linia konsultanta przy zakładaniu zamówienia lub dokładaniu osoby."""
+    """Jedna linia konsultanta przy zakładaniu zamówienia lub dokładaniu osoby.
 
-    contract_id: int
+    Osobę wskazuje się DOKŁADNIE JEDNYM z dwóch pól — ``contract_id`` albo
+    ``candidate_id``. Dwa pola zamiast jednego, bo linia musi wisieć na
+    kontrakcie u tego klienta (``client_orders.contract_id`` jest NOT NULL i
+    czyta go kilkanaście ścieżek: skaner wygasania, sync terminacji, MRR),
+    a osoba z bazy Nexus takiego kontraktu jeszcze nie ma.
+    """
+
+    contract_id: Optional[int] = None
     """Kontrakt konsultanta u tego klienta. Linia wskazuje ISTNIEJĄCY kontrakt,
     więc osoba z zamówienia pozostaje widoczna w MRR, rejestrze kontraktów i
     alertach wygasania — nie powstaje druga, równoległa prawda o tym, kto
     u klienta pracuje."""
+
+    candidate_id: Optional[int] = None
+    """Osoba z bazy Nexus bez kontraktu u tego klienta. Zapis linii dopina jej
+    kontrakt w statusie ``draft``: dopiero on daje linii to, na czym stoi cała
+    reszta modułu. ``draft`` — a nie ``active`` — bo aktywacja kontraktu ma
+    własny, walidowany cykl życia (``contract_lifecycle.activate_contract``)
+    i obsada zamówienia nie może go obchodzić bokiem."""
 
     rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
     rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
@@ -71,6 +91,20 @@ class OrderLineCreate(BaseModel):
         if v not in INPUT_MODES:
             raise ValueError("Tryb budżetu musi być 'md' albo 'amount'")
         return v
+
+    @model_validator(mode="after")
+    def _exactly_one_person_reference(self) -> "OrderLineCreate":
+        """Ani zero, ani dwa wskazania osoby.
+
+        Zero — nie wiadomo, kogo dodać. Dwa — trzeba by rozstrzygać, które
+        wygrywa, a każde rozstrzygnięcie po cichu zignoruje jedno z pól i wpisze
+        na zamówienie kogoś innego, niż widział operator.
+        """
+        if (self.contract_id is None) == (self.candidate_id is None):
+            raise ValueError(
+                "Wskaż osobę dokładnie jednym polem: contract_id albo candidate_id"
+            )
+        return self
 
 
 class OrderGroupCreate(BaseModel):
@@ -191,6 +225,34 @@ class OrderGroupListResponse(BaseModel):
 
 class OrderGroupEventsResponse(BaseModel):
     events: list[OrderGroupEventRead] = Field(default_factory=list)
+
+
+class ConsultantOptionRead(BaseModel):
+    """Pozycja pickera „Konsultant" — jedna osoba, jedno źródło pochodzenia."""
+
+    candidate_id: int
+    contract_id: Optional[int] = None
+    """`null` = osoba bez kontraktu u tego klienta (źródło „Baza Nexus").
+    Zapis linii dopnie jej kontrakt; front odsyła wtedy `candidate_id`."""
+
+    full_name: str
+    first_name: str = ""
+    last_name: str = ""
+    source: str
+    source_label: str
+    """Etykieta gotowa do wyświetlenia. Trzymana po stronie serwera razem
+    z wartością `source`, żeby nazwa źródła nie rozjechała się między listą
+    a historią zamówienia, która zapisuje ten sam tekst do bazy."""
+
+    job_title: Optional[str] = None
+
+
+class ConsultantOptionsResponse(BaseModel):
+    options: list[ConsultantOptionRead] = Field(default_factory=list)
+    total: int = 0
+    """Liczba WSZYSTKICH pasujących osób, także tych poza `limit`. Bez niej
+    przycięcie listy byłoby cichym obcięciem — a lista bez ostrzeżenia czyta
+    się jako komplet."""
 
 
 class SwapPreview(BaseModel):
