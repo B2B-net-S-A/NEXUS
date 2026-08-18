@@ -966,6 +966,17 @@ class Settings(BaseSettings):
     # pojedynczego dnia; zaległość zbiega w kolejnych dobach.
     NOTES_INSIGHTS_SYNC_BATCH_LIMIT: int = 300
 
+    # ── Weekly eval guard (strażnik jakości matchingu) ──────────────────────
+    # Cotygodniowy pomiar harnessem na zamrożonych 50 ofertach + alert regresu
+    # >15% t/t (Sentry przez logger.error). Patrz app/tasks/weekly_eval.py.
+    WEEKLY_EVAL_ENABLED: bool = False
+    WEEKLY_EVAL_CHECK_INTERVAL_SECONDS: int = 3600
+    # Niedziela (0=pon … 6=niedz), po nocnych syncach.
+    WEEKLY_EVAL_WEEKDAY: int = 6
+    WEEKLY_EVAL_HOUR_UTC: int = 5
+    # Sufit czasu subprocesu harnessu (dzisiejsze biegi: ~12-15 min).
+    WEEKLY_EVAL_TIMEOUT_SECONDS: int = 3600
+
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only
     # contact coordination inside Nexus; it never writes stages or contact
