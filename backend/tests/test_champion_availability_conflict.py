@@ -106,3 +106,14 @@ def test_flag_registered_in_cache_inputs():
     from app.services.scoring_service import _SCORING_CACHE_INPUTS
 
     assert "CHAMPION_AVAILABILITY_CONFLICT_ENABLED" in _SCORING_CACHE_INPUTS
+
+
+def test_available_before_start_is_silent(monkeypatch):
+    # Cicha większość: kandydat dostępny PRZED startem — late_days ujemne,
+    # kara nie może się odpalić (refaktor progu nie ma prawa tego odwrócić).
+    _on(monkeypatch)
+    cand = _cand(availability_date=date(2026, 8, 20))
+    f, reason = _champion_availability_conflict_factor(
+        cand, _job("2026-09-01"), today=TODAY
+    )
+    assert f == 1.0 and reason is None

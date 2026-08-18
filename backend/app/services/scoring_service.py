@@ -1603,11 +1603,21 @@ async def score_candidate_job(
     seniority_factor, seniority_reason = _champion_seniority_factor(candidate, job)
     if seniority_factor < 1.0 and total > 0:
         total *= seniority_factor
-    availability_factor, _availability_reason = _champion_availability_conflict_factor(
+    availability_factor, availability_reason = _champion_availability_conflict_factor(
         candidate, job
     )
     if availability_factor < 1.0 and total > 0:
         total *= availability_factor
+        # Ślad w logach jak przy karze seniority — bez niego dochodzenie
+        # regresu nie widzi, którzy kandydaci dostali cięcie.
+        logger.debug(
+            "availability_conflict_penalty",
+            extra={
+                "candidate_id": candidate.id,
+                "job_id": job.id,
+                "reason": availability_reason,
+            },
+        )
 
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
     # Structured event for log aggregation (JSON formatter reshapes extras).
