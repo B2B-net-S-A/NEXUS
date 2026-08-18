@@ -27,6 +27,7 @@ import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import type {
   ClientOrderRead,
   ClientOrderStatus,
+  ClientOrderUpdate,
   ContractWithOrdersRead,
 } from "@/lib/api/dlPortal";
 import {
@@ -96,31 +97,45 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
   // stawek komuś, kto na zapisie dostanie 403.
   const canManageFinance = data?.can_manage_finance ?? false;
 
+  // Predykaty pigułek w JEDNYM miejscu — filtr i licznik MUSZĄ liczyć to samo.
+  // Dwie kopie tej samej reguły rozjeżdżają się przy pierwszej zmianie i dają
+  // licznik, który nie zgadza się z listą pod nim.
+  const PILL_PREDICATES: Record<
+    Exclude<Filter, "all">,
+    (c: ContractWithOrdersRead) => boolean
+  > = useMemo(
+    () => ({
+      active: (c) =>
+        c.contract_status === "active" || c.contract_status === "ending",
+      expiring_30d: (c) =>
+        c.days_to_latest_end !== null &&
+        c.days_to_latest_end >= 0 &&
+        c.days_to_latest_end <= 30,
+      ended: (c) =>
+        c.contract_status === "ended" || c.contract_status === "completed",
+      drafts: (c) =>
+        c.contract_status === "draft" ||
+        c.orders.some((o) => o.status === "draft"),
+    }),
+    [],
+  );
+
+  // „Kończące się 30d" jest PODZBIOREM „Aktywni" — suma liczników świadomie
+  // nie równa się liczbie z „Wszyscy". To zamierzone, nie błąd arytmetyki.
+  const counts = useMemo(() => {
+    const contractors = data?.contractors ?? [];
+    return {
+      active: contractors.filter(PILL_PREDICATES.active).length,
+      expiring_30d: contractors.filter(PILL_PREDICATES.expiring_30d).length,
+      ended: contractors.filter(PILL_PREDICATES.ended).length,
+      drafts: contractors.filter(PILL_PREDICATES.drafts).length,
+    };
+  }, [data, PILL_PREDICATES]);
+
   const filtered = useMemo<ContractWithOrdersRead[]>(() => {
     const contractors = data?.contractors ?? [];
-    let byPill = contractors;
-    if (filter === "active") {
-      byPill = contractors.filter(
-        (c) => c.contract_status === "active" || c.contract_status === "ending",
-      );
-    } else if (filter === "expiring_30d") {
-      byPill = contractors.filter(
-        (c) =>
-          c.days_to_latest_end !== null &&
-          c.days_to_latest_end >= 0 &&
-          c.days_to_latest_end <= 30,
-      );
-    } else if (filter === "ended") {
-      byPill = contractors.filter(
-        (c) => c.contract_status === "ended" || c.contract_status === "completed",
-      );
-    } else if (filter === "drafts") {
-      byPill = contractors.filter(
-        (c) =>
-          c.contract_status === "draft" ||
-          c.orders.some((o) => o.status === "draft"),
-      );
-    }
+    const byPill =
+      filter === "all" ? contractors : contractors.filter(PILL_PREDICATES[filter]);
     // Filtr tekstowy działa PO stronie klienta, bo GET /orders zwraca pełną
     // listę bez paginacji — jeśli kiedyś dojdzie limit/paginacja, przenieś
     // wyszukiwanie na serwer (?q=), inaczej zacznie cicho gubić trafienia.
@@ -133,7 +148,7 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
         foldText(c.candidate_name).includes(q) ||
         c.orders.some((o) => foldText(o.title).includes(q)),
     );
-  }, [data, filter, debouncedSearch]);
+  }, [data, filter, debouncedSearch, PILL_PREDICATES]);
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
@@ -181,20 +196,20 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
             Wszyscy ({data?.total_contractors ?? 0})
           </FilterPill>
           <FilterPill active={filter === "active"} onClick={() => setFilter("active")}>
-            Aktywni
+            Aktywni ({counts.active})
           </FilterPill>
           <FilterPill
             active={filter === "expiring_30d"}
             onClick={() => setFilter("expiring_30d")}
             warn
           >
-            ⚠️ Kończące się 30d
+            ⚠️ Kończące się 30d ({counts.expiring_30d})
           </FilterPill>
           <FilterPill active={filter === "drafts"} onClick={() => setFilter("drafts")}>
-            📝 Draft (do uzupełnienia)
+            📝 Draft (do uzupełnienia) ({counts.drafts})
           </FilterPill>
           <FilterPill active={filter === "ended"} onClick={() => setFilter("ended")}>
-            Zakończeni
+            Zakończeni ({counts.ended})
           </FilterPill>
         </div>
         <button
@@ -709,6 +724,57 @@ function ContractorCard({
     [contractor.orders],
   );
 
+  /**
+   * Zapis pola karty, gdy kontraktor NIE MA jeszcze żadnego zamówienia.
+   *
+   * Tu leży przyczyna zgłoszenia „u Banku Pocztowego nie da się nic wpisać":
+   * numer, okres i stawka przychodowa wisiały na `activeOrder`, więc kontraktor
+   * bez ani jednego `ClientOrder` widział nieedytowalne „—", a stawka kosztowa
+   * renderowała się, ale zapis rzucał wyjątkiem. U Aliora te pola działają
+   * wyłącznie dlatego, że jego zamówienia zostały kiedyś zaimportowane — to
+   * różnica DANYCH, nie konfiguracji klienta.
+   *
+   * Dlatego poprawka jest jedna i globalna: pierwszy zapis zakłada szkic
+   * zamówienia i od razu stosuje wpisaną wartość. Klient z zamówieniami nie
+   * wchodzi w tę ścieżkę w ogóle.
+   */
+  async function saveOntoOrder(
+    patch: Partial<ClientOrderUpdate>,
+    opts?: { title?: string },
+  ) {
+    if (activeOrder) {
+      await dlPortalApi.updateOrder(clientId, activeOrder.id, patch);
+      return;
+    }
+    const form = new FormData();
+    form.append("contract_id", String(contractor.contract_id));
+    // Numer bywa nieznany w chwili, gdy uzupełniany jest okres albo stawka.
+    // „(bez numeru)" jest uczciwe i widoczne — pusty tytuł odrzuca walidacja,
+    // a zmyślony numer wyglądałby jak dane z dokumentu klienta.
+    form.append("title", opts?.title?.trim() || "(bez numeru)");
+    // `draft`, nie `active`: zamówienie powstaje z jednego wpisanego pola, więc
+    // nie jest jeszcze kompletne — trafia do pigułki „Draft (do uzupełnienia)",
+    // czyli dokładnie tam, gdzie ma się dopominać o resztę.
+    form.append("order_status", "draft");
+    if (contractor.initial_job_id != null) {
+      form.append("job_id", String(contractor.initial_job_id));
+    }
+    if (patch.start_date) form.append("start_date", patch.start_date);
+    if (patch.end_date) form.append("end_date", patch.end_date);
+    if (patch.rate_client != null) {
+      form.append("rate_client", String(patch.rate_client));
+    }
+    const created = await dlPortalApi.createOrderExtension(clientId, form);
+    // Stawka KOSZTOWA mieszka na kontrakcie, a `POST /orders` jej nie
+    // przyjmuje — dosyłamy ją PATCH-em na świeżo utworzone zamówienie, którego
+    // handler przepisuje ją na kontrakt.
+    if (patch.rate_candidate != null) {
+      await dlPortalApi.updateOrder(clientId, created.data.id, {
+        rate_candidate: patch.rate_candidate,
+      });
+    }
+  }
+
   const expiringWarn =
     contractor.days_to_latest_end !== null &&
     contractor.days_to_latest_end >= 0 &&
@@ -742,28 +808,27 @@ function ContractorCard({
           {/* Numer zamówienia (from the active order's title) */}
           <div className="mt-1 text-sm">
             <span className="text-muted-foreground">Numer zamówienia </span>
-            {activeOrder ? (
-              <InlineText
-                value={activeOrder.title}
-                display={
+            <InlineText
+              value={activeOrder?.title ?? ""}
+              display={
+                activeOrder ? (
                   <span className="font-medium text-foreground">
                     {activeOrder.title}
                   </span>
-                }
-                ariaLabel="Numer zamówienia"
-                onError={onError}
-                onSave={async (raw) => {
-                  if (!raw) throw new Error("Numer zamówienia nie może być pusty");
-                  await dlPortalApi.updateOrder(clientId, activeOrder.id, {
-                    title: raw,
-                  });
-                  onSuccess("Numer zamówienia zaktualizowany");
-                  onChange();
-                }}
-              />
-            ) : (
-              <span className="text-foreground">—</span>
-            )}
+                ) : (
+                  <em className="text-muted-foreground">wpisz numer</em>
+                )
+              }
+              ariaLabel="Numer zamówienia"
+              placeholder="np. 45767"
+              onError={onError}
+              onSave={async (raw) => {
+                if (!raw) throw new Error("Numer zamówienia nie może być pusty");
+                await saveOntoOrder({ title: raw }, { title: raw });
+                onSuccess("Numer zamówienia zaktualizowany");
+                onChange();
+              }}
+            />
           </div>
 
           {/* Finance + period row */}
@@ -789,31 +854,35 @@ function ContractorCard({
                   placeholder="np. 12000"
                   onError={onError}
                   onSave={async (raw) => {
-                    if (!activeOrder) {
-                      throw new Error(
-                        "Brak zamówienia, przez które można zapisać stawkę",
-                      );
-                    }
                     // Zapis idzie przez zamówienie, nie przez PATCH
                     // /api/contracts/{id}: tamten handler ma własną, admin-only
                     // bramkę na 17 pól finansowych, więc przypisany Delivery
                     // Lead dostawał tam 403 mimo prawa do tego klienta.
-                    await dlPortalApi.updateOrder(clientId, activeOrder.id, {
-                      rate_candidate: parseDecimalInput(raw),
-                    });
+                    // Kontraktor bez zamówienia dostaje je przy pierwszym
+                    // zapisie — wcześniej ta gałąź rzucała wyjątkiem i pole
+                    // wyglądało na zepsute.
+                    await saveOntoOrder({ rate_candidate: parseDecimalInput(raw) });
                     onSuccess("Stawka kosztowa zaktualizowana");
                     onChange();
                   }}
                 />
               </span>
             )}
-            {canManageFinance && activeOrder && (
+            {/* Warunek NIE obejmuje już `activeOrder`: bez zamówienia to pole
+                po prostu ZNIKAŁO, więc karta pokazywała stawkę kosztową bez
+                przychodowej i wyglądała, jakby tej drugiej u tego klienta nie
+                było wcale. */}
+            {canManageFinance && (
               <span>
                 stawka przychodowa{" "}
                 <InlineText
-                  value={activeOrder.rate_client != null ? String(activeOrder.rate_client) : ""}
+                  value={
+                    activeOrder?.rate_client != null
+                      ? String(activeOrder.rate_client)
+                      : ""
+                  }
                   display={
-                    activeOrder.rate_client != null ? (
+                    activeOrder?.rate_client != null ? (
                       <strong className="text-foreground">
                         {fmtMoney(activeOrder.rate_client)}
                         {rateUnitSuffix(contractor.rate_unit)}
@@ -828,9 +897,7 @@ function ContractorCard({
                   placeholder="np. 18000"
                   onError={onError}
                   onSave={async (raw) => {
-                    await dlPortalApi.updateOrder(clientId, activeOrder.id, {
-                      rate_client: parseDecimalInput(raw),
-                    });
+                    await saveOntoOrder({ rate_client: parseDecimalInput(raw) });
                     onSuccess("Stawka przychodowa zaktualizowana");
                     onChange();
                   }}
@@ -877,26 +944,16 @@ function ContractorCard({
                 </select>
               </span>
             )}
-            {activeOrder ? (
-              <InlinePeriod
-                startDate={activeOrder.start_date}
-                endDate={activeOrder.end_date}
-                onError={onError}
-                onSave={async (start, end) => {
-                  await dlPortalApi.updateOrder(clientId, activeOrder.id, {
-                    start_date: start,
-                    end_date: end,
-                  });
-                  onSuccess("Okres zamówienia zaktualizowany");
-                  onChange();
-                }}
-              />
-            ) : (
-              <span className="flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                okres zamówienia: —
-              </span>
-            )}
+            <InlinePeriod
+              startDate={activeOrder?.start_date ?? null}
+              endDate={activeOrder?.end_date ?? null}
+              onError={onError}
+              onSave={async (start, end) => {
+                await saveOntoOrder({ start_date: start, end_date: end });
+                onSuccess("Okres zamówienia zaktualizowany");
+                onChange();
+              }}
+            />
           </div>
 
           {/* Rekrutacja, z której wyszedł ten kontraktor. Dane przychodzą
@@ -1008,7 +1065,8 @@ function ContractorCard({
       ) : (
         !activeOrder && (
           <div className="text-xs text-muted-foreground italic pl-2">
-            Brak zamówień — Contract bez aktualnego PDF od klienta.
+            Brak zamówień — uzupełnij numer, okres i stawki powyżej, a zamówienie
+            powstanie automatycznie jako szkic.
           </div>
         )
       )}

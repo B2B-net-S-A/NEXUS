@@ -195,7 +195,10 @@ CV_ENRICHMENT_BULK = PromptTemplate(
 
 ORDER_EXTRACTION = PromptTemplate(
     name="order_extraction",
-    version=1,
+    # v2 (0231): doszedł `md_total`. Bump JEST konieczny — cache wyników
+    # promptu jest kluczowany wersją, więc bez niego zamówienia czytane po
+    # wdrożeniu wracałyby ze starego cache'u BEZ nowego pola.
+    version=2,
     expected_format="json",
     system_prompt=(
         "You extract structured fields from a client purchase order / call-off / "
@@ -224,6 +227,10 @@ ORDER_EXTRACTION = PromptTemplate(
         "(godzina/roboczodzień-MD/miesiąc) or null if not stated.\n"
         '  "total_value": total order value as a plain number, only if the document '
         "states it directly. null otherwise (do not compute it yourself).\n"
+        '  "md_total": number of man-days (MD / osobodni / roboczodni) covered by '
+        "the order, as a plain number. Only when the document states the COUNT "
+        "directly — do NOT derive it by dividing the total value by the rate, and "
+        "do not confuse it with the rate itself. null if absent.\n"
         '  "currency": ISO 4217 code ("PLN"|"EUR"|"USD") if present, else null.\n'
         '  "_confidence": object mapping each field above to a float 0.0-1.0 — 0.95+ '
         "when explicit and unambiguous, 0.6-0.85 when inferred from context, "

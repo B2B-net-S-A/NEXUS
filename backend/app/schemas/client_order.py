@@ -158,6 +158,12 @@ class OrderExtractionResult(BaseModel):
     rate_unit: Optional[str] = None  # "hour" | "day" | "month"
     total_value: Optional[Decimal] = None
     currency: Optional[str] = None
+    md_total: Optional[Decimal] = None
+    """Liczba MD z dokumentu. NIE podlega redakcji finansowej — MD są
+    wielkością operacyjną (reguła z ``CLAUDE.md``), a to Delivery Lead ma je
+    wpisać do formularza. Ukrycie ich zostawiłoby go z pustym polem tam, gdzie
+    ma coś uzupełnić."""
+
     uncertain: bool = True
     uncertain_reasons: list[str] = Field(default_factory=list)
     fields_confidence: dict[str, float] = Field(default_factory=dict)

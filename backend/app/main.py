@@ -64,6 +64,7 @@ from app.api import client_framework_contracts
 from app.api import client_contract_amendments
 from app.api import client_order_groups as client_order_groups_api
 from app.api import client_orders as client_orders_api
+from app.api import dl_alerts as dl_alerts_api
 from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
@@ -564,6 +565,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
+    from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
@@ -607,6 +609,10 @@ async def lifespan(app: FastAPI):
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+        # Powiadomienia Delivery Leada (0231). Kill-switch sprawdzany PRZED
+        # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
+        # 24 h po to, żeby sprawdzić tę samą flagę.
+        "dl_alerts": asyncio.create_task(dl_alerts_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
@@ -744,6 +750,11 @@ app.include_router(
     md_consumption_api.router,
     prefix="/api/md-consumption",
     tags=["md-consumption"],
+)
+app.include_router(
+    dl_alerts_api.router,
+    prefix="/api/dl-alerts",
+    tags=["dl-alerts"],
 )
 app.include_router(
     my_clients_api.router,
@@ -1837,10 +1848,12 @@ async def api_health_deep_check():
         ClientOrderGroupEvent,
     )
     from app.models.md_consumption import (
+        ClientOrderInvoiceConsumption,
         ClientOrderMdConsumption,
         MdConsumptionImport,
         MdConsumptionImportRow,
     )
+    from app.models.dl_alert import DlAlert
     from app.models.contract import Contract
     from app.models.contract_candidate_rate import ContractCandidateRate
     from app.models.contract_client_rate import ContractClientRate
@@ -1900,6 +1913,12 @@ async def api_health_deep_check():
         ("client_order_md_consumptions", ClientOrderMdConsumption),
         ("md_consumption_imports", MdConsumptionImport),
         ("md_consumption_import_rows", MdConsumptionImportRow),
+        # 0231: rozliczenie zamówień kosztowych i powiadomienia Delivery Leada.
+        # Ta sama reguła co wyżej — brak tabeli wyszedłby dopiero przy pierwszym
+        # imporcie faktur albo pierwszym przebiegu skanera alertów, czyli po
+        # zielonym deployu i bez związku czasowego z przyczyną.
+        ("client_order_invoice_consumptions", ClientOrderInvoiceConsumption),
+        ("dl_alerts", DlAlert),
         ("candidates", Candidate),
         ("clients", Client),
         ("jobs", Job),

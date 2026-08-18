@@ -79,18 +79,35 @@ class OrderLineCreate(BaseModel):
     """Stawka przychodowa jest dzielnikiem (kwota→MD, przeliczenie przy
     zamianie kontraktora), więc zero jest odrzucane już na wejściu."""
 
-    input_mode: str
-    input_value: MdValue = Field(..., ge=0, max_digits=16, decimal_places=6)
+    input_mode: Optional[str] = None
+    input_value: Optional[MdValue] = Field(None, ge=0, max_digits=16, decimal_places=6)
+    """Budżet MD linii. OPCJONALNY, bo linia na zamówieniu KOSZTOWYM go nie ma —
+    tam pula jest wspólna i mieszka na zamówieniu, a nie przy osobie. Handler
+    wymaga kompletu przy zamówieniu MD i odrzuca go przy kosztowym; walidacja
+    nie może stać tutaj, bo schemat nie wie, do jakiego zamówienia trafia."""
+
     start_date: date
     end_date: Optional[date] = None
     job_id: Optional[int] = None
 
     @field_validator("input_mode")
     @classmethod
-    def _mode(cls, v: str) -> str:
-        if v not in INPUT_MODES:
+    def _mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in INPUT_MODES:
             raise ValueError("Tryb budżetu musi być 'md' albo 'amount'")
         return v
+
+    @model_validator(mode="after")
+    def _budget_is_all_or_nothing(self) -> "OrderLineCreate":
+        """Tryb i wartość budżetu przychodzą razem albo wcale.
+
+        Sam tryb bez wartości (albo odwrotnie) nie pozwala policzyć MD, a
+        przepuszczenie tego dalej kończy się `md_total = None` przy
+        `md_input_mode` ustawionym — czyli naruszeniem CHECK-a spójności
+        w bazie, już w środku transakcji."""
+        if (self.input_mode is None) != (self.input_value is None):
+            raise ValueError("Budżet MD wymaga obu pól naraz: input_mode i input_value")
+        return self
 
     @model_validator(mode="after")
     def _exactly_one_person_reference(self) -> "OrderLineCreate":
@@ -112,7 +129,25 @@ class OrderGroupCreate(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     notes: Optional[str] = None
+    is_cost_based: bool = False
+    budget_amount: Optional[MoneyPLN] = Field(
+        None, gt=0, max_digits=16, decimal_places=2
+    )
+    """Kwota całego zamówienia. Wymagana przy ``is_cost_based``; zero i wartości
+    ujemne odrzucone na wejściu, bo budżet, z którego nic nie da się zdjąć, nie
+    jest budżetem — a pusta pula od razu oznaczyłaby zamówienie jako wyczerpane."""
+
     lines: list[OrderLineCreate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _cost_budget_coherence(self) -> "OrderGroupCreate":
+        if self.is_cost_based and self.budget_amount is None:
+            raise ValueError("Zamówienie kosztowe wymaga kwoty zamówienia")
+        if not self.is_cost_based and self.budget_amount is not None:
+            raise ValueError(
+                "Kwotę zamówienia można podać tylko dla zamówienia kosztowego"
+            )
+        return self
 
 
 class OrderGroupUpdate(BaseModel):
@@ -120,6 +155,43 @@ class OrderGroupUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     notes: Optional[str] = None
+    budget_amount: Optional[MoneyPLN] = Field(
+        None, gt=0, max_digits=16, decimal_places=2
+    )
+    """Korekta kwoty zamówienia kosztowego. Zmiana PRZELICZA pozostałość od
+    nowa i potrafi zdjąć status „Wyczerpane" — podniesienie kwoty musi odsłonić
+    budżet, inaczej zamówienie zostaje w zakończonych z dodatnią resztą."""
+
+    budget_manual_adjustment: Optional[MoneyPLN] = Field(
+        None, max_digits=16, decimal_places=2
+    )
+    """Ręczna korekta puli, trzymana OSOBNO od kwoty — dokładnie tak jak
+    ``md_manual_adjustment`` przy liniach MD."""
+
+
+class OrderGroupClose(BaseModel):
+    """Zakończenie zamówienia — data jest jedyną rzeczą, o którą pytamy."""
+
+    closure_date: date
+    closure_reason: Optional[str] = None
+
+
+class OrderGroupExtend(BaseModel):
+    """Przedłużenie: NOWE zamówienie kontynuujące poprzednie.
+
+    Nie jest edycją poprzedniego. Numer, okres i budżety są inne, a poprzednie
+    zamówienie musi zostać w rejestrze takie, jakie było — to na jego podstawie
+    rozliczono już wystawione faktury.
+    """
+
+    order_number: str = Field(..., min_length=1, max_length=64)
+    start_date: date
+    end_date: Optional[date] = None
+    notes: Optional[str] = None
+    budget_amount: Optional[MoneyPLN] = Field(
+        None, gt=0, max_digits=16, decimal_places=2
+    )
+    lines: list[OrderLineCreate] = Field(default_factory=list)
 
 
 class OrderLineUpdate(BaseModel):
@@ -188,6 +260,20 @@ class OrderLineRead(BaseModel):
     predecessor_order_id: Optional[int] = None
     predecessor_consultant_name: Optional[str] = None
 
+    # ── Zamówienie kosztowe ──
+    invoiced_total: Optional[MoneyPLN] = None
+    """„Zafakturowano" — suma PEŁNYCH kwot faktur tej osoby, także tych, które
+    nie zmieściły się w budżecie. `None` = linia nie jest na zamówieniu
+    kosztowym; `0` = jest, ale nic jeszcze nie zafakturowano."""
+
+    unsettled_total: Optional[MoneyPLN] = None
+    """Ile z faktur tej osoby nie zmieściło się w budżecie zamówienia."""
+
+    missing_consumption_month: Optional[str] = None
+    """Ostatni zaimportowany miesiąc, w którym ta linia NIE ma zejścia —
+    źródło komunikatu „Brak zejścia za {miesiąc}". `None` = jest zejście albo
+    nie było jeszcze żadnego importu."""
+
 
 class OrderGroupEventRead(BaseModel):
     model_config = {"from_attributes": True}
@@ -212,6 +298,27 @@ class OrderGroupRead(BaseModel):
     end_date: Optional[date] = None
     notes: Optional[str] = None
     created_at: datetime
+
+    status: str = "active"
+    status_label: str = "Aktywne"
+    closure_date: Optional[date] = None
+    closure_reason: Optional[str] = None
+
+    is_cost_based: bool = False
+    budget_amount: Optional[MoneyPLN] = None
+    budget_used: Optional[MoneyPLN] = None
+    budget_remaining: Optional[MoneyPLN] = None
+    """Trzy liczby, nie jedna. Ticket nazywa „zużyciem" wartość, która MALEJE —
+    czyli resztę. Jedno pole podpisane „zużycie", a pokazujące resztę, jest
+    pomyłką dokładnie w rozmowie o pieniądzach, więc front dostaje komplet."""
+
+    budget_manual_adjustment: Optional[MoneyPLN] = None
+    predecessor_group_id: Optional[int] = None
+    can_add_consultant: bool = True
+    """Wyliczane przez serwer. Front nie zna reguły „wyczerpane blokuje
+    dodawanie", a przycisk, który na zapisie kończy się 409, czyta się jak
+    „zapis nie działa", nie jak „tak ma być"."""
+
     lines: list[OrderLineRead] = Field(default_factory=list)
     active_consultants: int = 0
     event_count: int = 0

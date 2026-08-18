@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
@@ -19,6 +20,13 @@ vi.mock("@/store/auth", () => ({
   // delivery, nie tylko admin.
   canManageMultiConsultantOrders: (user: { role?: string } | null) =>
     user?.role === "admin" || user?.role === "delivery_lead",
+  // Lustro backendowego `_ORDER_LIFECYCLE_ROLES` — świadomie SZERSZE niż
+  // uprawnienie do stawek: usuwanie/kończenie/przywracanie/przedłużanie ma
+  // też Head of Recruitment i Finanse.
+  canManageOrderLifecycle: (user: { role?: string } | null) =>
+    ["admin", "head_of_recruitment", "delivery_lead", "finance"].includes(
+      user?.role ?? "",
+    ),
 }));
 
 vi.mock("@/lib/api/orderGroups", () => ({
@@ -31,6 +39,11 @@ vi.mock("@/lib/api/orderGroups", () => ({
     updateLine: vi.fn(),
     swapLine: vi.fn(),
     events: vi.fn(),
+    remove: vi.fn(),
+    removeLine: vi.fn(),
+    close: vi.fn(),
+    reopen: vi.fn(),
+    extend: vi.fn(),
   },
   mdConsumptionApi: {},
 }));
@@ -63,6 +76,9 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     md_manual_adjustment: 0,
     predecessor_order_id: null,
     predecessor_consultant_name: null,
+    invoiced_total: null,
+    unsettled_total: null,
+    missing_consumption_month: null,
     ...overrides,
   };
 }
@@ -76,6 +92,17 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     end_date: null,
     notes: null,
     created_at: "2026-03-01T10:00:00Z",
+    status: "active",
+    status_label: "Aktywne",
+    closure_date: null,
+    closure_reason: null,
+    is_cost_based: false,
+    budget_amount: null,
+    budget_used: null,
+    budget_remaining: null,
+    budget_manual_adjustment: null,
+    predecessor_group_id: null,
+    can_add_consultant: true,
     lines: [line()],
     active_consultants: 1,
     event_count: 3,
@@ -261,5 +288,243 @@ describe("MultiConsultantOrdersTab", () => {
     // Kolor ostrzegawczy siedzi na opakowaniu obu liczb (pozostało / całość).
     expect(value.parentElement?.className).toMatch(/destructive/);
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+  });
+});
+
+
+// ── Cykl życia zamówienia (usuń / zakończ / przywróć / przedłuż) ─────────────
+
+describe("MultiConsultantOrdersTab — cykl życia", () => {
+  beforeEach(() => {
+    authState.role = "delivery_lead";
+    vi.mocked(orderGroupsApi.removeLine).mockResolvedValue({} as never);
+    vi.mocked(orderGroupsApi.remove).mockResolvedValue({} as never);
+    vi.mocked(orderGroupsApi.reopen).mockResolvedValue({ data: {} } as never);
+  });
+
+  it("pigułki pokazują liczniki i filtrują po statusie", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group(),
+          group({
+            id: 11,
+            order_number: "446",
+            status: "completed",
+            status_label: "Zakończone",
+            closure_date: "2026-06-30",
+            lines: [],
+            active_consultants: 0,
+          }),
+        ],
+        total_groups: 2,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText("Wszystkie (2)")).toBeInTheDocument();
+    expect(screen.getByText("Aktywne (1)")).toBeInTheDocument();
+    expect(screen.getByText("Zakończeni (1)")).toBeInTheDocument();
+    expect(screen.getByText("Wyczerpane (0)")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Zakończeni (1)"));
+    expect(screen.getByText(/Zamówienie nr 446/)).toBeInTheDocument();
+    expect(screen.queryByText(/Zamówienie nr 445/)).not.toBeInTheDocument();
+  });
+
+  it("usunięcie konsultanta wymaga potwierdzenia i NIE rusza reszty zamówienia", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: { groups: [group()], total_groups: 1, total_consultants: 1 },
+    } as never);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    renderTab();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: /Usuń konsultanta z zamówienia — Jan Kowalski/i,
+      }),
+    );
+    // Odmowa w oknie potwierdzenia MUSI wstrzymać wywołanie — inaczej
+    // „Czy na pewno" jest ozdobą.
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(orderGroupsApi.removeLine).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: /Usuń konsultanta z zamówienia — Jan Kowalski/i,
+      }),
+    );
+    expect(orderGroupsApi.removeLine).toHaveBeenCalledWith(7, 10, 1);
+    expect(orderGroupsApi.remove).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("„Zakończ\" pokazuje się tylko na aktywnym, „Przywróć\" tylko na zakończonym", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            id: 12,
+            status: "completed",
+            status_label: "Zakończone",
+            closure_date: "2026-06-30",
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(
+      await screen.findByRole("button", { name: /Przywróć/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Zakończ$/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("wyczerpane zamówienie blokuje dodanie konsultanta i mówi dlaczego", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            status: "exhausted",
+            status_label: "Wyczerpane",
+            is_cost_based: true,
+            budget_amount: 50000,
+            budget_used: 50000,
+            budget_remaining: 0,
+            can_add_consultant: false,
+            lines: [line({ md_total: null, md_remaining: null, invoiced_total: 50000 })],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    const addButton = await screen.findByRole("button", {
+      name: /Dodaj konsultanta do zamówienia/i,
+    });
+    expect(addButton).toBeDisabled();
+    expect(screen.getByText(/Budżet wyczerpany/i)).toBeInTheDocument();
+  });
+
+  it("zamówienie kosztowe pokazuje TRZY liczby, nie samo „zużycie\"", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            is_cost_based: true,
+            budget_amount: 50000,
+            budget_used: 30000,
+            budget_remaining: 20000,
+            lines: [
+              line({
+                md_total: null,
+                md_remaining: null,
+                invoiced_total: 30000,
+                unsettled_total: 0,
+              }),
+            ],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    // Ticket nazywa „zużyciem" liczbę, która maleje — czyli resztę. Pokazujemy
+    // komplet, żeby żadnej z nich nie dało się odczytać odwrotnie.
+    const budget = await screen.findByText(/Kwota/);
+    expect(budget).toHaveTextContent(/wykorzystano/);
+    expect(budget).toHaveTextContent(/pozostało/);
+    expect(screen.getByText("Zafakturowano")).toBeInTheDocument();
+  });
+
+  it("niepełne rozliczenie faktury jest nazwane kwotą, nie samym ostrzeżeniem", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            is_cost_based: true,
+            budget_amount: 50000,
+            budget_used: 50000,
+            budget_remaining: 0,
+            lines: [
+              line({
+                md_total: null,
+                md_remaining: null,
+                invoiced_total: 60000,
+                unsettled_total: 10000,
+              }),
+            ],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(
+      await screen.findByText(/Nie udało się rozliczyć pełnej kwoty faktury/i),
+    ).toBeInTheDocument();
+  });
+
+  it("„Brak zejścia za {miesiąc}\" pojawia się przy linii bez rozliczenia", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            is_cost_based: true,
+            budget_amount: 50000,
+            budget_used: 0,
+            budget_remaining: 50000,
+            lines: [
+              line({
+                md_total: null,
+                md_remaining: null,
+                invoiced_total: null,
+                missing_consumption_month: "2026-07",
+              }),
+            ],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText(/Brak zejścia za 2026-07/)).toBeInTheDocument();
+  });
+
+  it("rola bez uprawnień do cyklu życia nie widzi akcji usuwania", async () => {
+    authState.role = "tac";
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: { groups: [group()], total_groups: 1, total_consultants: 1 },
+    } as never);
+
+    renderTab();
+
+    await screen.findByText(/Zamówienie nr 445/);
+    expect(
+      screen.queryByRole("button", { name: /Usuń całe zamówienie/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Usuń konsultanta z zamówienia/i }),
+    ).not.toBeInTheDocument();
   });
 });

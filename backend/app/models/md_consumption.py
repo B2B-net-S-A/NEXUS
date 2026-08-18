@@ -28,6 +28,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -59,6 +60,24 @@ IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
 CONSUMPTION_SOURCE_IMPORT = "import"
 CONSUMPTION_SOURCE_MANUAL = "manual"
 
+# Wynik dopasowania KOSZTOWEGO — niezależny od `status`, który opisuje
+# dopasowanie MD po nazwisku. Jeden wiersz bywa jednocześnie MD-dopasowany
+# i kosztowo-niedopasowany; wciśnięcie obu prawd w jedno pole gubi jedną.
+COST_ROW_APPLIED = "applied"
+COST_ROW_UNMATCHED_NUMBER = "unmatched_number"
+COST_ROW_UNMATCHED_CONSULTANT = "unmatched_consultant"
+COST_ROW_STATUSES: tuple[str, ...] = (
+    COST_ROW_APPLIED,
+    COST_ROW_UNMATCHED_NUMBER,
+    COST_ROW_UNMATCHED_CONSULTANT,
+)
+
+COST_ROW_STATUS_LABELS: dict[str, str] = {
+    COST_ROW_APPLIED: "Rozliczono",
+    COST_ROW_UNMATCHED_NUMBER: "Brak zamówienia o tym numerze",
+    COST_ROW_UNMATCHED_CONSULTANT: "Numer się zgadza, konsultant nie",
+}
+
 
 class MdConsumptionImport(Base):
     """Jedna partia importu — jeden wgrany plik za jeden miesiąc."""
@@ -85,6 +104,12 @@ class MdConsumptionImport(Base):
         Integer, nullable=False, server_default="0"
     )
     rows_unmatched: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    rows_cost_applied: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    rows_cost_unmatched: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )
 
@@ -120,6 +145,11 @@ class MdConsumptionImportRow(Base):
             "status IN ('applied', 'needs_assignment', 'unmatched')",
             name="ck_md_import_rows_status",
         ),
+        CheckConstraint(
+            "cost_status IS NULL OR cost_status IN "
+            "('applied', 'unmatched_number', 'unmatched_consultant')",
+            name="ck_md_import_rows_cost_status",
+        ),
         Index("ix_md_import_rows_import", "import_id"),
         Index("ix_md_import_rows_status", "status"),
     )
@@ -145,6 +175,25 @@ class MdConsumptionImportRow(Base):
     wybiera za operatora — trafienie w złe zamówienie odejmuje MD nie temu
     klientowi i wychodzi dopiero na fakturze."""
 
+    notes_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    """Kolumna „Uwagi" dosłownie. Trzymana, bo to JEDYNE miejsce w arkuszu,
+    które niesie numer zamówienia — plik nie ma osobnej kolumny na numer."""
+
+    order_number_hint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    """Ciąg cyfr wyłuskany z „Uwag" („SAP 4500719650" → „4500719650")."""
+
+    invoice_amount: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 2), nullable=True
+    )
+    """Kolumna „Faktura" — kwota, o którą schodzi budżet kosztowy."""
+
+    matched_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_order_groups.id", ondelete="SET NULL"), nullable=True
+    )
+    cost_status: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    """``NULL`` = wiersz nie dotyczy rozliczenia kosztowego (brak numeru
+    w „Uwagach"). Patrz ``COST_ROW_*``."""
+
     resolved_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -157,6 +206,7 @@ class MdConsumptionImportRow(Base):
 
     import_batch = relationship("MdConsumptionImport", back_populates="rows")
     matched_order = relationship("ClientOrder", foreign_keys=[matched_order_id])
+    matched_group = relationship("ClientOrderGroup", foreign_keys=[matched_group_id])
     resolver = relationship("User", foreign_keys=[resolved_by_user_id])
 
     def __repr__(self) -> str:
@@ -212,4 +262,76 @@ class ClientOrderMdConsumption(Base, TimestampMixin):
         return (
             f"<ClientOrderMdConsumption order={self.order_id} "
             f"month={self.period_month!r} md={self.md_reported}>"
+        )
+
+
+class ClientOrderInvoiceConsumption(Base, TimestampMixin):
+    """Zafakturowana kwota jednej linii w jednym miesiącu (zamówienie kosztowe).
+
+    Lustro ``ClientOrderMdConsumption`` z tym samym UNIQUE ``(order_id,
+    period_month)`` — i to ten indeks, a nie ostrożność w kodzie, czyni
+    ponowny import miesiąca idempotentnym: powtórka NADPISUJE wiersz i każe
+    przeliczyć budżet od ``budget_amount``, zamiast odjąć kwotę drugi raz.
+
+    ``settled_amount`` / ``unsettled_amount`` są ZAPISANE, a nie liczone przy
+    odczycie, bo odpowiedź na pytanie „której osobie zabrakło budżetu" zależy
+    od kolejności rozliczania. Bez utrwalenia wyniku ta sama baza dawałaby
+    różne odpowiedzi przy różnym sortowaniu, a komunikat „brakuje X zł" trafiał
+    raz w jedną, raz w drugą osobę.
+    """
+
+    __tablename__ = "client_order_invoice_consumptions"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('import', 'manual')",
+            name="ck_invoice_consumptions_source",
+        ),
+        CheckConstraint(_PERIOD_MONTH_CHECK, name="ck_invoice_consumptions_period"),
+        Index(
+            "ux_invoice_consumptions_order_month",
+            "order_id",
+            "period_month",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("client_orders.id", ondelete="CASCADE"), nullable=False
+    )
+    period_month: Mapped[str] = mapped_column(String(7), nullable=False)
+
+    invoice_amount: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    """Kwota z kolumny „Faktura" — pełna, niezależnie od tego, ile się zmieściło.
+    To ona sumuje się do pola „Zafakturowano" przy konsultancie."""
+
+    settled_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, server_default="0"
+    )
+    unsettled_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, server_default="0"
+    )
+    """Część faktury, która nie zmieściła się w budżecie zamówienia."""
+
+    import_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("md_consumption_imports.id", ondelete="SET NULL"), nullable=True
+    )
+    """``SET NULL``, nie ``CASCADE`` — skasowanie partii importu nie może cofać
+    już zastosowanego rozliczenia."""
+
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    order = relationship("ClientOrder", back_populates="invoice_consumptions")
+    import_batch = relationship("MdConsumptionImport", foreign_keys=[import_id])
+    author = relationship("User", foreign_keys=[created_by_user_id])
+
+    def __repr__(self) -> str:
+        return (
+            f"<ClientOrderInvoiceConsumption order={self.order_id} "
+            f"month={self.period_month!r} amount={self.invoice_amount}>"
         )

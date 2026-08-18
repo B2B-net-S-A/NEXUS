@@ -944,7 +944,10 @@ export default function ClientDetailPage() {
               klient dostaje niezmieniony widok jednoosobowy. */}
           {activeTab === "zamowienia" &&
             (client?.multi_consultant_orders_enabled ? (
-              <MultiConsultantOrdersTab clientId={Number(id)} />
+              <MultiConsultantOrdersTab
+                clientId={Number(id)}
+                costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
+              />
             ) : (
               <OrdersAndContractsTab clientId={Number(id)} />
             ))}

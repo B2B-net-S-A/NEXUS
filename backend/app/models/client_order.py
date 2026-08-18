@@ -58,19 +58,26 @@ class ClientOrder(Base, TimestampMixin):
             "('cz1', 'cz2', 'cz4', 'cz5', 'cz6')",
             name="ck_client_orders_project_part",
         ),
-        # Linia MD jest albo kompletna, albo jej nie ma. Częściowo wypełniona
-        # (budżet bez stawki przychodowej) wysadziłaby dzielenie przy zamianie
+        # Budżet MD jest albo kompletny, albo go nie ma. Częściowo wypełniony
+        # (budżet bez stawki przychodowej) wysadziłby dzielenie przy zamianie
         # kontraktora w środku transakcji; stawka <= 0 jest dzielnikiem, więc
         # baza odrzuca ją niezależnie od tego, co przepuści API.
+        #
+        # Odwrotność NIE obowiązuje: linia zamówienia KOSZTOWEGO ma obie
+        # stawki i nie ma budżetu MD (pula jest wspólna i mieszka na
+        # zamówieniu). Do 0231 pierwszy człon wymagał tu `md_rate_revenue IS
+        # NULL` i taka linia po prostu nie dawała się zapisać.
         CheckConstraint(
             "("
+            "("
             "md_total IS NULL AND md_remaining IS NULL AND md_input_mode IS NULL "
-            "AND md_input_value IS NULL AND md_rate_revenue IS NULL"
+            "AND md_input_value IS NULL"
             ") OR ("
             "md_total IS NOT NULL AND md_remaining IS NOT NULL "
             "AND md_input_mode IN ('md', 'amount') AND md_input_value IS NOT NULL "
             "AND md_rate_revenue IS NOT NULL AND md_rate_revenue > 0"
-            ")",
+            ")"
+            ") AND (md_rate_revenue IS NULL OR md_rate_revenue > 0)",
             name="ck_client_orders_md_coherence",
         ),
     )
@@ -234,6 +241,13 @@ class ClientOrder(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="ClientOrderMdConsumption.period_month.asc()",
+    )
+    invoice_consumptions = relationship(
+        "ClientOrderInvoiceConsumption",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ClientOrderInvoiceConsumption.period_month.asc()",
     )
     contract = relationship("Contract", back_populates="client_orders")
     job = relationship("Job", foreign_keys=[job_id])
