@@ -77,6 +77,10 @@ from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger("eval_matching")
 
+# Ustawiany z CLI (--dump-layers); _score_job_candidates dopisuje wiersze.
+_DUMP_HANDLE = None
+_DUMP_GT: dict[int, set[int]] = {}
+
 
 # ── Ground truth config ──────────────────────────────────────────────────────
 
@@ -496,6 +500,36 @@ async def _score_job_candidates(
                 continue
             b.total += boost_points_for_sources(count)
         breakdowns.sort(key=lambda r: -r.total)
+
+    if _DUMP_HANDLE is not None:
+        gt = _DUMP_GT.get(job.id, set())
+        for b in breakdowns:
+            _DUMP_HANDLE.write(
+                json.dumps(
+                    {
+                        "job_id": job.id,
+                        "candidate_id": b.candidate_id,
+                        "gt": b.candidate_id in gt,
+                        "total": round(b.total, 4),
+                        "layers": {
+                            name: {
+                                "points": round(layer.points, 4),
+                                "max": layer.max_points,
+                            }
+                            for name, layer in (
+                                ("semantic", b.semantic),
+                                ("skills", b.skills),
+                                ("salary", b.salary),
+                                ("location", b.location),
+                                ("availability", b.availability),
+                                ("champion_fit", b.champion_fit),
+                            )
+                        },
+                        "seniority_note": b.seniority_note,
+                    }
+                )
+                + "\n"
+            )
 
     return [b.candidate_id for b in breakdowns], pool_size, boost_map
 
@@ -927,6 +961,14 @@ async def _run(args: argparse.Namespace) -> int:
             exclude_job_ids=excluded or None,
         )
 
+        if args.dump_layers:
+            global _DUMP_HANDLE
+            _DUMP_HANDLE = open(  # noqa: SIM115 — zamykany na końcu main
+                args.dump_layers, "w", encoding="utf-8"
+            )
+            for job, gt_ids, _relevance in job_records:
+                _DUMP_GT[job.id] = set(gt_ids)
+
         if not job_records:
             logger.error(
                 "No jobs with ≥%s ground-truth candidates found. "
@@ -977,6 +1019,12 @@ async def _run(args: argparse.Namespace) -> int:
                 with_boost=True,
             )
             profile_results.append(delta_res)
+
+    global _DUMP_HANDLE
+    if _DUMP_HANDLE is not None:
+        _DUMP_HANDLE.close()
+        _DUMP_HANDLE = None
+        logger.info("Layer dump written to %s", args.dump_layers)
 
     generated_at = datetime.now(timezone.utc)
     voyage_configured = bool(os.environ.get("VOYAGE_API_KEY"))
@@ -1148,6 +1196,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--ablation",
         action="store_true",
         help="Run every profile in ABLATION_PROFILES instead of just default.",
+    )
+    parser.add_argument(
+        "--dump-layers",
+        metavar="PATH",
+        help=(
+            "Zrzut per (oferta, kandydat): punkty/max każdej warstwy + total + "
+            "flaga GT (JSONL). Wsad do offline'owego przeszukiwania wag "
+            "(scripts/weight_search.py) — rekombinacja jest dokładna, więc "
+            "tysiące wektorów liczy się w sekundy bez ponownego scoringu."
+        ),
     )
     parser.add_argument(
         "--weights",
