@@ -56,6 +56,80 @@ def strip_employment_marker(value: str) -> str:
     return cleaned.strip(" -–,;")
 
 
+# Ten sam nawyk, inny marker: skoro Traffit nie miał pola „zatrudniony", nie miał
+# też jak zapisać, że kogoś NIE WOLNO proponować klientom — więc rekruterzy
+# wkleili to w imię: "[BLACKLIST] Marek", "[ blacklist ] Wiktor",
+# "(Blacklist) Karolina", "[BLACK LIST]Jaromir". Obok tego jeździ "[ACTIVE]" /
+# "[active /" — powtórzenie statusu, który i tak przychodzi osobnym polem.
+#
+# Skutki były dwa i oba realne (wykryte 18.08.2026 na produkcji):
+#   * blacklista NIE ISTNIAŁA w żadnym polu strukturalnym — 29 osób miało
+#     `status = active`, więc matching, Talent Radar i picker obsady podawały
+#     je jak każdą inną; jedenaście z nich w dodatku jako „aktywnie szuka",
+#   * marker normalizuje się do „active"/„blacklist" i przy sortowaniu po
+#     imieniu wypychał te osoby na SZCZYT każdej listy.
+#
+# Dziewięć wariantów zapisu (wielkość liter, spacja w „black list", nawiasy
+# kwadratowe ORAZ okrągłe, ukośniki zamiast nawiasów, brak spacji przed
+# imieniem), więc wzorzec musi być szeroki. Wymagamy przynajmniej JEDNEGO
+# ogranicznika obok słowa — samo „active" bez nawiasu mogłoby trafić w treść,
+# która jest częścią nazwiska.
+#
+# `[[(/]` i `[])/]` to klasy znaków (`]` tuż po `[` jest literałem) — ten sam
+# trik co w `_EMPLOYMENT_MARKER_RE`. Grupy są ZWYKŁE `(...)`, nie `(?:...)`:
+# migracja lustrzana wykonuje ten wzorzec przez `op.execute()`, a SQLAlchemy
+# czyta `:` w `(?:` jako parametr bindowany i wywala się na „A value is
+# required for bind parameter".
+_STATUS_MARKER_WORD = r"(black\s*-?\s*list|active)"
+_STATUS_MARKER_RE = re.compile(
+    r"[[(/]\s*" + _STATUS_MARKER_WORD + r"\s*[])/]?"
+    r"|"
+    r"[[(/]?\s*" + _STATUS_MARKER_WORD + r"\s*[])/]",
+    re.IGNORECASE,
+)
+
+# Wykrywanie blacklisty: to samo słowo co wyżej, ale sam blacklist bez „active",
+# bo decyduje o `status`. Ogranicznik jest WYMAGANY dokładnie tak jak przy
+# zdejmowaniu — bez tego nazwisko zawierające ciąg „blacklist" (np. „Blacklista")
+# dostawało status blacklisted, czyli ciche wykluczenie realnego konsultanta
+# z propozycji. Złapane na teście migracji, nie na produkcji.
+_BLACKLIST_ONLY = r"(black\s*-?\s*list)"
+_BLACKLIST_WORD_RE = re.compile(
+    r"[[(/]\s*" + _BLACKLIST_ONLY + r"\s*[])/]?"
+    r"|"
+    r"[[(/]?\s*" + _BLACKLIST_ONLY + r"\s*[])/]",
+    re.IGNORECASE,
+)
+
+
+def strip_status_marker(value: str) -> str:
+    """Zdejmij z imienia/nazwiska marker statusu wklejony w Traffit.
+
+    ``"[BLACK LIST]Jaromir"`` → ``"Jaromir"``, ``"/ ACTIVE] Bartłomiej"`` →
+    ``"Bartłomiej"``. Zwraca wejście bez zmian, gdy markera nie ma. Może zwrócić
+    ``""``, jeśli pole zawierało wyłącznie marker — wołający ma własny fallback.
+
+    Marker „akcept" jest CELOWO nietknięty: nie wiadomo, co znaczy, i nie ma
+    pola, do którego można by to znaczenie przenieść. Kasowanie go byłoby
+    utratą jedynego zapisu, a nie porządkowaniem.
+    """
+    if not value:
+        return value
+    low = value.lower()
+    if "black" not in low and "active" not in low:
+        return value
+    cleaned = _STATUS_MARKER_RE.sub(" ", value)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip(" -–,;/")
+
+
+def has_blacklist_marker(*values: Optional[str]) -> bool:
+    """Czy którekolwiek z pól niesie marker blacklisty (w dowolnym zapisie)."""
+    return any(
+        value and _BLACKLIST_WORD_RE.search(value) is not None for value in values
+    )
+
+
 def _parse_traffit_datetime(value: Any) -> Optional[datetime]:
     """Parse Traffit datetime strings ('yyyy-MM-dd HH:mm:ss' or ISO) to
     timezone-aware UTC datetime. Returns None if value is None/empty/invalid.
@@ -373,8 +447,13 @@ def traffit_employee_to_candidate(
     if traffit_id is None:
         raise ValueError("Traffit employee missing 'id'")
 
-    name = strip_employment_marker((payload.get("name") or "").strip())
-    lastname = strip_employment_marker((payload.get("lastname") or "").strip())
+    raw_name = (payload.get("name") or "").strip()
+    raw_lastname = (payload.get("lastname") or "").strip()
+    # Odczyt PRZED czyszczeniem — po zdjęciu markera nie ma już z czego wnosić,
+    # że tej osoby nie wolno proponować.
+    blacklisted = has_blacklist_marker(raw_name, raw_lastname)
+    name = strip_status_marker(strip_employment_marker(raw_name))
+    lastname = strip_status_marker(strip_employment_marker(raw_lastname))
     if not name:
         email = payload.get("email") or ""
         if "@" in email:
@@ -429,7 +508,15 @@ def traffit_employee_to_candidate(
         "city": candidate_location.city,
         "country": candidate_location.country,
         "location": candidate_location.projection,
-        "status": normalize_candidate_status(payload.get("status")),
+        # Marker w imieniu WYGRYWA z polem `status`. Traffit przysyła dla tych
+        # osób „active", bo blacklista nigdy nie trafiła do jego pola statusu —
+        # gdyby wygrywało pole, sync co noc kasowałby jedyną informację o tym,
+        # że kogoś nie wolno proponować klientowi.
+        "status": (
+            "blacklisted"
+            if blacklisted
+            else normalize_candidate_status(payload.get("status"))
+        ),
         # Traffit ``candidate_about`` is recruiter-authored profile text, not
         # an AI summary generated from the CV. Keep the two provenance domains
         # separate so quick-view never labels imported prose as AI.
