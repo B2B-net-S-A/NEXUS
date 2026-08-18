@@ -117,10 +117,24 @@ function Case({
         total_new: 0,
         total_handled: 0,
       });
+    } else {
+      // Gałąź awarii dostaje `queryFn`, które ODRZUCA lokalnie — bez sieci.
+      //
+      // Pierwsza wersja po prostu nie zasiewała klucza, licząc na to, że
+      // niezalogowane zapytanie samo skończy się błędem. Kończyło się gorzej:
+      // `/api/dl-alerts` zwracał 401, globalny interceptor axiosa przerzucał
+      // CAŁĄ stronę na /login i harness znikał po kilku sekundach — razem ze
+      // stanami, które miał pokazać. Publiczny podgląd nie może wylogowywać
+      // oglądającego ani wykonywać żadnego żądania.
+      qc.setDefaultOptions({
+        queries: {
+          staleTime: Infinity,
+          retry: false,
+          refetchOnMount: false,
+          queryFn: () => Promise.reject(new Error("podgląd: wymuszona awaria")),
+        },
+      });
     }
-    // `kind === "error"` — świadomie NIE zasiewamy niczego: zapytanie poleci
-    // i skończy się błędem sieci, czyli dokładnie tą gałęzią, która nie może
-    // wyglądać jak pustka.
     return qc;
   }, [kind]);
 
