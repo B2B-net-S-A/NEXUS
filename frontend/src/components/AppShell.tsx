@@ -881,6 +881,7 @@ interface JobFormData {
   remote_policy: string;
   salary_min: string;
   salary_max: string;
+  rate_budget_hourly: string;
   priority: string;
   deadline: string;
   recruiter_id: string;
@@ -902,7 +903,7 @@ interface JobFormData {
 const EMPTY_JOB: JobFormData = {
   title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
   description: "", requirements: "", location: "", remote_policy: "hybrid",
-  salary_min: "", salary_max: "", priority: "medium", deadline: "", recruiter_id: "",
+  salary_min: "", salary_max: "", rate_budget_hourly: "", priority: "medium", deadline: "", recruiter_id: "",
   tac_id: "", delivery_lead_id: "", hiring_manager_contact_id: "",
   pipeline_template_id: "", competence_category_id: "", train_name: "",
 };
@@ -919,6 +920,7 @@ function jobToForm(j: any): JobFormData {
     remote_policy: j.remote_policy ?? "hybrid",
     salary_min: j.salary_min ? String(j.salary_min) : "",
     salary_max: j.salary_max ? String(j.salary_max) : "",
+    rate_budget_hourly: j.rate_budget_hourly ? String(j.rate_budget_hourly) : "",
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
@@ -1116,6 +1118,13 @@ function JobFormFields({
           <Input type="number" value={form.salary_max} onChange={e => onChange("salary_max", e.target.value)} placeholder="150" />
         </FieldGroup>
       </div>
+      {/* Budżet dla kandydata (dealbreaker-switch). Osobne pole, bo
+          salary_min/max ma niejednoznaczną jednostkę: formularz podpisuje je
+          PLN/h, ale importy/seed trzymają tam PLN/mies. — scoring odmawia tej
+          kolumny właśnie przez to. To pole jest ZAWSZE PLN/h. */}
+      <FieldGroup label="Budżet PLN/h dla kandydata (switch „poza budżetem”)">
+        <Input type="number" value={form.rate_budget_hourly} onChange={e => onChange("rate_budget_hourly", e.target.value)} placeholder="np. 150 — puste = użyjemy stawki Championa" />
+      </FieldGroup>
       <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Priorytet">
           <Select value={form.priority} onChange={e => onChange("priority", e.target.value)}>
@@ -1456,6 +1465,7 @@ export function AddJobModal({
         remote_policy: form.remote_policy,
         salary_min: form.salary_min ? Number(form.salary_min) : undefined,
         salary_max: form.salary_max ? Number(form.salary_max) : undefined,
+        rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : undefined,
         priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
@@ -1645,6 +1655,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         remote_policy: form.remote_policy,
         salary_min: form.salary_min ? Number(form.salary_min) : undefined,
         salary_max: form.salary_max ? Number(form.salary_max) : undefined,
+        rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : undefined,
         priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,

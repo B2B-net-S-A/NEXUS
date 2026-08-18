@@ -54,6 +54,11 @@ export function TalentRadarWorkspace() {
   const [response, setResponse] = useState<TalentRadarSearchResponse | null>(
     null,
   );
+  // Dealbreaker-switche: budżet podaje rekruter wprost (radar nie ma oferty);
+  // nieznana stawka/preferencja kandydata przechodzi po stronie backendu.
+  const [budgetMax, setBudgetMax] = useState("");
+  const [budgetMargin, setBudgetMargin] = useState<0 | 15 | 30 | 50>(30);
+  const [excludeRemoteOnly, setExcludeRemoteOnly] = useState(false);
 
   const search = useMutation({
     mutationFn: () =>
@@ -62,6 +67,10 @@ export function TalentRadarWorkspace() {
         text: text.trim(),
         title: title.trim() || undefined,
         top_k: 20,
+        exclude_over_budget: Number(budgetMax) > 0 || undefined,
+        budget_hourly_max: Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
+        budget_margin_pct: Number(budgetMax) > 0 ? budgetMargin : undefined,
+        exclude_remote_only: excludeRemoteOnly || undefined,
       }),
     onSuccess: (data) => setResponse(data),
     onError: (error: unknown) => {
@@ -114,6 +123,49 @@ export function TalentRadarWorkspace() {
             <p className="text-xs text-muted-foreground">
               Wymagany — względem niego sprawdzamy blacklistę, NDA, konflikty
               konkurencyjne i weto hiring managera.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tr-budget">Budżet PLN/h (opcjonalny dealbreaker)</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="tr-budget"
+                type="number"
+                min={1}
+                max={2000}
+                value={budgetMax}
+                onChange={(e) => setBudgetMax(e.target.value)}
+                placeholder="np. 150"
+                className="w-28"
+              />
+              <select
+                value={budgetMargin}
+                onChange={(e) =>
+                  setBudgetMargin(Number(e.target.value) as 0 | 15 | 30 | 50)
+                }
+                disabled={!(Number(budgetMax) > 0)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+                title="Margines negocjacyjny — 0% ukrywa 44% realnie dowiezionych (zmierzone), default +30%"
+                data-testid="tr-budget-margin"
+              >
+                <option value={0}>+0%</option>
+                <option value={15}>+15%</option>
+                <option value={30}>+30%</option>
+                <option value={50}>+50%</option>
+              </select>
+              <label className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={excludeRemoteOnly}
+                  onChange={(e) => setExcludeRemoteOnly(e.target.checked)}
+                  data-testid="tr-exclude-remote-only"
+                />
+                ukryj „wyłącznie zdalnie”
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Ukrywa tylko POZYTYWNIE znane przekroczenia/odmowy — brak danych
+              zawsze przechodzi. Ukrytych policzymy w wynikach.
             </p>
           </div>
           <div className="flex flex-col gap-2">

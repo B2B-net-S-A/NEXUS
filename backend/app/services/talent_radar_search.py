@@ -63,6 +63,12 @@ class RadarQuery:
     location: Optional[str] = None
     top_k: int = 20
     min_score: Optional[float] = None
+    # Dealbreaker-switche (runda 3): radar nie ma oferty, więc budżet PLN/h
+    # podaje wprost rekruter. Nieznana stawka/preferencja kandydata PRZECHODZI.
+    exclude_over_budget: bool = False
+    budget_hourly_max: Optional[float] = None
+    budget_margin_pct: int = 30
+    exclude_remote_only: bool = False
 
 
 @dataclass
@@ -72,6 +78,7 @@ class RadarResult:
     eligible_size: int
     degraded: bool
     reason: Optional[str] = None
+    hidden: dict[str, int] = field(default_factory=dict)
     # `ScoreBreakdown` carries `candidate_id` and nothing else about the person.
     # A search that answers with opaque integers is not a search a recruiter can
     # read, and making the browser resolve each id would be an N+1 over the
@@ -85,6 +92,7 @@ class RadarResult:
             "returned": len(self.breakdowns),
             "degraded": self.degraded,
             "reason": self.reason,
+            "hidden": self.hidden,
         }
 
 
@@ -220,6 +228,19 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     )
     eligible_size = len(candidates)
 
+    # Dealbreaker-switche: twarde ukrywanie na życzenie, liczniki do meta —
+    # ukrywanie nigdy nie jest ciche (reguła „awaria ≠ pustka").
+    from app.services.dealbreaker_filters import apply_dealbreakers
+
+    dealbreakers = apply_dealbreakers(
+        candidates,
+        exclude_over_budget=query.exclude_over_budget,
+        budget_hourly=query.budget_hourly_max,
+        budget_margin_pct=query.budget_margin_pct,
+        exclude_remote_only=query.exclude_remote_only,
+    )
+    candidates = dealbreakers.kept
+
     # `rank_candidates_for_job`, NOT `bulk_get_or_compute`: the score cache is
     # keyed by (candidate, job, profile) and this job has no id, so caching would
     # either collide across unrelated searches or crash on the null key.
@@ -233,6 +254,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
         else settings.RECOMMENDATION_MIN_SCORE
     )
     ranked = [b for b in breakdowns if b.total >= threshold][: query.top_k]
+    hidden_meta = dealbreakers.hidden_meta()
 
     # Only the rows that survived ranking — the eligible pool can be a thousand
     # wide, and shipping all of it would undo the trimming done above.
@@ -242,5 +264,6 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
         pool_size=pool_size,
         eligible_size=eligible_size,
         degraded=False,
+        hidden=hidden_meta,
         candidates_by_id={c.id: c for c in candidates if c.id in kept},
     )

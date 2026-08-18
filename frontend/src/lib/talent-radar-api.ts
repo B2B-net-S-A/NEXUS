@@ -67,6 +67,8 @@ export interface TalentRadarMeta {
    */
   degraded: boolean;
   reason: string | null;
+  /** Dealbreaker-switche: liczniki ukrytych per powód (runda 3). */
+  hidden?: { over_budget?: number; remote_only?: number };
 }
 
 export interface TalentRadarSearchResponse {
@@ -87,6 +89,14 @@ export interface TalentRadarSearchRequest {
   location?: string;
   top_k?: number;
   min_score?: number;
+  /**
+   * Dealbreaker-switche (runda 3). Budżet PLN/h podaje rekruter wprost —
+   * radar nie ma oferty. Nieznana stawka/preferencja kandydata PRZECHODZI.
+   */
+  exclude_over_budget?: boolean;
+  budget_hourly_max?: number;
+  budget_margin_pct?: 0 | 15 | 30 | 50;
+  exclude_remote_only?: boolean;
 }
 
 export const talentRadarApi = {

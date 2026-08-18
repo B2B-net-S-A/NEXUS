@@ -102,17 +102,43 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   );
   const locationActive = locationFilter.trim().length > 0;
 
+  // Dealbreaker-switche (runda 3): twarde, świadomie włączane ukrywanie
+  // zamiast punktowania. Nieznana stawka/preferencja PRZECHODZI po stronie
+  // backendu; liczniki ukrytych wracają w meta.hidden i renderują się jako
+  // chipy — ukrywanie nigdy nie jest ciche.
+  const [excludeOverBudget, setExcludeOverBudget] = useState(false);
+  const [budgetMargin, setBudgetMargin] = useState<0 | 15 | 30 | 50>(30);
+  const [excludeRemoteOnly, setExcludeRemoteOnly] = useState(false);
+  const [locationSource, setLocationSource] = useState<"all" | "cv" | "notes">(
+    "all",
+  );
+  const switchesActive = excludeOverBudget || excludeRemoteOnly;
+  // filteredActive: zapytanie filtrowane obsługuje lokalizację ORAZ switche.
+  
+
   const locationQuery = useQuery({
-    queryKey: ["recommendations-location", jobId, locationFilter.trim()],
+    queryKey: [
+      "recommendations-location",
+      jobId,
+      locationFilter.trim(),
+      locationSource,
+      excludeOverBudget,
+      budgetMargin,
+      excludeRemoteOnly,
+    ],
     queryFn: async () => {
       const r = await recommendationsApi.forJob(jobId, {
         top_k: topK,
         include_breakdown: true,
-        location: locationFilter.trim(),
+        location: locationFilter.trim() || undefined,
+        location_source: locationSource,
+        exclude_over_budget: excludeOverBudget || undefined,
+        budget_margin_pct: excludeOverBudget ? budgetMargin : undefined,
+        exclude_remote_only: excludeRemoteOnly || undefined,
       });
       return r.data;
     },
-    enabled: locationActive,
+    enabled: locationActive || switchesActive,
     staleTime: 60_000,
   });
 
@@ -274,12 +300,13 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   };
 
   // Active display source: location filter > snapshot > fallback-live.
-  const matches = locationActive
+  const filteredActive = locationActive || switchesActive;
+  const matches = filteredActive
     ? (locationQuery.data?.matches ?? [])
     : mode === "snapshot"
       ? snapshotMatches
       : liveMatches;
-  const activeRecommendationMeta = locationActive
+  const activeRecommendationMeta = filteredActive
     ? (locationQuery.data?.meta ?? null)
     : mode === "fallback-live"
       ? liveMeta
@@ -292,16 +319,16 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         : null;
   const isDegraded = activeRecommendationMeta?.degraded === true;
   const showLiveEmptyState =
-    !locationActive && mode === "fallback-live" && !liveLoaded && !liveLoading;
+    !filteredActive && mode === "fallback-live" && !liveLoaded && !liveLoading;
   const showLiveNoResults =
-    !locationActive &&
+    !filteredActive &&
     mode === "fallback-live" &&
     liveLoaded &&
     liveMatches.length === 0 &&
     !liveLoading;
   // Snapshot/live error banner is suppressed while a location filter is active —
   // location mode renders its own loading/empty/error states below.
-  const displayError = locationActive
+  const displayError = filteredActive
     ? null
     : ((mode === "snapshot" && isSnapFailed
         ? snapshot?.error_message || "AI nie wygenerowało propozycji"
@@ -314,8 +341,8 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   // location badge over an unfiltered list.
   const serverLocationApplied =
     locationActive && (locationQuery.data?.location_filter ?? null) !== null;
-  const showLocationLoading = locationActive && locationQuery.isLoading;
-  const showLocationError = locationActive && locationQuery.isError;
+  const showLocationLoading = filteredActive && locationQuery.isLoading;
+  const showLocationError = filteredActive && locationQuery.isError;
   const showLocationNoResults =
     locationActive &&
     !locationQuery.isLoading &&
@@ -355,6 +382,61 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
               onChange={setLocationFilter}
               placeholder="Lokalizacja (np. Warszawa)"
             />
+            {locationActive && (
+              <select
+                value={locationSource}
+                onChange={(e) =>
+                  setLocationSource(e.target.value as "all" | "cv" | "notes")
+                }
+                className="text-xs border border-border rounded-md px-1.5 py-1 bg-background"
+                title="Źródło lokalizacji kandydata"
+                data-testid="location-source-select"
+              >
+                <option value="all">CV + notatki</option>
+                <option value="cv">Tylko CV</option>
+                <option value="notes">Tylko notatki</option>
+              </select>
+            )}
+            <button
+              onClick={() => setExcludeOverBudget((v) => !v)}
+              className={`text-xs px-2 py-1 rounded-md border ${
+                excludeOverBudget
+                  ? "bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200"
+                  : "border-border text-muted-foreground hover:bg-accent"
+              }`}
+              title="Ukryj kandydatów, których ZNANA stawka przekracza budżet oferty ponad margines. Nieznana stawka zawsze przechodzi."
+              data-testid="switch-over-budget"
+            >
+              Poza budżetem: ukryj
+            </button>
+            {excludeOverBudget && (
+              <select
+                value={budgetMargin}
+                onChange={(e) =>
+                  setBudgetMargin(Number(e.target.value) as 0 | 15 | 30 | 50)
+                }
+                className="text-xs border border-border rounded-md px-1.5 py-1 bg-background"
+                title="Margines negocjacyjny (0% ukrywa 44% realnie dowiezionych — zmierzone; 30% to bezpieczny default)"
+                data-testid="budget-margin-select"
+              >
+                <option value={0}>+0%</option>
+                <option value={15}>+15%</option>
+                <option value={30}>+30%</option>
+                <option value={50}>+50%</option>
+              </select>
+            )}
+            <button
+              onClick={() => setExcludeRemoteOnly((v) => !v)}
+              className={`text-xs px-2 py-1 rounded-md border ${
+                excludeRemoteOnly
+                  ? "bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200"
+                  : "border-border text-muted-foreground hover:bg-accent"
+              }`}
+              title="Ukryj kandydatów z potwierdzonym w rozmowach „wyłącznie zdalnie”. Nieznana preferencja zawsze przechodzi."
+              data-testid="switch-remote-only"
+            >
+              Tylko-zdalni: ukryj
+            </button>
           </div>
           {mode === "snapshot" ? (
             <button
@@ -436,6 +518,32 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
           </button>
         </div>
       )}
+
+      {(() => {
+        const hidden = activeRecommendationMeta?.hidden;
+        const total = (hidden?.over_budget ?? 0) + (hidden?.remote_only ?? 0);
+        if (!total) return null;
+        // Ukrywanie nigdy nie jest ciche: pustka bez wyjaśnienia czyta się
+        // jak utrata danych (reguła „awaria ≠ pustka").
+        return (
+          <div
+            role="status"
+            data-testid="dealbreaker-hidden-notice"
+            className="mb-3 flex flex-wrap gap-2 text-xs"
+          >
+            {(hidden?.over_budget ?? 0) > 0 && (
+              <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+                Ukryto {hidden!.over_budget} poza budżetem (+{budgetMargin}%)
+              </span>
+            )}
+            {(hidden?.remote_only ?? 0) > 0 && (
+              <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+                Ukryto {hidden!.remote_only} tylko-zdalnych
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {isDegraded && (
         <div
