@@ -1550,7 +1550,21 @@ async def swap_consultant(
     )
     if old is None:
         raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
-    if old.md_total is None or old.md_rate_revenue is None:
+    # Zamówienie KOSZTOWE nie ma budżetu per linia — pula mieszka na grupie,
+    # a linia z definicji ma `md_total = None` (`_build_line`). Warunek pisany
+    # pod tryb MD odrzucał więc KAŻDĄ zamianę u klienta kosztowego, i to
+    # komunikatem o brakującym budżecie, czyli sugerującym dane do uzupełnienia
+    # w stanie, którego nie da się usunąć. Tu nie ma czego przenosić: budżet
+    # zostaje na grupie, a rozliczenie i tak liczy się od zera z faktur
+    # (`settle_group` nie filtruje po statusie linii, więc domknięcie
+    # poprzednika nie odsłania wydanych już pieniędzy).
+    is_cost = bool(group.is_cost_based)
+    if is_cost:
+        if old.md_rate_revenue is None:
+            raise HTTPException(
+                422, detail="Linia nie ma stawki przychodowej do przeniesienia"
+            )
+    elif old.md_total is None or old.md_rate_revenue is None:
         raise HTTPException(422, detail="Linia nie ma budżetu MD do przeniesienia")
     if old.status != ClientOrderStatus.active:
         raise HTTPException(
@@ -1561,16 +1575,19 @@ async def swap_consultant(
             422, detail="Data zamiany jest wcześniejsza niż start linii"
         )
 
-    await recompute_remaining(db, old)
-    md_remaining_old = Decimal(str(old.md_remaining or 0))
-    try:
-        md_total_new = swap_md_total(
-            md_remaining_old=md_remaining_old,
-            rate_revenue_old=old.md_rate_revenue,
-            rate_revenue_new=payload.rate_revenue,
-        )
-    except ValueError as exc:
-        raise HTTPException(422, detail=str(exc)) from exc
+    md_remaining_old: Optional[Decimal] = None
+    md_total_new: Optional[Decimal] = None
+    if not is_cost:
+        await recompute_remaining(db, old)
+        md_remaining_old = Decimal(str(old.md_remaining or 0))
+        try:
+            md_total_new = swap_md_total(
+                md_remaining_old=md_remaining_old,
+                rate_revenue_old=old.md_rate_revenue,
+                rate_revenue_new=payload.rate_revenue,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
 
     new_contract = await _resolve_contract(db, client_id, payload.contract_id)
 
@@ -1610,7 +1627,10 @@ async def swap_consultant(
         # Tryb „md": budżet nowej linii POWSTAŁ z przeliczenia, a nie z kwoty
         # wpisanej przez operatora. Zapisanie go jako „amount" sugerowałoby
         # kwotę, której nikt nie podał.
-        md_input_mode=INPUT_MODE_MD,
+        # Linia kosztowa: komplet NULL-i. `ck_client_orders_md_coherence`
+        # dopuszcza albo pełen zestaw pól MD, albo żadnego — wpisanie tu
+        # trybu „md" bez liczby wywróciłoby zapis na poziomie bazy.
+        md_input_mode=None if is_cost else INPUT_MODE_MD,
         md_input_value=md_total_new,
         md_total=md_total_new,
         md_remaining=md_total_new,
@@ -1621,36 +1641,56 @@ async def swap_consultant(
     db.add(new_line)
     await db.flush()
 
-    value_pln = remaining_value_pln(
-        md_remaining=md_remaining_old, rate_revenue=old.md_rate_revenue
-    )
-    record_event(
-        db,
-        group_id=group.id,
-        order_id=new_line.id,
-        event_type=EVENT_CONSULTANT_SWAPPED,
-        description=(
+    event_payload: dict[str, object] = {
+        "swap_date": payload.swap_date.isoformat(),
+        "old_order_id": old.id,
+        "old_consultant": old_who,
+        # `str(None)` zapisałoby do dziennika literał "None" — wartość, która
+        # w rozliczeniu faktury czyta się jak stawka, a nie jak jej brak.
+        # `rate_cost` jest wymagane w schemacie, więc to nie powinno zajść;
+        # dziennik jednak przeżywa dane starsze od walidacji.
+        "old_rate_cost": None if old.md_rate_cost is None else str(old.md_rate_cost),
+        "old_rate_revenue": str(old.md_rate_revenue),
+        "new_order_id": new_line.id,
+        "new_consultant": new_who,
+        "new_rate_cost": str(payload.rate_cost),
+        "new_rate_revenue": str(payload.rate_revenue),
+        "cost_based": is_cost,
+    }
+    if is_cost:
+        # Zamówienie kosztowe: żadnej arytmetyki MD. Pula jest wspólna i została
+        # rozliczona fakturami, więc jedyne, co się zmienia od dnia zamiany, to
+        # osoba i jej stawki. Wypisanie tu „pozostało — MD" mówiłoby o polu,
+        # którego ta linia nigdy nie miała.
+        description = (
+            f"Zamiana kontraktora {payload.swap_date.isoformat()} "
+            f"(zamówienie kosztowe): "
+            f"{old_who} ({format_md(old.md_rate_revenue)} zł/MD) → "
+            f"{new_who} ({format_md(payload.rate_revenue)} zł/MD). "
+            f"Kwota zamówienia zostaje wspólna dla całej grupy."
+        )
+    else:
+        value_pln = remaining_value_pln(
+            md_remaining=md_remaining_old, rate_revenue=old.md_rate_revenue
+        )
+        description = (
             f"Zamiana kontraktora {payload.swap_date.isoformat()}: "
             f"{old_who} ({format_md(old.md_rate_revenue)} zł/MD, "
             f"pozostało {format_md(md_remaining_old)} MD) → "
             f"{new_who} ({format_md(payload.rate_revenue)} zł/MD, "
             f"{format_md(md_total_new)} MD). "
             f"Wartość pozostała bez zmian: {format_md(value_pln)} zł."
-        ),
-        payload={
-            "swap_date": payload.swap_date.isoformat(),
-            "old_order_id": old.id,
-            "old_consultant": old_who,
-            "old_rate_cost": str(old.md_rate_cost),
-            "old_rate_revenue": str(old.md_rate_revenue),
-            "old_md_remaining": str(md_remaining_old),
-            "new_order_id": new_line.id,
-            "new_consultant": new_who,
-            "new_rate_cost": str(payload.rate_cost),
-            "new_rate_revenue": str(payload.rate_revenue),
-            "new_md_total": str(md_total_new),
-            "remaining_value_pln": str(value_pln),
-        },
+        )
+        event_payload["old_md_remaining"] = str(md_remaining_old)
+        event_payload["new_md_total"] = str(md_total_new)
+        event_payload["remaining_value_pln"] = str(value_pln)
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=new_line.id,
+        event_type=EVENT_CONSULTANT_SWAPPED,
+        description=description,
+        payload=event_payload,
         user_id=user.id,
     )
     db.add(

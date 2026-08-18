@@ -202,3 +202,51 @@ z niepełnym rozliczeniem, zakończone, brak zejścia) oraz `/preview/dl-alerts`
 3. Po deployu `/api/health/deep` musi być zielony i pokazywać obie nowe tabele —
    to jedyny realny dowód, że migracja się wykonała (prodowy alembic bywa
    osierocony).
+
+## Uzupełnienie 2026-08-18 — cztery luki wykryte przy aktywacji na produkcji
+
+Aktywacja `COST_ORDER_CLIENT_IDS` odsłoniła defekt, którego zielone testy nie
+mogły złapać: pole `cost_orders_enabled` było **zaplanowane, opisane w
+`CLAUDE.md` i konsumowane przez front**, ale nigdy nie powstało w
+`backend/app/schemas/client.py`. Checkbox „Zamówienie kosztowe" nie
+wyrenderowałby się nigdy, nawet po poprawnym ustawieniu zmiennej. Naprawione
+w PR #1196; wyszło z odpytania **żywego** `GET /api/clients/15`.
+
+Ponieważ defekt tej klasy z definicji nie daje się wykryć testem, który
+mockuje zerwane ogniwo, moduł przeszedł osobny przegląd „obietnica vs spięcie
+end-to-end" (migracja → lustro w `entrypoint.sh` → model → **schemat
+odpowiedzi** → rejestracja trasy → rejestracja pętli w lifespan → konsumpcja
+we froncie → `core_checks`). Z dziewięciu zgłoszeń sześć upadło w weryfikacji
+adwersaryjnej. Zostały trzy, plus czwarte znalezione ręcznie w przeglądarce:
+
+1. **Zamiana kontraktora na zamówieniu kosztowym była niewykonalna.**
+   Guard `md_total is None → 422` dotyczył każdej linii kosztowej (te mają
+   `md_total` puste z definicji), a UI nie miało żadnej bramki — przycisk był
+   aktywny i zawsze kończył się błędem o brakującym budżecie MD. U Polkomtela,
+   jedynego klienta kosztowego, nie było ŻADNEJ ścieżki wymiany osoby.
+   Naprawa: gałąź kosztowa w handlerze (komplet NULL-i w polach MD, bo CHECK
+   dopuszcza tylko wszystko albo nic), osobny opis zdarzenia bez arytmetyki MD,
+   oraz modal, który przestał obiecywać przeliczenie i „pozostało — MD".
+
+2. **Ścieżka „kontraktor bez zamówienia" nie działała u Centrum e-Zdrowia.**
+   `POST /orders` wymaga tam części umowy, a select renderował się wyłącznie
+   przy istniejącym zamówieniu — czyli objaw „nie da się nic wpisać", który
+   miał zniknąć w T6, przeżywał u tego klienta, dodatkowo jako surowe
+   „Request failed with status code 422". Teraz część umowy jest polem, które
+   **zakłada szkic**, a zapis czegokolwiek innego bez niej odmawia po polsku
+   po stronie przeglądarki.
+
+3. **Publiczny podgląd `/preview/dl-alerts` wylogowywał oglądającego.**
+   Karta „Pusty stan" zasiewała tylko klucz `["dl-alerts","new"]`; kliknięcie
+   zakładki „Historia" wykonywało realne zapytanie → 401 → interceptor →
+   cała strona na `/login`. Zasiew przepisany na **pętlę po wszystkich
+   statusach**, więc obietnica „zero zapytań" nie zależy już od tego, czy ktoś
+   pamiętał o drugim kluczu.
+
+4. **`?tab=` na profilu klienta było ignorowane.** Trzy źródła powiadomień
+   linkują do konkretnej zakładki, a strona trzymała `useState("profil")`
+   i parametru nie czytała — kliknięcie powiadomienia lądowało na Profilu.
+
+Wszystkie trzy pierwsze mają testy potwierdzone jako nośne (padają po cofnięciu
+poprawki). Czwarta jest weryfikowana w przeglądarce — jej test wymagałby
+zamockowania całego ciężkiego profilu klienta, co kosztowałoby więcej niż daje.

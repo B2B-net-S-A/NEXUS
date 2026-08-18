@@ -16,7 +16,7 @@ import { useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { DlAlertsSection } from "@/components/v2/dashboard/DlAlertsSection";
-import type { DlAlertRead } from "@/lib/api/dlAlerts";
+import type { DlAlertRead, DlAlertStatus } from "@/lib/api/dlAlerts";
 
 function alert(overrides: Partial<DlAlertRead> = {}): DlAlertRead {
   return {
@@ -85,6 +85,10 @@ const HANDLED = [
 
 type CaseKind = "data" | "empty";
 
+// Lista statusów w JEDNYM miejscu — zasiew podgladu iteruje po niej, więc
+// dołożenie trzeciego statusu nie zostawi po cichu klucza strzelającego do API.
+const DL_ALERT_STATUSES: readonly DlAlertStatus[] = ["new", "handled"] as const;
+
 function Case({
   title,
   why,
@@ -100,22 +104,25 @@ function Case({
         queries: { staleTime: Infinity, retry: false, refetchOnMount: false },
       },
     });
-    if (kind === "data") {
-      qc.setQueryData(["dl-alerts", "new"], {
-        alerts: WITH_DATA,
-        total_new: WITH_DATA.length,
-        total_handled: HANDLED.length,
-      });
-      qc.setQueryData(["dl-alerts", "handled"], {
-        alerts: HANDLED,
-        total_new: WITH_DATA.length,
-        total_handled: HANDLED.length,
-      });
-    } else if (kind === "empty") {
-      qc.setQueryData(["dl-alerts", "new"], {
-        alerts: [],
-        total_new: 0,
-        total_handled: 0,
+    // Zasiew idzie PĘTLĄ po wszystkich statusach, a nie ręcznie klucz po
+    // kluczu. `DlAlertsSection` renderuje obie zakładki bezwarunkowo i
+    // przełącza `queryKey` na ["dl-alerts", tab], a klucz niezasiany nie ma
+    // `dataUpdatedAt` — więc `staleTime: Infinity` go NIE powstrzymuje.
+    // Poleciałoby realne zapytanie, wróciłby 401, a globalny interceptor
+    // przerzuciłby CAŁĄ stronę na /login: publiczny podgląd wylogowałby
+    // oglądającego jednym kliknięciem w „Historię". Domyślny odrzucający
+    // `queryFn` tego nie załatwia — komponent podaje własny, a jawny wygrywa.
+    // Dlatego obietnica „zero zapytań" nie może zależeć od tego, czy ktoś
+    // pamiętał o drugim kluczu.
+    const seed: Record<DlAlertStatus, DlAlertRead[]> =
+      kind === "data"
+        ? { new: WITH_DATA, handled: HANDLED }
+        : { new: [], handled: [] };
+    for (const status of DL_ALERT_STATUSES) {
+      qc.setQueryData(["dl-alerts", status], {
+        alerts: seed[status],
+        total_new: seed.new.length,
+        total_handled: seed.handled.length,
       });
     }
     // Gałąź AWARII świadomie nie ma tu swojego przypadku — patrz komentarz

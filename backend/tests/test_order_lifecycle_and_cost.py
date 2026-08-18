@@ -1056,3 +1056,177 @@ async def test_cost_flag_is_independent_of_the_md_flag(
     body = resp.json()
     assert body["multi_consultant_orders_enabled"] is True
     assert body["cost_orders_enabled"] is False
+
+
+# ── Zamiana kontraktora na zamówieniu kosztowym ─────────────────────────────
+#
+# Guard zamiany był pisany wyłącznie pod tryb MD (`md_total is None` → 422),
+# a linia zamówienia KOSZTOWEGO ma `md_total = None` z definicji: pula mieszka
+# na grupie. Przycisk „Zamień kontraktora" renderował się więc aktywny i
+# gwarantowanie kończył się błędem „Linia nie ma budżetu MD do przeniesienia",
+# czyli komunikatem o danych do uzupełnienia w stanie, którego nie da się
+# usunąć. U Polkomtela (jedyny klient kosztowy) nie było ŻADNEJ ścieżki
+# wymiany osoby na zamówieniu kosztowym.
+
+
+async def test_swap_works_on_a_cost_order_without_md_budget(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        is_cost_based=True,
+        budget_amount=50000,
+    )
+    line_id = group["lines"][0]["id"]
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{line_id}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 900,
+            "rate_revenue": 1500,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    new_line = resp.json()
+
+    async with AsyncSessionLocal() as db:
+        old = await db.get(ClientOrder, line_id)
+        new = await db.get(ClientOrder, new_line["id"])
+        # Domknięcie poprzednika lustrzane wobec trybu MD.
+        assert old.end_date == _TODAY
+        assert old.status == ClientOrderStatus.completed
+        # Komplet NULL-i — inaczej `ck_client_orders_md_coherence` odrzuciłby
+        # zapis, a częściowo wypełniona linia kłamałaby o budżecie.
+        assert new.md_total is None
+        assert new.md_remaining is None
+        assert new.md_input_mode is None
+        assert new.md_input_value is None
+        # Stawki przechodzą — one są jedyną rzeczą, która się tu zmienia.
+        assert new.md_rate_cost == Decimal("900.000000")
+        assert new.md_rate_revenue == Decimal("1500.000000")
+        assert new.predecessor_order_id == old.id
+
+
+async def test_swap_on_cost_order_does_not_touch_the_shared_budget(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Pula jest wspólna — wymiana osoby nie jest wydatkiem ani zwrotem."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        is_cost_based=True,
+        budget_amount=50000,
+    )
+    async with AsyncSessionLocal() as db:
+        before = (await db.get(ClientOrderGroup, group["id"])).budget_remaining
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 900,
+            "rate_revenue": 1500,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    async with AsyncSessionLocal() as db:
+        after = (await db.get(ClientOrderGroup, group["id"])).budget_remaining
+    assert after == before
+
+
+async def test_swap_event_on_cost_order_does_not_mention_md_budget(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Historia ma opisywać to, co się stało — a nie pole, którego nie było."""
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        is_cost_based=True,
+        budget_amount=50000,
+    )
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 900,
+            "rate_revenue": 1500,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    history = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/events",
+        headers=app_auth_headers,
+    )
+    assert history.status_code == 200, history.text
+    swapped = [
+        e for e in history.json()["events"] if e["event_type"] == "zamiana_kontraktora"
+    ]
+    assert len(swapped) == 1
+    assert "kosztowe" in swapped[0]["description"]
+    assert "MD" not in swapped[0]["description"].replace("zł/MD", "")
+
+
+async def test_swap_still_recalculates_md_on_a_normal_order(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Regresja: gałąź kosztowa nie może rozbroić przeliczenia w trybie MD.
+
+    50 MD × 1200 zł = 60 000 zł; po zamianie na 1500 zł/MD musi wyjść 40 MD.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 900,
+            "rate_revenue": 1500,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    async with AsyncSessionLocal() as db:
+        new = await db.get(ClientOrder, resp.json()["id"])
+    assert new.md_total == Decimal("40.000000")
+    assert new.md_remaining == Decimal("40.000000")

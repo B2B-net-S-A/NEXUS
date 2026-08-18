@@ -718,6 +718,19 @@ function ContractorCard({
   // powierzchnia kompletacji draftu ClientOrder); tylko Centrum e-Zdrowia.
   const ezdrowie = isEzdrowieClient(clientId);
   const [partSaving, setPartSaving] = useState(false);
+  // Część wybrana ZANIM powstało zamówienie. `POST /orders` wymaga jej dla
+  // e-Zdrowia (`validate_project_part(..., require=True)`), a select renderował
+  // się dotąd tylko przy `activeOrder` — więc kontraktor bez zamówienia nie
+  // miał ani jak jej podać, ani skąd wiedzieć, że jej brakuje.
+  const [pendingPart, setPendingPart] = useState("");
+  // Id szkicu założonego w TEJ sesji karty. `onChange()` odświeża listę
+  // asynchronicznie, więc między utworzeniem szkicu a nadejściem danych
+  // `activeOrder` jest jeszcze `null` — bez tej pamięci kolejny zapis w tym
+  // okienku wpadałby w gałąź tworzenia i zakładał DRUGI szkic tego samego
+  // zamówienia. Ryzyko istniało od pierwszej wersji tej ścieżki, ale wybór
+  // części umowy dokłada obowiązkowy krok bezpośrednio przed innymi edycjami,
+  // czyli robi z rzadkiego wyścigu zwykłą kolejność klikania.
+  const [draftOrderId, setDraftOrderId] = useState<number | null>(null);
 
   const { activeOrder, futureOrders, historyOrders } = useMemo(
     () => splitOrders(contractor.orders),
@@ -740,14 +753,27 @@ function ContractorCard({
    */
   async function saveOntoOrder(
     patch: Partial<ClientOrderUpdate>,
-    opts?: { title?: string },
+    opts?: { title?: string; projectPart?: string },
   ) {
-    if (activeOrder) {
-      await dlPortalApi.updateOrder(clientId, activeOrder.id, patch);
+    const existingId = activeOrder?.id ?? draftOrderId;
+    if (existingId !== null && existingId !== undefined) {
+      await dlPortalApi.updateOrder(clientId, existingId, patch);
       return;
+    }
+    // Centrum e-Zdrowia: bez części umowy `POST /orders` zwraca 422, a
+    // użytkownik zobaczyłby surowe „Request failed with status code 422".
+    // Odmawiamy tutaj, własnym zdaniem po polsku, wskazującym pole do
+    // uzupełnienia — inaczej ta ścieżka „nie da się nic wpisać" wracałaby
+    // u jednego klienta mimo poprawki.
+    const projectPart = opts?.projectPart ?? pendingPart;
+    if (ezdrowie && !projectPart) {
+      throw new Error(
+        "Najpierw wybierz część umowy — bez niej nie da się założyć zamówienia u Centrum e-Zdrowia.",
+      );
     }
     const form = new FormData();
     form.append("contract_id", String(contractor.contract_id));
+    if (ezdrowie) form.append("project_part", projectPart);
     // Numer bywa nieznany w chwili, gdy uzupełniany jest okres albo stawka.
     // „(bez numeru)" jest uczciwe i widoczne — pusty tytuł odrzuca walidacja,
     // a zmyślony numer wyglądałby jak dane z dokumentu klienta.
@@ -765,6 +791,7 @@ function ContractorCard({
       form.append("rate_client", String(patch.rate_client));
     }
     const created = await dlPortalApi.createOrderExtension(clientId, form);
+    setDraftOrderId(created.data.id);
     // Stawka KOSZTOWA mieszka na kontrakcie, a `POST /orders` jej nie
     // przyjmuje — dosyłamy ją PATCH-em na świeżo utworzone zamówienie, którego
     // handler przepisuje ją na kontrakt.
@@ -904,11 +931,11 @@ function ContractorCard({
                 />
               </span>
             )}
-            {ezdrowie && activeOrder && (
+            {ezdrowie && (
               <span className="flex items-center gap-1">
                 część umowy
                 <select
-                  value={activeOrder.project_part ?? ""}
+                  value={activeOrder ? (activeOrder.project_part ?? "") : pendingPart}
                   aria-label="Część umowy"
                   disabled={partSaving}
                   onChange={async (e) => {
@@ -918,10 +945,22 @@ function ContractorCard({
                     // zamiast zostawiać DOM na niezapisanej wartości (review).
                     setPartSaving(true);
                     try {
-                      await dlPortalApi.updateOrder(clientId, activeOrder.id, {
-                        project_part: value,
-                      });
-                      onSuccess("Część umowy zaktualizowana");
+                      if (activeOrder) {
+                        await dlPortalApi.updateOrder(clientId, activeOrder.id, {
+                          project_part: value,
+                        });
+                        onSuccess("Część umowy zaktualizowana");
+                      } else if (value) {
+                        // Bez zamówienia część jest tym POLEM, które je zakłada
+                        // — dopiero wtedy numer, okres i stawki mają dokąd
+                        // trafić. Wartość idzie jawnie, bo `pendingPart` nie
+                        // zdąży się jeszcze zaktualizować w tym samym handlerze.
+                        await saveOntoOrder({}, { projectPart: value });
+                        setPendingPart(value);
+                        onSuccess("Część umowy zapisana");
+                      } else {
+                        setPendingPart("");
+                      }
                     } catch {
                       onError("Nie udało się zapisać części umowy");
                     } finally {
@@ -930,7 +969,7 @@ function ContractorCard({
                     }
                   }}
                   className={`px-1.5 py-0.5 border rounded bg-background text-xs disabled:opacity-60 ${
-                    activeOrder.project_part
+                    (activeOrder ? activeOrder.project_part : pendingPart)
                       ? "border-border"
                       : "border-amber-400 text-amber-700"
                   }`}
