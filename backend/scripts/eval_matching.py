@@ -889,6 +889,7 @@ def _render_markdown(
 
 
 async def _run(args: argparse.Namespace) -> int:
+    global _DUMP_HANDLE
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -962,7 +963,6 @@ async def _run(args: argparse.Namespace) -> int:
         )
 
         if args.dump_layers:
-            global _DUMP_HANDLE
             _DUMP_HANDLE = open(  # noqa: SIM115 — zamykany w finally niżej
                 args.dump_layers, "w", encoding="utf-8"
             )
@@ -1024,7 +1024,6 @@ async def _run(args: argparse.Namespace) -> int:
         finally:
             # 1185-review: handle zamykany ZAWSZE (wyjątek w ewaluacji nie może
             # zostawić niedomkniętego bufora), _DUMP_GT resetowany razem z nim.
-            global _DUMP_HANDLE
             if _DUMP_HANDLE is not None:
                 _DUMP_HANDLE.close()
                 _DUMP_HANDLE = None
