@@ -161,6 +161,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_backfill'",
     # 0230: cykliczna ekstrakcja faktów z notatek (notes_insights_sync)
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'notes_extraction'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'champion_profile_parse'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -3604,6 +3605,11 @@ _DATA_STATEMENTS = [
     "SELECT 'notes_extraction', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'notes_extraction')",
+    # 0236: seed feature'a AI `champion_profile_parse` (ingest profili Championa).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'champion_profile_parse', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'champion_profile_parse')",
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_interactive_chat', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

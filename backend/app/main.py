@@ -82,6 +82,7 @@ from app.api import ai_matching_diagnostics
 from app.api import (
     admin_candidates,
     admin_client_portfolio,
+    admin_champion_ingest,
     admin_notes_insights,
     admin_traffit,
 )
@@ -870,6 +871,11 @@ app.include_router(
     admin_notes_insights.router,
     prefix="/api/admin/notes-insights",
     tags=["admin", "notes-insights"],
+)
+app.include_router(
+    admin_champion_ingest.router,
+    prefix="/api",
+    tags=["admin-champion"],
 )
 app.include_router(
     admin_candidates.router,
