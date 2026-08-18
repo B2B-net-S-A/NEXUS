@@ -22,6 +22,8 @@ class JobCreate(BaseModel):
     location: Optional[str] = None
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
+    # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
+    rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
     remote_policy: RemotePolicy = RemotePolicy.hybrid
     status: JobStatus = JobStatus.draft
     priority: JobPriority = JobPriority.medium
@@ -91,6 +93,8 @@ class JobUpdate(BaseModel):
     location: Optional[str] = None
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
+    # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
+    rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
     remote_policy: Optional[RemotePolicy] = None
     status: Optional[JobStatus] = None
     priority: Optional[JobPriority] = None
@@ -180,6 +184,7 @@ class JobResponse(BaseModel):
     location: Optional[str]
     salary_min: Optional[int]
     salary_max: Optional[int]
+    rate_budget_hourly: Optional[float] = None
     remote_policy: RemotePolicy
     status: JobStatus
     priority: JobPriority

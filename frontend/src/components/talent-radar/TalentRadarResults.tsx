@@ -109,6 +109,30 @@ export function TalentRadarResults({
         zaproponować temu klientowi. Pokazujemy{" "}
         <strong>{meta.returned.toLocaleString("pl-PL")}</strong> najlepiej
         dopasowanych.
+        {(meta.hidden?.over_budget ?? 0) > 0 && (
+          <>
+            {" "}
+            <span
+              className="font-medium text-amber-700 dark:text-amber-400"
+              data-testid="tr-hidden-over-budget"
+            >
+              Ukryto {meta.hidden!.over_budget!.toLocaleString("pl-PL")} poza
+              budżetem.
+            </span>
+          </>
+        )}
+        {(meta.hidden?.remote_only ?? 0) > 0 && (
+          <>
+            {" "}
+            <span
+              className="font-medium text-amber-700 dark:text-amber-400"
+              data-testid="tr-hidden-remote-only"
+            >
+              Ukryto {meta.hidden!.remote_only!.toLocaleString("pl-PL")}{" "}
+              „wyłącznie zdalnych”.
+            </span>
+          </>
+        )}
       </p>
 
       {results.length > 0 ? (

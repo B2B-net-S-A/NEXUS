@@ -66,7 +66,7 @@ from app.services.scoring_service import (
     rank_jobs_for_candidate,
     resolve_active_profile,
 )
-from app.services.location_utils import location_matches, location_tokens
+from app.services.location_utils import location_tokens
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.similar_job_candidates import (
     boost_points_for_sources,
@@ -185,6 +185,39 @@ async def recommend_candidates_for_job(
             "filter (legacy behaviour preserved)."
         ),
     ),
+    location_source: str = Query(
+        "all",
+        pattern="^(all|cv|notes)$",
+        description=(
+            "Źródło lokalizacji kandydata dla filtra `location`: 'cv' "
+            "(kolumny city/location), 'notes' (fakty z rozmów: "
+            "preferences.locations + kierunki relokacji), 'all' (unia)."
+        ),
+    ),
+    exclude_over_budget: bool = Query(
+        False,
+        description=(
+            "Dealbreaker: ukryj kandydatów, których ZNANA stawka PLN/h "
+            "przekracza budżet oferty (jawne pole lub stawka Championa) "
+            "ponad margines. Nieznana stawka zawsze przechodzi."
+        ),
+    ),
+    budget_margin_pct: int = Query(
+        30,
+        description=(
+            "Margines negocjacyjny dla exclude_over_budget (0/15/30/50). "
+            "GT-loss zmierzony 18.08: 0% ukrywa 44% realnie dowiezionych, "
+            "30% — 14%."
+        ),
+    ),
+    exclude_remote_only: bool = Query(
+        False,
+        description=(
+            "Dealbreaker: ukryj kandydatów z potwierdzonym w rozmowach "
+            "'wyłącznie zdalnie' (preferences.remote_only). Nieznana "
+            "preferencja zawsze przechodzi."
+        ),
+    ),
     current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
@@ -207,6 +240,10 @@ async def recommend_candidates_for_job(
         exclude_in_pipeline=exclude_in_pipeline,
         profile_id=profile_id,
         location=location,
+        location_source=location_source,
+        exclude_over_budget=exclude_over_budget,
+        budget_margin_pct=budget_margin_pct,
+        exclude_remote_only=exclude_remote_only,
     )
 
 
@@ -244,12 +281,27 @@ async def _recommend_candidates_core(
     exclude_in_pipeline: bool = True,
     profile_id: Optional[int] = None,
     location: str | None = None,
+    location_source: str = "all",
+    exclude_over_budget: bool = False,
+    budget_margin_pct: int = 30,
+    exclude_remote_only: bool = False,
 ) -> dict:
     """Application-service core of job→candidates recommendations.
 
     Plain async function (no FastAPI transport objects) — callable from the
     route above and from ``recompute_scores`` without a ``Request``.
     """
+    from app.services.dealbreaker_filters import BUDGET_MARGINS
+
+    if budget_margin_pct not in BUDGET_MARGINS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"budget_margin_pct musi być jednym z {sorted(BUDGET_MARGINS)} "
+                "(marginesy ze zmierzonym GT-loss)"
+            ),
+        )
+
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -312,6 +364,12 @@ async def _recommend_candidates_core(
     # disabled for this request.
     semantic_degraded = not candidate_ids
 
+    # Pusty wynik od startu: _meta() bywa wołane we wczesnych returnach
+    # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.
+    from app.services.dealbreaker_filters import DealbreakerResult
+
+    dealbreakers = DealbreakerResult()
+
     def _meta() -> dict:
         # P0-A: tell the UI when the semantic leg fell back (Qdrant/Voyage down
         # or the job not indexed yet). The widget already renders a degraded
@@ -323,6 +381,7 @@ async def _recommend_candidates_core(
             "mode": "degraded_semantic" if semantic_degraded else "dense",
             "degraded": semantic_degraded,
             "reason": "semantic_unavailable" if semantic_degraded else None,
+            "hidden": dealbreakers.hidden_meta(),
         }
 
     # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
@@ -366,8 +425,17 @@ async def _recommend_candidates_core(
     # A candidate with no parseable location is excluded under an active filter
     # (standard search semantics, mirroring manual-search `location_cities`).
     if location_active:
+        from app.services.location_utils import (
+            candidate_location_tokens,
+            tokens_overlap,
+        )
+
         candidates = [
-            c for c in candidates if location_matches(requested_tokens, c.location)
+            c
+            for c in candidates
+            if tokens_overlap(
+                requested_tokens, candidate_location_tokens(c, location_source)
+            )
         ]
         if not candidates:
             return {
@@ -389,6 +457,24 @@ async def _recommend_candidates_core(
     candidates = await filter_eligible_candidates(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
+
+    # Dealbreaker-switche (runda 3): twarde, ŚWIADOMIE włączane ukrywanie
+    # zamiast punktowania. Nieznany przechodzi; liczniki idą do meta.hidden,
+    # żeby ukrywanie nigdy nie było ciche (reguła „awaria ≠ pustka").
+    from app.services.dealbreaker_filters import (
+        apply_dealbreakers,
+        resolve_job_budget_hourly,
+    )
+
+    dealbreakers = apply_dealbreakers(
+        candidates,
+        exclude_over_budget=exclude_over_budget,
+        budget_hourly=(resolve_job_budget_hourly(job) if exclude_over_budget else None),
+        budget_margin_pct=budget_margin_pct,
+        exclude_remote_only=exclude_remote_only,
+    )
+    candidates = dealbreakers.kept
+
     if not candidates:
         return {
             "job_id": job_id,

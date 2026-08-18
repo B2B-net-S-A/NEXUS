@@ -1,8 +1,19 @@
 import enum
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -78,6 +89,10 @@ class Job(Base, TimestampMixin):
     # Wynagrodzenie (B2B, PLN/mies.)
     salary_min: Mapped[Optional[int]] = mapped_column(Integer)
     salary_max: Mapped[Optional[int]] = mapped_column(Integer)
+    # Budżet PLN/h DLA KANDYDATA (dealbreaker-switch, 0235). Jedyna jednostka
+    # porównywalna z candidate.expected_rate_hourly — salary_min/max wyżej to
+    # legacy PLN/mies. bez polityki konwersji. Fallback: stawka Championa.
+    rate_budget_hourly: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
 
     remote_policy: Mapped[RemotePolicy] = mapped_column(
         Enum(RemotePolicy), default=RemotePolicy.hybrid, nullable=False

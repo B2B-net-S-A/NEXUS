@@ -126,6 +126,7 @@ def user_can_access_candidate_domain(user: User) -> bool:
 _VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
     "salary_min",
     "salary_max",
+    "rate_budget_hourly",
     "champion_profile",
     "close_notes",
     "close_reason",

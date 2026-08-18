@@ -286,6 +286,7 @@ _ENUM_STATEMENTS = [
     # deklaruje kolumnę w `app.models.job.Job` od commit c57c944).
     # Safety-net chroni prod gdyby alembic upgrade nie wszedł (multi-head).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tac_id INTEGER NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rate_budget_hourly NUMERIC(8,2) NULL",
     "ALTER TABLE jobs DROP CONSTRAINT IF EXISTS fk_jobs_tac_id",
     "ALTER TABLE jobs ADD CONSTRAINT fk_jobs_tac_id "
     "FOREIGN KEY (tac_id) REFERENCES users(id) ON DELETE SET NULL",

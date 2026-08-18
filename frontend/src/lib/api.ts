@@ -2236,6 +2236,8 @@ export interface RecommendationMeta {
   reason: string | null;
   index_version?: string | null;
   scoring_version?: string | null;
+  /** Dealbreaker-switche: liczniki ukrytych per powód (runda 3). */
+  hidden?: { over_budget: number; remote_only: number };
 }
 
 export interface JobMatch {
@@ -3097,7 +3099,15 @@ export const requestHistoryApi = {
 export const recommendationsApi = {
   forJob: (
     jobId: number,
-    opts?: { top_k?: number; include_breakdown?: boolean; location?: string },
+    opts?: {
+      top_k?: number;
+      include_breakdown?: boolean;
+      location?: string;
+      location_source?: "all" | "cv" | "notes";
+      exclude_over_budget?: boolean;
+      budget_margin_pct?: 0 | 15 | 30 | 50;
+      exclude_remote_only?: boolean;
+    },
   ) =>
     api.get<{
       job_id: number;

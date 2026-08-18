@@ -950,6 +950,16 @@ def _champion_hourly_rate(job: Job) -> Optional[float]:
     return float(value) if 0 < float(value) < 2000 else None
 
 
+def get_champion_hourly_rate(job: Job) -> Optional[float]:
+    """Publiczny alias `_champion_hourly_rate` dla konsumentów spoza modułu.
+
+    `dealbreaker_filters` potrzebuje tej samej stawki co warstwa salary; import
+    prywatnej nazwy pękłby cicho przy refaktorze (ImportError w łańcuchu filtra,
+    nie przy starcie). Ten alias jest kontraktem publicznym.
+    """
+    return _champion_hourly_rate(job)
+
+
 def _notes_insights(candidate: Candidate) -> dict:
     extracted = getattr(candidate, "cv_extracted_data", None)
     if not isinstance(extracted, dict):
