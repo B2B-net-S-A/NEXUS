@@ -53,9 +53,9 @@ def resolve_job_budget_hourly(job) -> Optional[float]:
             value = 0.0
         if value > 0:
             return value
-    from app.services.scoring_service import _champion_hourly_rate
+    from app.services.scoring_service import get_champion_hourly_rate
 
-    return _champion_hourly_rate(job)
+    return get_champion_hourly_rate(job)
 
 
 def _candidate_rate_pln_hourly(candidate) -> Optional[float]:

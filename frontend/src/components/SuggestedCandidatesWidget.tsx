@@ -348,6 +348,16 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
     !locationQuery.isLoading &&
     !locationQuery.isError &&
     matches.length === 0;
+  // Ścieżka „tylko switche" (bez tekstu lokalizacji) też musi mieć własny
+  // pusty stan — inaczej włączony dealbreaker bez trafień renderuje pustą
+  // kartę bez słowa wyjaśnienia (reguła „awaria ≠ pustka"). Regułę złamałem
+  // w tym samym PR-ze, w którym ją cytuję — stąd ta gałąź.
+  const showSwitchesNoResults =
+    switchesActive &&
+    !locationActive &&
+    !locationQuery.isLoading &&
+    !locationQuery.isError &&
+    matches.length === 0;
 
   return (
     <div
@@ -583,6 +593,13 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         <p className="text-sm text-muted-foreground py-2">
           Brak rekomendowanych kandydatów w lokalizacji „{locationLabel}”. Zmień lub
           wyczyść filtr powyżej.
+        </p>
+      )}
+
+      {showSwitchesNoResults && (
+        <p className="text-sm text-muted-foreground py-2">
+          Wszyscy rekomendowani kandydaci zostali ukryci przez włączone filtry
+          wykluczające. Poluzuj margines budżetu albo wyłącz przełączniki powyżej.
         </p>
       )}
 
