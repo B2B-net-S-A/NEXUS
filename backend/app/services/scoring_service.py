@@ -109,7 +109,7 @@ SALARY_MAX = 15.0
 LOCATION_MAX = 5.0
 AVAILABILITY_MAX = 0.0
 CHAMPION_FIT_MAX = 10.0
-# sum = 35 + 30 + 12 + 8 + 5 + 10 = 100
+# sum = 60 + 10 + 15 + 5 + 0 + 10 = 100
 
 
 @dataclass(frozen=True)
