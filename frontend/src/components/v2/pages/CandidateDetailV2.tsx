@@ -155,6 +155,7 @@ import CandidateChatTab from"@/components/v2/pages/CandidateChatTab";
 import CallsTimeline from"@/components/calls/CallsTimeline";
 import { DopasowanieTab } from"@/components/v2/pages/DopasowanieTab";
 import { CandidateActivitySummaryCard } from"@/components/v2/pages/CandidateActivitySummaryCard";
+import { CandidateNotesInsightsCard } from"@/components/v2/pages/CandidateNotesInsightsCard";
 import { CandidateProfileFactsBar } from"@/components/v2/pages/CandidateProfileFactsBar";
 import { CandidateRecentRecruitmentsCard } from"@/components/v2/pages/CandidateRecentRecruitmentsCard";
 import { CandidateNav } from"@/components/v2/CandidateNav";
@@ -2654,6 +2655,12 @@ function ProfilTab({
  ))}
  </div>
  )}
+
+ {/* 1.3 Fakty z notatek rekruterskich (AI, import 08.2026) — renderuje
+ się tylko gdy kandydat ma ekstrakcję (_notes_insights, ~14k osób). */}
+ <CandidateNotesInsightsCard
+ insights={candidate.cv_extracted_data?._notes_insights}
+ />
 
  {/* 1.5 Stawka do klienta — cena wysłania kandydata do klienta (per
  rekrutacja). Wyniesione z zakładki Rekrutacje, bo użytkownik nie

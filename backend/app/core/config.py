@@ -266,6 +266,10 @@ class Settings(BaseSettings):
     # Dekompozycja na dwie niezależne flagi, każda z własnym pomiarem:
     CHAMPION_SENIORITY_PENALTY_ENABLED: bool = False
     CHAMPION_AVAILABILITY_FALLBACK_ENABLED: bool = False
+    # 4a: rozszerzone rodziny aliasów umiejętności (skill_taxonomy_extended)
+    # w mapie scoringu — górują na derived-must z Championa/JD dla terminów
+    # spoza bazowej taksonomii (git/jira/maven/servicenow…). Flip po pomiarze.
+    SKILL_ALIAS_EXTENDED_ENABLED: bool = False
     # Pula kandydatów przez hybrydę (BM25+dense+RRF, opcjonalnie rerank) zamiast
     # samych wektorów. Selekcja członkostwa; skala semantyczna bez zmian — patrz
     # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
@@ -942,6 +946,25 @@ class Settings(BaseSettings):
     # resumable via an `after_id` cursor, full reconcile only — delta already
     # scopes itself to the rows it just touched.
     TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
+    # Sufit fazy candidates_cv_fields (parse pól skills/city/years dla
+    # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
+    # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
+    TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
+
+    # ── Notes insights sync (świeżość faktów z notatek) ─────────────────────
+    # Cykliczna ekstrakcja `cv_extracted_data._notes_insights` po imporcie
+    # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
+    # + honorowanie wierszy legacy) — patrz app/tasks/notes_insights_sync.py.
+    NOTES_INSIGHTS_SYNC_ENABLED: bool = False
+    # Jak często pętla sprawdza, czy bieg jest należny (clamp >=300 s w pętli);
+    # sam bieg jest najwyżej raz dziennie.
+    NOTES_INSIGHTS_SYNC_CHECK_INTERVAL_SECONDS: int = 1800
+    # Godzina UTC, od której dzienny bieg może ruszyć — PO nocnym Traffit
+    # syncu (02:00), żeby ekstrakcja widziała świeżo zaimportowane notatki.
+    NOTES_INSIGHTS_SYNC_HOUR_UTC: int = 4
+    # Sufit kandydatów na bieg (~$0,002/kandydata na Haiku). Ogranicza koszt
+    # pojedynczego dnia; zaległość zbiega w kolejnych dobach.
+    NOTES_INSIGHTS_SYNC_BATCH_LIMIT: int = 300
 
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only

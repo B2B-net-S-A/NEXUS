@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -119,6 +119,7 @@ async def backfill_cv_fields(
     limit: Optional[int] = None,
     after_id: int = 0,
     until_id: Optional[int] = None,
+    candidate_ids: Optional[Sequence[int]] = None,
     progress: Optional[dict[str, Any]] = None,
     calibration_log_path: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -135,6 +136,14 @@ async def backfill_cv_fields(
     każdy proces po wyczerpaniu swojego zakresu wszedłby w zakres sąsiada
     i płacił drugi raz za wiersze, których sąsiad jeszcze nie doszedł.
     """
+
+    if candidate_ids is not None and len(candidate_ids) == 0:
+        empty_stats: dict[str, Any] = progress if progress is not None else {}
+        empty_stats.setdefault("processed", 0)
+        empty_stats.setdefault("updated", 0)
+        empty_stats.setdefault("errors", 0)
+        empty_stats["stopped_reason"] = None
+        return empty_stats
 
     stats: dict[str, Any] = progress if progress is not None else {}
     stats.setdefault("processed", 0)
@@ -187,6 +196,11 @@ async def backfill_cv_fields(
             conditions = [Candidate.id > cursor, *_scope_filter()]
             if until_id is not None:
                 conditions.append(Candidate.id <= until_id)
+            if candidate_ids is not None:
+                # Tryb delta nocnego syncu: wyłącznie kandydaci dotknięci w tym
+                # biegu. Scope filter nadal obowiązuje (płacą tylko wiersze
+                # z tekstem CV i pustymi polami celu).
+                conditions.append(Candidate.id.in_(candidate_ids))
             rows = (
                 (
                     await db.execute(

@@ -93,13 +93,19 @@ UNKNOWN_NEUTRAL_FRACTION: float = float(
 # Keep SKILLS_MAX at 30 (must=20, nice=10) so Phase 2 unit tests that assert
 # specific point sums remain green. We subtract the 10pt Champion budget from
 # semantic/salary/location instead.
-SEMANTIC_MAX = 35.0
-SKILLS_MAX = 30.0
-SKILLS_MUST_MAX = 20.0
-SKILLS_NICE_MAX = 10.0
-SALARY_MAX = 12.0
+# 45/25/10/8/2 (+champion 10) od 17.08.2026 — strojenie 4b: trening 7 profili
+# na zbiorze ROZŁĄCZNYM (50 ofert champion-era poza zamrożonym eval) wskazał
+# 45/25/10/8/2 jako dominujące na wszystkich metrykach; walidacja na zamrożonych
+# 50: P@5 +5%, MRR +5%, nDCG +4%, R@20n bez regresu. Poprzednio 35/30/12/8/5.
+SEMANTIC_MAX = 45.0
+SKILLS_MAX = 25.0
+# Pochodne z SKILLS_MAX (klasyczny podział 2:1), nie osobne literały — przy
+# strojeniu wag rozjeżdżały się z budżetem warstwy (zostały 20/10 przy 25).
+SKILLS_MUST_MAX = SKILLS_MAX * (2.0 / 3.0)
+SKILLS_NICE_MAX = SKILLS_MAX * (1.0 / 3.0)
+SALARY_MAX = 10.0
 LOCATION_MAX = 8.0
-AVAILABILITY_MAX = 5.0
+AVAILABILITY_MAX = 2.0
 CHAMPION_FIT_MAX = 10.0
 # sum = 35 + 30 + 12 + 8 + 5 + 10 = 100
 
@@ -190,6 +196,9 @@ _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "CHAMPION_MATCH_SIGNALS_ENABLED",
     "CHAMPION_SENIORITY_PENALTY_ENABLED",
     "CHAMPION_AVAILABILITY_FALLBACK_ENABLED",
+    # 4a: rozszerzenie taksonomii zmienia derived-must (regex z ALIAS_MAP),
+    # a więc warstwę skills każdego composite'u.
+    "SKILL_ALIAS_EXTENDED_ENABLED",
     "AI_SCORING_CONTRACT_V2",
     "VOYAGE_MODEL",
     "SEMANTIC_CALIBRATION_GAMMA",
@@ -231,6 +240,19 @@ def scoring_algorithm_version() -> str:
         )
         for key in _SCORING_CACHE_INPUTS
     }
+    # Wbudowane wagi DEFAULT wchodzą do digestu: zmiana stałych w kodzie
+    # (np. strojenie 4b 35/30/12/8/5 -> 45/25/10/8/2) zmienia score'y pod tym
+    # samym profile_id=0, więc bez tego wpisu stary cache mieszałby dwie skale.
+    # Edycje profili z BAZY zostają poza digestem — je unieważnia punktowo
+    # `mark_stale_for_profile` (patrz docstring wyżej).
+    payload["default_weights"] = [
+        SEMANTIC_MAX,
+        SKILLS_MAX,
+        SALARY_MAX,
+        LOCATION_MAX,
+        AVAILABILITY_MAX,
+        CHAMPION_FIT_MAX,
+    ]
     # Round the floats: a 1e-16 difference in how a value was parsed must not
     # invalidate a hundred thousand cached scores.
     for k, v in payload.items():
