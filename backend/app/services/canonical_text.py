@@ -25,6 +25,7 @@ import re
 
 TEXT_SCHEMA_V1 = "text-v1-legacy"
 TEXT_SCHEMA_V2 = "text-v2-canonical"
+TEXT_SCHEMA_V3 = "text-v3-cv-notes"
 
 # Fields that must never be embedded (PII / noise).
 _PII_FIELDS = frozenset(
@@ -164,6 +165,125 @@ def build_candidate_text_v2(candidate) -> str:
             sections.append("[CV] " + _clean(raw)[:2000])
 
     return "\n".join(sections)
+
+
+# v3: pełne CV zawsze + fakty z notatek. Zmierzone na prodzie 2026-08-18:
+# 63% CV (32k z 50,6k) jest dłuższych niż 3000 znaków, które ucinał builder v1,
+# a 7,3k kandydatów ma potwierdzone w rozmowach umiejętności, które nigdy nie
+# trafiały do wektora. voyage-3-large przyjmuje 32k tokenów — limit 3000 znaków
+# był NASZYM literałem, nie ograniczeniem modelu.
+_V3_CV_CAP = 12_000
+
+# Pola z ekstrakcji notatek, które wchodzą do embeddingu. Świadomie WĄSKI
+# wybór: stawki, veta klientów i statusy pozwoleń to dane wrażliwe/finansowe,
+# a `skills_gaps_observed` to sygnał NEGATYWNY — w wektorze przyciągałby
+# dopasowania dokładnie tam, gdzie kandydatowi czegoś brakuje.
+_V3_NOTES_SKILL_FIELDS = ("skills_evidenced", "certifications")
+
+
+def _notes_insights_of(candidate) -> dict | None:
+    """`cv_extracted_data._notes_insights` albo None.
+
+    Bez idiomu `or {}` — `cv_extracted_data` na prodzie bywa LISTĄ (pilnuje
+    tego repo-wide guard-test), więc każdy krok to jawny isinstance.
+    """
+    data = getattr(candidate, "cv_extracted_data", None)
+    if not isinstance(data, dict):
+        return None
+    ins = data.get("_notes_insights")
+    return ins if isinstance(ins, dict) else None
+
+
+def _notes_section(candidate) -> str | None:
+    ins = _notes_insights_of(candidate)
+    if ins is None:
+        return None
+    bits: list[str] = []
+    for field in _V3_NOTES_SKILL_FIELDS:
+        val = ins.get(field)
+        if not isinstance(val, list):
+            continue
+        for item in val:
+            if isinstance(item, dict):
+                n = item.get("name")
+                if isinstance(n, str) and n.strip():
+                    bits.append(n.strip())
+            elif isinstance(item, str) and item.strip():
+                bits.append(item.strip())
+    langs = ins.get("languages_observed")
+    if isinstance(langs, list):
+        bits.extend(str(x).strip() for x in langs if isinstance(x, str) and x.strip())
+    if not bits:
+        return None
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for b in bits:
+        k = b.lower()
+        if k not in seen:
+            seen.add(k)
+            uniq.append(b)
+    return "[NOTES] " + ", ".join(uniq)
+
+
+def build_candidate_text_v3(candidate) -> str:
+    """v2 + pełne CV zawsze (nie fallback) + fakty potwierdzone w notatkach.
+
+    Różnice względem v2 są dokładnie dwie i obie mają zmierzone uzasadnienie
+    (patrz komentarz przy `_V3_CV_CAP`): CV przestaje być fallbackiem i wchodzi
+    ZAWSZE (bramkowane jakością, cap 12k), a sekcja [NOTES] niesie umiejętności
+    potwierdzone w rozmowach. PII nadal nie wchodzi.
+    """
+    base = build_candidate_text_v2(candidate)
+    sections = [base] if base else []
+
+    notes = _notes_section(candidate)
+    if notes:
+        sections.append(notes)
+
+    raw = getattr(candidate, "raw_cv_text", None)
+    if raw and not looks_like_junk(raw):
+        cv = "[CV] " + _clean(raw)[:_V3_CV_CAP]
+        # v2 mógł już dodać [CV] jako fallback (pusty szkielet strukturalny) —
+        # wtedy zastępujemy krótszy wycinek pełnym, zamiast dublować sekcję.
+        if base and "[CV] " in base:
+            sections[0] = "\n".join(
+                line for line in base.split("\n") if not line.startswith("[CV] ")
+            )
+        sections.append(cv)
+
+    return "\n".join(s for s in sections if s)
+
+
+# Warianty zapytania dla multi-query retrieval (runda 2, punkt 2). Jedno
+# zapytanie z jednego tekstu oferty ma jeden „kierunek" w przestrzeni — unia
+# pul z kilku sformułowań podnosi recall bez dotykania indeksu. Warianty
+# decydują o CZŁONKOSTWIE w puli; podobieństwo semantyczne dla wybranych
+# liczy się osobno względem tekstu głównego (ten sam wzorzec co hybryda
+# w `retrieval_pool` — wyniki z różnych zapytań żyją na różnych skalach).
+def build_job_query_variants(job, base_text: str | None = None) -> list[str]:
+    """Krótkie, komplementarne sformułowania zapytania dla jednej oferty.
+
+    Zwraca listę BEZ tekstu głównego (ten idzie osobno jako zapytanie
+    pierwotne): [tytuł+seniority] oraz [must+nice skills]. Puste warianty
+    i duplikaty tekstu głównego odpadają.
+    """
+    variants: list[str] = []
+
+    title = _strip_ref_noise(getattr(job, "title", "") or "")
+    seniority = getattr(job, "seniority", None)
+    sen_val = getattr(seniority, "value", seniority)
+    title_bits = [b for b in (title, str(sen_val) if sen_val else "") if b]
+    if title_bits:
+        variants.append(" ".join(title_bits))
+
+    skills = _skill_names(getattr(job, "must_skills", None)) + _skill_names(
+        getattr(job, "nice_skills", None)
+    )
+    if skills:
+        variants.append(", ".join(skills))
+
+    base = (base_text or "").strip()
+    return [v for v in variants if v.strip() and v.strip() != base]
 
 
 def build_job_text_v2(job) -> str:

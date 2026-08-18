@@ -328,6 +328,10 @@ def _build_candidate_text(candidate) -> str:
     ``AI_TEXT_SCHEMA_V2`` on ⇒ the PII-free canonical builder; off ⇒ legacy.
     Selected here so every call site (embed + outbox desired-hash) is consistent.
     """
+    if getattr(settings, "AI_TEXT_SCHEMA_V3", False):
+        from app.services.canonical_text import build_candidate_text_v3
+
+        return build_candidate_text_v3(candidate)
     if getattr(settings, "AI_TEXT_SCHEMA_V2", False):
         from app.services.canonical_text import build_candidate_text_v2
 
@@ -451,9 +455,11 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
                     PointStruct(
                         id=candidate_id,
                         vector=embedding,
+                        # Bez "name" w payloadzie (od rundy 2): żaden konsument
+                        # go nie czyta (zweryfikowane grepem 2026-08-18), a PII
+                        # w indeksie to czysty koszt przy RODO-erasure.
                         payload={
                             "candidate_id": candidate_id,
-                            "name": f"{candidate.name} {candidate.lastname}",
                             "competence_category": candidate.competence_category or "",
                         },
                     )
@@ -488,7 +494,32 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
         from app.services.passage_index import delete_candidate_passages
 
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-        client.delete(collection_name=_collection(), points_selector=[candidate_id])
+
+        # KAŻDA kolekcja kandydacka, nie tylko aktywna. W oknie side-by-side
+        # (stara kolekcja + kolekcja z nowym schematem tekstu obok siebie,
+        # przełączane `QDRANT_COLLECTION`) kasowanie wyłącznie z aktywnej
+        # zostawiałoby wektor osoby w tej drugiej — cichy przeciek dokładnie
+        # tej klasy, którą pasaże domknęły niżej. Prefiks łapie też przyszłe
+        # kolekcje eksperymentalne bez pamiętania o tej funkcji.
+        try:
+            names = [c.name for c in client.get_collections().collections]
+        except Exception:
+            names = []
+        targets = {_collection()} | {
+            n for n in names if n.startswith("nexus_candidates")
+        }
+        for coll in targets:
+            try:
+                client.delete(collection_name=coll, points_selector=[candidate_id])
+            except Exception:
+                # Pojedyncza kolekcja (np. właśnie dropnięta) nie może zablokować
+                # kasowania z pozostałych — a błąd na AKTYWNEJ i tak wyjdzie
+                # w zewnętrznym handlerze przy kolejnej operacji.
+                logger.warning(
+                    "[Embed] Delete candidate %s from collection %s failed",
+                    candidate_id,
+                    coll,
+                )
 
         # Pasaże CV kasujemy TU, a nie osobną ścieżką, bo to jedyne miejsce
         # wołane przy usuwaniu kandydata (`candidate_identity_quarantine`

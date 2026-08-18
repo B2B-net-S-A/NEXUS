@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.services.canonical_text import build_job_query_variants
 from app.services.retrieval_pool import retrieve_candidate_pool
 from app.services.embedding_service import (
     _build_job_text,
@@ -193,7 +194,12 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     if not query_text.strip():
         raise TalentRadarError("Zapytanie jest puste po normalizacji.")
 
-    hits = await retrieve_candidate_pool(db, query_text, top_k=settings.MATCH_POOL_SIZE)
+    hits = await retrieve_candidate_pool(
+        db,
+        query_text,
+        top_k=settings.MATCH_POOL_SIZE,
+        query_variants=build_job_query_variants(job, query_text),
+    )
     if not hits:
         # Qdrant or Voyage is down. Say so instead of returning an empty list
         # that reads as "we have nobody like that".

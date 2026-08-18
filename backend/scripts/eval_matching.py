@@ -45,6 +45,7 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
@@ -73,7 +74,8 @@ from app.services.similar_job_candidates import (  # noqa: E402
     boost_points_for_sources,
     fetch_historical_boost_map,
 )
-from app.services.retrieval_pool import retrieve_candidate_pool
+from app.services.canonical_text import build_job_query_variants  # noqa: E402
+from app.services.retrieval_pool import retrieve_candidate_pool  # noqa: E402
 
 logger = logging.getLogger("eval_matching")
 
@@ -103,6 +105,65 @@ STAGE_RELEVANCE: dict[PipelineStage, float] = {
 }
 
 POSITIVE_STAGES: frozenset[PipelineStage] = frozenset(STAGE_RELEVANCE.keys())
+
+_TITLE_STOPWORDS = frozenset(
+    {
+        "senior",
+        "junior",
+        "mid",
+        "regular",
+        "lead",
+        "principal",
+        "staff",
+        "specialist",
+        "specjalista",
+        "inzynier",
+        "engineer",
+        "developer",
+        "programista",
+        "konsultant",
+        "consultant",
+        "ds",
+        "the",
+        "and",
+        "for",
+        "with",
+        "expert",
+    }
+)
+
+
+def _title_tokens(text: str) -> set[str]:
+    return {
+        t
+        for t in re.split(r"[^0-9a-ząćęłńóśźż#+]+", (text or "").lower())
+        if len(t) >= 2 and t not in _TITLE_STOPWORDS
+    }
+
+
+def title_match_feature(job, candidate) -> float:
+    """Zgodność tytułu oferty z rolami z historii kandydata, 0..1.
+
+    Cecha do OFFLINE'OWEJ nominacji przez zrzut warstw (runda 2, punkt 4) —
+    nie jest warstwą scoringu. Jaccard po tokenach merytorycznych (stopwordy
+    seniority/szumu odpadają) między tytułem oferty a unią ról z `experience`.
+    Pokrycie ról na prodzie: 31% (zmierzone 18.08) — brak ról zwraca 0.0,
+    co simpleks zobaczy jako brak sygnału, nie karę.
+    """
+    job_tokens = _title_tokens(getattr(job, "title", "") or "")
+    if not job_tokens:
+        return 0.0
+    role_tokens: set[str] = set()
+    exp = getattr(candidate, "experience", None)
+    if isinstance(exp, list):
+        for e in exp[:8]:
+            if isinstance(e, dict):
+                role_tokens |= _title_tokens(str(e.get("role") or ""))
+    if not role_tokens:
+        return 0.0
+    inter = len(job_tokens & role_tokens)
+    union = len(job_tokens | role_tokens)
+    return round(inter / union, 4) if union else 0.0
 
 
 # ── Data classes ─────────────────────────────────────────────────────────────
@@ -454,7 +515,12 @@ async def _score_job_candidates(
     query_text = _build_job_text(job)
 
     try:
-        hits = await retrieve_candidate_pool(db, query_text, top_k=pool_cap)
+        hits = await retrieve_candidate_pool(
+            db,
+            query_text,
+            top_k=pool_cap,
+            query_variants=build_job_query_variants(job, query_text),
+        )
     except Exception as e:
         logger.warning("semantic search failed for job=%s: %s", job.id, e)
         hits = []
@@ -503,6 +569,7 @@ async def _score_job_candidates(
 
     if _DUMP_HANDLE is not None:
         gt = _DUMP_GT.get(job.id, set())
+        cand_by_id = {c.id: c for c in candidates}
         for b in breakdowns:
             _DUMP_HANDLE.write(
                 json.dumps(
@@ -526,6 +593,13 @@ async def _score_job_candidates(
                             )
                         },
                         "seniority_note": b.seniority_note,
+                        # Cechy kandydackie do nominacji offline (weight_search
+                        # --with-feature) — nie wchodza do score'u.
+                        "features": {
+                            "title_match": title_match_feature(
+                                job, cand_by_id.get(b.candidate_id)
+                            )
+                        },
                     }
                 )
                 + "\n"

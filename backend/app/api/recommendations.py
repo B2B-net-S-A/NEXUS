@@ -80,6 +80,7 @@ from app.schemas.similar_job_candidates import (
     HistoricalSourceOut,
     SimilarJobOut,
 )
+from app.services.canonical_text import build_job_query_variants
 from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger(__name__)
@@ -295,7 +296,12 @@ async def _recommend_candidates_core(
     pool_size = settings.MATCH_POOL_SIZE
     if location_active:
         pool_size = max(pool_size, settings.RECOMMENDATION_LOCATION_POOL_SIZE)
-    hits = await retrieve_candidate_pool(db, query_text, top_k=pool_size)
+    hits = await retrieve_candidate_pool(
+        db,
+        query_text,
+        top_k=pool_size,
+        query_variants=build_job_query_variants(job, query_text),
+    )
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
 

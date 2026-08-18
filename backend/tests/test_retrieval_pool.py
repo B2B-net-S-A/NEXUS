@@ -241,3 +241,101 @@ def test_all_four_pool_sites_go_through_the_facade():
         assert "search_candidates_semantic" not in attr_calls, (
             f"{rel}: atrybutowe wywołanie puli obok fasady — częściowy flip"
         )
+
+
+# ── multi-query (runda 2): unia wariantów, kosinusy z zapytania głównego ─────
+
+
+@pytest.mark.asyncio
+async def test_multi_query_union_membership_primary_similarity(monkeypatch):
+    """Warianty dosypują CZŁONKOSTWO; podobieństwo dosypki liczy się względem
+    zapytania GŁÓWNEGO (ta sama zasada co hybryda — jedna skala kosinusa)."""
+
+    from app.services import embedding_service
+    from app.services import retrieval_pool as rp
+
+    calls: list[str] = []
+
+    async def fake_semantic(query, *, top_k, raise_on_error=False):
+        calls.append(query)
+        if query == "PRIMARY":
+            return [
+                {"candidate_id": 1, "score": 0.9},
+                {"candidate_id": 2, "score": 0.8},
+            ]
+        return [
+            {"candidate_id": 2, "score": 0.99},  # duplikat — zostaje primary 0.8
+            {"candidate_id": 3, "score": 0.95},  # nowy — kosinus z primary
+        ]
+
+    async def fake_similarity(query, ids):
+        assert query == "PRIMARY", "kosinusy dosypki MUSZĄ iść z tekstu głównego"
+        assert ids == [3]
+        return {3: 0.55}
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", fake_semantic)
+    monkeypatch.setattr(
+        embedding_service, "similarity_for_candidate_ids", fake_similarity
+    )
+    monkeypatch.setattr(rp, "hybrid_pool_enabled", lambda: False)
+    monkeypatch.setattr(rp, "multi_query_enabled", lambda: True)
+
+    out = await rp.retrieve_candidate_pool(
+        object(), "PRIMARY", top_k=10, query_variants=["wariant skillowy"]
+    )
+
+    assert calls == ["PRIMARY", "wariant skillowy"]
+    assert out == [
+        {"candidate_id": 1, "score": 0.9},
+        {"candidate_id": 2, "score": 0.8},
+        {"candidate_id": 3, "score": 0.55},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_multi_query_flag_off_single_call(monkeypatch):
+    from app.services import embedding_service
+    from app.services import retrieval_pool as rp
+
+    calls: list[str] = []
+
+    async def fake_semantic(query, *, top_k, raise_on_error=False):
+        calls.append(query)
+        return []
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", fake_semantic)
+    monkeypatch.setattr(rp, "hybrid_pool_enabled", lambda: False)
+    monkeypatch.setattr(rp, "multi_query_enabled", lambda: False)
+
+    await rp.retrieve_candidate_pool(
+        object(), "PRIMARY", top_k=10, query_variants=["w1", "w2"]
+    )
+    assert calls == ["PRIMARY"], "flaga OFF ⇒ warianty ignorowane"
+
+
+@pytest.mark.asyncio
+async def test_multi_query_variant_failure_does_not_kill_pool(monkeypatch):
+    from app.services import embedding_service
+    from app.services import retrieval_pool as rp
+
+    async def fake_semantic(query, *, top_k, raise_on_error=False):
+        if query == "PRIMARY":
+            return [{"candidate_id": 1, "score": 0.9}]
+        raise RuntimeError("wariant padł")
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", fake_semantic)
+    monkeypatch.setattr(rp, "hybrid_pool_enabled", lambda: False)
+    monkeypatch.setattr(rp, "multi_query_enabled", lambda: True)
+
+    out = await rp.retrieve_candidate_pool(
+        object(), "PRIMARY", top_k=10, query_variants=["zly"]
+    )
+    assert out == [{"candidate_id": 1, "score": 0.9}]
+
+
+def test_multi_query_flag_is_deliberately_absent_from_scoring_cache_inputs():
+    """Multi-query zmienia tylko CZŁONKOSTWO puli — kosinus per kandydat jest
+    ten sam, więc cache score'ów pozostaje poprawny (jak przy hybrydzie)."""
+    from app.services.scoring_service import _SCORING_CACHE_INPUTS
+
+    assert "MULTI_QUERY_RETRIEVAL_ENABLED" not in _SCORING_CACHE_INPUTS
