@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -79,6 +80,7 @@ async def _save_state(stats: dict[str, Any]) -> None:
                         CAST(:stats AS jsonb), now(), now())
                 ON CONFLICT (phase) DO UPDATE SET
                     last_synced_at = now(),
+                    last_run_started_at = now(),
                     last_run_finished_at = now(),
                     last_status = EXCLUDED.last_status,
                     stats = EXCLUDED.stats,
@@ -152,7 +154,7 @@ async def run_weekly_eval() -> dict[str, Any]:
     started = datetime.now(timezone.utc)
     out_json = "/tmp/weekly-eval.json"
     cmd = [
-        "python",
+        sys.executable,
         "-m",
         "scripts.eval_matching",
         "--job-ids",
@@ -178,6 +180,7 @@ async def run_weekly_eval() -> dict[str, Any]:
         )
     except asyncio.TimeoutError:
         proc.kill()
+        await proc.communicate()  # reap — bez tego zombie + ResourceWarning
         return {"status": "timeout", "measured_at": started.isoformat()}
     if proc.returncode != 0:
         tail = (stderr or b"")[-500:].decode("utf-8", "replace")
