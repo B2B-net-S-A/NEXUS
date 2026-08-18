@@ -714,6 +714,13 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie **nie zapisuje zdarzenia**
   i kasuje własny wpis `dodanie_konsultanta`, ale `zamiana_kontraktora` ZOSTAJE — mówi
   o dwóch osobach naraz.
+  **Skutek praktyczny, o który łatwo się potknąć przy danych testowych:** skasowanie
+  grupy zostawia jej linie jako OSIEROCONE wiersze `client_orders` (już nie w żadnej
+  grupie, więc niewidoczne w zakładce), a `DELETE /orders/{id}` na linii innej niż szkic
+  tylko ją **anuluje** — nie kasuje. Pełne usunięcie idzie istniejącym API:
+  `PATCH {"status":"draft"}` → `DELETE` (`ClientOrderUpdate` przyjmuje `status`, a twarde
+  kasowanie obejmuje szkice). **Kolejność ma znaczenie** — najpierw linia-następca, potem
+  poprzednik, bo `predecessor_order_id` wskazuje wstecz.
 - **Przedłużenie to NOWA grupa** z `predecessor_group_id`, nie edycja poprzedniej:
   poprzednia musi zostać taka, jaka była, bo na jej podstawie rozliczono już faktury.
   Typ rozliczenia DZIEDZICZY się po poprzedniku.
@@ -782,6 +789,17 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   polach MD (`ck_client_orders_md_coherence` dopuszcza tylko wszystko albo nic).
   `settle_group` nie filtruje po statusie linii, więc domknięcie poprzednika **nie
   odsłania wydanych już pieniędzy** — dlatego zamiana nie wymaga przeliczenia budżetu.
+  Przejście potwierdzone na produkcji end-to-end (Polkomtel, 2026-08-18, zamówienie
+  testowe usunięte po weryfikacji): nowa linia ma komplet NULL-i w polach MD, poprzednik
+  `completed` z datą zamiany, `budget_remaining` bez zmian, a wpis w historii brzmi
+  „Zamiana kontraktora … (zamówienie kosztowe): … Kwota zamówienia zostaje wspólna dla
+  całej grupy" — bez arytmetyki MD.
+- **Weryfikując te ekrany przeglądarką: akcje destrukcyjne wołają natywny `window.confirm`,
+  który ZAMRAŻA automatyzację.** `Input.dispatchMouseEvent` leci w timeout, screenshot
+  zwraca „Script injection timed out", klawiatura nie pomaga (dialog jest poza stroną),
+  a `navigate` co prawda odmraża kartę, ale **odrzuca** dialog, czyli akcja się nie
+  wykonuje. Usuwanie/zakończenie testuj przez API (`fetch` z Bearer w zalogowanej karcie);
+  przez interfejs weryfikuj to, co nie kończy się natywnym dialogiem.
 - **Centrum e-Zdrowia a „kontraktor bez zamówienia":** `POST /orders` wymaga tam części
   umowy (`validate_project_part(..., require=True)`), a select renderował się wyłącznie
   przy istniejącym `activeOrder` — u TEGO klienta objaw „nie da się nic wpisać" przeżywał
