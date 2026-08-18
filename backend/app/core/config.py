@@ -1100,6 +1100,34 @@ class Settings(BaseSettings):
     # Dodanie kolejnego klienta to zmiana tej zmiennej w Coolify, bez deployu.
     MULTI_CONSULTANT_ORDER_CLIENT_IDS: str = ""
 
+    # CSV z ``client_id`` klientów, u których zamówienie może być KOSZTOWE —
+    # z ustaloną z góry kwotą, z której schodzi się fakturami (Polkomtel).
+    #
+    # Świadomie OSOBNA lista od ``MULTI_CONSULTANT_ORDER_CLIENT_IDS``, mimo że
+    # dziś jest jej podzbiorem: BIK i BNP rozliczają się wyłącznie na MD, więc
+    # checkbox „Zamówienie kosztowe" w ich formularzu byłby zaproszeniem do
+    # założenia zamówienia, którego nikt nigdy nie rozliczy. Sklejenie obu list
+    # w jedną zabrałoby możliwość tego rozróżnienia.
+    #
+    # Pusto = funkcja nieaktywna dla WSZYSTKICH (fail-closed).
+    COST_ORDER_CLIENT_IDS: str = ""
+
+    # ── Powiadomienia Delivery Leada ────────────────────────────────────────
+    # Kill-switch całej sekcji: `false` → skaner kończy się przed pętlą, a
+    # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi
+    # dać się przeczytać nawet po wyłączeniu generowania nowych wpisów).
+    DL_ALERTS_ENABLED: bool = True
+    # Co ile godzin przemiata warunki. 24 h jak sąsiednie skanery — te alerty
+    # dotyczą spraw mierzonych w dniach, nie w minutach.
+    DL_ALERTS_INTERVAL_HOURS: float = 24.0
+    # Próg „mało MD na zamówieniu". JEDNAKOWY dla wszystkich klientów i
+    # zamówień — ticket wprost zabrania konfiguracji per klient, bo próg ma
+    # znaczyć to samo w każdym raporcie.
+    DL_ALERT_MD_THRESHOLD: float = 15.0
+    # Co ile dni ponawiać alert, którego przyczyna nie ustąpiła. Powtórka to
+    # NOWY wiersz, nie aktualizacja — patrz `app/services/dl_alerts.py`.
+    DL_ALERT_REPEAT_DAYS: int = 7
+
     @property
     def multi_consultant_order_client_ids(self) -> frozenset[int]:
         """Parse MULTI_CONSULTANT_ORDER_CLIENT_IDS CSV into a set of client ids.
@@ -1110,6 +1138,27 @@ class Settings(BaseSettings):
         reszty systemu).
         """
         raw = self.MULTI_CONSULTANT_ORDER_CLIENT_IDS
+        if not raw:
+            return frozenset()
+        ids: set[int] = set()
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                ids.add(int(chunk))
+            except ValueError:
+                continue
+        return frozenset(ids)
+
+    @property
+    def cost_order_client_ids(self) -> frozenset[int]:
+        """Parse COST_ORDER_CLIENT_IDS CSV into a set of client ids.
+
+        Ta sama tolerancja na literówki co przy liście wielo-konsultantowej:
+        nienumeryczny wpis jest pomijany, a nie wysadza startu backendu.
+        """
+        raw = self.COST_ORDER_CLIENT_IDS
         if not raw:
             return frozenset()
         ids: set[int] = set()

@@ -198,6 +198,8 @@ const PUBLIC_PATHS = [
   "/preview/contact-queue",
   "/preview/talent-radar",
   "/preview/order-consultant-picker",
+  "/preview/order-lifecycle",
+  "/preview/dl-alerts",
 ];
 
 function isPublicPath(pathname: string): boolean {

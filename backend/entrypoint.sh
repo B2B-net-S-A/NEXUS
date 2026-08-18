@@ -161,7 +161,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_backfill'",
     # 0230: cykliczna ekstrakcja faktów z notatek (notes_insights_sync)
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'notes_extraction'",
-    # 0231: cotygodniowy digest dopasowań (match_digest_loop)
+    # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
     # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
@@ -3189,6 +3189,114 @@ _COLUMN_STATEMENTS = [
             FOREIGN KEY (file_uploaded_by) REFERENCES users(id) ON DELETE SET NULL;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
+    # ── 0233: cykl życia zamówienia + zamówienie kosztowe ───────────────────
+    # Kolumny NAJPIERW, bo referencje (dl_alerts, wiersze importu) muszą mieć
+    # do czego wskazać; kolejność w tej liście jest wykonywana dosłownie.
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "status VARCHAR(16) NOT NULL DEFAULT 'active'",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS closure_date DATE NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS closure_reason TEXT NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "closed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "closed_by_user_id INTEGER NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT fk_client_order_groups_closed_by_users
+            FOREIGN KEY (closed_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "is_cost_based BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "budget_amount NUMERIC(16, 2) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "budget_remaining NUMERIC(16, 2) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "budget_manual_adjustment NUMERIC(16, 2) NOT NULL DEFAULT 0",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "predecessor_group_id INTEGER NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT fk_client_order_groups_predecessor
+            FOREIGN KEY (predecessor_group_id)
+            REFERENCES client_order_groups(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    # 0233: rozliczenie fakturami. Lustro client_order_md_consumptions —
+    # UNIQUE na (order_id, period_month) jest tu KLUCZEM IDEMPOTENCJI, więc
+    # tworzone razem z tabelą, nie w _INDEX_STATEMENTS (tabela bez niego przez
+    # jeden boot przyjęłaby duplikaty, których potem nie da się już wstawić).
+    """CREATE TABLE IF NOT EXISTS client_order_invoice_consumptions (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER NOT NULL REFERENCES client_orders(id) ON DELETE CASCADE,
+        period_month VARCHAR(7) NOT NULL,
+        invoice_amount NUMERIC(16, 2) NOT NULL,
+        settled_amount NUMERIC(16, 2) NOT NULL DEFAULT 0,
+        unsettled_amount NUMERIC(16, 2) NOT NULL DEFAULT 0,
+        import_id INTEGER NULL
+            REFERENCES md_consumption_imports(id) ON DELETE SET NULL,
+        source VARCHAR(16) NOT NULL,
+        created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_invoice_consumptions_source
+            CHECK (source IN ('import', 'manual')),
+        CONSTRAINT ck_invoice_consumptions_period
+            CHECK (period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_consumptions_order_month "
+    "ON client_order_invoice_consumptions (order_id, period_month)",
+    # 0233: „Uwagi" i „Faktura" z arkusza + wynik dopasowania kosztowego.
+    "ALTER TABLE md_consumption_import_rows ADD COLUMN IF NOT EXISTS notes_raw TEXT NULL",
+    "ALTER TABLE md_consumption_import_rows ADD COLUMN IF NOT EXISTS "
+    "order_number_hint VARCHAR(64) NULL",
+    "ALTER TABLE md_consumption_import_rows ADD COLUMN IF NOT EXISTS "
+    "invoice_amount NUMERIC(16, 2) NULL",
+    "ALTER TABLE md_consumption_import_rows ADD COLUMN IF NOT EXISTS "
+    "matched_group_id INTEGER NULL",
+    """DO $$ BEGIN
+        ALTER TABLE md_consumption_import_rows
+            ADD CONSTRAINT fk_md_import_rows_matched_group
+            FOREIGN KEY (matched_group_id)
+            REFERENCES client_order_groups(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    "ALTER TABLE md_consumption_import_rows ADD COLUMN IF NOT EXISTS "
+    "cost_status VARCHAR(24) NULL",
+    "ALTER TABLE md_consumption_imports ADD COLUMN IF NOT EXISTS "
+    "rows_cost_applied INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE md_consumption_imports ADD COLUMN IF NOT EXISTS "
+    "rows_cost_unmatched INTEGER NOT NULL DEFAULT 0",
+    # 0233: powiadomienia Delivery Leada. UNIQUE na dedupe_key tworzone razem
+    # z tabelą — to on jest atomowym claimem (ON CONFLICT DO NOTHING), więc
+    # tabela bez niego przez jeden boot rozmnożyłaby alerty przy każdym
+    # przebiegu skanera.
+    """CREATE TABLE IF NOT EXISTS dl_alerts (
+        id SERIAL PRIMARY KEY,
+        alert_type VARCHAR(48) NOT NULL,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        order_group_id INTEGER NULL
+            REFERENCES client_order_groups(id) ON DELETE SET NULL,
+        order_id INTEGER NULL REFERENCES client_orders(id) ON DELETE SET NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        link VARCHAR(1000) NULL,
+        payload JSONB NULL,
+        dedupe_key VARCHAR(255) NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'new',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        handled_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        handled_at TIMESTAMPTZ NULL,
+        CONSTRAINT uq_dl_alerts_dedupe_key UNIQUE (dedupe_key),
+        CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN (
+            'cost_order_exhausted', 'draft_consultant_unassigned',
+            'md_budget_low', 'missing_revenue_rate')),
+        CONSTRAINT ck_dl_alerts_status CHECK (status IN ('new', 'handled')),
+        CONSTRAINT ck_dl_alerts_handled_coherence
+            CHECK (status <> 'handled' OR handled_at IS NOT NULL)
+    )""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -4332,6 +4440,96 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_finance_import_runs_period_year
             CHECK (period_year BETWEEN 2000 AND 2100);
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0233 — cykl życia grupy zamówień i zamówienie kosztowe. DROP przed ADD:
+    # domena statusu i domena zdarzeń będą jeszcze rosły, a samo `EXCEPTION
+    # WHEN duplicate_object` zostawiłoby wtedy na prodzie stary, węższy CHECK
+    # i pierwsza nowa wartość leciałaby IntegrityError (błąd z 0226).
+    #
+    # NOT VALID: istniejące wiersze spełniają te warunki z definicji (same
+    # defaulty), więc skan całej tabeli pod ACCESS EXCLUSIVE nic by nie wniósł.
+    # 0233 — linia zamówienia kosztowego ma obie stawki i NIE ma budżetu MD.
+    # CHECK z 0227 wymagał `md_rate_revenue IS NULL` przy pustym budżecie, więc
+    # bez tego rozluźnienia dodanie konsultanta do zamówienia kosztowego pada
+    # na IntegrityError. Gwarancja „budżet wymaga dodatniej stawki" zostaje.
+    "ALTER TABLE client_orders DROP CONSTRAINT IF EXISTS ck_client_orders_md_coherence",
+    """DO $$ BEGIN
+        ALTER TABLE client_orders
+            ADD CONSTRAINT ck_client_orders_md_coherence
+            CHECK (
+                (
+                    (
+                        md_total IS NULL
+                        AND md_remaining IS NULL
+                        AND md_input_mode IS NULL
+                        AND md_input_value IS NULL
+                    )
+                    OR (
+                        md_total IS NOT NULL
+                        AND md_remaining IS NOT NULL
+                        AND md_input_mode IN ('md', 'amount')
+                        AND md_input_value IS NOT NULL
+                        AND md_rate_revenue IS NOT NULL
+                        AND md_rate_revenue > 0
+                    )
+                )
+                AND (md_rate_revenue IS NULL OR md_rate_revenue > 0)
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_groups DROP CONSTRAINT IF EXISTS ck_client_order_groups_status",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT ck_client_order_groups_status
+            CHECK (status IN ('active', 'completed', 'exhausted')) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_groups "
+    "DROP CONSTRAINT IF EXISTS ck_client_order_groups_cost_coherence",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT ck_client_order_groups_cost_coherence
+            CHECK (
+                (
+                    is_cost_based = FALSE
+                    AND budget_amount IS NULL
+                    AND budget_remaining IS NULL
+                )
+                OR (
+                    is_cost_based = TRUE
+                    AND budget_amount IS NOT NULL
+                    AND budget_amount > 0
+                    AND budget_remaining IS NOT NULL
+                )
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_groups DROP CONSTRAINT IF EXISTS ck_client_order_groups_closure",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT ck_client_order_groups_closure
+            CHECK (status <> 'completed' OR closure_date IS NOT NULL) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0233 — pięć nowych typów zdarzeń cyklu życia. Ten CHECK jest dokładnie
+    # tym, który migracja 0227 zapisała jako zamkniętą listę; poszerzenie MUSI
+    # przejść przez DROP, inaczej prod odrzuci „zakonczenie" i zamknięcie
+    # zamówienia wywali się w połowie transakcji.
+    "ALTER TABLE client_order_group_events "
+    "DROP CONSTRAINT IF EXISTS ck_client_order_group_events_type",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_group_events
+            ADD CONSTRAINT ck_client_order_group_events_type
+            CHECK (event_type IN (
+                'utworzenie', 'dodanie_konsultanta', 'import_md',
+                'zamiana_kontraktora', 'edycja_reczna', 'zakonczenie',
+                'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur'
+            ));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE md_consumption_import_rows "
+    "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",
+    """DO $$ BEGIN
+        ALTER TABLE md_consumption_import_rows
+            ADD CONSTRAINT ck_md_import_rows_cost_status
+            CHECK (cost_status IS NULL OR cost_status IN (
+                'applied', 'unmatched_number', 'unmatched_consultant'
+            )) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE finance_monthly_results DROP CONSTRAINT IF EXISTS ck_finance_monthly_results_row_number",
     """DO $$ BEGIN
         ALTER TABLE finance_monthly_results
@@ -4609,6 +4807,17 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_needs_sourcing ON jobs (needs_sourcing)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_train_name ON jobs (train_name)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_contract_id ON notes (contract_id)",
+    # 0233 — pigułka „Zakończeni"/„Wyczerpane" filtruje po statusie w obrębie
+    # jednego klienta; skaner alertów pyta o otwarte wpisy per DL przy KAŻDYM
+    # przebiegu, a log rośnie w nieskończoność (nie jest kasowany).
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_client_order_groups_status "
+    "ON client_order_groups (client_id, status)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_open "
+    "ON dl_alerts (user_id, created_at) WHERE status = 'new'",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_rule_scope "
+    "ON dl_alerts (alert_type, user_id, client_id, created_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_user_status "
+    "ON dl_alerts (user_id, status, created_at)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notifications_related_entity_id ON notifications (related_entity_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_stage_defs_external_id ON pipeline_stage_defs (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_templates_external_id ON pipeline_templates (external_id)",

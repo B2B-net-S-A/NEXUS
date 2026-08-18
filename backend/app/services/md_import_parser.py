@@ -54,6 +54,7 @@ _MD_HEADERS = (
     "md zaraportowane",
     "zaraportowane md",
     "liczba md",
+    "ilosc md",
     "suma md",
     "md",
     "mdy",
@@ -65,6 +66,43 @@ _MD_HEADERS = (
     "mandays",
     "roboczodni",
     "dni",
+)
+
+# „Uwagi" to JEDYNE miejsce w arkuszu, które niesie numer zamówienia — plik
+# nie ma osobnej kolumny na numer, a rozliczenie kosztowe potrzebuje go, żeby
+# wiedzieć, z którego budżetu zdjąć kwotę.
+# Nagłówki, które ZAWIERAJĄ „MD", ale opisują STAWKĘ, nie liczbę dni.
+#
+# Realny arkusz z Finansów ma obie kolumny obok siebie: „Średnia Stawka MD"
+# i „Ilość MD". Bez tego wykluczenia wygrywała pierwsza z brzegu — czyli
+# stawka — i system odejmowałby z budżetu 1000 „dni" zamiast 15. Błąd byłby
+# CICHY: liczba jest poprawna arytmetycznie, tylko opisuje co innego.
+_MD_ANTI_HEADERS = (
+    "stawka",
+    "rate",
+    "cena",
+    "price",
+    "koszt",
+    "wartosc",
+    "kwota",
+)
+
+_NOTES_HEADERS = (
+    "uwagi",
+    "uwaga",
+    "notatki",
+    "komentarz",
+    "opis",
+    "notes",
+    "comment",
+)
+
+_INVOICE_HEADERS = (
+    "kwota faktury",
+    "wartosc faktury",
+    "faktura netto",
+    "faktura",
+    "invoice",
 )
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
@@ -96,6 +134,50 @@ def _match_header(normalized: str, needles: tuple[str, ...]) -> Optional[int]:
     return None
 
 
+# Numer zamówienia bywa wpisany na kilka sposobów („SAP 4500719650",
+# „4500719650", „zam. 4500719650 - II transza"), więc szukamy CIĄGÓW CYFR,
+# a nie ustalonego prefiksu. Próg 3 cyfr, bo numery bywają krótkie
+# („Zamówienie nr 445"); odsiewanie fałszywych trafień robi dopiero
+# konfrontacja z listą istniejących zamówień, nie sama długość.
+_ORDER_NUMBER_RE = re.compile(r"\d{3,}")
+
+
+def extract_order_number_candidates(notes: Any) -> list[str]:
+    """Wszystkie ciągi cyfr z „Uwag", od najdłuższego.
+
+    Zwracana jest LISTA, a nie jeden numer, bo w tej samej komórce potrafią
+    stać obok siebie numer zamówienia, rok i numer transzy („SAP 4500719650 /
+    2026, II transza"). Który z nich jest numerem zamówienia, wie dopiero
+    warstwa, która ma przed sobą listę istniejących zamówień klienta —
+    zgadywanie tutaj (najdłuższy, pierwszy) myliłoby się cicho i odejmowałoby
+    kwotę z cudzego budżetu.
+
+    Kolejność malejąco po długości daje sensowną wartość domyślną dla
+    komunikatu o braku dopasowania: numery SAP mają 10 cyfr, więc przy remisie
+    długości wygrywa ten, który pojawił się wcześniej.
+    """
+    if notes is None:
+        return []
+    text = str(notes).strip()
+    if not text:
+        return []
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for match in _ORDER_NUMBER_RE.findall(text):
+        if match in seen:
+            continue
+        seen.add(match)
+        ordered.append(match)
+    ordered.sort(key=len, reverse=True)
+    return ordered
+
+
+def extract_order_number(notes: Any) -> Optional[str]:
+    """Najlepszy pojedynczy kandydat na numer zamówienia (albo ``None``)."""
+    candidates = extract_order_number_candidates(notes)
+    return candidates[0] if candidates else None
+
+
 def parse_md_value(raw: Any) -> Optional[Decimal]:
     """Komórka → liczba MD. ``None`` gdy pusta lub nieliczbowa.
 
@@ -118,11 +200,40 @@ def parse_md_value(raw: Any) -> Optional[Decimal]:
         return None
 
 
+def parse_money_value(raw: Any) -> Optional[Decimal]:
+    """Komórka → kwota. ``None`` gdy pusta lub nieliczbowa.
+
+    Ta sama koercja co przy MD plus zdejmowanie oznaczenia waluty: „20 900,00
+    zł" (z twardą spacją) → ``20900.00``. Bez tego kwoty z polskiego Excela
+    lądowałyby jako nieczytelne i cały wiersz wypadałby z rozliczenia.
+    """
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float, Decimal)):
+        return Decimal(str(raw))
+    text = str(raw).strip()
+    if not text:
+        return None
+    text = re.sub(r"(?i)(pln|zl|zł)", "", text)
+    text = text.replace("\xa0", "").replace(" ", "").replace(",", ".")
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+
+
 @dataclass(frozen=True)
 class ParsedRow:
     row_number: int
     consultant_name: str
     md_reported: Decimal
+    # Obie opcjonalne — arkusz bez kolumn „Uwagi"/„Faktura" parsuje się jak
+    # dotąd i zasila wyłącznie budżety MD.
+    notes_raw: Optional[str] = None
+    order_number_hint: Optional[str] = None
+    invoice_amount: Optional[Decimal] = None
 
 
 @dataclass
@@ -131,6 +242,8 @@ class ParsedSheet:
     header_row: int
     name_column: int
     md_column: int
+    notes_column: Optional[int] = None
+    invoice_column: Optional[int] = None
     rows: list[ParsedRow] = field(default_factory=list)
     skipped_rows: list[dict[str, Any]] = field(default_factory=list)
 
@@ -139,8 +252,16 @@ class MdSheetFormatError(ValueError):
     """Plik nie ma rozpoznawalnej tabeli konsultant → MD."""
 
 
-def _locate_header(sheet) -> Optional[tuple[int, int, int]]:
-    """(numer wiersza nagłówka, kolumna nazwiska, kolumna MD) albo ``None``."""
+def _locate_header(
+    sheet,
+) -> Optional[tuple[int, int, int, Optional[int], Optional[int]]]:
+    """Pozycje kolumn w rozpoznanym nagłówku albo ``None``.
+
+    Zwraca ``(wiersz, kolumna nazwiska, kolumna MD, kolumna Uwag, kolumna
+    Faktury)``. Dwie ostatnie są OPCJONALNE — nagłówek jest rozpoznany, gdy są
+    obie wymagane; ich brak nie może odrzucić arkusza, bo tak wyglądały
+    wszystkie pliki przed wprowadzeniem rozliczeń kosztowych.
+    """
     for row_idx, row in enumerate(
         sheet.iter_rows(min_row=1, max_row=_MAX_HEADER_SCAN_ROWS, values_only=True),
         start=1,
@@ -149,6 +270,10 @@ def _locate_header(sheet) -> Optional[tuple[int, int, int]]:
         name_rank = len(_NAME_HEADERS)
         md_col: Optional[int] = None
         md_rank = len(_MD_HEADERS)
+        notes_col: Optional[int] = None
+        notes_rank = len(_NOTES_HEADERS)
+        invoice_col: Optional[int] = None
+        invoice_rank = len(_INVOICE_HEADERS)
         for col_idx, cell in enumerate(row or ()):
             normalized = _norm_header(cell)
             if not normalized:
@@ -157,10 +282,27 @@ def _locate_header(sheet) -> Optional[tuple[int, int, int]]:
             if rank is not None and rank < name_rank:
                 name_col, name_rank = col_idx, rank
             rank = _match_header(normalized, _MD_HEADERS)
-            if rank is not None and rank < md_rank:
+            if (
+                rank is not None
+                and rank < md_rank
+                and _match_header(normalized, _MD_ANTI_HEADERS) is None
+            ):
                 md_col, md_rank = col_idx, rank
+            rank = _match_header(normalized, _NOTES_HEADERS)
+            if rank is not None and rank < notes_rank:
+                notes_col, notes_rank = col_idx, rank
+            rank = _match_header(normalized, _INVOICE_HEADERS)
+            if rank is not None and rank < invoice_rank:
+                invoice_col, invoice_rank = col_idx, rank
         if name_col is not None and md_col is not None and name_col != md_col:
-            return row_idx, name_col, md_col
+            # Kolizja z kolumnami wymaganymi znaczy, że trafiliśmy w ten sam
+            # nagłówek dwa razy — wtedy opcjonalna kolumna po prostu nie
+            # istnieje. Wpisanie jej i tak dałoby liczbę MD w polu „Faktura".
+            if notes_col in (name_col, md_col):
+                notes_col = None
+            if invoice_col in (name_col, md_col):
+                invoice_col = None
+            return row_idx, name_col, md_col, notes_col, invoice_col
     return None
 
 
@@ -183,12 +325,14 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
             located = _locate_header(sheet)
             if located is None:
                 continue
-            header_row, name_col, md_col = located
+            header_row, name_col, md_col, notes_col, invoice_col = located
             parsed = ParsedSheet(
                 sheet_name=sheet.title,
                 header_row=header_row,
                 name_column=name_col,
                 md_column=md_col,
+                notes_column=notes_col,
+                invoice_column=invoice_col,
             )
             blank_run = 0
             for row_idx, row in enumerate(
@@ -222,11 +366,22 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                         }
                     )
                     continue
+                notes_raw: Optional[str] = None
+                if notes_col is not None and notes_col < len(cells):
+                    notes_text = str(cells[notes_col] or "").strip()
+                    notes_raw = notes_text or None
+                invoice_value: Optional[Decimal] = None
+                if invoice_col is not None and invoice_col < len(cells):
+                    invoice_value = parse_money_value(cells[invoice_col])
+
                 parsed.rows.append(
                     ParsedRow(
                         row_number=row_idx,
                         consultant_name=name,
                         md_reported=md_value,
+                        notes_raw=notes_raw,
+                        order_number_hint=extract_order_number(notes_raw),
+                        invoice_amount=invoice_value,
                     )
                 )
             return parsed

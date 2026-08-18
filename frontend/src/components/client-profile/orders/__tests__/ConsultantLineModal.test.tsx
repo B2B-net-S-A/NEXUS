@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,6 +17,11 @@ vi.mock("@/lib/api/orderGroups", () => ({
   mdConsumptionApi: {},
 }));
 
+vi.mock("@/lib/api/dlPortal", () => ({
+  dlPortalApi: { extractOrderPdf: vi.fn() },
+}));
+
+import { dlPortalApi } from "@/lib/api/dlPortal";
 import { orderGroupsApi } from "@/lib/api/orderGroups";
 
 const FROM_CLIENT: ConsultantOption = {
@@ -49,12 +54,23 @@ const GROUP: OrderGroupRead = {
   end_date: null,
   notes: null,
   created_at: "2026-03-01T10:00:00Z",
+  status: "active",
+  status_label: "Aktywne",
+  closure_date: null,
+  closure_reason: null,
+  is_cost_based: false,
+  budget_amount: null,
+  budget_used: null,
+  budget_remaining: null,
+  budget_manual_adjustment: null,
+  predecessor_group_id: null,
+  can_add_consultant: true,
   lines: [],
   active_consultants: 0,
   event_count: 0,
 };
 
-function renderModal(onSubmit = vi.fn()) {
+function renderModal(onSubmit = vi.fn(), group: OrderGroupRead = GROUP) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -64,7 +80,7 @@ function renderModal(onSubmit = vi.fn()) {
         open
         onOpenChange={vi.fn()}
         clientId={7}
-        group={GROUP}
+        group={group}
         submitting={false}
         error={null}
         onSubmit={onSubmit}
@@ -220,5 +236,150 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     await screen.findByText("Adam Zielinski");
     await fillRates(user);
     expect(screen.getByRole("button", { name: "Dodaj konsultanta" })).toBeDisabled();
+  });
+});
+
+
+// ── PDF + odczyt danych (ticket §4-5) ────────────────────────────────────────
+
+function extraction(overrides: Record<string, unknown> = {}) {
+  return {
+    data: {
+      title: "445",
+      start_date: "2026-04-01",
+      end_date: "2026-09-30",
+      rate_client: 1300,
+      rate_unit: "day",
+      total_value: null,
+      currency: "PLN",
+      md_total: 60,
+      uncertain: false,
+      uncertain_reasons: [],
+      fields_confidence: {},
+      source: "claude",
+      ...overrides,
+    },
+  };
+}
+
+function addPdf() {
+  const input = screen.getByLabelText(/Dodaj PDF do zamówienia/i);
+  const file = new File(["x"], "zamowienie.pdf", { type: "application/pdf" });
+  fireEvent.change(input, { target: { files: [file] } });
+  return file;
+}
+
+describe("ConsultantLineModal — odczyt PDF", () => {
+  beforeEach(() => {
+    vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+      data: { options: [], total: 0 },
+    } as never);
+  });
+
+  it("dodanie pliku NIE uruchamia odczytu — przycisk włącza się dopiero po pliku", async () => {
+    renderModal();
+    const button = screen.getByRole("button", {
+      name: /Zczytaj dane z dokumentu/i,
+    });
+    expect(button).toBeDisabled();
+    addPdf();
+    expect(button).toBeEnabled();
+    expect(dlPortalApi.extractOrderPdf).not.toHaveBeenCalled();
+  });
+
+  it("odczyt wypełnia puste pola bez pytania (nie ma czego nadpisać)", async () => {
+    // `start_date` zgodne z okresem zamówienia: modal prefilluje je z grupy,
+    // więc inna data byłaby PRAWDZIWĄ rozbieżnością i słusznie otwierała
+    // dialog — ten test sprawdza ścieżkę bez konfliktu.
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({ start_date: "2026-03-01", end_date: null }) as never,
+    );
+    renderModal();
+    addPdf();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+    );
+    // „Liczba MD" jest też etykietą radia trybu budżetu — bierzemy POLE.
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("60");
+    expect(
+      screen.queryByText(/Odczytane dane różnią się od wpisanych/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("rozbieżność z ręcznym wpisem PYTA i nic nie zmienia przed odpowiedzią", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction() as never,
+    );
+    renderModal();
+
+    const revenue = screen.getByLabelText(/Stawka przychodowa/i);
+    await userEvent.type(revenue, "1200");
+    addPdf();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    expect(
+      await screen.findByText(/Odczytane dane różnią się od wpisanych/i),
+    ).toBeInTheDocument();
+    // Nic nie zostało jeszcze nadpisane — to cała treść obietnicy dialogu.
+    expect(revenue).toHaveValue("1200");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Tak — zapisz dane z dokumentu/i }),
+    );
+    await waitFor(() => expect(revenue).toHaveValue("1300"));
+  });
+
+  it("odmowa zostawia dane wpisane ręcznie", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction() as never,
+    );
+    renderModal();
+
+    const revenue = screen.getByLabelText(/Stawka przychodowa/i);
+    await userEvent.type(revenue, "1200");
+    addPdf();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Nie — zostaw wpisane ręcznie/i }),
+    );
+
+    expect(revenue).toHaveValue("1200");
+  });
+
+  it("baner „Sprawdź dane!\" pojawia się przy niepewnym odczycie", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        uncertain: true,
+        uncertain_reasons: ["Nie znaleziono jednoznacznej daty końca"],
+      }) as never,
+    );
+    renderModal();
+    addPdf();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    expect(await screen.findByText("Sprawdź dane!")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Nie znaleziono jednoznacznej daty końca/),
+    ).toBeInTheDocument();
+  });
+
+  it("zamówienie KOSZTOWE nie pyta o budżet MD przy konsultancie", async () => {
+    renderModal(vi.fn(), { ...GROUP, is_cost_based: true });
+    expect(
+      screen.getByText(/rozliczane kwotą wspólną dla wszystkich konsultantów/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Liczba MD" }),
+    ).not.toBeInTheDocument();
   });
 });

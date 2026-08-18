@@ -39,7 +39,11 @@ from sqlalchemy.orm import selectinload
 
 from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
+from app.models.client_order_group import (
+    GROUP_STATUS_ACTIVE,
+    ClientOrderGroup,
+    ClientOrderGroupEvent,
+)
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.md_consumption import (
@@ -390,6 +394,50 @@ async def active_md_lines(db: AsyncSession, period_month: str) -> list[LineMatch
     for order in result.scalars():
         group = order.order_group
         if group is None or not is_multi_consultant_client(order.client_id):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
+async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
+    """Linie należące do AKTYWNYCH zamówień KOSZTOWYCH obowiązujących w miesiącu.
+
+    Lustro ``active_md_lines``, ale z dwiema świadomymi różnicami:
+
+    * linia kosztowa NIE ma budżetu MD (``md_total IS NULL``), więc filtr po
+      ``md_total`` byłby tu dokładnie odwrotny do potrzeby,
+    * pytamy o stan GRUPY, nie tylko linii — z wyczerpanego zamówienia nie
+      wolno już nic zdejmować, a z zakończonego tym bardziej.
+
+    Filtr po liście klientów kosztowych stoi tutaj, nie tylko w widoku: klient
+    zdjęty z ``COST_ORDER_CLIENT_IDS`` przestaje pokazywać te zamówienia
+    w interfejsie, więc import nie może dalej po cichu zdejmować z nich kwot.
+    """
+    from app.services.cost_orders import is_cost_order_client
+
+    first, last = month_bounds(period_month)
+    result = await db.execute(
+        _line_query()
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrderGroup.is_cost_based.is_(True),
+            ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+            ClientOrder.status.in_([ClientOrderStatus.active, ClientOrderStatus.draft]),
+            (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
+            (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
+        if group is None or not is_cost_order_client(order.client_id):
             continue
         candidate = order.contract.candidate if order.contract else None
         display = (

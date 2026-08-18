@@ -292,6 +292,23 @@ export function canManageCandidateFinance(
  * To gate KOSMETYCZNE. Ostatecznym arbitrem jest backend, który dodatkowo
  * sprawdza, czy ten DL jest przypisany do TEGO klienta — czego front nie wie.
  */
+/** Kto może usuwać / kończyć / przywracać / przedłużać zamówienia klienta.
+ *
+ *  ŚWIADOMIE szerszy zbiór niż `canManageMultiConsultantOrders`, który rządzi
+ *  STAWKAMI i zostaje przy admin + Delivery Lead. Ticket wymienia te role przez
+ *  wykluczenie: „wszystkie oprócz Sourcer, Rekruter, TAC, Talent Community" —
+ *  roli „Talent Community" w systemie nie ma, a deprecated `user` jest poza
+ *  z tego samego powodu co tamte trzy.
+ *
+ *  Lustro backendowego `_ORDER_LIFECYCLE_ROLES` (`api/client_order_groups.py`).
+ *  Rozjazd tych dwóch list kończy się przyciskiem, który na kliknięciu daje
+ *  403 — a to czyta się jak „zapis nie działa", nie jak „nie masz uprawnień". */
+export function canManageOrderLifecycle(
+  user: Pick<User, "role" | "roles"> | null | undefined
+): boolean {
+  return hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "finance")
+}
+
 export function canManageMultiConsultantOrders(
   user: Pick<User, "role" | "roles"> | null | undefined
 ): boolean {

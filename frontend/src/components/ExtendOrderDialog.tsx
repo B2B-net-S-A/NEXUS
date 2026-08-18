@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Upload } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+import { FileDropZone } from "@/components/ds/FileDropZone";
 import { useToast } from "@/components/Toast";
 import { extractErrorMsg } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
@@ -16,6 +17,7 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
+import { extractionErrorMessage } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   canManageCandidateFinance,
@@ -72,6 +74,7 @@ export function ExtendOrderDialog({
     latest?.project_part ?? "",
   );
   const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   // Odczyt PDF ("Zczytaj dane z dokumentu") — świadoma akcja, ODDZIELONA od
   // dodania pliku. Dodanie pliku samo w sobie NIC nie zmienia w formularzu.
@@ -94,6 +97,11 @@ export function ExtendOrderDialog({
       if (d.rate_client != null) setRateClient(String(d.rate_client));
       if (d.total_value != null) setTotalValue(String(d.total_value));
     }
+    // `md_total` z odczytu jest tu świadomie POMIJANE: ten formularz obsługuje
+    // wyłącznie klientów rozliczanych jednoosobowo, u których zamówienie nie ma
+    // budżetu MD. Klienci MD (BIK/Polkomtel/BNP) mają własny widok i własne
+    // „Dodaj przedłużenie" (`ExtendOrderGroupModal`), gdzie liczba MD trafia
+    // na linię konsultanta. Pole tutaj nie miałoby gdzie się zapisać.
     setCheckData(Boolean(d.uncertain));
     setCheckReasons(d.uncertain_reasons ?? []);
   };
@@ -106,14 +114,7 @@ export function ExtendOrderDialog({
       applyExtraction(res.data);
       showToast("Odczytano dane z dokumentu", "success");
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response
-        ?.status;
-      showToast(
-        status === 503
-          ? "Odczyt AI jest chwilowo niedostępny (wyłączony lub wyczerpany limit). Wpisz dane ręcznie."
-          : extractErrorMsg(err),
-        "error",
-      );
+      showToast(extractionErrorMessage(err, extractErrorMsg(err)), "error");
     } finally {
       setExtracting(false);
     }
@@ -310,33 +311,23 @@ export function ExtendOrderDialog({
         {/* Kafelek załącznika + przycisk odczytu — na dole formularza. Dodanie
             pliku NIE uruchamia odczytu; to robi dopiero pomarańczowy przycisk. */}
         <div className="pt-1">
-          <label
-            htmlFor="order-pdf-input"
-            className="flex items-center gap-3 w-full cursor-pointer rounded-lg border-2 border-dashed border-border bg-muted/40 px-4 py-3 hover:bg-muted/60 transition-colors"
-          >
-            <Upload
-              className="w-5 h-5 text-muted-foreground shrink-0"
-              aria-hidden
-            />
-            <div className="min-w-0">
-              <div className="font-bold text-sm">PDF zamówienia od klienta</div>
-              <div className="text-xs text-muted-foreground truncate">
-                {file ? file.name : "Kliknij, aby dodać plik PDF / DOCX"}
-              </div>
-            </div>
-          </label>
-          <input
-            id="order-pdf-input"
-            type="file"
-            accept=".pdf,.docx,.doc"
-            onChange={(e) => {
+          <FileDropZone
+            inputId="order-pdf-input"
+            file={file}
+            onPick={(picked) => {
               // Sam wybór pliku NIC nie zmienia w polach — kasuje tylko baner
               // z poprzedniego odczytu (dotyczył innego pliku).
-              setFile(e.target.files?.[0] ?? null);
+              setFile(picked);
+              setFileError(null);
               setCheckData(false);
               setCheckReasons([]);
             }}
-            className="sr-only"
+            onError={setFileError}
+            error={fileError}
+            accept=".pdf,.docx,.doc"
+            maxBytes={25 * 1024 * 1024}
+            label="PDF zamówienia od klienta"
+            hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
           />
           <button
             type="button"

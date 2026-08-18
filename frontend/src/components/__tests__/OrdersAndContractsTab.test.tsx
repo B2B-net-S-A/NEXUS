@@ -33,6 +33,8 @@ vi.mock("@/lib/api/dlPortal", () => ({
     listContractorsWithOrders: vi.fn(),
     updateOrder: vi.fn(),
     deleteOrder: vi.fn(),
+    createOrderExtension: vi.fn(),
+    extractOrderPdf: vi.fn(),
   },
 }));
 
@@ -181,6 +183,9 @@ beforeEach(() => {
   } as never);
   vi.mocked(dlPortalApi.updateOrder).mockResolvedValue({ data: {} } as never);
   vi.mocked(dlPortalApi.deleteOrder).mockResolvedValue({ data: {} } as never);
+  vi.mocked(dlPortalApi.createOrderExtension).mockResolvedValue({
+    data: { id: 4242 },
+  } as never);
   vi.mocked(contractsApi.update).mockResolvedValue({ data: {} } as never);
 });
 
@@ -481,5 +486,160 @@ describe("OrdersAndContractsTab search", () => {
     expect(
       screen.queryByText(/Brak kontraktorów u tego klienta/),
     ).not.toBeInTheDocument();
+  });
+});
+
+
+// ── Liczniki pigułek (ticket: liczby przy każdej zakładce) ───────────────────
+
+describe("OrdersAndContractsTab — liczniki filtrów", () => {
+  it("każda pigułka pokazuje liczbę, a „Kończące się 30d\" jest podzbiorem „Aktywni\"", async () => {
+    // Trzej kontraktorzy: aktywny kończący się za 10 dni, aktywny bez końca,
+    // zakończony. „Kończące się 30d" celowo liczy się PONOWNIE w „Aktywni" —
+    // suma pigułek nie musi równać się liczbie z „Wszyscy".
+    const ending = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 601,
+      candidate_name: "Anna Kowalska",
+      days_to_latest_end: 10,
+    };
+    const openEnded = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 602,
+      candidate_name: "Piotr Nowak",
+      days_to_latest_end: null,
+    };
+    const ended = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 603,
+      candidate_name: "Ewa Zielińska",
+      contract_status: "ended",
+      days_to_latest_end: null,
+      orders: [makeOrder({ id: 31, title: "Z-1", status: "completed" })],
+    };
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [ending, openEnded, ended],
+        total_contractors: 3,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText(/Wszyscy \(3\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Aktywni \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Kończące się 30d \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Zakończeni \(1\)/)).toBeInTheDocument();
+  });
+
+  it("licznik draftów obejmuje kontraktora, którego zamówienie jest szkicem", async () => {
+    const withDraft = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 604,
+      candidate_name: "Draftowy Kontraktor",
+      orders: [makeOrder({ id: 41, title: "D-1", status: "draft" })],
+    };
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [withDraft],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(
+      await screen.findByText(/Draft \(do uzupełnienia\) \(1\)/),
+    ).toBeInTheDocument();
+  });
+});
+
+// ── Kontraktor BEZ zamówienia (Bank Pocztowy) ────────────────────────────────
+
+describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
+  // Realny przypadek z Banku Pocztowego: kontrakt istnieje, ale nie ma ani
+  // jednego `ClientOrder`, więc i stawki są puste.
+  const NO_ORDERS = {
+    ...structuredClone(CONTRACTOR),
+    contract_id: 701,
+    candidate_name: "Bez Zamowien",
+    rate_candidate: null,
+    latest_order_rate_client: null,
+    orders: [],
+  };
+
+  beforeEach(() => {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [NO_ORDERS],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+  });
+
+  it("stawka przychodowa NIE znika, gdy nie ma jeszcze zamówienia", async () => {
+    // Przed poprawką to pole wisiało na `activeOrder` i po prostu nie
+    // renderowało się — karta pokazywała stawkę kosztową bez przychodowej
+    // i wyglądała, jakby ta druga u tego klienta nie istniała.
+    renderTab();
+    expect(
+      await screen.findByRole("button", { name: /Edytuj: Stawka przychodowa/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("okres i numer zamówienia są edytowalne mimo braku zamówienia", async () => {
+    renderTab();
+    expect(
+      await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Edytuj: okres zamówienia/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("pierwszy zapis zakłada SZKIC zamówienia zamiast rzucać błędem", async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
+    );
+    await user.type(screen.getByLabelText("Numer zamówienia"), "45767");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() =>
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
+    );
+    const [, form] = vi.mocked(dlPortalApi.createOrderExtension).mock.calls[0];
+    expect((form as FormData).get("title")).toBe("45767");
+    // `draft`, nie `active`: zamówienie powstaje z jednego wpisanego pola,
+    // więc trafia do pigułki „Draft (do uzupełnienia)".
+    expect((form as FormData).get("order_status")).toBe("draft");
+    expect((form as FormData).get("contract_id")).toBe("701");
+  });
+
+  it("stawka kosztowa zapisuje się przez świeżo utworzone zamówienie", async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("button", { name: /Edytuj: Stawka kosztowa/i }),
+    );
+    await user.type(screen.getByLabelText("Stawka kosztowa"), "120");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() =>
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
+    );
+    // Stawka KOSZTOWA mieszka na kontrakcie i `POST /orders` jej nie
+    // przyjmuje — dosyłamy ją PATCH-em na nowo powstałe zamówienie.
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 4242, {
+        rate_candidate: 120,
+      }),
+    );
   });
 });

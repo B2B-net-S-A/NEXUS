@@ -156,6 +156,9 @@ export interface OrderExtractionResult {
   rate_unit: string | null; // "hour" | "day" | "month"
   total_value: number | null;
   currency: string | null;
+  /** Liczba MD z dokumentu. NIE podlega redakcji finansowej — MD są
+   *  wielkością operacyjną, a to Delivery Lead ma je wpisać do formularza. */
+  md_total: number | null;
   uncertain: boolean;
   uncertain_reasons: string[];
   fields_confidence: Record<string, number>;
