@@ -266,6 +266,10 @@ class Settings(BaseSettings):
     # Dekompozycja na dwie niezależne flagi, każda z własnym pomiarem:
     CHAMPION_SENIORITY_PENALTY_ENABLED: bool = False
     CHAMPION_AVAILABILITY_FALLBACK_ENABLED: bool = False
+    # Dostępność v2: kara mnożnikowa tylko za twardą kolizję jawnych dat
+    # (kolumna/explicit z notatek vs start Championa + 30 dni grace) — bez
+    # decay dla dat wyprowadzanych z wypowiedzenia (przyczyna NO-GO fallbacku).
+    CHAMPION_AVAILABILITY_CONFLICT_ENABLED: bool = False
     # 4a: rozszerzone rodziny aliasów umiejętności (skill_taxonomy_extended)
     # w mapie scoringu — górują na derived-must z Championa/JD dla terminów
     # spoza bazowej taksonomii (git/jira/maven/servicenow…). Flip po pomiarze.
@@ -965,6 +969,31 @@ class Settings(BaseSettings):
     # Sufit kandydatów na bieg (~$0,002/kandydata na Haiku). Ogranicza koszt
     # pojedynczego dnia; zaległość zbiega w kolejnych dobach.
     NOTES_INSIGHTS_SYNC_BATCH_LIMIT: int = 300
+
+    # ── Weekly eval guard (strażnik jakości matchingu) ──────────────────────
+    # Cotygodniowy pomiar harnessem na zamrożonych 50 ofertach + alert regresu
+    # >15% t/t (Sentry przez logger.error). Patrz app/tasks/weekly_eval.py.
+    WEEKLY_EVAL_ENABLED: bool = False
+    WEEKLY_EVAL_CHECK_INTERVAL_SECONDS: int = 3600
+    # Niedziela (0=pon … 6=niedz), po nocnych syncach.
+    WEEKLY_EVAL_WEEKDAY: int = 6
+    WEEKLY_EVAL_HOUR_UTC: int = 5
+    # Sufit czasu subprocesu harnessu (dzisiejsze biegi: ~12-15 min).
+    WEEKLY_EVAL_TIMEOUT_SECONDS: int = 3600
+
+    # ── Match digest (cotygodniowy push top dopasowań do rekruterów) ────────
+    # Adopcja rekomendacji wymaga PUSH, nie pull: digest wysyła in-app
+    # notyfikację z top świeżych dopasowań per opublikowana rekrutacja do jej
+    # rekrutera/TAC. Patrz app/tasks/match_digest.py.
+    MATCH_DIGEST_ENABLED: bool = False
+    MATCH_DIGEST_CHECK_INTERVAL_SECONDS: int = 3600
+    # Poniedziałek 06:00 UTC — początek tygodnia pracy.
+    MATCH_DIGEST_WEEKDAY: int = 0
+    MATCH_DIGEST_HOUR_UTC: int = 6
+    # Minimalny score dopasowania w digeście — digest 20-punktowych trafień
+    # to spam, który zabija zaufanie do funkcji.
+    MATCH_DIGEST_MIN_SCORE: float = 55.0
+    MATCH_DIGEST_TOP_N: int = 5
 
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only

@@ -196,6 +196,7 @@ _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "CHAMPION_MATCH_SIGNALS_ENABLED",
     "CHAMPION_SENIORITY_PENALTY_ENABLED",
     "CHAMPION_AVAILABILITY_FALLBACK_ENABLED",
+    "CHAMPION_AVAILABILITY_CONFLICT_ENABLED",
     # 4a: rozszerzenie taksonomii zmienia derived-must (regex z ALIAS_MAP),
     # a więc warstwę skills każdego composite'u.
     "SKILL_ALIAS_EXTENDED_ENABLED",
@@ -1127,6 +1128,10 @@ def _seniority_penalty_enabled() -> bool:
     return bool(getattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", False))
 
 
+def _availability_conflict_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_AVAILABILITY_CONFLICT_ENABLED", False))
+
+
 def _availability_fallback_enabled() -> bool:
     return bool(getattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", False))
 
@@ -1139,6 +1144,14 @@ def _availability_fallback_enabled() -> bool:
 _SENIORITY_TOLERANCE_YEARS = 1
 _SENIORITY_PENALTY_PER_YEAR = 0.08
 _SENIORITY_PENALTY_CAP = 0.32
+
+# Dostępność v2: kara wyłącznie za TWARDĄ kolizję jawnych dat (kolumna albo
+# explicit available_from z notatek) ze startem Championa. Zero decay i zero
+# oceniania dat WYPROWADZANYCH z wypowiedzenia — to była przyczyna NO-GO
+# fallbacku (R@20n −24%): karał kandydatów bogatych w dane względem tych bez
+# żadnego sygnału. Grace 30 dni, bo starty projektów się przesuwają.
+_AVAILABILITY_CONFLICT_GRACE_DAYS = 30
+_AVAILABILITY_CONFLICT_PENALTY = 0.10
 
 
 def _champion_seniority_factor(
@@ -1199,6 +1212,49 @@ def _parse_champion_date(
         return date(y, mo, d)
     except ValueError:
         return None
+
+
+def _notes_explicit_available_date(
+    candidate: Candidate, *, today: Optional[date] = None
+) -> Optional[date]:
+    """WYŁĄCZNIE jawna data z notatek (available_from) — bez wyprowadzania
+    z wypowiedzenia. Osobny helper od `_notes_available_date`, bo kara za
+    kolizję (v2) nie może dziedziczyć derywacji, która pogrzebała fallback."""
+
+    availability = _notes_insights(candidate).get("availability")
+    if not isinstance(availability, dict):
+        return None
+    return _parse_champion_date(availability.get("available_from"), today=today)
+
+
+def _champion_availability_conflict_factor(
+    candidate: Candidate, job: Job, *, today: Optional[date] = None
+) -> tuple[float, Optional[str]]:
+    """(mnożnik totalu, powód) — kara wyłącznie za twardą kolizję jawnych dat.
+
+    Wymaga OBU stron jawnie: start z dokumentu Championa ORAZ data dostępności
+    kandydata z kolumny albo explicit z notatek. Brak którejkolwiek = 1.0
+    (warstwa dostępności zachowuje się jak dotąd). Kolizja = dostępny później
+    niż start + grace; pojedyncza stała kara, bez krzywej decay.
+    """
+
+    if not _availability_conflict_enabled():
+        return 1.0, None
+    start = _parse_champion_date(_champion_dict(job).get("start_date"), today=today)
+    if start is None:
+        return 1.0, None
+    available = getattr(candidate, "availability_date", None)
+    if available is None:
+        available = _notes_explicit_available_date(candidate, today=today)
+    if available is None:
+        return 1.0, None
+    late_days = (available - start).days
+    if late_days <= _AVAILABILITY_CONFLICT_GRACE_DAYS:
+        return 1.0, None
+    return 1.0 - _AVAILABILITY_CONFLICT_PENALTY, (
+        f"dostępność: {available.isoformat()} vs start {start.isoformat()} "
+        f"(+{late_days} dni, kara {_AVAILABILITY_CONFLICT_PENALTY:.0%})"
+    )
 
 
 def _notes_available_date(
@@ -1547,6 +1603,24 @@ async def score_candidate_job(
     seniority_factor, seniority_reason = _champion_seniority_factor(candidate, job)
     if seniority_factor < 1.0 and total > 0:
         total *= seniority_factor
+    # Kary MNOŻĄ SIĘ świadomie (seniority × dostępność): to niezależne ryzyka
+    # i kandydat z oboma jest gorszym zakładem niż z jednym — maks. łącznie
+    # 0.68 × 0.90 ≈ −39%. Werdykt o skali wydaje pomiar A/B, nie intuicja.
+    availability_factor, availability_reason = _champion_availability_conflict_factor(
+        candidate, job
+    )
+    if availability_factor < 1.0 and total > 0:
+        total *= availability_factor
+        # Ślad w logach jak przy karze seniority — bez niego dochodzenie
+        # regresu nie widzi, którzy kandydaci dostali cięcie.
+        logger.debug(
+            "availability_conflict_penalty",
+            extra={
+                "candidate_id": candidate.id,
+                "job_id": job.id,
+                "reason": availability_reason,
+            },
+        )
 
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
     # Structured event for log aggregation (JSON formatter reshapes extras).
