@@ -957,7 +957,7 @@ async def update_order_group(
 async def delete_order_group(
     client_id: int,
     group_id: int,
-    user: DlAssignedOrAdmin,
+    user: OrderLifecycleUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuwa błędnie założone zamówienie WRAZ z jego liniami.

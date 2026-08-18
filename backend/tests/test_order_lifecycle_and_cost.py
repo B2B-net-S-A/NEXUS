@@ -531,6 +531,40 @@ async def test_lifecycle_actions_allowed_for_hor_and_finance(
     )
     assert resp.status_code == 200, resp.text
 
+    # WSZYSTKIE cztery akcje, nie tylko zakończenie. Pierwsza wersja tego testu
+    # sprawdzała samo `close` i przepuściła błąd: `delete_order_group` wisiał na
+    # `DlAssignedOrAdmin`, który odrzuca rolę Finanse na poziomie zależności —
+    # więc ta rola mogła zamknąć zamówienie, ale nie usunąć.
+    reopened = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/reopen",
+        headers=headers,
+    )
+    assert reopened.status_code == 200, reopened.text
+
+    extended = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
+        json={
+            "order_number": f"ext-{uuid.uuid4().hex[:4]}",
+            "start_date": _TODAY.isoformat(),
+            "lines": [],
+        },
+        headers=headers,
+    )
+    assert extended.status_code == 201, extended.text
+
+    deleted_line = await app_client.delete(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}",
+        headers=headers,
+    )
+    assert deleted_line.status_code == 204, deleted_line.text
+
+    deleted_group = await app_client.delete(
+        f"/api/clients/{client_id}/order-groups/{group['id']}",
+        headers=headers,
+    )
+    assert deleted_group.status_code == 204, deleted_group.text
+
 
 async def test_rate_gate_did_not_leak_to_lifecycle_roles(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
@@ -912,3 +946,69 @@ async def test_raising_the_budget_reopens_an_exhausted_order(
     body = resp.json()
     assert body["status"] == "active"
     assert body["budget_remaining"] == pytest.approx(20000.0)
+
+
+async def test_re_exhaustion_after_a_budget_raise_alerts_again(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Drugie wyczerpanie po korekcie kwoty MUSI dać nowy alert.
+
+    Klucz oparty wyłącznie na `group.id` wpadałby w `ON CONFLICT DO NOTHING`
+    i nikt by się o tym nie dowiedział — a to jest moment, w którym kończą się
+    pieniądze na projekcie.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.dl_alert import ALERT_COST_ORDER_EXHAUSTED, DlAlert
+    from sqlalchemy import select
+
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    _, dl_email, dl_pass = await _seed_user("delivery_lead", client_id)
+    await _headers_for(app_client, dl_email, dl_pass)
+
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        order_number="4500719658",
+        is_cost_based=True,
+        budget_amount=10000,
+    )
+    finance = await _finance_headers(app_client)
+    await _import_sheet(
+        app_client, finance, _sheet([(names[0], 5, "SAP 4500719658", 10000)])
+    )
+
+    # Korekta kwoty w górę → zamówienie wraca na `active`…
+    raised = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}",
+        json={"budget_amount": 15000},
+        headers=app_auth_headers,
+    )
+    assert raised.status_code == 200, raised.text
+    assert raised.json()["status"] == "active"
+
+    # …i zostaje wyczerpane po raz drugi.
+    exhausted_again = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}",
+        json={"budget_amount": 10000},
+        headers=app_auth_headers,
+    )
+    assert exhausted_again.status_code == 200, exhausted_again.text
+    assert exhausted_again.json()["status"] == "exhausted"
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(DlAlert).where(
+                    DlAlert.client_id == client_id,
+                    DlAlert.alert_type == ALERT_COST_ORDER_EXHAUSTED,
+                )
+            )
+        ).all()
+        assert len(rows) >= 2, (
+            "drugie wyczerpanie nie wygenerowało alertu — klucz dedupu nie "
+            "rozróżnia epizodów budżetu"
+        )

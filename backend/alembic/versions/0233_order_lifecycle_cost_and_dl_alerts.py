@@ -412,9 +412,19 @@ def upgrade() -> None:
         "dl_alerts",
         ["alert_type", "user_id", "client_id", "created_at"],
     )
+    # Zakładka „Historia" pyta o `status = 'handled'`, czego indeks częściowy
+    # wyżej (`WHERE status = 'new'`) nie obsługuje. Log NIE jest kasowany —
+    # rośnie o każdą cotygodniową powtórkę — więc bez tego indeksu widok
+    # historii z czasem skanuje całą tabelę.
+    op.create_index(
+        "ix_dl_alerts_user_status",
+        "dl_alerts",
+        ["user_id", "status", "created_at"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_dl_alerts_user_status", table_name="dl_alerts")
     op.drop_index("ix_dl_alerts_rule_scope", table_name="dl_alerts")
     op.drop_index("ix_dl_alerts_open", table_name="dl_alerts")
     op.drop_table("dl_alerts")

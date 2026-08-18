@@ -214,7 +214,13 @@ async def upsert_invoice(
     )
     row_id = await db.scalar(stmt)
     row = await db.get(ClientOrderInvoiceConsumption, row_id)
-    assert row is not None
+    if row is None:
+        # Nie `assert` — ten znika pod `python -O`, a wtedy `None` wędruje do
+        # wywołującego i wybucha AttributeError bez śladu, skąd przyszedł.
+        # W praktyce `RETURNING` zawsze oddaje id (także w gałęzi DO UPDATE).
+        raise RuntimeError(
+            f"upsert_invoice: brak wiersza konsumpcji po zapisie (id={row_id})"
+        )
     return row
 
 

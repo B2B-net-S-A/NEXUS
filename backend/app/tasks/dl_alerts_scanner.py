@@ -235,15 +235,19 @@ async def _run_rules(db: AsyncSession) -> dict[str, int]:
     created: dict[str, int] = {}
     for name, rule in ALERT_RULES.items():
         try:
-            created[name] = await rule(db)
+            # SAVEPOINT, nie wspólna transakcja z `db.rollback()` w except.
+            # Rollback SESJI cofa też wstawienia reguł, które już się udały —
+            # commit na końcu zapisywałby wtedy pustkę, a `created[...]`
+            # raportowałoby liczby wierszy, których w bazie nie ma. To ten sam
+            # tryb awarii co przy fazie `workflows` importu Traffita.
+            async with db.begin_nested():
+                created[name] = await rule(db)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             # Padnięta reguła nie może zabrać pozostałych: to cztery niezależne
-            # warunki, a wspólny rollback zamieniłby jeden błąd w ciszę na
-            # całej sekcji.
+            # warunki. Savepoint cofa wyłącznie jej własną pracę.
             logger.exception("dl_alerts rule %s failed", name)
-            await db.rollback()
             created[name] = 0
     await db.commit()
     return created

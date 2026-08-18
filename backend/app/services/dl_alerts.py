@@ -27,19 +27,20 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.client import Client
-from app.models.client_order_group import ClientOrderGroup
+from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
 from app.models.dl_alert import (
     ALERT_COST_ORDER_EXHAUSTED,
     DL_ALERT_STATUS_HANDLED,
     DlAlert,
 )
 from app.models.team_structure import DeliveryLeadClientAssignment
+from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
 
 
 async def dl_user_ids_for_client(db: AsyncSession, client_id: int) -> list[int]:
@@ -171,10 +172,32 @@ async def emit_cost_order_exhausted(
 ) -> list[DlAlert]:
     """Alert o wyczerpaniu budżetu zamówienia kosztowego.
 
-    Jednorazowy — samo zdarzenie jest jednorazowe (zamówienie trafia do
-    zakończonych), więc ponawianie go co tydzień mówiłoby o czymś, co już się
-    nie zmienia.
+    Nie powtarza się co tydzień — samo zdarzenie jest jednorazowe (zamówienie
+    trafia do zakończonych), więc ponawianie mówiłoby o czymś, co już się nie
+    zmienia.
+
+    Ale „jednorazowy" znaczy „raz na EPIZOD", nie „raz w życiu zamówienia":
+    operator może podnieść kwotę (``settle_group`` odsłania wtedy budżet
+    i wraca na ``active``), a kolejny import albo korekta znów ją wyczerpać.
+    Przy kluczu opartym wyłącznie na ``group.id`` drugie wyczerpanie wpadłoby
+    w ``ON CONFLICT DO NOTHING`` i **nikt by się o nim nie dowiedział** —
+    a to moment, w którym kończą się pieniądze na projekcie.
+
+    Epizod liczymy LICZBĄ PRZEJŚĆ zapisanych w historii zamówienia, nie kwotą
+    budżetu: kwota podniesiona i wróconą do poprzedniej wartości dałaby ten sam
+    klucz co pierwszy raz. Zdarzenie ``wyczerpanie`` powstaje dokładnie raz na
+    przejście ``active → exhausted`` (obie ścieżki emisji zapisują je przed
+    wywołaniem tej funkcji), więc licznik jest deterministyczny i stały
+    w obrębie jednej transakcji — ponowienie tego samego przejścia nadal
+    trafia w ten sam klucz. Ten sam wzorzec „epizod w kluczu" co
+    w ``ContractAlertDedup``, gdzie klucz niesie datę końca umowy.
     """
+    episode = await db.scalar(
+        select(func.count(ClientOrderGroupEvent.id)).where(
+            ClientOrderGroupEvent.group_id == group.id,
+            ClientOrderGroupEvent.event_type == EVENT_BUDGET_EXHAUSTED,
+        )
+    )
     user_ids = await dl_user_ids_for_client(db, group.client_id)
     # Nazwa klienta JAWNYM zapytaniem, nie przez `group.client`: ta grupa
     # przychodzi ze ścieżki importu, gdzie eager-loadowana jest wyłącznie
@@ -189,7 +212,7 @@ async def emit_cost_order_exhausted(
         alert_type=ALERT_COST_ORDER_EXHAUSTED,
         user_ids=user_ids,
         client_id=group.client_id,
-        entity_key=f"group:{group.id}",
+        entity_key=f"group:{group.id}:ep:{int(episode or 0)}",
         title=f"{client_name} — zamówienie {group.order_number} wyczerpane",
         message=(
             f"⚠ {client_name} — zamówienie {group.order_number} zostało "

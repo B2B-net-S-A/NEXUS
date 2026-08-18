@@ -102,6 +102,15 @@ class DlAlert(Base):
             "client_id",
             "created_at",
         ),
+        # Zakładka „Historia" pyta o `status = 'handled'`, czego indeks
+        # częściowy wyżej nie obsługuje. Log nie jest kasowany, więc bez tego
+        # widok historii z czasem skanuje całą tabelę.
+        Index(
+            "ix_dl_alerts_user_status",
+            "user_id",
+            "status",
+            "created_at",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

@@ -4816,6 +4816,8 @@ _INDEX_STATEMENTS = [
     "ON dl_alerts (user_id, created_at) WHERE status = 'new'",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_rule_scope "
     "ON dl_alerts (alert_type, user_id, client_id, created_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_user_status "
+    "ON dl_alerts (user_id, status, created_at)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notifications_related_entity_id ON notifications (related_entity_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_stage_defs_external_id ON pipeline_stage_defs (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_templates_external_id ON pipeline_templates (external_id)",
