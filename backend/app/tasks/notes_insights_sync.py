@@ -84,6 +84,7 @@ async def save_state(stats: dict[str, Any]) -> None:
                         CAST(:stats AS jsonb), now(), now())
                 ON CONFLICT (phase) DO UPDATE SET
                     last_synced_at = now(),
+                    last_run_started_at = now(),
                     last_run_finished_at = now(),
                     last_status = EXCLUDED.last_status,
                     stats = EXCLUDED.stats,
