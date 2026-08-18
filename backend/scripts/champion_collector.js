@@ -90,18 +90,23 @@ async function runChampionCollector({
       });
       if (!fr.ok) throw new Error(`fileContent ${fr.status}`);
       const blob = await fr.blob();
-      const fd = new FormData();
-      fd.append("file", blob, t.name || `champ_${t.rid}.${t.ext || "docx"}`);
-      fd.append("external_rid", String(t.rid));
-      fd.append("file_id", String(t.file));
-      // 429 = rate limit — backoff i ponów (do 3 prób), zamiast liczyć
-      // rate-limit jako błąd wiersza.
+      // 429 = rate limit — backoff i ponów (do 3 prób). FormData budowany
+      // W KAŻDEJ próbie: spec nie gwarantuje ponownego odczytu body po
+      // pierwszym wysłaniu (w niektórych silnikach retry poszedłby z pustym
+      // multipartem i skończył 422).
+      const buildForm = () => {
+        const fd = new FormData();
+        fd.append("file", blob, t.name || `champ_${t.rid}.${t.ext || "docx"}`);
+        fd.append("external_rid", String(t.rid));
+        fd.append("file_id", String(t.file));
+        return fd;
+      };
       let ir;
       for (let attempt = 0; ; attempt++) {
         ir = await fetch(`${nexusBase}/api/admin/champion-profiles/ingest`, {
           method: "POST",
           headers: H,
-          body: fd,
+          body: buildForm(),
         });
         if (ir.status !== 429 || attempt >= 3) break;
         console.warn(`429 dla rid ${t.rid} — backoff ${(attempt + 1) * 20}s`);

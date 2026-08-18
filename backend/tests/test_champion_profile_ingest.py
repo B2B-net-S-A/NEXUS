@@ -76,6 +76,51 @@ async def test_ingest_fill_empty_never_overwrites(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_existing_champion_with_empty_skills_reports_ok(monkeypatch):
+    """Profil już jest, ale skills puste → zapis skills i outcome "ok".
+
+    "champion_skipped_nonempty" obok must_written=True byłby wewnętrznie
+    sprzeczny — werdykt liczy się na końcu ze stanu faktycznego.
+    """
+    import app.services.champion_profile_ingest as m
+
+    job = SimpleNamespace(
+        id=11,
+        external_source="traffit",
+        external_id="5000",
+        champion_profile={"role_name": "JEST"},
+        must_skills=[],
+        nice_skills=None,
+    )
+
+    class _Res:
+        def scalar_one_or_none(self):
+            return job
+
+    class _Db:
+        async def execute(self, stmt):
+            return _Res()
+
+        async def commit(self):
+            pass
+
+    async def _noop(*a, **k):
+        pass
+
+    monkeypatch.setattr(
+        "app.services.index_outbox_service.record_bulk_reindex", _noop
+    )
+    monkeypatch.setattr("app.services.match_score_cache.mark_stale_for_job", _noop)
+
+    out = await m.ingest_parsed_profile(
+        _Db(), external_rid=5000, file_id=2, parsed={"must_skills": [{"name": "Go"}]}
+    )
+    assert out["outcome"] == "ok"
+    assert out["champion_written"] is False and out["must_written"] is True
+    assert job.champion_profile == {"role_name": "JEST"}, "profil nietknięty"
+
+
+@pytest.mark.asyncio
 async def test_ingest_writes_empty_fields_and_marks_stale(monkeypatch):
     import app.services.champion_profile_ingest as m
 

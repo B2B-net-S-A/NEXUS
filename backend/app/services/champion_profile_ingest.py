@@ -194,9 +194,8 @@ async def ingest_parsed_profile(
 
     changed = False
     existing = job.champion_profile
-    if isinstance(existing, dict) and existing:
-        outcome["outcome"] = "champion_skipped_nonempty"
-    else:
+    champion_present = isinstance(existing, dict) and bool(existing)
+    if not champion_present:
         job.champion_profile = build_champion_dict(parsed, file_id)
         outcome["champion_written"] = True
         changed = True
@@ -217,6 +216,14 @@ async def ingest_parsed_profile(
         ]
         outcome["nice_written"] = True
         changed = True
+
+    # Werdykt na KOŃCU, ze stanu faktycznego: "champion_skipped_nonempty"
+    # wyłącznie gdy profil już był I nic innego nie dopisaliśmy — outcome
+    # z dopisanym must/nice obok "skipped" byłby wewnętrznie sprzeczny
+    # (endpoint dziś short-circuituje wcześniej, ale wywołanie bezpośrednie
+    # nie może kłamać).
+    if champion_present and not changed:
+        outcome["outcome"] = "champion_skipped_nonempty"
 
     if changed:
         from app.services.index_outbox_service import JOB, record_bulk_reindex
