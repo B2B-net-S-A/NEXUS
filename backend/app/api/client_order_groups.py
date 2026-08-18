@@ -1645,7 +1645,11 @@ async def swap_consultant(
         "swap_date": payload.swap_date.isoformat(),
         "old_order_id": old.id,
         "old_consultant": old_who,
-        "old_rate_cost": str(old.md_rate_cost),
+        # `str(None)` zapisałoby do dziennika literał "None" — wartość, która
+        # w rozliczeniu faktury czyta się jak stawka, a nie jak jej brak.
+        # `rate_cost` jest wymagane w schemacie, więc to nie powinno zajść;
+        # dziennik jednak przeżywa dane starsze od walidacji.
+        "old_rate_cost": None if old.md_rate_cost is None else str(old.md_rate_cost),
         "old_rate_revenue": str(old.md_rate_revenue),
         "new_order_id": new_line.id,
         "new_consultant": new_who,

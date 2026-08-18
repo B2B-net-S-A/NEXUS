@@ -707,6 +707,36 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     expect(dlPortalApi.createOrderExtension).not.toHaveBeenCalled();
   });
 
+  it("drugi zapis PRZED odświeżeniem trafia w ten sam szkic, nie tworzy kolejnego", async () => {
+    // `onChange()` odświeża listę asynchronicznie, więc w okienku między
+    // utworzeniem szkicu a nadejściem danych `activeOrder` jest jeszcze null.
+    // Bez zapamiętanego id kolejny zapis zakładałby DRUGI szkic tego samego
+    // zamówienia — a wybór części umowy stawia obowiązkowy krok dokładnie
+    // przed innymi edycjami, czyli robi z tego zwykłą kolejność klikania.
+    const user = userEvent.setup();
+    renderTab(EZDROWIE_CLIENT_ID);
+
+    await user.selectOptions(await screen.findByLabelText("Część umowy"), "cz2");
+    await waitFor(() =>
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Edytuj: Numer zamówienia/i }),
+    );
+    await user.type(screen.getByLabelText("Numer zamówienia"), "45767");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(
+        EZDROWIE_CLIENT_ID,
+        4242,
+        { title: "45767" },
+      ),
+    );
+    expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1);
+  });
+
   it("u klienta spoza e-Zdrowia część umowy się NIE pojawia", async () => {
     // Bramka jest po `client_id`, nie po nazwie — a backend odrzuca część
     // umowy przysłaną przez kogokolwiek innego.

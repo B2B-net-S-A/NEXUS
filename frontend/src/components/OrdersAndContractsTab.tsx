@@ -723,6 +723,14 @@ function ContractorCard({
   // się dotąd tylko przy `activeOrder` — więc kontraktor bez zamówienia nie
   // miał ani jak jej podać, ani skąd wiedzieć, że jej brakuje.
   const [pendingPart, setPendingPart] = useState("");
+  // Id szkicu założonego w TEJ sesji karty. `onChange()` odświeża listę
+  // asynchronicznie, więc między utworzeniem szkicu a nadejściem danych
+  // `activeOrder` jest jeszcze `null` — bez tej pamięci kolejny zapis w tym
+  // okienku wpadałby w gałąź tworzenia i zakładał DRUGI szkic tego samego
+  // zamówienia. Ryzyko istniało od pierwszej wersji tej ścieżki, ale wybór
+  // części umowy dokłada obowiązkowy krok bezpośrednio przed innymi edycjami,
+  // czyli robi z rzadkiego wyścigu zwykłą kolejność klikania.
+  const [draftOrderId, setDraftOrderId] = useState<number | null>(null);
 
   const { activeOrder, futureOrders, historyOrders } = useMemo(
     () => splitOrders(contractor.orders),
@@ -747,8 +755,9 @@ function ContractorCard({
     patch: Partial<ClientOrderUpdate>,
     opts?: { title?: string; projectPart?: string },
   ) {
-    if (activeOrder) {
-      await dlPortalApi.updateOrder(clientId, activeOrder.id, patch);
+    const existingId = activeOrder?.id ?? draftOrderId;
+    if (existingId !== null && existingId !== undefined) {
+      await dlPortalApi.updateOrder(clientId, existingId, patch);
       return;
     }
     // Centrum e-Zdrowia: bez części umowy `POST /orders` zwraca 422, a
@@ -782,6 +791,7 @@ function ContractorCard({
       form.append("rate_client", String(patch.rate_client));
     }
     const created = await dlPortalApi.createOrderExtension(clientId, form);
+    setDraftOrderId(created.data.id);
     // Stawka KOSZTOWA mieszka na kontrakcie, a `POST /orders` jej nie
     // przyjmuje — dosyłamy ją PATCH-em na świeżo utworzone zamówienie, którego
     // handler przepisuje ją na kontrakt.
