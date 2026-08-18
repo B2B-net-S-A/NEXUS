@@ -161,7 +161,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_backfill'",
     # 0230: cykliczna ekstrakcja faktów z notatek (notes_insights_sync)
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'notes_extraction'",
-    # 0231: cotygodniowy digest dopasowań (match_digest_loop)
+    # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
     # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
@@ -3189,7 +3189,7 @@ _COLUMN_STATEMENTS = [
             FOREIGN KEY (file_uploaded_by) REFERENCES users(id) ON DELETE SET NULL;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
-    # ── 0231: cykl życia zamówienia + zamówienie kosztowe ───────────────────
+    # ── 0233: cykl życia zamówienia + zamówienie kosztowe ───────────────────
     # Kolumny NAJPIERW, bo referencje (dl_alerts, wiersze importu) muszą mieć
     # do czego wskazać; kolejność w tej liście jest wykonywana dosłownie.
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
@@ -3223,7 +3223,7 @@ _COLUMN_STATEMENTS = [
             REFERENCES client_order_groups(id) ON DELETE SET NULL;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
-    # 0231: rozliczenie fakturami. Lustro client_order_md_consumptions —
+    # 0233: rozliczenie fakturami. Lustro client_order_md_consumptions —
     # UNIQUE na (order_id, period_month) jest tu KLUCZEM IDEMPOTENCJI, więc
     # tworzone razem z tabelą, nie w _INDEX_STATEMENTS (tabela bez niego przez
     # jeden boot przyjęłaby duplikaty, których potem nie da się już wstawić).
@@ -3247,7 +3247,7 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_consumptions_order_month "
     "ON client_order_invoice_consumptions (order_id, period_month)",
-    # 0231: „Uwagi" i „Faktura" z arkusza + wynik dopasowania kosztowego.
+    # 0233: „Uwagi" i „Faktura" z arkusza + wynik dopasowania kosztowego.
     "ALTER TABLE md_consumption_import_rows ADD COLUMN IF NOT EXISTS notes_raw TEXT NULL",
     "ALTER TABLE md_consumption_import_rows ADD COLUMN IF NOT EXISTS "
     "order_number_hint VARCHAR(64) NULL",
@@ -3268,7 +3268,7 @@ _COLUMN_STATEMENTS = [
     "rows_cost_applied INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE md_consumption_imports ADD COLUMN IF NOT EXISTS "
     "rows_cost_unmatched INTEGER NOT NULL DEFAULT 0",
-    # 0231: powiadomienia Delivery Leada. UNIQUE na dedupe_key tworzone razem
+    # 0233: powiadomienia Delivery Leada. UNIQUE na dedupe_key tworzone razem
     # z tabelą — to on jest atomowym claimem (ON CONFLICT DO NOTHING), więc
     # tabela bez niego przez jeden boot rozmnożyłaby alerty przy każdym
     # przebiegu skanera.
@@ -4440,14 +4440,14 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_finance_import_runs_period_year
             CHECK (period_year BETWEEN 2000 AND 2100);
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0231 — cykl życia grupy zamówień i zamówienie kosztowe. DROP przed ADD:
+    # 0233 — cykl życia grupy zamówień i zamówienie kosztowe. DROP przed ADD:
     # domena statusu i domena zdarzeń będą jeszcze rosły, a samo `EXCEPTION
     # WHEN duplicate_object` zostawiłoby wtedy na prodzie stary, węższy CHECK
     # i pierwsza nowa wartość leciałaby IntegrityError (błąd z 0226).
     #
     # NOT VALID: istniejące wiersze spełniają te warunki z definicji (same
     # defaulty), więc skan całej tabeli pod ACCESS EXCLUSIVE nic by nie wniósł.
-    # 0231 — linia zamówienia kosztowego ma obie stawki i NIE ma budżetu MD.
+    # 0233 — linia zamówienia kosztowego ma obie stawki i NIE ma budżetu MD.
     # CHECK z 0227 wymagał `md_rate_revenue IS NULL` przy pustym budżecie, więc
     # bez tego rozluźnienia dodanie konsultanta do zamówienia kosztowego pada
     # na IntegrityError. Gwarancja „budżet wymaga dodatniej stawki" zostaje.
@@ -4506,7 +4506,7 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_client_order_groups_closure
             CHECK (status <> 'completed' OR closure_date IS NOT NULL) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0231 — pięć nowych typów zdarzeń cyklu życia. Ten CHECK jest dokładnie
+    # 0233 — pięć nowych typów zdarzeń cyklu życia. Ten CHECK jest dokładnie
     # tym, który migracja 0227 zapisała jako zamkniętą listę; poszerzenie MUSI
     # przejść przez DROP, inaczej prod odrzuci „zakonczenie" i zamknięcie
     # zamówienia wywali się w połowie transakcji.
@@ -4807,7 +4807,7 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_needs_sourcing ON jobs (needs_sourcing)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_train_name ON jobs (train_name)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_contract_id ON notes (contract_id)",
-    # 0231 — pigułka „Zakończeni"/„Wyczerpane" filtruje po statusie w obrębie
+    # 0233 — pigułka „Zakończeni"/„Wyczerpane" filtruje po statusie w obrębie
     # jednego klienta; skaner alertów pyta o otwarte wpisy per DL przy KAŻDYM
     # przebiegu, a log rośnie w nieskończoność (nie jest kasowany).
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_client_order_groups_status "

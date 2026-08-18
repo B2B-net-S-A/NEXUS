@@ -962,7 +962,7 @@ async def delete_order_group(
 ):
     """Usuwa błędnie założone zamówienie WRAZ z jego liniami.
 
-    Do 0231 zamówienie z liniami było odrzucane (409) — wtedy nie było czym
+    Do 0233 zamówienie z liniami było odrzucane (409) — wtedy nie było czym
     linii usunąć, więc jedynym wyjściem było zostawienie pomyłki w rejestrze.
     Teraz każda linia przechodzi przez tę samą regułę co
     ``DELETE …/lines/{id}``: znika tylko szkic bez śladów, a linia z historią

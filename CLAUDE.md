@@ -691,7 +691,7 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
 
 ## Cykl życia zamówienia, zamówienia kosztowe i powiadomienia Delivery Leada
 
-Migracja `0231`. Trzy obszary, jedna rewizja — spotykają się na jednym wierszu
+Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wierszu
 `client_order_groups`. Pełny opis: `docs/order-lifecycle-cost-and-dl-alerts-completion-report.md`.
 
 - **Zakładka „Zamówienia" renderuje DWA różne widoki i tickety dzielą się między nie
@@ -720,8 +720,8 @@ Migracja `0231`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
 - **Zamówienie kosztowe (`is_cost_based`) — kwota mieszka na GRUPIE, nie na linii.**
   To jedna pula dzielona przez kilku konsultantów; trzymanie jej per osoba wymagałoby
   podziału z góry, czego nikt nie robi. Linia kosztowa ma obie stawki i **puste pola MD** —
-  dlatego 0231 rozluźnia `ck_client_orders_md_coherence`: budżet nadal wymaga dodatniej
-  stawki przychodowej, ale stawka bez budżetu jest legalna (do 0231 taka linia w ogóle
+  dlatego 0233 rozluźnia `ck_client_orders_md_coherence`: budżet nadal wymaga dodatniej
+  stawki przychodowej, ale stawka bez budżetu jest legalna (do 0233 taka linia w ogóle
   nie dawała się zapisać).
 - **Trzy liczby, nie jedna.** Ticket nazywa „zużyciem" wartość, która MALEJE — czyli
   resztę. UI pokazuje `budget_amount` / `budget_used` / `budget_remaining` + pasek, bo

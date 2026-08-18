@@ -65,7 +65,7 @@ class ClientOrder(Base, TimestampMixin):
         #
         # Odwrotność NIE obowiązuje: linia zamówienia KOSZTOWEGO ma obie
         # stawki i nie ma budżetu MD (pula jest wspólna i mieszka na
-        # zamówieniu). Do 0231 pierwszy człon wymagał tu `md_rate_revenue IS
+        # zamówieniu). Do 0233 pierwszy człon wymagał tu `md_rate_revenue IS
         # NULL` i taka linia po prostu nie dawała się zapisać.
         CheckConstraint(
             "("

@@ -1,6 +1,6 @@
 # Zamówienia u klienta: cykl życia, zamówienia kosztowe, powiadomienia DL, PDF
 
-Pięć ticketów, jeden PR, jedna migracja (`0231`). Wszystkie dotykają zakładki
+Pięć ticketów, jeden PR, jedna migracja (`0233`). Wszystkie dotykają zakładki
 **Klienci → profil → Zamówienia**, która renderuje **dwa różne widoki** — i to
 rozwidlenie jest osią całej pracy.
 
@@ -19,7 +19,7 @@ rozwidlenie jest osią całej pracy.
 takiego, któremu minął termin, a to dwie różne decyzje operacyjne.
 
 Nowe trasy: `DELETE …/lines/{id}`, `DELETE …/{group}` (kasuje też linie — do
-0231 zwracało 409 i pomyłki zostawały w rejestrze na zawsze), `POST …/close`,
+0233 zwracało 409 i pomyłki zostawały w rejestrze na zawsze), `POST …/close`,
 `POST …/reopen`, `POST …/extend`.
 
 Trzy decyzje, które trzeba znać:
@@ -38,10 +38,10 @@ Trzy decyzje, które trzeba znać:
 ### 2. Zamówienia kosztowe (Polkomtel)
 
 Kwota mieszka na **grupie**, nie na linii: to jedna pula dzielona przez kilku
-konsultantów. Linia kosztowa ma obie stawki i **puste pola MD** — dlatego 0231
+konsultantów. Linia kosztowa ma obie stawki i **puste pola MD** — dlatego 0233
 rozluźnia `ck_client_orders_md_coherence`. Gwarancja, o którą chodziło, zostaje
 (budżet wymaga dodatniej stawki przychodowej — jest dzielnikiem), ale odwrotność
-przestaje obowiązywać. **Do 0231 linia kosztowa w ogóle nie dawała się zapisać.**
+przestaje obowiązywać. **Do 0233 linia kosztowa w ogóle nie dawała się zapisać.**
 
 `settle_group` przelicza całe zamówienie **od zera**, po `(period_month,
 order_id)`. To nie jest ostrożność, tylko mechanizm: razem z UNIQUE
@@ -173,7 +173,7 @@ nadpisuje po cichu. Wspólna warstwa: `lib/order-extraction.ts`.
 
 | Co | Wynik |
 |---|---|
-| Łańcuch migracji od zera na czystym Postgresie 16 (`… → 0230 → 0231`) | ✅ |
+| Łańcuch migracji od zera na czystym Postgresie 16 (`… → 0230 → 0233`) | ✅ |
 | Jedna głowa alembica (liczona AST-em) | ✅ 1 |
 | **Lustro `entrypoint.sh` uruchomione na bazie zatrzymanej na 0230** | ✅ 0 pominiętych instrukcji spośród nowych |
 | **Diff schematu: migracja vs lustro** (72 kolumny, CHECK-i, UNIQUE) | ✅ identyczne |

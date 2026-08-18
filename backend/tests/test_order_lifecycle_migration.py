@@ -14,7 +14,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 MIGRATION = (
-    BACKEND / "alembic" / "versions" / "0231_order_lifecycle_cost_and_dl_alerts.py"
+    BACKEND / "alembic" / "versions" / "0233_order_lifecycle_cost_and_dl_alerts.py"
 )
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 MAIN = BACKEND / "app" / "main.py"
@@ -63,8 +63,8 @@ def test_migration_chains_onto_the_single_head():
                     node.value, ast.Constant
                 ):
                     values[target.id] = node.value.value
-    assert values["revision"] == "0231_order_lifecycle_cost_and_dl_alerts"
-    assert values["down_revision"] == "0230_notes_extraction_ai_feature"
+    assert values["revision"] == "0233_order_lifecycle_cost_and_dl_alerts"
+    assert values["down_revision"] == "0232_strip_traffit_blacklist_marker"
 
 
 def test_only_one_alembic_head():
@@ -85,7 +85,7 @@ def test_only_one_alembic_head():
         and isinstance(node.value, ast.Constant)
         and isinstance(node.value.value, str)
     }
-    assert "0231_order_lifecycle_cost_and_dl_alerts" in referenced
+    assert "0233_order_lifecycle_cost_and_dl_alerts" in referenced
 
 
 def test_entrypoint_mirrors_every_new_table():

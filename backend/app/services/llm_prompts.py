@@ -195,7 +195,7 @@ CV_ENRICHMENT_BULK = PromptTemplate(
 
 ORDER_EXTRACTION = PromptTemplate(
     name="order_extraction",
-    # v2 (0231): doszedł `md_total`. Bump JEST konieczny — cache wyników
+    # v2 (0233): doszedł `md_total`. Bump JEST konieczny — cache wyników
     # promptu jest kluczowany wersją, więc bez niego zamówienia czytane po
     # wdrożeniu wracałyby ze starego cache'u BEZ nowego pola.
     version=2,

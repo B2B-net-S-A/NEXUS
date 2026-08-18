@@ -1,7 +1,7 @@
 """Cykl życia zamówienia, zamówienia kosztowe i powiadomienia Delivery Leada.
 
-Revision ID: 0231_order_lifecycle_cost_and_dl_alerts
-Revises: 0230_notes_extraction_ai_feature
+Revision ID: 0233_order_lifecycle_cost_and_dl_alerts
+Revises: 0232_strip_traffit_blacklist_marker
 Create Date: 2026-08-18
 
 Trzy tickety, jedna rewizja. Rozbicie na trzy dałoby wyłącznie trzy okazje do
@@ -45,8 +45,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0231_order_lifecycle_cost_and_dl_alerts"
-down_revision = "0230_notes_extraction_ai_feature"
+revision = "0233_order_lifecycle_cost_and_dl_alerts"
+down_revision = "0232_strip_traffit_blacklist_marker"
 branch_labels = None
 depends_on = None
 

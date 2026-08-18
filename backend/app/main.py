@@ -609,7 +609,7 @@ async def lifespan(app: FastAPI):
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
-        # Powiadomienia Delivery Leada (0231). Kill-switch sprawdzany PRZED
+        # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
         # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
         # 24 h po to, żeby sprawdzić tę samą flagę.
         "dl_alerts": asyncio.create_task(dl_alerts_loop()),
@@ -1913,7 +1913,7 @@ async def api_health_deep_check():
         ("client_order_md_consumptions", ClientOrderMdConsumption),
         ("md_consumption_imports", MdConsumptionImport),
         ("md_consumption_import_rows", MdConsumptionImportRow),
-        # 0231: rozliczenie zamówień kosztowych i powiadomienia Delivery Leada.
+        # 0233: rozliczenie zamówień kosztowych i powiadomienia Delivery Leada.
         # Ta sama reguła co wyżej — brak tabeli wyszedłby dopiero przy pierwszym
         # imporcie faktur albo pierwszym przebiegu skanera alertów, czyli po
         # zielonym deployu i bez związku czasowego z przyczyną.
