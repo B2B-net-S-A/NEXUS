@@ -861,6 +861,8 @@ async def extract_order_pdf(
         rate_unit=extraction.rate_unit if show_finance else None,
         total_value=extraction.total_value if show_finance else None,
         currency=extraction.currency if show_finance else None,
+        # Liczba MD jedzie NIEZREDAGOWANA — jest operacyjna, nie finansowa.
+        md_total=extraction.md_total,
         uncertain=extraction.uncertain,
         uncertain_reasons=reasons,
         fields_confidence=confidence,

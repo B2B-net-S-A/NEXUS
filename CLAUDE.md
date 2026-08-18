@@ -688,3 +688,91 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
   `SELECT id, name FROM clients WHERE name ILIKE '%BIK%' OR name ILIKE '%Polkomtel%' OR
   name ILIKE '%BNP%'`). Do tego czasu wszystko stoi bezczynnie i zakładka „Zamówienia"
   renderuje dotychczasowy widok jednoosobowy dla każdego klienta.
+
+## Cykl życia zamówienia, zamówienia kosztowe i powiadomienia Delivery Leada
+
+Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wierszu
+`client_order_groups`. Pełny opis: `docs/order-lifecycle-cost-and-dl-alerts-completion-report.md`.
+
+- **Zakładka „Zamówienia" renderuje DWA różne widoki i tickety dzielą się między nie
+  czysto.** `MultiConsultantOrdersTab` dla klientów z `MULTI_CONSULTANT_ORDER_CLIENT_IDS`
+  (BIK/Polkomtel/BNP), `OrdersAndContractsTab` dla wszystkich pozostałych
+  ([page.tsx:945](frontend/src/app/clients/[id]/page.tsx)). Zanim cokolwiek dodasz do
+  „zamówień", ustal, o którym widoku mowa — pole dołożone do złego jest **martwe**, bo
+  jego klienci tego ekranu nigdy nie widzą (dokładnie dlatego „Liczba MD" NIE trafiła do
+  `ExtendOrderDialog`).
+- **Cykl życia grupy jest STANEM, nie datą.** `status` ∈ `active | completed | exhausted`.
+  Data nie odróżnia zamówienia domkniętego świadomie od takiego, któremu minął termin,
+  a to dwie różne decyzje. `exhausted` dochodzi automatycznie przy zerowym budżecie
+  i **nie da się go cofnąć** przywróceniem (409) — tam problemem nie jest data, tylko
+  brak pieniędzy, więc właściwą akcją jest korekta kwoty albo nowe zamówienie.
+- **Zakończenie jest LUSTREM syncu terminacji kontraktu** ([contracts.py:2918](backend/app/api/contracts.py)):
+  data zapisuje się zawsze, ale `completed` dostają tylko linie, których dzień już
+  nadszedł. Bez tego zakończenie zaplanowane w przód wyłączałoby kogoś, kto dziś pracuje.
+- **Usunięcie nie kasuje linii z historią** — zdejmuje ją z grupy (`order_group_id=NULL`).
+  Twarde kasowanie tylko dla szkicu bez pliku PO, bez zużycia MD i bez faktur (ta sama
+  reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie **nie zapisuje zdarzenia**
+  i kasuje własny wpis `dodanie_konsultanta`, ale `zamiana_kontraktora` ZOSTAJE — mówi
+  o dwóch osobach naraz.
+- **Przedłużenie to NOWA grupa** z `predecessor_group_id`, nie edycja poprzedniej:
+  poprzednia musi zostać taka, jaka była, bo na jej podstawie rozliczono już faktury.
+  Typ rozliczenia DZIEDZICZY się po poprzedniku.
+- **Zamówienie kosztowe (`is_cost_based`) — kwota mieszka na GRUPIE, nie na linii.**
+  To jedna pula dzielona przez kilku konsultantów; trzymanie jej per osoba wymagałoby
+  podziału z góry, czego nikt nie robi. Linia kosztowa ma obie stawki i **puste pola MD** —
+  dlatego 0233 rozluźnia `ck_client_orders_md_coherence`: budżet nadal wymaga dodatniej
+  stawki przychodowej, ale stawka bez budżetu jest legalna (do 0233 taka linia w ogóle
+  nie dawała się zapisać).
+- **Trzy liczby, nie jedna.** Ticket nazywa „zużyciem" wartość, która MALEJE — czyli
+  resztę. UI pokazuje `budget_amount` / `budget_used` / `budget_remaining` + pasek, bo
+  jedno pole podpisane „zużycie", a pokazujące resztę, myli w rozmowie o pieniądzach.
+- **Rozliczenie przelicza się od zera przy każdej zmianie** (`cost_orders.settle_group`),
+  po `(period_month, order_id)`. To jest mechanizm idempotencji importu razem z UNIQUE
+  `(order_id, period_month)`, a stała kolejność jest tym, co sprawia, że odpowiedź na
+  pytanie „której osobie zabrakło budżetu" nie zmienia się między odczytami.
+  `settled_amount`/`unsettled_amount` są ZAPISANE, nie liczone przy odczycie.
+- **Reszta nie schodzi poniżej zera**, a nadwyżka ląduje jako `unsettled_amount` na
+  konkretnej linii — „budżet przekroczony o X" bez wskazania osoby nie daje się rozliczyć
+  z klientem. `budget_manual_adjustment` jest osobną kolumną (jak `md_manual_adjustment`):
+  korekta nadpisująca resztę wprost przeżyłaby do najbliższego importu.
+- **Import kosztowy to DRUGA, niezależna ścieżka w „Import zużycia MD"** (`/finance?view=md`),
+  nie w „Wynikach miesięcznych" — tamten moduł świadomie nie przechowuje „Uwag" i ta
+  decyzja zostaje. Numer wybierany jest przez KONFRONTACJĘ z istniejącymi zamówieniami
+  (`extract_order_number_candidates`), nie heurystyką „najdłuższy ciąg cyfr": obok numeru
+  stoi często rok albo numer transzy. Wiersz wchodzi na tę ścieżkę tylko gdy ma **numer
+  i kwotę** — bez kwoty nie ma czego odjąć, więc czerwień byłaby fałszywym alarmem.
+  `cost_status` jest OSOBNĄ kolumną od `status`: jeden wiersz bywa MD-dopasowany po
+  nazwisku i kosztowo-niedopasowany po numerze.
+- **Parser MD wyklucza nagłówki stawkowe** (`_MD_ANTI_HEADERS`). Realny arkusz z Finansów
+  ma obok siebie „Średnia Stawka MD" i „Ilość MD"; bez tego wygrywała pierwsza z brzegu
+  i system odejmował 1000 „dni" zamiast 15 — błąd CICHY, bo liczba jest poprawna
+  arytmetycznie, tylko opisuje co innego.
+- **`dl_alerts` to OSOBNA tabela, nie `notifications`.** Tamta zna wyłącznie `is_read`:
+  nie wie kto i kiedy sprawę załatwił, więc nie ma czasu reakcji, czyli nie ma czego
+  wyeksportować. Ma też dobowy indeks dedupu, który tłumiłby powtórki, i fail-closed
+  filtr widoczności, przez który rola Finanse i tak by tych wpisów nie zobaczyła.
+- **Powtórka co 7 dni jest NOWYM wierszem**, nie aktualizacją — raport ma pokazywać, ile
+  tygodni sprawa czekała. Numer okna wchodzi w `dedupe_key`; okno liczy się od daty
+  PIERWSZEGO alertu tej sprawy, nie od poniedziałku (inaczej wszystkie alerty
+  zsynchronizowałyby się w jeden dzień). Powtórki ustają po `handled` **albo** gdy warunek
+  ustąpi. Wpisy nie są kasowane — log JEST raportem.
+- **Uprawnienia cyklu życia są SZERSZE niż uprawnienia do stawek i to jest świadome.**
+  `_ORDER_LIFECYCLE_ROLES` = admin + head_of_recruitment + delivery_lead (przypisany)
+  + finance; `_has_md_line_management_role` (stawki) zostaje przy admin + DL. Dwie
+  konsekwencje do zapamiętania: **HoR dostaje te akcje u WSZYSTKICH klientów** (przechodzi
+  guardy globalnie, bez przypisania), a **rola `finance` widzi tu nazwiska konsultantów**,
+  od czego repo konsekwentnie ją odcina. Test `test_rate_gate_did_not_leak_to_lifecycle_roles`
+  broni granicy przed „uproszczeniem" obu list do jednej.
+  **Uwaga:** `finance` nie ma dziś ŻADNEGO wejścia nawigacyjnego do modułu Klienci
+  (`nav.clients` = role operacyjne), więc w praktyce przyciski klikną admin, HoR
+  i przypisany DL. Otwarcie modułu dla Finansów to osobna zmiana RBAC.
+- **Kontraktor bez zamówienia w widoku jednoosobowym** ma teraz edytowalne numer, okres
+  i obie stawki; pierwszy zapis zakłada szkic `ClientOrder`. To była przyczyna zgłoszenia
+  „u Banku Pocztowego nie da się nic wpisać" — u Aliora pola działały wyłącznie dlatego,
+  że jego zamówienia zostały kiedyś zaimportowane. Różnica DANYCH, nie konfiguracji.
+- **Odczyt PDF ma DWIE polityki nadpisywania i nie wolno ich ujednolicać:** widok MD pyta
+  „Tak/Nie" przy rozbieżności z ręcznym wpisem, widok jednoosobowy nadpisuje po cichu.
+  Oba wymogi są w ticketach wprost. Wspólna warstwa: `lib/order-extraction.ts`.
+- **Aktywacja na prodzie:** `COST_ORDER_CLIENT_IDS` = ID Polkomtela w Coolify (pusto =
+  checkbox „Zamówienie kosztowe" nie renderuje się nigdzie) oraz `DL_ALERTS_ENABLED=true`
+  (domyślnie `true`; wyłączenie kończy pętlę skanera PRZED nią, nie budzi procesu co 24 h).

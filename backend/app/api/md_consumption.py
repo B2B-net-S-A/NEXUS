@@ -28,11 +28,13 @@ i stawek: moduł Finanse nie jest powierzchnią kandydacką.
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,9 +42,14 @@ from app.api.financial_access import FinanceManageUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_group import ClientOrderGroup
+from app.models.client_order_group import GROUP_STATUS_EXHAUSTED, ClientOrderGroup
 from app.models.contract import Contract
 from app.models.md_consumption import (
+    ClientOrderInvoiceConsumption,
+    COST_ROW_APPLIED,
+    COST_ROW_STATUS_LABELS,
+    COST_ROW_UNMATCHED_CONSULTANT,
+    COST_ROW_UNMATCHED_NUMBER,
     IMPORT_ROW_APPLIED,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_STATUS_LABELS,
@@ -60,6 +67,7 @@ from app.schemas.md_consumption import (
 )
 from app.services.client_order_lines import (
     LineMatch,
+    active_cost_lines,
     active_md_lines,
     describe_import,
     match_by_name,
@@ -67,8 +75,23 @@ from app.services.client_order_lines import (
     record_event,
     upsert_consumption,
 )
-from app.services.md_import_parser import MdSheetFormatError, parse_md_sheet
-from app.services.multi_consultant_orders import EVENT_MD_IMPORT
+from app.services.cost_orders import (
+    describe_invoice_import,
+    quantize_money,
+    settle_group,
+    upsert_invoice,
+)
+from app.services.md_import_parser import (
+    MdSheetFormatError,
+    extract_order_number_candidates,
+    parse_md_sheet,
+)
+from app.services.dl_alerts import emit_cost_order_exhausted
+from app.services.multi_consultant_orders import (
+    EVENT_BUDGET_EXHAUSTED,
+    EVENT_INVOICE_IMPORT,
+    EVENT_MD_IMPORT,
+)
 
 router = APIRouter()
 
@@ -147,6 +170,15 @@ async def _row_to_read(db: AsyncSession, row: MdConsumptionImportRow) -> ImportR
         status_label=IMPORT_ROW_STATUS_LABELS.get(row.status, row.status),
         matched_order_id=row.matched_order_id,
         matched=options_by_id.get(row.matched_order_id or -1),
+        notes_raw=row.notes_raw,
+        order_number_hint=row.order_number_hint,
+        invoice_amount=row.invoice_amount,
+        cost_status=row.cost_status,
+        cost_status_label=(
+            COST_ROW_STATUS_LABELS.get(row.cost_status, row.cost_status)
+            if row.cost_status
+            else None
+        ),
         options=[
             options_by_id[int(oid)]
             for oid in (row.candidate_order_ids or [])
@@ -165,6 +197,8 @@ def _summary(batch: MdConsumptionImport) -> ImportSummary:
         rows_applied=batch.rows_applied,
         rows_ambiguous=batch.rows_ambiguous,
         rows_unmatched=batch.rows_unmatched,
+        rows_cost_applied=batch.rows_cost_applied,
+        rows_cost_unmatched=batch.rows_cost_unmatched,
         uploaded_by_user_id=batch.uploaded_by_user_id,
         created_at=batch.created_at,
     )
@@ -187,6 +221,15 @@ async def _recount(db: AsyncSession, batch: MdConsumptionImport) -> None:
     batch.rows_applied = sum(1 for s in statuses if s == IMPORT_ROW_APPLIED)
     batch.rows_ambiguous = sum(1 for s in statuses if s == IMPORT_ROW_NEEDS_ASSIGNMENT)
     batch.rows_unmatched = sum(1 for s in statuses if s == IMPORT_ROW_UNMATCHED)
+
+    cost_result = await db.execute(
+        select(MdConsumptionImportRow.cost_status).where(
+            MdConsumptionImportRow.import_id == batch.id
+        )
+    )
+    cost_statuses = [c for (c,) in cost_result if c is not None]
+    batch.rows_cost_applied = sum(1 for c in cost_statuses if c == COST_ROW_APPLIED)
+    batch.rows_cost_unmatched = len(cost_statuses) - batch.rows_cost_applied
 
 
 async def _apply_to_line(
@@ -264,6 +307,7 @@ async def create_import(
         raise HTTPException(422, detail=str(exc)) from exc
 
     candidates = await active_md_lines(db, period_month)
+    cost_candidates = await active_cost_lines(db, period_month)
 
     batch = MdConsumptionImport(
         period_month=period_month,
@@ -273,6 +317,14 @@ async def create_import(
     db.add(batch)
     await db.flush()
 
+    # Faktury tej samej osoby na tym samym zamówieniu są SUMOWANE przed
+    # zapisem, a nie zapisywane po kolei: klucz idempotencji to (linia,
+    # miesiąc), więc drugi wiersz nadpisałby pierwszy i kwota po cichu
+    # zniknęłaby z rozliczenia zamiast się do niego dodać.
+    pending_invoices: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    invoice_orders: dict[int, ClientOrder] = {}
+    touched_groups: dict[int, ClientOrderGroup] = {}
+
     for parsed_row in parsed.rows:
         matches = match_by_name(candidates, parsed_row.consultant_name)
         row = MdConsumptionImportRow(
@@ -281,6 +333,9 @@ async def create_import(
             consultant_name=parsed_row.consultant_name[:255],
             md_reported=parsed_row.md_reported,
             status=IMPORT_ROW_UNMATCHED,
+            notes_raw=parsed_row.notes_raw,
+            order_number_hint=parsed_row.order_number_hint,
+            invoice_amount=parsed_row.invoice_amount,
         )
         if len(matches) == 1:
             match = matches[0]
@@ -298,7 +353,37 @@ async def create_import(
         elif len(matches) > 1:
             row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
             row.candidate_order_ids = [m.order.id for m in matches]
+
+        # ── Ścieżka kosztowa: NIEZALEŻNA od dopasowania MD po nazwisku ──
+        _match_cost_row(
+            row,
+            parsed_row=parsed_row,
+            cost_candidates=cost_candidates,
+            pending_invoices=pending_invoices,
+            invoice_orders=invoice_orders,
+            touched_groups=touched_groups,
+        )
         db.add(row)
+
+    for order_id, amount in pending_invoices.items():
+        await upsert_invoice(
+            db,
+            order=invoice_orders[order_id],
+            period_month=period_month,
+            invoice_amount=amount,
+            import_id=batch.id,
+            user_id=user.id,
+        )
+
+    await db.flush()
+    for group in touched_groups.values():
+        await _settle_and_record(
+            db,
+            group=group,
+            period_month=period_month,
+            import_id=batch.id,
+            user_id=user.id,
+        )
 
     await db.flush()
     await _recount(db, batch)
@@ -306,6 +391,118 @@ async def create_import(
     await db.refresh(batch)
 
     return await _detail(db, batch, parsed_sheet=parsed)
+
+
+def _match_cost_row(
+    row: MdConsumptionImportRow,
+    *,
+    parsed_row,
+    cost_candidates: list[LineMatch],
+    pending_invoices: dict[int, Decimal],
+    invoice_orders: dict[int, ClientOrder],
+    touched_groups: dict[int, ClientOrderGroup],
+) -> None:
+    """Dopasuj wiersz do zamówienia kosztowego po numerze z „Uwag".
+
+    Wiersz wchodzi na tę ścieżkę tylko wtedy, gdy ma OBIE rzeczy: numer
+    w „Uwagach" i kwotę w „Fakturze". Bez kwoty nie ma czego odjąć, więc
+    oznaczanie takiego wiersza na czerwono byłoby fałszywym alarmem — a to on
+    ma kierować uwagę operatora tam, gdzie faktycznie zginęły pieniądze.
+
+    Numer wybieramy przez KONFRONTACJĘ z istniejącymi zamówieniami, a nie
+    heurystyką „najdłuższy ciąg cyfr": w komórce obok numeru zamówienia stoi
+    często rok albo numer transzy, a zgadywanie odjęłoby kwotę z cudzego
+    budżetu i wyszło dopiero na fakturze.
+    """
+    hints = extract_order_number_candidates(parsed_row.notes_raw)
+    amount = parsed_row.invoice_amount
+    if not hints or amount is None or quantize_money(amount) <= Decimal("0"):
+        return
+
+    by_number = {m.group.order_number.strip(): m.group for m in cost_candidates}
+    matched_number = next((h for h in hints if h in by_number), None)
+    if matched_number is None:
+        row.cost_status = COST_ROW_UNMATCHED_NUMBER
+        return
+
+    group = by_number[matched_number]
+    row.matched_group_id = group.id
+    row.order_number_hint = matched_number
+
+    lines = [m for m in cost_candidates if m.group.id == group.id]
+    named = match_by_name(lines, parsed_row.consultant_name)
+    if len(named) != 1:
+        # Zero trafień albo niejednoznaczność — w obu przypadkach system NIE
+        # zgaduje. Kwota trafiłaby wtedy na cudzą linię, a „Zafakturowano"
+        # przy konsultancie przestałoby zgadzać się z jego fakturami.
+        row.cost_status = COST_ROW_UNMATCHED_CONSULTANT
+        return
+
+    order = named[0].order
+    row.cost_status = COST_ROW_APPLIED
+    pending_invoices[order.id] += quantize_money(amount)
+    invoice_orders[order.id] = order
+    touched_groups[group.id] = group
+
+
+async def _settle_and_record(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    period_month: str,
+    import_id: int,
+    user_id: int,
+) -> None:
+    """Przelicz budżet zamówienia i dopisz jeden wpis do jego historii.
+
+    Jeden wpis na zamówienie, a nie na wiersz: historia ma odpowiadać na
+    pytanie „co zrobił import z tym zamówieniem", a nie odtwarzać arkusz.
+    """
+    before = group.budget_remaining
+    was_exhausted = group.status == GROUP_STATUS_EXHAUSTED
+    remaining = await settle_group(db, group)
+    total = await db.scalar(
+        select(func.coalesce(func.sum(ClientOrderInvoiceConsumption.invoice_amount), 0))
+        .join(ClientOrder, ClientOrder.id == ClientOrderInvoiceConsumption.order_id)
+        .where(
+            ClientOrder.order_group_id == group.id,
+            ClientOrderInvoiceConsumption.period_month == period_month,
+        )
+    )
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=None,
+        event_type=EVENT_INVOICE_IMPORT,
+        description=describe_invoice_import(
+            group_number=group.order_number,
+            period_month=period_month,
+            total=Decimal(str(total or 0)),
+        ),
+        payload={
+            "period_month": period_month,
+            "invoiced_total": str(quantize_money(total or 0)),
+            "budget_remaining_before": str(before) if before is not None else None,
+            "budget_remaining_after": str(remaining),
+            "import_id": import_id,
+        },
+        user_id=user_id,
+    )
+    if not was_exhausted and group.status == GROUP_STATUS_EXHAUSTED:
+        record_event(
+            db,
+            group_id=group.id,
+            order_id=None,
+            event_type=EVENT_BUDGET_EXHAUSTED,
+            description=(
+                f"Budżet zamówienia {group.order_number} został wyczerpany "
+                f"(import za {period_month}). Zamówienie przeniesione "
+                "do zakończonych."
+            ),
+            payload={"period_month": period_month, "import_id": import_id},
+            user_id=user_id,
+        )
+        await emit_cost_order_exhausted(db, group)
 
 
 async def _detail(

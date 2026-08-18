@@ -53,12 +53,22 @@ EVENT_CONSULTANT_ADDED = "dodanie_konsultanta"
 EVENT_MD_IMPORT = "import_md"
 EVENT_CONSULTANT_SWAPPED = "zamiana_kontraktora"
 EVENT_MANUAL_EDIT = "edycja_reczna"
+EVENT_ORDER_CLOSED = "zakonczenie"
+EVENT_ORDER_REOPENED = "przywrocenie"
+EVENT_BUDGET_EXHAUSTED = "wyczerpanie"
+EVENT_ORDER_EXTENDED = "przedluzenie"
+EVENT_INVOICE_IMPORT = "import_faktur"
 EVENT_TYPES: tuple[str, ...] = (
     EVENT_ORDER_CREATED,
     EVENT_CONSULTANT_ADDED,
     EVENT_MD_IMPORT,
     EVENT_CONSULTANT_SWAPPED,
     EVENT_MANUAL_EDIT,
+    EVENT_ORDER_CLOSED,
+    EVENT_ORDER_REOPENED,
+    EVENT_BUDGET_EXHAUSTED,
+    EVENT_ORDER_EXTENDED,
+    EVENT_INVOICE_IMPORT,
 )
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -67,6 +77,11 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     EVENT_MD_IMPORT: "Import MD",
     EVENT_CONSULTANT_SWAPPED: "Zamiana kontraktora",
     EVENT_MANUAL_EDIT: "Edycja ręczna",
+    EVENT_ORDER_CLOSED: "Zakończenie zamówienia",
+    EVENT_ORDER_REOPENED: "Przywrócenie zamówienia",
+    EVENT_BUDGET_EXHAUSTED: "Wyczerpanie budżetu",
+    EVENT_ORDER_EXTENDED: "Przedłużenie",
+    EVENT_INVOICE_IMPORT: "Import faktur",
 }
 
 
