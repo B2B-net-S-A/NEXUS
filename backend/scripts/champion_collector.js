@@ -90,10 +90,13 @@ async function runChampionCollector({
       });
       if (!fr.ok) throw new Error(`fileContent ${fr.status}`);
       const blob = await fr.blob();
-      // 429 = rate limit — backoff i ponów (do 3 prób). FormData budowany
+      // Backoff i ponów (do 3 prób) na rate-limit ORAZ na rzucony fetch.
+      // UWAGA: 429 od slowapi NIE przechodzi przez _cors (handler globalny,
+      // bez nagłówków CORS) — cross-origin przeglądarka widzi wtedy
+      // `TypeError: Failed to fetch`, NIE Response ze status===429. Dlatego
+      // retry łapie też wyjątek, a nie tylko kod statusu. FormData budowany
       // W KAŻDEJ próbie: spec nie gwarantuje ponownego odczytu body po
-      // pierwszym wysłaniu (w niektórych silnikach retry poszedłby z pustym
-      // multipartem i skończył 422).
+      // pierwszym wysłaniu.
       const buildForm = () => {
         const fd = new FormData();
         fd.append("file", blob, t.name || `champ_${t.rid}.${t.ext || "docx"}`);
@@ -101,14 +104,25 @@ async function runChampionCollector({
         fd.append("file_id", String(t.file));
         return fd;
       };
-      let ir;
+      let ir = null;
       for (let attempt = 0; ; attempt++) {
-        ir = await fetch(`${nexusBase}/api/admin/champion-profiles/ingest`, {
-          method: "POST",
-          headers: H,
-          body: buildForm(),
-        });
-        if (ir.status !== 429 || attempt >= 3) break;
+        try {
+          ir = await fetch(`${nexusBase}/api/admin/champion-profiles/ingest`, {
+            method: "POST",
+            headers: H,
+            body: buildForm(),
+          });
+          if (ir.status !== 429) break;
+        } catch (fetchErr) {
+          if (attempt >= 3) throw fetchErr;
+          console.warn(
+            `fetch padł dla rid ${t.rid} (CORS-owy 429 albo sieć) — ` +
+              `backoff ${(attempt + 1) * 20}s`,
+          );
+          await sleep((attempt + 1) * 20_000);
+          continue;
+        }
+        if (attempt >= 3) break;
         console.warn(`429 dla rid ${t.rid} — backoff ${(attempt + 1) * 20}s`);
         await sleep((attempt + 1) * 20_000);
       }
