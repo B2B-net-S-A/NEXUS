@@ -793,6 +793,15 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   `pipeline.py` — wszystkie `/clients/{id}?tab=zamowienia`), a strona trzymała `useState`
   na stałe `"profil"` i parametru nie czytała. Kliknięcie powiadomienia lądowało na
   Profilu i kazało odbiorcy szukać samodzielnie.
+  **Sam inicjalizator `useState` NIE wystarcza** — odpala się raz na cykl życia
+  komponentu, a użytkownik już na `/clients/1` klikający powiadomienie do
+  `/clients/1?tab=zamowienia` dostaje MIĘKKĄ nawigację App Routera: adres się zmienia,
+  komponent się nie odmontowuje, stan zostaje. Dla Delivery Leada siedzącego na profilu
+  klienta to scenariusz codzienny, nie brzegowy. Logika mieszka w
+  `frontend/src/lib/client-tab.ts` (`useClientTab`) właśnie po to, żeby dała się
+  przetestować bez montowania całego ciężkiego profilu — efekt zależy od WARTOŚCI
+  parametru, nie od tożsamości `searchParams`, więc ręczne kliknięcie w inną zakładkę
+  nie jest cofane przy najbliższym renderze.
 - **Aktywacja na prodzie: `COST_ORDER_CLIENT_IDS=15` (Polkomtel) USTAWIONE 2026-08-18.**
   Nie panelem i nie po SSH (klucze martwe, hasła do panelu nie znamy) — workflow
   **„Coolify set env"** (`.github/workflows/coolify-set-env.yml`, `workflow_dispatch`);

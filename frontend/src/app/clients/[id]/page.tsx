@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+
+import { useClientTab, type ClientTab } from "@/lib/client-tab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
@@ -696,28 +698,6 @@ function ContactsTab({ clientId }: { clientId: number }) {
 // Konsolidacja UX 2026-05-11: 12 tabów → 6. Pozostałe (Informacje, Materiały,
 // Cennik, Kontakty, Wiedza) wbudowane jako collapsibles w odpowiednich tabach.
 // Powiadomienia per-klient skasowane (globalny bell w topbarze wystarcza).
-type Tab =
-  | "profil"
-  | "projekty"
-  | "kontakty"
-  | "umowy-ramowe"
-  | "zamowienia"
-  | "analityka"
-  | "zespol";
-
-const TAB_KEYS: readonly Tab[] = [
-  "profil",
-  "projekty",
-  "kontakty",
-  "umowy-ramowe",
-  "zamowienia",
-  "analityka",
-  "zespol",
-] as const;
-
-function isTab(value: string | null): value is Tab {
-  return value !== null && (TAB_KEYS as readonly string[]).includes(value);
-}
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -730,10 +710,7 @@ export default function ClientDetailPage() {
   // i kazało odbiorcy szukać samodzielnie — czyli link obiecywał coś,
   // czego nie robił.
   const searchParams = useSearchParams();
-  const requestedTab = searchParams.get("tab");
-  const [activeTab, setActiveTab] = useState<Tab>(() =>
-    isTab(requestedTab) ? requestedTab : "profil",
-  );
+  const [activeTab, setActiveTab] = useClientTab(searchParams.get("tab"));
   const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
@@ -791,7 +768,7 @@ export default function ClientDetailPage() {
       </div>
     );
 
-  const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+  const TABS: { key: ClientTab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
