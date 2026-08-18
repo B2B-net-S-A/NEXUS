@@ -102,19 +102,44 @@ Kryterium GO bez zmian: R@20n bez regresu (≥ baseline − 0.002) ORAZ ≥1 met
 rankingowa > baseline + 0.002; od tej rundy dodatkowo potwierdzenie kierunku
 na holdoucie B.
 
-## Pomiary
+## Pomiary — komplet (18.08 wieczór)
 
-Wyniki biegów A/B uzupełniane po deployu (flagi default-OFF — merge niczego
-nie zmienia w zachowaniu proda do czasu flipów env).
+Orkiestrator post-deploy: baseline → multi-query → świeży zrzut z features →
+re-embed 57k do kolekcji side-by-side (~34 min, ~$12) → evale v3.
+Wszystko na zamrożonym zbiorze A, pula 2000, wagi 60/10/15/5/0.
 
-| eksperyment | zbiór | P@5 | R@20n | MRR | werdykt |
-|---|---|---|---|---|---|
-| baseline (wagi 60/10/15/5/0, pula 2000) | A | 0.256 | 0.200 | 0.463 | — |
-| linear 60/10/15/5/0 (referencja zrzutu) | train | 0.093 | 0.154 | 0.259 | — |
-| **GBDT d2×60 (CV po ofertach)** | train | 0.093 | **0.087** | 0.244 | **NO-GO** |
-| embedding v3 | A → B | — | — | — | po re-embed |
-| multi-query | A → B | — | — | — | po deployu |
-| title_match (simpleks) | świeży zrzut | — | — | — | po deployu |
+| eksperyment | zbiór | P@5 | R@20n | MRR | nDCG | werdykt |
+|---|---|---|---|---|---|---|
+| baseline | A | 0.248 | 0.199 | 0.461 | 0.162 | — |
+| multi-query | A | 0.248 | 0.199 | 0.461 | 0.162 | **NO-GO** (zero delty) |
+| embedding v3 | A | **0.220** | 0.191 | 0.432 | 0.171 | **NO-GO** (P@5 −11%, R −0.008) |
+| v3 + multi-query | A | 0.220 | 0.191 | 0.432 | 0.171 | NO-GO (jak v3) |
+| linear 60/10/15/5/0 (referencja zrzutu) | train | 0.093 | 0.154 | 0.259 | — | — |
+| GBDT d2×60 (CV po ofertach) | train | 0.093 | **0.087** | 0.244 | — | **NO-GO** |
+| title_match (simpleks 6D) | świeży zrzut | — | — | — | — | **NO-GO** (waga 0 w całym topie) |
+
+**Wnioski rundy 2 — wszystkie cztery eksperymenty jakościowe NO-GO, i to jest
+wynik, nie porażka:**
+
+- **Multi-query zero delty przy puli 2000** — spójnie z hybrydą: przy tej
+  wielkości puli dźwignie CZŁONKOSTWA są wyczerpane; zapytanie główne już
+  pokrywa kierunki wariantów (warianty to podzbiory treści oferty).
+- **v3 (pełne CV + notatki) POGARSZA precyzję** mimo lepszego nDCG: surowy
+  tekst 12k znaków rozmywa wyselekcjonowany sygnał strukturalny w jednym
+  uśrednionym wektorze. To samo zjawisko, które położyło pasaże — dłuższy
+  kontekst na wejściu ≠ lepszy wektor. Kolekcja v3 skasowana (odtworzenie
+  = jeden bieg reembed).
+- **title_match**: tylko 8% par ma niezerową wartość, a simpleks — mogąc
+  oddać cesze dowolny budżet — daje jej 0 w każdej czołowej kombinacji.
+- **Sufit obecnej architektury osiągnięty.** Reprezentacja (jeden wektor),
+  członkostwo puli i forma modelu (liniowa) są wycisnięte. Dalszy postęp
+  wymaga NOWYCH DANYCH (daty ról, champion sync z Traffita, adopcja
+  pipeline'u → lepsze GT), nie kolejnych przestawień istniejących.
+
+**Co z rundy 2 REALNIE działa na prodzie:** hybryda domyślna w wyszukiwarce
+ręcznej (zweryfikowana klikiem: 199 wyników/1,2 s, badge „Semantycznie" od
+wejścia), delete ze wszystkich kolekcji (RODO), payload bez nazwisk, holdout B
+jako bezpiecznik przyszłych flipów, maszyneria cech w zrzucie + trener LTR.
 
 **Punkt 5 rozstrzygnięty offline:** nieliniowość na frakcjach pięciu warstw
 NIE wnosi sygnału — GBDT remisuje w P@5 i wyraźnie przegrywa R@20n i MRR
