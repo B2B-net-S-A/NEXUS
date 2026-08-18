@@ -122,6 +122,17 @@ def main() -> int:
     if not jobs:
         print("pusty zrzut — nic do przeszukania", file=sys.stderr)
         return 1
+    # Jawna informacja zamiast cichego ignorowania: champion_fit jest w zrzucie,
+    # ale siatka go nie przeszukuje (stały budżet --champion). Gdy eval biegł
+    # z leakage guardem, max=0 i wkład i tak był zerowy; niezerowy max oznacza
+    # bieg z --include-champion — wtedy wyniki modelują stan BEZ tej warstwy.
+    sample = next(iter(jobs.values()))[:1]
+    if sample:
+        print(
+            f"uwaga: champion_fit trzymany jako stały budżet {args.champion} "
+            "(siatka przeszukuje 5 pozostałych warstw)",
+            file=sys.stderr,
+        )
     total_budget = 100 - args.champion
 
     results = []
