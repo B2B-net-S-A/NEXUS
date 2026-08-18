@@ -26,6 +26,7 @@ vi.mock("@/lib/api/orderGroups", () => ({
     list: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    consultantOptions: vi.fn(),
     addLine: vi.fn(),
     updateLine: vi.fn(),
     swapLine: vi.fn(),
