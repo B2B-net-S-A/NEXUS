@@ -266,6 +266,10 @@ class Settings(BaseSettings):
     # Dekompozycja na dwie niezależne flagi, każda z własnym pomiarem:
     CHAMPION_SENIORITY_PENALTY_ENABLED: bool = False
     CHAMPION_AVAILABILITY_FALLBACK_ENABLED: bool = False
+    # Dostępność v2: kara mnożnikowa tylko za twardą kolizję jawnych dat
+    # (kolumna/explicit z notatek vs start Championa + 30 dni grace) — bez
+    # decay dla dat wyprowadzanych z wypowiedzenia (przyczyna NO-GO fallbacku).
+    CHAMPION_AVAILABILITY_CONFLICT_ENABLED: bool = False
     # 4a: rozszerzone rodziny aliasów umiejętności (skill_taxonomy_extended)
     # w mapie scoringu — górują na derived-must z Championa/JD dla terminów
     # spoza bazowej taksonomii (git/jira/maven/servicenow…). Flip po pomiarze.
