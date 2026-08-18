@@ -311,7 +311,6 @@ async def _contract_for_candidate(
 
     existing = await db.scalar(
         select(Contract)
-        .options(selectinload(Contract.candidate))
         .where(
             Contract.candidate_id == candidate_id,
             Contract.client_id == client_id,
@@ -320,7 +319,11 @@ async def _contract_for_candidate(
         .order_by(Contract.start_date.desc().nullslast(), Contract.id.desc())
     )
     if existing is not None:
-        return existing, existing.candidate, False
+        # Zwracamy kandydata pobranego wyżej, a NIE `existing.candidate`: to ta
+        # sama osoba (WHERE filtruje po jej id), więc nie ma czego doczytywać.
+        # Dzięki temu nie trzeba tu `selectinload` — a bez niego sięgnięcie po
+        # relację byłoby leniwym doczytaniem, czyli `MissingGreenlet` w async.
+        return existing, candidate, False
 
     contract = Contract(
         candidate_id=candidate_id,
