@@ -56,3 +56,13 @@ def test_regression_detection_thresholds():
     assert detect_regression(cur, None) == []
     assert detect_regression(cur, {"p5": "zepsute"}) == []
     assert detect_regression(cur, {"p5": 0}) == []
+
+
+def test_failure_statuses_do_not_advance_watermark():
+    from app.tasks.weekly_eval import _ADVANCING_STATUSES
+
+    assert "ok" in _ADVANCING_STATUSES and "regression" in _ADVANCING_STATUSES
+    for failure in ("timeout", "harness_failed", "parse_failed"):
+        assert failure not in _ADVANCING_STATUSES, (
+            "awaria nie może wyciszyć strażnika na tydzień"
+        )

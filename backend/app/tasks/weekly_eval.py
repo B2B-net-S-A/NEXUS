@@ -67,7 +67,16 @@ async def _load_state() -> Optional[dict]:
     return {"last_synced_at": row[0], "stats": row[1]}
 
 
+# Statusy, które PRZESUWAJĄ watermark. Awaria (timeout/harness_failed/
+# parse_failed) go nie przesuwa — inaczej przejściowy czkawka w niedzielę
+# 05:00 wyciszałaby strażnika na cały tydzień. Ponowienia są naturalnie
+# ograniczone oknem: _is_due wymaga właściwego dnia tygodnia, więc nieudane
+# próby powtarzają się co interwał TYLKO do końca niedzieli.
+_ADVANCING_STATUSES = frozenset({"ok", "regression"})
+
+
 async def _save_state(stats: dict[str, Any]) -> None:
+    advance = stats.get("status") in _ADVANCING_STATUSES
     async with AsyncSessionLocal() as db:
         await db.execute(
             text(
@@ -76,10 +85,15 @@ async def _save_state(stats: dict[str, Any]) -> None:
                     (phase, last_synced_at, last_run_started_at,
                      last_run_finished_at, last_status, stats,
                      created_at, updated_at)
-                VALUES (:p, now(), now(), now(), :status,
+                VALUES (:p,
+                        CASE WHEN :advance THEN now() ELSE NULL END,
+                        now(), now(), :status,
                         CAST(:stats AS jsonb), now(), now())
                 ON CONFLICT (phase) DO UPDATE SET
-                    last_synced_at = now(),
+                    last_synced_at = CASE
+                        WHEN :advance THEN now()
+                        ELSE traffit_sync_state.last_synced_at
+                    END,
                     last_run_started_at = now(),
                     last_run_finished_at = now(),
                     last_status = EXCLUDED.last_status,
@@ -89,6 +103,7 @@ async def _save_state(stats: dict[str, Any]) -> None:
             ),
             {
                 "p": STATE_PHASE,
+                "advance": advance,
                 "status": stats.get("status", "ok"),
                 "stats": json.dumps(stats, ensure_ascii=False),
             },
