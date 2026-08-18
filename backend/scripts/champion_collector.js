@@ -94,10 +94,19 @@ async function runChampionCollector({
       fd.append("file", blob, t.name || `champ_${t.rid}.${t.ext || "docx"}`);
       fd.append("external_rid", String(t.rid));
       fd.append("file_id", String(t.file));
-      const ir = await fetch(
-        `${nexusBase}/api/admin/champion-profiles/ingest`,
-        { method: "POST", headers: H, body: fd },
-      );
+      // 429 = rate limit — backoff i ponów (do 3 prób), zamiast liczyć
+      // rate-limit jako błąd wiersza.
+      let ir;
+      for (let attempt = 0; ; attempt++) {
+        ir = await fetch(`${nexusBase}/api/admin/champion-profiles/ingest`, {
+          method: "POST",
+          headers: H,
+          body: fd,
+        });
+        if (ir.status !== 429 || attempt >= 3) break;
+        console.warn(`429 dla rid ${t.rid} — backoff ${(attempt + 1) * 20}s`);
+        await sleep((attempt + 1) * 20_000);
+      }
       const out = await ir.json().catch(() => ({ detail: `http ${ir.status}` }));
       const oc = out.outcome || out.detail || `http ${ir.status}`;
       stats.rows.push({ rid: t.rid, outcome: oc });

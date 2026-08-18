@@ -89,7 +89,10 @@ async def champion_coverage(
 
 
 @router.post("/ingest")
-@limiter.limit("30/minute")
+# 120/min, nie 30: powierzchnia admin-only, a realny koszt ogranicza sam parse
+# LLM (~2-4 s/plik). 30/min dławiło BURSTY tanich odpowiedzi skip/no_job
+# collectora (pauza 150 ms), zamieniając idempotentny re-run w ścianę 429.
+@limiter.limit("120/minute")
 async def champion_ingest(
     request: Request,
     current_user: AdminUser,
