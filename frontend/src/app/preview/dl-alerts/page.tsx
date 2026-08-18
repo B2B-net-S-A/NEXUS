@@ -83,7 +83,7 @@ const HANDLED = [
   }),
 ];
 
-type CaseKind = "data" | "empty" | "error";
+type CaseKind = "data" | "empty";
 
 function Case({
   title,
@@ -117,24 +117,9 @@ function Case({
         total_new: 0,
         total_handled: 0,
       });
-    } else {
-      // Gałąź awarii dostaje `queryFn`, które ODRZUCA lokalnie — bez sieci.
-      //
-      // Pierwsza wersja po prostu nie zasiewała klucza, licząc na to, że
-      // niezalogowane zapytanie samo skończy się błędem. Kończyło się gorzej:
-      // `/api/dl-alerts` zwracał 401, globalny interceptor axiosa przerzucał
-      // CAŁĄ stronę na /login i harness znikał po kilku sekundach — razem ze
-      // stanami, które miał pokazać. Publiczny podgląd nie może wylogowywać
-      // oglądającego ani wykonywać żadnego żądania.
-      qc.setDefaultOptions({
-        queries: {
-          staleTime: Infinity,
-          retry: false,
-          refetchOnMount: false,
-          queryFn: () => Promise.reject(new Error("podgląd: wymuszona awaria")),
-        },
-      });
     }
+    // Gałąź AWARII świadomie nie ma tu swojego przypadku — patrz komentarz
+    // przy `CASES` na dole pliku.
     return qc;
   }, [kind]);
 
@@ -173,11 +158,19 @@ export default function DlAlertsPreview() {
         title="Pusty stan"
         why="Brak nowych powiadomień to informacja, nie awaria — komunikat mówi to wprost."
       />
-      <Case
-        kind="error"
-        title="Awaria pobrania"
-        why="Musi wyglądać INACZEJ niż pustka: pusta lista po nieudanym zapytaniu czyta się jak utrata danych."
-      />
+      {/* Gałęzi AWARII nie da się tu pokazać bez wykonania zapytania, a to
+          jest dokładnie to, czego publiczny podgląd robić nie może:
+          `DlAlertsSection` przekazuje własne `queryFn` (jawne wygrywa
+          z domyślnym), a wpisanie stanu błędu wprost do cache'u nie
+          powstrzymuje pierwszego pobrania. Pierwsza wersja tej strony po
+          prostu nie zasiewała klucza — zapytanie leciało do API, wracało 401,
+          a globalny interceptor axiosa przerzucał CAŁĄ stronę na /login
+          i podgląd znikał oglądającemu z ekranu.
+
+          Rozróżnienie „awaria ≠ pustka" jest bronione testem
+          `DlAlertsSection.test.tsx` → „awaria pobrania NIE renderuje się jako
+          pusty stan", który mockuje API i asertuje oba komunikaty naraz.
+          Lepszy test niż kafelek, który kosztuje wylogowanie. */}
     </main>
   );
 }
