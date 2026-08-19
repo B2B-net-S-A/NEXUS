@@ -96,8 +96,7 @@ export function TalentRadarWorkspace() {
   const hasProfile = championProfile !== null;
   const tooShort = text.trim().length < MIN_QUERY_LENGTH;
   const blocked = useMemo(() => {
-    if (!client)
-      return "Wybierz klienta — bez niego nie sprawdzimy blacklist, NDA ani weta.";
+    if (!client) return "Wybierz klienta.";
     if (!hasProfile && tooShort)
       return `Wgraj profil Championa ALBO wklej opis roli (min. ${MIN_QUERY_LENGTH} znaków).`;
     return null;
@@ -159,10 +158,6 @@ export function TalentRadarWorkspace() {
                 setResponse(null);
               }}
             />
-            <p className="text-xs text-muted-foreground">
-              Wymagany — względem niego sprawdzamy blacklistę, NDA, konflikty
-              konkurencyjne i weto hiring managera.
-            </p>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="tr-budget">Budżet PLN/h</Label>
@@ -188,9 +183,9 @@ export function TalentRadarWorkspace() {
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Wpisana stawka to twardy sufit: nie pokażemy osób ze ZNANĄ stawką
-              powyżej niej. Brak danych zawsze przechodzi; ukrytych policzymy w
-              wynikach.
+              {championSummary?.rate_value
+                ? `Stawka ${championSummary.rate_value} PLN/h wzięta z profilu Championa — wpisz własną, żeby ją nadpisać, albo wyczyść pole, żeby wyłączyć sufit.`
+                : "Wpisana stawka to twardy sufit: nie pokażemy osób ze ZNANĄ stawką powyżej niej. Brak danych zawsze przechodzi; ukrytych policzymy w wynikach."}
             </p>
           </div>
           {!hasProfile && (
@@ -211,23 +206,25 @@ export function TalentRadarWorkspace() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tr-champion-file">Profil Championa (plik)</Label>
-          {championSummary ? (
+        {hasProfile ? (
+          <div className="flex flex-col gap-2">
+            <Label>Profil Championa</Label>
             <div
               className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
               data-testid="tr-champion-loaded"
             >
               <span className="font-medium">
-                {championSummary.role_name || "Profil wczytany"}
+                {championSummary?.role_name || "Profil wczytany"}
               </span>
               <span className="text-muted-foreground">
-                {championSummary.must_count} must · {championSummary.nice_count}{" "}
+                {championSummary?.must_count} must · {championSummary?.nice_count}{" "}
                 nice
-                {championSummary.rate_value
+                {championSummary?.rate_value
                   ? ` · ${championSummary.rate_value} PLN/h`
                   : ""}
-                {championSummary.location ? ` · ${championSummary.location}` : ""}
+                {championSummary?.location
+                  ? ` · ${championSummary.location}`
+                  : ""}
               </span>
               <button
                 type="button"
@@ -241,39 +238,51 @@ export function TalentRadarWorkspace() {
                 Usuń
               </button>
             </div>
-          ) : (
-            <input
-              id="tr-champion-file"
-              type="file"
-              accept=".docx,.pdf"
-              disabled={parsingChampion}
-              onChange={onChampionFile}
-              className="text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-sm hover:file:bg-accent"
-            />
-          )}
-          <p className="text-xs text-muted-foreground">
-            {parsingChampion
-              ? "Parsuję profil…"
-              : hasProfile
-                ? "Profil niesie wymagania, stawkę, nazwę roli i kontekst — treść requestu jest już niepotrzebna."
-                : "Docx/pdf od zespołu — odczytamy wymagania, stawkę i kontekst. ALBO wklej treść requestu niżej."}
-          </p>
-        </div>
-
-        {!hasProfile && (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="tr-text">Treść requestu</Label>
-            <Textarea
-              id="tr-text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Wklej maila od klienta, opis stanowiska albo listę wymagań — jak leci."
-              rows={8}
-              maxLength={20_000}
-            />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{blocked ?? "Gotowe do wyszukania."}</span>
-              <span>{text.length.toLocaleString("pl-PL")} / 20 000</span>
+            <p className="text-xs text-muted-foreground">
+              Profil niesie wymagania, stawkę, nazwę roli i kontekst — treść
+              requestu jest już niepotrzebna.
+            </p>
+          </div>
+        ) : (
+          // Albo-albo WIDAĆ z układu: plik i treść stoją OBOK SIEBIE,
+          // rozdzielone pastylką „ALBO" — nie trzeba tego wyczytywać z opisu.
+          <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+            <div className="flex flex-col gap-2 rounded-md border border-dashed border-border p-3">
+              <Label htmlFor="tr-champion-file">Profil Championa (plik)</Label>
+              <input
+                id="tr-champion-file"
+                type="file"
+                accept=".docx,.pdf"
+                disabled={parsingChampion}
+                onChange={onChampionFile}
+                className="text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-sm hover:file:bg-accent"
+              />
+              <p className="text-xs text-muted-foreground">
+                {parsingChampion
+                  ? "Parsuję profil…"
+                  : "Docx/pdf od zespołu — odczytamy wymagania, stawkę i nazwę roli."}
+              </p>
+            </div>
+            <div className="flex items-center justify-center">
+              <span className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                albo
+              </span>
+            </div>
+            <div className="flex flex-col gap-2 rounded-md border border-dashed border-border p-3">
+              <Label htmlFor="tr-text">Treść requestu</Label>
+              <Textarea
+                id="tr-text"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Wklej maila od klienta, opis stanowiska albo listę wymagań — jak leci."
+                rows={6}
+                maxLength={20_000}
+                className="flex-1"
+              />
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{blocked ?? "Gotowe do wyszukania."}</span>
+                <span>{text.length.toLocaleString("pl-PL")} / 20 000</span>
+              </div>
             </div>
           </div>
         )}

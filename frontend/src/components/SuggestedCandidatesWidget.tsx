@@ -25,6 +25,12 @@ interface Props {
   /** Pre-fill the location filter (e.g. the job's own location). Optional —
    *  imported jobs rarely carry one, so this is usually empty. */
   defaultLocation?: string | null;
+  /** Czy oferta ma rozwiązywalny budżet PLN/h (jawne pole lub stawka
+   *  Championa; `job.has_budget_hourly` z API). Domyślnie true — starsza
+   *  odpowiedź bez pola nie może wyłączyć przełącznika, który backend by
+   *  honorował. Przy false przełącznik sufitu jest nieaktywny z tooltipem,
+   *  bo klik odpalałby zapytanie zwracające tę samą listę (review #1207). */
+  jobHasBudget?: boolean;
 }
 
 const PENDING_POLL_MS = 2000;
@@ -84,7 +90,11 @@ function snapshotToMatches(snap: ProposalSnapshot): ScoredCandidateMatch[] {
   }));
 }
 
-export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
+export function SuggestedCandidatesWidget({
+  jobId,
+  defaultLocation,
+  jobHasBudget = true,
+}: Props) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>("snapshot");
   // Show ALL candidates that fit — the backend applies the match-quality
@@ -421,17 +431,26 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
             )}
             <button
               onClick={() => setExcludeOverBudget((v) => !v)}
+              disabled={!jobHasBudget}
               className={`text-xs px-2 py-1 rounded-md border ${
-                excludeOverBudget
-                  ? "bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200"
-                  : "border-border text-muted-foreground hover:bg-accent"
+                !jobHasBudget
+                  ? "border-border text-muted-foreground opacity-60 cursor-not-allowed"
+                  : excludeOverBudget
+                    ? "bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200"
+                    : "border-border text-muted-foreground hover:bg-accent"
               }`}
-              title="Budżet oferty działa jako twardy sufit (domyślnie): kandydaci ze ZNANĄ stawką powyżej niego są ukryci. Nieznana stawka zawsze przechodzi. Kliknij, żeby pokazać też przekraczających."
+              title={
+                jobHasBudget
+                  ? "Budżet oferty działa jako twardy sufit (domyślnie): kandydaci ze ZNANĄ stawką powyżej niego są ukryci. Nieznana stawka zawsze przechodzi. Kliknij, żeby pokazać też przekraczających."
+                  : "Oferta nie ma budżetu PLN/h ani stawki Championa — sufit nie ma na czym działać. Uzupełnij budżet na formularzu oferty."
+              }
               data-testid="switch-over-budget"
             >
-              {excludeOverBudget
-                ? "Poza budżetem: ukryci"
-                : "Poza budżetem: widoczni"}
+              {!jobHasBudget
+                ? "Budżet oferty: brak"
+                : excludeOverBudget
+                  ? "Poza budżetem: ukryci"
+                  : "Poza budżetem: widoczni"}
             </button>
             <button
               onClick={() => setExcludeRemoteOnly((v) => !v)}

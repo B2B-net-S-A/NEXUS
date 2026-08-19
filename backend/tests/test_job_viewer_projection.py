@@ -112,6 +112,64 @@ def test_legacy_viewer_hybrid_stays_redacted() -> None:
     assert result["primary_owner"] is None
 
 
+def _job_response(**overrides):
+    """Minimalny JobResponse — enum-agnostycznie (pierwszy członek enuma)."""
+    from datetime import datetime, timezone
+
+    from app.models.job import (
+        JobPriority,
+        JobStatus,
+        RecruitmentType,
+        RemotePolicy,
+    )
+    from app.schemas.job import JobResponse
+
+    now = datetime.now(timezone.utc)
+    base = dict(
+        id=1,
+        title="Senior Engineer",
+        description=None,
+        requirements=None,
+        location=None,
+        salary_min=None,
+        salary_max=None,
+        remote_policy=list(RemotePolicy)[0],
+        status=list(JobStatus)[0],
+        priority=list(JobPriority)[0],
+        recruitment_type=list(RecruitmentType)[0],
+        deadline=None,
+        client_id=None,
+        recruiter_id=None,
+        created_by=None,
+        portals=None,
+        created_at=now,
+        updated_at=now,
+    )
+    base.update(overrides)
+    return JobResponse.model_validate(base)
+
+
+def test_has_budget_hourly_mirrors_resolver(monkeypatch) -> None:
+    """Bool liczy się TĄ SAMĄ funkcją co filtr — nie może się z nim rozjechać."""
+    from app.core.config import settings
+
+    assert _job_response().has_budget_hourly is False
+    assert _job_response(rate_budget_hourly=150).has_budget_hourly is True
+    # Fallback na stawkę Championa (jak w apply_dealbreakers) — z flagą sygnałów.
+    monkeypatch.setattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", True, raising=False)
+    assert _job_response(champion_profile={"rate_value": 120}).has_budget_hourly is True
+
+
+def test_has_budget_bool_survives_viewer_redaction_without_amount() -> None:
+    """Viewer traci KWOTĘ, ale sam fakt „jest budżet" zostaje — bool nie zdradza
+    wysokości, a UI potrzebuje go, żeby nie renderować martwego przełącznika."""
+    dumped = _job_response(rate_budget_hourly=150).model_dump()
+    assert dumped["has_budget_hourly"] is True
+    redacted = redact_job_for_viewer(dumped, _viewer())
+    assert redacted["rate_budget_hourly"] is None
+    assert redacted["has_budget_hourly"] is True
+
+
 def test_redaction_list_covers_known_sensitive_schema_fields() -> None:
     """Guardrail: if a plausibly-sensitive field is added to JobResponse and not
     redacted, this fails so the omission is a conscious decision, not an oversight."""
