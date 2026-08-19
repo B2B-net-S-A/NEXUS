@@ -117,7 +117,14 @@ export const talentRadarApi = {
     payload: TalentRadarSearchRequest,
   ): Promise<TalentRadarSearchResponse> =>
     api
-      .post<TalentRadarSearchResponse>("/api/talent-radar/search", payload)
+      .post<TalentRadarSearchResponse>("/api/talent-radar/search", payload, {
+        // Wyszukiwanie na zimnym cache (embed zapytania + scoring ~2000
+        // kandydatów × kilkanaście mustów) potrafi przekroczyć 30 s —
+        // domyślny timeout instancji ubijał żywy request (symulacja
+        // rekruterska 19.08, profil Testera z 15 mustami). Ta sama klasa
+        // co parse-champion (#1210); 120 s pokrywa ogon z zapasem.
+        timeout: 120_000,
+      })
       .then((r) => r.data),
   /** Plik profilu Championa (docx/pdf) → sparsowany profil + podsumowanie. */
   parseChampion: (file: File): Promise<ChampionParseResponse> => {
