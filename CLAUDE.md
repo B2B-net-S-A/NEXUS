@@ -489,11 +489,17 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   Lista rankingowa służy do decyzji KOGO otworzyć; kontakt jest za kliknięciem.
   Warstwa wynagrodzenia jest wygaszana (`status: "not_applicable"`), bo radar
   nie ma widełek i surowe zero czytałoby się jako „nie pasuje finansowo".
-- **Role**: `require_candidate_write` (admin, delivery_lead, tac, recruiter,
-  sourcer — **bez** head_of_recruitment). Ta sama piątka w czterech miejscach:
-  sidebar, paleta ⌘K, `CAPABILITY_ROLES` i `ROLE_ROUTES` w middleware. Bez wpisu
-  w middleware viewer wchodzi na stronę i dostaje 403 z API wyrenderowane jako
-  pusta lista.
+- **Role: KAŻDA zalogowana** (decyzja produktowa Artura 19.08 — poszła po
+  zrzucie 403 od Head of Recruitment; wcześniej `require_candidate_write` bez
+  HoR). Cztery lustrzane miejsca: backend oba endpointy na `CurrentUser`,
+  middleware BEZ wpisu `/talent-radar` (brak wpisu = brak zawężenia ról, sam
+  login wymagany), sidebar bez `roles`, `nav.talent_radar = ALL_ROLES` w
+  `CAPABILITY_ROLES` (paleta ⌘K czyta stamtąd). Test kontraktowy pilnuje, że
+  guard rolowy (`_check`) NIE wróci na trasy radaru cichym refaktorem.
+  **Granice, które ZOSTAJĄ**: wyniki niosą tożsamość węższą niż profil (bez
+  kontaktu i stawek), a „Otwórz profil" renderuje się tylko dla ról z
+  `nav.candidates` — pełny profil kandydata pozostaje za bramkami modułu
+  kandydatów (finance/viewer widzą listę triage, nie profile).
 - **Pułapka przy dokładaniu endpointów**: moduł z `@limiter.limit` nie może mieć
   `from __future__ import annotations` (PEP 563 + slowapi #579 → body ląduje jako
   parametr Query). Pilnuje tego test czytający AST, nie treść pliku — docstring

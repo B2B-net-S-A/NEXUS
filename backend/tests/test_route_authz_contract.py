@@ -301,6 +301,13 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/jobs/{job_id}/collaborators"),
     ("POST", "/api/saved-searches"),
     ("POST", "/api/saved-searches/{search_id}/viewed"),
+    # Talent Radar dla KAŻDEJ zalogowanej roli — decyzja produktowa Artura
+    # 19.08 (poszła po 403 u Head of Recruitment). Wyniki to lista triage bez
+    # kontaktu i stawek (salary wygaszone), a pełny profil kandydata pozostaje
+    # za bramkami modułu kandydatów; test w test_champion_profile_ingest.py
+    # pilnuje, że guard rolowy nie wróci na te trasy cichym refaktorem.
+    ("POST", "/api/talent-radar/parse-champion"),
+    ("POST", "/api/talent-radar/search"),
     ("POST", "/api/user-email-templates"),
     ("PUT", "/api/contacts/{contact_id}"),
     ("PUT", "/api/interview-questions/{question_id}"),

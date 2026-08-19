@@ -155,16 +155,17 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
-  // Lustro backendowego require_candidate_write — head_of_recruitment świadomie
-  // poza, tak samo jak w RECRUITER_PLUS.
+  // Radar dla KAŻDEJ zalogowanej roli (decyzja produktowa Artura 19.08 —
+  // poszła po zrzucie 403 od Head of Recruitment). Backend lustrzanie na
+  // CurrentUser, middleware bez wpisu.
   "nav.talent_radar": {
     admin: true,
-    head_of_recruitment: false,
+    head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
     recruiter: true,
     sourcer: true,
-    user: false,
+    user: true,
   },
   "nav.sourcing": {
     admin: true,
@@ -248,7 +249,13 @@ const EXPECTED: Record<
  * rola WYŁĄCZNA (CHECK ck_users_exclusive_finance_viewer_roles): jej
  * użytkownik nie ma żadnej innej roli, która mogłaby czegoś dołożyć.
  */
-const FINANCE_CAPABILITIES: readonly Capability[] = ["nav.finance"];
+const FINANCE_CAPABILITIES: readonly Capability[] = [
+  "nav.finance",
+  // Radar dla KAŻDEJ roli (decyzja produktowa 19.08) — jedyna operacyjna
+  // powierzchnia, którą finance współdzieli; wyniki radaru to lista triage
+  // bez kontaktu i stawek, pełne profile pozostają poza tą rolą.
+  "nav.talent_radar",
+];
 
 const ALL_CAPABILITIES = Object.keys(CAPABILITY_ROLES) as Capability[];
 
@@ -319,16 +326,22 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
   });
 
-  it("rola `user` (read-only viewer) nie ma NICZEGO", () => {
+  it("rola `user` (read-only viewer) ma WYŁĄCZNIE Talent Radar", () => {
+    // Jedyny wyjątek od „viewer nie ma niczego": radar jest dla każdej
+    // zalogowanej roli (decyzja produktowa 19.08). Pętla nadal domyka
+    // resztę katalogu — nowa capability przyznana viewerowi przypadkiem
+    // dalej robi czerwono.
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(mkUser("user"), capability)).toBe(false);
+      const expected = capability === "nav.talent_radar";
+      expect(hasCapability(mkUser("user"), capability)).toBe(expected);
     }
   });
 
-  it("rola `finance` nie dziedziczy żadnej capability operacyjnej", () => {
+  it("rola `finance` nie dziedziczy operacyjnych — poza Talent Radarem", () => {
     for (const capability of ALL_CAPABILITIES) {
       if (FINANCE_CAPABILITIES.includes(capability)) continue;
-      expect(hasCapability(mkUser("finance"), capability)).toBe(false);
+      const expected = capability === "nav.talent_radar";
+      expect(hasCapability(mkUser("finance"), capability)).toBe(expected);
     }
   });
 

@@ -109,13 +109,10 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
       "sourcer",
     ],
   },
-  {
-    // Wyszukiwarka po całej bazie kandydatów — te same role co backendowy
-    // require_candidate_write (bez head_of_recruitment). Bez tego wpisu viewer
-    // wchodzi na stronę i dostaje 403 z API renderowane jako pusta lista.
-    prefix: "/talent-radar",
-    roles: ["admin", "delivery_lead", "tac", "recruiter", "sourcer"],
-  },
+  // `/talent-radar` CELOWO nie ma wpisu: radar i powiązane funkcje są
+  // dostępne dla KAŻDEJ zalogowanej roli (decyzja produktowa Artura 19.08),
+  // a brak wpisu = brak zawężenia ról przy zachowaniu wymogu logowania.
+  // Backend lustrzanie: oba endpointy radaru na CurrentUser.
   {
     prefix: "/sourcing",
     roles: [

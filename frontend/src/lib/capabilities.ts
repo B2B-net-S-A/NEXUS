@@ -77,6 +77,22 @@ const RECRUITER_PLUS: readonly UserRole[] = [
 /** Odpowiednik backendowego `TacPlus`. */
 const TAC_PLUS: readonly UserRole[] = ["admin", "delivery_lead", "tac"];
 
+/**
+ * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
+ * (Talent Radar, 19.08). Jawna lista zamiast pomijania bramki, żeby dodanie
+ * nowej roli do systemu wymagało świadomej decyzji także tutaj.
+ */
+const ALL_ROLES: readonly UserRole[] = [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+];
+
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
   "candidate.create": RECRUITER_PLUS,
@@ -113,8 +129,9 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // rozjeżdżającej się kopii.
   "nav.candidates": OPERATIONAL,
   "nav.talents": OPERATIONAL,
-  // POST /api/talent-radar/search → require_candidate_write.
-  "nav.talent_radar": RECRUITER_PLUS,
+  // Radar dla KAŻDEJ roli (decyzja produktowa 19.08) — backend lustrzanie
+  // na CurrentUser, middleware bez wpisu (= brak zawężenia).
+  "nav.talent_radar": ALL_ROLES,
   "nav.sourcing": OPERATIONAL,
   "nav.clients": OPERATIONAL,
   "nav.my_clients": ["admin", "head_of_recruitment", "delivery_lead"],
