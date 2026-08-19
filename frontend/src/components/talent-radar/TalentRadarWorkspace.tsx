@@ -99,7 +99,11 @@ export function TalentRadarWorkspace() {
     return null;
   }, [client, tooShort, championProfile]);
 
-  const onChampionFile = async (f: File | null) => {
+  const onChampionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    // Reset inputu OD RAZU: bez tego po błędzie parsowania przeglądarka nie
+    // odpali onChange przy ponownym wyborze tego samego pliku (recenzja #1204).
+    e.target.value = "";
     if (!f) return;
     setParsingChampion(true);
     try {
@@ -250,7 +254,7 @@ export function TalentRadarWorkspace() {
               type="file"
               accept=".docx,.pdf"
               disabled={parsingChampion}
-              onChange={(e) => onChampionFile(e.target.files?.[0] ?? null)}
+              onChange={onChampionFile}
               className="text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-sm hover:file:bg-accent"
             />
           )}

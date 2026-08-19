@@ -165,10 +165,15 @@ async def talent_radar_parse_champion(
     from app.services.champion_profile_ingest import (
         build_champion_dict,
         extract_document_text,
+        oversize_precheck,
         parse_champion_document,
         validate_upload,
     )
 
+    # Odbij za duży plik PRZED wczytaniem do pamięci (Content-Length), nie po.
+    too_big = oversize_precheck(getattr(file, "size", None))
+    if too_big:
+        raise HTTPException(status_code=413, detail=too_big)
     content = await file.read()
     error = validate_upload(file.filename or "", len(content))
     if error:
@@ -192,7 +197,10 @@ async def talent_radar_parse_champion(
             detail=f"Nie udało się sparsować profilu: {exc}",
         ) from exc
 
-    profile = build_champion_dict(parsed, file_id=0)
+    # file_id=None jako sentinel: to upload bez rekrutacji, nie plik Traffita
+    # (build_champion_dict tworzy _source, który i tak nadpisujemy — sentinel
+    # unika mylącego pośredniego "traffit_recruitment_file:0").
+    profile = build_champion_dict(parsed, file_id=None)
     profile["_source"] = "talent_radar_upload"
 
     musts = parsed.get("must_skills") or []

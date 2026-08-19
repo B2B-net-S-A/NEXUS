@@ -130,7 +130,7 @@ async def parse_champion_document(text: str) -> dict:
     return parsed
 
 
-def build_champion_dict(parsed: dict, file_id: int) -> dict:
+def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
     """Kształt `jobs.champion_profile` — 1:1 z importem 08.2026."""
     basics = parsed.get("basics") or {}
     return {
@@ -153,7 +153,11 @@ def build_champion_dict(parsed: dict, file_id: int) -> dict:
         "sectors": parsed.get("sectors") or [],
         "disqualifiers": parsed.get("disqualifiers") or [],
         "client_standards": parsed.get("client_standards") or {},
-        "_source": f"traffit_recruitment_file:{file_id}",
+        "_source": (
+            f"traffit_recruitment_file:{file_id}"
+            if file_id is not None
+            else "champion_upload"
+        ),
         "_parsed_at": datetime.now(timezone.utc).isoformat(),
         "_parser": PARSER_VERSION,
     }
@@ -238,6 +242,19 @@ async def ingest_parsed_profile(
 
 
 _RID_RE = re.compile(r"^\d{1,8}$")
+
+
+def oversize_precheck(declared_size: Optional[int]) -> Optional[str]:
+    """Odrzuć PRZED wczytaniem, gdy klient podał Content-Length ponad limit.
+
+    `UploadFile.size` jest wypełniony, gdy nagłówek Content-Length jest obecny —
+    to pozwala odbić 200 MB payload bez buforowania go w pamięci. Gdy size jest
+    None (chunked bez długości), pełna walidacja rozmiaru po wczytaniu i tak
+    zadziała (validate_upload).
+    """
+    if declared_size is not None and declared_size > MAX_FILE_BYTES:
+        return f"Plik przekracza limit {MAX_FILE_BYTES // (1024 * 1024)} MB"
+    return None
 
 
 def validate_upload(
