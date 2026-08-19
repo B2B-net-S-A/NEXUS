@@ -1456,6 +1456,7 @@ export default function JobDetailPage() {
             <SuggestedCandidatesWidget
               jobId={Number(id)}
               defaultLocation={formatCandidateLocation(job?.location)}
+              jobHasBudget={job?.has_budget_hourly ?? true}
             />
           </div>
           {isAdmin && (

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from app.models.job import (
     JobCloseReason,
@@ -229,6 +229,22 @@ class JobResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def has_budget_hourly(self) -> bool:
+        """Czy oferta ma ROZWIĄZYWALNY budżet PLN/h (jawne pole lub stawka
+        Championa) — czyli czy sufit budżetowy ma na czym działać.
+
+        Bool zamiast kwoty świadomie: `rate_budget_hourly` podlega redakcji
+        finansowej dla viewera (`_VIEWER_REDACTED_JOB_FIELDS`), a UI potrzebuje
+        wyłącznie informacji „jest co pilnować", żeby nie renderować aktywnego
+        przełącznika, którego kliknięcie nic nie zmienia (review #1207).
+        Liczone tą samą funkcją co filtr, więc nie może się z nim rozjechać.
+        """
+        from app.services.dealbreaker_filters import resolve_job_budget_hourly
+
+        return resolve_job_budget_hourly(self) is not None
 
 
 class JobList(BaseModel):
