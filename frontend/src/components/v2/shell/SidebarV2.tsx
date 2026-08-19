@@ -126,12 +126,13 @@ const NAV_SECTIONS: NavSection[] = [
         ],
       },
       {
-        // Role lustrzane wobec `require_candidate_write` — bez head_of_recruitment.
-        // Ta sama piątka co `RECRUITER_PLUS` w lib/capabilities.ts.
+        // BEZ `roles`: radar i powiązane funkcje są dostępne dla KAŻDEJ
+        // zalogowanej roli (decyzja produktowa Artura 19.08). Lustrzane
+        // z backendem (CurrentUser), middleware (brak wpisu = brak
+        // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
         href: "/talent-radar",
         label: "Talent Radar",
         icon: Radar,
-        roles: ["admin", "delivery_lead", "tac", "recruiter", "sourcer"],
       },
       {
         href: "/sourcing/marketplace",

@@ -328,11 +328,13 @@ def _route_dep_names(route) -> set:
     return names
 
 
-def test_radar_parse_champion_requires_candidate_write():
-    """parse-champion MUSI mieć DOKŁADNIE ten sam guard rolowy co
-    /talent-radar/search (require_candidate_write). Porównanie z sąsiednią,
-    znaną trasą jest mocniejsze niż dopasowanie nazwy: łapie refaktor, który
-    zgubi guard albo podmienia go na słabszy.
+def test_radar_routes_require_login_and_share_the_same_guard():
+    """Radar jest dostępny dla KAŻDEJ zalogowanej roli (decyzja produktowa
+    Artura 19.08) — więc kontrakt to: (1) uwierzytelnienie WYMUSZONE na obu
+    trasach, (2) parse-champion i search mają IDENTYCZNY zestaw zależności
+    auth (porównanie z sąsiednią trasą łapie refaktor gubiący guard),
+    (3) ŻADNEGO guardu rolowego (`_check` z require_candidate_roles) — jego
+    powrót oznaczałby ciche cofnięcie decyzji „dla każdego".
     """
     from app.api.talent_radar import router
 
@@ -343,10 +345,10 @@ def test_radar_parse_champion_requires_candidate_write():
     search = _route_dep_names(route_by_path("/talent-radar/search"))
 
     # Uwierzytelnienie wymuszone (nie anonymous):
-    assert "get_current_user" in parse
-    # Ten sam guard rolowy co search (require_candidate_roles → closure `_check`):
-    assert "_check" in parse and "_check" in search
-    # Zbiór zależności auth/rolowych identyczny z search:
+    assert "get_current_user" in parse and "get_current_user" in search
+    # Bez zawężenia rolowego — radar ma być dla każdej roli:
+    assert "_check" not in parse and "_check" not in search
+    # Oba endpointy z tym samym zestawem zależności auth:
     auth_deps = {"get_current_user", "_check"}
     assert (parse & auth_deps) == (search & auth_deps), (
         f"parse-champion guard != search guard: {parse & auth_deps} vs "

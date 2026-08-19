@@ -65,12 +65,22 @@ export interface TalentRadarResultsProps {
   meta: TalentRadarMeta | null;
   results: TalentRadarResult[];
   pending: boolean;
+  /**
+   * Czy pokazać „Otwórz profil". Radar jest dostępny dla KAŻDEJ roli
+   * (decyzja 19.08), ale pełny profil kandydata pozostaje za bramkami
+   * modułu kandydatów — rola bez `nav.candidates` dostawałaby po kliknięciu
+   * przekierowanie/403, więc workspace przekazuje tu capability zamiast
+   * renderować martwy przycisk. Default `true`, żeby publiczny harness
+   * `/preview/talent-radar` (bez auth store) dalej pokrywał ten wariant.
+   */
+  canOpenProfile?: boolean;
 }
 
 export function TalentRadarResults({
   meta,
   results,
   pending,
+  canOpenProfile = true,
 }: TalentRadarResultsProps) {
   if (meta?.degraded) {
     return (
@@ -145,19 +155,21 @@ export function TalentRadarResults({
               score={result.total}
               reasons={matchReasons(result)}
               actions={
-                // Celowo `Link` ze stylami `buttonVariants`, nie `<Button asChild>`:
-                // Button renderuje slot na spinner obok dziecka, więc Radix Slot
-                // dostaje dwoje dzieci i wywala się w runtime („Slot failed to
-                // slot onto its children"). Ten sam obchód i to samo uzasadnienie
-                // co w HelpMaterialsSection.tsx.
-                <Link
-                  href={`/candidates/${result.candidate_id}`}
-                  className={cn(
-                    buttonVariants({ variant: "outline", size: "sm" }),
-                  )}
-                >
-                  Otwórz profil
-                </Link>
+                canOpenProfile ? (
+                  // Celowo `Link` ze stylami `buttonVariants`, nie `<Button
+                  // asChild>`: Button renderuje slot na spinner obok dziecka,
+                  // więc Radix Slot dostaje dwoje dzieci i wywala się w
+                  // runtime („Slot failed to slot onto its children"). Ten sam
+                  // obchód co w HelpMaterialsSection.tsx.
+                  <Link
+                    href={`/candidates/${result.candidate_id}`}
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" }),
+                    )}
+                  >
+                    Otwórz profil
+                  </Link>
+                ) : undefined
               }
             />
           ))}

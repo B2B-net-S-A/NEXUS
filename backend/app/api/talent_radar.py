@@ -19,10 +19,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import require_candidate_write
+from app.api.deps import CurrentUser
 from app.api.deps import get_db
 from app.core.rate_limit import limiter
-from app.models.user import User
 from app.services.talent_radar_search import (
     shape_radar_candidate,
     RadarQuery,
@@ -72,10 +71,17 @@ class TalentRadarSearchRequest(BaseModel):
 async def talent_radar_search(
     request: Request,
     payload: TalentRadarSearchRequest,
-    current_user: User = Depends(require_candidate_write),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Rank the candidate base against a pasted request. Creates no Job."""
+    """Rank the candidate base against a pasted request. Creates no Job.
+
+    Dostęp: KAŻDA zalogowana rola (decyzja produktowa Artura 19.08 — radar
+    i powiązane funkcje mają być dostępne dla wszystkich). Wyniki niosą
+    tożsamość węższą niż profil (bez kontaktu i stawek), a warstwa
+    wynagrodzenia jest wygaszana — to lista triage, nie profil; pełny profil
+    kandydata pozostaje za bramkami modułu kandydatów.
+    """
     try:
         result = await search(
             db,
@@ -143,7 +149,7 @@ def _shape_result(breakdown: Any, candidate: Any) -> dict[str, Any]:
 @limiter.limit("10/minute")
 async def talent_radar_parse_champion(
     request: Request,
-    current_user: User = Depends(require_candidate_write),
+    current_user: CurrentUser,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:

@@ -36,6 +36,7 @@ import {
   type ClientRef,
 } from "@/components/talent-radar/TalentRadarClientPicker";
 import { useToast } from "@/components/Toast";
+import { useCapability } from "@/hooks/useCapability";
 import { extractErrorMsg } from "@/lib/api";
 import {
   talentRadarApi,
@@ -49,6 +50,10 @@ const MIN_QUERY_LENGTH = 30;
 
 export function TalentRadarWorkspace() {
   const { showError } = useToast();
+  // Radar jest dla KAŻDEJ roli, ale pełny profil kandydata pozostaje za
+  // bramkami modułu kandydatów — rola bez tej capability nie dostaje
+  // martwego przycisku „Otwórz profil" (klik kończyłby się 403).
+  const canOpenProfile = useCapability("nav.candidates");
   const [client, setClient] = useState<ClientRef | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
@@ -312,6 +317,7 @@ export function TalentRadarWorkspace() {
         meta={meta ?? null}
         results={results}
         pending={search.isPending}
+        canOpenProfile={canOpenProfile}
       />
     </div>
   );
