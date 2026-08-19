@@ -63,11 +63,10 @@ class RadarQuery:
     location: Optional[str] = None
     top_k: int = 20
     min_score: Optional[float] = None
-    # Dealbreaker-switche (runda 3): radar nie ma oferty, więc budżet PLN/h
-    # podaje wprost rekruter. Nieznana stawka/preferencja kandydata PRZECHODZI.
-    exclude_over_budget: bool = False
+    # Dealbreaker-switche: radar nie ma oferty, więc budżet PLN/h podaje
+    # wprost rekruter — i sama jego obecność aktywuje twardy sufit (decyzja
+    # produktowa 19.08). Nieznana stawka/preferencja kandydata PRZECHODZI.
     budget_hourly_max: Optional[float] = None
-    budget_margin_pct: int = 30
     exclude_remote_only: bool = False
 
 
@@ -234,9 +233,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
 
     dealbreakers = apply_dealbreakers(
         candidates,
-        exclude_over_budget=query.exclude_over_budget,
         budget_hourly=query.budget_hourly_max,
-        budget_margin_pct=query.budget_margin_pct,
         exclude_remote_only=query.exclude_remote_only,
     )
     candidates = dealbreakers.kept

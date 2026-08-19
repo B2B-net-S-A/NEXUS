@@ -2,21 +2,41 @@
 
 > Pomysł Artura: „switch, nie punkty, za elementy które mogą wykluczać osobę
 > z rekrutacji — jak stawka". Punkty degradują, ale nie usuwają; kandydat za
-> 250 PLN/h przy budżecie 120 nadal wypływa na listę. Te switche są twardą,
-> ŚWIADOMIE włączaną wersją tych samych porównań, które scoring robi miękko.
+> 250 PLN/h przy budżecie 120 nadal wypływa na listę.
 
-## Trzy żelazne zasady (każda okupiona zmierzonym wypadkiem)
+## REWIZJA 2026-08-19 — twardy sufit, bez marginesu, z automatu
+
+Decyzja Artura po obejrzeniu UI: „nie dawaj dodatkowych % za to — stawka jak
+wpisana jest, to ma nie pokazywać ludzi powyżej tej stawki, czyli z automatu
+działa jako dealbreaker; to samo z wyłącznie zdalnie". Wdrożone:
+
+- **Margines negocjacyjny USUNIĘTY** (katalog {0,15,30,50} i default +30%
+  nie istnieją). Porównanie: `stawka > budżet` → ukryty; równa przechodzi.
+  Pomiar GT-loss z 18.08 (0% marginesu ukrywa 44% realnie dowiezionych,
+  bo stawki negocjuje się w dół) pozostaje w historii jako świadomie
+  zaakceptowany koszt — NIE przywracać marginesu bez decyzji Artura.
+- **Budżet aktywuje się SAM.** `/recommendations`: `exclude_over_budget`
+  defaultuje na true (znany budżet oferty = filtr działa; wyłączalny jawnie).
+  Radar: pola `exclude_over_budget`/`budget_margin_pct` zniknęły z API —
+  sama obecność `budget_hourly_max` włącza sufit.
+- **Snapshot propozycji też filtruje** (`compute_proposals` + kolumna
+  `proposal_snapshots.hidden`, migracja 0237 + lustro w entrypoint) — fast-
+  path Fazy 13 zostaje domyślnym widokiem i nie pokazuje ludzi powyżej
+  stawki; chip „ukryto N" czyta z `snap.hidden` (snapshot) albo
+  `meta.hidden` (żywa ścieżka). Snapshoty sprzed 0237 mają `hidden=NULL`
+  i pozostają nieprzefiltrowane do regeneracji.
+- **„Wyłącznie zdalnie"** zostaje jawnym checkboxem (to deklaracja „praca
+  z biura" per wyszukiwanie), działa jako twardy filtr bez dodatkowej
+  konfiguracji. Auto-wnioskowanie z `jobs.work_mode` = osobna, zmierzalna
+  decyzja (pokrycie/jakość pola niezmierzone).
+
+## Dwie żelazne zasady, które przetrwały rewizję
 
 1. **Nieznany PRZECHODZI.** Wycinamy wyłącznie na POZYTYWNEJ wiedzy. Filtr
    stażu przy pokryciu 1,2% zredukował kiedyś lejek 11 091 → 45.
-2. **Margines na negocjacje, zmierzony.** GT-loss na zamrożonych A+B (2 212
-   par z historii decyzji): margines 0% ukryłby **44%** realnie dowiezionych
-   kandydatów, +15% → 27%, **+30% → 14%**, +50% → 5%. Stawki są negocjowane
-   w dół rutynowo — stąd default +30%, katalog zamknięty {0,15,30,50},
-   switch domyślnie WYŁĄCZONY.
-3. **Ukrywanie nigdy nie jest ciche.** `meta.hidden` z licznikami per powód
-   → chipy „Ukryto N poza budżetem / N tylko-zdalnych" (reguła „awaria ≠
-   pustka").
+2. **Ukrywanie nigdy nie jest ciche.** `meta.hidden` / `snapshot.hidden`
+   z licznikami per powód → chipy „Ukryto N powyżej budżetu oferty /
+   N tylko-zdalnych" (reguła „awaria ≠ pustka").
 
 ## Co weszło
 

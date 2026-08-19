@@ -102,19 +102,23 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   );
   const locationActive = locationFilter.trim().length > 0;
 
-  // Dealbreaker-switche (runda 3): twarde, świadomie włączane ukrywanie
-  // zamiast punktowania. Nieznana stawka/preferencja PRZECHODZI po stronie
-  // backendu; liczniki ukrytych wracają w meta.hidden i renderują się jako
-  // chipy — ukrywanie nigdy nie jest ciche.
-  const [excludeOverBudget, setExcludeOverBudget] = useState(false);
-  const [budgetMargin, setBudgetMargin] = useState<0 | 15 | 30 | 50>(30);
+  // Dealbreaker-switche: budżet oferty działa Z AUTOMATU jako twardy sufit
+  // (decyzja produktowa 19.08) — domyślnie WŁĄCZONY i egzekwowany także
+  // w snapshotcie (filtr przy generacji), więc domyślny widok nie wymaga
+  // żywego zapytania. Nieznana stawka/preferencja PRZECHODZI po stronie
+  // backendu; liczniki ukrytych wracają w meta.hidden / snapshot.hidden
+  // i renderują się jako chipy — ukrywanie nigdy nie jest ciche.
+  const [excludeOverBudget, setExcludeOverBudget] = useState(true);
   const [excludeRemoteOnly, setExcludeRemoteOnly] = useState(false);
   const [locationSource, setLocationSource] = useState<"all" | "cv" | "notes">(
     "all",
   );
-  const switchesActive = excludeOverBudget || excludeRemoteOnly;
-  // filteredActive: zapytanie filtrowane obsługuje lokalizację ORAZ switche.
-  
+  // Żywe zapytanie filtrowane jest potrzebne wyłącznie przy ODSTĘPSTWIE od
+  // semantyki snapshotu (budżet ON, biuro OFF): wyłączenie sufitu budżetu
+  // albo włączenie ukrywania tylko-zdalnych. Dzięki temu fast-path Fazy 13
+  // zostaje domyślną ścieżką.
+  const switchesActive = excludeRemoteOnly || !excludeOverBudget;
+
 
   const locationQuery = useQuery({
     queryKey: [
@@ -123,7 +127,6 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
       locationFilter.trim(),
       locationSource,
       excludeOverBudget,
-      budgetMargin,
       excludeRemoteOnly,
     ],
     queryFn: async () => {
@@ -132,8 +135,9 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         include_breakdown: true,
         location: locationFilter.trim() || undefined,
         location_source: locationSource,
-        exclude_over_budget: excludeOverBudget || undefined,
-        budget_margin_pct: excludeOverBudget ? budgetMargin : undefined,
+        // Jawnie zawsze: backend defaultuje na true, więc wyłączenie sufitu
+        // MUSI pojechać jako false — `|| undefined` cofałoby je do defaultu.
+        exclude_over_budget: excludeOverBudget,
         exclude_remote_only: excludeRemoteOnly || undefined,
       });
       return r.data;
@@ -318,6 +322,14 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
           }
         : null;
   const isDegraded = activeRecommendationMeta?.degraded === true;
+  // Liczniki ukrytych: ścieżka filtrowana niesie je w meta.hidden, snapshot —
+  // w snap.hidden (sufit budżetu działa też przy generacji; null = snapshot
+  // sprzed 0237, nieprzefiltrowany, bez chipa).
+  const hiddenCounts = filteredActive
+    ? (activeRecommendationMeta?.hidden ?? null)
+    : mode === "snapshot"
+      ? (snapshot?.hidden ?? null)
+      : (liveMeta?.hidden ?? null);
   const showLiveEmptyState =
     !filteredActive && mode === "fallback-live" && !liveLoaded && !liveLoading;
   const showLiveNoResults =
@@ -368,15 +380,15 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         <h3 className="font-medium flex items-center gap-2 flex-wrap text-foreground dark:text-foreground">
           <Sparkles className="w-4 h-4 text-violet-500" />
           Rekomendowani kandydaci
-          {!locationActive && isSnapReady && (
+          {!filteredActive && isSnapReady && (
             <span className="text-xs text-muted-foreground">
               ({snapshotMatches.length})
             </span>
           )}
-          {!locationActive && mode === "fallback-live" && liveLoaded && (
+          {!filteredActive && mode === "fallback-live" && liveLoaded && (
             <span className="text-xs text-muted-foreground">({liveMatches.length})</span>
           )}
-          {locationActive && !locationQuery.isLoading && (
+          {filteredActive && !locationQuery.isLoading && (
             <span className="text-xs text-muted-foreground">({matches.length})</span>
           )}
           {serverLocationApplied && (
@@ -414,27 +426,13 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
                   ? "bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200"
                   : "border-border text-muted-foreground hover:bg-accent"
               }`}
-              title="Ukryj kandydatów, których ZNANA stawka przekracza budżet oferty ponad margines. Nieznana stawka zawsze przechodzi."
+              title="Budżet oferty działa jako twardy sufit (domyślnie): kandydaci ze ZNANĄ stawką powyżej niego są ukryci. Nieznana stawka zawsze przechodzi. Kliknij, żeby pokazać też przekraczających."
               data-testid="switch-over-budget"
             >
-              Poza budżetem: ukryj
+              {excludeOverBudget
+                ? "Poza budżetem: ukryci"
+                : "Poza budżetem: widoczni"}
             </button>
-            {excludeOverBudget && (
-              <select
-                value={budgetMargin}
-                onChange={(e) =>
-                  setBudgetMargin(Number(e.target.value) as 0 | 15 | 30 | 50)
-                }
-                className="text-xs border border-border rounded-md px-1.5 py-1 bg-background"
-                title="Margines negocjacyjny (0% ukrywa 44% realnie dowiezionych — zmierzone; 30% to bezpieczny default)"
-                data-testid="budget-margin-select"
-              >
-                <option value={0}>+0%</option>
-                <option value={15}>+15%</option>
-                <option value={30}>+30%</option>
-                <option value={50}>+50%</option>
-              </select>
-            )}
             <button
               onClick={() => setExcludeRemoteOnly((v) => !v)}
               className={`text-xs px-2 py-1 rounded-md border ${
@@ -490,7 +488,7 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
         </div>
       </div>
 
-      {!locationActive && mode === "snapshot" && snapshot && (
+      {!filteredActive && mode === "snapshot" && snapshot && (
         <div className="text-xs text-muted-foreground dark:text-muted-foreground mb-3">
           {isSnapReady && (
             <>
@@ -530,8 +528,8 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
       )}
 
       {(() => {
-        const hidden = activeRecommendationMeta?.hidden;
-        const total = (hidden?.over_budget ?? 0) + (hidden?.remote_only ?? 0);
+        const total =
+          (hiddenCounts?.over_budget ?? 0) + (hiddenCounts?.remote_only ?? 0);
         if (!total) return null;
         // Ukrywanie nigdy nie jest ciche: pustka bez wyjaśnienia czyta się
         // jak utrata danych (reguła „awaria ≠ pustka").
@@ -541,14 +539,14 @@ export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
             data-testid="dealbreaker-hidden-notice"
             className="mb-3 flex flex-wrap gap-2 text-xs"
           >
-            {(hidden?.over_budget ?? 0) > 0 && (
+            {(hiddenCounts?.over_budget ?? 0) > 0 && (
               <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
-                Ukryto {hidden!.over_budget} poza budżetem (+{budgetMargin}%)
+                Ukryto {hiddenCounts!.over_budget} powyżej budżetu oferty
               </span>
             )}
-            {(hidden?.remote_only ?? 0) > 0 && (
+            {(hiddenCounts?.remote_only ?? 0) > 0 && (
               <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
-                Ukryto {hidden!.remote_only} tylko-zdalnych
+                Ukryto {hiddenCounts!.remote_only} tylko-zdalnych
               </span>
             )}
           </div>

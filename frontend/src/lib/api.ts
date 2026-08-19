@@ -3104,8 +3104,11 @@ export const recommendationsApi = {
       include_breakdown?: boolean;
       location?: string;
       location_source?: "all" | "cv" | "notes";
+      /**
+       * Domyślnie true po stronie backendu (decyzja 19.08): znany budżet
+       * oferty ukrywa znane stawki powyżej. false = pokaż też przekraczających.
+       */
       exclude_over_budget?: boolean;
-      budget_margin_pct?: 0 | 15 | 30 | 50;
       exclude_remote_only?: boolean;
     },
   ) =>
@@ -3345,6 +3348,9 @@ export interface ProposalSnapshot {
   /** True when a brief/Champion edit changed a matching input after this ranking
    *  was produced — the UI prompts a re-run instead of showing it as current. */
   stale: boolean;
+  /** Liczniki dealbreakerów z generacji — budżet oferty działa z automatu
+   *  jako twardy sufit (decyzja 19.08); null/brak = snapshot sprzed 0237. */
+  hidden?: { over_budget?: number; remote_only?: number } | null;
   /** Correlates this ranking with match telemetry (impressions/outcomes). */
   run_id: string | null;
   candidates: ProposalCandidateItem[];

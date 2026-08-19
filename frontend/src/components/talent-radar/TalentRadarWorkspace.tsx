@@ -55,10 +55,11 @@ export function TalentRadarWorkspace() {
   const [response, setResponse] = useState<TalentRadarSearchResponse | null>(
     null,
   );
-  // Dealbreaker-switche: budżet podaje rekruter wprost (radar nie ma oferty);
-  // nieznana stawka/preferencja kandydata przechodzi po stronie backendu.
+  // Dealbreaker-switche: budżet podaje rekruter wprost (radar nie ma oferty)
+  // i SAMA jego obecność działa jako twardy sufit — bez marginesu, bez
+  // osobnego uzbrajania (decyzja produktowa 19.08). Nieznana stawka/
+  // preferencja kandydata przechodzi po stronie backendu.
   const [budgetMax, setBudgetMax] = useState("");
-  const [budgetMargin, setBudgetMargin] = useState<0 | 15 | 30 | 50>(30);
   const [excludeRemoteOnly, setExcludeRemoteOnly] = useState(false);
   // Profil Championa z pliku (docx/pdf): rekruter dostaje go jako DOKUMENT —
   // wklejanie do pola tekstowego gubi strukturę (stawka, must/nice).
@@ -82,9 +83,7 @@ export function TalentRadarWorkspace() {
           ? championSummary?.role_name || undefined
           : title.trim() || undefined,
         top_k: 20,
-        exclude_over_budget: Number(budgetMax) > 0 || undefined,
         budget_hourly_max: Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
-        budget_margin_pct: Number(budgetMax) > 0 ? budgetMargin : undefined,
         exclude_remote_only: excludeRemoteOnly || undefined,
       }),
     onSuccess: (data) => setResponse(data),
@@ -166,7 +165,7 @@ export function TalentRadarWorkspace() {
             </p>
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="tr-budget">Budżet PLN/h (opcjonalny dealbreaker)</Label>
+            <Label htmlFor="tr-budget">Budżet PLN/h</Label>
             <div className="flex items-center gap-2">
               <Input
                 id="tr-budget"
@@ -178,21 +177,6 @@ export function TalentRadarWorkspace() {
                 placeholder="np. 150"
                 className="w-28"
               />
-              <select
-                value={budgetMargin}
-                onChange={(e) =>
-                  setBudgetMargin(Number(e.target.value) as 0 | 15 | 30 | 50)
-                }
-                disabled={!(Number(budgetMax) > 0)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
-                title="Margines negocjacyjny — 0% ukrywa 44% realnie dowiezionych (zmierzone), default +30%"
-                data-testid="tr-budget-margin"
-              >
-                <option value={0}>+0%</option>
-                <option value={15}>+15%</option>
-                <option value={30}>+30%</option>
-                <option value={50}>+50%</option>
-              </select>
               <label className="flex items-center gap-1.5 text-sm">
                 <input
                   type="checkbox"
@@ -200,12 +184,13 @@ export function TalentRadarWorkspace() {
                   onChange={(e) => setExcludeRemoteOnly(e.target.checked)}
                   data-testid="tr-exclude-remote-only"
                 />
-                ukryj „wyłącznie zdalnie”
+                praca z biura — ukryj „wyłącznie zdalnie”
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Ukrywa tylko POZYTYWNIE znane przekroczenia/odmowy — brak danych
-              zawsze przechodzi. Ukrytych policzymy w wynikach.
+              Wpisana stawka to twardy sufit: nie pokażemy osób ze ZNANĄ stawką
+              powyżej niej. Brak danych zawsze przechodzi; ukrytych policzymy w
+              wynikach.
             </p>
           </div>
           {!hasProfile && (

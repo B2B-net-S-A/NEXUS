@@ -3064,6 +3064,11 @@ _COLUMN_STATEMENTS = [
     "ADD COLUMN IF NOT EXISTS input_fingerprint TEXT NULL",
     "ALTER TABLE proposal_snapshots "
     "ADD COLUMN IF NOT EXISTS stale BOOLEAN NOT NULL DEFAULT FALSE",
+    # 0237: liczniki dealbreakerów w snapshotcie ({"over_budget": N, ...}) —
+    # budżet oferty działa z automatu jako twardy sufit (decyzja 19.08), a
+    # ukrywanie nigdy nie jest ciche. ORM czyta kolumnę, brak =>
+    # UndefinedColumnError na /proposals/latest.
+    "ALTER TABLE proposal_snapshots ADD COLUMN IF NOT EXISTS hidden JSONB NULL",
     # 0218: materiały w zakładce Pomoc — biblioteka LINKÓW do dokumentów w
     # SharePoincie (NEXUS ich nie hostuje). Bez tej tabeli GET
     # /api/help-materials => UndefinedTableError (500).

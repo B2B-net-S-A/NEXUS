@@ -13,7 +13,7 @@ anyway, so it is repeated where the next person will look.
 """
 
 import logging
-from typing import Literal, Any, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -58,12 +58,12 @@ class TalentRadarSearchRequest(BaseModel):
     location: Optional[str] = Field(default=None, max_length=200)
     top_k: int = Field(default=20, ge=1, le=100)
     min_score: Optional[float] = Field(default=None, ge=0.0, le=100.0)
-    # Dealbreaker-switche (runda 3). Budżet podaje rekruter wprost (radar nie
-    # ma oferty); nieznana stawka/preferencja kandydata zawsze PRZECHODZI,
-    # a liczniki ukrytych wracają w meta.hidden.
-    exclude_over_budget: bool = False
+    # Dealbreaker-switche. Budżet podaje rekruter wprost (radar nie ma
+    # oferty) i SAMA JEGO OBECNOŚĆ aktywuje twardy sufit — bez marginesu
+    # i bez osobnego przełącznika (decyzja produktowa 19.08). Nieznana
+    # stawka/preferencja kandydata zawsze PRZECHODZI, a liczniki ukrytych
+    # wracają w meta.hidden.
     budget_hourly_max: Optional[float] = Field(default=None, gt=0, le=2000)
-    budget_margin_pct: Literal[0, 15, 30, 50] = 30
     exclude_remote_only: bool = False
 
 
@@ -87,9 +87,7 @@ async def talent_radar_search(
                 location=payload.location,
                 top_k=payload.top_k,
                 min_score=payload.min_score,
-                exclude_over_budget=payload.exclude_over_budget,
                 budget_hourly_max=payload.budget_hourly_max,
-                budget_margin_pct=payload.budget_margin_pct,
                 exclude_remote_only=payload.exclude_remote_only,
             ),
         )
