@@ -232,3 +232,57 @@ def test_feature_key_registered():
     from app.models.ai_feature import AIFeatureKey
 
     assert AIFeatureKey.champion_profile_parse.value == "champion_profile_parse"
+
+
+def test_validate_upload_without_rid_checks_file_only():
+    """Powierzchnia bez rekrutacji (radar) — walidacja samego pliku."""
+    assert validate_upload("profil.docx", 1000) is None
+    assert validate_upload("profil.exe", 1000) is not None
+    assert validate_upload("profil.pdf", 0) is not None
+
+
+def test_radar_parse_champion_route_registered():
+    from app.api.talent_radar import router
+
+    paths = {r.path for r in router.routes}
+    assert "/talent-radar/parse-champion" in paths
+
+
+def _route_dep_names(route) -> set:
+    names: set = set()
+
+    def walk(deps):
+        for d in deps:
+            names.add(getattr(d.call, "__name__", str(d.call)))
+            walk(d.dependencies)
+
+    walk(route.dependant.dependencies)
+    return names
+
+
+def test_radar_parse_champion_requires_candidate_write():
+    """parse-champion MUSI mieć DOKŁADNIE ten sam guard rolowy co
+    /talent-radar/search (require_candidate_write). Porównanie z sąsiednią,
+    znaną trasą jest mocniejsze niż dopasowanie nazwy: łapie refaktor, który
+    zgubi guard albo podmienia go na słabszy.
+    """
+    from app.api.talent_radar import router
+
+    def route_by_path(path):
+        return next(
+            r for r in router.routes if getattr(r, "path", None) == path
+        )
+
+    parse = _route_dep_names(route_by_path("/talent-radar/parse-champion"))
+    search = _route_dep_names(route_by_path("/talent-radar/search"))
+
+    # Uwierzytelnienie wymuszone (nie anonymous):
+    assert "get_current_user" in parse
+    # Ten sam guard rolowy co search (require_candidate_roles → closure `_check`):
+    assert "_check" in parse and "_check" in search
+    # Zbiór zależności auth/rolowych identyczny z search:
+    auth_deps = {"get_current_user", "_check"}
+    assert (parse & auth_deps) == (search & auth_deps), (
+        f"parse-champion guard != search guard: {parse & auth_deps} vs "
+        f"{search & auth_deps}"
+    )

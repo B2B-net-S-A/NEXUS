@@ -31,6 +31,7 @@ from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.champion_profile_ingest import (
     extract_document_text,
     ingest_parsed_profile,
+    oversize_precheck,
     parse_champion_document,
     validate_upload,
 )
@@ -98,6 +99,9 @@ async def champion_ingest(
     ``champion_skipped_nonempty`` bez wywołania AI — ponowny bieg collectora
     na pokrytych rekrutacjach jest darmowy.
     """
+    too_big = oversize_precheck(getattr(file, "size", None))
+    if too_big:
+        return _json({"detail": too_big}, status_code=413)
     content = await file.read()
     error = validate_upload(file.filename or "", len(content), external_rid)
     if error:
