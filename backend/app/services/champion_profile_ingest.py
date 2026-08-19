@@ -121,7 +121,11 @@ async def parse_champion_document(text: str) -> dict:
         messages=[{"role": "user", "content": PROMPT + text[:14_000]}],
     )
     raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-    if "{" not in raw or "}" not in raw:
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end <= start:
+        # Brak obiektu ALBO `}` przed `{` (zdegenerowane) — precyzyjny komunikat
+        # zamiast zrzucania tego na _loads_cv_json (który dałby mniej czytelny
+        # błąd "nieparsowalny JSON").
         raise ValueError("model nie zwrócił obiektu JSON")
     # `_loads_cv_json` toleruje dokładnie te defekty, które Haiku produkuje na
     # profilach Championa: nieucieczkowany `"` w prozie (`Expecting ','

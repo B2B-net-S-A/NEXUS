@@ -261,6 +261,47 @@ async def test_parse_uses_lenient_json_repair(monkeypatch):
     assert "senior" in parsed["role_name"]
 
 
+@pytest.mark.asyncio
+async def test_parse_raises_value_error_on_unrepairable_json(monkeypatch):
+    """Gdy repair wyczerpie strategie — ValueError (nie surowy JSONDecodeError),
+    żeby endpoint zwrócił parse_failed, a nie 500. Kontrakt zamrożony."""
+    import app.services.champion_profile_ingest as m
+
+    class _Block:
+        type = "text"
+        text = '{"role": ][ nieuratowalne ]['
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    with pytest.raises(ValueError):
+        await m.parse_champion_document("tekst " * 60)
+
+
+@pytest.mark.asyncio
+async def test_parse_rejects_brace_before_open(monkeypatch):
+    """`}{` (zamknięcie przed otwarciem) → precyzyjny komunikat, nie repair."""
+    import app.services.champion_profile_ingest as m
+
+    class _Block:
+        type = "text"
+        text = "}{"
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    with pytest.raises(ValueError, match="nie zwrócił obiektu"):
+        await m.parse_champion_document("tekst " * 60)
+
+
 def test_validate_upload_without_rid_checks_file_only():
     """Powierzchnia bez rekrutacji (radar) — walidacja samego pliku."""
     assert validate_upload("profil.docx", 1000) is None
