@@ -112,18 +112,22 @@ export interface ChampionParseResponse {
   summary: ChampionParseSummary;
 }
 
+/**
+ * Sufit czasu dla endpointów LLM/scoringowych radaru. Domyślny timeout
+ * instancji `api` (30 s) jest dla CRUD-ów — parse profilu (Haiku,
+ * 10-31+ s zmierzone) i search na zimnym cache (embed + scoring ~2000
+ * kandydatów, ~30+ s) ubijał ŻYWE requesty sekundę przed odpowiedzią
+ * (#1210, #1211). 120 s pokrywa ogon z zapasem.
+ */
+const SLOW_ENDPOINT_TIMEOUT_MS = 120_000;
+
 export const talentRadarApi = {
   search: (
     payload: TalentRadarSearchRequest,
   ): Promise<TalentRadarSearchResponse> =>
     api
       .post<TalentRadarSearchResponse>("/api/talent-radar/search", payload, {
-        // Wyszukiwanie na zimnym cache (embed zapytania + scoring ~2000
-        // kandydatów × kilkanaście mustów) potrafi przekroczyć 30 s —
-        // domyślny timeout instancji ubijał żywy request (symulacja
-        // rekruterska 19.08, profil Testera z 15 mustami). Ta sama klasa
-        // co parse-champion (#1210); 120 s pokrywa ogon z zapasem.
-        timeout: 120_000,
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       })
       .then((r) => r.data),
   /** Plik profilu Championa (docx/pdf) → sparsowany profil + podsumowanie. */
@@ -138,11 +142,7 @@ export const talentRadarApi = {
         // na prodzie 19.08; curl działał, bo omija axiosa). Jawny nagłówek
         // to wzorzec pozostałych uploadów w api.ts — axios dokłada boundary.
         headers: { "Content-Type": "multipart/form-data" },
-        // Parse LLM na dużym profilu trwa 10-31+ s (zmierzone curl-em na
-        // prodzie), a domyślny timeout instancji to 30 s — klient ubijał
-        // połączenie sekundę przed odpowiedzią 200 i upload wyglądał na
-        // wiecznie "Parsuję…". Sufit 120 s pokrywa ogon z zapasem.
-        timeout: 120_000,
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       })
       .then((r) => r.data);
   },
