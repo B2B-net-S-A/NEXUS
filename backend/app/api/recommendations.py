@@ -195,19 +195,13 @@ async def recommend_candidates_for_job(
         ),
     ),
     exclude_over_budget: bool = Query(
-        False,
+        True,
         description=(
-            "Dealbreaker: ukryj kandydatów, których ZNANA stawka PLN/h "
-            "przekracza budżet oferty (jawne pole lub stawka Championa) "
-            "ponad margines. Nieznana stawka zawsze przechodzi."
-        ),
-    ),
-    budget_margin_pct: int = Query(
-        30,
-        description=(
-            "Margines negocjacyjny dla exclude_over_budget (0/15/30/50). "
-            "GT-loss zmierzony 18.08: 0% ukrywa 44% realnie dowiezionych, "
-            "30% — 14%."
+            "Dealbreaker (domyślnie WŁĄCZONY — decyzja produktowa 19.08): "
+            "znany budżet oferty (jawne pole lub stawka Championa) ukrywa "
+            "kandydatów, których ZNANA stawka PLN/h jest ściśle powyżej "
+            "niego. Nieznana stawka zawsze przechodzi; ustaw false, żeby "
+            "pokazać też przekraczających."
         ),
     ),
     exclude_remote_only: bool = Query(
@@ -242,7 +236,6 @@ async def recommend_candidates_for_job(
         location=location,
         location_source=location_source,
         exclude_over_budget=exclude_over_budget,
-        budget_margin_pct=budget_margin_pct,
         exclude_remote_only=exclude_remote_only,
     )
 
@@ -282,8 +275,7 @@ async def _recommend_candidates_core(
     profile_id: Optional[int] = None,
     location: str | None = None,
     location_source: str = "all",
-    exclude_over_budget: bool = False,
-    budget_margin_pct: int = 30,
+    exclude_over_budget: bool = True,
     exclude_remote_only: bool = False,
 ) -> dict:
     """Application-service core of job→candidates recommendations.
@@ -291,17 +283,6 @@ async def _recommend_candidates_core(
     Plain async function (no FastAPI transport objects) — callable from the
     route above and from ``recompute_scores`` without a ``Request``.
     """
-    from app.services.dealbreaker_filters import BUDGET_MARGINS
-
-    if budget_margin_pct not in BUDGET_MARGINS:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"budget_margin_pct musi być jednym z {sorted(BUDGET_MARGINS)} "
-                "(marginesy ze zmierzonym GT-loss)"
-            ),
-        )
-
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -458,9 +439,10 @@ async def _recommend_candidates_core(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
 
-    # Dealbreaker-switche (runda 3): twarde, ŚWIADOMIE włączane ukrywanie
-    # zamiast punktowania. Nieznany przechodzi; liczniki idą do meta.hidden,
-    # żeby ukrywanie nigdy nie było ciche (reguła „awaria ≠ pustka").
+    # Dealbreaker-switche: twardy sufit budżetu działa Z AUTOMATU (decyzja
+    # produktowa 19.08) — znany budżet oferty ukrywa znane stawki powyżej.
+    # Nieznany przechodzi; liczniki idą do meta.hidden, żeby ukrywanie nigdy
+    # nie było ciche (reguła „awaria ≠ pustka").
     from app.services.dealbreaker_filters import (
         apply_dealbreakers,
         resolve_job_budget_hourly,
@@ -470,7 +452,6 @@ async def _recommend_candidates_core(
         candidates,
         exclude_over_budget=exclude_over_budget,
         budget_hourly=(resolve_job_budget_hourly(job) if exclude_over_budget else None),
-        budget_margin_pct=budget_margin_pct,
         exclude_remote_only=exclude_remote_only,
     )
     candidates = dealbreakers.kept

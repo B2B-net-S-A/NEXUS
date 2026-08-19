@@ -11,11 +11,15 @@ Trzy żelazne zasady, każda okupiona zmierzonym wypadkiem:
    (stawka znana i ponad budżet; `remote_only is True`). Filtr stażu przy
    pokryciu 1,2% zredukował kiedyś lejek 11 091 → 45 — brak danych nie jest
    dowodem niedopasowania.
-2. **Margines na negocjacje, zmierzony na danych.** GT-loss na zamrożonych
-   zbiorach A+B (2 212 par z historii decyzji, 18.08): margines 0% ukryłby
-   44% realnie dowiezionych kandydatów, +15% → 27%, +30% → 14%, +50% → 5%.
-   Stawki są negocjowane w dół rutynowo — stąd default +30% i switch
-   domyślnie WYŁĄCZONY (świadome zawężenie, nie automat).
+2. **Twardy sufit BEZ marginesu i BEZ osobnego uzbrajania (decyzja
+   produktowa Artura, 19.08).** Wpisana/znana stawka budżetu ukrywa każdą
+   ZNANĄ stawkę kandydata powyżej niej (strict ``>``; równa przechodzi),
+   a sama obecność budżetu aktywuje filtr — zero dodatkowych przełączników.
+   Pomiar z 18.08 zostaje tu jako świadomie zaakceptowany koszt: na zbiorach
+   A+B (2 212 par z historii decyzji) sufit bez marginesu ukrywa 44% realnie
+   dowiezionych kandydatów, bo stawki są rutynowo negocjowane w dół.
+   Właściciel produktu wybrał przewidywalność („budżet znaczy budżet") nad
+   recall — NIE przywracaj marginesu bez jego decyzji.
 3. **Ukrywanie nigdy nie jest ciche.** Konsument dostaje liczniki per powód
    i renderuje „ukryto N" — pustka bez wyjaśnienia czyta się jak utrata
    danych (reguła „awaria ≠ pustka").
@@ -32,9 +36,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
-
-BUDGET_MARGINS = (0, 15, 30, 50)
-DEFAULT_BUDGET_MARGIN = 30
 
 
 def resolve_job_budget_hourly(job) -> Optional[float]:
@@ -79,12 +80,15 @@ def _candidate_rate_pln_hourly(candidate) -> Optional[float]:
     return value if value > 0 else None
 
 
-def budget_excludes(candidate, budget_hourly: float, margin_pct: int) -> bool:
-    """True wyłącznie, gdy ZNANA stawka przekracza budżet ponad margines."""
+def budget_excludes(candidate, budget_hourly: float) -> bool:
+    """True wyłącznie, gdy ZNANA stawka jest ŚCIŚLE powyżej budżetu.
+
+    Równość przechodzi — kandydat „dokładnie w budżecie" mieści się w nim.
+    """
     cand = _candidate_rate_pln_hourly(candidate)
     if cand is None:
         return False
-    return cand > budget_hourly * (1.0 + margin_pct / 100.0)
+    return cand > budget_hourly
 
 
 def remote_only_refuses_office(candidate) -> bool:
@@ -121,24 +125,23 @@ class DealbreakerResult:
 def apply_dealbreakers(
     candidates: list,
     *,
-    exclude_over_budget: bool = False,
+    exclude_over_budget: bool = True,
     budget_hourly: Optional[float] = None,
-    budget_margin_pct: int = DEFAULT_BUDGET_MARGIN,
     exclude_remote_only: bool = False,
 ) -> DealbreakerResult:
     """Przefiltruj listę kandydatów switchami; policz ukrytych per powód.
 
-    Kolejność powodów jest deterministyczna (budżet przed biurem), żeby
-    kandydat łapiący oba nie migrował między licznikami między odczytami.
-    ``exclude_over_budget`` bez znanego budżetu jest no-opem — brak budżetu
-    po stronie oferty to także „nie wiemy", nie powód do ukrywania.
+    ``exclude_over_budget`` ma default ``True`` z decyzji produktowej 19.08:
+    znany budżet działa Z AUTOMATU jako dealbreaker (konsument może go jawnie
+    wyłączyć, żeby pokazać też przekraczających). Bez znanego budżetu filtr
+    jest no-opem — brak budżetu po stronie oferty to także „nie wiemy",
+    nie powód do ukrywania. Kolejność powodów jest deterministyczna (budżet
+    przed biurem), żeby kandydat łapiący oba nie migrował między licznikami.
     """
     result = DealbreakerResult()
     budget_active = exclude_over_budget and budget_hourly is not None
     for candidate in candidates:
-        if budget_active and budget_excludes(
-            candidate, budget_hourly, budget_margin_pct
-        ):
+        if budget_active and budget_excludes(candidate, budget_hourly):
             result.hidden_over_budget += 1
             continue
         if exclude_remote_only and remote_only_refuses_office(candidate):

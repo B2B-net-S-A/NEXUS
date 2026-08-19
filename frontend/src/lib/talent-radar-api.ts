@@ -90,12 +90,11 @@ export interface TalentRadarSearchRequest {
   top_k?: number;
   min_score?: number;
   /**
-   * Dealbreaker-switche (runda 3). Budżet PLN/h podaje rekruter wprost —
-   * radar nie ma oferty. Nieznana stawka/preferencja kandydata PRZECHODZI.
+   * Dealbreaker-switche. Budżet PLN/h podaje rekruter wprost (radar nie ma
+   * oferty) — sama jego obecność działa jako twardy sufit, bez marginesu
+   * (decyzja produktowa 19.08). Nieznana stawka/preferencja PRZECHODZI.
    */
-  exclude_over_budget?: boolean;
   budget_hourly_max?: number;
-  budget_margin_pct?: 0 | 15 | 30 | 50;
   exclude_remote_only?: boolean;
 }
 
