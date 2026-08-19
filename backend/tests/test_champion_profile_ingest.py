@@ -234,6 +234,74 @@ def test_feature_key_registered():
     assert AIFeatureKey.champion_profile_parse.value == "champion_profile_parse"
 
 
+@pytest.mark.asyncio
+async def test_parse_uses_lenient_json_repair(monkeypatch):
+    """Malformed JSON od Haiku (nieucieczkowany `"` → Expecting ',' delimiter)
+    jest odzyskiwany przez _loads_cv_json — to trudne pliki, które padły
+    w imporcie sierpniowym i zostały lukami. Strict-first: dobry JSON bez zmian.
+    """
+    import app.services.champion_profile_ingest as m
+
+    # JSON z nieucieczkowanym cudzysłowem w stringu (klasyczny defekt Haiku).
+    broken = '{"role_name": "Dev "senior" backend", "must_skills": [{"name": "Go"}]}'
+
+    class _Block:
+        type = "text"
+        text = broken
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    parsed = await m.parse_champion_document("dowolny tekst > 200 znaków " * 20)
+    assert parsed["must_skills"] == [{"name": "Go"}]
+    assert "senior" in parsed["role_name"]
+
+
+@pytest.mark.asyncio
+async def test_parse_raises_value_error_on_unrepairable_json(monkeypatch):
+    """Gdy repair wyczerpie strategie — ValueError (nie surowy JSONDecodeError),
+    żeby endpoint zwrócił parse_failed, a nie 500. Kontrakt zamrożony."""
+    import app.services.champion_profile_ingest as m
+
+    class _Block:
+        type = "text"
+        text = '{"role": ][ nieuratowalne ]['
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    with pytest.raises(ValueError):
+        await m.parse_champion_document("tekst " * 60)
+
+
+@pytest.mark.asyncio
+async def test_parse_rejects_brace_before_open(monkeypatch):
+    """`}{` (zamknięcie przed otwarciem) → precyzyjny komunikat, nie repair."""
+    import app.services.champion_profile_ingest as m
+
+    class _Block:
+        type = "text"
+        text = "}{"
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    with pytest.raises(ValueError, match="nie zwrócił obiektu"):
+        await m.parse_champion_document("tekst " * 60)
+
+
 def test_validate_upload_without_rid_checks_file_only():
     """Powierzchnia bez rekrutacji (radar) — walidacja samego pliku."""
     assert validate_upload("profil.docx", 1000) is None
@@ -269,9 +337,7 @@ def test_radar_parse_champion_requires_candidate_write():
     from app.api.talent_radar import router
 
     def route_by_path(path):
-        return next(
-            r for r in router.routes if getattr(r, "path", None) == path
-        )
+        return next(r for r in router.routes if getattr(r, "path", None) == path)
 
     parse = _route_dep_names(route_by_path("/talent-radar/parse-champion"))
     search = _route_dep_names(route_by_path("/talent-radar/search"))
