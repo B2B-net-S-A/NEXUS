@@ -74,9 +74,13 @@ export function TalentRadarWorkspace() {
     mutationFn: () =>
       talentRadarApi.search({
         client_id: client!.id,
-        text: text.trim() || undefined,
+        text: championProfile ? undefined : text.trim() || undefined,
         champion_profile: championProfile ?? undefined,
-        title: title.trim() || undefined,
+        // Przy profilu nazwa roli pochodzi Z NIEGO (championSummary.role_name),
+        // nie z ręcznego pola — nie ma po co jej dublować.
+        title: championProfile
+          ? championSummary?.role_name || undefined
+          : title.trim() || undefined,
         top_k: 20,
         exclude_over_budget: Number(budgetMax) > 0 || undefined,
         budget_hourly_max: Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
@@ -90,14 +94,15 @@ export function TalentRadarWorkspace() {
     },
   });
 
+  const hasProfile = championProfile !== null;
   const tooShort = text.trim().length < MIN_QUERY_LENGTH;
   const blocked = useMemo(() => {
     if (!client)
       return "Wybierz klienta — bez niego nie sprawdzimy blacklist, NDA ani weta.";
-    if (tooShort && !championProfile)
-      return `Wklej opis roli (min. ${MIN_QUERY_LENGTH} znaków) albo wgraj plik profilu Championa.`;
+    if (!hasProfile && tooShort)
+      return `Wgraj profil Championa ALBO wklej opis roli (min. ${MIN_QUERY_LENGTH} znaków).`;
     return null;
-  }, [client, tooShort, championProfile]);
+  }, [client, tooShort, hasProfile]);
 
   const onChampionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
@@ -131,7 +136,7 @@ export function TalentRadarWorkspace() {
       <PageHeader
         eyebrow="Sourcing"
         title="Talent Radar"
-        description="Wklej treść requestu albo opis roli. Przemielimy bazę kandydatów i pokażemy ranking — bez zakładania rekrutacji."
+        description="Wgraj profil Championa ALBO wklej treść requestu — jedno z dwóch. Przemielimy bazę kandydatów i pokażemy ranking, bez zakładania rekrutacji."
         density="compact"
       />
 
@@ -203,19 +208,22 @@ export function TalentRadarWorkspace() {
               zawsze przechodzi. Ukrytych policzymy w wynikach.
             </p>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="tr-title">Nazwa roli</Label>
-            <Input
-              id="tr-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="np. Senior Python Developer"
-              maxLength={300}
-            />
-            <p className="text-xs text-muted-foreground">
-              Opcjonalna — wzmacnia dopasowanie.
-            </p>
-          </div>
+          {!hasProfile && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="tr-title">Nazwa roli</Label>
+              <Input
+                id="tr-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="np. Senior Python Developer"
+                maxLength={300}
+              />
+              <p className="text-xs text-muted-foreground">
+                Opcjonalna — wzmacnia dopasowanie. Przy wgranym profilu nazwę
+                bierzemy z niego.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -261,25 +269,33 @@ export function TalentRadarWorkspace() {
           <p className="text-xs text-muted-foreground">
             {parsingChampion
               ? "Parsuję profil…"
-              : "Docx/pdf od zespołu — odczytamy wymagania, stawkę i kontekst. Możesz też po prostu wkleić treść niżej."}
+              : hasProfile
+                ? "Profil niesie wymagania, stawkę, nazwę roli i kontekst — treść requestu jest już niepotrzebna."
+                : "Docx/pdf od zespołu — odczytamy wymagania, stawkę i kontekst. ALBO wklej treść requestu niżej."}
           </p>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tr-text">Treść requestu</Label>
-          <Textarea
-            id="tr-text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Wklej maila od klienta, opis stanowiska albo listę wymagań — jak leci."
-            rows={8}
-            maxLength={20_000}
-          />
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{blocked ?? "Gotowe do wyszukania."}</span>
-            <span>{text.length.toLocaleString("pl-PL")} / 20 000</span>
+        {!hasProfile && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tr-text">Treść requestu</Label>
+            <Textarea
+              id="tr-text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Wklej maila od klienta, opis stanowiska albo listę wymagań — jak leci."
+              rows={8}
+              maxLength={20_000}
+            />
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{blocked ?? "Gotowe do wyszukania."}</span>
+              <span>{text.length.toLocaleString("pl-PL")} / 20 000</span>
+            </div>
           </div>
-        </div>
+        )}
+
+        {hasProfile && blocked && (
+          <p className="text-xs text-destructive">{blocked}</p>
+        )}
 
         <div className="flex justify-end">
           <Button
