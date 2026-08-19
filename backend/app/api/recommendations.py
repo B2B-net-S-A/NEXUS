@@ -1167,6 +1167,11 @@ async def recompute_scores(
         top_k=top_k,
         include_breakdown=False,
         exclude_in_pipeline=False,
+        # Grzałka cache, nie widok użytkownika: ma policzyć/odświeżyć score'y
+        # PEŁNEJ puli, także kandydatów powyżej budżetu — inaczej wyłączenie
+        # sufitu w UI trafia na zimny cache (review #1207). Wyników i tak nie
+        # zwracamy, więc default produktowy (ukrywaj) tu nie obowiązuje.
+        exclude_over_budget=False,
     )
 
     return {

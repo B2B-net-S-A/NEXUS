@@ -184,6 +184,17 @@ async def compute_proposal_for_job(
                 already = {cid for (cid,) in in_pipeline.all()}
                 candidate_ids = [cid for cid in candidate_ids if cid not in already]
 
+            # Post-0237 snapshot ZAWSZE niesie liczniki (choćby zerowe) —
+            # NULL zostaje jednoznacznym znacznikiem „sprzed 0237 /
+            # nieprzefiltrowany", także gdy retrieval zwrócił pustą pulę
+            # i dealbreakery nie miały na czym pracować (review #1207).
+            from app.services.dealbreaker_filters import (
+                DealbreakerResult,
+                apply_dealbreakers,
+                resolve_job_budget_hourly,
+            )
+
+            snap.hidden = DealbreakerResult().hidden_meta()
             breakdowns: list = []
             if candidate_ids:
                 cand_res = await session.execute(
@@ -214,11 +225,6 @@ async def compute_proposal_for_job(
                 # `snap.hidden`, bo ukrywanie nigdy nie jest ciche; remote_only
                 # zostaje opt-in per wyszukiwanie (snapshot nie niesie tej
                 # deklaracji rekrutera).
-                from app.services.dealbreaker_filters import (
-                    apply_dealbreakers,
-                    resolve_job_budget_hourly,
-                )
-
                 dealbreakers = apply_dealbreakers(
                     candidates,
                     budget_hourly=resolve_job_budget_hourly(job),
