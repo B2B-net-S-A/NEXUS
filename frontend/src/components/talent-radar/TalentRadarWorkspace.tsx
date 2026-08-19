@@ -217,7 +217,9 @@ export function TalentRadarWorkspace() {
                 className="flex-1"
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{blocked ?? "Gotowe do wyszukania."}</span>
+                <span className={blocked ? "text-destructive" : ""}>
+                  {blocked ?? "Gotowe do wyszukania."}
+                </span>
                 <span>{text.length.toLocaleString("pl-PL")} / 20 000</span>
               </div>
             </div>
