@@ -107,9 +107,7 @@ async def test_existing_champion_with_empty_skills_reports_ok(monkeypatch):
     async def _noop(*a, **k):
         pass
 
-    monkeypatch.setattr(
-        "app.services.index_outbox_service.record_bulk_reindex", _noop
-    )
+    monkeypatch.setattr("app.services.index_outbox_service.record_bulk_reindex", _noop)
     monkeypatch.setattr("app.services.match_score_cache.mark_stale_for_job", _noop)
 
     out = await m.ingest_parsed_profile(
@@ -157,9 +155,7 @@ async def test_ingest_writes_empty_fields_and_marks_stale(monkeypatch):
     monkeypatch.setattr(
         "app.services.index_outbox_service.record_bulk_reindex", fake_reindex
     )
-    monkeypatch.setattr(
-        "app.services.match_score_cache.mark_stale_for_job", fake_stale
-    )
+    monkeypatch.setattr("app.services.match_score_cache.mark_stale_for_job", fake_stale)
 
     parsed = {
         "role_name": "DevOps",
@@ -195,19 +191,20 @@ async def test_ingest_no_job_is_reported_not_raised():
     assert out == {"outcome": "no_job", "external_rid": 999999}
 
 
-def test_cors_is_narrow_single_origin():
-    """CORS tylko dla origina Traffita — globalna lista NIE jest poszerzana."""
-    from app.api.admin_champion_ingest import _ALLOWED_ORIGIN, _CORS_HEADERS
+def test_collector_origin_documented_for_cors_activation():
+    """Origin collectora jest nazwany — aktywacja przez env CORS_ORIGINS.
 
-    assert _ALLOWED_ORIGIN == "https://b2bnetwork.traffit.com"
-    assert _CORS_HEADERS["Access-Control-Allow-Origin"] == _ALLOWED_ORIGIN
-    assert "*" not in _CORS_HEADERS["Access-Control-Allow-Origin"]
+    Per-route CORS jest niewykonalny (CORSMiddleware wyprzedza preflight dla
+    origina spoza globalnej listy), więc collector-przez-przeglądarkę wymaga
+    dodania tego origina do env CORS_ORIGINS. Stała istnieje, by aktywacja
+    była jawna, a nie zgadywana z URL-a.
+    """
+    from app.api.admin_champion_ingest import COLLECTOR_ORIGIN
 
-    from app.core.config import settings
-
-    assert all("traffit" not in str(o) for o in settings.CORS_ORIGINS), (
-        "globalny CORS ma zostać wąski — traffit tylko na trasach ingestu"
-    )
+    assert COLLECTOR_ORIGIN == "https://b2bnetwork.traffit.com"
+    # HTTPS obowiązkowo — literówka http:// przepuściłaby preflight na
+    # niezaszyfrowanym originie, na którym żyje token admina.
+    assert COLLECTOR_ORIGIN.startswith("https://")
 
 
 def test_module_has_no_future_annotations():
