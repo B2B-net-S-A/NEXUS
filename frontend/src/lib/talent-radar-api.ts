@@ -131,6 +131,11 @@ export const talentRadarApi = {
         // na prodzie 19.08; curl działał, bo omija axiosa). Jawny nagłówek
         // to wzorzec pozostałych uploadów w api.ts — axios dokłada boundary.
         headers: { "Content-Type": "multipart/form-data" },
+        // Parse LLM na dużym profilu trwa 10-31+ s (zmierzone curl-em na
+        // prodzie), a domyślny timeout instancji to 30 s — klient ubijał
+        // połączenie sekundę przed odpowiedzią 200 i upload wyglądał na
+        // wiecznie "Parsuję…". Sufit 120 s pokrywa ogon z zapasem.
+        timeout: 120_000,
       })
       .then((r) => r.data);
   },
