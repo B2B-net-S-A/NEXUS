@@ -86,6 +86,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 
@@ -97,6 +98,7 @@ RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 
@@ -109,6 +111,7 @@ RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
 )
 
 # Candidate expected-rate edits (PATCH + rate-bearing `verified` move).
@@ -117,6 +120,7 @@ RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
 )
 
 # Scorecards, screening notes, interview feedback.
@@ -125,6 +129,7 @@ RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 
@@ -133,6 +138,7 @@ CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 

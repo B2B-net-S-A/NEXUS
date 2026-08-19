@@ -397,23 +397,24 @@ def test_finance_notification_allowlist_contains_only_account_security_types():
         assert recruitment_type not in notifications._FINANCE_SAFE_NOTIFICATION_TYPES
 
 
-def test_finance_notification_visibility_is_allowlist_not_admin_bypass():
-    invalid_legacy_hybrid = _user(UserRole.finance)
-    invalid_legacy_hybrid.roles = [
-        UserRole.finance.value,
-        UserRole.admin.value,
-    ]
+def test_finance_notification_visibility_matches_operational():
+    """Od 19.08 finance widzi feed jak role operacyjne (bez allowlisty).
 
-    rendered = str(
-        notifications._notification_visibility(invalid_legacy_hybrid).compile(
-            compile_kwargs={"literal_binds": True}
+    Kontrakt: predykat widoczności czystej persony finance jest IDENTYCZNY
+    z predykatem recruitera (wszystko poza pending_verification) — a nie
+    admin-true() i nie dawna lista „finance-safe"."""
+    finance = _user(UserRole.finance)
+    recruiter = _user(UserRole.recruiter)
+
+    def rendered(user):
+        return str(
+            notifications._notification_visibility(user).compile(
+                compile_kwargs={"literal_binds": True}
+            )
         )
-    )
 
-    assert "password_reset_requested" in rendered
-    assert "password_changed_by_admin" in rendered
-    assert "candidate_added" not in rendered
-    assert "pending_verification" not in rendered
+    assert rendered(finance) == rendered(recruiter)
+    assert "pending_verification" in rendered(finance)
 
 
 def test_activity_redaction_covers_job_budget_and_generic_amount_keys():

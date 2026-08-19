@@ -230,8 +230,8 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // /api/finance/* → require_roles(admin, finance). Jedyna capability, którą
-  // rola `finance` w ogóle posiada — patrz FINANCE_CAPABILITIES niżej.
+  // /api/finance/* → require_roles(admin, finance) — moduł własny finance
+  // (finance poza tym dziedziczy tier recruitera, patrz financeExpected).
   "nav.finance": {
     admin: true,
     head_of_recruitment: false,
@@ -244,18 +244,16 @@ const EXPECTED: Record<
 };
 
 /**
- * Capability, które przysługują roli `finance`. Lista jawna, nie wyliczana —
- * dopisanie tu czegokolwiek ma być świadomym diffem w PR, bo `finance` to
- * rola WYŁĄCZNA (CHECK ck_users_exclusive_finance_viewer_roles): jej
- * użytkownik nie ma żadnej innej roli, która mogłaby czegoś dołożyć.
+ * Reguła dla `finance` (decyzja produktowa Artura 19.08 — pełny dostęp
+ * operacyjny): finance ma DOKŁADNIE to co recruiter, plus własny moduł
+ * `nav.finance`. Wyliczana z macierzy, nie ręczna lista — dzięki temu nowa
+ * capability przyznana recruiterowi automatycznie obejmuje finance, a
+ * odstępstwo od reguły wymaga świadomej zmiany tej funkcji.
  */
-const FINANCE_CAPABILITIES: readonly Capability[] = [
-  "nav.finance",
-  // Radar dla KAŻDEJ roli (decyzja produktowa 19.08) — jedyna operacyjna
-  // powierzchnia, którą finance współdzieli; wyniki radaru to lista triage
-  // bez kontaktu i stawek, pełne profile pozostają poza tą rolą.
-  "nav.talent_radar",
-];
+function financeExpected(capability: Capability): boolean {
+  if (capability === "nav.finance") return true;
+  return EXPECTED[capability].recruiter;
+}
 
 const ALL_CAPABILITIES = Object.keys(CAPABILITY_ROLES) as Capability[];
 
@@ -282,11 +280,10 @@ describe("rejestr capability — kompletność", () => {
 describe("hasCapability — pełna macierz rola × capability", () => {
   for (const capability of ALL_CAPABILITIES) {
     for (const role of ALL_ROLES) {
-      // Finance jest rolą ekskluzywną: poza własnym modułem rejestr opisuje
-      // wyłącznie capability operacyjne, więc wszystkie są dla niej fail-closed.
+      // Finance = tier recruitera + własny moduł (decyzja 19.08).
       const expected =
         role === "finance"
-          ? FINANCE_CAPABILITIES.includes(capability)
+          ? financeExpected(capability)
           : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected);
@@ -337,18 +334,14 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
   });
 
-  it("rola `finance` nie dziedziczy operacyjnych — poza Talent Radarem", () => {
+  it("rola `finance` = tier recruitera + własny moduł (decyzja 19.08)", () => {
     for (const capability of ALL_CAPABILITIES) {
-      if (FINANCE_CAPABILITIES.includes(capability)) continue;
-      const expected = capability === "nav.talent_radar";
-      expect(hasCapability(mkUser("finance"), capability)).toBe(expected);
+      expect(hasCapability(mkUser("finance"), capability)).toBe(
+        financeExpected(capability),
+      );
     }
-  });
-
-  it("rola `finance` MA dostęp do własnego modułu", () => {
-    for (const capability of FINANCE_CAPABILITIES) {
-      expect(hasCapability(mkUser("finance"), capability)).toBe(true);
-    }
+    expect(hasCapability(mkUser("finance"), "nav.finance")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "nav.candidates")).toBe(true);
   });
 });
 

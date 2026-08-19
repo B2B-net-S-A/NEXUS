@@ -329,6 +329,7 @@ RecruiterPlus = Annotated[
             UserRole.delivery_lead,
             UserRole.tac,
             UserRole.recruiter,
+            UserRole.finance,
             UserRole.sourcer,
         )
     ),
@@ -348,6 +349,7 @@ OperationalUser = Annotated[
             UserRole.delivery_lead,
             UserRole.tac,
             UserRole.recruiter,
+            UserRole.finance,
             UserRole.sourcer,
         )
     ),
