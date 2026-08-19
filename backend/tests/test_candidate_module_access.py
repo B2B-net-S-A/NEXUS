@@ -49,10 +49,13 @@ ROLES = [
     UserRole.user,
 ]
 
+# Finance od 19.08 = pelny dostep operacyjny (tier recruitera) — patrz
+# CLAUDE.md sekcja "Rola finance".
 OPERATIONAL_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
@@ -60,6 +63,7 @@ OPERATIONAL_ROLES = {
 WRITE_ROLES = {
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
@@ -396,11 +400,12 @@ WRITE_ENDPOINTS = [
     ("POST", "/api/candidates/999999/documents", None),
 ]
 
-# M4 PR-01: stawka kandydata = osobne capability (admin/DL/tac/recruiter,
-# bez sourcera) — audyt M4 P0.3.
+# M4 PR-01: stawka kandydata = osobne capability (bez sourcera) — audyt M4
+# P0.3. Finance dołączył 19.08 (tier recruitera, pełny dostęp operacyjny).
 RATE_EDIT_ROLES = {
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
 }

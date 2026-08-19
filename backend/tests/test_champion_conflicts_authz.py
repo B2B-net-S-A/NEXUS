@@ -48,7 +48,9 @@ ROLES = [
 ]
 
 # OperationalUser — every internal role, read-only viewer `user` excluded.
+# (Finance dolaczyl 19.08 — pelny dostep operacyjny.)
 OPERATIONAL_ROLES = {
+    UserRole.finance,
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
