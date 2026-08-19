@@ -88,7 +88,9 @@ def _make_email(
     )
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+# Finance ma od 19.08 dostęp do domeny kandydackiej (pełny dostęp operacyjny)
+# — jedyną pomijaną skrzynką zostaje wycofywany viewer `user`.
+@pytest.mark.parametrize("role", [UserRole.user])
 async def test_rematch_pass_skips_ineligible_mailbox_owner(
     role: UserRole,
     monkeypatch: pytest.MonkeyPatch,

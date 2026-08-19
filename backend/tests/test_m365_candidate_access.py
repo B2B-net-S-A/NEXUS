@@ -79,7 +79,9 @@ def test_email_search_openapi_keeps_current_user_as_dependency() -> None:
     }
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+# Finance ma od 19.08 pelny dostep operacyjny (user_can_access_candidate_domain
+# przepuszcza) — jedyna nieuprawniona persona to wycofywany viewer `user`.
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_oauth_callback_rechecks_role_before_token_exchange(
     role: UserRole,
@@ -112,7 +114,7 @@ async def test_oauth_callback_rechecks_role_before_token_exchange(
     db.commit.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_webhook_sync_rechecks_connection_owner_role(
     role: UserRole,
