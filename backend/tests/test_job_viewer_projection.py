@@ -175,7 +175,10 @@ def test_redaction_list_covers_known_sensitive_schema_fields() -> None:
     redacted, this fails so the omission is a conscious decision, not an oversight."""
     from app.schemas.job import JobResponse
 
-    fields = set(JobResponse.model_fields)
+    # Computed fields ship to the client identically to stored ones, so the
+    # guard scans both — a future sensitive @computed_field must not slip
+    # through just because it is derived (review #1208).
+    fields = set(JobResponse.model_fields) | set(JobResponse.model_computed_fields)
     # Substrings that mark a field as something a client viewer should not see.
     # Whole-token markers, not substrings: an earlier "rate" matched
     # criteria_generated_at ("crite-RATE-d"), which is a timestamp, not money.
