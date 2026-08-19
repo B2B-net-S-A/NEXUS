@@ -240,8 +240,14 @@ async def ingest_parsed_profile(
 _RID_RE = re.compile(r"^\d{1,8}$")
 
 
-def validate_upload(filename: str, size: int, external_rid: str) -> Optional[str]:
-    """Komunikat błędu po polsku albo None gdy upload jest poprawny."""
+def validate_upload(
+    filename: str, size: int, external_rid: Optional[str] = None
+) -> Optional[str]:
+    """Komunikat błędu po polsku albo None gdy upload jest poprawny.
+
+    ``external_rid=None`` = powierzchnia bez rekrutacji (upload w Talent
+    Radarze) — sprawdzamy tylko plik.
+    """
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         return f"Dozwolone rozszerzenia: {', '.join(ALLOWED_EXTENSIONS)} (dostałem: {ext or 'brak'})"
@@ -249,6 +255,6 @@ def validate_upload(filename: str, size: int, external_rid: str) -> Optional[str
         return "Pusty plik"
     if size > MAX_FILE_BYTES:
         return f"Plik przekracza limit {MAX_FILE_BYTES // (1024 * 1024)} MB"
-    if not _RID_RE.match(external_rid or ""):
+    if external_rid is not None and not _RID_RE.match(external_rid or ""):
         return "external_rid musi być liczbą (id rekrutacji Traffit)"
     return None

@@ -235,3 +235,17 @@ def test_feature_key_registered():
     from app.models.ai_feature import AIFeatureKey
 
     assert AIFeatureKey.champion_profile_parse.value == "champion_profile_parse"
+
+
+def test_validate_upload_without_rid_checks_file_only():
+    """Powierzchnia bez rekrutacji (radar) — walidacja samego pliku."""
+    assert validate_upload("profil.docx", 1000) is None
+    assert validate_upload("profil.exe", 1000) is not None
+    assert validate_upload("profil.pdf", 0) is not None
+
+
+def test_radar_parse_champion_route_registered():
+    from app.api.talent_radar import router
+
+    paths = {r.path for r in router.routes}
+    assert "/talent-radar/parse-champion" in paths

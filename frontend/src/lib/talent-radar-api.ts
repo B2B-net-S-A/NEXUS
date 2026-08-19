@@ -99,6 +99,20 @@ export interface TalentRadarSearchRequest {
   exclude_remote_only?: boolean;
 }
 
+export interface ChampionParseSummary {
+  role_name: string | null;
+  must_count: number;
+  nice_count: number;
+  rate_value: number | null;
+  location: string | null;
+  work_mode: string | null;
+}
+
+export interface ChampionParseResponse {
+  champion_profile: Record<string, unknown>;
+  summary: ChampionParseSummary;
+}
+
 export const talentRadarApi = {
   search: (
     payload: TalentRadarSearchRequest,
@@ -106,4 +120,12 @@ export const talentRadarApi = {
     api
       .post<TalentRadarSearchResponse>("/api/talent-radar/search", payload)
       .then((r) => r.data),
+  /** Plik profilu Championa (docx/pdf) → sparsowany profil + podsumowanie. */
+  parseChampion: (file: File): Promise<ChampionParseResponse> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api
+      .post<ChampionParseResponse>("/api/talent-radar/parse-champion", fd)
+      .then((r) => r.data);
+  },
 };

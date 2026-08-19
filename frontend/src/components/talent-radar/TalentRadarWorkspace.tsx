@@ -39,6 +39,7 @@ import { useToast } from "@/components/Toast";
 import { extractErrorMsg } from "@/lib/api";
 import {
   talentRadarApi,
+  type ChampionParseSummary,
   type TalentRadarSearchResponse,
 } from "@/lib/talent-radar-api";
 import { TalentRadarResults } from "@/components/talent-radar/TalentRadarResults";
@@ -59,12 +60,22 @@ export function TalentRadarWorkspace() {
   const [budgetMax, setBudgetMax] = useState("");
   const [budgetMargin, setBudgetMargin] = useState<0 | 15 | 30 | 50>(30);
   const [excludeRemoteOnly, setExcludeRemoteOnly] = useState(false);
+  // Profil Championa z pliku (docx/pdf): rekruter dostaje go jako DOKUMENT —
+  // wklejanie do pola tekstowego gubi strukturę (stawka, must/nice).
+  const [championProfile, setChampionProfile] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [championSummary, setChampionSummary] =
+    useState<ChampionParseSummary | null>(null);
+  const [parsingChampion, setParsingChampion] = useState(false);
 
   const search = useMutation({
     mutationFn: () =>
       talentRadarApi.search({
         client_id: client!.id,
-        text: text.trim(),
+        text: text.trim() || undefined,
+        champion_profile: championProfile ?? undefined,
         title: title.trim() || undefined,
         top_k: 20,
         exclude_over_budget: Number(budgetMax) > 0 || undefined,
@@ -83,10 +94,30 @@ export function TalentRadarWorkspace() {
   const blocked = useMemo(() => {
     if (!client)
       return "Wybierz klienta — bez niego nie sprawdzimy blacklist, NDA ani weta.";
-    if (tooShort)
-      return `Wklej opis roli — przynajmniej ${MIN_QUERY_LENGTH} znaków.`;
+    if (tooShort && !championProfile)
+      return `Wklej opis roli (min. ${MIN_QUERY_LENGTH} znaków) albo wgraj plik profilu Championa.`;
     return null;
-  }, [client, tooShort]);
+  }, [client, tooShort, championProfile]);
+
+  const onChampionFile = async (f: File | null) => {
+    if (!f) return;
+    setParsingChampion(true);
+    try {
+      const res = await talentRadarApi.parseChampion(f);
+      setChampionProfile(res.champion_profile);
+      setChampionSummary(res.summary);
+      // Stawka z profilu = budżet klienta na kandydata — pre-fill dla
+      // dealbreakera (rekruter może nadpisać/wyczyścić).
+      if (res.summary.rate_value && !budgetMax) {
+        setBudgetMax(String(res.summary.rate_value));
+      }
+      setResponse(null);
+    } catch (error: unknown) {
+      showError(extractErrorMsg(error));
+    } finally {
+      setParsingChampion(false);
+    }
+  };
 
   const meta = response?.meta;
   const results = response?.results ?? [];
@@ -181,6 +212,53 @@ export function TalentRadarWorkspace() {
               Opcjonalna — wzmacnia dopasowanie.
             </p>
           </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="tr-champion-file">Profil Championa (plik)</Label>
+          {championSummary ? (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
+              data-testid="tr-champion-loaded"
+            >
+              <span className="font-medium">
+                {championSummary.role_name || "Profil wczytany"}
+              </span>
+              <span className="text-muted-foreground">
+                {championSummary.must_count} must · {championSummary.nice_count}{" "}
+                nice
+                {championSummary.rate_value
+                  ? ` · ${championSummary.rate_value} PLN/h`
+                  : ""}
+                {championSummary.location ? ` · ${championSummary.location}` : ""}
+              </span>
+              <button
+                type="button"
+                className="ml-auto text-xs text-muted-foreground underline hover:text-foreground"
+                onClick={() => {
+                  setChampionProfile(null);
+                  setChampionSummary(null);
+                  setResponse(null);
+                }}
+              >
+                Usuń
+              </button>
+            </div>
+          ) : (
+            <input
+              id="tr-champion-file"
+              type="file"
+              accept=".docx,.pdf"
+              disabled={parsingChampion}
+              onChange={(e) => onChampionFile(e.target.files?.[0] ?? null)}
+              className="text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-sm hover:file:bg-accent"
+            />
+          )}
+          <p className="text-xs text-muted-foreground">
+            {parsingChampion
+              ? "Parsuję profil…"
+              : "Docx/pdf od zespołu — odczytamy wymagania, stawkę i kontekst. Możesz też po prostu wkleić treść niżej."}
+          </p>
         </div>
 
         <div className="flex flex-col gap-2">

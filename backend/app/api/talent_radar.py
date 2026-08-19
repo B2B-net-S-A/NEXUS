@@ -15,7 +15,7 @@ anyway, so it is repeated where the next person will look.
 import logging
 from typing import Literal, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -139,3 +139,72 @@ def _shape_result(breakdown: Any, candidate: Any) -> dict[str, Any]:
     # `candidate` is None only if a row vanished between ranking and shaping.
     payload["candidate"] = shape_radar_candidate(candidate) if candidate else None
     return payload
+
+
+@router.post("/talent-radar/parse-champion")
+@limiter.limit("10/minute")
+async def talent_radar_parse_champion(
+    request: Request,
+    current_user: User = Depends(require_candidate_write),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Plik profilu Championa (docx/pdf) → sparsowany profil dla radaru.
+
+    Rekruter dostaje profil od zespołu jako DOKUMENT — wklejanie go ręcznie
+    do pola tekstowego gubi strukturę (stawka, must/nice, screening). Ten
+    endpoint parsuje plik tym samym promptem v3 co import sierpniowy i zwraca
+    kształt zgodny z `TalentRadarSearchRequest.champion_profile`, więc wynik
+    idzie prosto w wyszukiwanie — bez zakładania rekrutacji i BEZ zapisu
+    czegokolwiek do bazy (radar pozostaje bezstanowy).
+
+    Kwota: ten sam kubełek co ingest (`champion_profile_parse`).
+    """
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import AIQuotaExceeded, ai_feature
+    from app.services.champion_profile_ingest import (
+        build_champion_dict,
+        extract_document_text,
+        parse_champion_document,
+        validate_upload,
+    )
+
+    content = await file.read()
+    error = validate_upload(file.filename or "", len(content))
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+
+    text = extract_document_text(content, file.filename or "")
+    if not text or len(text) < 200:
+        raise HTTPException(
+            status_code=422,
+            detail="Nie udało się odczytać tekstu z pliku (skan bez OCR albo pusty dokument).",
+        )
+
+    try:
+        async with ai_feature(db, AIFeatureKey.champion_profile_parse):
+            parsed = await parse_champion_document(text)
+    except AIQuotaExceeded as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Nie udało się sparsować profilu: {exc}",
+        ) from exc
+
+    profile = build_champion_dict(parsed, file_id=0)
+    profile["_source"] = "talent_radar_upload"
+
+    musts = parsed.get("must_skills") or []
+    nices = parsed.get("nice_skills") or []
+    return {
+        "champion_profile": profile,
+        "summary": {
+            "role_name": parsed.get("role_name"),
+            "must_count": len(musts),
+            "nice_count": len(nices),
+            "rate_value": parsed.get("rate_value"),
+            "location": parsed.get("location"),
+            "work_mode": parsed.get("work_mode"),
+        },
+    }
