@@ -124,7 +124,14 @@ export const talentRadarApi = {
     const fd = new FormData();
     fd.append("file", file);
     return api
-      .post<ChampionParseResponse>("/api/talent-radar/parse-champion", fd)
+      .post<ChampionParseResponse>("/api/talent-radar/parse-champion", fd, {
+        // Instancja `api` ma domyślne Content-Type: application/json, które
+        // NIE jest podmieniane dla FormData — multipart jechał jako "json"
+        // i FastAPI odpowiadał 422 `file Field required` (złapane w Chrome
+        // na prodzie 19.08; curl działał, bo omija axiosa). Jawny nagłówek
+        // to wzorzec pozostałych uploadów w api.ts — axios dokłada boundary.
+        headers: { "Content-Type": "multipart/form-data" },
+      })
       .then((r) => r.data);
   },
 };
