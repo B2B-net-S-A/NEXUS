@@ -4,18 +4,22 @@ UWAGA: ten moduł NIE może mieć ``from __future__ import annotations`` —
 slowapi + Annotated multipart + PEP 563 przenosi guardy w parametry query
 (422 na poprawnym body; ta sama pułapka co w candidate_activity_summary).
 
-CORS: globalna lista originów (settings.CORS_ORIGINS) świadomie NIE jest
-poszerzana o traffit.com — zamiast tego ręczne nagłówki CORS WYŁĄCZNIE na
-tych dwóch trasach, dla dokładnie jednego origina. Auth pozostaje Bearerem
-(collector wkleja świeży JWT admina), więc CORS niczego nie autoryzuje —
-tylko pozwala przeglądarce na preflight/odczyt odpowiedzi z tej jednej pary
-endpointów.
+CORS — WAŻNE (zweryfikowane 2026-08-19): per-route CORS jest NIEWYKONALNY.
+Starlette ``CORSMiddleware`` przechwytuje preflight OPTIONS dla origina spoza
+``settings.CORS_ORIGINS`` i zwraca 400 BEZ ``Access-Control-Allow-Origin``
+ZANIM żądanie dotrze do handlera tras — więc żaden ręczny nagłówek dopięty
+tutaj nie odblokuje przeglądarki. Aby collector (karta traffit.com) mógł
+POST-ować cross-origin, ``https://b2bnetwork.traffit.com`` MUSI być w env
+``CORS_ORIGINS`` (świadoma aktywacja). Bez tego endpoint działa tylko dla
+klientów nie-przeglądarkowych z tokenem (np. curl). Auth zawsze przez Bearer,
+więc poszerzenie CORS o traffit samo w sobie niczego nie autoryzuje —
+NEXUS nie używa cookie, a traffit origin nie ma tokenu użytkownika NEXUS.
 """
 
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,26 +39,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/champion-profiles", tags=["admin-champion"])
 
-# Jedyny origin, któremu przeglądarka może czytać odpowiedzi tych tras —
-# collector biegnie w zalogowanej karcie Traffita.
-_ALLOWED_ORIGIN = "https://b2bnetwork.traffit.com"
-_CORS_HEADERS = {
-    "Access-Control-Allow-Origin": _ALLOWED_ORIGIN,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Max-Age": "600",
-    "Vary": "Origin",
-}
+# Origin collectora — do wpisania w env CORS_ORIGINS przy aktywacji przez
+# przeglądarkę (patrz docstring modułu: per-route CORS jest niewykonalny).
+COLLECTOR_ORIGIN = "https://b2bnetwork.traffit.com"
 
 
-def _cors(payload: dict, status_code: int = 200) -> JSONResponse:
-    return JSONResponse(payload, status_code=status_code, headers=_CORS_HEADERS)
-
-
-@router.options("/coverage", include_in_schema=False)
-@router.options("/ingest", include_in_schema=False)
-async def champion_ingest_preflight() -> Response:
-    return Response(status_code=204, headers=_CORS_HEADERS)
+def _json(payload: dict, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(payload, status_code=status_code)
 
 
 @router.get("/coverage")
@@ -79,7 +70,7 @@ async def champion_coverage(
     total_traffit = (
         await db.execute(select(Job.id).where(Job.external_source == "traffit"))
     ).all()
-    return _cors(
+    return _json(
         {
             "covered_external_ids": covered,
             "covered_count": len(covered),
@@ -110,7 +101,7 @@ async def champion_ingest(
     content = await file.read()
     error = validate_upload(file.filename or "", len(content), external_rid)
     if error:
-        return _cors({"detail": error}, status_code=422)
+        return _json({"detail": error}, status_code=422)
     rid = int(external_rid)
 
     # Tani pre-check PRZED kosztem LLM: oferta nieznana albo już pokryta
@@ -123,9 +114,9 @@ async def champion_ingest(
         )
     ).scalar_one_or_none()
     if job is None:
-        return _cors({"outcome": "no_job", "external_rid": rid})
+        return _json({"outcome": "no_job", "external_rid": rid})
     if isinstance(job.champion_profile, dict) and job.champion_profile:
-        return _cors(
+        return _json(
             {
                 "outcome": "champion_skipped_nonempty",
                 "external_rid": rid,
@@ -135,16 +126,16 @@ async def champion_ingest(
 
     text = extract_document_text(content, file.filename or "")
     if not text or len(text) < 200:
-        return _cors({"outcome": "no_text", "external_rid": rid}, status_code=422)
+        return _json({"outcome": "no_text", "external_rid": rid}, status_code=422)
 
     try:
         async with ai_feature(db, AIFeatureKey.champion_profile_parse):
             parsed = await parse_champion_document(text)
     except AIQuotaExceeded as exc:
-        return _cors({"detail": str(exc)}, status_code=503)
+        return _json({"detail": str(exc)}, status_code=503)
     except ValueError as exc:
         logger.warning("champion-ingest: parse padł dla rid=%s: %s", rid, exc)
-        return _cors(
+        return _json(
             {"outcome": "parse_failed", "external_rid": rid, "detail": str(exc)},
             status_code=422,
         )
@@ -153,7 +144,7 @@ async def champion_ingest(
         db, external_rid=rid, file_id=file_id, parsed=parsed
     )
     logger.info("champion-ingest: rid=%s -> %s", rid, outcome.get("outcome"))
-    return _cors(outcome)
+    return _json(outcome)
 
 
 # Uwaga kontraktowa: 401/403 od zależności auth NIE niosą nagłówków CORS

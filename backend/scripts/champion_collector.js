@@ -6,11 +6,17 @@
  * Ten skrypt domyka lukę: w karcie b2bnetwork.traffit.com pobiera pliki
  * profili i POST-uje je do /api/admin/champion-profiles/ingest.
  *
+ * WYMÓG AKTYWACJI (zweryfikowane 2026-08-19): `https://b2bnetwork.traffit.com`
+ * musi być w env `CORS_ORIGINS` backendu NEXUS. Bez tego Starlette
+ * CORSMiddleware odrzuca preflight (400 bez Allow-Origin) i każdy fetch tu
+ * pada `TypeError: Failed to fetch`. Per-route CORS NIE wystarcza —
+ * middleware wyprzedza handler tras.
+ *
  * Użycie (operator / sesja Claude):
- *  1. Otwórz kartę na https://b2bnetwork.traffit.com (zalogowaną).
- *  2. Wklej ten skrypt do konsoli, ustawiwszy NEXUS_JWT (świeży token admina
- *     z localStorage zalogowanego nexus.dynaminds.pl).
- *  3. await runChampionCollector({ jwt: NEXUS_JWT })
+ *  1. Dodaj traffit origin do CORS_ORIGINS (env prod) + redeploy.
+ *  2. Otwórz zalogowaną kartę https://b2bnetwork.traffit.com.
+ *  3. Wklej ten skrypt do konsoli, ustawiwszy NEXUS_JWT (świeży token admina).
+ *  4. await runChampionCollector({ jwt: NEXUS_JWT })
  *
  * Skąd lista plików: mapa `localStorage["__nexus_champ_json"]`
  * ([{rid, entry, file, ext, name}]) ze skanu 08.2026. Świeży sync dla rid
