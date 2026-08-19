@@ -121,10 +121,19 @@ async def parse_champion_document(text: str) -> dict:
         messages=[{"role": "user", "content": PROMPT + text[:14_000]}],
     )
     raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-    start, end = raw.find("{"), raw.rfind("}")
-    if start == -1 or end <= start:
+    if "{" not in raw or "}" not in raw:
         raise ValueError("model nie zwrócił obiektu JSON")
-    parsed = json.loads(raw[start : end + 1])
+    # `_loads_cv_json` toleruje dokładnie te defekty, które Haiku produkuje na
+    # profilach Championa: nieucieczkowany `"` w prozie (`Expecting ','
+    # delimiter`), puste-wartość-przecinki, ucięty ogon. Import sierpniowy
+    # użył gołego `json.loads` i te trudne pliki zostały jako luki — repair
+    # je odzyskuje. Strict-first, więc dobry JSON nie jest ruszany.
+    from app.services.cv_generator_b2b.standalone_service import _loads_cv_json
+
+    try:
+        parsed = _loads_cv_json(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"nieparsowalny JSON profilu: {exc}") from exc
     if not isinstance(parsed, dict):
         raise ValueError("wynik parsowania nie jest obiektem")
     return parsed

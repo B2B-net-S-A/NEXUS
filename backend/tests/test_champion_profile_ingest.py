@@ -232,3 +232,30 @@ def test_feature_key_registered():
     from app.models.ai_feature import AIFeatureKey
 
     assert AIFeatureKey.champion_profile_parse.value == "champion_profile_parse"
+
+
+@pytest.mark.asyncio
+async def test_parse_uses_lenient_json_repair(monkeypatch):
+    """Malformed JSON od Haiku (nieucieczkowany `"` → Expecting ',' delimiter)
+    jest odzyskiwany przez _loads_cv_json — to trudne pliki, które padły
+    w imporcie sierpniowym i zostały lukami. Strict-first: dobry JSON bez zmian.
+    """
+    import app.services.champion_profile_ingest as m
+
+    # JSON z nieucieczkowanym cudzysłowem w stringu (klasyczny defekt Haiku).
+    broken = '{"role_name": "Dev "senior" backend", "must_skills": [{"name": "Go"}]}'
+
+    class _Block:
+        type = "text"
+        text = broken
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    parsed = await m.parse_champion_document("dowolny tekst > 200 znaków " * 20)
+    assert parsed["must_skills"] == [{"name": "Go"}]
+    assert "senior" in parsed["role_name"]
