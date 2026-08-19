@@ -83,7 +83,8 @@ export function TalentRadarWorkspace() {
           ? championSummary?.role_name || undefined
           : title.trim() || undefined,
         top_k: 20,
-        budget_hourly_max: Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
+        budget_hourly_max:
+          Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
         exclude_remote_only: excludeRemoteOnly || undefined,
       }),
     onSuccess: (data) => setResponse(data),
@@ -139,73 +140,9 @@ export function TalentRadarWorkspace() {
       />
 
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="tr-client">
-              Klient <span className="text-destructive">*</span>
-            </Label>
-            <TalentRadarClientPicker
-              value={client}
-              onChange={(picked) => {
-                setClient(picked);
-                // Wyniki są prawdziwe WYŁĄCZNIE dla klienta, dla którego
-                // policzono filtr dopuszczalności. Zostawienie ich po zmianie
-                // klienta pokazywałoby listę odsianą przez blacklistę, NDA i
-                // weto klienta A pod zdaniem „…wolno zaproponować TEMU
-                // klientowi", wskazującym już na klienta B — czyli fałszywe
-                // zapewnienie zgodności, dokładnie to, czemu obowiązkowy klient
-                // ma zapobiegać.
-                setResponse(null);
-              }}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="tr-budget">Budżet PLN/h</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="tr-budget"
-                type="number"
-                min={1}
-                max={2000}
-                value={budgetMax}
-                onChange={(e) => setBudgetMax(e.target.value)}
-                placeholder="np. 150"
-                className="w-28"
-              />
-              <label className="flex items-center gap-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={excludeRemoteOnly}
-                  onChange={(e) => setExcludeRemoteOnly(e.target.checked)}
-                  data-testid="tr-exclude-remote-only"
-                />
-                praca z biura — ukryj „wyłącznie zdalnie”
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {championSummary?.rate_value
-                ? `Stawka ${championSummary.rate_value} PLN/h wzięta z profilu Championa — wpisz własną, żeby ją nadpisać, albo wyczyść pole, żeby wyłączyć sufit.`
-                : "Wpisana stawka to twardy sufit: nie pokażemy osób ze ZNANĄ stawką powyżej niej. Brak danych zawsze przechodzi; ukrytych policzymy w wynikach."}
-            </p>
-          </div>
-          {!hasProfile && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="tr-title">Nazwa roli</Label>
-              <Input
-                id="tr-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="np. Senior Python Developer"
-                maxLength={300}
-              />
-              <p className="text-xs text-muted-foreground">
-                Opcjonalna — wzmacnia dopasowanie. Przy wgranym profilu nazwę
-                bierzemy z niego.
-              </p>
-            </div>
-          )}
-        </div>
-
+        {/* Profil na SAMEJ GÓRZE: steruje resztą formularza (stawka
+            wskakuje w budżet, nazwa roli idzie z profilu, treść requestu
+            znika) — pola, na które wpływa, muszą stać PO nim. */}
         {hasProfile ? (
           <div className="flex flex-col gap-2">
             <Label>Profil Championa</Label>
@@ -217,8 +154,8 @@ export function TalentRadarWorkspace() {
                 {championSummary?.role_name || "Profil wczytany"}
               </span>
               <span className="text-muted-foreground">
-                {championSummary?.must_count} must · {championSummary?.nice_count}{" "}
-                nice
+                {championSummary?.must_count} must ·{" "}
+                {championSummary?.nice_count} nice
                 {championSummary?.rate_value
                   ? ` · ${championSummary.rate_value} PLN/h`
                   : ""}
@@ -286,6 +223,73 @@ export function TalentRadarWorkspace() {
             </div>
           </div>
         )}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tr-client">
+              Klient <span className="text-destructive">*</span>
+            </Label>
+            <TalentRadarClientPicker
+              value={client}
+              onChange={(picked) => {
+                setClient(picked);
+                // Wyniki są prawdziwe WYŁĄCZNIE dla klienta, dla którego
+                // policzono filtr dopuszczalności. Zostawienie ich po zmianie
+                // klienta pokazywałoby listę odsianą przez blacklistę, NDA i
+                // weto klienta A pod zdaniem „…wolno zaproponować TEMU
+                // klientowi", wskazującym już na klienta B — czyli fałszywe
+                // zapewnienie zgodności, dokładnie to, czemu obowiązkowy klient
+                // ma zapobiegać.
+                setResponse(null);
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tr-budget">Budżet PLN/h</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="tr-budget"
+                type="number"
+                min={1}
+                max={2000}
+                value={budgetMax}
+                onChange={(e) => setBudgetMax(e.target.value)}
+                placeholder="np. 150"
+                className="w-28"
+              />
+              <label className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={excludeRemoteOnly}
+                  onChange={(e) => setExcludeRemoteOnly(e.target.checked)}
+                  data-testid="tr-exclude-remote-only"
+                />
+                praca z biura — ukryj „wyłącznie zdalnie”
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {championSummary?.rate_value
+                ? `Stawka ${championSummary.rate_value} PLN/h wzięta z profilu Championa — wpisz własną, żeby ją nadpisać, albo wyczyść pole, żeby wyłączyć sufit.`
+                : "Wpisana stawka to twardy sufit: nie pokażemy osób ze ZNANĄ stawką powyżej niej. Brak danych zawsze przechodzi; ukrytych policzymy w wynikach."}
+            </p>
+          </div>
+          {!hasProfile && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="tr-title">Nazwa roli</Label>
+              <Input
+                id="tr-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="np. Senior Python Developer"
+                maxLength={300}
+              />
+              <p className="text-xs text-muted-foreground">
+                Opcjonalna — wzmacnia dopasowanie. Przy wgranym profilu nazwę
+                bierzemy z niego.
+              </p>
+            </div>
+          )}
+        </div>
 
         {hasProfile && blocked && (
           <p className="text-xs text-destructive">{blocked}</p>
