@@ -62,6 +62,7 @@ const OPERATIONAL: readonly UserRole[] = [
   "delivery_lead",
   "tac",
   "recruiter",
+  "finance",
   "sourcer",
 ];
 
@@ -71,6 +72,7 @@ const RECRUITER_PLUS: readonly UserRole[] = [
   "delivery_lead",
   "tac",
   "recruiter",
+  "finance",
   "sourcer",
 ];
 

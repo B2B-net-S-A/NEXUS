@@ -57,6 +57,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 
@@ -70,6 +71,7 @@ CANDIDATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 
@@ -95,11 +97,9 @@ def user_has_candidate_read(user: User) -> bool:
     available to every logged-in role, but the candidates section must be
     skipped entirely for users without candidate read capability.
     """
-    # Finance is deliberately exclusive from recruitment PII. Check it before
-    # the admin superuser branch so even a malformed historical Finance+Admin
-    # role set fails closed until an administrator repairs the account.
-    if user.has_role(UserRole.finance):
-        return False
+    # Decyzja produktowa Artura 19.08: Finance ma pełny dostęp operacyjny
+    # (tier recruitera) — historyczne odcięcie od PII kandydatów zdjęte;
+    # finance jest teraz w CANDIDATE_READ_ROLES jak pozostałe role operacyjne.
     if user.has_role(UserRole.admin):
         return True
     if user.has_role(UserRole.user):
@@ -193,11 +193,8 @@ def require_candidate_roles(*roles: UserRole):
     """
 
     async def _check(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.has_role(UserRole.finance):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Finance role cannot access candidate data",
-            )
+        # Finance przechodzi przez zwykłe listy ról (decyzja 19.08) — dawny
+        # bezwarunkowy bounce zdjęty razem z ekskluzywnością tej persony.
         if current_user.has_role(UserRole.admin):
             return current_user
         if current_user.has_role(UserRole.user) or not current_user.has_any_role(

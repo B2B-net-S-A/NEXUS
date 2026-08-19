@@ -56,9 +56,9 @@ class MarkAllReadResponse(BaseModel):
 _MAX_LIMIT = 200
 _DEFAULT_LIMIT = 50
 
-# Only account-security notifications have a payload contract independent of
-# candidates, jobs and recruitment.  New notification types stay hidden from
-# Finance by default until they are explicitly reviewed and added here.
+# Historyczna lista „finance-safe" — od 19.08 nieużywana w predykacie
+# widoczności (finance widzi feed jak role operacyjne), zostaje wyłącznie
+# jako dokumentacja dawnego kontraktu na wypadek powrotu do zawężenia.
 _FINANCE_SAFE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
     {
         NotificationType.password_reset_requested,
@@ -70,10 +70,8 @@ _FINANCE_SAFE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 def _notification_visibility(current_user: User):
     """Return the fail-closed notification predicate for the current persona."""
 
-    # Check Finance first so even an invalid legacy Admin+Finance combination
-    # cannot inherit candidate/recruitment notification history.
-    if current_user.has_role(UserRole.finance):
-        return Notification.notification_type.in_(_FINANCE_SAFE_NOTIFICATION_TYPES)
+    # Finance widzi feed jak pozostałe role operacyjne (decyzja produktowa
+    # 19.08 — pełny dostęp; dawna lista „finance-safe" zdjęta).
     if current_user.has_role(UserRole.admin):
         return true()
     return Notification.notification_type != NotificationType.pending_verification

@@ -38,6 +38,26 @@ rekrutacyjne to **rekrutacja**.
   oferty:" zostaje. Zmiana treści promptu zmienia zachowanie modelu i
   unieważnia cache oparty o hash promptu, bez zysku dla użytkownika.
 
+## Rola `finance` = pełny dostęp operacyjny (decyzja Artura 19.08)
+
+Historyczne, wielowarstwowe odcięcie roli `finance` od powierzchni
+kandydackich ZDJĘTE na wprost wyrażoną decyzję („finanse też mogą mieć pełny
+dostęp do wszystkiego"). **Reguła: finance = wszędzie tam, gdzie recruiter,
+plus własny moduł Finanse** — bez tierów zarządczych (TacPlus, stawki linii
+MD, powierzchnie admin-only) i bez semantyk wykonawców (kolejka telefonów,
+kokpit „Moja praca", ownership ofert). Zdjęte odcięcia: `candidate_access`
+(global search + `require_candidate_roles`), predykat notyfikacji
+(allowlista „finance-safe" nieużywana), analytics client-scope bounce,
+czaty/wzmianki (przez `user_can_access_candidate_domain`). Finance jest
+w `CANDIDATE_READ/WRITE_ROLES`, `RECRUITMENT_*` (tier recruitera),
+`RecruiterPlus`, `OperationalUser`, handoff i kontraktorach; FE lustrzanie
+(`OPERATIONAL`/`RECRUITER_PLUS`, middleware, sidebar). Macierz capability
+wylicza finance funkcją `financeExpected` (= recruiter ∪ `nav.finance`) —
+odstępstwo od reguły wymaga świadomej zmiany tej funkcji. Wyłączność KONTA
+finance (CHECK `ck_users_exclusive_finance_viewer_roles`) i bramka wejścia
+do modułu finansów pozostają bez zmian. Historyczne komentarze per-moduł
+o „konsekwentnym odcinaniu finance" opisują stan sprzed 19.08.
+
 ## Design system & UI — ZAWSZE przy pracy nad wyglądem
 
 Przy **każdej** pracy nad UI/UX/designem (nowy ekran, komponent, reskin, layout, login, landing) **ZAWSZE** korzystaj z dwóch kupionych bibliotek (konto `artur.twardowski@b2bnetwork.pl`, zalogowane w Chrome — używaj Chrome MCP):
@@ -498,8 +518,8 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   guard rolowy (`_check`) NIE wróci na trasy radaru cichym refaktorem.
   **Granice, które ZOSTAJĄ**: wyniki niosą tożsamość węższą niż profil (bez
   kontaktu i stawek), a „Otwórz profil" renderuje się tylko dla ról z
-  `nav.candidates` — pełny profil kandydata pozostaje za bramkami modułu
-  kandydatów (finance/viewer widzą listę triage, nie profile).
+  `nav.candidates` — po decyzji z 19.08 (finance = pełny dostęp operacyjny)
+  poza tą capability jest już wyłącznie viewer `user`.
 - **Pułapka przy dokładaniu endpointów**: moduł z `@limiter.limit` nie może mieć
   `from __future__ import annotations` (PEP 563 + slowapi #579 → body ląduje jako
   parametr Query). Pilnuje tego test czytający AST, nie treść pliku — docstring

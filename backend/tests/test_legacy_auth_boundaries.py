@@ -220,9 +220,11 @@ async def test_onboarding_write_rejects_any_id_missing_from_read_scope() -> None
 
 def test_chat_email_fallback_rechecks_current_role_and_activity() -> None:
     assert _eligible_chat_email_recipient(_user(UserRole.recruiter))
-    assert not _eligible_chat_email_recipient(_user(UserRole.finance))
+    # Finance ma pełny dostęp operacyjny od 19.08 (decyzja produktowa) —
+    # kwalifikuje się do maili czatu jak pozostałe role operacyjne.
+    assert _eligible_chat_email_recipient(_user(UserRole.finance))
     assert not _eligible_chat_email_recipient(_user(UserRole.user))
-    assert not _eligible_chat_email_recipient(
+    assert _eligible_chat_email_recipient(
         _user(
             UserRole.recruiter,
             roles=[UserRole.recruiter.value, UserRole.finance.value],
@@ -231,7 +233,9 @@ def test_chat_email_fallback_rechecks_current_role_and_activity() -> None:
     assert not _eligible_chat_email_recipient(_user(UserRole.recruiter, active=False))
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+# Jedyna wykluczona persona to wycofywany viewer `user` — finance przeszedł
+# do ról operacyjnych (19.08) i jest członkiem czatów jak recruiter.
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_chat_membership_rejects_excluded_roles_before_db(
     role: UserRole,
@@ -246,9 +250,7 @@ async def test_chat_membership_rejects_excluded_roles_before_db(
 
 
 @pytest.mark.asyncio
-async def test_global_candidate_mentions_exclude_finance_and_viewer_role_unions() -> (
-    None
-):
+async def test_global_candidate_mentions_exclude_viewer_role_unions() -> None:
     recruiter = _user(UserRole.recruiter)
     recruiter.id = 1
     finance = _user(UserRole.finance)
@@ -271,7 +273,9 @@ async def test_global_candidate_mentions_exclude_finance_and_viewer_role_unions(
     db = AsyncMock()
     db.execute.return_value = result
 
-    assert await parse_mentions_global(db, "@1 @2 @3 @4") == [1]
+    # Finance (2) i hybryda finance+admin (4) wchodzą od 19.08 — wykluczony
+    # zostaje wyłącznie viewer `user` (3).
+    assert await parse_mentions_global(db, "@1 @2 @3 @4") == [1, 2, 4]
 
 
 def test_all_chat_routes_declare_candidate_read_or_write_guards() -> None:

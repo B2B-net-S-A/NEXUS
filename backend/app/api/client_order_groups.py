@@ -179,8 +179,9 @@ def _has_md_line_management_role(user: User) -> bool:
     * **head_of_recruitment NIE** — przechodzi przez ``DlAssignedOrAdmin``
       globalnie, bez przypisania, a przy powierzchniach finansowych repo
       konsekwentnie trzyma go poza (patrz `/settings/clients-overview`),
-    * rola ``finance`` NIE — jest odcinana od powierzchni kandydackich, żeby nie
-      sięgała po dane osobowe; ta niesie nazwisko konsultanta.
+    * rola ``finance`` NIE — nie z powodu danych osobowych (od 19.08 finance
+      ma pełny dostęp operacyjny), tylko dlatego, że stawki linii MD to tier
+      ZARZĄDCZY obsady — jak wyżej, poza nim stoi też recruiter i HoR.
 
     Uprawnienie do ODCZYTU i ZAPISU jest wyliczane z tej jednej funkcji.
     Rozdzielenie ich dałoby rolę, która zapisuje stawkę i widzi w jej miejscu
@@ -199,12 +200,10 @@ def _has_md_line_management_role(user: User) -> bool:
 # deprecated `user` (read-only viewer) jest poza z tego samego powodu co tamte
 # trzy. Zostają więc admin, Head of Recruitment, Delivery Lead i Finanse.
 #
-# To poszerza dwie istniejące granice i trzeba o tym wiedzieć:
-#  * `finance` jest w repo konsekwentnie odcinana od powierzchni kandydackich,
-#    a zamówienie niesie nazwisko konsultanta,
-#  * `head_of_recruitment` przechodzi guardy tras GLOBALNIE, bez przypisania do
-#    klienta — więc dostaje te akcje u wszystkich klientów.
-# Obie konsekwencje są świadomą decyzją produktową, nie przeoczeniem.
+# Konsekwencja do wiedzenia: `head_of_recruitment` przechodzi guardy tras
+# GLOBALNIE, bez przypisania do klienta — dostaje te akcje u wszystkich
+# klientów. (Dawna uwaga o odcięciu `finance` od powierzchni kandydackich
+# nieaktualna — od 19.08 finance ma pełny dostęp operacyjny.)
 _ORDER_LIFECYCLE_ROLES = (
     UserRole.admin,
     UserRole.head_of_recruitment,

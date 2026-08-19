@@ -137,10 +137,12 @@ def test_non_finance_user_cannot_probe_hidden_budget_with_filters() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("guard", [require_candidate_read, require_candidate_write])
-async def test_finance_capability_does_not_cross_candidate_pii_boundary(guard) -> None:
-    with pytest.raises(HTTPException) as exc:
-        await guard(_user(UserRole.finance))
-    assert exc.value.status_code == 403
+async def test_finance_role_passes_candidate_guards(guard) -> None:
+    # Od 19.08 finance ma pelny dostep operacyjny (decyzja produktowa) —
+    # dawna granica "finance nie przekracza PII kandydatow" zdjeta; redakcje
+    # per-permission (VIEW_FINANCE) pozostaja niezalezna osia.
+    user = _user(UserRole.finance)
+    assert await guard(user) is user
 
 
 def test_shortlist_html_and_template_context_redact_salary_by_default() -> None:
