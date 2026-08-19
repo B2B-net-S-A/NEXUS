@@ -336,10 +336,11 @@ RecruiterPlus = Annotated[
 ]
 
 # R0 (plan analytics 2026-07-16): każdy operacyjny — czyli wszyscy poza
-# wycofywanym viewerem `user` oraz ekskluzywną personą Finance. W odróżnieniu
-# od RecruiterPlus zawiera head_of_recruitment. Do feedów/danych z PII
-# kandydatów, które nie są „bezpiecznymi agregatami", ale też nie wymagają
-# konkretnej roli.
+# wycofywanym viewerem `user`. Od 19.08 obejmuje też finance (decyzja
+# produktowa: pełny dostęp operacyjny — patrz CLAUDE.md „Rola finance").
+# W odróżnieniu od RecruiterPlus zawiera head_of_recruitment. Do feedów/danych
+# z PII kandydatów, które nie są „bezpiecznymi agregatami", ale też nie
+# wymagają konkretnej roli.
 OperationalUser = Annotated[
     User,
     Depends(
