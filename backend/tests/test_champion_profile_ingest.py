@@ -202,6 +202,9 @@ def test_collector_origin_documented_for_cors_activation():
     from app.api.admin_champion_ingest import COLLECTOR_ORIGIN
 
     assert COLLECTOR_ORIGIN == "https://b2bnetwork.traffit.com"
+    # HTTPS obowiązkowo — literówka http:// przepuściłaby preflight na
+    # niezaszyfrowanym originie, na którym żyje token admina.
+    assert COLLECTOR_ORIGIN.startswith("https://")
 
 
 def test_module_has_no_future_annotations():
