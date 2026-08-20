@@ -188,6 +188,27 @@ Rejestr rozbity na trzy zakładki odpowiadające fazom życia umowy (migracja
 **„Umowy bez projektu"** (`suspended`) · **„Zakończone umowy"** (`closed`).
 Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
 
+- **Dostęp: KAŻDA rola (decyzja produktowa, 20.08 — mirror Talent Radar 19.08).**
+  Sidebar nigdy nie miał tu `roles` ("Generator Umów B2B — dostępny dla
+  wszystkich ról (sourcing tooling)"), ale backendowa `B2BGeneratorAccess`
+  (`require_b2b_generator_access` w `contract_access.py`) do 20.08 wpuszczała
+  tylko admin/HoR/TAC (+ DL ze scope'em) — dokładnie ten sam gap co przy
+  Talent Radar: link widoczny, klik = 403. Otwarte na finance/recruiter/sourcer/
+  legacy `user`. **Delivery Lead zostaje WYJĄTKIEM**, nietknięty: nadal wymaga
+  jawnego przypisania klienta (operuje na swoim portfelu, nie całej bazie).
+  Samo przepuszczenie roli przez bramkę NIE wystarczało — role bez żadnego
+  wiersza w `ClientTacAssignment`/`DeliveryLeadClientAssignment`
+  (`resolve_client_team_client_ids` zna tylko DL/TAC) dostawałyby trwale pustą
+  listę, więc `_generator_unscoped` w `b2b_contract_generator.py` (pełny,
+  nieoskopowany dostęp — pierwotnie tylko admin/HoR/TAC, „full-access TAC
+  tool") poszerzony w lockstep o te same role. `contract_templates.py` (render
+  dla DOWOLNEGO typu kontraktu, nie tylko B2B) stoi za osobną, węższą
+  `ContractLegalAccess` i tej decyzji NIE dotyczy — pozostaje admin/HoR/DL/TAC.
+  Węższe bramki wewnątrz generatora zostają nietknięte: edycja `client_name`
+  (autor albo admin), DELETE (autor albo admin), katalog 29 ról (`AdminUser`),
+  `confirm-fully-signed` (`TacPlus` + ścisły client-scope — audytowana,
+  jednokierunkowa automatyzacja zatrudnienia, świadomie kontained nawet dla
+  pełnodostępowego TAC). Test kontraktowy: `test_contract_legal_access.py`.
 - **`suspended` powstał, bo bez niego rejestr kłamał.** Kontraktor kończy projekt
   u klienta, ale umowa B2B dalej obowiązuje — czeka na kolejne zlecenie. `active`
   twierdziłby, że ktoś pracuje; `closed`, że umowy nie ma. Ten status odpowiada na
@@ -511,10 +532,13 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   nie ma widełek i surowe zero czytałoby się jako „nie pasuje finansowo".
 - **Role: KAŻDA zalogowana** (decyzja produktowa Artura 19.08 — poszła po
   zrzucie 403 od Head of Recruitment; wcześniej `require_candidate_write` bez
-  HoR). Cztery lustrzane miejsca: backend oba endpointy na `CurrentUser`,
+  HoR). PIĘĆ lustrzanych miejsc: backend oba endpointy na `CurrentUser`,
   middleware BEZ wpisu `/talent-radar` (brak wpisu = brak zawężenia ról, sam
   login wymagany), sidebar bez `roles`, `nav.talent_radar = ALL_ROLES` w
-  `CAPABILITY_ROLES` (paleta ⌘K czyta stamtąd). Test kontraktowy pilnuje, że
+  `CAPABILITY_ROLES` (paleta ⌘K czyta stamtąd) oraz SAM `page.tsx` BEZ
+  `RequireRole` — piąta kopia starej listy ról (in-page `RequireRole` z
+  fallbackiem „Brak uprawnień") przeżyła otwarcie #1212 i wyszła dopiero ze
+  zrzutu użytkownika, zdjęta w follow-upie. Test kontraktowy pilnuje, że
   guard rolowy (`_check`) NIE wróci na trasy radaru cichym refaktorem.
   **Granice, które ZOSTAJĄ**: wyniki niosą tożsamość węższą niż profil (bez
   kontaktu i stawek), a „Otwórz profil" renderuje się tylko dla ról z

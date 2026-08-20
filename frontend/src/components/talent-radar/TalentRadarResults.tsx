@@ -21,6 +21,7 @@ import {
 } from "@/components/ds";
 import { Alert } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { encodeTalentRadarBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
 import type {
@@ -215,8 +216,13 @@ export function TalentRadarResults({
                   // więc Radix Slot dostaje dwoje dzieci i wywala się w
                   // runtime („Slot failed to slot onto its children"). Ten sam
                   // obchód co w HelpMaterialsSection.tsx.
+                  //
+                  // `from=talent-radar`: profil pokaże „Wróć do Talent Radaru"
+                  // zamiast „Wróć do kandydatów", a radar odtworzy wyszukiwanie
+                  // ze snapshotu (lib/talent-radar-session.ts) — bez tego powrót
+                  // kasował wyniki i formularz.
                   <Link
-                    href={`/candidates/${result.candidate_id}`}
+                    href={`/candidates/${result.candidate_id}?${encodeTalentRadarBackRef().toString()}`}
                     className={cn(
                       buttonVariants({ variant: "outline", size: "sm" }),
                     )}

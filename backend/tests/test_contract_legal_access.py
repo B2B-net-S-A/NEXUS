@@ -1,22 +1,33 @@
-"""Macierz autoryzacji dla legal-document surfaces kontraktów (M5 PR-01).
+"""Macierz autoryzacji dla legal-document surfaces kontraktów (M5 PR-01) +
+otwarcie generatora B2B na każdą rolę (decyzja produktowa, 20.08).
 
-P0.11 containment: B2B generator + contract-template render używały bare
-``CurrentUser``, więc read-only viewer (`user`) oraz recruiter/sourcer mogli
-generować/mutować/pobierać umowy prawne. Po zmianie chroni je ``ContractLegalAccess``
-(admin / head_of_recruitment / delivery_lead / tac — grono legal-team, spójne z
-``client_access.can_view_legal_documents``).
+P0.11 containment (historia): B2B generator + contract-template render
+używały bare ``CurrentUser``, więc read-only viewer (`user`) oraz
+recruiter/sourcer mogli generować/mutować/pobierać umowy prawne. Fix z tamtego
+audytu wprowadził wspólną ``ContractLegalAccess`` (admin / head_of_recruitment
+/ delivery_lead / tac — grono legal-team, spójne z
+``client_access.can_view_legal_documents``) dla OBU powierzchni naraz.
 
-Generator umów B2B jest jednak pełnoprawnym narzędziem TAC-a: TAC (obok
-Admin/HoR) otwiera i obsługuje generator **rolą, bez wymogu przypisania do
-klienta** (``B2BGeneratorAccess`` + odscopowane wrappery w
-``b2b_contract_generator``). Delivery Lead nadal wymaga co najmniej jednego
-jawnego przypisania klienta dla narzędzi globalnych i dokładnego przypisania
-dla tras encji.
+20.08: generator B2B dostał WŁASNĄ, szerszą bramkę — ``contract_templates``
+(rendering dla dowolnego typu kontraktu, NIE tylko B2B) nadal stoi za
+``ContractLegalAccess`` i ten plik go nie testuje. Sidebar nigdy nie miał tu
+`roles` ("Generator Umów B2B — dostępny dla wszystkich ról"), więc restrykcja
+backendu z P0.11 containment produkowała dokładnie ten sam gap co przy Talent
+Radar (19.08): link widoczny, klik = 403. ``require_b2b_generator_access``
+teraz przepuszcza każdą rolę; ``_generator_unscoped``
+(``b2b_contract_generator.py``) poszerzony w lockstep — inaczej nowo
+wpuszczone role dostawałyby pustą listę zamiast 403
+(``resolve_client_team_client_ids`` zna tylko DL/TAC).
 
-Ten test dowodzi: denied roles → 403, legal-team → NIE 403 (auth przechodzi),
-na reprezentatywnych endpointach każdego typu (GET bez body, GET z listą,
-POST mutujący). Wszystkie 13 B2B + 3 template endpointy dzielą tę samą
-dependency, więc reprezentatywna próbka pokrywa kontrakt.
+Delivery Lead JEST WYJĄTKIEM i zostaje nietknięty: zachowuje fail-closed
+wymóg jawnego przypisania klienta (operuje na swoim portfelu, nie całej
+bazie) — patrz ``test_unassigned_client_team_role_fails_closed``.
+
+Ten test dowodzi: KAŻDA rola przechodzi auth na reprezentatywnych
+endpointach każdego typu (GET bez body, GET z listą, POST mutujący, GET
+pobierania DOCX), a każda poza nieprzypisanym DL dostaje PEŁNY, nieoskopowany
+dostęp — nie tylko przejście bramki. Wszystkie 13 endpointów B2B dzielą tę
+samą dependency, więc reprezentatywna próbka pokrywa kontrakt.
 """
 
 from __future__ import annotations
@@ -33,10 +44,30 @@ NEXT_NUMBER_URL = "/api/b2b-generator/next-number"
 GENERATED_URL = "/api/b2b-generator/generated"
 GENERATE_URL = "/api/b2b-generator/generate"
 
-# Legal-team — auth must pass (may still 404/422 from business logic, never 403).
-ALLOWED_ROLES = ["admin", "head_of_recruitment", "delivery_lead", "tac"]
-# Delivery + viewer — must be 403 on every legal-document surface.
-DENIED_ROLES = ["recruiter", "sourcer", "finance", "user"]
+# KAŻDA rola przechodzi auth na generatorze B2B (20.08). `_headers_for`
+# domyślnie przypisuje DL/TAC do klienta, więc DL tu jest reprezentowany w
+# swoim zwykłym, przypisanym stanie — nieprzypisany DL ma osobny test niżej.
+ALL_ROLES = [
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+    "finance",
+    "recruiter",
+    "sourcer",
+    "user",
+]
+# Pełny, nieoskopowany dostęp (nie tylko przejście bramki) — każda rola poza
+# Delivery Lead, który zostaje przy wymogu jawnego przypisania klienta.
+UNSCOPED_ROLES = [
+    "admin",
+    "head_of_recruitment",
+    "tac",
+    "finance",
+    "recruiter",
+    "sourcer",
+    "user",
+]
 
 
 @pytest.mark.parametrize("handler_name", ["generate", "get_detail", "download_docx"])
@@ -118,28 +149,14 @@ async def _headers_for(
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
-@pytest.mark.parametrize("role_value", DENIED_ROLES)
-async def test_denied_roles_get_403_on_legal_surfaces(
+@pytest.mark.parametrize("role_value", ALL_ROLES)
+async def test_every_role_passes_generator_auth(
     app_client: AsyncClient, role_value: str
 ):
+    """Generator B2B: KAŻDA rola przechodzi auth (20.08) — nikt nie dostaje 403
+    tylko za to, jaką ma rolę (DL wciąż potrzebuje przypisania — domyślne
+    ``assign_client=True`` w ``_headers_for`` je zapewnia)."""
     headers = await _headers_for(app_client, role_value)
-    for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
-        r = await app_client.get(url, headers=headers)
-        assert r.status_code == 403, f"{role_value} GET {url} → {r.status_code}"
-
-    # P0.11 core: mutujący generate z poprawnym schematycznie payloadem.
-    r = await app_client.post(
-        GENERATE_URL,
-        json={"role_id": 999999, "start_date": "2026-01-01"},
-        headers=headers,
-    )
-    assert r.status_code == 403, f"{role_value} POST generate → {r.status_code}"
-
-
-@pytest.mark.parametrize("role_value", ALLOWED_ROLES)
-async def test_legal_team_roles_pass_auth(app_client: AsyncClient, role_value: str):
-    headers = await _headers_for(app_client, role_value)
-    # Pure-auth GETs: legal team gets 200.
     for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
         r = await app_client.get(url, headers=headers)
         assert r.status_code == 200, (
@@ -164,8 +181,8 @@ async def test_unassigned_client_team_role_fails_closed(
     role_value: str,
 ):
     # Delivery Lead keeps the fail-closed contract: an empty client graph is a
-    # hard deny on the generator surfaces. (TAC intentionally does NOT — see
-    # ``test_unassigned_tac_has_full_generator_access``.)
+    # hard deny on the generator surfaces. (Every other role intentionally does
+    # NOT — see ``test_unscoped_roles_have_full_generator_access``.)
     headers = await _headers_for(
         app_client,
         role_value,
@@ -178,21 +195,29 @@ async def test_unassigned_client_team_role_fails_closed(
         )
 
 
-async def test_unassigned_tac_has_full_generator_access(app_client: AsyncClient):
-    """A TAC with zero ClientTacAssignment rows still gets the full generator.
+@pytest.mark.parametrize("role_value", UNSCOPED_ROLES)
+async def test_unscoped_roles_have_full_generator_access(
+    app_client: AsyncClient, role_value: str
+):
+    """Every non-DL role is a full-access generator persona (20.08).
 
-    Regression guard for the reported bug: a freshly-added TAC saw the "Brak
-    uprawnień" banner because the shared legal gate required a non-empty client
-    graph. The generator is a full-access TAC tool, so role alone must admit it.
+    Originally a TAC-only regression guard: a freshly-added TAC with zero
+    ``ClientTacAssignment`` rows saw the "Brak uprawnień" banner because the
+    shared legal gate required a non-empty client graph — the generator is a
+    full-access tool, so role alone must admit it. Generalized to every role
+    opened on 20.08 for the same structural reason: none of them have any
+    client-assignment row to be scoped by, so skipping one here would mean it
+    passes ``require_b2b_generator_access`` and then hits a permanently empty
+    list/403 on every entity — auth without access, not a real decision.
     """
 
-    headers = await _headers_for(app_client, "tac", assign_client=False)
+    headers = await _headers_for(app_client, role_value, assign_client=False)
 
     # Global GET surfaces resolve, they do not 403 into an empty banner.
     for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
         r = await app_client.get(url, headers=headers)
         assert r.status_code == 200, (
-            f"unassigned tac GET {url} → {r.status_code}: {r.text}"
+            f"unassigned {role_value} GET {url} → {r.status_code}: {r.text}"
         )
 
     # Drafting is reachable: auth passes, business logic 404s on the missing
@@ -203,16 +228,17 @@ async def test_unassigned_tac_has_full_generator_access(app_client: AsyncClient)
         headers=headers,
     )
     assert r.status_code == 404, (
-        f"unassigned tac POST generate → {r.status_code}: {r.text}"
+        f"unassigned {role_value} POST generate → {r.status_code}: {r.text}"
     )
 
     # DOCX download is the highest-PII generator surface and (unlike
-    # delete/update) has no author-only secondary check — so full-access TAC
-    # reaches it too. Missing id ⇒ 404 (gate + scope passed), never 403. This
-    # guards the intentional expanded exposure against a future re-tightening.
+    # delete/update) has no author-only secondary check — so every full-access
+    # role reaches it too. Missing id ⇒ 404 (gate + scope passed), never 403.
+    # This guards the intentional expanded exposure against a future
+    # re-tightening.
     r = await app_client.get(f"{GENERATED_URL}/999999/docx", headers=headers)
     assert r.status_code == 404, (
-        f"unassigned tac GET generated/docx → {r.status_code}: {r.text}"
+        f"unassigned {role_value} GET generated/docx → {r.status_code}: {r.text}"
     )
 
 

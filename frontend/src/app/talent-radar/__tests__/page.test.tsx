@@ -61,28 +61,23 @@ describe("TalentRadarPage — bramka roli", () => {
     expect(screen.getByTestId("radar-workspace")).toBeInTheDocument();
   });
 
-  it("przed hydracją nie twierdzi, że brak uprawnień", () => {
-    // „NIE WIEM JESZCZE" ≠ „NIE WOLNO" — dlatego bramką jest `RequireRole`,
-    // a nie policzone wprost `useCapability` (przed `hydrate()` user === null).
+  // Strona nie ma własnej bramki (#1215 zdjął piątą kopię listy ról): wejścia
+  // pilnuje middleware, a `nav.talent_radar = ALL_ROLES` znaczy, że każdy, kto
+  // się zalogował, ma tu wstęp. Dlatego stan przed hydracją NIE może renderować
+  // odmowy — „nie wiem jeszcze" ≠ „nie wolno", a bramka liczona wprost
+  // twierdziłaby adminowi przez kilka sekund, że nie ma uprawnień.
+  it.each([
+    ["przed hydracją", { user: null, hydrated: false }],
+    ["po hydracji bez sesji", { user: null, hydrated: true }],
+  ] as const)("%s nie twierdzi, że brak uprawnień", (_label, state) => {
     act(() => {
-      useAuthStore.setState({ user: null, hydrated: false });
-    });
-
-    const { container } = render(<TalentRadarPage />);
-
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("po hydracji bez sesji pokazuje wyjaśnienie, nie pustkę", () => {
-    act(() => {
-      useAuthStore.setState({ user: null, hydrated: true });
+      useAuthStore.setState(state);
     });
 
     render(<TalentRadarPage />);
 
-    expect(screen.queryByTestId("radar-workspace")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/zgłoś to administratorowi/),
-    ).toBeInTheDocument();
+      screen.queryByText(/Brak uprawnień|zgłoś to administratorowi/),
+    ).not.toBeInTheDocument();
   });
 });

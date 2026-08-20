@@ -437,6 +437,30 @@ export function decodeJobBackRef(sp: URLSearchParams): number | null {
 }
 
 /**
+ * Encode a "came from Talent Radar" back-reference (`?from=talent-radar`) so a
+ * candidate profile opened from radar results offers "back to Talent Radar"
+ * instead of the default "back to candidates".
+ *
+ * The URL carries only WHERE to go back — never the query state. The radar
+ * page restores the search itself from sessionStorage
+ * (lib/talent-radar-session.ts); radar request text runs up to 20k chars, so
+ * it has no business being in a URL.
+ */
+export function encodeTalentRadarBackRef(): URLSearchParams {
+  const p = new URLSearchParams();
+  p.set("from", "talent-radar");
+  return p;
+}
+
+/**
+ * Decode the Talent Radar back-reference. Mutually exclusive with
+ * `decodeJobBackRef` by construction — `from` is a single parameter.
+ */
+export function decodeTalentRadarBackRef(sp: URLSearchParams): boolean {
+  return sp.get("from") === "talent-radar";
+}
+
+/**
  * Map `CandidateFilters` to the `params` object accepted by axios `.get` for
  * `GET /api/candidates`. Mirrors the exact param mapping in `CandidatesListV2`
  * so navigation queries hit the same react-query cache key as the list view.

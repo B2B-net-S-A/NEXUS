@@ -168,6 +168,7 @@ import {
  type CandidateFilters,
  decodeNavContext,
  decodeJobBackRef,
+ decodeTalentRadarBackRef,
  encodeNavContext,
 } from"@/lib/url-filters";
 import { candidateQueryKeys } from"@/components/v2/pages/candidate-query-keys";
@@ -313,6 +314,19 @@ export function CandidateDetailV2({
  if (embedded) return null; // embedded drawers carry their own nav
  if (!searchParamsForNav) return null;
  return decodeJobBackRef(new URLSearchParams(searchParamsForNav.toString()));
+ }, [embedded, searchParamsForNav]);
+
+ // ── "Came from Talent Radar" back-reference ────────────────────────────
+ // `?from=talent-radar` — profil otwarty z wyników radaru wraca na
+ // /talent-radar, nie na listę kandydatów; radar odtwarza wyszukiwanie ze
+ // snapshotu w sessionStorage (lib/talent-radar-session.ts). Wyklucza się
+ // z `from=job` z konstrukcji — `from` to jeden parametr.
+ const backToTalentRadar = React.useMemo(() => {
+ if (embedded) return false; // embedded drawers carry their own nav
+ if (!searchParamsForNav) return false;
+ return decodeTalentRadarBackRef(
+ new URLSearchParams(searchParamsForNav.toString()),
+ );
  }, [embedded, searchParamsForNav]);
  const openTabsList = useTabsStore((s) => s.tabs);
 const backJobTitle =
@@ -868,6 +882,13 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <span className="truncate">
  {backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` :"Wróć do rekrutacji"}
  </span>
+ </Link>
+ ) : backToTalentRadar ? (
+ <Link
+ href="/talent-radar"
+ className="inline-flex min-h-11 min-w-11 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-primary"
+ >
+ <ArrowLeft className="h-4 w-4" /> Wróć do Talent Radaru
  </Link>
  ) : (
  <Link

@@ -27,7 +27,7 @@
  *    więc do `TalentRadarResults` i zostaje na ekranie do następnej próby.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Radar } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 
@@ -48,6 +48,10 @@ import {
   type ChampionParseSummary,
   type TalentRadarSearchResponse,
 } from "@/lib/talent-radar-api";
+import {
+  loadTalentRadarSession,
+  saveTalentRadarSession,
+} from "@/lib/talent-radar-session";
 import { TalentRadarResults } from "@/components/talent-radar/TalentRadarResults";
 
 /** Poniżej tego progu opis roli nie niesie sygnału wartego embeddingu. */
@@ -89,6 +93,57 @@ export function TalentRadarWorkspace() {
     nice: string[];
   } | null>(null);
   const [parsingChampion, setParsingChampion] = useState(false);
+
+  // ── Snapshot roboczy (sessionStorage) ────────────────────────────────
+  // „Otwórz profil" nawiguje w tej samej karcie, a ta strona przy powrocie
+  // montuje się OD ZERA — bez snapshotu rekruter wracał na pusty formularz
+  // i układał wyszukiwanie od nowa. Odczyt idzie w efekcie PO montażu,
+  // nie w inicjalizatorach `useState`: strona jest prerenderowana
+  // server-side, gdzie sessionStorage nie istnieje, więc inicjalizator
+  // dałby hydration mismatch (serwer: pusto, klient: dane).
+  //
+  // `hydrated` jest STANEM, nie refem — efekt zapisu czyta go z closure
+  // bieżącego renderu, więc pierwszy przebieg (jeszcze z pustym stanem)
+  // gwarantowanie nie nadpisze snapshotu, zanim restore się przerenderuje.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    const saved = loadTalentRadarSession();
+    if (saved) {
+      setClient(saved.client);
+      setTitle(saved.title);
+      setText(saved.text);
+      setBudgetMax(saved.budgetMax);
+      setExcludeRemoteOnly(saved.excludeRemoteOnly);
+      setChampionProfile(saved.championProfile);
+      setChampionSummary(saved.championSummary);
+      setResponse(saved.response);
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveTalentRadarSession({
+      client,
+      title,
+      text,
+      budgetMax,
+      excludeRemoteOnly,
+      championProfile,
+      championSummary,
+      response,
+    });
+  }, [
+    hydrated,
+    client,
+    title,
+    text,
+    budgetMax,
+    excludeRemoteOnly,
+    championProfile,
+    championSummary,
+    response,
+  ]);
 
   const search = useMutation({
     mutationFn: () =>

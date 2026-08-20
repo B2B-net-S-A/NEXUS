@@ -105,6 +105,13 @@ async function uploadProfile(user: ReturnType<typeof userEvent.setup>) {
 
 describe("TalentRadarWorkspace — wymagania z profilu", () => {
   beforeEach(() => {
+    // Radar utrwala formularz w `sessionStorage` (#1217 — powrót z profilu
+    // kandydata nie kasuje wyszukiwania). Bez tego profil wgrany w jednym
+    // teście przeżywa do następnego: workspace startuje z gotowym Championem,
+    // pole „Profil Championa (plik)" w ogóle się nie renderuje (to gałąź
+    // „albo-albo"), a test przewraca się na szukaniu pola, nie na tym,
+    // czego pilnuje.
+    sessionStorage.clear();
     vi.clearAllMocks();
     mocks.search.mockResolvedValue({
       results: [],
