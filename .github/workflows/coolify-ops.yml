@@ -14,6 +14,12 @@ name: Coolify Ops
 #   1. action=list                 → dump currently running/queued deployments
 #                                    + the application's own status.
 #   2. action=cancel, uuids="a b"  → POST /deployments/{uuid}/cancel for each.
+#   3. action=cron-list            → audyt zadań cyklicznych (read-only).
+#   4. action=eval-ab              → JEDNORAZOWY pomiar A/B matchingu na prodzie
+#                                    (patrz job `eval` niżej — tam kryterium odczytu).
+#   5. action=eval-read            → odczyt wyników zadania evalu bez kasowania go.
+#   6. action=eval-stop            → skasowanie zadania evalu, gdyby sprzątanie
+#                                    nie doszło do skutku (zawór bezpieczeństwa).
 #
 # The list output contains only build metadata (UUIDs, SHAs, statuses,
 # timestamps) — no env values or secrets.
@@ -24,12 +30,30 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list]
+        options: [list, cancel, cron-list, eval-ab, eval-read, eval-stop]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
         required: false
         default: ""
+      # Trzy wejścia niżej to JEDYNE, co operator wnosi do komendy uruchamianej
+      # na produkcji — i wszystkie trzy są liczbą albo wyborem z listy. Pola
+      # `command` świadomie NIE MA: to kanał wykonania na prodzie, a wejście
+      # tekstowe wprost przekładałoby uprawnienie „odpal eval" na „odpal cokolwiek
+      # w kontenerze z bazą kandydatów". Sama komenda jest zaszyta w job `eval`.
+      eval_set:
+        description: "Zamrożony zbiór ofert: A (strojenie) albo B (holdout potwierdzający)"
+        type: choice
+        options: [A, B]
+        default: A
+      eval_jobs:
+        description: "Liczba ofert (1-50). Mniej niż 50 = INNY zbiór, nieporównywalny z baselinem."
+        required: false
+        default: "50"
+      eval_pool:
+        description: "Wielkość puli retrievalu (100-5000). Baseline 18.08 mierzony przy 2000."
+        required: false
+        default: "2000"
 
 permissions:
   contents: read
@@ -37,6 +61,10 @@ permissions:
 jobs:
   ops:
     name: Coolify queue ops
+    # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
+    # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
+    # job, który nic nie zrobił, czyta się jak potwierdzenie.
+    if: ${{ !startsWith(inputs.action, 'eval') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -61,12 +89,26 @@ jobs:
 
       - name: Cancel deployments
         if: inputs.action == 'cancel'
+        # `deployment_uuids` idzie przez `env:`, a NIE przez `${{ }}` w ciele
+        # skryptu. Interpolacja `${{ }}` podstawia tekst PRZED uruchomieniem
+        # powłoki, więc wejście z formularza `workflow_dispatch` trafiało wprost
+        # do shella — apostrof albo `$(…)` w polu wykonywał się jako komenda.
+        # Waga jest niska (dispatch wymaga write do repo, a kto ma write, i tak
+        # może zmienić ten plik), ale zostawianie tego obok nowych kroków `eval-*`,
+        # które walidują swoje wejścia co do typu i zakresu, byłoby niespójne.
+        env:
+          UUIDS_RAW: ${{ inputs.deployment_uuids }}
         run: |
-          UUIDS="${{ inputs.deployment_uuids }}"
+          UUIDS="$UUIDS_RAW"
           if [ -z "$UUIDS" ]; then
             echo "::error::action=cancel requires deployment_uuids"
             exit 1
           fi
+          # UUID-y Coolify to hex + myślniki. Cokolwiek innego odrzucamy, zamiast
+          # ufać, że pętla `for` bezpiecznie to rozłoży.
+          case "$UUIDS" in
+            *[!0-9a-zA-Z\ -]*) echo "::error::deployment_uuids: dozwolone tylko znaki alfanumeryczne, myślnik i spacja"; exit 1;;
+          esac
           rc=0
           for uuid in $UUIDS; do
             echo "Cancelling deployment $uuid ..."
@@ -151,3 +193,285 @@ jobs:
                           end)
                        else "  (no data)" end' 2>/dev/null || echo "  (request failed)"
           done
+
+  # ─── A/B evalu matchingu na produkcji ────────────────────────────────────
+  # Po naprawie martwej nogi BM25 (#1218) trzeba ZMIERZYĆ, czy hybryda cokolwiek
+  # wnosi. Lokalnie się nie da i nie chodzi o wygodę: baza testowa ma sześć ofert
+  # z ground truth, nie ma Qdranta ani klucza Voyage — a przy pustej puli harness
+  # podstawia „pierwsze N kandydatów po id" (gałąź `fallback` w
+  # scripts/eval_matching.py). Oba ramiona mierzyłyby wtedy tę samą fikcję,
+  # ramię ON wygrałoby o klasę i dostalibyśmy pewny siebie fałsz. SSH nie ma,
+  # token Coolify jest w sekretach repo i używa go job `ops` wyżej — stąd ten kanał.
+  #
+  # ══ KRYTERIUM ODCZYTU — przeczytaj ZANIM spojrzysz na deltę ══
+  #
+  # 1. Ramię OFF to KONTROLA PRZYRZĄDU, nie „druga wersja". Musi odtworzyć znany
+  #    baseline z 18.08 (zbiór A, pula 2000, wagi 60/10/15/5/0, champion maskowany):
+  #    P@5 0.248 · R@20n 0.199 · MRR 0.461 · nDCG 0.162
+  #    (docs/matching-improvements-r2-2026-08-18.md). Jeśli OFF go NIE odtwarza,
+  #    między pomiarami zmieniło się coś jeszcze — dane, inna flaga w vaultcie,
+  #    inny zbiór przez `eval_jobs` < 50 — i DELTY NIE WOLNO CZYTAĆ, bo nie wiadomo,
+  #    czemu ją przypisać.
+  # 2. Jeśli obie liczby wyjdą IDENTYCZNE co do trzeciego miejsca, to nie jest wynik
+  #    pomiaru, tylko sygnatura PUSTEJ LISTY BM25 — dokładnie ta pomyłka unieważniła
+  #    A/B z 18.08, gdzie „zero delty" wpisano jako sufit architektury. Dlatego
+  #    komenda drukuje osobne sekcje BM25: w ramieniu ON linie
+  #    `[retrieval-pool] hybryda: bm25=<n>` MUSZĄ mieć n > 0. `bm25=n/d` znaczy, że
+  #    nikt nie podał `bm25_query` na callsicie; `bm25=0` — że terminy są, ale nie
+  #    trafiają (pytanie o taksonomię, nie o kod). W ramieniu OFF tych linii nie ma
+  #    wcale, bo ścieżka hybrydowa się nie wykonuje.
+  # 3. W nagłówku raportu „Voyage API key configured" musi być **yes**. Przy `no`
+  #    warstwa semantyczna jest bezwładna, pula spada do fallbacku po id i oba
+  #    ramiona mierzą fikcję (patrz wyżej).
+  # 4. Pusta sekcja `NEXUS-EVAL-OFF`/`-ON` to NIE „zero wyników", tylko brak
+  #    raportu — czyli harness padł. Odpowiedź jest wtedy w `NEXUS-EVAL-TAIL-*`
+  #    (ogon logu z tracebackiem). Bieg bez tych sekcji jest nieudany, a nie
+  #    ujemny; delty nie ma czego dotyczyć.
+  #
+  # ══ Dlaczego tak, a nie inaczej ══
+  #
+  # - Flagi jadą jako env PRZED procesem (`HYBRID_POOL_ENABLED=… python -m …`), a NIE
+  #   flipem w vaultcie Coolify: flip w vaultcie zmienia zachowanie PRODUKCJI przed
+  #   pomiarem i wymaga restartu, więc mierzylibyśmy dwa różne stany aplikacji
+  #   zamiast dwóch ramion na tym samym.
+  # - `RERANKER_ENABLED=false` w OBU ramionach — rerank przestawia kolejność WEWNĄTRZ
+  #   puli, a mierzymy retrieval, czyli członkostwo puli. Zostawiony mieszałby dwie
+  #   dźwignie w jednej liczbie. W ramieniu OFF jest to dziś no-op (bez hybrydy
+  #   `hybrid_search` w ogóle się nie wykonuje), ale symetria nic nie kosztuje
+  #   i broni pomiaru przed zmianą domyślnej ścieżki puli.
+  # - `container: backend` — nazwa serwisu z docker-compose.yml. Puste `container`
+  #   przy wielo-serwisowym stacku wywala zadanie przed uruchomieniem czegokolwiek
+  #   (audyt w jobie `ops` wyżej).
+  # - Zero `curl` w komendzie — obraz aplikacji go nie ma (druga przyczyna z tamtego
+  #   audytu). Raport czytamy `head`em, diagnostykę BM25 `grep`em, ogon logu `tail`em
+  #   — wszystko z coreutils obrazu `python:3.13-slim`.
+  # - `frequency: * * * * *` + katalog-blokada `mkdir` daje semantykę JEDNORAZOWĄ:
+  #   pierwsze odpalenie zakłada katalog i liczy, każde kolejne wywraca się na `mkdir`
+  #   i NIE uruchamia evalu drugi raz. Skutek uboczny, którego należy się spodziewać
+  #   w `action=eval-read`: każda kolejna minuta dokłada wykonanie `failed` z „mkdir:
+  #   File exists" — to jest blokada działająca zgodnie z projektem, nie awaria; wynik
+  #   siedzi w tym jedynym wykonaniu z sentinelem. Zadanie kasuje krok `if: always()`,
+  #   więc anulowanie workflow też sprząta; gdyby mimo to zostało — `action=eval-stop`.
+  # - Komenda nie zawiera apostrofów, `$` ani backticków (jest na to twardy guard):
+  #   nie wiemy, czy Coolify opakowuje ją w `sh -c '…'` czy w cudzysłów, a
+  #   podstawienie po złej stronie tego opakowania wykonałoby się na hoście, nie
+  #   w kontenerze.
+  eval:
+    name: Matching eval A/B (prod)
+    if: ${{ startsWith(inputs.action, 'eval') }}
+    runs-on: ubuntu-latest
+    # Budżet wyprowadzony z jedynego znanego punktu odniesienia: cotygodniowy
+    # strażnik (app/tasks/weekly_eval.py) daje 3600 s JEDNEMU biegowi na tych
+    # samych 50 ofertach, ale przy puli 1000. Tu pula jest dwukrotnie większa
+    # i ramiona są dwa, więc godzina to za mało — a timeout jest kosztowny
+    # asymetrycznie: krok sprzątający kasuje zadanie razem z jego wykonaniami,
+    # więc urwany pomiar znika bezpowrotnie (proces w kontenerze biegnie dalej,
+    # ale nie ma czym odczytać jego plików). Stąd zapas, nie oszczędność.
+    timeout-minutes: 170
+    # Osobny job, NIE wspólna `concurrency` całego workflow: kolejkowanie pilnego
+    # `cancel` za wielogodzinnym evalem byłoby gorsze niż brak tego kanału.
+    concurrency:
+      group: coolify-eval-ab
+      cancel-in-progress: false
+    env:
+      CO_URL: ${{ secrets.COOLIFY_URL }}
+      CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+      # Stała nazwa, żeby eval-read i eval-stop znajdowały zadanie bez podawania
+      # UUID-a — i żeby drugi bieg zobaczył pozostałość po poprzednim.
+      TASK_NAME: nexus-eval-ab-oneshot
+      SENTINEL: ===NEXUS-EVAL-END===
+    steps:
+      # Zamrożony zbiór ofert czytamy Z REPO (backend/scripts/eval_frozen_set.py),
+      # a nie przepisujemy do YAML-a: druga kopia listy 50 id rozjechałaby się
+      # z pierwszą przy najbliższej zmianie, a porównywalność między pomiarami
+      # opiera się właśnie na tym, że ten zbiór NIE dryfuje.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: inputs.action == 'eval-ab'
+
+      - name: Odpal jednorazowy A/B
+        id: ab
+        if: inputs.action == 'eval-ab'
+        env:
+          EVAL_SET: ${{ inputs.eval_set }}
+          EVAL_JOBS: ${{ inputs.eval_jobs }}
+          EVAL_POOL: ${{ inputs.eval_pool }}
+        run: |
+          set -euo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+
+          # ── walidacja wejść ────────────────────────────────────────────────
+          # Wchodzą do komendy uruchamianej na produkcji, więc muszą być liczbą
+          # w zakresie, a nie „czymś, co wygląda na liczbę".
+          case "$EVAL_JOBS" in ''|*[!0-9]*) echo "::error::eval_jobs musi być liczbą"; exit 1;; esac
+          case "$EVAL_POOL" in ''|*[!0-9]*) echo "::error::eval_pool musi być liczbą"; exit 1;; esac
+          [ "$EVAL_JOBS" -ge 1 ] && [ "$EVAL_JOBS" -le 50 ] || { echo "::error::eval_jobs poza 1-50"; exit 1; }
+          [ "$EVAL_POOL" -ge 100 ] && [ "$EVAL_POOL" -le 5000 ] || { echo "::error::eval_pool poza 100-5000"; exit 1; }
+          if [ "$EVAL_JOBS" -lt 50 ]; then
+            echo "::warning::eval_jobs=$EVAL_JOBS — to PODZBIÓR zamrożonego zbioru, więc ramię OFF nie odtworzy baselinu i delta jest nieczytelna"
+          fi
+
+          IDS=$(python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "backend")
+          from scripts.eval_frozen_set import frozen_ids_csv, frozen_ids_csv_b
+          print(frozen_ids_csv_b() if os.environ["EVAL_SET"] == "B" else frozen_ids_csv())
+          PY
+          )
+          case "$IDS" in
+            *[!0-9,]*|'') echo "::error::lista ofert z eval_frozen_set.py ma nieoczekiwany kształt"; exit 1;;
+          esac
+          echo "zbiór $EVAL_SET: $(echo "$IDS" | tr ',' '\n' | wc -l) ofert, pula $EVAL_POOL, jobs $EVAL_JOBS"
+
+          # ── komenda (ZAHARDKODOWANA; operator wnosi tylko liczby wyżej) ─────
+          LOCK="/tmp/nexus-eval-${GITHUB_RUN_ID}"
+          ARGS="--job-ids ${IDS} --jobs ${EVAL_JOBS} --min-gt 3 --pool ${EVAL_POOL}"
+          # Ogon obu logów leci ZAWSZE, nie tylko przy błędzie: gdy harness się
+          # wywróci, raportu nie ma i `head` wypisuje pustkę, więc sekcja OFF/ON
+          # wyglądałaby jak „zero wyników" zamiast jak awaria. Trzy linie ogona
+          # dają traceback (albo ostatni log postępu) i rozstrzygają tę różnicę.
+          CMD="cd /app && mkdir ${LOCK} && { HYBRID_POOL_ENABLED=false RERANKER_ENABLED=false python -m scripts.eval_matching ${ARGS} --output ${LOCK}/off.md > ${LOCK}/off.log 2>&1 ; HYBRID_POOL_ENABLED=true RERANKER_ENABLED=false python -m scripts.eval_matching ${ARGS} --output ${LOCK}/on.md > ${LOCK}/on.log 2>&1 ; echo ===NEXUS-EVAL-OFF=== ; head -n 32 ${LOCK}/off.md ; echo ===NEXUS-EVAL-BM25-OFF=== ; grep -c bm25= ${LOCK}/off.log ; grep -m 3 bm25= ${LOCK}/off.log ; echo ===NEXUS-EVAL-TAIL-OFF=== ; tail -n 12 ${LOCK}/off.log ; echo ===NEXUS-EVAL-ON=== ; head -n 32 ${LOCK}/on.md ; echo ===NEXUS-EVAL-BM25-ON=== ; grep -c bm25= ${LOCK}/on.log ; grep -m 3 bm25= ${LOCK}/on.log ; echo ===NEXUS-EVAL-TAIL-ON=== ; tail -n 12 ${LOCK}/on.log ; echo ${SENTINEL} ; }"
+          # Guard, nie kosmetyka: apostrof/`$`/backtick zachowują się różnie w
+          # zależności od tego, jak Coolify opakuje komendę — a tego nie wiemy.
+          case "$CMD" in
+            *"'"*|*'$'*|*'`'*) echo "::error::komenda zawiera znak zależny od sposobu opakowania przez Coolify"; exit 1;;
+          esac
+          echo "=== komenda (nasza, bez sekretów — do ręcznego wklejenia w panel, gdyby API odmówiło) ==="
+          echo "$CMD"
+
+          # ── pozostałość po poprzednim biegu ────────────────────────────────
+          tasks=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks")
+          existing=$(echo "$tasks" | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          if [ -n "$existing" ]; then
+            echo "::error::zadanie $TASK_NAME już istnieje (uuid=$existing) — to cron co minutę na prodzie. Odpal action=eval-stop i dopiero potem ponów."
+            exit 1
+          fi
+
+          # ── utworzenie zadania ─────────────────────────────────────────────
+          payload=$(jq -n --arg n "$TASK_NAME" --arg c "$CMD" --arg ct backend \
+            '{name:$n, command:$c, frequency:"* * * * *", container:$ct, enabled:true}')
+          code=$(curl -sS -o /tmp/create.json -w "%{http_code}" -X POST "${auth[@]}" \
+            -H "Content-Type: application/json" -d "$payload" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks" || echo 000)
+          echo "create HTTP $code"
+          if [ "$code" = "404" ] || [ "$code" = "405" ] || [ "$code" = "501" ]; then
+            echo "::error::ta wersja Coolify nie wystawia POST na /applications/{uuid}/scheduled-tasks. Załóż zadanie RĘCZNIE w panelu (name=$TASK_NAME, container=backend, frequency=* * * * *, komenda wydrukowana wyżej), poczekaj, potem action=eval-read i na koniec action=eval-stop."
+            exit 1
+          fi
+          if [ "$code" -ge 400 ] 2>/dev/null || [ "$code" = "000" ]; then
+            jq -r '.message // .error // "request failed"' /tmp/create.json 2>/dev/null || true
+            exit 1
+          fi
+          uuid=$(jq -r '(.uuid // .task.uuid // .data.uuid // "")' /tmp/create.json 2>/dev/null || echo "")
+          if [ -z "$uuid" ]; then
+            uuid=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+              | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          fi
+          [ -n "$uuid" ] || { echo "::error::utworzono zadanie, ale nie znam jego uuid — skasuj ręcznie ($TASK_NAME)"; exit 1; }
+          # Do kroku sprzątającego, który MUSI wykonać się także przy anulowaniu.
+          echo "TASK_UUID=$uuid" >> "$GITHUB_ENV"
+          echo "zadanie $TASK_NAME utworzone (uuid=$uuid); cron zapali je w ciągu minuty"
+
+          # ── czekanie na wynik ──────────────────────────────────────────────
+          deadline=$(( $(date -u +%s) + 150 * 60 ))
+          msg=""
+          while [ "$(date -u +%s)" -lt "$deadline" ]; do
+            sleep 30
+            execs=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" || echo '[]')
+            msg=$(echo "$execs" | jq -r --arg s "$SENTINEL" \
+              'if type=="array" then (map(select((.message // "") | contains($s))) | .[0].message // "") else "" end' 2>/dev/null || echo "")
+            [ -n "$msg" ] && break
+            # Same statusy — pola `command` NIE drukujemy nigdzie: niesie własny
+            # bearer aplikacji, którego GitHub nie maskuje (nie jest sekretem repo).
+            echo "$(date -u +%H:%M:%S) czekam… statusy: $(echo "$execs" | jq -r 'if type=="array" then ([.[].status] | join(",")) else "?" end' 2>/dev/null || echo '?')"
+          done
+
+          if [ -z "$msg" ]; then
+            echo "::error::po 150 minutach brak wykonania z sentinelem. Krok sprzątający wypisze surowe wykonania (to jedyny moment, kiedy da się je zobaczyć) i skasuje zadanie."
+            exit 1
+          fi
+
+          echo ""
+          echo "$msg"
+          echo ""
+          echo "::notice::Zanim przeczytasz deltę: OFF musi odtworzyć baseline (P@5 0.248 / R@20n 0.199), sekcja BM25-ON musi mieć bm25=<n> z n>0, a raport 'Voyage API key configured: yes'."
+
+      # Sprzątanie MUSI iść przy każdym wyniku poprzedniego kroku, łącznie
+      # z anulowaniem workflow: zostawiony cron odpalałby się co minutę na
+      # produkcji (blokada `mkdir` powstrzyma drugi eval, ale nie sam cron).
+      - name: Skasuj zadanie jednorazowe
+        if: ${{ always() && inputs.action == 'eval-ab' }}
+        env:
+          AB_OUTCOME: ${{ steps.ab.outcome }}
+        run: |
+          set -uo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          uuid="${TASK_UUID:-}"
+          if [ -z "$uuid" ]; then
+            uuid=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+              | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end' 2>/dev/null || echo "")
+          fi
+          if [ -z "$uuid" ]; then
+            echo "brak zadania $TASK_NAME — nie ma czego kasować"
+            exit 0
+          fi
+          # Wykonania giną razem z zadaniem, a kasujemy je ZAWSZE (zostawiony cron
+          # co minutę na produkcji jest gorszy niż utracony pomiar). Więc przy
+          # nieudanym biegu to jedyny moment, w którym da się jeszcze zobaczyć, co
+          # zadanie zdążyło wypisać — bez tego zostaje sam komunikat o timeoucie.
+          # `command` nadal nietknięte: niesie własny bearer aplikacji.
+          if [ "${AB_OUTCOME:-}" != "success" ]; then
+            echo "=== surowe wykonania przed skasowaniem (bieg zakończony jako '${AB_OUTCOME:-?}') ==="
+            curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" \
+              | jq -r 'if type=="array" then (.[] | "--- \(.status) \(.started_at // .created_at // "?")\n\(.message // "")") else "(brak danych)" end' 2>/dev/null \
+              || echo "(nie udało się odczytać wykonań)"
+            echo "=== koniec wykonań ==="
+          fi
+          code=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE "${auth[@]}" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || echo 000)
+          echo "delete HTTP $code (uuid=$uuid)"
+          still=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+            | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | length) else 1 end' 2>/dev/null || echo 1)
+          if [ "$still" != "0" ]; then
+            echo "::error::zadanie $TASK_NAME NADAL istnieje — to cron co minutę na produkcji. Skasuj ręcznie w panelu Coolify albo ponów action=eval-stop."
+            exit 1
+          fi
+          echo "zadanie skasowane"
+
+      - name: Odczytaj wyniki bez kasowania
+        if: inputs.action == 'eval-read'
+        run: |
+          set -euo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          uuid=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+            | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          [ -n "$uuid" ] || { echo "::error::nie ma zadania $TASK_NAME"; exit 1; }
+          # Pełne `message`, bez obcinania do 140 znaków jak w cron-list (tam
+          # chodzi o przegląd, tu o wynik). `command` nadal nietknięte.
+          curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" \
+            | jq -r 'if type=="array" then (.[] | "--- \(.status) \(.started_at // .created_at // "?")\n\(.message // "")") else "(brak danych)" end'
+          echo ""
+          echo "::notice::Kryterium odczytu jest w komentarzu nad jobem `eval` — OFF to kontrola przyrządu, nie druga wersja."
+
+      - name: Skasuj pozostałe zadanie evalu
+        if: inputs.action == 'eval-stop'
+        run: |
+          set -euo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          uuid=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+            | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          if [ -z "$uuid" ]; then
+            echo "brak zadania $TASK_NAME — nic do zrobienia"
+            exit 0
+          fi
+          code=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE "${auth[@]}" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || echo 000)
+          echo "delete HTTP $code (uuid=$uuid)"
+          still=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+            | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | length) else 1 end')
+          [ "$still" = "0" ] || { echo "::error::zadanie nadal istnieje — skasuj ręcznie w panelu"; exit 1; }
+          echo "zadanie skasowane"
